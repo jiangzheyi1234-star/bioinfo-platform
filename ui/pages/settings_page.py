@@ -2,20 +2,32 @@ import json
 import os
 import paramiko
 import ipaddress
+from typing import Protocol, Callable
 from PyQt6.QtWidgets import (QFormLayout, QLineEdit, QPushButton, QHBoxLayout,
                              QLabel, QVBoxLayout, QFrame, QWidget, QApplication)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject, pyqtSlot
 from ui.page_base import BasePage  #
 
 
-# --- SSH 后台保持线程 ---
-class SSHWorker(QThread):
-    finished = pyqtSignal(bool, str, object)
+# ---- Typed signal Protocols for better IDE hints ----
+class _FinishedSignal(Protocol):
+    def connect(self, slot: Callable[[bool, str, object], None]) -> None: ...
+    def emit(self, ok: bool, msg: str, client: object) -> None: ...
 
-    def __init__(self, ip, user, pwd):
-        super().__init__()
+class _NoArgSignal(Protocol):
+    def connect(self, slot: Callable[[], None]) -> None: ...
+    def emit(self) -> None: ...
+
+
+# --- SSH 后台保持线程（Worker 模式） ---
+class SSHWorker(QObject):
+    finished: _FinishedSignal = pyqtSignal(bool, str, object)
+
+    def __init__(self, ip, user, pwd, parent=None):
+        super().__init__(parent)
         self.ip, self.user, self.pwd = ip, user, pwd
 
+    @pyqtSlot()
     def run(self):
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -24,13 +36,13 @@ class SSHWorker(QThread):
             # 保持心跳包，确保连接不中断
             client.get_transport().set_keepalive(30)
             self.finished.emit(True, "连接成功", client)
-        except:
+        except Exception:
             self.finished.emit(False, "连接失败", None)
 
 
 # --- 整行可点击的头部组件 ---
 class ClickableHeader(QFrame):
-    clicked = pyqtSignal()
+    clicked: _NoArgSignal = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -46,7 +58,8 @@ class ClickableHeader(QFrame):
 class SettingsPage(BasePage):
     def __init__(self):
         super().__init__("⚙ 设置")
-        if hasattr(self, "label"): self.label.hide()
+        if hasattr(self, "label"):
+            self.label.hide()
 
         self.active_client = None
         self.last_stable_config = None
@@ -54,17 +67,22 @@ class SettingsPage(BasePage):
         # 10秒离开卡片自动折叠
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
-        self._auto_fold_timer.timeout.connect(self._auto_fold_after_idle)
+        getattr(self._auto_fold_timer, "timeout").connect(self._auto_fold_after_idle)
         # 新增：修改模式下20秒无操作自动重连定时器
         self._edit_idle_timer = QTimer(self)
         self._edit_idle_timer.setSingleShot(True)
-        self._edit_idle_timer.timeout.connect(self._auto_connect_after_edit_idle)
+        getattr(self._edit_idle_timer, "timeout").connect(self._auto_connect_after_edit_idle)
         # 是否处于“修改配置”模式
         self._in_edit_mode = False
 
+        # 线程句柄占位
+        self._ssh_thread = None
+        self._ssh_worker = None
+
         self.config_dir = os.path.join(os.getenv('APPDATA'), "H2OMeta")
         self.config_path = os.path.join(self.config_dir, "config.json")
-        if not os.path.exists(self.config_dir): os.makedirs(self.config_dir)
+        if not os.path.exists(self.config_dir):
+            os.makedirs(self.config_dir)
 
         # 页面整体背景：浅天蓝（蓝天感）
         self.setStyleSheet("background-color: #f4f9ff;")
@@ -73,6 +91,12 @@ class SettingsPage(BasePage):
 
         # 启动即自动执行一次连接测试
         QTimer.singleShot(1000, self._auto_check_on_start)
+
+        # 新增：SSH 健康检查定时器，尽量保持在线并自动重连
+        self._ssh_health_timer = QTimer(self)
+        self._ssh_health_timer.setInterval(15_000)
+        getattr(self._ssh_health_timer, "timeout").connect(self._check_ssh_health)
+        self._ssh_health_timer.start()
 
     def init_ui(self):
         self.layout.setContentsMargins(40, 30, 40, 30)
@@ -99,7 +123,7 @@ class SettingsPage(BasePage):
         # --- 卡片头部：全行可点击区域 ---
         self.header_area = ClickableHeader()
         self.header_area.setStyleSheet("background: transparent; border: none;")
-        self.header_area.clicked.connect(self._toggle_ssh_container)
+        getattr(self.header_area, "clicked").connect(self._toggle_ssh_container)
 
         header_layout = QHBoxLayout(self.header_area)
         header_layout.setContentsMargins(20, 15, 20, 15)
@@ -117,12 +141,12 @@ class SettingsPage(BasePage):
         self.modify_link.setFixedWidth(40)
         self.modify_link.setStyleSheet(
             "color: #1890ff; border: none; background: transparent; font-size: 11px; text-decoration: underline;")
-        self.modify_link.clicked.connect(self._enable_editing)
+        getattr(self.modify_link, "clicked").connect(lambda checked=False: self._enable_editing())
         self.modify_link.hide()
 
-        header_layout.addWidget(self.ssh_title);
+        header_layout.addWidget(self.ssh_title)
         header_layout.addStretch()
-        header_layout.addWidget(self.modify_link);
+        header_layout.addWidget(self.modify_link)
         header_layout.addWidget(self.arrow_label)
         ssh_main_layout.addWidget(self.header_area)
 
@@ -144,13 +168,13 @@ class SettingsPage(BasePage):
             QLineEdit:focus { border: 1px solid #1890ff; background-color: #ffffff; }
             QLineEdit:disabled { background-color: #f5f5f5; color: #bfbfbf; border: 1px solid #e8e8e8; }
         """
-        self.server_ip = QLineEdit();
-        self.ssh_user = QLineEdit();
+        self.server_ip = QLineEdit()
+        self.ssh_user = QLineEdit()
         self.ssh_pwd = QLineEdit()
         self.ssh_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd]:
-            w.setStyleSheet(input_style);
-            w.textChanged.connect(self._on_edit_changed)
+            w.setStyleSheet(input_style)
+            getattr(w, "textChanged").connect(lambda _text, _=w: self._on_edit_changed())
             # 简化：不再覆盖 focusInEvent / focusOutEvent，由全局焦点变化统一处理
 
         form.addRow("服务器 IP", self.server_ip)
@@ -161,13 +185,13 @@ class SettingsPage(BasePage):
         # 操作行
         op_row = QHBoxLayout()
         self.connect_btn = QPushButton("连接并锁定")
-        self.connect_btn.setFixedWidth(110);
+        self.connect_btn.setFixedWidth(110)
         self.connect_btn.setEnabled(False)
         self.connect_btn.setStyleSheet("""
             QPushButton { background: #1890ff; color: white; border-radius: 6px; padding: 8px; font-weight: bold; border: none; }
             QPushButton:disabled { background: #bae7ff; color: #ffffff; }
         """)
-        self.connect_btn.clicked.connect(self._on_connect_ssh)
+        getattr(self.connect_btn, "clicked").connect(lambda checked=False: self._on_connect_ssh())
 
         self.status_label = QLabel("等待验证")
         self.status_label.setStyleSheet("color: #a0aec0; margin-left: 10px; background: transparent;")
@@ -176,26 +200,28 @@ class SettingsPage(BasePage):
         self.revert_btn = QPushButton("恢复上次成功")
         self.revert_btn.setStyleSheet(
             "color: #ff7875; border: none; background: transparent; font-size: 11px; text-decoration: underline;")
-        self.revert_btn.clicked.connect(self._revert_to_last_stable);
+        getattr(self.revert_btn, "clicked").connect(lambda checked=False: self._revert_to_last_stable())
         self.revert_btn.hide()
 
-        op_row.addWidget(self.connect_btn);
-        op_row.addWidget(self.status_label);
-        op_row.addWidget(self.revert_btn);
+        op_row.addWidget(self.connect_btn)
+        op_row.addWidget(self.status_label)
+        op_row.addWidget(self.revert_btn)
         op_row.addStretch()
         c_layout.addLayout(op_row)
 
         ssh_main_layout.addWidget(self.ssh_container)
         self.layout.addWidget(self.ssh_card)
 
-        # 注册全局焦点变化监听
-        QApplication.instance().focusChanged.connect(self._on_focus_changed)
+        # 注册全局焦点变化监听（带保护，避免 IDE "未解析" 警告）
+        app = QApplication.instance()
+        if app is not None and hasattr(app, "focusChanged"):
+            getattr(app, "focusChanged").connect(self._on_focus_changed)
 
         # 底部保存
         self.save_btn = QPushButton("保存全部设置")
         self.save_btn.setStyleSheet(
             "background: #52c41a; color: white; border-radius: 6px; padding: 10px 20px; font-weight: bold; border: none;")
-        self.save_btn.clicked.connect(self.save_config)
+        getattr(self.save_btn, "clicked").connect(self.save_config)
         self.layout.addWidget(self.save_btn, 0, Qt.AlignmentFlag.AlignRight)
         self.layout.addStretch()
 
@@ -204,8 +230,10 @@ class SettingsPage(BasePage):
         ip, user, pwd = self.server_ip.text().strip(), self.ssh_user.text().strip(), self.ssh_pwd.text().strip()
         valid = False
         try:
-            if ip: ipaddress.ip_address(ip); valid = True
-        except:
+            if ip:
+                ipaddress.ip_address(ip)
+                valid = True
+        except Exception:
             pass
         self.connect_btn.setEnabled(all([ip, user, pwd]) and valid)
 
@@ -222,27 +250,37 @@ class SettingsPage(BasePage):
                 self._edit_idle_timer.start(20_000)
 
     def _on_connect_ssh(self):
-        self.connect_btn.setEnabled(False);
+        self.connect_btn.setEnabled(False)
         self.status_label.setText("正在验证...")
         # 连接过程中视为未稳定连接
         self.connected = False
         # 手动点击连接时，停止编辑自动连接计时
         if self._edit_idle_timer.isActive():
             self._edit_idle_timer.stop()
-        self.worker = SSHWorker(self.server_ip.text(), self.ssh_user.text(), self.ssh_pwd.text())
-        self.worker.finished.connect(self._on_connect_finished);
-        self.worker.start()
+        # 若已有线程仍在，先忽略（按钮已禁用不会重复触发）；也可防御性地尝试停止
+        # 创建线程与 worker
+        self._ssh_thread = QThread(self)
+        self._ssh_worker = SSHWorker(self.server_ip.text(), self.ssh_user.text(), self.ssh_pwd.text())
+        self._ssh_worker.moveToThread(self._ssh_thread)
+        getattr(self._ssh_thread, "started").connect(self._ssh_worker.run)
+        self._ssh_worker.finished.connect(self._on_connect_finished)
+        # 使用带 3 参的 lambda 匹配信号签名，避免 IDE 类型告警
+        self._ssh_worker.finished.connect(lambda ok, msg, client: self._ssh_thread.quit())
+        self._ssh_worker.finished.connect(lambda ok, msg, client: self._ssh_worker.deleteLater())
+        getattr(self._ssh_thread, "finished").connect(self._ssh_thread.deleteLater)
+        self._ssh_thread.start()
 
     def _on_connect_finished(self, success, msg, client):
         self.status_label.setText(msg)
         if success:
-            self.active_client = client;
+            self.active_client = client
             self.status_label.setStyleSheet("color: #52c41a; background: transparent;")
             self.last_stable_config = {'ip': self.server_ip.text(), 'user': self.ssh_user.text(),
                                        'pwd': self.ssh_pwd.text()}
             # 标记为已连接
             self.connected = True
-            for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]: w.setEnabled(False)
+            for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
+                w.setEnabled(False)
             # 退出编辑模式
             self._in_edit_mode = False
             if self._edit_idle_timer.isActive():
@@ -250,11 +288,12 @@ class SettingsPage(BasePage):
             # 成功后延迟折叠
             QTimer.singleShot(1500, self._auto_fold)
         else:
-            self.status_label.setStyleSheet("color: #ff4d4f; background: transparent;");
+            self.status_label.setStyleSheet("color: #ff4d4f; background: transparent;")
             # 失败视为未连接
             self.connected = False
             self._validate_inputs()
-            if self.last_stable_config: self.revert_btn.show()
+            if self.last_stable_config:
+                self.revert_btn.show()
 
     def _auto_fold(self):
         if not self.server_ip.isEnabled():
@@ -280,9 +319,10 @@ class SettingsPage(BasePage):
 
     def _enable_editing(self):
         """点击“修改”进入编辑模式：解锁输入，并开始监听编辑20秒自动连接。"""
-        self.ssh_container.show();
+        self.ssh_container.show()
         self.arrow_label.setText("▲")
-        for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]: w.setEnabled(True)
+        for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
+            w.setEnabled(True)
         self.modify_link.hide()
         # 进入编辑模式
         self._in_edit_mode = True
@@ -327,14 +367,15 @@ class SettingsPage(BasePage):
 
     def _revert_to_last_stable(self):
         if self.last_stable_config:
-            self.server_ip.setText(self.last_stable_config['ip']);
+            self.server_ip.setText(self.last_stable_config['ip'])
             self.ssh_user.setText(self.last_stable_config['user'])
-            self.ssh_pwd.setText(self.last_stable_config['pwd']);
+            self.ssh_pwd.setText(self.last_stable_config['pwd'])
             self.revert_btn.hide()
 
     def save_config(self):
         data = {"server_ip": self.server_ip.text(), "ssh_user": self.ssh_user.text(), "ssh_pwd": self.ssh_pwd.text()}
-        with open(self.config_path, 'w', encoding='utf-8') as f: json.dump(data, f)
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
         self.status_label.setText("设置已保存")
 
     def load_config(self):
@@ -342,15 +383,58 @@ class SettingsPage(BasePage):
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.server_ip.setText(data.get("server_ip", ""));
+                    self.server_ip.setText(data.get("server_ip", ""))
                     self.ssh_user.setText(data.get("ssh_user", ""))
-                    self.ssh_pwd.setText(data.get("ssh_pwd", ""));
+                    self.ssh_pwd.setText(data.get("ssh_pwd", ""))
                     self._validate_inputs()
                     if data.get("server_ip") and data.get("ssh_pwd"):
                         self.last_stable_config = {'ip': data['server_ip'], 'user': data['ssh_user'],
                                                    'pwd': data['ssh_pwd']}
-            except:
+            except Exception:
                 pass
 
     def _auto_check_on_start(self):
-        if self.connect_btn.isEnabled(): self._on_connect_ssh()
+        if self.connect_btn.isEnabled():
+            self._on_connect_ssh()
+
+    # 新增：SSH 健康检查逻辑
+    def _check_ssh_health(self):
+        """每 15s 检查一次当前 SSH 连接状态，断开则更新 UI 并尝试重连。"""
+        client = self.active_client
+        if not client:
+            return
+        ok = False
+        try:
+            t = client.get_transport()
+            ok = (t is not None) and t.is_active()
+        except Exception:
+            ok = False
+
+        if ok:
+            return
+
+        # 标记断开并清理旧 client
+        try:
+            client.close()
+        except Exception:
+            pass
+        self.active_client = None
+
+        # 仅在此前处于连接状态时更新 UI 并尝试重连
+        if self.connected:
+            self.connected = False
+            # UI 提示断开与重连中
+            self.status_label.setStyleSheet("color: #ff4d4f; background: transparent;")
+            self.status_label.setText("连接已断开，正在重连…")
+            # 允许重新连接
+            for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
+                w.setEnabled(True)
+            self._validate_inputs()
+            # 避免与正在验证的流程重叠
+            if self.connect_btn.isEnabled() and self.status_label.text() != "正在验证...":
+                self._on_connect_ssh()
+
+    def get_active_client(self):
+        """提供当前活跃的 SSHClient（可能为 None）。"""
+        return self.active_client
+
