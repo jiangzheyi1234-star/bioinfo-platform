@@ -3,7 +3,7 @@ import os
 import paramiko
 import ipaddress
 from PyQt6.QtWidgets import (QFormLayout, QLineEdit, QPushButton, QHBoxLayout,
-                             QLabel, QVBoxLayout, QFrame, QWidget)
+                             QLabel, QVBoxLayout, QFrame, QWidget, QApplication)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from ui.page_base import BasePage  #
 
@@ -50,8 +50,18 @@ class SettingsPage(BasePage):
 
         self.active_client = None
         self.last_stable_config = None
+        self.connected = False
+        # 10秒离开卡片自动折叠
+        self._auto_fold_timer = QTimer(self)
+        self._auto_fold_timer.setSingleShot(True)
+        self._auto_fold_timer.timeout.connect(self._auto_fold_after_idle)
+        # 新增：修改模式下20秒无操作自动重连定时器
+        self._edit_idle_timer = QTimer(self)
+        self._edit_idle_timer.setSingleShot(True)
+        self._edit_idle_timer.timeout.connect(self._auto_connect_after_edit_idle)
+        # 是否处于“修改配置”模式
+        self._in_edit_mode = False
 
-        # 路径精确定位：C:\Users\...\AppData\Roaming\H2OMeta\config.json
         self.config_dir = os.path.join(os.getenv('APPDATA'), "H2OMeta")
         self.config_path = os.path.join(self.config_dir, "config.json")
         if not os.path.exists(self.config_dir): os.makedirs(self.config_dir)
@@ -140,7 +150,8 @@ class SettingsPage(BasePage):
         self.ssh_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd]:
             w.setStyleSheet(input_style);
-            w.textChanged.connect(self._validate_inputs)
+            w.textChanged.connect(self._on_edit_changed)
+            # 简化：不再覆盖 focusInEvent / focusOutEvent，由全局焦点变化统一处理
 
         form.addRow("服务器 IP", self.server_ip)
         form.addRow("用户名", self.ssh_user)
@@ -177,6 +188,9 @@ class SettingsPage(BasePage):
         ssh_main_layout.addWidget(self.ssh_container)
         self.layout.addWidget(self.ssh_card)
 
+        # 注册全局焦点变化监听
+        QApplication.instance().focusChanged.connect(self._on_focus_changed)
+
         # 底部保存
         self.save_btn = QPushButton("保存全部设置")
         self.save_btn.setStyleSheet(
@@ -195,9 +209,26 @@ class SettingsPage(BasePage):
             pass
         self.connect_btn.setEnabled(all([ip, user, pwd]) and valid)
 
+    def _on_edit_changed(self):
+        """任何编辑变更时：重新做输入校验，同时重置20秒自动连接计时。"""
+        self._validate_inputs()
+        # 只在编辑模式下才考虑自动连接
+        if self._in_edit_mode:
+            # 每次有输入，就重置20秒计时
+            if self._edit_idle_timer.isActive():
+                self._edit_idle_timer.stop()
+            # 只有当按钮当前是可用（输入都合法）时，才启动自动连接等待
+            if self.connect_btn.isEnabled():
+                self._edit_idle_timer.start(20_000)
+
     def _on_connect_ssh(self):
         self.connect_btn.setEnabled(False);
         self.status_label.setText("正在验证...")
+        # 连接过程中视为未稳定连接
+        self.connected = False
+        # 手动点击连接时，停止编辑自动连接计时
+        if self._edit_idle_timer.isActive():
+            self._edit_idle_timer.stop()
         self.worker = SSHWorker(self.server_ip.text(), self.ssh_user.text(), self.ssh_pwd.text())
         self.worker.finished.connect(self._on_connect_finished);
         self.worker.start()
@@ -209,11 +240,19 @@ class SettingsPage(BasePage):
             self.status_label.setStyleSheet("color: #52c41a; background: transparent;")
             self.last_stable_config = {'ip': self.server_ip.text(), 'user': self.ssh_user.text(),
                                        'pwd': self.ssh_pwd.text()}
+            # 标记为已连接
+            self.connected = True
             for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]: w.setEnabled(False)
+            # 退出编辑模式
+            self._in_edit_mode = False
+            if self._edit_idle_timer.isActive():
+                self._edit_idle_timer.stop()
             # 成功后延迟折叠
             QTimer.singleShot(1500, self._auto_fold)
         else:
             self.status_label.setStyleSheet("color: #ff4d4f; background: transparent;");
+            # 失败视为未连接
+            self.connected = False
             self._validate_inputs()
             if self.last_stable_config: self.revert_btn.show()
 
@@ -223,6 +262,11 @@ class SettingsPage(BasePage):
             self.arrow_label.setText("▼")
             self.modify_link.show()
 
+    def _auto_fold_after_idle(self):
+        """输入框等控件失焦后空闲 10 秒的自动折叠逻辑。"""
+        if self.connected and not self.server_ip.isEnabled() and self.ssh_container.isVisible():
+            self._auto_fold()
+
     def _toggle_ssh_container(self):
         # 保护逻辑：连接中禁止折叠
         if not self.connect_btn.isEnabled() and self.status_label.text() == "正在验证...":
@@ -230,12 +274,56 @@ class SettingsPage(BasePage):
         v = self.ssh_container.isVisible()
         self.ssh_container.setVisible(not v)
         self.arrow_label.setText("▲" if not v else "▼")
+        # 手动展开或折叠时，交给全局焦点监听决定是否计时，这里只需停止已有计时
+        if self._auto_fold_timer.isActive():
+            self._auto_fold_timer.stop()
 
     def _enable_editing(self):
+        """点击“修改”进入编辑模式：解锁输入，并开始监听编辑20秒自动连接。"""
         self.ssh_container.show();
         self.arrow_label.setText("▲")
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]: w.setEnabled(True)
         self.modify_link.hide()
+        # 进入编辑模式
+        self._in_edit_mode = True
+        # 当前输入若已合法，则开启20秒自动连接计时
+        self._on_edit_changed()
+
+    def _auto_connect_after_edit_idle(self):
+        """处于修改模式下，20秒没有任何输入变更：如果当前输入合法，则自动尝试连接并锁定折叠。"""
+        # 若已经离开编辑模式或按钮不可用，则放弃
+        if not self._in_edit_mode or not self.connect_btn.isEnabled():
+            return
+        # 直接复用现有的连接逻辑
+        self._on_connect_ssh()
+
+    def _on_focus_changed(self, old, new):
+        """全局焦点变化：当焦点离开 SSH 卡片内所有控件且当前已连接时，启动 10 秒折叠计时。"""
+        from PyQt6.QtWidgets import QApplication  # 局部导入避免循环
+
+        # 当前焦点控件
+        w = QApplication.focusWidget()
+
+        # SSH 卡片内控件集合：输入框、按钮等
+        ssh_widgets = {
+            self.server_ip,
+            self.ssh_user,
+            self.ssh_pwd,
+            self.connect_btn,
+            self.revert_btn,
+            self.header_area,
+            self.ssh_container,
+        }
+
+        # 如果当前焦点仍在 SSH 卡片内，则取消计时
+        if w in ssh_widgets:
+            if self._auto_fold_timer.isActive():
+                self._auto_fold_timer.stop()
+            return
+
+        # 焦点离开 SSH 卡片：如果已连接且锁定且展开，则启动 10 秒计时
+        if self.connected and not self.server_ip.isEnabled() and self.ssh_container.isVisible():
+            self._auto_fold_timer.start(10_000)
 
     def _revert_to_last_stable(self):
         if self.last_stable_config:

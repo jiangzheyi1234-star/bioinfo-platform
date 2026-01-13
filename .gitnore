@@ -64,3 +64,6 @@ config.json
 *.log
 temp/
 data/
+
+*.pyc
+__pycache__/
