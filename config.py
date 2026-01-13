@@ -5,6 +5,7 @@ DEFAULT_CONFIG = {
     'ip': '192.168.0.152',
     'user': 'zyserver',
     'pwd': 'abc123..',
+    'ncbi_api_key': '',
     'remote_dir': '/home/zyserver/project/lzc_project/blast_temp/',
     'remote_db': '/home/zyserver/project_ssd/common_data/core_nt_database/core_nt',
     'blast_bin': '/home/zyserver/anaconda3/envs/ncbi_download/bin/blastn',
@@ -31,4 +32,3 @@ def ensure_output_dir(path):
 
 # 初始化时确保默认目录存在
 DEFAULT_CONFIG['local_output_dir'] = ensure_output_dir(DEFAULT_CONFIG['local_output_dir'])
-
