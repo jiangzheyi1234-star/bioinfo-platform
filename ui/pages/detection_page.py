@@ -214,6 +214,9 @@ class DetectionPage(BasePage):
         self.resource_card.setEnabled(True)
         self.sample_card.setEnabled(True)
         
+        # 同时恢复 browse_btn 的可用性
+        self.run_card.browse_btn.setEnabled(True)
+        
         self.run_card.show_loading(False)
         self.run_card.status_msg.setText(msg)
         
