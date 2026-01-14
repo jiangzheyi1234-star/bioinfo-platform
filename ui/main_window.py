@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QListWidget, QStackedWidget, QListWidgetItem
 from ui.pages import SettingsPage, DetectionPage
+from ui.pages.home_page import HomePage
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -27,8 +28,8 @@ class MainWindow(QMainWindow):
         # 预加载所有页面
         self.content = QStackedWidget()
         
-        # 首页占位
-        self.home_page = QWidget()
+        # 首页
+        self.home_page = HomePage(main_window=self)
         self.content.addWidget(self.home_page)  # Index 0
 
         # 病原体检测页 - 传递 MainWindow 实例
