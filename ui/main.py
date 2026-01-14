@@ -12,8 +12,11 @@ if root_dir not in sys.path:
     sys.path.append(root_dir)
 
 from PyQt6.QtWidgets import QApplication
-# 直接引用同目录下的 main_window
-from main_window import MainWindow
+# 修正导入语句
+try:
+    from main_window import MainWindow
+except ImportError:
+    from .main_window import MainWindow
 
 
 def main():
