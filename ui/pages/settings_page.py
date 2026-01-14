@@ -1,14 +1,14 @@
 import json
 import os
-
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QLabel, QPushButton
 
 from config import DEFAULT_CONFIG
 from ui.page_base import BasePage
 from ui.widgets import SshSettingsCard, NcbiSettingsCard
-from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS
-
+# 导入新卡片
+from ui.widgets.blast_settings_card import BlastSettingsCard
+from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS, COLOR_BG_APP
 
 class SettingsPage(BasePage):
     def __init__(self):
@@ -20,13 +20,9 @@ class SettingsPage(BasePage):
         self.config_path = os.path.join(self.config_dir, "config.json")
         os.makedirs(self.config_dir, exist_ok=True)
 
-        # 页面整体背景：浅天蓝（蓝天感）
-        self.setStyleSheet("background-color: #f4f9ff;")
+        self.setStyleSheet(f"background-color: {COLOR_BG_APP};")
 
-        # UI：调度员式构建
         self.init_ui()
-
-        # 数据：加载并刷新 UI
         self.load_config()
 
         # 启动即自动执行一次连接测试
@@ -55,6 +51,11 @@ class SettingsPage(BasePage):
         # SSH 卡片
         self.ssh_card = SshSettingsCard()
         self.layout.addWidget(self.ssh_card)
+
+        # BLAST 数据库设置卡片 (新增)
+        # 传入 ssh_card 的 get_active_client 方法，以便它可以调用 SSH 进行验证
+        self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client)
+        self.layout.addWidget(self.blast_card)
 
         # NCBI 卡片
         self.ncbi_card = NcbiSettingsCard()
@@ -92,11 +93,13 @@ class SettingsPage(BasePage):
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _default_config_for_ui(self) -> dict:
+        """补充默认配置项"""
         return {
             "server_ip": DEFAULT_CONFIG.get("ip", ""),
             "ssh_user": DEFAULT_CONFIG.get("user", ""),
             "ssh_pwd": DEFAULT_CONFIG.get("pwd", ""),
             "ncbi_api_key": DEFAULT_CONFIG.get("ncbi_api_key", ""),
+            "remote_db": DEFAULT_CONFIG.get("remote_db", ""), # 新增项
         }
 
     def _load_config_merged(self) -> dict:
@@ -105,16 +108,21 @@ class SettingsPage(BasePage):
         return merged
 
     def _apply_config_to_components(self, merged: dict) -> None:
+        """将加载的配置分发给各卡片"""
         self.ssh_card.set_values(
             server_ip=str(merged.get("server_ip", "") or ""),
             ssh_user=str(merged.get("ssh_user", "") or ""),
             ssh_pwd=str(merged.get("ssh_pwd", "") or ""),
         )
+        # 分发给新卡片
+        self.blast_card.set_values(remote_db=str(merged.get("remote_db", "") or ""))
         self.ncbi_card.set_values(ncbi_api_key=str(merged.get("ncbi_api_key", "") or ""))
 
     def _collect_components_config(self) -> dict:
+        """收集所有卡片的配置"""
         data = {}
         data.update(self.ssh_card.get_values())
+        data.update(self.blast_card.get_values()) # 收集新卡片数据
         data.update(self.ncbi_card.get_values())
         return data
 

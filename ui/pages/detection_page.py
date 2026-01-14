@@ -7,19 +7,26 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.page_base import BasePage
-from ui.widgets import styles
+from ui.widgets import styles, BlastResourceCard, BlastSampleCard
 
 
 class DetectionPage(BasePage):
     """病原体检测页面：采用上下布局，上方功能导航区（选项卡式），下方内容展示区。"""
 
-    def __init__(self):
+    def __init__(self, main_window=None):
         super().__init__("🧫 病原体检测")
         if hasattr(self, "label"):
             self.label.hide()
 
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
+        self.main_window = main_window
         self._build_ui()
+
+    def get_ssh_client(self):
+        """获取SSH客户端，通过主窗口获取"""
+        if self.main_window:
+            return self.main_window.get_ssh_service()
+        return None
 
     def _build_ui(self):
         # 页面整体布局参数
@@ -122,15 +129,27 @@ class DetectionPage(BasePage):
 
     def _init_blast_workflow_ui(self):
         """BLAST 操作界面的具体布局逻辑入口"""
-        layout = QVBoxLayout(self.blast_page)
-        layout.setContentsMargins(0, 10, 0, 0)
-        layout.setSpacing(12)
+        # 主垂直布局
+        main_layout = QVBoxLayout(self.blast_page)
+        main_layout.setContentsMargins(0, 10, 0, 0)
+        main_layout.setSpacing(20)
 
-        # BLAST 详情内容占位符
-        placeholder = QLabel("BLAST 详情页（待实现）")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet(styles.LABEL_MUTED)
-        layout.addWidget(placeholder, 1)
+        # --- 关键：水平步骤容器 ---
+        steps_row = QHBoxLayout()
+        steps_row.setSpacing(15) # 卡片间距
+
+        # 实例化两个卡片
+        self.resource_card = BlastResourceCard(self.get_ssh_client)
+        self.sample_card = BlastSampleCard()
+
+        # 以 1:1 的比例添加，确保平齐且不占满全屏
+        steps_row.addWidget(self.resource_card, 1)
+        steps_row.addWidget(self.sample_card, 1)
+
+        main_layout.addLayout(steps_row)
+        
+        # 下方留白，后续放步骤三：参数配置与运行
+        main_layout.addStretch()
 
     def _init_other_workflow_ui(self):
         """其他分析操作界面的具体布局逻辑入口"""

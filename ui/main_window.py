@@ -26,10 +26,13 @@ class MainWindow(QMainWindow):
 
         # 预加载所有页面
         self.content = QStackedWidget()
-        self.content.addWidget(QWidget())  # Index 0: 首页占位
+        
+        # 首页占位
+        self.home_page = QWidget()
+        self.content.addWidget(self.home_page)  # Index 0
 
-        # 病原体检测页
-        self.detection_page = DetectionPage()
+        # 病原体检测页 - 传递 MainWindow 实例
+        self.detection_page = DetectionPage(main_window=self)
         self.content.addWidget(self.detection_page)  # Index 1
 
         # 设置页
@@ -46,5 +49,7 @@ class MainWindow(QMainWindow):
         self.sidebar.setCurrentRow(0)
 
     def get_ssh_service(self):
-        """当前未集中管理 SSHService，如需复用可在此处集成。"""
+        """获取 SSH 服务实例，优先从设置页面获取"""
+        if hasattr(self, 'settings_page') and self.settings_page:
+            return self.settings_page.get_active_client()
         return None
