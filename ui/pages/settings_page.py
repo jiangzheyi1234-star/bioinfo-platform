@@ -53,6 +53,7 @@ class SettingsPage(BasePage):
         # BLAST 数据库设置卡片 (新增)
         # 传入 ssh_card 的 get_active_client 方法，以便它可以调用 SSH 进行验证
         self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client)
+        self.blast_card.request_save.connect(self.save_config)  # 连接保存信号
         self.layout.addWidget(self.blast_card)
 
         # NCBI 卡片
@@ -61,10 +62,8 @@ class SettingsPage(BasePage):
         self.layout.addWidget(self.ncbi_card)
 
     def _init_save_area(self):
-        self.save_btn = QPushButton("保存全部设置")
-        self.save_btn.setStyleSheet(BUTTON_SUCCESS)
-        self.save_btn.clicked.connect(self.save_config)
-        self.layout.addWidget(self.save_btn, 0, Qt.AlignmentFlag.AlignRight)
+        # 移除单独的保存按钮，因为现在保存功能集成在BLAST设置卡片中
+        pass
 
     # -------------------------
     # 对外能力：提供共享 SSHClient
@@ -99,6 +98,7 @@ class SettingsPage(BasePage):
             "ncbi_api_key": DEFAULT_CONFIG.get("ncbi_api_key", ""),
             "remote_db": DEFAULT_CONFIG.get("remote_db", ""), # 新增项
             "blast_bin": DEFAULT_CONFIG.get("blast_bin", ""), # 新增项
+            "remote_dir": DEFAULT_CONFIG.get("remote_dir", ""), # 新增
         }
 
     def _load_config_merged(self) -> dict:
@@ -113,10 +113,11 @@ class SettingsPage(BasePage):
             ssh_user=str(merged.get("ssh_user", "") or ""),
             ssh_pwd=str(merged.get("ssh_pwd", "") or ""),
         )
-        # 传入两个参数到 blast_card
+        # 传入三个参数到 blast_card
         self.blast_card.set_values(
             remote_db=str(merged.get("remote_db", "") or ""),
-            blast_bin=str(merged.get("blast_bin", "") or "")
+            blast_bin=str(merged.get("blast_bin", "") or ""),
+            remote_dir=str(merged.get("remote_dir", "") or "") # 新增
         )
         self.ncbi_card.set_values(ncbi_api_key=str(merged.get("ncbi_api_key", "") or ""))
 

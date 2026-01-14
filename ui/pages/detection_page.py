@@ -3,7 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QVBoxLayout, QWidget, QStackedWidget, QLabel,
-    QPushButton, QButtonGroup, QComboBox, QLineEdit
+    QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog
 )
 
 from ui.page_base import BasePage
@@ -23,7 +23,12 @@ class DetectionPage(BasePage):
 
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
         self.main_window = main_window
+        self.all_data = [] # 缓存所有比对行数据
+        self.current_page = 0
+        self.page_size = 20
         self._build_ui()
+        # 初始化默认路径
+        self.run_card.path_input.setText(DEFAULT_CONFIG.get('local_output_dir', ''))
 
     def get_ssh_client(self):
         """获取SSH客户端，通过主窗口获取"""
@@ -131,79 +136,133 @@ class DetectionPage(BasePage):
         self.content_stack.addWidget(self.other_page)    # Index 2
 
     def _init_blast_workflow_ui(self):
-        """完全重构的 BLAST 工作流 UI"""
-        main_layout = QVBoxLayout(self.blast_page)
-        main_layout.setContentsMargins(0, 10, 0, 0)
-        main_layout.setSpacing(18)
+        """优化的三步走布局"""
+        layout = QVBoxLayout(self.blast_page)
+        layout.setSpacing(15)
 
-        # 上方：横向排列 步骤 1 & 2 (1:1 比例)
+        # 1 & 2 步横向
         top_row = QHBoxLayout()
-        top_row.setSpacing(18)
         self.resource_card = BlastResourceCard(self.get_ssh_client)
         self.sample_card = BlastSampleCard()
         top_row.addWidget(self.resource_card, 1)
         top_row.addWidget(self.sample_card, 1)
-        main_layout.addLayout(top_row)
+        layout.addLayout(top_row)
 
-        # 下方：步骤 3 占据核心区域
+        # 3 步纵向
         self.run_card = BlastRunCard()
-        main_layout.addWidget(self.run_card, 2)
+        layout.addWidget(self.run_card, 2)
 
-        # --- 业务逻辑联动 ---
-        # 实时同步状态：只有当前两步完成后，才激活运行按钮
-        self.resource_card.save_btn.clicked.connect(self._check_status)
-        self.sample_card.file_selected.connect(self._check_status)
+        # 信号绑定
+        self.resource_card.save_btn.clicked.connect(self._sync_status)
+        self.sample_card.file_selected.connect(self._sync_status)
+        self.run_card.run_btn.clicked.connect(self._on_start)
+        self.run_card.browse_btn.clicked.connect(self._on_browse_output_dir)
         
-        # 核心：执行按钮
-        self.run_card.run_btn.clicked.connect(self._run_process)
+        # 绑定分页按钮事件
+        self.run_card.prev_btn.clicked.connect(lambda: self._change_page(-1))
+        self.run_card.next_btn.clicked.connect(lambda: self._change_page(1))
 
-    def _check_status(self):
-        """验证步骤 1 和 步骤 2 是否已准备好"""
+    def _sync_status(self):
         db = self.resource_card.get_db_path()
         file = self.sample_card.get_file_path()
         if db and file:
-            self.run_card.set_ready(True, f" 已就绪：使用库 {os.path.basename(db)}")
+            self.run_card.run_btn.setEnabled(True)
+            self.run_card.status_msg.setText(" 参数就绪，可以开始比对")
         else:
-            self.run_card.set_ready(False)
+            self.run_card.run_btn.setEnabled(False)
 
-    def _run_process(self):
-        """执行异步 BLAST 流程：上传 -> 运行 -> 自动下载"""
+    def _on_browse_output_dir(self):
+        """弹出目录选择对话框"""
+        dir_path = QFileDialog.getExistingDirectory(self, "选择保存目录", self.run_card.path_input.text())
+        if dir_path:
+            self.run_card.path_input.setText(dir_path)
+
+    def _on_start(self):
         client = self.get_ssh_client()
         if not client:
-            self.run_card.status_msg.setText(" 请先在设置页连接 SSH 服务器")
+            self.run_card.status_msg.setText(" 请先在设置页连接服务器")
             return
 
-        # 初始化 Worker
+        # --- 【关键改进】锁死步骤一和步骤二按钮/交互 ---
+        self.resource_card.setEnabled(False)
+        self.sample_card.setEnabled(False)
+        
+        # 获取配置中的工具路径 (来自设置页保存的结果)
+        blast_bin = DEFAULT_CONFIG.get('blast_bin', '/usr/bin/blastn')
+        
         self.worker = BlastWorker(
             client_provider=self.get_ssh_client,
             local_fasta=self.sample_card.get_file_path(),
             db_path=self.resource_card.get_db_path(),
             task=self.resource_card.get_task(),
-            blast_bin=DEFAULT_CONFIG['blast_bin']
+            blast_bin=blast_bin,
+            local_out_dir=self.run_card.path_input.text()  # 传递用户选择的目录
         )
 
-        # 信号连接
         self.worker.progress.connect(self.run_card.status_msg.setText)
-        self.worker.finished.connect(self._on_finished)
+        self.worker.finished.connect(self._handle_result)
         
-        # UI 状态切换
-        self.run_card.show_loading(True)
-        self.run_card.result_view.clear()
+        self.run_card.run_btn.setEnabled(False)
+        self.run_card.browse_btn.setEnabled(False)  # 运行时锁定目录选择
+        self.run_card.pbar.show()
+        self.run_card.pbar.setRange(0, 0) # 忙碌滚动
         self.worker.start()
 
-    def _on_finished(self, success, msg, local_path):
-        """处理任务结束并预览本地回传的文件"""
+    def _handle_result(self, success, msg, local_path):
+        """处理任务结束：解析数据并开启分页展示"""
+        # --- 【关键改进】恢复步骤一和步骤二交互 ---
+        self.resource_card.setEnabled(True)
+        self.sample_card.setEnabled(True)
+        
         self.run_card.show_loading(False)
         self.run_card.status_msg.setText(msg)
         
         if success and os.path.exists(local_path):
+            # 显示保存路径
+            self.run_card.path_display.setText(f" 结果已存至: {local_path}")
+            self.run_card.path_display.show()
+            
             try:
-                with open(local_path, 'r') as f:
-                    content = "".join(f.readlines()[:30]) # 预览前 30 行
-                header = "QueryID\tSubjectID\tIdentity\tLength\tMismatch\tGap\tQStart\tQEnd\tSStart\tSEnd\tE-value\tBitScore\n"
-                self.run_card.result_view.setPlainText(f"本地保存路径: {local_path}\n\n{header}{'-'*110}\n{content}")
+                with open(local_path, 'r', encoding='utf-8') as f:
+                    self.all_data = [line.strip().split('\t') for line in f if line.strip()]
+                
+                # 自动解读 (Top Hit)
+                interpretation = "未发现显著匹配项。"
+                if self.all_data:
+                    top = self.all_data[0]
+                    interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。建议查看详细比对表。"
+                
+                self.current_page = 0
+                self._update_table_view()
+                self.run_card.interpret_label.setText(interpretation)
+                self.run_card.interpret_box.show()
+                if len(self.all_data) > self.page_size: self.run_card.page_nav.show()
             except Exception as e:
-                self.run_card.result_view.setPlainText(f"结果回传成功，但本地读取失败: {str(e)}")
+                self.run_card.status_msg.setText(f"解析失败: {e}")
+
+    def _update_table_view(self):
+        """根据当前页码更新表格内容"""
+        self.run_card.result_table.setRowCount(0)
+        start = self.current_page * self.page_size
+        end = start + self.page_size
+        items = self.all_data[start:end]
+        self.run_card.result_table.setRowCount(len(items))
+        for r, row in enumerate(items):
+            for c, val in enumerate(row):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if c == 2 and float(val) >= 95.0:
+                    item.setForeground(Qt.GlobalColor.darkGreen)
+                self.run_card.result_table.setItem(r, c, item)
+        
+        total_pages = (len(self.all_data) + self.page_size - 1) // self.page_size
+        self.run_card.page_label.setText(f"第 {self.current_page+1} / {total_pages} 页")
+        self.run_card.prev_btn.setEnabled(self.current_page > 0)
+        self.run_card.next_btn.setEnabled(end < len(self.all_data))
+
+    def _change_page(self, delta):
+        self.current_page += delta
+        self._update_table_view()
 
     def _init_other_workflow_ui(self):
         """其他分析操作界面的具体布局逻辑入口"""

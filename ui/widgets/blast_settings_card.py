@@ -1,5 +1,6 @@
 # ui/widgets/blast_settings_card.py
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QLabel, QHBoxLayout
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, pyqtSlot
 from ui.widgets import styles
 from config import DEFAULT_CONFIG
@@ -30,6 +31,7 @@ class VerifyWorker(QObject):
 
 
 class BlastSettingsCard(QFrame):
+    request_save = pyqtSignal()  # 新增信号，当用户点击保存按钮时发射
     def __init__(self, get_ssh_client_func, parent=None):
         super().__init__(parent)
         self.setObjectName("BlastCard")
@@ -41,40 +43,45 @@ class BlastSettingsCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 15, 20, 15)
 
-        title = QLabel("BLAST 环境设置") # 标题优化
+        title = QLabel("BLAST 环境与路径设置")
         title.setStyleSheet(styles.CARD_TITLE)
         layout.addWidget(title)
 
         form = QFormLayout()
         
-        # 新增：BLAST 工具执行路径
+        # 1. BLAST 执行程序路径
         self.bin_path_input = QLineEdit()
         self.bin_path_input.setStyleSheet(styles.INPUT_LINEEDIT)
         self.bin_path_input.setPlaceholderText("例如: /usr/bin/blastn")
         form.addRow(QLabel("BLAST 执行程序路径:", styleSheet=styles.FORM_LABEL), self.bin_path_input)
 
-        # 远程数据库路径
+        # 2. 远程数据库路径
         self.db_path_input = QLineEdit()
         self.db_path_input.setStyleSheet(styles.INPUT_LINEEDIT)
         form.addRow(QLabel("远程数据库路径:", styleSheet=styles.FORM_LABEL), self.db_path_input)
+
+        # 3. 新增：远程工作目录 (remote_dir)
+        self.remote_dir_input = QLineEdit()
+        self.remote_dir_input.setStyleSheet(styles.INPUT_LINEEDIT)
+        self.remote_dir_input.setPlaceholderText("服务器存放临时文件的目录")
+        form.addRow(QLabel("远程工作目录:", styleSheet=styles.FORM_LABEL), self.remote_dir_input)
         
         layout.addLayout(form)
 
-        # 验证按钮区域
-        row = QHBoxLayout()
-        self.verify_btn = QPushButton("验证环境")
-        self.verify_btn.setStyleSheet(styles.BUTTON_PRIMARY)
-        self.verify_btn.setFixedWidth(100)
-        self.verify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.verify_btn.clicked.connect(self._start_verification)
-
-        self.status_label = QLabel("等待验证")
-        self.status_label.setStyleSheet(styles.STATUS_NEUTRAL)
-
-        row.addWidget(self.verify_btn)
-        row.addWidget(self.status_label)
-        row.addStretch()
-        layout.addLayout(row)
+        # 保存按钮
+        button_layout = QHBoxLayout()
+        
+        self.save_btn = QPushButton("保存 BLAST 设置")
+        self.save_btn.setStyleSheet(styles.BUTTON_SUCCESS)
+        self.save_btn.clicked.connect(self._on_save_clicked)
+        button_layout.addWidget(self.save_btn)
+        button_layout.addStretch()  # 添加弹性空间
+        layout.addLayout(button_layout)
+        
+        # 底部状态
+        self.status_label = QLabel("请在修改后点击上方的保存按钮")
+        self.status_label.setStyleSheet(styles.LABEL_HINT)
+        layout.addWidget(self.status_label)
 
     def _start_verification(self):
         client = self.get_ssh_client()
@@ -102,24 +109,28 @@ class BlastSettingsCard(QFrame):
 
     def _set_ui_locked(self, locked: bool):
         """标准化锁定反馈"""
-        self.verify_btn.setEnabled(not locked)
         self.db_path_input.setEnabled(not locked)
         self.bin_path_input.setEnabled(not locked)
+        self.remote_dir_input.setEnabled(not locked)
         if locked:
-            self.verify_btn.setText("验证中...")
             self.setCursor(Qt.CursorShape.WaitCursor) # 鼠标变为忙碌状态
         else:
-            self.verify_btn.setText("验证环境")
             self.unsetCursor() # 恢复默认光标
 
     def get_values(self):
-        """提供给 SettingsPage 收集配置"""
         return {
-            "remote_db": self.db_path_input.text(),
-            "blast_bin": self.bin_path_input.text() # 确保返回此值
+            "remote_db": self.db_path_input.text().strip(),
+            "blast_bin": self.bin_path_input.text().strip(),
+            "remote_dir": self.remote_dir_input.text().strip()
         }
 
-    def set_values(self, remote_db: str, blast_bin: str = ""):
-        """由 SettingsPage 加载配置"""
+    def set_values(self, remote_db: str, blast_bin: str = "", remote_dir: str = ""):
         self.db_path_input.setText(remote_db or "")
-        self.bin_path_input.setText(blast_bin or "") # 确保设置此值
+        self.bin_path_input.setText(blast_bin or "")
+        self.remote_dir_input.setText(remote_dir or "")
+
+    def _on_save_clicked(self):
+        # 发射信号通知父级页面保存配置
+        self.request_save.emit()
+        self.status_label.setText("BLAST 设置已保存")
+        self.status_label.setStyleSheet(styles.STATUS_SUCCESS)
