@@ -5,9 +5,7 @@ from PyQt6.QtWidgets import QLabel, QPushButton
 
 from config import DEFAULT_CONFIG
 from ui.page_base import BasePage
-from ui.widgets import SshSettingsCard, NcbiSettingsCard
-# 导入新卡片
-from ui.widgets.blast_settings_card import BlastSettingsCard
+from ui.widgets import SshSettingsCard, NcbiSettingsCard, BlastSettingsCard
 from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS, COLOR_BG_APP
 
 class SettingsPage(BasePage):
@@ -100,6 +98,7 @@ class SettingsPage(BasePage):
             "ssh_pwd": DEFAULT_CONFIG.get("pwd", ""),
             "ncbi_api_key": DEFAULT_CONFIG.get("ncbi_api_key", ""),
             "remote_db": DEFAULT_CONFIG.get("remote_db", ""), # 新增项
+            "blast_bin": DEFAULT_CONFIG.get("blast_bin", ""), # 新增项
         }
 
     def _load_config_merged(self) -> dict:
@@ -114,8 +113,11 @@ class SettingsPage(BasePage):
             ssh_user=str(merged.get("ssh_user", "") or ""),
             ssh_pwd=str(merged.get("ssh_pwd", "") or ""),
         )
-        # 分发给新卡片
-        self.blast_card.set_values(remote_db=str(merged.get("remote_db", "") or ""))
+        # 传入两个参数到 blast_card
+        self.blast_card.set_values(
+            remote_db=str(merged.get("remote_db", "") or ""),
+            blast_bin=str(merged.get("blast_bin", "") or "")
+        )
         self.ncbi_card.set_values(ncbi_api_key=str(merged.get("ncbi_api_key", "") or ""))
 
     def _collect_components_config(self) -> dict:

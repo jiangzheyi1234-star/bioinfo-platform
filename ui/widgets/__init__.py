@@ -23,6 +23,11 @@ try:
 except Exception:  # pragma: no cover
     BlastSampleCard = None  # type: ignore
 
+try:
+    from .blast_run_card import BlastRunCard
+except Exception:  # pragma: no cover
+    BlastRunCard = None  # type: ignore
+
 from . import styles
 
-__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "styles"]
+__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "BlastRunCard", "styles"]

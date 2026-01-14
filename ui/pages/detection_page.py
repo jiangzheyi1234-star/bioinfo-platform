@@ -3,11 +3,14 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QVBoxLayout, QWidget, QStackedWidget, QLabel,
-    QPushButton, QButtonGroup
+    QPushButton, QButtonGroup, QComboBox, QLineEdit
 )
 
 from ui.page_base import BasePage
-from ui.widgets import styles, BlastResourceCard, BlastSampleCard
+from ui.widgets import styles, BlastResourceCard, BlastSampleCard, BlastRunCard
+from core.blast_worker import BlastWorker
+from config import DEFAULT_CONFIG
+import os
 
 
 class DetectionPage(BasePage):
@@ -128,28 +131,79 @@ class DetectionPage(BasePage):
         self.content_stack.addWidget(self.other_page)    # Index 2
 
     def _init_blast_workflow_ui(self):
-        """BLAST 操作界面的具体布局逻辑入口"""
-        # 主垂直布局
+        """完全重构的 BLAST 工作流 UI"""
         main_layout = QVBoxLayout(self.blast_page)
         main_layout.setContentsMargins(0, 10, 0, 0)
-        main_layout.setSpacing(20)
+        main_layout.setSpacing(18)
 
-        # --- 关键：水平步骤容器 ---
-        steps_row = QHBoxLayout()
-        steps_row.setSpacing(15) # 卡片间距
-
-        # 实例化两个卡片
+        # 上方：横向排列 步骤 1 & 2 (1:1 比例)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(18)
         self.resource_card = BlastResourceCard(self.get_ssh_client)
         self.sample_card = BlastSampleCard()
+        top_row.addWidget(self.resource_card, 1)
+        top_row.addWidget(self.sample_card, 1)
+        main_layout.addLayout(top_row)
 
-        # 以 1:1 的比例添加，确保平齐且不占满全屏
-        steps_row.addWidget(self.resource_card, 1)
-        steps_row.addWidget(self.sample_card, 1)
+        # 下方：步骤 3 占据核心区域
+        self.run_card = BlastRunCard()
+        main_layout.addWidget(self.run_card, 2)
 
-        main_layout.addLayout(steps_row)
+        # --- 业务逻辑联动 ---
+        # 实时同步状态：只有当前两步完成后，才激活运行按钮
+        self.resource_card.save_btn.clicked.connect(self._check_status)
+        self.sample_card.file_selected.connect(self._check_status)
         
-        # 下方留白，后续放步骤三：参数配置与运行
-        main_layout.addStretch()
+        # 核心：执行按钮
+        self.run_card.run_btn.clicked.connect(self._run_process)
+
+    def _check_status(self):
+        """验证步骤 1 和 步骤 2 是否已准备好"""
+        db = self.resource_card.get_db_path()
+        file = self.sample_card.get_file_path()
+        if db and file:
+            self.run_card.set_ready(True, f" 已就绪：使用库 {os.path.basename(db)}")
+        else:
+            self.run_card.set_ready(False)
+
+    def _run_process(self):
+        """执行异步 BLAST 流程：上传 -> 运行 -> 自动下载"""
+        client = self.get_ssh_client()
+        if not client:
+            self.run_card.status_msg.setText(" 请先在设置页连接 SSH 服务器")
+            return
+
+        # 初始化 Worker
+        self.worker = BlastWorker(
+            client_provider=self.get_ssh_client,
+            local_fasta=self.sample_card.get_file_path(),
+            db_path=self.resource_card.get_db_path(),
+            task=self.resource_card.get_task(),
+            blast_bin=DEFAULT_CONFIG['blast_bin']
+        )
+
+        # 信号连接
+        self.worker.progress.connect(self.run_card.status_msg.setText)
+        self.worker.finished.connect(self._on_finished)
+        
+        # UI 状态切换
+        self.run_card.show_loading(True)
+        self.run_card.result_view.clear()
+        self.worker.start()
+
+    def _on_finished(self, success, msg, local_path):
+        """处理任务结束并预览本地回传的文件"""
+        self.run_card.show_loading(False)
+        self.run_card.status_msg.setText(msg)
+        
+        if success and os.path.exists(local_path):
+            try:
+                with open(local_path, 'r') as f:
+                    content = "".join(f.readlines()[:30]) # 预览前 30 行
+                header = "QueryID\tSubjectID\tIdentity\tLength\tMismatch\tGap\tQStart\tQEnd\tSStart\tSEnd\tE-value\tBitScore\n"
+                self.run_card.result_view.setPlainText(f"本地保存路径: {local_path}\n\n{header}{'-'*110}\n{content}")
+            except Exception as e:
+                self.run_card.result_view.setPlainText(f"结果回传成功，但本地读取失败: {str(e)}")
 
     def _init_other_workflow_ui(self):
         """其他分析操作界面的具体布局逻辑入口"""

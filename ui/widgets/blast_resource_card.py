@@ -1,8 +1,5 @@
 import os
-from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-    QComboBox, QPushButton, QLineEdit, QWidget
-)
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QLineEdit, QWidget
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
 from ui.widgets import styles
 from config import DEFAULT_CONFIG
@@ -71,6 +68,18 @@ class BlastResourceCard(QFrame):
         self.path_display.setStyleSheet(styles.LABEL_HINT)
         layout.addWidget(self.path_display)
 
+        # 算法选择
+        algo_row = QHBoxLayout()
+        algo_row.addWidget(QLabel("比对算法:", styleSheet=styles.FORM_LABEL))
+        self.algo_combo = QComboBox()
+        self.algo_combo.addItem("Highly similar (megablast)", "megablast")
+        self.algo_combo.addItem("Somewhat similar (blastn)", "blastn")
+        self.algo_combo.addItem("Short sequences (blastn-short)", "blastn-short")
+        self.algo_combo.setFixedWidth(200)
+        algo_row.addWidget(self.algo_combo)
+        algo_row.addStretch()
+        layout.addLayout(algo_row)
+
         # 操作区
         btn_row = QHBoxLayout()
         self.save_btn = QPushButton("保存配置")
@@ -132,3 +141,7 @@ class BlastResourceCard(QFrame):
 
     def get_db_path(self):
         return DEFAULT_CONFIG.get("remote_db", "") if self.cat_combo.currentIndex() == 0 else self.custom_input.text().strip()
+
+    def get_task(self):
+        """返回选中的算法名称"""
+        return self.algo_combo.currentData()

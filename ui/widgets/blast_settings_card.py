@@ -41,20 +41,29 @@ class BlastSettingsCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 15, 20, 15)
 
-        title = QLabel("BLAST 数据库设置")
+        title = QLabel("BLAST 环境设置") # 标题优化
         title.setStyleSheet(styles.CARD_TITLE)
         layout.addWidget(title)
 
         form = QFormLayout()
+        
+        # 新增：BLAST 工具执行路径
+        self.bin_path_input = QLineEdit()
+        self.bin_path_input.setStyleSheet(styles.INPUT_LINEEDIT)
+        self.bin_path_input.setPlaceholderText("例如: /usr/bin/blastn")
+        form.addRow(QLabel("BLAST 执行程序路径:", styleSheet=styles.FORM_LABEL), self.bin_path_input)
+
+        # 远程数据库路径
         self.db_path_input = QLineEdit()
         self.db_path_input.setStyleSheet(styles.INPUT_LINEEDIT)
-        self.db_path_input.setText(DEFAULT_CONFIG.get('remote_db', ''))
         form.addRow(QLabel("远程数据库路径:", styleSheet=styles.FORM_LABEL), self.db_path_input)
+        
         layout.addLayout(form)
 
+        # 验证按钮区域
         row = QHBoxLayout()
-        self.verify_btn = QPushButton("验证路径")
-        self.verify_btn.setStyleSheet(styles.BUTTON_PRIMARY) # 已包含 hover 逻辑
+        self.verify_btn = QPushButton("验证环境")
+        self.verify_btn.setStyleSheet(styles.BUTTON_PRIMARY)
         self.verify_btn.setFixedWidth(100)
         self.verify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.verify_btn.clicked.connect(self._start_verification)
@@ -95,17 +104,22 @@ class BlastSettingsCard(QFrame):
         """标准化锁定反馈"""
         self.verify_btn.setEnabled(not locked)
         self.db_path_input.setEnabled(not locked)
+        self.bin_path_input.setEnabled(not locked)
         if locked:
             self.verify_btn.setText("验证中...")
             self.setCursor(Qt.CursorShape.WaitCursor) # 鼠标变为忙碌状态
         else:
-            self.verify_btn.setText("验证路径")
+            self.verify_btn.setText("验证环境")
             self.unsetCursor() # 恢复默认光标
 
     def get_values(self):
         """提供给 SettingsPage 收集配置"""
-        return {"remote_db": self.db_path_input.text()}
+        return {
+            "remote_db": self.db_path_input.text(),
+            "blast_bin": self.bin_path_input.text() # 确保返回此值
+        }
 
-    def set_values(self, remote_db: str):
+    def set_values(self, remote_db: str, blast_bin: str = ""):
         """由 SettingsPage 加载配置"""
         self.db_path_input.setText(remote_db or "")
+        self.bin_path_input.setText(blast_bin or "") # 确保设置此值
