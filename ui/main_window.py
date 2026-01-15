@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QListWidget, QStackedWidget, QListWidgetItem
 from ui.pages import SettingsPage, DetectionPage
 from ui.pages.home_page import HomePage
+from ui.widgets import styles
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -8,7 +9,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("H2OMeta 宏基因组平台")
         self.resize(1100, 750)
         # 全局背景浅蓝色
-        self.setStyleSheet("background-color: #f4f9ff;")
+        self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
         self.init_ui()
 
     def init_ui(self):
@@ -18,11 +19,11 @@ class MainWindow(QMainWindow):
         # 侧边栏
         self.sidebar = QListWidget()
         self.sidebar.setFixedWidth(200)
-        self.sidebar.setStyleSheet("""
-            QListWidget { background: white; border: none; border-right: 1px solid #e1eefb; padding-top: 30px; outline: none; }
-            QListWidget::item { height: 50px; padding-left: 20px; margin: 5px 12px; border-radius: 8px; color: #595959; }
-            QListWidget::item:hover { background: #f0f7ff; color: #1890ff; }
-            QListWidget::item:selected { background: #e6f7ff; color: #1890ff; border-left: 4px solid #1890ff; font-weight: bold; }
+        self.sidebar.setStyleSheet(f"""
+            QListWidget {{ background: {styles.COLOR_BG_CARD}; border: none; border-right: 1px solid {styles.COLOR_BORDER}; padding-top: 30px; outline: none; }}
+            QListWidget::item {{ height: 50px; padding-left: 20px; margin: 5px 12px; border-radius: 8px; color: {styles.COLOR_TEXT_SUB}; }}
+            QListWidget::item:hover {{ background: {styles.COLOR_BG_SIDEBAR_ITEM}; color: {styles.COLOR_PRIMARY}; }}
+            QListWidget::item:selected {{ background: {styles.COLOR_BG_SIDEBAR_SELECTED}; color: {styles.COLOR_PRIMARY}; border-left: 4px solid {styles.COLOR_PRIMARY}; font-weight: bold; }}
         """)
 
         # 预加载所有页面

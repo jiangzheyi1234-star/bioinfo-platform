@@ -9,8 +9,8 @@ from ui.widgets.styles import (
     CARD_TITLE,
     FORM_LABEL,
     LABEL_MUTED,
-    BUTTON_LINK_PRIMARY,
-    BUTTON_LINK_SUCCESS,
+    BUTTON_LINK,
+    BUTTON_SUCCESS,
 )
 
 
@@ -72,12 +72,12 @@ class NcbiSettingsCard(QFrame):
 
         self.modify_btn = QPushButton("修改")
         self.modify_btn.setFixedWidth(40)
-        self.modify_btn.setStyleSheet(BUTTON_LINK_PRIMARY)
+        self.modify_btn.setStyleSheet(BUTTON_LINK)
         self.modify_btn.clicked.connect(lambda checked=False: self._unlock_inputs())
 
         self.save_btn = QPushButton("保存")
         self.save_btn.setFixedWidth(40)
-        self.save_btn.setStyleSheet(BUTTON_LINK_SUCCESS)
+        self.save_btn.setStyleSheet(BUTTON_SUCCESS)
         self.save_btn.clicked.connect(lambda checked=False: self.request_save.emit())
         self.save_btn.hide()
 

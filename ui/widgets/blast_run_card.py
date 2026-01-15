@@ -35,7 +35,7 @@ class BlastRunCard(QFrame):
         self.path_input.setStyleSheet(styles.INPUT_LINEEDIT)
         self.browse_btn = QPushButton("更改目录")
         self.browse_btn.setFixedWidth(80)
-        self.browse_btn.setStyleSheet(styles.BUTTON_LINK_PRIMARY)
+        self.browse_btn.setStyleSheet(styles.BUTTON_LINK)
         path_row.addWidget(self.path_input)
         path_row.addWidget(self.browse_btn)
         layout.addLayout(path_row)
@@ -43,15 +43,15 @@ class BlastRunCard(QFrame):
         self.pbar = QProgressBar()
         self.pbar.setFixedHeight(6)
         self.pbar.setTextVisible(False)
-        self.pbar.setStyleSheet("QProgressBar { border-radius: 3px; background: #eee; } QProgressBar::chunk { background: #1890ff; }")
+        self.pbar.setStyleSheet(f"QProgressBar {{ border-radius: 3px; background: {styles.COLOR_BG_PROGRESS_BAR}; }} QProgressBar::chunk {{ background: {styles.COLOR_BG_PROGRESS_CHUNK}; }}")
         self.pbar.hide()
         layout.addWidget(self.pbar)
 
         # --- 新增：本地保存路径显示区 ---
         self.path_display = QLabel("")
         self.path_display.setStyleSheet(
-            "background-color: #f0f7ff; border: 1px dashed #1890ff; padding: 6px; "
-            "border-radius: 4px; color: #003a8c; font-size: 11px; font-family: 'Consolas';"
+            f"background-color: {styles.COLOR_BG_BUTTON_HOVER}; border: 1px dashed {styles.COLOR_BORDER_FOCUS}; padding: 6px; "
+            f"border-radius: 4px; color: {styles.COLOR_TEXT_TITLE}; font-size: 11px; font-family: 'Consolas';"
         )
         self.path_display.setWordWrap(True)
         self.path_display.hide() 
@@ -59,11 +59,11 @@ class BlastRunCard(QFrame):
 
         # 1. 智能解读区
         self.interpret_box = QFrame()
-        self.interpret_box.setStyleSheet("background: #f0f7ff; border-radius: 6px; border: 1px solid #dcebfa;")
+        self.interpret_box.setStyleSheet(f"background: {styles.COLOR_BG_CARD_INTERPRET}; border-radius: 6px; border: 1px solid {styles.COLOR_BORDER};")
         self.interpret_box.hide()
         it_layout = QVBoxLayout(self.interpret_box)
         self.interpret_label = QLabel("")
-        self.interpret_label.setStyleSheet("color: #003a8c; font-size: 13px;")
+        self.interpret_label.setStyleSheet(f"color: {styles.COLOR_TEXT_INTERPRET}; font-size: 13px;")
         it_layout.addWidget(self.interpret_label)
         layout.addWidget(self.interpret_box)
 
@@ -78,7 +78,7 @@ class BlastRunCard(QFrame):
             if item: item.setToolTip(tip) # 悬停解释
 
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.result_table.setStyleSheet("QTableWidget { border: 1px solid #e1eefb; background: white; gridline-color: #f0f0f0; }")
+        self.result_table.setStyleSheet(f"QTableWidget {{ border: 1px solid {styles.COLOR_BORDER}; background: {styles.COLOR_BG_TABLE}; gridline-color: {styles.COLOR_BG_TABLE_GRIDLINE}; }}")
         layout.addWidget(self.result_table)
 
         # 3. 分页控制条

@@ -50,7 +50,7 @@ class HomePage(BasePage):
         # 细分割线
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #e1eefb; max-height: 1px; border:none;")
+        line.setStyleSheet(f"background-color: {styles.COLOR_BORDER}; max-height: 1px; border:none;")
         self.layout.addWidget(line)
 
         # 3. 下方内容区
@@ -67,13 +67,13 @@ class HomePage(BasePage):
         btn.setCheckable(True)
         btn.setAutoExclusive(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f8fbff; border: 1px solid #dcebfa; border-radius: 6px;
-                padding: 6px 20px; color: #4a6a8a; font-size: 13px; font-weight: 500;
-            }
-            QPushButton:hover { background-color: #f0f7ff; border-color: #1890ff; }
-            QPushButton:checked { background-color: #1890ff; color: white; border-color: #1890ff; }
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {styles.COLOR_BG_CARD_HIGHLIGHT}; border: 1px solid {styles.COLOR_BORDER_INPUT}; border-radius: 6px;
+                padding: 6px 20px; color: {styles.COLOR_TEXT_SUB}; font-size: 13px; font-weight: 500;
+            }}
+            QPushButton:hover {{ background-color: {styles.COLOR_BG_BUTTON_HOVER}; border-color: {styles.COLOR_PRIMARY}; }}
+            QPushButton:checked {{ background-color: {styles.COLOR_BG_BUTTON_CHECKED}; color: {styles.COLOR_TEXT_WHITE}; border-color: {styles.COLOR_PRIMARY}; }}
         """)
         btn.clicked.connect(lambda: self.content_stack.setCurrentIndex(index))
         self.nav_group.addButton(btn)
@@ -90,7 +90,7 @@ class HomePage(BasePage):
 
         # 页面 2: 概览
         self.info_page = QLabel("系统运行状态监测（待实现）")
-        self.info_label_style = "color: #90adca; font-size: 14px;"
+        self.info_label_style = f"color: {styles.COLOR_TEXT_HINT}; font-size: 14px;"
         self.info_page.setStyleSheet(self.info_label_style)
         self.info_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -117,7 +117,7 @@ class HomePage(BasePage):
         self.file_path_edit.setReadOnly(True)
         self.file_path_edit.setStyleSheet(styles.INPUT_LINEEDIT)
         self.btn_browse = QPushButton("浏览文件")
-        self.btn_browse.setStyleSheet(styles.BUTTON_LINK_PRIMARY)
+        self.btn_browse.setStyleSheet(styles.BUTTON_LINK)
         self.btn_browse.clicked.connect(self._on_browse_fasta)
         v1.addWidget(self.file_path_edit)
         v1.addWidget(self.btn_browse)
@@ -152,7 +152,7 @@ class HomePage(BasePage):
         self.pbar = QProgressBar()
         self.pbar.setFixedHeight(6)
         self.pbar.setTextVisible(False)
-        self.pbar.setStyleSheet("QProgressBar { border-radius: 3px; background: #eee; } QProgressBar::chunk { background: #1890ff; }")
+        self.pbar.setStyleSheet(f"QProgressBar {{ border-radius: 3px; background: {styles.COLOR_BG_PROGRESS_BAR}; }} QProgressBar::chunk {{ background: {styles.COLOR_BG_PROGRESS_CHUNK}; }}")
         self.pbar.hide()
         v3.addWidget(self.pbar)
 
@@ -162,7 +162,7 @@ class HomePage(BasePage):
         v3.addWidget(self.run_btn)
         
         self.result_info = QLabel("")
-        self.result_info.setStyleSheet("color: #1890ff; font-size: 12px;")
+        self.result_info.setStyleSheet(f"color: {styles.COLOR_PRIMARY}; font-size: 12px;")
         self.result_info.setWordWrap(True)
         v3.addWidget(self.result_info)
         v3.addStretch()

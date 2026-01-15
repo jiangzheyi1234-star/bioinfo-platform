@@ -1,6 +1,7 @@
 # ui/page.py
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame
 from PyQt6.QtCore import Qt
+from ui.widgets import styles
 
 class BasePage(QFrame):
     """基础页面类，设置统一背景"""
@@ -8,10 +9,10 @@ class BasePage(QFrame):
         super().__init__()
         self.layout = QVBoxLayout(self)
         self.label = QLabel(title)
-        self.label.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
+        self.label.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {styles.COLOR_TEXT_DEFAULT};")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.label)
-        self.setStyleSheet("background-color: #f5f7f9; border-radius: 5px;")
+        self.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE}; border-radius: 5px;")
 
 class HomePage(BasePage):
     def __init__(self):

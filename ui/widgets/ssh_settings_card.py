@@ -21,8 +21,8 @@ from ui.widgets.styles import (
     CARD_FRAME,
     INPUT_LINEEDIT,
     BUTTON_PRIMARY,
-    BUTTON_LINK_PRIMARY,
-    BUTTON_LINK_DANGER,
+    BUTTON_LINK,
+    BUTTON_DANGER,
     CARD_TITLE,
     STATUS_NEUTRAL,
     STATUS_SUCCESS,
@@ -166,7 +166,7 @@ class SshSettingsCard(QFrame):
         main.setContentsMargins(0, 0, 0, 0)
 
         self.header_area = ClickableHeader()
-        self.header_area.setStyleSheet("background: transparent; border: none;")
+        self.header_area.setStyleSheet(f"background: transparent; border: none;")
         self.header_area.clicked.connect(self._toggle_container)
 
         header_layout = QHBoxLayout(self.header_area)
@@ -180,7 +180,7 @@ class SshSettingsCard(QFrame):
 
         self.modify_link = QPushButton("修改")
         self.modify_link.setFixedWidth(40)
-        self.modify_link.setStyleSheet(BUTTON_LINK_PRIMARY)
+        self.modify_link.setStyleSheet(BUTTON_LINK)
         self.modify_link.clicked.connect(lambda checked=False: self._enable_editing())
         self.modify_link.hide()
 
@@ -222,7 +222,7 @@ class SshSettingsCard(QFrame):
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
         self.revert_btn = QPushButton("恢复上次成功")
-        self.revert_btn.setStyleSheet(BUTTON_LINK_DANGER)
+        self.revert_btn.setStyleSheet(BUTTON_DANGER)
         self.revert_btn.clicked.connect(lambda checked=False: self._revert_to_last_stable())
         self.revert_btn.hide()
 
