@@ -71,14 +71,14 @@ class NcbiSettingsCard(QFrame):
         title.setStyleSheet(CARD_TITLE)
 
         self.modify_btn = QPushButton("修改")
-        self.modify_btn.setFixedWidth(40)
+        self.modify_btn.setFixedWidth(60)
         self.modify_btn.setStyleSheet(BUTTON_LINK)
-        self.modify_btn.clicked.connect(lambda checked=False: self._unlock_inputs())
+        self.modify_btn.clicked.connect(self._unlock_inputs)
 
         self.save_btn = QPushButton("保存")
-        self.save_btn.setFixedWidth(40)
+        self.save_btn.setFixedWidth(60)
         self.save_btn.setStyleSheet(BUTTON_SUCCESS)
-        self.save_btn.clicked.connect(lambda checked=False: self.request_save.emit())
+        self.save_btn.clicked.connect(self.request_save.emit)
         self.save_btn.hide()
 
         header_layout.addWidget(title)
@@ -120,10 +120,16 @@ class NcbiSettingsCard(QFrame):
         self._in_edit_mode = False
         self.modify_btn.show()
         self.save_btn.hide()
+        # 显示当前状态信息
+        api_key = self.ncbi_api_key.text().strip()
+        if api_key:
+            self.status_label.setText("状态：已配置 API Key")
+        else:
+            self.status_label.setText("状态：未配置 API Key")
 
     def _unlock_inputs(self) -> None:
         self.ncbi_api_key.setEnabled(True)
         self._in_edit_mode = True
         self.modify_btn.hide()
         self.save_btn.show()
-        self.status_label.setText("")
+        self.status_label.setText("请填写 NCBI API Key 并点击保存")

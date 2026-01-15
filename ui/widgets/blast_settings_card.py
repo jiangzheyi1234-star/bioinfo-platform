@@ -160,8 +160,8 @@ class BlastSettingsCard(QFrame):
         self.setStyleSheet(styles.CARD_FRAME("BlastCard"))
         self._build_ui()
 
-        # 初始化状态
-        self._enable_editing()
+        # 初始化状态 - 默认锁定状态，显示修改按钮
+        self._lock_inputs()
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -180,10 +180,10 @@ class BlastSettingsCard(QFrame):
         self.title_label.setStyleSheet(styles.CARD_TITLE)
 
         self.modify_btn = QPushButton("修改")
-        self.modify_btn.setFixedWidth(50)
+        self.modify_btn.setFixedWidth(60)
         self.modify_btn.setStyleSheet(styles.BUTTON_LINK)
-        self.modify_btn.clicked.connect(lambda: self._enable_editing())
-        self.modify_btn.hide()  # 初始隐藏，保存锁定后显示
+        self.modify_btn.clicked.connect(self._enable_editing)
+        # 修改按钮始终保持可见，不在初始化时隐藏
 
         self.arrow_label = QLabel("▲")
         self.arrow_label.setStyleSheet("color: #90adca; font-size: 12px;")
@@ -260,11 +260,14 @@ class BlastSettingsCard(QFrame):
         self.db_path_input.setText(remote_db or "")
         self.bin_path_input.setText(blast_bin or "")
         self.remote_dir_input.setText(remote_dir or "")
-        # 设置初始值后，如果是有效值，可以视为已保存状态，或者保持展开让用户确认
-        # 这里为了安全，默认保持编辑状态让用户去验证，或者如果值很完整也可以 lock
-        if remote_db:
-            # 如果有值，可以提示用户去验证，或者默认锁定
-            pass
+        
+        # 根据是否有有效配置来设置初始状态
+        if remote_db and remote_db.strip():
+            # 如果有数据库路径，则认为已有配置，进入锁定状态
+            self._lock_inputs()
+        else:
+            # 否则保持编辑状态让用户配置
+            self._enable_editing()
 
     # ---------------- 逻辑控制 ----------------
 
@@ -287,7 +290,7 @@ class BlastSettingsCard(QFrame):
             self.arrow_label.setText("▼")
 
     def _enable_editing(self):
-        """进入编辑模式：解锁输入框，隐藏修改按钮，显示保存按钮"""
+        """进入编辑模式：解锁输入框，修改按钮保持可见，显示保存按钮"""
         self.container.show()
         self.arrow_label.setText("▲")
 
@@ -297,7 +300,7 @@ class BlastSettingsCard(QFrame):
 
         self.save_btn.show()
         self.save_btn.setEnabled(True)
-        self.modify_btn.hide()
+        self.modify_btn.show()  # 修改按钮保持可见，不隐藏
 
         self.status_label.setText("请修改配置并验证")
         self.status_label.setStyleSheet(styles.STATUS_NEUTRAL)
@@ -305,13 +308,14 @@ class BlastSettingsCard(QFrame):
         self._auto_fold_timer.stop()
 
     def _lock_inputs(self):
-        """锁定模式：禁用输入框，显示修改按钮"""
+        """锁定模式：禁用输入框，修改按钮保持可见"""
         self.db_path_input.setEnabled(False)
         self.bin_path_input.setEnabled(False)
         self.remote_dir_input.setEnabled(False)
 
         self.save_btn.hide()  # 锁定后隐藏保存按钮
-        self.modify_btn.show()
+        self.modify_btn.show()  # 修改按钮始终保持可见
+        self.status_label.setText("配置已保存")
         self._in_edit_mode = False
 
     def _on_input_changed(self):
