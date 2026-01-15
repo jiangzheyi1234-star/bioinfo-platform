@@ -1,0 +1,6 @@
+Uncaught exception:
+Traceback (most recent call last):
+  File "E:\代码\bio_ui\ui\pages\detection_page.py", line 222, in _handle_result
+    self.run_card.path_display.setText(f" 结果已存至: {self.run_card.format_path(local_path)}")
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'BlastRunCard' object has no attribute 'format_path'

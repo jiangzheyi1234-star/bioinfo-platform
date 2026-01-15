@@ -57,27 +57,19 @@ class BlastRunCard(QFrame):
         self.path_display.hide() 
         layout.addWidget(self.path_display)
 
-        # 1. 智能解读区 - 修改为更紧凑的显示
+        # 1. 智能解读区
         self.interpret_box = QFrame()
         self.interpret_box.setStyleSheet(f"background: {styles.COLOR_BG_CARD_INTERPRET}; border-radius: 6px; border: 1px solid {styles.COLOR_BORDER};")
         self.interpret_box.hide()
-        it_layout = QHBoxLayout(self.interpret_box)  # 改为 QHBoxLayout 使内容水平排列
-        it_layout.setContentsMargins(10, 5, 10, 5)  # 减少内边距
+        it_layout = QVBoxLayout(self.interpret_box)
         self.interpret_label = QLabel("")
-        self.interpret_label.setStyleSheet(f"color: {styles.COLOR_TEXT_INTERPRET}; font-size: 12px;")  # 使用更小字体
-        self.interpret_label.setWordWrap(False)  # 不换行
-        self.interpret_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)  # 允许选择文本
+        self.interpret_label.setStyleSheet(f"color: {styles.COLOR_TEXT_INTERPRET}; font-size: 13px;")
         it_layout.addWidget(self.interpret_label)
         layout.addWidget(self.interpret_box)
 
         # 2. 专业结果表格 (带悬停解释)
         self.result_table = QTableWidget()
         self.result_table.setColumnCount(12)
-        
-        # --- 【关键修改】设置最小高度 ---
-        # 这样表格至少会显示 450px 高，强迫父页面出现滚动条
-        self.result_table.setMinimumHeight(450) 
-        
         headers = ["Query", "Subject", "Ident%", "Len", "Mism", "Gap", "QS", "QE", "SS", "SE", "E-val", "Score"]
         tips = ["查询序列 ID", "参考序列 ID", "一致性(%)", "比对长度", "错配数", "空位数", "查询起始", "查询结束", "参考起始", "参考结束", "期望值", "比对得分"]
         self.result_table.setHorizontalHeaderLabels(headers)

@@ -15,14 +15,91 @@ class ResourceVerifyWorker(QThread):
 
     def run(self):
         try:
-            # 校验逻辑保持不变：检查分卷索引文件
-            cmd = f"ls {self.db_path}*.nsq > /dev/null 2>&1 && echo 'OK'"
             service = SSHService(self.client_provider)
-            rc, out, _ = service.run(cmd, timeout=5)
-            if rc == 0 and "OK" in out:
+            
+            # 尝试从配置中获取 blast_bin 路径
+            from config import DEFAULT_CONFIG
+            blast_bin = DEFAULT_CONFIG.get('blast_bin', '')
+            
+            if blast_bin and blast_bin.strip():
+                # 如果指定了 blast_bin 路径，检查它是否是目录还是完整路径
+                blast_path = blast_bin.strip()
+                
+                # 检查提供的路径是否存在
+                check_path_cmd = f"test -e '{blast_path}' && echo 'exists' || echo 'not_found'"
+                rc, out, err = service.run(check_path_cmd, timeout=5)
+                
+                if "not_found" in out:
+                    self.finished.emit(False, "BLAST 路径配置错误")
+                    return
+                
+                # 检查是否是目录
+                check_dir_cmd = f"test -d '{blast_path}' && echo 'dir' || echo 'file'"
+                rc_dir, out_dir, err_dir = service.run(check_dir_cmd, timeout=5)
+                
+                if "dir" in out_dir:
+                    # 如果是目录，使用该目录下的 blastdbcmd
+                    blastdbcmd_path = f"{blast_path.rstrip('/')}/blastdbcmd"
+                else:
+                    # 如果是文件路径，获取其所在目录
+                    import os
+                    bin_dir = os.path.dirname(blast_path)
+                    blastdbcmd_path = f"{bin_dir}/blastdbcmd"
+                
+                # 检查 blastdbcmd 是否存在
+                check_cmd = f"test -f '{blastdbcmd_path}' && echo 'found' || echo 'not_found'"
+                rc, out, err = service.run(check_cmd, timeout=5)
+                
+                if "not_found" in out:
+                    self.finished.emit(False, "BLAST 工具配置错误")
+                    return
+                
+                # 使用指定路径的 blastdbcmd 验证数据库
+                cmd = f"'{blastdbcmd_path}' -db '{self.db_path}' -info"
+            else:
+                # 如果没有指定路径，尝试使用系统PATH中的 blastdbcmd
+                check_cmd = "which blastdbcmd || type blastdbcmd || echo 'not_found'"
+                rc, out, err = service.run(check_cmd, timeout=5)
+                
+                if "not_found" in out or rc != 0:
+                    # 如果找不到 blastdbcmd，尝试直接运行
+                    test_cmd = "blastdbcmd -help | head -1"
+                    rc_test, out_test, err_test = service.run(test_cmd, timeout=5)
+                    if rc_test != 0:
+                        self.finished.emit(False, "未找到 blastdbcmd 命令")
+                        return
+                
+                # 使用系统PATH中的 blastdbcmd 验证数据库
+                cmd = f"blastdbcmd -db '{self.db_path}' -info"
+
+            # 执行验证命令
+            rc, out, err = service.run(cmd, timeout=10)
+            if rc == 0:
                 self.finished.emit(True, "配置已保存")
             else:
-                self.finished.emit(False, "路径无效")
+                # 如果直接路径验证失败，尝试仅使用数据库名
+                import os
+                db_name = os.path.basename(self.db_path.strip())
+                if db_name:
+                    if blast_bin and blast_bin.strip():
+                        # 如果指定了 blast_bin，使用该路径下的 blastdbcmd
+                        if blast_bin.endswith('/bin') or blast_bin.endswith('\\bin'):
+                            blastdbcmd_path = f"{blast_bin.rstrip('/')}/blastdbcmd"
+                        else:
+                            import os
+                            bin_dir = os.path.dirname(blast_bin)
+                            blastdbcmd_path = f"{bin_dir}/blastdbcmd"
+                        cmd = f"'{blastdbcmd_path}' -db '{db_name}' -info"
+                    else:
+                        cmd = f"blastdbcmd -db '{db_name}' -info"
+                    
+                    rc2, out2, err2 = service.run(cmd, timeout=10)
+                    if rc2 == 0:
+                        self.finished.emit(True, "配置已保存")
+                    else:
+                        self.finished.emit(False, "数据库路径无效")
+                else:
+                    self.finished.emit(False, "数据库路径无效")
         except Exception as e:
             self.finished.emit(False, f"校验出错: {str(e)}")
 

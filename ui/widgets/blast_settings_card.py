@@ -1,6 +1,6 @@
 # ui/widgets/blast_settings_card.py
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, 
+    QFrame, QVBoxLayout, QFormLayout, QLineEdit, QPushButton,
     QLabel, QHBoxLayout, QWidget, QApplication
 )
 from PyQt6.QtCore import (
@@ -119,6 +119,12 @@ class VerifyWorker(QObject):
                 db_name = os.path.basename(self.db_path.strip())
                 if db_name:
                     if self.blast_bin_path and self.blast_bin_path.strip():
+                        # 如果指定了 blast_bin，使用该路径下的 blastdbcmd
+                        if self.blast_bin_path.endswith('/bin') or self.blast_bin_path.endswith('\\bin'):
+                            blastdbcmd_path = f"{self.blast_bin_path.rstrip('/')}/blastdbcmd"
+                        else:
+                            bin_dir = os.path.dirname(self.blast_bin_path)
+                            blastdbcmd_path = f"{bin_dir}/blastdbcmd"
                         cmd = f"'{blastdbcmd_path}' -db '{db_name}' -info"
                     else:
                         cmd = f"blastdbcmd -db '{db_name}' -info"
@@ -136,16 +142,16 @@ class VerifyWorker(QObject):
 
 class BlastSettingsCard(QFrame):
     request_save = pyqtSignal()  # 仅在验证通过后发射
-    
+
     def __init__(self, get_ssh_client_func, parent=None):
         super().__init__(parent)
         self.setObjectName("BlastCard")
         self.get_ssh_client = get_ssh_client_func
-        
+
         # 状态标志
         self._in_edit_mode = True
         self._verifying = False
-        
+
         # 定时器
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
@@ -153,7 +159,7 @@ class BlastSettingsCard(QFrame):
 
         self.setStyleSheet(styles.CARD_FRAME("BlastCard"))
         self._build_ui()
-        
+
         # 初始化状态
         self._enable_editing()
 
@@ -166,18 +172,18 @@ class BlastSettingsCard(QFrame):
         self.header_area = ClickableHeader()
         self.header_area.setStyleSheet("background: transparent; border: none;")
         self.header_area.clicked.connect(self._toggle_container)
-        
+
         header_layout = QHBoxLayout(self.header_area)
         header_layout.setContentsMargins(20, 15, 20, 15)
 
         self.title_label = QLabel("BLAST 环境与路径设置")
         self.title_label.setStyleSheet(styles.CARD_TITLE)
-        
+
         self.modify_btn = QPushButton("修改")
         self.modify_btn.setFixedWidth(50)
         self.modify_btn.setStyleSheet(styles.BUTTON_LINK)
         self.modify_btn.clicked.connect(lambda: self._enable_editing())
-        self.modify_btn.hide() # 初始隐藏，保存锁定后显示
+        self.modify_btn.hide()  # 初始隐藏，保存锁定后显示
 
         self.arrow_label = QLabel("▲")
         self.arrow_label.setStyleSheet("color: #90adca; font-size: 12px;")
@@ -186,7 +192,7 @@ class BlastSettingsCard(QFrame):
         header_layout.addStretch()
         header_layout.addWidget(self.modify_btn)
         header_layout.addWidget(self.arrow_label)
-        
+
         main_layout.addWidget(self.header_area)
 
         # 2. 内容容器
@@ -198,13 +204,15 @@ class BlastSettingsCard(QFrame):
 
         form = QFormLayout()
         form.setVerticalSpacing(10)
-        
+
         # 输入框
         self.bin_path_input = QLineEdit()
         self.bin_path_input.setStyleSheet(styles.INPUT_LINEEDIT)
-        self.bin_path_input.setPlaceholderText("例如: /home/zyserver/anaconda3/envs/ncbi_download/bin 或 /usr/local/ncbi/blast/bin")
-        self.bin_path_input.setToolTip("可以是完整路径（如 /path/to/blastn）或bin目录路径（如 /path/to/bin），程序会自动在该目录下查找所有BLAST工具")
-        
+        self.bin_path_input.setPlaceholderText(
+            "例如: /home/zyserver/anaconda3/envs/ncbi_download/bin 或 /usr/local/ncbi/blast/bin")
+        self.bin_path_input.setToolTip(
+            "可以是完整路径（如 /path/to/blastn）或bin目录路径（如 /path/to/bin），程序会自动在该目录下查找所有BLAST工具")
+
         self.db_path_input = QLineEdit()
         self.db_path_input.setStyleSheet(styles.INPUT_LINEEDIT)
         self.db_path_input.setPlaceholderText("例如: /data/blastdb/nt")
@@ -220,24 +228,24 @@ class BlastSettingsCard(QFrame):
         form.addRow(QLabel("BLAST 程序路径:", styleSheet=styles.FORM_LABEL), self.bin_path_input)
         form.addRow(QLabel("远程数据库路径:", styleSheet=styles.FORM_LABEL), self.db_path_input)
         form.addRow(QLabel("远程工作目录:", styleSheet=styles.FORM_LABEL), self.remote_dir_input)
-        
+
         c_layout.addLayout(form)
 
         # 操作栏
         btn_layout = QHBoxLayout()
-        
+
         self.save_btn = QPushButton("验证并保存")
         self.save_btn.setFixedWidth(120)
         self.save_btn.setStyleSheet(styles.BUTTON_PRIMARY)
-        self.save_btn.clicked.connect(self._start_verification) # 连接到验证逻辑
-        
+        self.save_btn.clicked.connect(self._start_verification)  # 连接到验证逻辑
+
         self.status_label = QLabel("配置未验证")
         self.status_label.setStyleSheet(styles.STATUS_NEUTRAL)
-        
+
         btn_layout.addWidget(self.save_btn)
         btn_layout.addWidget(self.status_label)
         btn_layout.addStretch()
-        
+
         c_layout.addLayout(btn_layout)
         main_layout.addWidget(self.container)
 
@@ -255,8 +263,8 @@ class BlastSettingsCard(QFrame):
         # 设置初始值后，如果是有效值，可以视为已保存状态，或者保持展开让用户确认
         # 这里为了安全，默认保持编辑状态让用户去验证，或者如果值很完整也可以 lock
         if remote_db:
-             # 如果有值，可以提示用户去验证，或者默认锁定
-             pass
+            # 如果有值，可以提示用户去验证，或者默认锁定
+            pass
 
     # ---------------- 逻辑控制 ----------------
 
@@ -267,7 +275,7 @@ class BlastSettingsCard(QFrame):
         visible = self.container.isVisible()
         self.container.setVisible(not visible)
         self.arrow_label.setText("▲" if not visible else "▼")
-        
+
         # 如果是展开操作且处于锁定状态，显示修改按钮（通常修改按钮一直显示在 header，只要是 locked）
         if not visible:
             self._auto_fold_timer.stop()
@@ -282,15 +290,15 @@ class BlastSettingsCard(QFrame):
         """进入编辑模式：解锁输入框，隐藏修改按钮，显示保存按钮"""
         self.container.show()
         self.arrow_label.setText("▲")
-        
+
         self.db_path_input.setEnabled(True)
         self.bin_path_input.setEnabled(True)
         self.remote_dir_input.setEnabled(True)
-        
+
         self.save_btn.show()
         self.save_btn.setEnabled(True)
         self.modify_btn.hide()
-        
+
         self.status_label.setText("请修改配置并验证")
         self.status_label.setStyleSheet(styles.STATUS_NEUTRAL)
         self._in_edit_mode = True
@@ -301,8 +309,8 @@ class BlastSettingsCard(QFrame):
         self.db_path_input.setEnabled(False)
         self.bin_path_input.setEnabled(False)
         self.remote_dir_input.setEnabled(False)
-        
-        self.save_btn.hide() # 锁定后隐藏保存按钮
+
+        self.save_btn.hide()  # 锁定后隐藏保存按钮
         self.modify_btn.show()
         self._in_edit_mode = False
 
@@ -326,10 +334,10 @@ class BlastSettingsCard(QFrame):
             self.status_label.setText("SSH 未连接，无法验证")
             self.status_label.setStyleSheet(styles.STATUS_ERROR)
             return
-        
+
         db_path = self.db_path_input.text().strip()
         blast_bin = self.bin_path_input.text().strip()
-        
+
         if not db_path:
             self.status_label.setText("数据库路径不能为空")
             self.status_label.setStyleSheet(styles.STATUS_ERROR)
@@ -341,21 +349,21 @@ class BlastSettingsCard(QFrame):
         self.save_btn.setText("正在验证...")
         self.setCursor(Qt.CursorShape.WaitCursor)
         self.status_label.setText("正在连接服务器校验路径...")
-        
+
         # 关键：验证期间禁用所有输入框，防止用户修改导致按钮重新启用
         self.db_path_input.setEnabled(False)
         self.bin_path_input.setEnabled(False)
         self.remote_dir_input.setEnabled(False)
-        
+
         # 启动线程
         self._thread = QThread()
         self._worker = VerifyWorker(client, db_path, blast_bin)
         self._worker.moveToThread(self._thread)
-        
+
         # 连接信号
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_verify_finished)
-        
+
         # 确保清理资源 - 简化版本
         def cleanup():
             if hasattr(self, '_thread') and self._thread:
@@ -368,19 +376,19 @@ class BlastSettingsCard(QFrame):
 
         # 连接清理函数
         self._worker.finished.connect(cleanup)
-        
+
         self._thread.start()
 
     def _on_verify_finished(self, success, message):
         # 恢复UI状态
         self._verifying = False
         self.unsetCursor()
-        
+
         # 恢复输入框状态
         self.db_path_input.setEnabled(True)
         self.bin_path_input.setEnabled(True)
         self.remote_dir_input.setEnabled(True)
-        
+
         if success:
             # 验证成功：锁定界面，发射保存信号
             self._lock_inputs()

@@ -1,12 +1,15 @@
 # ui/pages/home_page.py
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QStackedWidget, QLabel, 
-    QPushButton, QButtonGroup, QFileDialog, QLineEdit, QProgressBar, QFrame
+    QPushButton, QButtonGroup, QFileDialog, QLineEdit, QProgressBar, QFrame,
+    QComboBox, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from ui.page_base import BasePage
 from ui.widgets import styles
 from core.db_builder_worker import DbBuilderWorker
+from core.accession_worker import AccessionWorker  # 确保引入了新写的 Worker
+from config import DEFAULT_CONFIG
 import os
 
 class HomePage(BasePage):
@@ -99,78 +102,233 @@ class HomePage(BasePage):
         self.content_stack.addWidget(self.info_page)
 
     def _init_db_workflow_ui(self):
-        """参考 DetectionPage 的卡片式三步工作流"""
+        """步骤 1 UI构建：单列检索模式 (参考BlastSettingsCard样式)"""
         layout = QVBoxLayout(self.db_page)
         layout.setContentsMargins(0, 10, 0, 0)
-        layout.setSpacing(18)
+        layout.setSpacing(15)
 
-        # 上方：步骤 1 和 步骤 2 (横向)
-        top_row = QHBoxLayout()
-        top_row.setSpacing(18)
+        # === 步骤 1: Excel元数据获取卡片 (参考BlastSettingsCard样式) ===
+        self.card_excel = QFrame()
+        self.card_excel.setObjectName("ExcelMetadataCard")
+        self.card_excel.setStyleSheet(styles.CARD_FRAME("ExcelMetadataCard"))
+        card_layout = QVBoxLayout(self.card_excel)
+        card_layout.setContentsMargins(20, 15, 20, 15)
+        card_layout.setSpacing(12)
 
-        # 步骤 1: 文件选择卡片
-        self.card_file = QFrame()
-        self.card_file.setStyleSheet(styles.CARD_FRAME("Card1"))
-        v1 = QVBoxLayout(self.card_file)
-        v1.addWidget(QLabel("步骤 1：选择参考序列", styleSheet=styles.CARD_TITLE))
-        self.file_path_edit = QLineEdit()
-        self.file_path_edit.setReadOnly(True)
-        self.file_path_edit.setStyleSheet(styles.INPUT_LINEEDIT)
-        self.btn_browse = QPushButton("浏览文件")
-        self.btn_browse.setStyleSheet(styles.BUTTON_LINK)
-        self.btn_browse.clicked.connect(self._on_browse_fasta)
-        v1.addWidget(self.file_path_edit)
-        v1.addWidget(self.btn_browse)
-        v1.addStretch()
+        # 标题
+        title = QLabel("步骤 1：批量获取基因组信息 (NCBI Datasets)")
+        title.setStyleSheet(styles.CARD_TITLE)
+        card_layout.addWidget(title)
 
-        # 步骤 2: 命名卡片
-        self.card_name = QFrame()
-        self.card_name.setStyleSheet(styles.CARD_FRAME("Card2"))
-        v2 = QVBoxLayout(self.card_name)
-        v2.addWidget(QLabel("步骤 2：数据库命名", styleSheet=styles.CARD_TITLE))
-        self.db_name_input = QLineEdit()
-        self.db_name_input.setPlaceholderText("例如: virus_db_v1")
-        self.db_name_input.setStyleSheet(styles.INPUT_LINEEDIT)
-        v2.addWidget(self.db_name_input)
-        v2.addWidget(QLabel("仅限英文、数字和下划线", styleSheet=styles.LABEL_HINT))
-        v2.addStretch()
-
-        top_row.addWidget(self.card_file, 1)
-        top_row.addWidget(self.card_name, 1)
-        layout.addLayout(top_row)
-
-        # 下方：步骤 3 运行卡片
-        self.card_run = QFrame()
-        self.card_run.setStyleSheet(styles.CARD_FRAME("Card3"))
-        v3 = QVBoxLayout(self.card_run)
-        v3.addWidget(QLabel("步骤 3：构建与验证", styleSheet=styles.CARD_TITLE))
+        # 文件导入行
+        file_row = QHBoxLayout()
+        self.excel_path_edit = QLineEdit()
+        self.excel_path_edit.setPlaceholderText("请选择 .xlsx 文件...")
+        self.excel_path_edit.setReadOnly(True)
+        self.excel_path_edit.setStyleSheet(styles.INPUT_LINEEDIT)
         
-        self.status_label = QLabel("等待参数准备...")
-        self.status_label.setStyleSheet(styles.LABEL_HINT)
-        v3.addWidget(self.status_label)
-
-        self.pbar = QProgressBar()
-        self.pbar.setFixedHeight(6)
-        self.pbar.setTextVisible(False)
-        self.pbar.setStyleSheet(f"QProgressBar {{ border-radius: 3px; background: {styles.COLOR_BG_PROGRESS_BAR}; }} QProgressBar::chunk {{ background: {styles.COLOR_BG_PROGRESS_CHUNK}; }}")
-        self.pbar.hide()
-        v3.addWidget(self.pbar)
-
-        self.run_btn = QPushButton("开始构建数据库")
-        self.run_btn.setStyleSheet(styles.BUTTON_PRIMARY)
-        self.run_btn.setFixedHeight(42)
-        v3.addWidget(self.run_btn)
+        self.btn_import_excel = QPushButton("导入 Excel")
+        self.btn_import_excel.setStyleSheet(styles.BUTTON_SECONDARY)
+        self.btn_import_excel.setFixedWidth(100)
+        self.btn_import_excel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_import_excel.clicked.connect(self._on_import_excel)
         
-        self.result_info = QLabel("")
-        self.result_info.setStyleSheet(f"color: {styles.COLOR_PRIMARY}; font-size: 12px;")
-        self.result_info.setWordWrap(True)
-        v3.addWidget(self.result_info)
-        v3.addStretch()
+        file_row.addWidget(self.excel_path_edit)
+        file_row.addWidget(self.btn_import_excel)
+        card_layout.addLayout(file_row)
 
-        layout.addWidget(self.card_run, 2)
+        # 检索配置行
+        config_row = QHBoxLayout()
+        config_row.addWidget(QLabel("选择列:", styleSheet=styles.FORM_LABEL))
+        self.combo_target_col = QComboBox()
+        self.combo_target_col.setPlaceholderText("请选择一列进行检索...")
+        self.combo_target_col.setStyleSheet("""
+            QComboBox {
+                padding: 6px 10px;
+                border: 1px solid %s;
+                border-radius: 4px;
+                background: white;
+                min-width: 150px;
+            }
+            QComboBox:disabled {
+                background: %s;
+                color: %s;
+            }
+        """ % (styles.COLOR_BORDER_INPUT, styles.COLOR_BG_INPUT_DISABLED, styles.COLOR_TEXT_DISABLED))
+        self.combo_target_col.setEnabled(False)  # 导入后启用
+        
+        config_row.addWidget(self.combo_target_col)
+        config_row.addStretch()
+        card_layout.addLayout(config_row)
 
-        # 绑定逻辑
-        self.run_btn.clicked.connect(self._on_start_build)
+        # 操作按钮行
+        btn_row = QHBoxLayout()
+        self.btn_start_search = QPushButton("开始检索并回填")
+        self.btn_start_search.setStyleSheet(styles.BUTTON_PRIMARY)
+        self.btn_start_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_start_search.clicked.connect(self._on_start_accession_search)
+        self.btn_start_search.setEnabled(False)
+        
+        self.search_status = QLabel("等待导入 Excel...")
+        self.search_status.setStyleSheet(styles.LABEL_HINT)
+        
+        btn_row.addWidget(self.btn_start_search)
+        btn_row.addWidget(self.search_status)
+        btn_row.addStretch()
+        card_layout.addLayout(btn_row)
+
+        # 进度条
+        self.pbar_search = QProgressBar()
+        self.pbar_search.setFixedHeight(6)
+        self.pbar_search.setTextVisible(False)
+        self.pbar_search.hide()
+        self.pbar_search.setStyleSheet(f"""
+            QProgressBar {{
+                border-radius: 3px;
+                background: {styles.COLOR_BG_PROGRESS_BAR};
+            }}
+            QProgressBar::chunk {{
+                background: {styles.COLOR_BG_PROGRESS_CHUNK};
+            }}
+        """)
+        card_layout.addWidget(self.pbar_search)
+        
+        layout.addWidget(self.card_excel)
+        
+        # --- 保留原有的 Step 2 和 Step 3 占位 ---
+        self.card_download = QFrame() # 这里建议保留你原本的 Step2 UI 代码，或暂时用空 Frame 占位
+        layout.addWidget(self.card_download)
+        self.card_build = QFrame()    # 这里建议保留你原本的 Step3 UI 代码
+        layout.addWidget(self.card_build)
+    def _on_import_excel(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择 Excel 文件", "", "Excel Files (*.xlsx *.xls)")
+        if not path: return
+        
+        self.excel_path_edit.setText(path)
+        try:
+            import pandas as pd
+            
+            # 一次性读取所有sheets
+            all_sheets = pd.read_excel(path, sheet_name=None)
+            
+            # 从第一个sheet获取列名（通常所有sheet结构相似）
+            first_sheet_name = list(all_sheets.keys())[0]
+            df = all_sheets[first_sheet_name]
+            cols = df.columns.tolist()
+            
+            # 填充列下拉框
+            self.combo_target_col.clear()
+            self.combo_target_col.addItems(cols)
+            
+            # 智能预选 (根据表头关键词猜一下)
+            for col in cols:
+                lower = col.lower()
+                if "name" in lower or "organism" in lower or "英文" in lower:
+                    self.combo_target_col.setCurrentText(col)
+                elif "tax" in lower or "id" in lower:
+                    self.combo_target_col.setCurrentText(col)
+            
+            # 启用控件
+            self.combo_target_col.setEnabled(True)
+            self.btn_start_search.setEnabled(True)
+            self.search_status.setText(f"Excel 已加载，共 {len(all_sheets)} 个工作表，请确认检索依据列")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "读取失败", f"无法读取 Excel 文件: {str(e)}")
+
+    def _on_start_accession_search(self):
+        excel_path = self.excel_path_edit.text()
+        target_col = self.combo_target_col.currentText()
+        
+        if not target_col:
+            QMessageBox.warning(self, "警告", "请选择要检索的列")
+            return
+        
+        # 检查是否已有正在运行的worker，如果有则先安全停止
+        if hasattr(self, 'acc_worker') and self.acc_worker and self.acc_worker.isRunning():
+            # 请求中断并等待完成
+            self.acc_worker.requestInterruption()
+            self.acc_worker.quit()
+            self.acc_worker.wait()  # 等待线程真正退出
+        
+        # UI 锁定
+        self.btn_start_search.setEnabled(False)
+        self.btn_import_excel.setEnabled(False)
+        self.combo_target_col.setEnabled(False)
+        self.pbar_search.show()
+        
+        # 从JSON配置文件中获取NCBI API Key
+        import json
+        import os
+        from config import DEFAULT_CONFIG  # 作为备用
+        
+        config_dir = os.path.join(os.getenv('APPDATA'), "H2OMeta")
+        config_path = os.path.join(config_dir, "config.json")
+        
+        api_key = ""
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                api_key = config_data.get("ncbi_api_key", "")
+            else:
+                # 如果配置文件不存在，使用默认配置
+                api_key = DEFAULT_CONFIG.get("ncbi_api_key", "")
+        except Exception as e:
+            # 如果读取配置文件出错，使用默认配置
+            api_key = DEFAULT_CONFIG.get("ncbi_api_key", "")
+            print(f"读取配置文件出错: {e}")
+        
+        # 调试输出
+        print(f"使用API Key: {'***' if api_key else 'None'} (长度: {len(api_key)})")
+
+        # 创建新的线程对象
+        self.acc_worker = AccessionWorker(excel_path, target_col, api_key)
+        
+        # 连接信号槽
+        self.acc_worker.progress_val.connect(self.pbar_search.setValue)
+        self.acc_worker.progress_msg.connect(self.search_status.setText)
+        self.acc_worker.finished.connect(self._on_search_finished)
+        # 确保在线程结束后正确清理资源 - 使用独立的方法避免引用问题
+        self.acc_worker.finished.connect(self._cleanup_worker)
+        
+        # 启动线程
+        self.acc_worker.start()
+
+    def _on_search_finished(self, success, msg, out_path):
+        # UI 解锁
+        self.btn_start_search.setEnabled(True)
+        self.btn_import_excel.setEnabled(True)
+        self.combo_target_col.setEnabled(True)
+        self.pbar_search.hide()
+        
+        if success:
+            # 不弹窗，只在状态栏显示信息
+            self.search_status.setText(f"✅ 检索完成，结果已保存至: {out_path}")
+            # 自动将新生成的文件路径填回输入框
+            self.excel_path_edit.setText(out_path)
+        else:
+            # 错误情况下仍弹窗提醒
+            QMessageBox.critical(self, "错误", msg)
+            self.search_status.setText(msg)
+        
+        # 更新下拉框状态
+        self._update_combo_state()
+        
+        # 确保worker对象被正确清理（如果还未被自动清理的话）
+        # 不再在这里手动处理，因为已通过信号槽连接了_cleanup_worker
+
+    def _cleanup_worker(self):
+        """独立的worker清理方法，避免在finished信号中直接访问self.acc_worker"""
+        if hasattr(self, 'acc_worker') and self.acc_worker:
+            # 标记worker为None以避免其他地方尝试访问
+            self.acc_worker = None
+
+    def _update_combo_state(self):
+        """更新下拉框状态"""
+        # 仅在导入Excel后启用目标列选择
+        excel_loaded = self.combo_target_col.count() > 0
+        self.combo_target_col.setEnabled(excel_loaded)
 
     def _on_browse_fasta(self):
         path, _ = QFileDialog.getOpenFileName(self, "选择参考序列", "", "FASTA (*.fasta *.fa *.fna)")
