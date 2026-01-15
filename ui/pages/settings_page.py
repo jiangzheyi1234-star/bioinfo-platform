@@ -1,7 +1,7 @@
 import json
 import os
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QLabel, QPushButton, QScrollArea, QFrame, QVBoxLayout, QWidget
 
 from config import DEFAULT_CONFIG
 from ui.page_base import BasePage
@@ -10,7 +10,7 @@ from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS, COLOR_BG_APP
 
 class SettingsPage(BasePage):
     def __init__(self):
-        super().__init__("\u2699 \u8bbe\u7f6e")
+        super().__init__("\u2698 \u8bbe\u7f6e")
         if hasattr(self, "label"):
             self.label.hide()
 
@@ -24,6 +24,7 @@ class SettingsPage(BasePage):
         self.load_config()
 
         # 启动即自动执行一次连接测试
+        from PyQt6.QtCore import QTimer
         QTimer.singleShot(1000, self.ssh_card.auto_check_on_start)
 
     # -------------------------
@@ -31,37 +32,59 @@ class SettingsPage(BasePage):
     # -------------------------
     def init_ui(self):
         """调度员：只负责页面整体参数与模块调用顺序，不写任何卡片细节。"""
-        self.layout.setContentsMargins(40, 30, 40, 30)
-        self.layout.setSpacing(25)
+        # 清空原始布局，创建滚动区域
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
 
-        self._init_header()
-        self._init_cards()
-        self._init_save_area()
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)  # 关键：让内部控件自适应宽度
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)  # 去掉滚动区域的边框
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # 通常不需要横向滚动
 
-        self.layout.addStretch()
+        # 创建“内容容器” (所有的卡片都放在这里面)
+        content_widget = QWidget()
+        content_widget.setObjectName("ScrollContent")
+        # 给内容容器设置透明背景或特定背景
+        content_widget.setStyleSheet(f"background-color: {COLOR_BG_APP};") 
+        
+        # 内容容器的布局
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(40, 30, 40, 30)  # 控制卡片离边缘的距离
+        content_layout.setSpacing(25)  # 控制卡片之间的间距
 
-    def _init_header(self):
+        self._init_header(content_layout)
+        self._init_cards(content_layout)
+        self._init_save_area(content_layout)
+
+        content_layout.addStretch()
+
+        # 组装层级
+        scroll_area.setWidget(content_widget)  # 把内容塞进滚动区
+        self.layout.addWidget(scroll_area)    # 把滚动区塞进主界面
+
+    def _init_header(self, layout):
         header_title = QLabel("系统设置")
         header_title.setStyleSheet(PAGE_HEADER_TITLE)
-        self.layout.addWidget(header_title)
+        layout.addWidget(header_title)
 
-    def _init_cards(self):
+    def _init_cards(self, layout):
         # SSH 卡片
         self.ssh_card = SshSettingsCard()
-        self.layout.addWidget(self.ssh_card)
+        layout.addWidget(self.ssh_card)
 
         # BLAST 数据库设置卡片 (新增)
         # 传入 ssh_card 的 get_active_client 方法，以便它可以调用 SSH 进行验证
         self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client)
         self.blast_card.request_save.connect(self.save_config)  # 连接保存信号
-        self.layout.addWidget(self.blast_card)
+        layout.addWidget(self.blast_card)
 
         # NCBI 卡片
         self.ncbi_card = NcbiSettingsCard()
         self.ncbi_card.request_save.connect(self._save_ncbi_config)
-        self.layout.addWidget(self.ncbi_card)
+        layout.addWidget(self.ncbi_card)
 
-    def _init_save_area(self):
+    def _init_save_area(self, layout):
         # 移除单独的保存按钮，因为现在保存功能集成在BLAST设置卡片中
         pass
 
