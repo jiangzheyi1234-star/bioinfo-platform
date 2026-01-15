@@ -231,7 +231,9 @@ class HomePage(BasePage):
             # 启用控件
             self.combo_target_col.setEnabled(True)
             self.btn_start_search.setEnabled(True)
-            self.search_status.setText(f"Excel 已加载，共 {len(all_sheets)} 个工作表，请确认检索依据列")
+            # 明确显示当前导入的文件名和工作表数量
+            filename = os.path.basename(path)
+            self.search_status.setText(f"Excel '{filename}' 已加载，共 {len(all_sheets)} 个工作表，请确认检索依据列")
             
         except Exception as e:
             QMessageBox.critical(self, "读取失败", f"无法读取 Excel 文件: {str(e)}")
@@ -304,7 +306,15 @@ class HomePage(BasePage):
         
         if success:
             # 不弹窗，只在状态栏显示信息
-            self.search_status.setText(f"✅ 检索完成，结果已保存至: {out_path}")
+            # 重新计算新文件的工作表数量
+            try:
+                import pandas as pd
+                all_sheets = pd.read_excel(out_path, sheet_name=None)
+                sheet_count = len(all_sheets)
+                self.search_status.setText(f"✅ 检索完成，结果已保存至: {out_path} (共 {sheet_count} 个工作表)")
+            except:
+                # 如果无法读取新文件，就只显示基本完成信息
+                self.search_status.setText(f"✅ 检索完成，结果已保存至: {out_path}")
             # 自动将新生成的文件路径填回输入框
             self.excel_path_edit.setText(out_path)
         else:

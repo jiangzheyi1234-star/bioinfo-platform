@@ -218,13 +218,16 @@ class DetectionPage(BasePage):
         self.run_card.status_msg.setText(msg)
         
         if success and os.path.exists(local_path):
-            # 显示保存路径
-            self.run_card.path_display.setText(f" 结果已存至: {local_path}")
-            self.run_card.path_display.show()
-            
+            # 显示保存路径和结果摘要
+            result_summary = f" 结果已存至: {local_path}"
             try:
                 with open(local_path, 'r', encoding='utf-8') as f:
                     self.all_data = [line.strip().split('\t') for line in f if line.strip()]
+                
+                # 显示结果摘要
+                total_matches = len(self.all_data)
+                if total_matches > 0:
+                    result_summary += f" (共 {total_matches} 个匹配项)"
                 
                 # 自动解读 (Top Hit)
                 interpretation = "未发现显著匹配项。"
@@ -240,6 +243,11 @@ class DetectionPage(BasePage):
                     self.run_card.page_nav.show()
             except Exception as e:
                 self.run_card.status_msg.setText(f"解析失败: {e}")
+            
+            self.run_card.path_display.setText(result_summary)
+            self.run_card.path_display.show()
+        else:
+            self.run_card.path_display.hide()
 
     def _update_table_view(self):
         """根据当前页码更新表格内容"""
