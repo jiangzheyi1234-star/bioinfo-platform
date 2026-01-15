@@ -43,16 +43,16 @@ class BlastWorker(QThread):
             rc, _, err = service.run(cmd, timeout=300)
             if rc != 0: raise Exception(err)
 
-            # 3. 下载
+            # 3. 下载 (修正参数名为 remote_path)
             self.progress.emit(" 正在同步分析结果至本地...")
-            service.download(remote_output, local_out_path)
+            service.download(remote_path=remote_output, local_path=local_out_path)
 
             # 4. 简单预解析用于解读
             interpretation = self._generate_interpretation(local_out_path)
 
-            self.finished.emit(True, "分析完成！结果已同步至本地。", local_out_path)
+            self.finished.emit(True, "分析完成！结果已同步至本地。", local_out_path, interpretation)
         except Exception as e:
-            self.finished.emit(False, f"流程异常: {str(e)}", "")
+            self.finished.emit(False, f"流程异常: {str(e)}", "", "")
 
     def _generate_interpretation(self, path):
         """简单的结果解读逻辑"""
