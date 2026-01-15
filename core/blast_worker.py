@@ -6,8 +6,8 @@ from core.ssh_service import SSHService
 from config import DEFAULT_CONFIG
 
 class BlastWorker(QThread):
-    # 信号：成功标志, 提示信息, 本地结果文件路径
-    finished = pyqtSignal(bool, str, str)
+    # 信号：成功标志, 提示信息, 本地结果文件路径, 解读信息
+    finished = pyqtSignal(bool, str, str, str)
     progress = pyqtSignal(str)
 
     def __init__(self, client_provider, local_fasta, db_path, task, blast_bin, local_out_dir=None):
@@ -50,6 +50,7 @@ class BlastWorker(QThread):
             # 4. 简单预解析用于解读
             interpretation = self._generate_interpretation(local_out_path)
 
+            # 发射4个参数
             self.finished.emit(True, "分析完成！结果已同步至本地。", local_out_path, interpretation)
         except Exception as e:
             self.finished.emit(False, f"流程异常: {str(e)}", "", "")
@@ -61,6 +62,8 @@ class BlastWorker(QThread):
                 line = f.readline()
                 if not line: return "未发现显著匹配项。"
                 cols = line.strip().split('\t')
-                return f"<b>最佳匹配：</b>{cols[1]}<br><b>一致性：</b>{cols[2]}%<br><b>E-value：</b>{cols[10]}"
+                # 生成紧凑的单行文本，避免HTML标签
+                subject_id = (cols[1][:30] + '..') if len(cols[1]) > 30 else cols[1]  # 限制subject ID长度
+                return f"最佳匹配: {subject_id}, 一致性: {cols[2]}%, E-value: {cols[10]}"
         except:
             return "结果解析失败。"

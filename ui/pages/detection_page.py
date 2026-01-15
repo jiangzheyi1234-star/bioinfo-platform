@@ -3,7 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QVBoxLayout, QWidget, QStackedWidget, QLabel,
-    QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog
+    QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog, QScrollArea
 )
 
 from ui.page_base import BasePage
@@ -136,29 +136,58 @@ class DetectionPage(BasePage):
         self.content_stack.addWidget(self.other_page)    # Index 2
 
     def _init_blast_workflow_ui(self):
-        """优化的三步走布局"""
-        layout = QVBoxLayout(self.blast_page)
-        layout.setSpacing(15)
+        """优化的三步走布局（带滚动条）"""
+        # 1. 创建主布局（依附于 self.blast_page）
+        main_layout = QVBoxLayout(self.blast_page)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # 2. 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True) # 让内容自适应宽度
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame) # 无边框
+        
+        # 3. 创建滚动区域内部的内容容器
+        content_widget = QWidget()
+        content_widget.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 10, 20, 20) # 留点边距
+        content_layout.setSpacing(15)
+
+        # --- 原有的布局逻辑开始 ---
 
         # 1 & 2 步横向
         top_row = QHBoxLayout()
         self.resource_card = BlastResourceCard(self.get_ssh_client)
         self.sample_card = BlastSampleCard()
+        
+        # 设置卡片的最小宽度，防止横向被压缩太厉害
+        self.resource_card.setMinimumWidth(380)
+        self.sample_card.setMinimumWidth(380)
+        
         top_row.addWidget(self.resource_card, 1)
         top_row.addWidget(self.sample_card, 1)
-        layout.addLayout(top_row)
+        content_layout.addLayout(top_row)
 
         # 3 步纵向
         self.run_card = BlastRunCard()
-        layout.addWidget(self.run_card, 2)
+        content_layout.addWidget(self.run_card)
 
-        # 信号绑定
+        # 增加一个弹簧，确保内容少时靠上对齐
+        content_layout.addStretch()
+
+        # --- 原有的布局逻辑结束 ---
+
+        # 4. 组装
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
+
+        # 信号绑定 (保持不变)
         self.resource_card.save_btn.clicked.connect(self._sync_status)
         self.sample_card.file_selected.connect(self._sync_status)
         self.run_card.run_btn.clicked.connect(self._on_start)
         self.run_card.browse_btn.clicked.connect(self._on_browse_output_dir)
         
-        # 绑定分页按钮事件
         self.run_card.prev_btn.clicked.connect(lambda: self._change_page(-1))
         self.run_card.next_btn.clicked.connect(lambda: self._change_page(1))
 
@@ -208,7 +237,7 @@ class DetectionPage(BasePage):
         self.run_card.pbar.setRange(0, 0) # 忙碌滚动
         self.worker.start()
 
-    def _handle_result(self, success, msg, local_path):
+    def _handle_result(self, success, msg, local_path, interpretation=None):
         """处理任务结束：解析数据并开启分页展示"""
         # --- 【关键改进】恢复步骤一和步骤二交互 ---
         self.resource_card.setEnabled(True)
@@ -226,11 +255,13 @@ class DetectionPage(BasePage):
                 with open(local_path, 'r', encoding='utf-8') as f:
                     self.all_data = [line.strip().split('\t') for line in f if line.strip()]
                 
-                # 自动解读 (Top Hit)
-                interpretation = "未发现显著匹配项。"
-                if self.all_data:
-                    top = self.all_data[0]
-                    interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。建议查看详细比对表。"
+                # 如果没有从worker获取到interpretation，则自动生成
+                if interpretation is None or interpretation == "":
+                    interpretation = "未发现显著匹配项。"
+                    if self.all_data:
+                        top = self.all_data[0]
+                        # 生成更紧凑的解读信息
+                        interpretation = f"最佳匹配: {top[1]}, 一致性: {top[2]}%, E-value: {top[10]}"
                 
                 self.current_page = 0
                 self._update_table_view()
