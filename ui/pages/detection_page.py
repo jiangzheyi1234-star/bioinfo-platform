@@ -90,26 +90,7 @@ class DetectionPage(BasePage):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # 样式：未选中时浅蓝色调，选中时蓝色高亮
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {styles.COLOR_BG_CARD_HIGHLIGHT};
-                border: 1px solid {styles.COLOR_BORDER_INPUT};
-                border-radius: 6px;
-                padding: 6px 20px;
-                color: {styles.COLOR_TEXT_SUB};
-                font-size: 13px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background-color: {styles.COLOR_BG_BUTTON_HOVER};
-                border-color: {styles.COLOR_PRIMARY};
-            }}
-            QPushButton:checked {{
-                background-color: {styles.COLOR_BG_BUTTON_CHECKED};
-                color: {styles.COLOR_TEXT_WHITE};
-                border-color: {styles.COLOR_PRIMARY};
-            }}
-        """)
+        btn.setStyleSheet(styles.BUTTON_NAV_TOGGLE)
         
         # 点击后直接切换堆栈窗口，无需返回键逻辑
         btn.clicked.connect(lambda: self.content_stack.setCurrentIndex(index))

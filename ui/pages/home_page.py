@@ -70,14 +70,7 @@ class HomePage(BasePage):
         btn.setCheckable(True)
         btn.setAutoExclusive(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {styles.COLOR_BG_CARD_HIGHLIGHT}; border: 1px solid {styles.COLOR_BORDER_INPUT}; border-radius: 6px;
-                padding: 6px 20px; color: {styles.COLOR_TEXT_SUB}; font-size: 13px; font-weight: 500;
-            }}
-            QPushButton:hover {{ background-color: {styles.COLOR_BG_BUTTON_HOVER}; border-color: {styles.COLOR_PRIMARY}; }}
-            QPushButton:checked {{ background-color: {styles.COLOR_BG_BUTTON_CHECKED}; color: {styles.COLOR_TEXT_WHITE}; border-color: {styles.COLOR_PRIMARY}; }}
-        """)
+        btn.setStyleSheet(styles.BUTTON_NAV_TOGGLE)
         btn.clicked.connect(lambda: self.content_stack.setCurrentIndex(index))
         self.nav_group.addButton(btn)
         return btn

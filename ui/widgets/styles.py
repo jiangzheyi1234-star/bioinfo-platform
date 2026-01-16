@@ -176,7 +176,27 @@ BUTTON_LINK = f"""
         text-decoration: none;
     }}
 """
-
+# 导航切换按钮 - 用于顶部模块导航
+BUTTON_NAV_TOGGLE = f"""
+    QPushButton {{
+        background-color: {COLOR_BG_CARD_HIGHLIGHT};
+        border: 1px solid {COLOR_BORDER_INPUT};
+        border-radius: {RADIUS_CTRL};
+        padding: 6px 20px;
+        color: {COLOR_TEXT_SUB};
+        font-size: 13px;
+        font-weight: 500;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_BG_BUTTON_HOVER};
+        border-color: {COLOR_PRIMARY};
+    }}
+    QPushButton:checked {{
+        background-color: {COLOR_BG_BUTTON_CHECKED};
+        color: {COLOR_TEXT_WHITE};
+        border-color: {COLOR_PRIMARY};
+    }}
+"""
 # 危险按钮 - 用于删除、移除等危险操作
 BUTTON_DANGER = _BTN_BASE + f"""
     QPushButton {{

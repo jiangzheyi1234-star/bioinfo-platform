@@ -125,11 +125,15 @@ class SshSettingsCard(QFrame):
 
         self._validate_inputs()
         self._in_edit_mode = True
-        self.modify_link.hide()
-
+        
         if server_ip and ssh_pwd:
             self.last_stable_config = {'ip': server_ip, 'user': ssh_user, 'pwd': ssh_pwd}
+            # 如果有有效的配置，进入锁定状态并显示修改按钮
+            self._lock_inputs()
             QTimer.singleShot(1000, self.try_auto_connect)
+        else:
+            # 如果没有配置，保持编辑状态并显示修改按钮
+            self._enable_editing()
 
     def get_values(self) -> dict:
         return {
@@ -179,10 +183,10 @@ class SshSettingsCard(QFrame):
         self.arrow_label.setStyleSheet("color: #90adca; font-size: 12px; border: none; background: transparent;")
 
         self.modify_link = QPushButton("修改")
-        self.modify_link.setFixedWidth(40)
+        self.modify_link.setFixedWidth(60)
         self.modify_link.setStyleSheet(BUTTON_LINK)
-        self.modify_link.clicked.connect(lambda checked=False: self._enable_editing())
-        self.modify_link.hide()
+        self.modify_link.clicked.connect(self._enable_editing)
+        # 修改按钮始终保持可见，不在初始化时隐藏
 
         header_layout.addWidget(self.ssh_title)
         header_layout.addStretch()
@@ -279,7 +283,7 @@ class SshSettingsCard(QFrame):
         if not self.server_ip.isEnabled():
             self.container.hide()
             self.arrow_label.setText("▼")
-            self.modify_link.show()
+            # 修改按钮始终保持可见，不需要在此处显式显示
 
     def _auto_fold_after_idle(self) -> None:
         if self.connected and (not self.server_ip.isEnabled()) and self.container.isVisible():
@@ -316,7 +320,7 @@ class SshSettingsCard(QFrame):
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
             w.setEnabled(False)
         self._in_edit_mode = False
-        self.modify_link.show()
+        self.modify_link.show()  # 修改按钮始终保持可见
 
     def _enable_editing(self) -> None:
         self.container.show()
@@ -324,7 +328,7 @@ class SshSettingsCard(QFrame):
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd]:
             w.setEnabled(True)
         self._in_edit_mode = True
-        self.modify_link.hide()
+        self.modify_link.show()  # 修改按钮始终保持可见，不隐藏
         self._validate_inputs()
         self._on_edit_changed()
 
