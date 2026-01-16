@@ -36,6 +36,10 @@ class DetectionPage(BasePage):
             return self.main_window.get_ssh_service()
         return None
 
+    def _set_settings_lock(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
+        if self.main_window and hasattr(self.main_window, "set_settings_locked"):
+            self.main_window.set_settings_locked(locked, reason)
+
     def _build_ui(self):
         # 页面整体布局参数
         self.layout.setContentsMargins(30, 15, 30, 20)
@@ -138,6 +142,7 @@ class DetectionPage(BasePage):
         self.sample_card.file_selected.connect(self._sync_status)
         self.run_card.run_btn.clicked.connect(self._on_start)
         self.run_card.browse_btn.clicked.connect(self._on_browse_output_dir)
+        self.resource_card.ssh_usage_changed.connect(self._set_settings_lock)
         
         # 绑定分页按钮事件
         self.run_card.prev_btn.clicked.connect(lambda: self._change_page(-1))
@@ -182,6 +187,7 @@ class DetectionPage(BasePage):
 
         self.worker.progress.connect(self.run_card.status_msg.setText)
         self.worker.finished.connect(self._handle_result)
+        self._set_settings_lock(True)
         
         self.run_card.run_btn.setEnabled(False)
         self.run_card.browse_btn.setEnabled(False)  # 运行时锁定目录选择
@@ -194,6 +200,7 @@ class DetectionPage(BasePage):
         # --- 【关键改进】恢复步骤一和步骤二交互 ---
         self.resource_card.setEnabled(True)
         self.sample_card.setEnabled(True)
+        self._set_settings_lock(False)
         
         self.run_card.show_loading(False)
         self.run_card.status_msg.setText(msg)

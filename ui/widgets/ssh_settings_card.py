@@ -94,6 +94,8 @@ class SshSettingsCard(QFrame):
         self.connected = False
         self._connecting = False
         self._in_edit_mode = False
+        self._external_lock = False
+        self._status_cache: Optional[tuple[str, str]] = None
 
         # timers
         self._auto_fold_timer = QTimer(self)
@@ -159,6 +161,22 @@ class SshSettingsCard(QFrame):
 
     def get_active_client(self):
         return self.active_client
+
+    def set_external_lock(self, locked: bool, reason: str = "SSH 正在使用中，设置已锁定") -> None:
+        if self._external_lock == locked:
+            return
+        self._external_lock = locked
+        if locked:
+            self._status_cache = (self.status_label.text(), self.status_label.styleSheet())
+            self.status_label.setText(reason)
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
+        else:
+            if self._status_cache:
+                text, style = self._status_cache
+                self.status_label.setText(text)
+                self.status_label.setStyleSheet(style)
+                self._status_cache = None
+        self._refresh_interaction_state()
 
     # -------------------------
     # Internal UI
@@ -322,8 +340,11 @@ class SshSettingsCard(QFrame):
         self._in_edit_mode = False
         self.modify_link.show()  # 修改按钮始终保持可见
         self.revert_btn.hide()  # 锁定时隐藏恢复按钮
+        self._refresh_interaction_state()
 
     def _enable_editing(self) -> None:
+        if self._external_lock:
+            return
         self.container.show()
         self.arrow_label.setText("▲")
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd]:
@@ -335,7 +356,7 @@ class SshSettingsCard(QFrame):
         self._on_edit_changed()
 
     def _on_connect_ssh(self) -> None:
-        if self._connecting:
+        if self._connecting or self._external_lock:
             return
 
         if self.active_client is not None:
@@ -411,6 +432,7 @@ class SshSettingsCard(QFrame):
             self._validate_inputs()
             if self.last_stable_config:
                 self.revert_btn.show()
+        self._refresh_interaction_state()
 
     def _revert_to_last_stable(self) -> None:
         if not self.last_stable_config:
@@ -450,12 +472,31 @@ class SshSettingsCard(QFrame):
             self.status_label.setStyleSheet(STATUS_ERROR)
             self.status_label.setText("连接已断开，正在重连…")
 
-            for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
-                w.setEnabled(True)
-            self._validate_inputs()
+            self._in_edit_mode = True
+            self._refresh_interaction_state()
 
             if self.connect_btn.isEnabled():
                 self._on_connect_ssh()
             # 显示恢复按钮以便用户可以选择恢复到最后的稳定配置
             if self.last_stable_config:
                 self.revert_btn.show()
+
+    def _refresh_interaction_state(self) -> None:
+        if self._external_lock:
+            for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn, self.modify_link, self.revert_btn]:
+                w.setEnabled(False)
+            return
+
+        self.modify_link.setEnabled(True)
+        if self._in_edit_mode:
+            for w in [self.server_ip, self.ssh_user, self.ssh_pwd]:
+                w.setEnabled(True)
+            self._validate_inputs()
+        else:
+            for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
+                w.setEnabled(False)
+
+        if self._connecting:
+            self.connect_btn.setEnabled(False)
+        if self.revert_btn.isVisible():
+            self.revert_btn.setEnabled(True)

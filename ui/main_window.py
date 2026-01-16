@@ -55,3 +55,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'settings_page') and self.settings_page:
             return self.settings_page.get_active_client()
         return None
+
+    def set_settings_locked(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
+        if hasattr(self, 'settings_page') and self.settings_page:
+            self.settings_page.set_global_lock(locked, reason)

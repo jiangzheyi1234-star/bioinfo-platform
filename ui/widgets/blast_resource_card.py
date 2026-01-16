@@ -104,6 +104,8 @@ class ResourceVerifyWorker(QThread):
             self.finished.emit(False, f"校验出错: {str(e)}")
 
 class BlastResourceCard(QFrame):
+    ssh_usage_changed = pyqtSignal(bool)
+
     def __init__(self, get_client_func, parent=None):
         super().__init__(parent)
         self.setObjectName("BlastResourceCard")
@@ -195,6 +197,7 @@ class BlastResourceCard(QFrame):
 
         self._set_locked(True)
         self.status_label.setText("正在保存...")
+        self.ssh_usage_changed.emit(True)
 
         self._worker = ResourceVerifyWorker(self.get_client, db_path)
         self._worker.finished.connect(self._on_finished)
@@ -204,6 +207,7 @@ class BlastResourceCard(QFrame):
         self._set_locked(False)
         self.status_label.setText(msg)
         self.status_label.setStyleSheet(styles.STATUS_SUCCESS if success else styles.STATUS_ERROR)
+        self.ssh_usage_changed.emit(False)
 
     def _set_locked(self, locked):
         self.save_btn.setEnabled(not locked)

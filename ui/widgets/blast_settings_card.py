@@ -151,6 +151,7 @@ class BlastSettingsCard(QFrame):
         # 状态标志
         self._in_edit_mode = True
         self._verifying = False
+        self._external_lock = False
 
         # 定时器
         self._auto_fold_timer = QTimer(self)
@@ -162,6 +163,12 @@ class BlastSettingsCard(QFrame):
 
         # 初始化状态 - 默认锁定状态，显示修改按钮
         self._lock_inputs()
+
+    def set_external_lock(self, locked: bool) -> None:
+        if self._external_lock == locked:
+            return
+        self._external_lock = locked
+        self._refresh_interaction_state()
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -273,7 +280,7 @@ class BlastSettingsCard(QFrame):
 
     def _toggle_container(self):
         """折叠/展开"""
-        if self._verifying:
+        if self._verifying or self._external_lock:
             return
         visible = self.container.isVisible()
         self.container.setVisible(not visible)
@@ -291,6 +298,8 @@ class BlastSettingsCard(QFrame):
 
     def _enable_editing(self):
         """进入编辑模式：解锁输入框，修改按钮保持可见，显示保存按钮"""
+        if self._external_lock:
+            return
         self.container.show()
         self.arrow_label.setText("▲")
 
@@ -320,7 +329,7 @@ class BlastSettingsCard(QFrame):
 
     def _on_input_changed(self):
         # 如果正在验证中，禁止改变按钮状态
-        if self._verifying:
+        if self._verifying or self._external_lock:
             return
 
         if self._in_edit_mode:
@@ -330,7 +339,7 @@ class BlastSettingsCard(QFrame):
 
     def _start_verification(self):
         # 防止重复启动：如果正在验证，直接返回
-        if self._verifying:
+        if self._verifying or self._external_lock:
             return
 
         client = self.get_ssh_client()
@@ -407,3 +416,31 @@ class BlastSettingsCard(QFrame):
             self.save_btn.setText("验证并保存")
             self.status_label.setText(message)
             self.status_label.setStyleSheet(styles.STATUS_ERROR)
+        self._refresh_interaction_state()
+
+    def _refresh_interaction_state(self):
+        if self._external_lock:
+            for w in [
+                self.db_path_input,
+                self.bin_path_input,
+                self.remote_dir_input,
+                self.modify_btn,
+                self.save_btn,
+            ]:
+                w.setEnabled(False)
+            return
+
+        if self._verifying:
+            return
+
+        if self._in_edit_mode:
+            self.db_path_input.setEnabled(True)
+            self.bin_path_input.setEnabled(True)
+            self.remote_dir_input.setEnabled(True)
+            self.save_btn.setEnabled(True)
+            self.modify_btn.setEnabled(True)
+        else:
+            self.db_path_input.setEnabled(False)
+            self.bin_path_input.setEnabled(False)
+            self.remote_dir_input.setEnabled(False)
+            self.modify_btn.setEnabled(True)

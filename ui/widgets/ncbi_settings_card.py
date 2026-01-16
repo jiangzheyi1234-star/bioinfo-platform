@@ -29,6 +29,7 @@ class NcbiSettingsCard(QFrame):
         super().__init__(parent)
         self.setObjectName("NCBICard")
         self._in_edit_mode = False
+        self._external_lock = False
 
         self._build_ui()
         self._lock_inputs()
@@ -51,6 +52,17 @@ class NcbiSettingsCard(QFrame):
             self._lock_inputs()
         else:
             self._unlock_inputs()
+
+    def set_external_lock(self, locked: bool) -> None:
+        if self._external_lock == locked:
+            return
+        self._external_lock = locked
+        if locked:
+            self.status_label.setText("系统设置已锁定")
+            for w in [self.ncbi_api_key, self.modify_btn, self.save_btn]:
+                w.setEnabled(False)
+        else:
+            self.lock_if_needed()
 
     # -------------------------
     # Internal UI
@@ -128,6 +140,8 @@ class NcbiSettingsCard(QFrame):
             self.status_label.setText("状态：未配置 API Key")
 
     def _unlock_inputs(self) -> None:
+        if self._external_lock:
+            return
         self.ncbi_api_key.setEnabled(True)
         self._in_edit_mode = True
         self.modify_btn.hide()

@@ -71,6 +71,11 @@ class SettingsPage(BasePage):
     def get_active_client(self):
         return self.ssh_card.get_active_client()
 
+    def set_global_lock(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
+        self.ssh_card.set_external_lock(locked, reason)
+        self.blast_card.set_external_lock(locked)
+        self.ncbi_card.set_external_lock(locked)
+
     # -------------------------
     # Config IO：标准化读写 + 组件同步
     # -------------------------

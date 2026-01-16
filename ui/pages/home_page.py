@@ -23,6 +23,10 @@ class HomePage(BasePage):
     def get_ssh_client(self):
         return self.main_window.get_ssh_service() if self.main_window else None
 
+    def _set_settings_lock(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
+        if self.main_window and hasattr(self.main_window, "set_settings_locked"):
+            self.main_window.set_settings_locked(locked, reason)
+
     def _build_ui(self):
         """完全参考 DetectionPage 的结构"""
         self.layout.setContentsMargins(30, 15, 30, 20)
@@ -358,6 +362,7 @@ class HomePage(BasePage):
         self.worker = DbBuilderWorker(self.get_ssh_client, local_fasta, db_name)
         self.worker.progress.connect(self.status_label.setText)
         self.worker.finished.connect(self._on_build_finished)
+        self._set_settings_lock(True)
         
         self.pbar.show()
         self.pbar.setRange(0, 0)
@@ -369,6 +374,7 @@ class HomePage(BasePage):
         self.card_name.setEnabled(True)
         self.run_btn.setEnabled(True)
         self.pbar.hide()
+        self._set_settings_lock(False)
         
         self.status_label.setText(msg)
         if success:
