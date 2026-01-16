@@ -48,9 +48,9 @@ class BlastWorker(QThread):
             rc, _, err = service.run(cmd, timeout=300)
             if rc != 0: raise Exception(err)
 
-            # 3. 下载 (修正参数名为 remote_path)
+            # 3. 下载 (使用位置参数)
             self.progress.emit(" 正在同步分析结果至本地...")
-            service.download(remote_path=remote_output, local_path=local_out_path)
+            service.download(remote_output, local_out_path)
 
             # 4. 简单预解析用于解读
             interpretation = self._generate_interpretation(local_out_path)

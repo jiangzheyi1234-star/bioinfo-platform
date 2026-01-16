@@ -33,7 +33,7 @@ class DbBuilderWorker(QThread):
 
             # 2. 上传文件
             self.progress.emit(" 正在上传序列文件...")
-            service.upload(self.local_fasta,  remote_path=remote_fasta)
+            service.upload(self.local_fasta, remote_fasta)
 
             # 3. 执行建库命令
             self.progress.emit("️ 正在服务器上构建索引 (makeblastdb)...")

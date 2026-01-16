@@ -34,10 +34,16 @@ class SSHService:
         return client.open_sftp()
 
     def upload(self, local_path: str, remote_path: str) -> None:
-        with self.sftp() as s:
-            s.put(local_path, remote_path)
+        sftp_client = self.sftp()
+        try:
+            sftp_client.put(local_path, remote_path)
+        finally:
+            sftp_client.close()
 
     def download(self, remote_path: str, local_path: str) -> None:
-        with self.sftp() as s:
-            s.get(remote_path, local_path)
+        sftp_client = self.sftp()
+        try:
+            sftp_client.get(remote_path, local_path)
+        finally:
+            sftp_client.close()
 

@@ -321,6 +321,7 @@ class SshSettingsCard(QFrame):
             w.setEnabled(False)
         self._in_edit_mode = False
         self.modify_link.show()  # 修改按钮始终保持可见
+        self.revert_btn.hide()  # 锁定时隐藏恢复按钮
 
     def _enable_editing(self) -> None:
         self.container.show()
@@ -329,6 +330,7 @@ class SshSettingsCard(QFrame):
             w.setEnabled(True)
         self._in_edit_mode = True
         self.modify_link.show()  # 修改按钮始终保持可见，不隐藏
+        self.revert_btn.hide()  # 编辑时隐藏恢复按钮
         self._validate_inputs()
         self._on_edit_changed()
 
@@ -353,21 +355,41 @@ class SshSettingsCard(QFrame):
         if self._edit_idle_timer.isActive():
             self._edit_idle_timer.stop()
 
-        self._ssh_thread = QThread(self)
-        self._ssh_worker = SSHWorker(self.server_ip.text(), self.ssh_user.text(), self.ssh_pwd.text())
-        self._ssh_worker.moveToThread(self._ssh_thread)
+        # 创建新的线程和工作对象
+        ssh_thread = QThread(self)
+        ssh_worker = SSHWorker(self.server_ip.text(), self.ssh_user.text(), self.ssh_pwd.text())
+        ssh_worker.moveToThread(ssh_thread)
 
-        self._ssh_thread.started.connect(self._ssh_worker.run)
-        self._ssh_worker.finished.connect(self._on_connect_finished)
-        self._ssh_worker.finished.connect(lambda ok, msg, client: self._ssh_thread.quit())
-        self._ssh_worker.finished.connect(lambda ok, msg, client: self._ssh_worker.deleteLater())
-        self._ssh_thread.finished.connect(self._ssh_thread.deleteLater)
+        # 连接信号
+        ssh_thread.started.connect(ssh_worker.run)
+        ssh_worker.finished.connect(self._on_connect_finished)
+        
+        # 独立的清理函数
+        def cleanup_resources():
+            ssh_worker.deleteLater()
+            ssh_thread.quit()
+            ssh_thread.wait()
+            ssh_thread.deleteLater()
+        
+        # 连接清理函数到finished信号
+        ssh_worker.finished.connect(cleanup_resources)
 
-        self._ssh_thread.start()
+        # 启动线程
+        ssh_thread.start()
+        
+        # 临时存储引用以备不时之需
+        self._temp_thread = ssh_thread
+        self._temp_worker = ssh_worker
 
     def _on_connect_finished(self, success: bool, msg: str, client: object) -> None:
         self._connecting = False
         self.status_label.setText(msg)
+
+        # 清理临时引用
+        if hasattr(self, '_temp_thread'):
+            delattr(self, '_temp_thread')
+        if hasattr(self, '_temp_worker'):
+            delattr(self, '_temp_worker')
 
         if success:
             self.active_client = client
@@ -380,6 +402,7 @@ class SshSettingsCard(QFrame):
             self.connected = True
             self.connection_state_changed.emit(True)
             self._lock_inputs()
+            self.revert_btn.hide()  # 连接成功后隐藏恢复按钮
             QTimer.singleShot(1500, self._auto_fold)
         else:
             self.status_label.setStyleSheet(STATUS_ERROR)
@@ -433,3 +456,6 @@ class SshSettingsCard(QFrame):
 
             if self.connect_btn.isEnabled():
                 self._on_connect_ssh()
+            # 显示恢复按钮以便用户可以选择恢复到最后的稳定配置
+            if self.last_stable_config:
+                self.revert_btn.show()
