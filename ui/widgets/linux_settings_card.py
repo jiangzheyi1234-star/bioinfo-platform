@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
@@ -132,13 +133,52 @@ class LinuxSettingsCard(QFrame):
         self._in_edit_mode = False  # 添加编辑模式标志
         self._external_lock = False  # 添加外部锁定标志
 
+        # 定义配置文件路径（保存在 roaming 目录中）
+        self.config_dir = os.path.join(os.getenv('APPDATA'), "H2OMeta")
+        self.config_path = os.path.join(self.config_dir, "linux_config.json")
+        os.makedirs(self.config_dir, exist_ok=True)  # 确保目录存在
+
         # 自动折叠定时器
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
         self._auto_fold_timer.timeout.connect(self._auto_fold)
 
         self._build_ui()
+        self._load_saved_config()  # 加载之前保存的配置
         self._lock_inputs()  # 默认锁定状态
+
+    def _load_saved_config(self):
+        """从 roaming 目录加载之前保存的配置"""
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                # 从保存的配置中恢复项目路径
+                saved_path = data.get("linux_project_path", "")
+                if saved_path:
+                    self.linux_project_path.setText(saved_path)
+                    logging.info(f"从配置文件加载项目路径: {saved_path}")
+            except Exception as e:
+                logging.error(f"加载配置失败: {e}")
+        else:
+            logging.info(f"配置文件不存在: {self.config_path}")
+
+    def _save_config(self, project_path: str, conda_env: str = ""):
+        """保存配置到 roaming 目录"""
+        try:
+            # 确保目录存在
+            os.makedirs(self.config_dir, exist_ok=True)
+            # 创建配置数据
+            config_data = {
+                "linux_project_path": project_path,
+                "conda_env_path": conda_env
+            }
+            # 保存到 roaming 目录
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, ensure_ascii=False, indent=2)
+            logging.info(f"配置已保存到: {self.config_path}")
+        except Exception as e:
+            logging.error(f"保存配置失败: {e}")
 
     def _build_ui(self) -> None:
         self.setStyleSheet(CARD_FRAME("LinuxSettingsCard"))
@@ -346,6 +386,9 @@ class LinuxSettingsCard(QFrame):
             cmd = f"mkdir -p {project_path}/config && echo -e '{config_content}' > {project_path}/config/config.env"
             self.active_client.exec_command(cmd)
 
+            # 保存配置到 roaming 目录
+            self._save_config(project_path, env_path)
+
             self._is_locked = True
             self.linux_project_path.setEnabled(False)
             self.conda_combo.setEnabled(False)
@@ -368,9 +411,28 @@ class LinuxSettingsCard(QFrame):
         }
 
     def set_values(self, project_path: str = "", conda_env: str = "") -> None:
-        """供 SettingsPage 回填数据。"""
-        self.linux_project_path.setText(project_path)
+        """供 SettingsPage 回填数据。
+        注意：优先使用本地保存的配置，而不是从 SettingsPage 传递过来的值
+        """
+        # 首先尝试从本地配置加载，如果本地配置存在则使用它
+        local_project_path = self._get_local_saved_path()
+        if local_project_path:
+            self.linux_project_path.setText(local_project_path)
+        elif project_path:  # 只有在没有本地配置时才使用 SettingsPage 传递的值
+            self.linux_project_path.setText(project_path)
         # Conda 环境由于涉及远程获取，通常在连接后由用户选择或自动匹配
+
+    def _get_local_saved_path(self) -> str:
+        """获取本地保存的项目路径"""
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data.get("linux_project_path", "")
+            except Exception as e:
+                logging.error(f"读取本地配置失败: {e}")
+                return ""
+        return ""
 
     def _toggle_container(self):
         """折叠/展开"""
