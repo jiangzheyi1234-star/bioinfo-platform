@@ -1,12 +1,12 @@
 import json
 import os
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtWidgets import QLabel, QPushButton, QScrollArea, QWidget, QVBoxLayout, QFrame
 
 from config import DEFAULT_CONFIG
 from ui.page_base import BasePage
 from ui.widgets import SshSettingsCard, NcbiSettingsCard, BlastSettingsCard, LinuxSettingsCard
-from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS, COLOR_BG_APP
+from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS, COLOR_BG_APP, SCROLL_BAR_ELEGANT
 
 class SettingsPage(BasePage):
     def __init__(self):
@@ -30,15 +30,39 @@ class SettingsPage(BasePage):
     # UI 构建：调度员
     # -------------------------
     def init_ui(self):
-        """调度员：只负责页面整体参数与模块调用顺序，不写任何卡片细节。"""
+        """重构调度员：引入滚动机制"""
         self.layout.setContentsMargins(40, 30, 40, 30)
-        self.layout.setSpacing(25)
+        self.layout.setSpacing(20)
 
+        # 1. 初始化页面标题 (保持在滚动区域上方，固定不动)
         self._init_header()
-        self._init_cards()
-        self._init_save_area()
 
-        self.layout.addStretch()
+        # 2. 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True) # 关键：让内部组件随滚动区域缩放
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame) # 去掉滚动区域边框
+        scroll_area.setStyleSheet("background-color: transparent;") # 保持透明背景
+
+        # 应用优雅的滚动条样式
+        scroll_area.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
+
+        # 3. 创建容器 Widget
+        self.scroll_content = QWidget()
+        self.scroll_content.setStyleSheet("background-color: transparent;")
+        
+        # 4. 创建内部滚动布局
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setContentsMargins(0, 0, 10, 0) # 留出一点右边距给滚动条
+        self.scroll_layout.setSpacing(25) # 卡片间距
+
+        # 5. 将卡片加入滚动布局
+        self._init_cards()
+
+        # 6. 完成装配
+        scroll_area.setWidget(self.scroll_content)
+        self.layout.addWidget(scroll_area) # 将滚动区域加入页面主布局
+
+        self._init_save_area()
 
     def _init_header(self):
         header_title = QLabel("系统设置")
@@ -48,26 +72,31 @@ class SettingsPage(BasePage):
     def _init_cards(self):
         # SSH 卡片
         self.ssh_card = SshSettingsCard()
-        self.layout.addWidget(self.ssh_card)
+        self.scroll_layout.addWidget(self.ssh_card) # 关键：使用 scroll_layout
 
-         # Linux 设置卡片
+        # Linux 设置卡片 (你新创建的)
         self.linux_card = LinuxSettingsCard()
-        self.layout.addWidget(self.linux_card)
+        self.scroll_layout.addWidget(self.linux_card)
 
-        # BLAST 数据库设置卡片 (新增)
-        # 传入 ssh_card 的 get_active_client 方法，以便它可以调用 SSH 进行验证
+        # BLAST 数据库设置卡片
         self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client)
-        self.blast_card.request_save.connect(self.save_config)  # 连接保存信号
-        self.layout.addWidget(self.blast_card)
+        self.blast_card.request_save.connect(self.save_config)
+        self.scroll_layout.addWidget(self.blast_card)
 
         # NCBI 卡片
         self.ncbi_card = NcbiSettingsCard()
         self.ncbi_card.request_save.connect(self._save_ncbi_config)
-        self.layout.addWidget(self.ncbi_card)
+        self.scroll_layout.addWidget(self.ncbi_card)
 
-        # --- 核心联动：SSH 连接成功后，自动把 Client 传给 Linux 卡片 ---
-        self.ssh_card.connection_state_changed.connect(self._on_ssh_state_changed)
-       
+        # 在滚动布局底部添加弹簧，确保卡片靠上排列
+        self.scroll_layout.addStretch()
+        
+        # 建立 SSH 与 Linux 配置的联动
+        self.ssh_card.connection_state_changed.connect(
+            lambda connected: self.linux_card.set_active_client(
+                self.ssh_card.get_active_client() if connected else None
+            )
+        )
 
     def _init_save_area(self):
         # 移除单独的保存按钮，因为现在保存功能集成在BLAST设置卡片中

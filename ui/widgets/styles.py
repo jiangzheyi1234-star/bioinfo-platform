@@ -299,3 +299,32 @@ PROGRESS_BAR = f"""
         border-radius: 3px;
     }}
 """
+
+# --- 滚动条样式 ---
+SCROLL_BAR_ELEGANT = f"""
+    QScrollBar:vertical {{
+        border: none;
+        background: transparent;
+        width: 8px;
+        margin: 0px 0px 0px 0px;
+    }}
+    /* 滑块主体 */
+    QScrollBar::handle:vertical {{
+        background: {COLOR_BORDER_INPUT}; /* 使用淡蓝色，与输入框边框一致 */
+        border-radius: 4px;
+        min-height: 30px;
+    }}
+    /* 悬停时颜色加深 */
+    QScrollBar::handle:vertical:hover {{
+        background: {COLOR_PRIMARY}; /* 悬停时变为品牌主色调 #1890ff */
+    }}
+    /* 隐藏顶部和底部的箭头按钮 */
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0px;
+        background: none;
+    }}
+    /* 隐藏滑块上方和下方的轨道背景 */
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+        background: none;
+    }}
+"""
