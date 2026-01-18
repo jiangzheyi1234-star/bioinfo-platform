@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
@@ -112,6 +111,57 @@ class EnvFetchWorker(QObject):
             self.finished.emit(False, [], str(e))
 
 
+class ConfigVerifyWorker(QObject):
+    """验证 Linux 项目配置的 Worker"""
+    finished = pyqtSignal(bool, str)  # 成功标志, 消息
+
+    def __init__(self, client, project_path: str, conda_env_path: str):
+        super().__init__()
+        self.client = client
+        self.project_path = project_path
+        self.conda_env_path = conda_env_path
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            logging.info(f"开始验证配置: 项目路径={self.project_path}, Conda环境={self.conda_env_path}")
+
+            # 验证项目路径是否存在
+            cmd = f"test -d '{self.project_path}' && echo 'EXISTS' || echo 'NOT_EXISTS'"
+            stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
+            result = stdout.read().decode('utf-8', errors='ignore').strip()
+
+            if 'NOT_EXISTS' in result:
+                self.finished.emit(False, "项目路径不存在")
+                return
+
+            # 验证 conda 环境是否存在
+            cmd = f"test -d '{self.conda_env_path}' && echo 'EXISTS' || echo 'NOT_EXISTS'"
+            stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
+            result = stdout.read().decode('utf-8', errors='ignore').strip()
+
+            if 'NOT_EXISTS' in result:
+                self.finished.emit(False, "Conda 环境不存在")
+                return
+
+            # 验证 conda 环境中是否有 python
+            python_path = f"{self.conda_env_path}/bin/python"
+            cmd = f"test -f '{python_path}' && echo 'EXISTS' || echo 'NOT_EXISTS'"
+            stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
+            result = stdout.read().decode('utf-8', errors='ignore').strip()
+
+            if 'NOT_EXISTS' in result:
+                self.finished.emit(False, "Conda 环境无效(缺少python)")
+                return
+
+            logging.info("配置验证成功")
+            self.finished.emit(True, "验证成功")
+
+        except Exception as e:
+            logging.error(f"验证配置时发生异常: {str(e)}")
+            self.finished.emit(False, str(e))
+
+
 class LinuxSettingsCard(QFrame):
     """Linux 项目与运行环境配置卡片。
     
@@ -133,10 +183,10 @@ class LinuxSettingsCard(QFrame):
         self._in_edit_mode = False  # 添加编辑模式标志
         self._external_lock = False  # 添加外部锁定标志
 
-        # 定义配置文件路径（保存在 roaming 目录中）
-        self.config_dir = os.path.join(os.getenv('APPDATA'), "H2OMeta")
-        self.config_path = os.path.join(self.config_dir, "linux_config.json")
-        os.makedirs(self.config_dir, exist_ok=True)  # 确保目录存在
+        # 配置恢复相关
+        self._pending_conda_env = ""  # 待恢复的 conda 环境路径
+        self._pending_conda_env_name = ""  # 待恢复的 conda 环境名称
+        self._needs_auto_verify = False  # 是否需要自动验证
 
         # 自动折叠定时器
         self._auto_fold_timer = QTimer(self)
@@ -144,41 +194,7 @@ class LinuxSettingsCard(QFrame):
         self._auto_fold_timer.timeout.connect(self._auto_fold)
 
         self._build_ui()
-        self._load_saved_config()  # 加载之前保存的配置
         self._lock_inputs()  # 默认锁定状态
-
-    def _load_saved_config(self):
-        """从 roaming 目录加载之前保存的配置"""
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                # 从保存的配置中恢复项目路径
-                saved_path = data.get("linux_project_path", "")
-                if saved_path:
-                    self.linux_project_path.setText(saved_path)
-                    logging.info(f"从配置文件加载项目路径: {saved_path}")
-            except Exception as e:
-                logging.error(f"加载配置失败: {e}")
-        else:
-            logging.info(f"配置文件不存在: {self.config_path}")
-
-    def _save_config(self, project_path: str, conda_env: str = ""):
-        """保存配置到 roaming 目录"""
-        try:
-            # 确保目录存在
-            os.makedirs(self.config_dir, exist_ok=True)
-            # 创建配置数据
-            config_data = {
-                "linux_project_path": project_path,
-                "conda_env_path": conda_env
-            }
-            # 保存到 roaming 目录
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json.dump(config_data, f, ensure_ascii=False, indent=2)
-            logging.info(f"配置已保存到: {self.config_path}")
-        except Exception as e:
-            logging.error(f"保存配置失败: {e}")
 
     def _build_ui(self) -> None:
         self.setStyleSheet(CARD_FRAME("LinuxSettingsCard"))
@@ -273,11 +289,100 @@ class LinuxSettingsCard(QFrame):
         if connected:
             self.status_label.setText("SSH 已就绪")
             self.status_label.setStyleSheet(STATUS_SUCCESS)
+
+            # 如果有待验证的配置，自动执行验证
+            if self._needs_auto_verify and self._pending_conda_env:
+                QTimer.singleShot(500, self._auto_verify_config)
         else:
             self.status_label.setText("等待 SSH 连接")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
             self.conda_combo.clear()
             self.conda_combo.setEnabled(False)
+
+    def _auto_verify_config(self) -> None:
+        """自动验证已保存的配置，验证成功后锁定并折叠"""
+        if not self.active_client or not self._pending_conda_env:
+            return
+
+        self.status_label.setText("正在验证配置...")
+        self.status_label.setStyleSheet(STATUS_NEUTRAL)
+
+        # 创建验证线程
+        self._verify_thread = QThread()
+        self._verify_worker = ConfigVerifyWorker(
+            self.active_client,
+            self.linux_project_path.text().strip(),
+            self._pending_conda_env
+        )
+        self._verify_worker.moveToThread(self._verify_thread)
+
+        self._verify_thread.started.connect(self._verify_worker.run)
+        self._verify_worker.finished.connect(self._on_verify_finished)
+        self._verify_worker.finished.connect(self._cleanup_verify_resources)
+
+        self._verify_thread.start()
+
+    def _cleanup_verify_resources(self):
+        """清理验证线程资源"""
+        if hasattr(self, '_verify_thread') and self._verify_thread:
+            if self._verify_thread.isRunning():
+                self._verify_thread.quit()
+                self._verify_thread.wait(5000)
+            self._verify_thread.deleteLater()
+            try:
+                delattr(self, '_verify_thread')
+            except AttributeError:
+                pass
+
+        if hasattr(self, '_verify_worker') and self._verify_worker:
+            self._verify_worker.deleteLater()
+            try:
+                delattr(self, '_verify_worker')
+            except AttributeError:
+                pass
+
+    def _on_verify_finished(self, success: bool, message: str) -> None:
+        """配置验证完成回调"""
+        self._needs_auto_verify = False
+
+        if success:
+            # 验证成功，确保 conda 环境正确显示在下拉框中
+            if self._pending_conda_env:
+                # 检查下拉框中是否已有该项
+                found_index = -1
+                for i in range(self.conda_combo.count()):
+                    if self.conda_combo.itemData(i) == self._pending_conda_env:
+                        found_index = i
+                        break
+
+                if found_index >= 0:
+                    self.conda_combo.setCurrentIndex(found_index)
+                else:
+                    # 如果没有找到，添加它
+                    self.conda_combo.clear()
+                    self.conda_combo.addItem(self._pending_conda_env_name, self._pending_conda_env)
+                    self.conda_combo.setCurrentIndex(0)
+
+            # 自动锁定
+            self._is_locked = True
+            self.linux_project_path.setEnabled(False)
+            self.conda_combo.setEnabled(False)
+            self.fetch_btn.setEnabled(False)
+            self.lock_btn.setText("修改配置")
+
+            self.status_label.setText("配置验证成功")
+            self.status_label.setStyleSheet(STATUS_SUCCESS)
+
+            # 自动折叠（延迟执行，给用户看到成功状态）
+            self._auto_fold_timer.start(1500)
+        else:
+            # 验证失败，保持展开状态让用户修改
+            self.status_label.setText(f"验证失败: {message}")
+            self.status_label.setStyleSheet(STATUS_ERROR)
+            self.conda_combo.setEnabled(True)
+            self.fetch_btn.setEnabled(True)
+            self._pending_conda_env = ""
+            self._pending_conda_env_name = ""
 
     def _on_fetch_envs(self) -> None:
         """执行远程命令获取 Conda 环境列表。"""
@@ -386,9 +491,6 @@ class LinuxSettingsCard(QFrame):
             cmd = f"mkdir -p {project_path}/config && echo -e '{config_content}' > {project_path}/config/config.env"
             self.active_client.exec_command(cmd)
 
-            # 保存配置到 roaming 目录
-            self._save_config(project_path, env_path)
-
             self._is_locked = True
             self.linux_project_path.setEnabled(False)
             self.conda_combo.setEnabled(False)
@@ -407,32 +509,26 @@ class LinuxSettingsCard(QFrame):
         return {
             "linux_project_path": self.linux_project_path.text().strip(),
             "conda_env_path": self.conda_combo.currentData() or "",
+            "conda_env_name": self.conda_combo.currentText() or "",  # 保存显示名称
             "is_locked": self._is_locked
         }
 
-    def set_values(self, project_path: str = "", conda_env: str = "") -> None:
-        """供 SettingsPage 回填数据。
-        注意：优先使用本地保存的配置，而不是从 SettingsPage 传递过来的值
-        """
-        # 首先尝试从本地配置加载，如果本地配置存在则使用它
-        local_project_path = self._get_local_saved_path()
-        if local_project_path:
-            self.linux_project_path.setText(local_project_path)
-        elif project_path:  # 只有在没有本地配置时才使用 SettingsPage 传递的值
-            self.linux_project_path.setText(project_path)
-        # Conda 环境由于涉及远程获取，通常在连接后由用户选择或自动匹配
+    def set_values(self, project_path: str = "", conda_env: str = "", conda_env_name: str = "") -> None:
+        """供 SettingsPage 回填数据。"""
+        self.linux_project_path.setText(project_path)
+        # 保存待恢复的 conda 环境配置
+        self._pending_conda_env = conda_env
+        self._pending_conda_env_name = conda_env_name or (conda_env.split('/')[-1] if conda_env else "")
 
-    def _get_local_saved_path(self) -> str:
-        """获取本地保存的项目路径"""
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                return data.get("linux_project_path", "")
-            except Exception as e:
-                logging.error(f"读取本地配置失败: {e}")
-                return ""
-        return ""
+        # 如果已有 conda 环境配置，先添加一个占位项显示
+        if conda_env and self._pending_conda_env_name:
+            self.conda_combo.clear()
+            self.conda_combo.addItem(self._pending_conda_env_name, conda_env)
+            self.conda_combo.setCurrentIndex(0)
+            self.conda_combo.setEnabled(False)  # 等待验证后启用
+
+        # 标记需要自动验证
+        self._needs_auto_verify = bool(project_path and conda_env)
 
     def _toggle_container(self):
         """折叠/展开"""

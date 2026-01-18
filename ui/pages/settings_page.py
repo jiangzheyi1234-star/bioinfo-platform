@@ -76,6 +76,7 @@ class SettingsPage(BasePage):
 
         # Linux 设置卡片 (你新创建的)
         self.linux_card = LinuxSettingsCard()
+        self.linux_card.request_save.connect(self.save_config)  # 连接保存信号
         self.scroll_layout.addWidget(self.linux_card)
 
         # BLAST 数据库设置卡片
@@ -143,6 +144,9 @@ class SettingsPage(BasePage):
             "remote_db": DEFAULT_CONFIG.get("remote_db", ""), # 新增项
             "blast_bin": DEFAULT_CONFIG.get("blast_bin", ""), # 新增项
             "remote_dir": DEFAULT_CONFIG.get("remote_dir", ""), # 新增
+            "linux_project_path": "", # 添加 Linux 项目路径
+            "conda_env_path": "", # 添加 Conda 环境路径
+            "conda_env_name": "", # 添加 Conda 环境显示名称
         }
 
     def _load_config_merged(self) -> dict:
@@ -160,7 +164,8 @@ class SettingsPage(BasePage):
         # 为 Linux 卡片设置初始值
         self.linux_card.set_values(
             project_path=str(merged.get("linux_project_path", "") or ""),
-            conda_env=str(merged.get("conda_env_path", "") or "")
+            conda_env=str(merged.get("conda_env_path", "") or ""),
+            conda_env_name=str(merged.get("conda_env_name", "") or "")
         )
         self.blast_card.set_values(
             remote_db=str(merged.get("remote_db", "") or ""),
