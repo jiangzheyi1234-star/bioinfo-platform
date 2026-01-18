@@ -121,7 +121,7 @@ class AccessionWorker(QThread):
                 for index, row in df.iterrows():
                     if self.isInterruptionRequested(): 
                         self.progress_msg.emit("操作已被取消")
-                        return  # 提前结束，而不是仅仅break
+                        return
 
                     # 获取目标列数据
                     val = row[self.target_col]
@@ -137,22 +137,19 @@ class AccessionWorker(QThread):
                     if link: df.at[index, "NCBI_Link"] = link
                     if acc: df.at[index, "NCBI_Accession"] = acc
 
-                    # 计算整体进度 (处理过的sheet + 当前sheet内的进度)
+                    # 计算整体进度
                     overall_progress = int(((processed_count + (index + 1) / total_rows) / total_sheets) * 100)
                     self.progress_val.emit(overall_progress)
                     
-                    # 频率控制 (无 Key 时限流，避免被 NCBI 封禁)
-                    if not self.api_key: 
-                        print(f"DEBUG: 未检测到API Key，正在应用频率限制...")
+                    # 频率控制
+                    if not self.api_key:
                         time.sleep(0.34)
-                    else:
-                        print(f"DEBUG: 检测到API Key，请求频率限制较少")
-                
+
                 # 当前sheet处理完成
                 processed_count += 1
                 self.progress_msg.emit(f"工作表 '{sheet_name}' 处理完成")
 
-            # 保存结果 - 保留所有sheets
+            # 保存结果
             out_path = self.excel_path.replace(".xlsx", "_filled.xlsx")
             self.progress_msg.emit("正在保存结果...")
             

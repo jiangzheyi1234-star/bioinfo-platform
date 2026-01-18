@@ -91,6 +91,40 @@ _INPUT_BASE = f"""
     }}
 """
 
+# 下拉框基础样式 - 极简风格
+_COMBOBOX_BASE = f"""
+    QComboBox {{
+        padding: {PADDING_INPUT};
+        border: 1px solid {COLOR_BORDER_INPUT};
+        border-radius: {RADIUS_CTRL};
+        background-color: {COLOR_BG_CARD};
+        color: {COLOR_TEXT_DEFAULT};
+        font-size: 13px;
+        min-height: 30px;
+    }}
+    QComboBox:hover {{
+        border: 1px solid {COLOR_PRIMARY_HOVER};
+    }}
+    QComboBox:focus {{
+        border: 1px solid {COLOR_BORDER_FOCUS};
+    }}
+    QComboBox:disabled {{
+        background-color: {COLOR_BG_INPUT_DISABLED};
+        color: {COLOR_TEXT_DISABLED};
+    }}
+    QComboBox::drop-down {{
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        width: 20px;
+        border-left: 1px solid {COLOR_BORDER_INPUT};
+        border-top-right-radius: {RADIUS_CTRL};
+        border-bottom-right-radius: {RADIUS_CTRL};
+    }}
+    QComboBox::down-arrow {{
+        image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iOCIgdmlld0JveD0iMCAwIDEyIDgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xLjgzODg3IDMuNDc0NzZMNiA3LjYzNTYxTDEwLjE2MTEgMy40NzQ3NkMxMC40Mzk4IDMuMjM3OTkgMTAuMjYzMCAyLjgyMDMxIDkuODc0MjQgMi44MjAzMUgxLjEyNTc2QzEuMzMwIDIuODIwMzEgMC41NTAyOTMgMy4yMzc5OSAwLjgzODg3MSAzLjQ3NDc2WiIgZmlsbD0iIzRhNmE4YSIvPgo8L3N2Zz4K);
+    }}
+"""
+
 # --- 按钮体系标准化（用途导向）---
 # 主行动按钮 - 用于"执行"、"确定"、"保存"、"上传"
 BUTTON_PRIMARY = _BTN_BASE + f"""
@@ -229,6 +263,9 @@ def CARD_FRAME(object_name: str) -> str:
 
 # 输入框样式
 INPUT_LINEEDIT = _INPUT_BASE
+
+# 下拉框样式
+INPUT_COMBOBOX = _COMBOBOX_BASE
 
 # --- 文字样式 ---
 CARD_TITLE = f"font-size: 14px; font-weight: 600; color: {COLOR_TEXT_TITLE}; background: {COLOR_BG_BLANK};"

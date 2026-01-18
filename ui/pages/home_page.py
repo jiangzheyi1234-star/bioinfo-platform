@@ -381,3 +381,8 @@ class HomePage(BasePage):
             self.result_info.setText(f" 远程路径：{db_path}\n您现在可以在‘资源确认’步骤中使用此路径。")
         else:
             self.result_info.setText(f" 详情：{msg}")
+        
+        # 清理worker对象，避免内存泄漏
+        if hasattr(self, 'worker') and self.worker:
+            self.worker.deleteLater()
+            self.worker = None

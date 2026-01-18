@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QLabel, QPushButton
 
 from config import DEFAULT_CONFIG
 from ui.page_base import BasePage
-from ui.widgets import SshSettingsCard, NcbiSettingsCard, BlastSettingsCard
+from ui.widgets import SshSettingsCard, NcbiSettingsCard, BlastSettingsCard, LinuxSettingsCard
 from ui.widgets.styles import PAGE_HEADER_TITLE, BUTTON_SUCCESS, COLOR_BG_APP
 
 class SettingsPage(BasePage):
@@ -50,6 +50,10 @@ class SettingsPage(BasePage):
         self.ssh_card = SshSettingsCard()
         self.layout.addWidget(self.ssh_card)
 
+         # Linux 设置卡片
+        self.linux_card = LinuxSettingsCard()
+        self.layout.addWidget(self.linux_card)
+
         # BLAST 数据库设置卡片 (新增)
         # 传入 ssh_card 的 get_active_client 方法，以便它可以调用 SSH 进行验证
         self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client)
@@ -60,6 +64,10 @@ class SettingsPage(BasePage):
         self.ncbi_card = NcbiSettingsCard()
         self.ncbi_card.request_save.connect(self._save_ncbi_config)
         self.layout.addWidget(self.ncbi_card)
+
+        # --- 核心联动：SSH 连接成功后，自动把 Client 传给 Linux 卡片 ---
+        self.ssh_card.connection_state_changed.connect(self._on_ssh_state_changed)
+       
 
     def _init_save_area(self):
         # 移除单独的保存按钮，因为现在保存功能集成在BLAST设置卡片中
@@ -74,6 +82,8 @@ class SettingsPage(BasePage):
     def set_global_lock(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
         self.ssh_card.set_external_lock(locked, reason)
         self.blast_card.set_external_lock(locked)
+        if hasattr(self.linux_card, "_toggle_lock"):
+            self.linux_card._toggle_lock(locked)
         self.ncbi_card.set_external_lock(locked)
 
     # -------------------------
@@ -118,11 +128,15 @@ class SettingsPage(BasePage):
             ssh_user=str(merged.get("ssh_user", "") or ""),
             ssh_pwd=str(merged.get("ssh_pwd", "") or ""),
         )
-        # 传入三个参数到 blast_card
+        # 为 Linux 卡片设置初始值
+        self.linux_card.set_values(
+            project_path=str(merged.get("linux_project_path", "") or ""),
+            conda_env=str(merged.get("conda_env_path", "") or "")
+        )
         self.blast_card.set_values(
             remote_db=str(merged.get("remote_db", "") or ""),
             blast_bin=str(merged.get("blast_bin", "") or ""),
-            remote_dir=str(merged.get("remote_dir", "") or "") # 新增
+            remote_dir=str(merged.get("remote_dir", "") or "")
         )
         self.ncbi_card.set_values(ncbi_api_key=str(merged.get("ncbi_api_key", "") or ""))
 
@@ -130,7 +144,8 @@ class SettingsPage(BasePage):
         """收集所有卡片的配置"""
         data = {}
         data.update(self.ssh_card.get_values())
-        data.update(self.blast_card.get_values()) # 收集新卡片数据
+        data.update(self.blast_card.get_values())  # 收集新卡片数据
+        data.update(self.linux_card.get_values())
         data.update(self.ncbi_card.get_values())
         return data
 
@@ -142,22 +157,32 @@ class SettingsPage(BasePage):
         self._apply_config_to_components(merged)
 
     def save_config(self):
-        data = self._collect_components_config()
-        self._write_config_file(data)
-
-        # 同步更新DEFAULT_CONFIG以确保其他页面能获取到最新的配置
-        for key in DEFAULT_CONFIG:
-            if key in data:
-                DEFAULT_CONFIG[key] = data[key]
-
-        # 旧行为：保存成功在 SSH 卡片区域提示
         try:
-            self.ssh_card.status_label.setText("设置已保存")
-        except Exception:
-            pass
+            data = self._collect_components_config()
+            self._write_config_file(data)
 
-        # 保存后锁定 NCBI（有 key 就锁定，空就保持可编辑）
-        self.ncbi_card.lock_if_needed()
+            # 同步更新DEFAULT_CONFIG以确保其他页面能获取到最新的配置
+            for key in DEFAULT_CONFIG:
+                if key in data:
+                    DEFAULT_CONFIG[key] = data[key]
+
+            # 旧行为：保存成功在 SSH 卡片区域提示
+            try:
+                self.ssh_card.status_label.setText("设置已保存")
+            except Exception:
+                pass
+
+            # 保存后锁定 NCBI（有 key 就锁定，空就保持可编辑）
+            self.ncbi_card.lock_if_needed()
+        except Exception as e:
+            # 捕获保存过程中的任何异常，防止程序崩溃
+            import logging
+            logging.error(f"保存配置失败: {e}", exc_info=True)
+            try:
+                self.ssh_card.status_label.setText(f"保存失败: {str(e)}")
+                self.ssh_card.status_label.setStyleSheet("color: #e74c3c;")
+            except Exception:
+                pass
 
     def _save_ncbi_config(self):
         data = self._read_config_file()
@@ -166,3 +191,9 @@ class SettingsPage(BasePage):
         # 同步更新DEFAULT_CONFIG以确保其他页面能获取到最新的配置
         DEFAULT_CONFIG["ncbi_api_key"] = data["ncbi_api_key"]
         self.ncbi_card.lock_if_needed()
+
+    # 在 SettingsPage 类中添加这个方法处理联动
+    def _on_ssh_state_changed(self, connected: bool):
+        """当 SSH 连接状态变化时，通知 Linux 卡片"""
+        client = self.ssh_card.get_active_client() if connected else None
+        self.linux_card.set_active_client(client)
