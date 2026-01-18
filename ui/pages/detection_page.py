@@ -205,6 +205,11 @@ class DetectionPage(BasePage):
         self.run_card.show_loading(False)
         self.run_card.status_msg.setText(msg)
         
+        # 重新启用按钮
+        self.run_card.run_btn.setEnabled(True)
+        self.run_card.browse_btn.setEnabled(True)
+        self.run_card.pbar.hide()
+        
         if success and os.path.exists(local_path):
             # 显示保存路径和结果摘要
             result_summary = f" 结果已存至: {local_path}"
@@ -236,6 +241,11 @@ class DetectionPage(BasePage):
             self.run_card.path_display.show()
         else:
             self.run_card.path_display.hide()
+        
+        # 清理worker对象，避免内存泄漏
+        if hasattr(self, 'worker') and self.worker:
+            self.worker.deleteLater()
+            self.worker = None
 
     def _update_table_view(self):
         """根据当前页码更新表格内容"""

@@ -1,8 +1,6 @@
 # ui/main.py
 import sys
 import os
-
-# 获取当前文件所在目录 (ui)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # 获取项目根目录 (bio_ui)
 root_dir = os.path.dirname(current_dir)
@@ -17,16 +15,23 @@ from main_window import MainWindow
 
 
 def main():
-    app = QApplication(sys.argv)
 
-    # 统一字体
-    font = app.font()
-    font.setFamily("Segoe UI" if os.name == 'nt' else "Arial")
-    app.setFont(font)
 
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    try:
+        app = QApplication(sys.argv)
+
+        # 统一字体
+        font = app.font()
+        font.setFamily("Segoe UI" if os.name == 'nt' else "Arial")
+        app.setFont(font)
+
+        window = MainWindow()
+        window.show()
+
+        exit_code = app.exec()
+        sys.exit(exit_code)
+    except Exception as e:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
