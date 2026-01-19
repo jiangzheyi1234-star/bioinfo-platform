@@ -32,6 +32,12 @@ try:
     from .linux_settings_card import LinuxSettingsCard
 except Exception:  # pragma: no cover       
     LinuxSettingsCard = None  # type: ignore    
+
+try:
+    from .task_history_card import TaskHistoryCard
+except Exception:  # pragma: no cover       
+    TaskHistoryCard = None  # type: ignore    
+
 from . import styles
 
-__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "BlastRunCard", "styles", "LinuxSettingsCard"]
+__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "BlastRunCard", "styles", "LinuxSettingsCard", "TaskHistoryCard"]

@@ -10,7 +10,13 @@ DEFAULT_CONFIG = {
     'remote_db': '/home/zyserver/project_ssd/common_data/core_nt_database/core_nt',
     'blast_bin': '/home/zyserver/anaconda3/envs/ncbi_download/bin/blastn',
     'local_file': '',  # 运行时指定
-    'local_output_dir': r'C:\PathogenAnalyzer\output'
+    'local_output_dir': r'C:\PathogenAnalyzer\output',
+    # 异步任务调度配置
+    'poll_interval': 5,  # 状态轮询间隔（秒）
+    'max_poll_retries': 3,  # 轮询失败最大重试次数
+    'screen_check_timeout': 10,  # screen 命令超时时间（秒）
+    # 远程脚本路径
+    'remote_script': '/home/zyserver/project/lzc_project/project/h2oapp/blast_main.sh',
 }
 
 # 数据库映射

@@ -282,10 +282,10 @@ class LinuxSettingsCard(QFrame):
         """接收外部传入的 SSH 客户端实例。"""
         self.active_client = client
         connected = client is not None
-        
+
         self.fetch_btn.setEnabled(connected and not self._is_locked)
         self.lock_btn.setEnabled(connected)
-        
+
         if connected:
             self.status_label.setText("SSH 已就绪")
             self.status_label.setStyleSheet(STATUS_SUCCESS)

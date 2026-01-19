@@ -3,12 +3,14 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QVBoxLayout, QWidget, QStackedWidget, QLabel,
-    QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog
+    QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog,
+    QMessageBox
 )
 
 from ui.page_base import BasePage
-from ui.widgets import styles, BlastResourceCard, BlastSampleCard, BlastRunCard
+from ui.widgets import styles, BlastResourceCard, BlastSampleCard, BlastRunCard, TaskHistoryCard
 from core.blast_worker import BlastWorker
+from core.task_recovery_worker import TaskRecoveryWorker, SingleTaskMonitorWorker
 from config import DEFAULT_CONFIG
 import os
 
@@ -62,9 +64,11 @@ class DetectionPage(BasePage):
 
         # 创建功能按钮（无图标、压缩尺寸、带高亮逻辑）
         self.btn_blast = self._create_nav_button("🧬 BLASTN 比对", 1)
-        self.btn_other = self._create_nav_button("🔬 其他分析", 2)
+        self.btn_history = self._create_nav_button("📋 任务历史", 2)
+        self.btn_other = self._create_nav_button("🔬 其他分析", 3)
 
         nav_layout.addWidget(self.btn_blast)
+        nav_layout.addWidget(self.btn_history)
         nav_layout.addWidget(self.btn_other)
         nav_layout.addStretch()
         self.layout.addWidget(self.nav_bar)
@@ -112,13 +116,18 @@ class DetectionPage(BasePage):
         self.blast_page = QWidget()
         self._init_blast_workflow_ui()
         
-        # 页面 2: 其他分析页
+        # 页面 2: 任务历史页
+        self.history_page = QWidget()
+        self._init_history_page_ui()
+        
+        # 页面 3: 其他分析页
         self.other_page = QWidget()
         self._init_other_workflow_ui()
 
         self.content_stack.addWidget(self.welcome_page)  # Index 0
         self.content_stack.addWidget(self.blast_page)    # Index 1
-        self.content_stack.addWidget(self.other_page)    # Index 2
+        self.content_stack.addWidget(self.history_page)  # Index 2
+        self.content_stack.addWidget(self.other_page)    # Index 3
 
     def _init_blast_workflow_ui(self):
         """优化的三步走布局"""
@@ -147,6 +156,108 @@ class DetectionPage(BasePage):
         # 绑定分页按钮事件
         self.run_card.prev_btn.clicked.connect(lambda: self._change_page(-1))
         self.run_card.next_btn.clicked.connect(lambda: self._change_page(1))
+
+    def _init_history_page_ui(self):
+        """初始化任务历史页面"""
+        layout = QVBoxLayout(self.history_page)
+        layout.setContentsMargins(0, 10, 0, 0)
+        layout.setSpacing(12)
+        
+        self.history_card = TaskHistoryCard()
+        self.history_card.resume_task.connect(self._on_resume_task)
+        self.history_card.view_result.connect(self._on_view_result)
+        self.history_card.refresh_requested.connect(self._on_refresh_tasks)
+        layout.addWidget(self.history_card)
+
+    def _on_resume_task(self, job_id: str):
+        """继续监控某个任务"""
+        client = self.get_ssh_client()
+        if not client:
+            QMessageBox.warning(self, "提示", "请先在设置页连接服务器")
+            return
+        
+        self.monitor_worker = SingleTaskMonitorWorker(
+            client_provider=self.get_ssh_client,
+            job_id=job_id
+        )
+        self.monitor_worker.progress.connect(lambda msg: self.history_card.hint_label.setText(msg))
+        self.monitor_worker.finished.connect(self._on_monitor_finished)
+        self.history_card.refresh_btn.setEnabled(False)
+        self.monitor_worker.start()
+
+    def _on_monitor_finished(self, success, msg, local_path):
+        """监控任务完成"""
+        self.history_card.refresh_btn.setEnabled(True)
+        self.history_card.refresh_list()
+        
+        if success:
+            QMessageBox.information(self, "任务完成", msg)
+            if local_path:
+                self._on_view_result(local_path)
+        else:
+            self.history_card.hint_label.setText(msg)
+        
+        if hasattr(self, 'monitor_worker') and self.monitor_worker:
+            self.monitor_worker.deleteLater()
+            self.monitor_worker = None
+
+    def _on_view_result(self, local_path: str):
+        """查看结果文件"""
+        if os.path.exists(local_path):
+            # 加载结果到 BLAST 页面
+            try:
+                with open(local_path, 'r', encoding='utf-8') as f:
+                    self.all_data = [line.strip().split('\t') for line in f if line.strip()]
+                
+                self.current_page = 0
+                self._update_table_view()
+                
+                if self.all_data:
+                    top = self.all_data[0]
+                    interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。"
+                    self.run_card.interpret_label.setText(interpretation)
+                    self.run_card.interpret_box.show()
+                
+                self.run_card.path_display.setText(f" 结果文件: {local_path}")
+                self.run_card.path_display.show()
+                
+                # 切换到 BLAST 页面显示结果
+                self.btn_blast.setChecked(True)
+                self.content_stack.setCurrentIndex(1)
+                
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"读取结果失败: {e}")
+        else:
+            QMessageBox.warning(self, "提示", f"结果文件不存在: {local_path}")
+
+    def _on_refresh_tasks(self):
+        """刷新任务状态（从服务器检查）"""
+        client = self.get_ssh_client()
+        if not client:
+            self.history_card.refresh_list()  # 只刷新本地列表
+            return
+        
+        self.recovery_worker = TaskRecoveryWorker(client_provider=self.get_ssh_client)
+        self.recovery_worker.progress.connect(lambda msg: self.history_card.hint_label.setText(msg))
+        self.recovery_worker.task_updated.connect(self._on_task_updated)
+        self.recovery_worker.all_checked.connect(self._on_all_tasks_checked)
+        self.history_card.refresh_btn.setEnabled(False)
+        self.recovery_worker.start()
+
+    def _on_task_updated(self, job_id, status, msg, local_path):
+        """单个任务状态更新"""
+        self.history_card.update_task_status(job_id, status)
+
+    def _on_all_tasks_checked(self, total, done, failed):
+        """所有任务检查完成"""
+        self.history_card.refresh_btn.setEnabled(True)
+        self.history_card.refresh_list()
+        if total > 0:
+            self.history_card.hint_label.setText(f"✅ 检查完成: {total} 个任务, {done} 个已完成, {failed} 个失败")
+        
+        if hasattr(self, 'recovery_worker') and self.recovery_worker:
+            self.recovery_worker.deleteLater()
+            self.recovery_worker = None
 
     def _sync_status(self):
         db = self.resource_card.get_db_path()
@@ -201,47 +312,47 @@ class DetectionPage(BasePage):
         self.resource_card.setEnabled(True)
         self.sample_card.setEnabled(True)
         self._set_settings_lock(False)
-        
+
         self.run_card.show_loading(False)
         self.run_card.status_msg.setText(msg)
-        
+
         # 重新启用按钮
         self.run_card.run_btn.setEnabled(True)
         self.run_card.browse_btn.setEnabled(True)
         self.run_card.pbar.hide()
-        
+
         if success and os.path.exists(local_path):
             # 显示保存路径和结果摘要
             result_summary = f" 结果已存至: {local_path}"
             try:
                 with open(local_path, 'r', encoding='utf-8') as f:
                     self.all_data = [line.strip().split('\t') for line in f if line.strip()]
-                
+
                 # 显示结果摘要
                 total_matches = len(self.all_data)
                 if total_matches > 0:
                     result_summary += f" (共 {total_matches} 个匹配项)"
-                
+
                 # 自动解读 (Top Hit)
                 interpretation = "未发现显著匹配项。"
                 if self.all_data:
                     top = self.all_data[0]
                     interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。建议查看详细比对表。"
-                
+
                 self.current_page = 0
                 self._update_table_view()
                 self.run_card.interpret_label.setText(interpretation)
                 self.run_card.interpret_box.show()
-                if len(self.all_data) > self.page_size: 
+                if len(self.all_data) > self.page_size:
                     self.run_card.page_nav.show()
             except Exception as e:
                 self.run_card.status_msg.setText(f"解析失败: {e}")
-            
+
             self.run_card.path_display.setText(result_summary)
             self.run_card.path_display.show()
         else:
             self.run_card.path_display.hide()
-        
+
         # 清理worker对象，避免内存泄漏
         if hasattr(self, 'worker') and self.worker:
             self.worker.deleteLater()
