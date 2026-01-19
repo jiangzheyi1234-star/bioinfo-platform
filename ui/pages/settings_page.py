@@ -80,7 +80,10 @@ class SettingsPage(BasePage):
         self.scroll_layout.addWidget(self.linux_card)
 
         # BLAST 数据库设置卡片
-        self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client)
+        self.blast_card = BlastSettingsCard(
+            self.ssh_card.get_active_client,
+            self.linux_card.get_values  # 传递获取配置的方法，可以从中提取项目路径
+        )
         self.blast_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.blast_card)
 

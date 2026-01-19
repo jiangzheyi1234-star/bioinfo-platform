@@ -124,10 +124,11 @@ class VerifyWorker(QObject):
 class BlastSettingsCard(QFrame):
     request_save = pyqtSignal()
 
-    def __init__(self, get_ssh_client_func, parent=None):
+    def __init__(self, get_ssh_client_func, get_project_path_func=None, parent=None):
         super().__init__(parent)
         self.setObjectName("BlastCard")
         self.get_ssh_client = get_ssh_client_func
+        self.get_project_path = get_project_path_func  # 用于获取Linux项目路径
 
         self._in_edit_mode = True
         self._verifying = False
@@ -347,6 +348,9 @@ class BlastSettingsCard(QFrame):
         self.remote_dir_input.setEnabled(True)
 
         if success:
+            # 验证成功后，将配置写入远端配置文件
+            self._write_remote_config()
+
             self._lock_inputs()
             self.status_label.setText("验证通过，设置已保存")
             self.status_label.setStyleSheet(styles.STATUS_SUCCESS)
@@ -360,6 +364,94 @@ class BlastSettingsCard(QFrame):
             self.status_label.setStyleSheet(styles.STATUS_ERROR)
 
         self._refresh_interaction_state()
+
+    def _write_remote_config(self):
+        """将BLAST配置写入远端配置文件"""
+        try:
+            client = self.get_ssh_client()
+            if not client:
+                return
+
+            # 获取项目路径
+            project_path = None
+            if self.get_project_path:
+                try:
+                    # get_project_path 是 linux_card.get_values 方法
+                    linux_values = self.get_project_path()
+                    if isinstance(linux_values, dict):
+                        project_path = linux_values.get('linux_project_path', '').strip()
+                except Exception:
+                    pass
+
+            if not project_path:
+                # 如果没有项目路径，从config.py中获取默认的remote_dir作为备选
+                from config import DEFAULT_CONFIG
+                remote_dir = DEFAULT_CONFIG.get('remote_dir', '').strip()
+                if remote_dir:
+                    # 使用remote_dir的父目录作为项目路径
+                    # 例如：/home/zyserver/project/lzc_project/blast_temp/ -> /home/zyserver/project/lzc_project
+                    parts = remote_dir.rstrip('/').split('/')
+                    if len(parts) > 1:
+                        project_path = '/'.join(parts[:-1])
+
+            if not project_path:
+                # 如果还是没有项目路径，记录日志但不报错
+                import logging
+                logging.warning("未配置项目路径，跳过远程配置文件写入")
+                return
+
+            # 获取当前配置值
+            db_path = self.db_path_input.text().strip()
+            blast_bin = self.bin_path_input.text().strip()
+            remote_dir = self.remote_dir_input.text().strip()
+
+            # 构建配置内容
+            config_lines = []
+            if db_path:
+                config_lines.append(f"REMOTE_DB={db_path}")
+            if blast_bin:
+                config_lines.append(f"BLAST_BIN={blast_bin}")
+            if remote_dir:
+                config_lines.append(f"REMOTE_DIR={remote_dir}")
+
+            if not config_lines:
+                return
+
+            config_content = "\\n".join(config_lines)
+
+            # 确保config目录存在并写入配置文件
+            # 使用追加或更新的方式，避免覆盖其他配置
+            # 注意：这里使用单引号包裹整个命令，避免shell解析问题
+            cmd = f"""
+mkdir -p {project_path}/config
+CONFIG_FILE={project_path}/config/config.env
+
+# 如果配置文件存在，先备份
+if [ -f "$CONFIG_FILE" ]; then
+    cp "$CONFIG_FILE" "$CONFIG_FILE.bak"
+    # 删除旧的BLAST相关配置
+    sed -i '/^REMOTE_DB=/d' "$CONFIG_FILE" 2>/dev/null || true
+    sed -i '/^BLAST_BIN=/d' "$CONFIG_FILE" 2>/dev/null || true
+    sed -i '/^REMOTE_DIR=/d' "$CONFIG_FILE" 2>/dev/null || true
+fi
+
+# 追加新配置
+echo -e '{config_content}' >> "$CONFIG_FILE"
+"""
+
+            ssh_service = SSHService(lambda: client)
+            rc, out, err = ssh_service.run(cmd, timeout=10)
+
+            if rc != 0:
+                import logging
+                logging.error(f"写入远程配置文件失败: {err}")
+            else:
+                import logging
+                logging.info(f"成功将BLAST配置写入远程配置文件: {project_path}/config/config.env")
+
+        except Exception as e:
+            import logging
+            logging.error(f"写入远程配置文件时发生异常: {str(e)}")
 
     def _cleanup_thread(self):
         if self._worker:
