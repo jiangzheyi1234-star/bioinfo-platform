@@ -1,0 +1,81 @@
+id: fastp
+name: fastp
+version: "0.23.4"
+category: qc
+description: "超快速 FASTQ 质量控制与预处理工具"
+conda_env: fastp_env
+
+detection:
+  command: "fastp --version"
+  version_regex: "fastp (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: reads_1
+    type: fastq
+    required: true
+    description: "正向读长文件"
+  - name: reads_2
+    type: fastq
+    required: false
+    description: "反向读长文件（双端测序）"
+
+outputs:
+  - name: clean_1
+    type: fastq
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.clean.R1.fq.gz"
+  - name: clean_2
+    type: fastq
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.clean.R2.fq.gz"
+  - name: report_html
+    type: html
+    tier: result
+    pattern: "{output_dir}/{sample_id}.fastp.html"
+  - name: report_json
+    type: json
+    tier: result
+    pattern: "{output_dir}/{sample_id}.fastp.json"
+
+parameters:
+  - name: qualified_quality_phred
+    type: int
+    default: 15
+    label: "最低质量值"
+    description: "低于此质量值的碱基将被过滤"
+  - name: length_required
+    type: int
+    default: 50
+    label: "最短读长"
+    description: "短于此长度的读长将被丢弃"
+  - name: thread
+    type: int
+    default: 4
+    label: "线程数"
+    range: [1, 16]
+
+command_template: |
+  fastp \
+    -i {{ reads_1 }} \
+    {%- if reads_2 %} -I {{ reads_2 }} {%- endif %} \
+    -o {{ clean_1 }} \
+    {%- if reads_2 %} -O {{ clean_2 }} {%- endif %} \
+    -h {{ report_html }} \
+    -j {{ report_json }} \
+    -q {{ qualified_quality_phred }} \
+    -l {{ length_required }} \
+    -w {{ thread }}
+
+databases: []
+
+methods_template: >
+  Raw reads were quality-filtered using fastp v{version}
+  (minimum quality score = {qualified_quality_phred},
+  minimum length = {length_required}).
+
+result_views:
+  - type: table
+    title: "质控统计摘要"
+    data_source: "{sample_id}.fastp.json"
+    config:
+      columns: [total_reads, passed_reads, low_quality, too_short, adapter_trimmed]

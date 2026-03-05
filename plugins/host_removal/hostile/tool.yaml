@@ -1,0 +1,70 @@
+id: hostile
+name: Hostile
+version: "1.1.0"
+category: host_removal
+description: "精准宿主序列去除工具，基于 Bowtie2/Minimap2 比对"
+conda_env: hostile_env
+
+detection:
+  command: "hostile --version"
+  version_regex: "hostile (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: reads_1
+    type: fastq
+    required: true
+    description: "正向读长文件（质控后）"
+  - name: reads_2
+    type: fastq
+    required: false
+    description: "反向读长文件（双端测序）"
+
+outputs:
+  - name: clean_1
+    type: fastq
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.host_removed.R1.fq.gz"
+  - name: clean_2
+    type: fastq
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.host_removed.R2.fq.gz"
+
+parameters:
+  - name: aligner
+    type: choice
+    default: bowtie2
+    choices: [bowtie2, minimap2]
+    label: "比对器"
+    description: "选择比对引擎：bowtie2（精确）或 minimap2（快速）"
+  - name: index
+    type: string
+    default: human-t2t-hla
+    label: "参考基因组索引"
+    description: "内置索引名称或自定义索引路径"
+  - name: threads
+    type: int
+    default: 4
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  hostile clean \
+    --fastq1 {{ reads_1 }} \
+    {%- if reads_2 %} --fastq2 {{ reads_2 }} {%- endif %} \
+    --aligner {{ aligner }} \
+    --index {{ index }} \
+    --threads {{ threads }} \
+    --out-dir {{ output_dir }}
+
+databases: []
+
+methods_template: >
+  Host reads were removed using Hostile v{version}
+  with the {index} reference index and {aligner} aligner.
+
+result_views:
+  - type: table
+    title: "宿主去除统计"
+    data_source: "hostile_log.json"
+    config:
+      columns: [total_reads, host_reads, non_host_reads, host_fraction]

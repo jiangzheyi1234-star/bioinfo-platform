@@ -1,0 +1,82 @@
+id: kraken2
+name: Kraken2
+version: "2.1.3"
+category: taxonomy
+description: "超快速 k-mer 物种分类工具"
+conda_env: kraken2_env
+
+detection:
+  command: "kraken2 --version"
+  version_regex: "version (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: reads
+    type: fastq
+    required: true
+    description: "质控后的 FASTQ 文件（单端或交错双端）"
+
+outputs:
+  - name: k2_report
+    type: kreport
+    tier: result
+    pattern: "{output_dir}/{sample_id}.kreport"
+    sync_to_local: true
+  - name: k2_output
+    type: k2output
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.k2output"
+
+parameters:
+  - name: confidence
+    type: float
+    default: 0.0
+    range: [0.0, 1.0]
+    label: "置信度阈值"
+    description: "分类结果的最低置信度，越高越严格"
+  - name: minimum_hit_groups
+    type: int
+    default: 2
+    range: [1, 10]
+    label: "最小命中组数"
+    description: "分类时要求的最少 k-mer 命中组"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  kraken2 \
+    --db {{ db }} \
+    --threads {{ threads }} \
+    --confidence {{ confidence }} \
+    --minimum-hit-groups {{ minimum_hit_groups }} \
+    --report {{ output_dir }}/{{ sample_id }}.kreport \
+    --output {{ output_dir }}/{{ sample_id }}.k2output \
+    {{ input_reads }}
+
+databases:
+  - id: kraken2_standard
+    param_name: db
+    required: true
+    description: "Kraken2 标准数据库（含细菌/古菌/病毒/人类）"
+
+methods_template: >
+  Taxonomic classification was performed using Kraken2 v{version}
+  with the {db_name} database (confidence threshold = {confidence}).
+
+result_views:
+  - type: stacked_bar
+    title: "物种丰度堆叠图"
+    data_source: "{sample_id}.kreport"
+    config:
+      top_n: 20
+  - type: krona
+    title: "Krona 交互式分类树"
+    data_source: "{sample_id}.kreport"
+  - type: table
+    title: "分类结果明细"
+    data_source: "{sample_id}.kreport"
+    config:
+      columns: [taxon_id, rank, name, fraction, reads]
+      sortable: true

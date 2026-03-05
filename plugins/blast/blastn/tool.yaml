@@ -1,0 +1,74 @@
+id: blastn
+name: BLASTn
+version: "2.15.0"
+category: blast
+description: "核苷酸序列比对工具，用于序列相似性搜索"
+conda_env: blast_env
+
+detection:
+  command: "blastn -version"
+  version_regex: "blastn: (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: query
+    type: fasta
+    required: true
+    description: "查询序列文件（FASTA 格式）"
+
+outputs:
+  - name: blast_result
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.blastn.tsv"
+    sync_to_local: true
+
+parameters:
+  - name: evalue
+    type: float
+    default: 1.0e-5
+    label: "E-value 阈值"
+    description: "期望值阈值，越小越严格"
+  - name: max_target_seqs
+    type: int
+    default: 10
+    range: [1, 500]
+    label: "最大目标序列数"
+    description: "每条查询序列保留的最大比对结果数"
+  - name: outfmt
+    type: string
+    default: "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore"
+    label: "输出格式"
+    description: "BLAST 表格输出格式（outfmt 6 字段定义）"
+  - name: threads
+    type: int
+    default: 4
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  blastn \
+    -query {{ input_query }} \
+    -db {{ db }} \
+    -out {{ output_dir }}/{{ sample_id }}.blastn.tsv \
+    -evalue {{ evalue }} \
+    -max_target_seqs {{ max_target_seqs }} \
+    -outfmt "{{ outfmt }}" \
+    -num_threads {{ threads }}
+
+databases:
+  - id: blast_nt
+    param_name: db
+    required: true
+    description: "NCBI nt 核苷酸数据库"
+
+methods_template: >
+  Nucleotide similarity searches were performed using BLASTn v{version}
+  against the {db_name} database (E-value threshold = {evalue}).
+
+result_views:
+  - type: table
+    title: "BLAST 比对结果"
+    data_source: "{sample_id}.blastn.tsv"
+    config:
+      columns: [qseqid, sseqid, pident, length, evalue, bitscore]
+      sortable: true
