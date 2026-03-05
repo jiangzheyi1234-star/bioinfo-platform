@@ -78,7 +78,7 @@ class BlastRunCard(QFrame):
             if item: item.setToolTip(tip) # 悬停解释
 
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.result_table.setStyleSheet(f"QTableWidget {{ border: 1px solid {styles.COLOR_BORDER}; background: {styles.COLOR_BG_TABLE}; gridline-color: {styles.COLOR_BG_TABLE_GRIDLINE}; }}")
+        self.result_table.setStyleSheet(styles.TABLE_WIDGET)
         layout.addWidget(self.result_table)
 
         # 3. 分页控制条

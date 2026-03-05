@@ -23,6 +23,7 @@ from ui.widgets.styles import (
     INPUT_COMBOBOX,
     BUTTON_PRIMARY,
     CARD_TITLE,
+    COLOR_TEXT_HINT,
     STATUS_NEUTRAL,
     STATUS_SUCCESS,
     STATUS_ERROR,
@@ -220,7 +221,7 @@ class LinuxSettingsCard(QFrame):
         self.modify_btn.clicked.connect(self._enable_editing)
 
         self.arrow_label = QLabel("▲")
-        self.arrow_label.setStyleSheet("color: #90adca; font-size: 12px;")
+        self.arrow_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
 
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()

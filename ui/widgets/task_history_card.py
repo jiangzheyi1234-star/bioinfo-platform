@@ -35,7 +35,7 @@ class TaskHistoryCard(QWidget):
         # 标题栏
         header_layout = QHBoxLayout()
         title = QLabel("📋 任务历史")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
+        title.setStyleSheet(styles.CARD_TITLE)
         header_layout.addWidget(title)
         
         header_layout.addStretch()
@@ -70,36 +70,20 @@ class TaskHistoryCard(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                background-color: white;
-            }
-            QTableWidget::item {
-                padding: 8px;
-            }
-            QHeaderView::section {
-                background-color: #f5f5f5;
-                padding: 8px;
-                border: none;
-                border-bottom: 1px solid #e0e0e0;
-                font-weight: bold;
-            }
-        """)
+        self.table.setStyleSheet(styles.TABLE_WIDGET)
         layout.addWidget(self.table)
         
         # 提示信息
         self.hint_label = QLabel("💡 提示：程序关闭后重新打开，可以在这里看到之前的任务")
-        self.hint_label.setStyleSheet("color: #666; font-size: 12px;")
+        self.hint_label.setStyleSheet(f"color: {styles.COLOR_TEXT_SUB}; font-size: 12px;")
         layout.addWidget(self.hint_label)
         
-        # 整体样式
+        # 整体样式 — 白底卡片，无边框，通过背景层次区分
         self.setStyleSheet(f"""
             TaskHistoryCard {{
-                background-color: white;
-                border: 1px solid {styles.COLOR_BORDER};
-                border-radius: 10px;
+                background-color: {styles.COLOR_BG_CARD};
+                border: none;
+                border-radius: {styles.RADIUS_CARD};
             }}
         """)
     
@@ -160,13 +144,13 @@ class TaskHistoryCard(QWidget):
             
             if task.status == "RUNNING":
                 resume_btn = QPushButton("继续监控")
-                resume_btn.setStyleSheet("background-color: #2196F3; color: white; border-radius: 4px; padding: 4px 8px;")
+                resume_btn.setStyleSheet(f"background-color: {styles.COLOR_PRIMARY}; color: white; border-radius: 4px; padding: 4px 8px;")
                 resume_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 resume_btn.clicked.connect(lambda checked, jid=task.job_id: self.resume_task.emit(jid))
                 btn_layout.addWidget(resume_btn)
             elif task.status == "DONE" and task.local_output:
                 view_btn = QPushButton("查看结果")
-                view_btn.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 4px; padding: 4px 8px;")
+                view_btn.setStyleSheet(f"background-color: {styles.COLOR_SUCCESS}; color: white; border-radius: 4px; padding: 4px 8px;")
                 view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 view_btn.clicked.connect(lambda checked, path=task.local_output: self.view_result.emit(path))
                 btn_layout.addWidget(view_btn)

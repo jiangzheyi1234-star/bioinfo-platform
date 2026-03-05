@@ -24,6 +24,7 @@ from ui.widgets.styles import (
     BUTTON_LINK,
     BUTTON_DANGER,
     CARD_TITLE,
+    COLOR_TEXT_HINT,
     STATUS_NEUTRAL,
     STATUS_SUCCESS,
     STATUS_ERROR,
@@ -198,7 +199,7 @@ class SshSettingsCard(QFrame):
         self.ssh_title.setStyleSheet(CARD_TITLE)
 
         self.arrow_label = QLabel("▲")
-        self.arrow_label.setStyleSheet("color: #90adca; font-size: 12px; border: none; background: transparent;")
+        self.arrow_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px; border: none; background: transparent;")
 
         self.modify_link = QPushButton("修改")
         self.modify_link.setFixedWidth(60)
