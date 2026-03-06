@@ -1,0 +1,68 @@
+id: das_tool
+name: DAS_Tool
+version: "1.1.6"
+category: binning
+description: "多种 binning 结果整合优化工具"
+conda_env: dastool_env
+
+detection:
+  command: "DAS_Tool --version 2>&1"
+  version_regex: "DAS Tool (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装后的 contig 文件"
+  - name: metabat2_bins
+    type: tsv
+    required: false
+    description: "MetaBAT2 binning 结果（scaffolds2bin 格式）"
+  - name: maxbin2_bins
+    type: tsv
+    required: false
+    description: "MaxBin2 binning 结果（scaffolds2bin 格式）"
+  - name: concoct_bins
+    type: tsv
+    required: false
+    description: "CONCOCT binning 结果（scaffolds2bin 格式）"
+
+outputs:
+  - name: refined_bins
+    type: directory
+    tier: result
+    pattern: "{output_dir}/{sample_id}_DASTool_bins"
+
+parameters:
+  - name: search_engine
+    type: choice
+    default: diamond
+    choices: [diamond, blast, usearch]
+    label: "搜索引擎"
+  - name: score_threshold
+    type: float
+    default: 0.5
+    range: [0.0, 1.0]
+    label: "质量分数阈值"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  DAS_Tool \
+    -i {{ metabat2_bins }}{{ "," + maxbin2_bins if maxbin2_bins }}{{ "," + concoct_bins if concoct_bins }} \
+    -l metabat2{{ ",maxbin2" if maxbin2_bins }}{{ ",concoct" if concoct_bins }} \
+    -c {{ contigs }} \
+    -o {{ output_dir }}/{{ sample_id }}_DASTool \
+    --search_engine {{ search_engine }} \
+    --score_threshold {{ score_threshold }} \
+    -t {{ threads }} \
+    --write_bins
+
+databases: []
+
+methods_template: >
+  Binning results were refined using DAS_Tool v{version}
+  with {search_engine} search engine (quality threshold = {score_threshold}).

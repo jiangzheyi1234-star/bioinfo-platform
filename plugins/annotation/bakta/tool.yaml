@@ -1,0 +1,78 @@
+id: bakta
+name: Bakta
+version: "1.9.3"
+category: annotation
+description: "快速且标准化的细菌基因组注释工具（Prokka 替代品）"
+conda_env: bakta_env
+
+detection:
+  command: "bakta --version"
+  version_regex: "bakta (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: genome
+    type: fasta
+    required: true
+    description: "基因组或 MAG 文件"
+
+outputs:
+  - name: gff3
+    type: gff
+    tier: result
+    pattern: "{output_dir}/{sample_id}.bakta.gff3"
+    sync_to_local: true
+  - name: faa
+    type: fasta
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.bakta.faa"
+  - name: tsv
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.bakta.tsv"
+    sync_to_local: true
+
+parameters:
+  - name: min_contig_length
+    type: int
+    default: 1
+    label: "最短 contig 长度"
+  - name: meta
+    type: bool
+    default: true
+    label: "宏基因组模式"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  bakta \
+    {{ genome }} \
+    --db {{ db }} \
+    --output {{ output_dir }}/bakta_out \
+    --prefix {{ sample_id }}.bakta \
+    --min-contig-length {{ min_contig_length }} \
+    {%- if meta %} --meta {%- endif %} \
+    --threads {{ threads }} \
+  && cp {{ output_dir }}/bakta_out/{{ sample_id }}.bakta.gff3 {{ output_dir }}/{{ sample_id }}.bakta.gff3 \
+  && cp {{ output_dir }}/bakta_out/{{ sample_id }}.bakta.faa {{ output_dir }}/{{ sample_id }}.bakta.faa \
+  && cp {{ output_dir }}/bakta_out/{{ sample_id }}.bakta.tsv {{ output_dir }}/{{ sample_id }}.bakta.tsv
+
+databases:
+  - id: bakta_db
+    param_name: db
+    required: true
+    description: "Bakta 注释数据库 (Full ~35 GB / Light ~3 GB)"
+
+methods_template: >
+  Genome annotation was performed using Bakta v{version}
+  with the {db_name} database{%- if meta %} in metagenome mode{%- endif %}.
+
+result_views:
+  - type: table
+    title: "注释结果"
+    data_source: "{sample_id}.bakta.tsv"
+    config:
+      columns: [Sequence_Id, Type, Start, Stop, Strand, Gene, Product]
+      sortable: true

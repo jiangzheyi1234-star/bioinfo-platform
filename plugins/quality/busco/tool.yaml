@@ -1,0 +1,74 @@
+id: busco
+name: BUSCO
+version: "5.7.1"
+category: quality
+description: "基于单拷贝直系同源基因的基因组完整性评估工具"
+conda_env: busco_env
+
+detection:
+  command: "busco --version"
+  version_regex: "BUSCO (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: genome
+    type: fasta
+    required: true
+    description: "基因组或 MAG 文件"
+
+outputs:
+  - name: summary
+    type: txt
+    tier: result
+    pattern: "{output_dir}/{sample_id}.busco_summary.txt"
+    sync_to_local: true
+  - name: full_table
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.busco_full_table.tsv"
+
+parameters:
+  - name: lineage
+    type: string
+    default: "bacteria_odb10"
+    label: "谱系数据集"
+    description: "BUSCO 谱系数据库名称"
+  - name: mode
+    type: choice
+    default: genome
+    choices: [genome, proteins, transcriptome]
+    label: "评估模式"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  busco \
+    -i {{ genome }} \
+    -l {{ lineage }} \
+    -m {{ mode }} \
+    -o busco_out \
+    --out_path {{ output_dir }} \
+    -c {{ threads }} \
+  && cp {{ output_dir }}/busco_out/short_summary.*.txt \
+    {{ output_dir }}/{{ sample_id }}.busco_summary.txt \
+  && cp {{ output_dir }}/busco_out/run_*/full_table.tsv \
+    {{ output_dir }}/{{ sample_id }}.busco_full_table.tsv
+
+databases:
+  - id: busco_lineage
+    param_name: lineage
+    required: true
+    description: "BUSCO 谱系数据库（如 bacteria_odb10）"
+
+methods_template: >
+  Genome completeness was evaluated using BUSCO v{version}
+  with the {lineage} lineage dataset in {mode} mode.
+
+result_views:
+  - type: table
+    title: "BUSCO 评估结果"
+    data_source: "{sample_id}.busco_summary.txt"
+    config:
+      columns: [Complete, Single, Duplicated, Fragmented, Missing, Total]

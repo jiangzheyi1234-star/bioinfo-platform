@@ -1,0 +1,79 @@
+id: prokka
+name: Prokka
+version: "1.14.6"
+category: annotation
+description: "快速原核基因组注释工具"
+conda_env: prokka_env
+
+detection:
+  command: "prokka --version 2>&1"
+  version_regex: "prokka (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: genome
+    type: fasta
+    required: true
+    description: "基因组或 MAG 文件"
+
+outputs:
+  - name: gff
+    type: gff
+    tier: result
+    pattern: "{output_dir}/{sample_id}.prokka.gff"
+    sync_to_local: true
+  - name: faa
+    type: fasta
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.prokka.faa"
+  - name: ffn
+    type: fasta
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.prokka.ffn"
+  - name: stats
+    type: txt
+    tier: result
+    pattern: "{output_dir}/{sample_id}.prokka.txt"
+
+parameters:
+  - name: kingdom
+    type: choice
+    default: Bacteria
+    choices: [Archaea, Bacteria, Mitochondria, Viruses]
+    label: "分类域"
+  - name: metagenome
+    type: bool
+    default: true
+    label: "宏基因组模式"
+    description: "启用宏基因组模式改善基因预测"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  prokka \
+    {{ genome }} \
+    --outdir {{ output_dir }}/prokka_out \
+    --prefix {{ sample_id }}.prokka \
+    --kingdom {{ kingdom }} \
+    {%- if metagenome %} --metagenome {%- endif %} \
+    --cpus {{ threads }} \
+    --force \
+  && cp {{ output_dir }}/prokka_out/{{ sample_id }}.prokka.gff {{ output_dir }}/{{ sample_id }}.prokka.gff \
+  && cp {{ output_dir }}/prokka_out/{{ sample_id }}.prokka.faa {{ output_dir }}/{{ sample_id }}.prokka.faa \
+  && cp {{ output_dir }}/prokka_out/{{ sample_id }}.prokka.ffn {{ output_dir }}/{{ sample_id }}.prokka.ffn \
+  && cp {{ output_dir }}/prokka_out/{{ sample_id }}.prokka.txt {{ output_dir }}/{{ sample_id }}.prokka.txt
+
+databases: []
+
+methods_template: >
+  Gene prediction and annotation were performed using Prokka v{version}
+  in {kingdom} kingdom mode{%- if metagenome %} with metagenome option enabled{%- endif %}.
+
+result_views:
+  - type: table
+    title: "注释统计"
+    data_source: "{sample_id}.prokka.txt"
+    config:
+      columns: [organism, contigs, bases, CDS, rRNA, tRNA]

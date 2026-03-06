@@ -1,0 +1,62 @@
+id: checkm2
+name: CheckM2
+version: "1.0.2"
+category: quality
+description: "基于机器学习的基因组完整性和污染度评估工具"
+conda_env: checkm2_env
+
+detection:
+  command: "checkm2 --version"
+  version_regex: "(\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: bins_dir
+    type: directory
+    required: true
+    description: "MAG bin 文件目录"
+
+outputs:
+  - name: quality_report
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.checkm2_quality.tsv"
+    sync_to_local: true
+
+parameters:
+  - name: extension
+    type: string
+    default: "fa"
+    label: "文件后缀"
+    description: "bin 文件的后缀名"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  checkm2 predict \
+    --input {{ bins_dir }} \
+    --output-directory {{ output_dir }}/checkm2_out \
+    -x {{ extension }} \
+    -t {{ threads }} \
+  && cp {{ output_dir }}/checkm2_out/quality_report.tsv \
+    {{ output_dir }}/{{ sample_id }}.checkm2_quality.tsv
+
+databases:
+  - id: checkm2_db
+    param_name: database_path
+    required: true
+    description: "CheckM2 DIAMOND 参考数据库"
+
+methods_template: >
+  MAG quality was assessed using CheckM2 v{version}.
+  Bins with completeness ≥50% and contamination ≤10% were retained.
+
+result_views:
+  - type: table
+    title: "MAG 质量评估"
+    data_source: "{sample_id}.checkm2_quality.tsv"
+    config:
+      columns: [Name, Completeness, Contamination, Genome_Size, GC_Content]
+      sortable: true

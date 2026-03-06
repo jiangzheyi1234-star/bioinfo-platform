@@ -1,0 +1,52 @@
+id: maxbin2
+name: MaxBin2
+version: "2.2.7"
+category: binning
+description: "基于期望最大化算法的宏基因组 binning 工具"
+conda_env: maxbin2_env
+
+detection:
+  command: "run_MaxBin.pl -v 2>&1"
+  version_regex: "MaxBin (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装后的 contig 文件"
+  - name: abundance
+    type: tsv
+    required: true
+    description: "丰度文件（contig 覆盖度）"
+
+outputs:
+  - name: bins_dir
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}_maxbin2_bins"
+
+parameters:
+  - name: min_contig_length
+    type: int
+    default: 1000
+    label: "最短 contig 长度"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  mkdir -p {{ output_dir }}/{{ sample_id }}_maxbin2_bins && \
+  run_MaxBin.pl \
+    -contig {{ contigs }} \
+    -abund {{ abundance }} \
+    -out {{ output_dir }}/{{ sample_id }}_maxbin2_bins/bin \
+    -min_contig_length {{ min_contig_length }} \
+    -thread {{ threads }}
+
+databases: []
+
+methods_template: >
+  MaxBin2 v{version} was used for binning with minimum contig length
+  of {min_contig_length} bp.

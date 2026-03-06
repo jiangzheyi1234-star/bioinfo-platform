@@ -1,0 +1,78 @@
+id: eggnog
+name: eggNOG-mapper
+version: "2.1.12"
+category: annotation
+description: "基于 eggNOG 数据库的功能注释工具"
+conda_env: eggnog_env
+
+detection:
+  command: "emapper.py --version"
+  version_regex: "emapper-(\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: proteins
+    type: fasta
+    required: true
+    description: "蛋白质序列文件（.faa）"
+
+outputs:
+  - name: annotations
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.emapper.annotations"
+    sync_to_local: true
+  - name: orthologs
+    type: tsv
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.emapper.seed_orthologs"
+
+parameters:
+  - name: tax_scope
+    type: string
+    default: "auto"
+    label: "分类范围"
+    description: "限制搜索范围到特定分类群（auto 为自动选择）"
+  - name: go_evidence
+    type: choice
+    default: non-electronic
+    choices: [non-electronic, experimental, all]
+    label: "GO 证据级别"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  emapper.py \
+    -i {{ proteins }} \
+    --output {{ sample_id }}.emapper \
+    --output_dir {{ output_dir }} \
+    --data_dir {{ db }} \
+    -m diamond \
+    --tax_scope {{ tax_scope }} \
+    --go_evidence {{ go_evidence }} \
+    --cpu {{ threads }}
+
+databases:
+  - id: eggnog_db
+    param_name: db
+    required: true
+    description: "eggNOG v5 DIAMOND 数据库 (~45 GB)"
+
+methods_template: >
+  Functional annotation was performed using eggNOG-mapper v{version}
+  with the eggNOG v5 orthology database (GO evidence level: {go_evidence}).
+
+result_views:
+  - type: table
+    title: "功能注释结果"
+    data_source: "{sample_id}.emapper.annotations"
+    config:
+      columns: [query, seed_ortholog, evalue, score, COG_category, Description, GOs, KEGG_ko]
+      sortable: true
+  - type: heatmap
+    title: "COG 功能分类分布"
+    data_source: "{sample_id}.emapper.annotations"
+    config:
+      group_by: COG_category

@@ -1,0 +1,78 @@
+id: megahit
+name: MEGAHIT
+version: "1.2.9"
+category: assembly
+description: "超快速、内存高效的宏基因组组装工具"
+conda_env: megahit_env
+
+detection:
+  command: "megahit --version"
+  version_regex: "MEGAHIT v(\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: reads_1
+    type: fastq
+    required: true
+    description: "正向读长文件（质控后）"
+  - name: reads_2
+    type: fastq
+    required: false
+    description: "反向读长文件（双端测序）"
+
+outputs:
+  - name: contigs
+    type: fasta
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.contigs.fa"
+  - name: assembly_log
+    type: log
+    tier: result
+    pattern: "{output_dir}/{sample_id}.megahit.log"
+
+parameters:
+  - name: min_contig_len
+    type: int
+    default: 1000
+    label: "最短 contig 长度"
+    description: "丢弃短于此长度的 contig"
+  - name: k_list
+    type: string
+    default: "21,29,39,59,79,99,119,141"
+    label: "k-mer 列表"
+    description: "组装使用的 k-mer 大小列表"
+  - name: memory
+    type: float
+    default: 0.9
+    range: [0.1, 1.0]
+    label: "内存比例"
+    description: "使用系统可用内存的比例"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  megahit \
+    -1 {{ reads_1 }} \
+    {%- if reads_2 %} -2 {{ reads_2 }} {%- endif %} \
+    -o {{ output_dir }}/megahit_out \
+    --min-contig-len {{ min_contig_len }} \
+    --k-list {{ k_list }} \
+    -m {{ memory }} \
+    -t {{ threads }} \
+  && cp {{ output_dir }}/megahit_out/final.contigs.fa {{ output_dir }}/{{ sample_id }}.contigs.fa \
+  && cp {{ output_dir }}/megahit_out/log {{ output_dir }}/{{ sample_id }}.megahit.log
+
+databases: []
+
+methods_template: >
+  Metagenomic assembly was performed using MEGAHIT v{version}
+  with k-mer sizes {k_list} and minimum contig length {min_contig_len} bp.
+
+result_views:
+  - type: table
+    title: "组装统计"
+    data_source: "{sample_id}.megahit.log"
+    config:
+      columns: [total_contigs, n50, total_length, max_length]

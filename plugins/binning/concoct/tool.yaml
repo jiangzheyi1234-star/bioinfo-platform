@@ -1,0 +1,61 @@
+id: concoct
+name: CONCOCT
+version: "1.1.0"
+category: binning
+description: "基于组成和覆盖度的无监督 binning 工具"
+conda_env: concoct_env
+
+detection:
+  command: "concoct --version"
+  version_regex: "concoct (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装后的 contig 文件（切割为 10kb 片段）"
+  - name: coverage_table
+    type: tsv
+    required: true
+    description: "覆盖度表（由 concoct_coverage_table.py 生成）"
+
+outputs:
+  - name: clustering
+    type: csv
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}_concoct_clustering.csv"
+
+parameters:
+  - name: clusters
+    type: int
+    default: 400
+    range: [10, 2000]
+    label: "聚类数"
+    description: "初始聚类数量"
+  - name: iterations
+    type: int
+    default: 500
+    range: [100, 2000]
+    label: "迭代次数"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  concoct \
+    --composition_file {{ contigs }} \
+    --coverage_file {{ coverage_table }} \
+    -c {{ clusters }} \
+    -i {{ iterations }} \
+    -t {{ threads }} \
+    -b {{ output_dir }}/concoct_out \
+  && cp {{ output_dir }}/concoct_out/clustering_gt1000.csv \
+    {{ output_dir }}/{{ sample_id }}_concoct_clustering.csv
+
+databases: []
+
+methods_template: >
+  CONCOCT v{version} was applied with {clusters} initial clusters
+  and {iterations} iterations.

@@ -30,7 +30,7 @@ def registry() -> PluginRegistry:
         pytest.skip("plugins 目录不存在")
     reg = PluginRegistry(_PLUGINS_DIR)
     count = reg.scan()
-    assert count == 4, f"预期 4 个插件，实际扫描到 {count}"
+    assert count >= 4, f"预期至少 4 个插件，实际扫描到 {count}"
     return reg
 
 

@@ -26,3 +26,52 @@ paths:
         description: "物种分类：基于 k-mer 的读长分类"
         databases:
           db: ""  # 用户运行时配置 kraken2 数据库路径
+
+  assembly_based:
+    name: "组装分析路径"
+    description: "FASTQ → 质控 → 去宿主 → 组装 → Binning → 质量评估 → 分类 → 注释"
+    stages:
+      - tool_id: fastp
+        input_type: fastq
+        required: true
+        description: "质控：去低质量碱基、短读长过滤"
+
+      - tool_id: hostile
+        input_type: fastq
+        depends_on: fastp
+        required: true
+        description: "去宿主：移除人类基因组污染"
+
+      - tool_id: megahit
+        input_type: fastq
+        depends_on: hostile
+        required: true
+        description: "宏基因组组装"
+
+      - tool_id: metabat2
+        input_type: fasta
+        depends_on: megahit
+        required: true
+        description: "自适应 binning"
+
+      - tool_id: checkm2
+        input_type: directory
+        depends_on: metabat2
+        required: true
+        description: "MAG 质量评估"
+        databases:
+          database_path: ""  # 用户运行时配置
+
+      - tool_id: gtdbtk
+        input_type: directory
+        depends_on: metabat2
+        required: false
+        description: "GTDB 分类注释"
+        databases:
+          db: ""  # 用户运行时配置
+
+      - tool_id: prokka
+        input_type: fasta
+        depends_on: metabat2
+        required: false
+        description: "基因预测与注释"

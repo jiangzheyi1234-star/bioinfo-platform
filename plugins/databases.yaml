@@ -1,0 +1,159 @@
+# H2OMeta 参考数据库清单
+# 定义所有分析工具需要的参考数据库、安装路径和下载镜像
+
+databases:
+  # ── 读长分析数据库 ──────────────────────────────────────
+
+  kraken2_standard:
+    name: "Kraken2 Standard Database"
+    description: "标准数据库，含细菌/古菌/病毒/人类参考序列"
+    install_path: "/h2ometa/databases/kraken2_standard"
+    size_mb: 50000
+    tools: ["kraken2"]
+    mirrors:
+      - url: "https://genome-idx.s3.amazonaws.com/kraken/k2_standard_20240112.tar.gz"
+        mirror: "official"
+      - url: "https://mirrors.tuna.tsinghua.edu.cn/genome-idx/kraken/k2_standard_20240112.tar.gz"
+        mirror: "tsinghua"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["hash.k2d", "opts.k2d", "taxo.k2d"]
+      min_size_mb: 40000
+
+  kraken2_plusPFP:
+    name: "Kraken2 PlusPFP Database"
+    description: "扩展数据库，包含原核+真菌+原生生物+植物"
+    install_path: "/h2ometa/databases/kraken2_plusPFP"
+    size_mb: 150000
+    tools: ["kraken2"]
+    mirrors:
+      - url: "https://genome-idx.s3.amazonaws.com/kraken/k2_pluspfp_20240112.tar.gz"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["hash.k2d", "opts.k2d", "taxo.k2d"]
+      min_size_mb: 120000
+
+  blast_nt:
+    name: "NCBI nt 核苷酸数据库"
+    description: "NCBI 全部核苷酸序列数据库"
+    install_path: "/h2ometa/databases/blast_nt"
+    size_mb: 350000
+    tools: ["blastn"]
+    mirrors:
+      - url: "ftp://ftp.ncbi.nlm.nih.gov/blast/db/nt.*"
+        mirror: "official"
+      - url: "https://ftp.ncbi.nlm.nih.gov/blast/db/nt.*"
+        mirror: "ncbi_https"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["nt.nal"]
+      min_size_mb: 300000
+
+  core_nt:
+    name: "Core NT 数据库"
+    description: "精选核心核苷酸数据库（较小）"
+    install_path: "/home/zyserver/project_ssd/common_data/core_nt_database"
+    size_mb: 80000
+    tools: ["blastn"]
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["core_nt.nal"]
+
+  # ── 组装/Binning 数据库 ─────────────────────────────────
+
+  checkm2_db:
+    name: "CheckM2 参考数据库"
+    description: "CheckM2 DIAMOND 模型数据库"
+    install_path: "/h2ometa/databases/checkm2"
+    size_mb: 3500
+    tools: ["checkm2"]
+    mirrors:
+      - url: "https://zenodo.org/records/5571251/files/checkm2_database.tar.gz"
+        mirror: "zenodo"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["uniref100.KO.1.dmnd"]
+      min_size_mb: 3000
+
+  gtdb_r220:
+    name: "GTDB Release 220"
+    description: "GTDB-Tk 参考数据库，基因组分类注释"
+    install_path: "/h2ometa/databases/gtdbtk/release220"
+    size_mb: 110000
+    tools: ["gtdbtk"]
+    mirrors:
+      - url: "https://data.gtdb.ecogenomic.org/releases/release220/220.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r220_data.tar.gz"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["metadata/genome_metadata.tsv"]
+      min_size_mb: 85000
+    env_var: "GTDBTK_DATA_PATH"
+
+  busco_bacteria:
+    name: "BUSCO Bacteria ODB10"
+    description: "BUSCO 细菌谱系数据库"
+    install_path: "/h2ometa/databases/busco/bacteria_odb10"
+    size_mb: 200
+    tools: ["busco"]
+    mirrors:
+      - url: "https://busco-data.ezlab.org/v5/data/lineages/bacteria_odb10.2024-01-08.tar.gz"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["hmms/", "lengths_cutoff", "scores_cutoff"]
+
+  # ── 注释数据库 ──────────────────────────────────────────
+
+  bakta_db:
+    name: "Bakta 注释数据库 (Full)"
+    description: "Bakta 完整注释数据库"
+    install_path: "/h2ometa/databases/bakta/db"
+    size_mb: 35000
+    tools: ["bakta"]
+    mirrors:
+      - url: "https://zenodo.org/records/10522951/files/db.tar.gz"
+        mirror: "zenodo"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["db/version.json"]
+      min_size_mb: 30000
+
+  bakta_db_light:
+    name: "Bakta 注释数据库 (Light)"
+    description: "Bakta 轻量版注释数据库"
+    install_path: "/h2ometa/databases/bakta/db-light"
+    size_mb: 3000
+    tools: ["bakta"]
+    mirrors:
+      - url: "https://zenodo.org/records/10522951/files/db-light.tar.gz"
+        mirror: "zenodo"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["db-light/version.json"]
+      min_size_mb: 2500
+
+  eggnog_db:
+    name: "eggNOG v5 数据库"
+    description: "eggNOG-mapper DIAMOND 数据库"
+    install_path: "/h2ometa/databases/eggnog"
+    size_mb: 45000
+    tools: ["eggnog"]
+    mirrors:
+      - url: "http://eggnog5.embl.de/download/emapperdb-5.0.2/eggnog5.tar.gz"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["eggnog.db", "eggnog_proteins.dmnd"]
+      min_size_mb: 40000
+
+  hostile_human_t2t:
+    name: "Human T2T-HLA 参考索引"
+    description: "Hostile 宿主去除参考基因组（内置，无需手动安装）"
+    install_path: ""
+    size_mb: 0
+    tools: ["hostile"]
+    builtin: true
+    integrity_check:
+      status_file: null

@@ -1,0 +1,69 @@
+id: gtdbtk
+name: GTDB-Tk
+version: "2.3.2"
+category: taxonomy
+description: "基于 GTDB 的基因组分类学注释工具"
+conda_env: gtdbtk_env
+
+detection:
+  command: "gtdbtk --version"
+  version_regex: "gtdbtk.*version (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: bins_dir
+    type: directory
+    required: true
+    description: "MAG bin 文件目录"
+
+outputs:
+  - name: classify_summary
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.gtdbtk.summary.tsv"
+    sync_to_local: true
+
+parameters:
+  - name: extension
+    type: string
+    default: "fa"
+    label: "文件后缀"
+  - name: pplacer_threads
+    type: int
+    default: 1
+    range: [1, 4]
+    label: "pplacer 线程数"
+    description: "pplacer 内存敏感，建议 1-2 线程"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  gtdbtk classify_wf \
+    --genome_dir {{ bins_dir }} \
+    --out_dir {{ output_dir }}/gtdbtk_out \
+    -x {{ extension }} \
+    --cpus {{ threads }} \
+    --pplacer_cpus {{ pplacer_threads }} \
+    --mash_db {{ db }} \
+  && cp {{ output_dir }}/gtdbtk_out/classify/*.summary.tsv \
+    {{ output_dir }}/{{ sample_id }}.gtdbtk.summary.tsv
+
+databases:
+  - id: gtdb_r220
+    param_name: db
+    required: true
+    description: "GTDB 参考数据库 (Release 220, ~110 GB)"
+
+methods_template: >
+  Taxonomic classification of MAGs was performed using GTDB-Tk v{version}
+  with the GTDB {db_name} reference database.
+
+result_views:
+  - type: table
+    title: "GTDB 分类结果"
+    data_source: "{sample_id}.gtdbtk.summary.tsv"
+    config:
+      columns: [user_genome, classification, fastani_reference, note]
+      sortable: true

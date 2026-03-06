@@ -345,17 +345,26 @@ class TestRealToolYaml:
         return reg
 
     def test_scan_real_plugins(self, real_registry: PluginRegistry) -> None:
-        """项目应包含 4 个真实插件。"""
-        assert real_registry.plugin_count == 4
+        """项目应包含 16 个真实插件。"""
+        assert real_registry.plugin_count == 16
         ids = set(real_registry.list_all_ids())
-        assert ids == {"fastp", "kraken2", "hostile", "blastn"}
+        # Phase 1 原始 4 个
+        assert {"fastp", "kraken2", "hostile", "blastn"}.issubset(ids)
+        # Phase 3 新增 12 个
+        assert {"megahit", "metaspades", "metabat2", "maxbin2", "concoct",
+                "das_tool", "checkm2", "busco", "gtdbtk", "prokka",
+                "bakta", "eggnog"}.issubset(ids)
 
     def test_real_categories(self, real_registry: PluginRegistry) -> None:
-        """真实插件应分布在 4 个不同分类中。"""
+        """真实插件应分布在 7 个分类中。"""
         assert len(real_registry.list_by_category("qc")) == 1
-        assert len(real_registry.list_by_category("taxonomy")) == 1
+        assert len(real_registry.list_by_category("taxonomy")) == 2  # kraken2 + gtdbtk
         assert len(real_registry.list_by_category("host_removal")) == 1
         assert len(real_registry.list_by_category("blast")) == 1
+        assert len(real_registry.list_by_category("assembly")) == 2  # megahit + metaspades
+        assert len(real_registry.list_by_category("binning")) == 4   # metabat2 + maxbin2 + concoct + das_tool
+        assert len(real_registry.list_by_category("quality")) == 2   # checkm2 + busco
+        assert len(real_registry.list_by_category("annotation")) == 3  # prokka + bakta + eggnog
 
     @pytest.mark.parametrize("tool_id", ["fastp", "kraken2", "hostile", "blastn"])
     def test_real_descriptor_structure(self, real_registry: PluginRegistry, tool_id: str) -> None:

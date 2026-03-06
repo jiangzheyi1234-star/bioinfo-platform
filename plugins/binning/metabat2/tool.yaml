@@ -1,0 +1,52 @@
+id: metabat2
+name: MetaBAT2
+version: "2.15"
+category: binning
+description: "基于组成和覆盖度的自适应宏基因组 binning 工具"
+conda_env: metabat2_env
+
+detection:
+  command: "metabat2 --help 2>&1 | head -1"
+  version_regex: "MetaBAT.*version (\\d+\\.\\d+)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装后的 contig 文件"
+  - name: depth_file
+    type: tsv
+    required: true
+    description: "覆盖度文件（由 jgi_summarize_bam_contig_depths 生成）"
+
+outputs:
+  - name: bins_dir
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}_metabat2_bins"
+
+parameters:
+  - name: min_contig
+    type: int
+    default: 2500
+    label: "最短 contig 长度"
+    description: "用于 binning 的最短 contig"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  metabat2 \
+    -i {{ contigs }} \
+    -a {{ depth_file }} \
+    -o {{ output_dir }}/{{ sample_id }}_metabat2_bins/bin \
+    -m {{ min_contig }} \
+    -t {{ threads }}
+
+databases: []
+
+methods_template: >
+  Metagenomic binning was performed using MetaBAT2 v{version}
+  with minimum contig length of {min_contig} bp.
