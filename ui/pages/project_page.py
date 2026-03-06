@@ -22,9 +22,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.project_exporter import ProjectExporter
 from core.project_manager import ProjectInfo, ProjectManager
 from ui.page_base import BasePage
 from ui.widgets import styles
+from ui.widgets.export_dialog import ExportDialog
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +99,9 @@ class CreateProjectDialog(QDialog):
 class ProjectCard(QFrame):
     """单个项目卡片"""
 
-    open_clicked = pyqtSignal(str)  # project_id
+    open_clicked = pyqtSignal(str)     # project_id
     archive_clicked = pyqtSignal(str)  # project_id
+    export_clicked = pyqtSignal(str)   # project_id
 
     def __init__(self, project: ProjectInfo, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -156,6 +159,15 @@ class ProjectCard(QFrame):
             )
             btn_layout.addWidget(open_btn)
 
+            export_btn = QPushButton("导出")
+            export_btn.setStyleSheet(styles.BUTTON_SECONDARY)
+            export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            export_btn.setFixedWidth(72)
+            export_btn.clicked.connect(
+                lambda: self.export_clicked.emit(self._project.project_id)
+            )
+            btn_layout.addWidget(export_btn)
+
             archive_btn = QPushButton("归档")
             archive_btn.setStyleSheet(styles.BUTTON_LINK)
             archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -186,6 +198,7 @@ class ProjectPage(BasePage):
         self,
         project_manager: ProjectManager,
         main_window: Optional[QWidget] = None,
+        service_locator=None,
     ):
         super().__init__("项目管理")
         if hasattr(self, "label"):
@@ -193,6 +206,7 @@ class ProjectPage(BasePage):
 
         self._pm = project_manager
         self.main_window = main_window
+        self._locator = service_locator
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
         self._build_ui()
         self._refresh_list()
@@ -265,6 +279,7 @@ class ProjectPage(BasePage):
                 card = ProjectCard(project)
                 card.open_clicked.connect(self._on_open)
                 card.archive_clicked.connect(self._on_archive)
+                card.export_clicked.connect(self._on_export)
                 self._cards_layout.addWidget(card)
 
         self._cards_layout.addStretch()
@@ -309,3 +324,40 @@ class ProjectPage(BasePage):
             except Exception as e:
                 logger.error("归档项目失败: %s", e)
                 QMessageBox.critical(self, "错误", f"归档失败: {e}")
+
+    def _on_export(self, project_id: str) -> None:
+        """导出项目（论文/归档）"""
+        # 确保目标项目是当前打开的项目
+        current = self._pm.current_project
+        if current is None or current.project_id != project_id:
+            QMessageBox.information(self, "提示", "请先打开该项目再导出")
+            return
+
+        try:
+            db = self._pm.db
+            # 收集插件描述符（如果有 ServiceLocator）
+            plugin_descriptors: dict = {}
+            if self._locator and self._locator.plugin_registry:
+                reg = self._locator.plugin_registry
+                for tid in reg.list_all_ids():
+                    try:
+                        plugin_descriptors[tid] = reg.get_descriptor(tid)
+                    except Exception:
+                        pass
+
+            exporter = ProjectExporter(
+                conn=db,
+                plugin_descriptors=plugin_descriptors,
+                project_name=current.name,
+            )
+
+            from pathlib import Path
+            project_dir = str(
+                Path.home() / ".h2ometa" / "projects" / project_id
+            )
+            dialog = ExportDialog(exporter, project_dir=project_dir, parent=self)
+            dialog.exec()
+
+        except Exception as e:
+            logger.error("打开导出对话框失败: %s", e)
+            QMessageBox.critical(self, "错误", f"导出失败: {e}")

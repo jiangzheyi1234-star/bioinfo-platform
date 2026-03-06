@@ -49,6 +49,7 @@ class ServiceLocator(QObject):
     execution_started = pyqtSignal(str)       # execution_id
     execution_completed = pyqtSignal(str)     # execution_id
     execution_failed = pyqtSignal(str, str)   # execution_id, error
+    ssh_changed = pyqtSignal(bool)            # connected
 
     def __init__(
         self,
@@ -111,6 +112,7 @@ class ServiceLocator(QObject):
         # 重建 ToolEngine（依赖 SSH）
         if self._data_registry is not None:
             self._rebuild_engine()
+        self.ssh_changed.emit(ssh is not None)
         logger.info("SSH 服务已更新")
 
     @property

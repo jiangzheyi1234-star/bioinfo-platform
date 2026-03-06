@@ -110,6 +110,19 @@ class EnvironmentStatusBar(QFrame):
         layout.addWidget(self._queue_dot)
         layout.addWidget(self._queue_label)
 
+        # 分隔
+        sep3 = QLabel("|")
+        sep3.setStyleSheet(
+            f"color: {styles.COLOR_BORDER}; font-size: 11px; "
+            f"background: {styles.COLOR_BG_BLANK};"
+        )
+        layout.addWidget(sep3)
+
+        # 磁盘用量
+        self._disk_label = QLabel("磁盘: —")
+        self._disk_label.setStyleSheet(label_style)
+        layout.addWidget(self._disk_label)
+
         layout.addStretch()
 
     # ── 公开更新方法 ──────────────────────────────────────────────
@@ -141,6 +154,27 @@ class EnvironmentStatusBar(QFrame):
             self._project_label.setText(f"项目: {project_name}")
         else:
             self._project_label.setText("项目: 无")
+
+    def update_disk_usage(self, used_gb: float, total_gb: float, percent: float) -> None:
+        """更新磁盘用量显示
+
+        Args:
+            used_gb: 已用空间 (GB)
+            total_gb: 总空间 (GB)
+            percent: 使用率 0.0~1.0
+        """
+        pct = int(percent * 100)
+        self._disk_label.setText(f"磁盘: {used_gb:.1f}/{total_gb:.1f}G ({pct}%)")
+        # 超过 85% 变黄，超过 95% 变红
+        if percent >= 0.95:
+            color = styles.COLOR_DANGER
+        elif percent >= 0.85:
+            color = styles.COLOR_WARNING
+        else:
+            color = styles.COLOR_TEXT_SUB
+        self._disk_label.setStyleSheet(
+            f"font-size: 11px; color: {color}; background: {styles.COLOR_BG_BLANK};"
+        )
 
     def update_queue_status(self, running: int, pending: int) -> None:
         """更新任务队列状态

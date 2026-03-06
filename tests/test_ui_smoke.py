@@ -87,8 +87,8 @@ class TestMainWindowStartup:
         assert hasattr(main_window, 'analysis_page')
 
     def test_main_window_sidebar_count(self, main_window):
-        """侧边栏应有 5 个导航项"""
-        assert main_window.sidebar.count() == 5
+        """侧边栏应有 6 个导航项（含组装分析）"""
+        assert main_window.sidebar.count() == 6
 
     def test_main_window_show_and_close(self, qapp):
         """show() + close() 不崩溃"""

@@ -3,5 +3,6 @@ from .settings_page import SettingsPage
 from .detection_page import DetectionPage
 from .home_page import HomePage
 from .analysis_page import AnalysisPage
+from .assembly_page import AssemblyPage
 
-__all__ = ["SettingsPage", "DetectionPage", "HomePage", "AnalysisPage"]
+__all__ = ["SettingsPage", "DetectionPage", "HomePage", "AnalysisPage", "AssemblyPage"]

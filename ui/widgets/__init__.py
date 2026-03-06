@@ -48,6 +48,16 @@ try:
 except Exception:  # pragma: no cover
     ExecutionHistoryCard = None  # type: ignore
 
+try:
+    from .export_dialog import ExportDialog
+except Exception:  # pragma: no cover
+    ExportDialog = None  # type: ignore
+
 from . import styles
 
-__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "BlastRunCard", "styles", "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget", "ExecutionHistoryCard"]
+__all__ = [
+    "SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard",
+    "BlastResourceCard", "BlastSampleCard", "BlastRunCard",
+    "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget",
+    "ExecutionHistoryCard", "ExportDialog", "styles",
+]

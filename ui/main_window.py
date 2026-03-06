@@ -8,6 +8,7 @@ Phase 2 变更:
 import logging
 from typing import Optional
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -22,7 +23,9 @@ from PyQt6.QtWidgets import (
 
 from core.project_manager import ProjectInfo, ProjectManager
 from core.service_locator import ServiceLocator
+from core.storage_manager import StorageManager
 from ui.pages import AnalysisPage, DetectionPage, SettingsPage
+from ui.pages.assembly_page import AssemblyPage
 from ui.pages.home_page import HomePage
 from ui.pages.project_page import ProjectPage
 from ui.widgets import styles
@@ -44,6 +47,11 @@ class MainWindow(QMainWindow):
         # 创建 ServiceLocator
         self._locator = ServiceLocator(project_manager=self._pm)
         self._locator.initialize()
+
+        # 磁盘监控定时器（每 5 分钟刷新一次）
+        self._disk_timer = QTimer(self)
+        self._disk_timer.setInterval(300_000)
+        self._disk_timer.timeout.connect(self._refresh_disk_usage)
 
         self.init_ui()
         self._refresh_project_combo()
@@ -108,7 +116,9 @@ class MainWindow(QMainWindow):
         self.content = QStackedWidget()
 
         # 项目管理页
-        self.project_page = ProjectPage(self._pm, main_window=self)
+        self.project_page = ProjectPage(
+            self._pm, main_window=self, service_locator=self._locator
+        )
         self.project_page.project_switched.connect(self._on_project_switched)
         self.content.addWidget(self.project_page)  # Index 0
 
@@ -124,16 +134,21 @@ class MainWindow(QMainWindow):
         self.settings_page = SettingsPage()
         self.content.addWidget(self.settings_page)  # Index 3
 
-        # 分析流水线页
+        # 读长分析流水线页
         self.analysis_page = AnalysisPage(main_window=self)
         self.content.addWidget(self.analysis_page)  # Index 4
+
+        # 组装分析流水线页
+        self.assembly_page = AssemblyPage(main_window=self)
+        self.content.addWidget(self.assembly_page)  # Index 5
 
         # 导航项与堆栈索引严格对应
         self.sidebar.addItem(QListWidgetItem("项目管理"))    # idx 0
         self.sidebar.addItem(QListWidgetItem("项目首页"))    # idx 1
         self.sidebar.addItem(QListWidgetItem("病原体检测"))  # idx 2
         self.sidebar.addItem(QListWidgetItem("系统设置"))    # idx 3
-        self.sidebar.addItem(QListWidgetItem("分析流水线"))  # idx 4
+        self.sidebar.addItem(QListWidgetItem("读长分析"))    # idx 4
+        self.sidebar.addItem(QListWidgetItem("组装分析"))    # idx 5
 
         self.sidebar.currentRowChanged.connect(self.content.setCurrentIndex)
         middle_layout.addWidget(self.content)
@@ -214,6 +229,20 @@ class MainWindow(QMainWindow):
 
     # ── ServiceLocator 信号连接 ────────────────────────────────
 
+    def _refresh_disk_usage(self) -> None:
+        """通过 StorageManager 查询远端磁盘用量并更新状态栏"""
+        ssh = self._locator.ssh_service
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return
+        try:
+            mgr = StorageManager(ssh)
+            usage = mgr.get_disk_usage("/h2ometa")
+            self.status_bar.update_disk_usage(
+                usage.used_gb, usage.total_gb, usage.percent
+            )
+        except Exception:
+            pass
+
     def _connect_service_signals(self) -> None:
         """连接 ServiceLocator 信号到状态栏"""
         # SSH 连接状态 → 状态栏
@@ -227,6 +256,11 @@ class MainWindow(QMainWindow):
         queue = self._locator.job_queue
         queue.job_started.connect(self._update_queue_display)
         queue.queue_updated.connect(lambda _: self._update_queue_display())
+
+        # SSH 连接后启动磁盘监控定时器
+        self._locator.ssh_changed.connect(
+            lambda connected: self._disk_timer.start() if connected else self._disk_timer.stop()
+        )
 
         # 项目切换 → ServiceLocator 自动重建 DataRegistry（已在内部处理）
 
