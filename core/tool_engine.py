@@ -1,7 +1,12 @@
-"""工具执行引擎 — Phase 1 核心模块。
+"""工具执行引擎 — Phase 1/2 核心模块。
 
 统一执行入口：UI 直接点击、向导引导、未来 Agent 调用，
 都通过同一个 execute() 方法提交分析任务。
+
+Phase 2 变更:
+  - 统一使用外部 Jinja2 CommandBuilder（替换内部 str.format 版本）
+  - execute() 新增 database_paths 参数
+  - on_job_completed() 添加远程文件存在性验证（Risk 1 缓解）
 
 依赖关系:
   - PluginRegistry: 获取工具描述符
@@ -9,6 +14,7 @@
   - ProjectManager: 当前项目信息
   - SSHService: 远端命令执行
   - JobQueue: 并发控制
+  - CommandBuilder: Jinja2 命令渲染 + 包装脚本
 """
 
 import json
@@ -20,6 +26,7 @@ from typing import Any, Optional, Protocol
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from core.command_builder import CommandBuilder, CommandBuildError
 from core.data_registry import DataRegistry
 
 logger = logging.getLogger(__name__)
@@ -84,59 +91,6 @@ class ExecutionRecord:
     remote_job_id: Optional[str] = None
 
 
-# ── 命令构建器 ────────────────────────────────────────────
-
-
-class CommandBuilder:
-    """命令行构建器 — 从 tool.yaml 模板和参数生成可执行命令"""
-
-    @staticmethod
-    def build(
-        descriptor: dict[str, Any],
-        params: dict[str, Any],
-        input_paths: dict[str, str],
-        sample_id: str,
-        output_dir: str,
-    ) -> str:
-        """构建完整命令字符串
-
-        Args:
-            descriptor: 工具完整 YAML 描述符
-            params: 合并后的参数（用户参数 + 默认值）
-            input_paths: 输入名称 -> 文件路径映射
-            sample_id: 样本 ID
-            output_dir: 输出目录
-
-        Returns:
-            渲染完成的命令字符串
-        """
-        template = descriptor["command_template"]
-
-        # 构建模板上下文
-        context: dict[str, Any] = {**params}
-        context["sample_id"] = sample_id
-        context["output_dir"] = output_dir
-
-        # 填充输入文件路径
-        for inp_def in descriptor.get("inputs", []):
-            inp_name = inp_def["name"]
-            if inp_name in input_paths:
-                context[inp_name] = input_paths[inp_name]
-
-        # conda 环境名
-        conda_env = descriptor.get("conda_env")
-        if conda_env:
-            context["conda_env"] = conda_env
-
-        # 渲染模板（使用 str.format）
-        try:
-            cmd = template.format(**context)
-        except KeyError as e:
-            raise ValueError(f"命令模板缺少变量: {e}") from e
-
-        return cmd.strip()
-
-
 # ── 工具引擎 ──────────────────────────────────────────────
 
 
@@ -188,6 +142,7 @@ class ToolEngine(QObject):
         parameters: dict[str, Any],
         sample_id: str,
         triggered_by: str = "manual",
+        database_paths: Optional[dict[str, str]] = None,
     ) -> str:
         """提交工具执行
 
@@ -197,12 +152,14 @@ class ToolEngine(QObject):
             parameters: 用户设置的参数
             sample_id: 关联的样本 ID
             triggered_by: 触发来源 (manual / wizard / pipeline / agent)
+            database_paths: 数据库路径映射，如 {"db": "/path/to/kraken2_db"}
 
         Returns:
             新创建的 execution_id
 
         Raises:
             ValueError: 没有打开的项目或参数校验失败
+            CommandBuildError: 命令模板渲染失败
         """
         # 1. 检查当前项目
         project = self._projects.current_project
@@ -221,12 +178,23 @@ class ToolEngine(QObject):
         # 5. 构建输出目录
         output_dir = f"{project.remote_base}/intermediate/{sample_id}/{tool_id}"
 
-        # 6. 构建命令
+        # 6. 解析输出路径（模板中可能引用输出变量名如 clean_1、report_html）
+        output_paths = CommandBuilder.resolve_output_paths(
+            descriptor, output_dir, sample_id,
+        )
+        all_paths = {**input_paths, **output_paths}
+
+        # 7. 构建命令（使用 Jinja2 模板）
         command = CommandBuilder.build(
-            descriptor, merged_params, input_paths, sample_id, output_dir,
+            descriptor=descriptor,
+            parameters=merged_params,
+            input_paths=all_paths,
+            output_dir=output_dir,
+            sample_id=sample_id,
+            database_paths=database_paths,
         )
 
-        # 7. 创建 ExecutionRecord
+        # 8. 创建 ExecutionRecord
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
         record = ExecutionRecord(
             execution_id=execution_id,
@@ -239,24 +207,24 @@ class ToolEngine(QObject):
             created_at=time.time(),
         )
 
-        # 8. 写入数据库
+        # 9. 写入数据库
         self._save_record(record)
 
-        # 9. 记录输入关系 (execution_io)
+        # 10. 记录输入关系 (execution_io)
         for data_id in input_data_ids:
             self._registry.add_execution_io(execution_id, data_id, "input")
 
-        # 10. 创建远端输出目录
+        # 11. 创建远端输出目录
         self._ssh.run(f"mkdir -p {output_dir}", timeout=15)
 
-        # 11. 提交到 JobQueue
+        # 12. 提交到 JobQueue
         self._queue.submit(
             execution_id=execution_id,
             command=command,
             metadata={"tool_id": tool_id, "sample_id": sample_id},
         )
 
-        # 12. 更新状态为 running 并发信号
+        # 13. 更新状态为 running 并发信号
         self._update_status(execution_id, "running")
         self.execution_started.emit(execution_id)
 
@@ -275,6 +243,9 @@ class ToolEngine(QObject):
     ) -> None:
         """任务完成回调 — 注册输出到 DataRegistry 并更新状态
 
+        Risk 1 缓解: 注册输出前通过 SSH 检查远程文件是否存在，
+        避免 hostile 等工具实际输出文件名与 pattern 不一致的问题。
+
         Args:
             execution_id: 执行 ID
             descriptor: 工具描述符
@@ -282,12 +253,40 @@ class ToolEngine(QObject):
             output_dir: 远端输出目录
         """
         try:
-            # 注册所有声明的输出文件
+            # 使用 resolve_output_paths 统一解析输出路径
+            resolved_paths = CommandBuilder.resolve_output_paths(
+                descriptor, output_dir, sample_id,
+            )
+
             for output_def in descriptor.get("outputs", []):
-                pattern = output_def.get("pattern", "")
-                file_path = f"{output_dir}/{pattern.format(sample_id=sample_id)}"
+                name = output_def["name"]
+                file_path = resolved_paths.get(name, "")
                 data_type = output_def.get("type", "unknown")
                 tier = output_def.get("tier", "result")
+
+                if not file_path:
+                    logger.warning(
+                        "输出 %s 无法解析路径，跳过注册 (execution=%s)",
+                        name, execution_id,
+                    )
+                    continue
+
+                # Risk 1 缓解: 验证远程文件是否存在
+                try:
+                    rc, _, _ = self._ssh.run(
+                        f"test -f {file_path}", timeout=10,
+                    )
+                    if rc != 0:
+                        logger.warning(
+                            "输出文件不存在，跳过注册: %s (execution=%s)",
+                            file_path, execution_id,
+                        )
+                        continue
+                except Exception:
+                    # SSH 检查失败时仍然注册（保守策略）
+                    logger.debug(
+                        "无法验证输出文件存在性，继续注册: %s", file_path,
+                    )
 
                 self._registry.register_output(
                     execution_id=execution_id,

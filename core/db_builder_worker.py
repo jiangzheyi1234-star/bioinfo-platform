@@ -1,4 +1,10 @@
 # core/db_builder_worker.py
+"""
+[DEPRECATED] 远程 makeblastdb 构建 Worker
+
+Phase 3 将迁移到 ToolEngine 插件体系。
+保留此文件供 home_page.py 使用。
+"""
 import os
 import time
 from PyQt6.QtCore import QThread, pyqtSignal

@@ -1,7 +1,10 @@
 # core/task_recovery_worker.py
 """
-任务恢复 Worker
-用于检查和恢复之前未完成的任务
+[DEPRECATED] 任务恢复 Worker
+
+已被 JobMonitor + RetryManager 替代。
+保留此文件供过渡期兼容，Phase 3 移除。
+新代码请使用: JobMonitor 自动轮询 + RetryManager 自动重试。
 """
 import os
 import time

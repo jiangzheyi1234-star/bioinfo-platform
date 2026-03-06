@@ -1,7 +1,9 @@
-"""主窗口 — 侧边栏导航 + 项目切换器 + 环境状态栏
+"""主窗口 — 侧边栏导航 + 项目切换器 + 环境状态栏 + ServiceLocator 集成
 
-在原有导航基础上添加项目管理页和项目切换器，
-底部添加环境状态栏显示连接和任务状态。
+Phase 2 变更:
+  - 集成 ServiceLocator 作为核心服务总线
+  - 连接 SSH/项目/任务状态到环境状态栏
+  - 将 ServiceLocator 传入各页面构造函数
 """
 import logging
 from typing import Optional
@@ -19,7 +21,8 @@ from PyQt6.QtWidgets import (
 )
 
 from core.project_manager import ProjectInfo, ProjectManager
-from ui.pages import DetectionPage, SettingsPage
+from core.service_locator import ServiceLocator
+from ui.pages import AnalysisPage, DetectionPage, SettingsPage
 from ui.pages.home_page import HomePage
 from ui.pages.project_page import ProjectPage
 from ui.widgets import styles
@@ -37,8 +40,14 @@ class MainWindow(QMainWindow):
 
         self._pm = project_manager or ProjectManager()
         self._updating_combo = False  # 防止信号循环
+
+        # 创建 ServiceLocator
+        self._locator = ServiceLocator(project_manager=self._pm)
+        self._locator.initialize()
+
         self.init_ui()
         self._refresh_project_combo()
+        self._connect_service_signals()
 
     def init_ui(self):
         central = QWidget()
@@ -115,11 +124,16 @@ class MainWindow(QMainWindow):
         self.settings_page = SettingsPage()
         self.content.addWidget(self.settings_page)  # Index 3
 
+        # 分析流水线页
+        self.analysis_page = AnalysisPage(main_window=self)
+        self.content.addWidget(self.analysis_page)  # Index 4
+
         # 导航项与堆栈索引严格对应
         self.sidebar.addItem(QListWidgetItem("项目管理"))    # idx 0
         self.sidebar.addItem(QListWidgetItem("项目首页"))    # idx 1
         self.sidebar.addItem(QListWidgetItem("病原体检测"))  # idx 2
         self.sidebar.addItem(QListWidgetItem("系统设置"))    # idx 3
+        self.sidebar.addItem(QListWidgetItem("分析流水线"))  # idx 4
 
         self.sidebar.currentRowChanged.connect(self.content.setCurrentIndex)
         middle_layout.addWidget(self.content)
@@ -183,6 +197,11 @@ class MainWindow(QMainWindow):
 
     # ── 对外 API（保持兼容） ────────────────────────────────────
 
+    @property
+    def service_locator(self) -> ServiceLocator:
+        """获取 ServiceLocator 实例，供页面访问"""
+        return self._locator
+
     def get_ssh_service(self):
         """获取 SSH 服务实例，优先从设置页面获取"""
         if hasattr(self, 'settings_page') and self.settings_page:
@@ -192,3 +211,34 @@ class MainWindow(QMainWindow):
     def set_settings_locked(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
         if hasattr(self, 'settings_page') and self.settings_page:
             self.settings_page.set_global_lock(locked, reason)
+
+    # ── ServiceLocator 信号连接 ────────────────────────────────
+
+    def _connect_service_signals(self) -> None:
+        """连接 ServiceLocator 信号到状态栏"""
+        # SSH 连接状态 → 状态栏
+        ssh = self._locator.ssh_service
+        if ssh and hasattr(ssh, 'connection_status_changed'):
+            ssh.connection_status_changed.connect(
+                lambda connected: self.status_bar.update_ssh_status(connected)
+            )
+
+        # 任务队列状态 → 状态栏
+        queue = self._locator.job_queue
+        queue.job_started.connect(self._update_queue_display)
+        queue.queue_updated.connect(lambda _: self._update_queue_display())
+
+        # 项目切换 → ServiceLocator 自动重建 DataRegistry（已在内部处理）
+
+    def _update_queue_display(self, *_args) -> None:
+        """刷新状态栏任务队列显示"""
+        status = self._locator.job_queue.get_status()
+        self.status_bar.update_queue_status(
+            running=status.get("running", 0),
+            pending=status.get("pending", 0),
+        )
+
+    def closeEvent(self, event) -> None:
+        """窗口关闭时清理资源"""
+        self._locator.shutdown()
+        super().closeEvent(event)

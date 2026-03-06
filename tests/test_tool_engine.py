@@ -17,7 +17,8 @@ from PyQt6.QtCore import QObject
 from core.data_registry import DataRegistry
 from core.project_manager import ProjectInfo, _SCHEMA_SQL
 from core.data_importer import DataImporter
-from core.tool_engine import CommandBuilder, ExecutionRecord, ToolEngine
+from core.command_builder import CommandBuilder, CommandBuildError
+from core.tool_engine import ExecutionRecord, ToolEngine
 
 
 # ── 测试用 Mock / Fake 对象 ──────────────────────────────
@@ -32,6 +33,7 @@ class FakeSSHService:
 
     def run(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]:
         self.commands_run.append(cmd)
+        # 模拟文件存在性检查: test -f 总是返回成功
         return (0, "", "")
 
     def upload(self, local_path: str, remote_path: str) -> None:
@@ -92,19 +94,19 @@ FASTP_DESCRIPTOR: dict[str, Any] = {
             "name": "clean_1",
             "type": "fastq",
             "tier": "intermediate",
-            "pattern": "{sample_id}.clean.R1.fq.gz",
+            "pattern": "{output_dir}/{sample_id}.clean.R1.fq.gz",
         },
         {
             "name": "clean_2",
             "type": "fastq",
             "tier": "intermediate",
-            "pattern": "{sample_id}.clean.R2.fq.gz",
+            "pattern": "{output_dir}/{sample_id}.clean.R2.fq.gz",
         },
         {
             "name": "report_html",
             "type": "html",
             "tier": "result",
-            "pattern": "{sample_id}.fastp.html",
+            "pattern": "{output_dir}/{sample_id}.fastp.html",
         },
     ],
     "parameters": [
@@ -113,13 +115,13 @@ FASTP_DESCRIPTOR: dict[str, Any] = {
         {"name": "thread", "type": "int", "default": 4},
     ],
     "command_template": (
-        "conda run -n {conda_env} fastp "
-        "-i {reads_1} "
-        "-o {output_dir}/{sample_id}.clean.R1.fq.gz "
-        "-h {output_dir}/{sample_id}.fastp.html "
-        "-q {qualified_quality_phred} "
-        "-l {length_required} "
-        "-w {thread}"
+        "fastp "
+        "-i {{ reads_1 }} "
+        "-o {{ clean_1 }} "
+        "-h {{ report_html }} "
+        "-q {{ qualified_quality_phred }} "
+        "-l {{ length_required }} "
+        "-w {{ thread }}"
     ),
     "databases": [],
 }
@@ -203,20 +205,23 @@ def engine(
 
 
 class TestCommandBuilder:
-    """CommandBuilder.build() 测试"""
+    """CommandBuilder.build() 测试（使用外部 Jinja2 版本）"""
 
     def test_build_basic(self) -> None:
+        output_dir = "/h2ometa/projects/proj_x/intermediate/sample1/fastp"
+        output_paths = CommandBuilder.resolve_output_paths(
+            FASTP_DESCRIPTOR, output_dir, "sample1",
+        )
         cmd = CommandBuilder.build(
             descriptor=FASTP_DESCRIPTOR,
-            params={
+            parameters={
                 "qualified_quality_phred": 20,
                 "length_required": 60,
                 "thread": 8,
-                "conda_env": "fastp_env",
             },
-            input_paths={"reads_1": "/data/sample1.R1.fq.gz"},
+            input_paths={"reads_1": "/data/sample1.R1.fq.gz", **output_paths},
+            output_dir=output_dir,
             sample_id="sample1",
-            output_dir="/h2ometa/projects/proj_x/intermediate/sample1/fastp",
         )
         assert "fastp" in cmd
         assert "/data/sample1.R1.fq.gz" in cmd
@@ -225,33 +230,38 @@ class TestCommandBuilder:
         assert "-w 8" in cmd
         assert "sample1.clean.R1.fq.gz" in cmd
 
-    def test_build_missing_variable_raises(self) -> None:
+    def test_build_syntax_error_raises(self) -> None:
+        """Jinja2 语法错误应抛出 CommandBuildError"""
         descriptor = {
-            "command_template": "tool --input {missing_var}",
+            "id": "broken_tool",
+            "command_template": "{% if unclosed %}",
             "inputs": [],
             "parameters": [],
         }
-        with pytest.raises(ValueError, match="命令模板缺少变量"):
+        with pytest.raises(CommandBuildError):
             CommandBuilder.build(
                 descriptor=descriptor,
-                params={},
+                parameters={},
                 input_paths={},
-                sample_id="s1",
                 output_dir="/tmp",
+                sample_id="s1",
             )
 
     def test_build_includes_output_dir(self) -> None:
+        output_dir = "/proj/intermediate/s1/fastp"
+        output_paths = CommandBuilder.resolve_output_paths(
+            FASTP_DESCRIPTOR, output_dir, "s1",
+        )
         cmd = CommandBuilder.build(
             descriptor=FASTP_DESCRIPTOR,
-            params={
+            parameters={
                 "qualified_quality_phred": 15,
                 "length_required": 50,
                 "thread": 4,
-                "conda_env": "fastp_env",
             },
-            input_paths={"reads_1": "/data/r1.fq"},
+            input_paths={"reads_1": "/data/r1.fq", **output_paths},
+            output_dir=output_dir,
             sample_id="s1",
-            output_dir="/proj/intermediate/s1/fastp",
         )
         assert "/proj/intermediate/s1/fastp" in cmd
 

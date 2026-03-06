@@ -1,4 +1,7 @@
+import json
 import os
+from pathlib import Path
+from typing import Any
 
 # 默认配置字典
 DEFAULT_CONFIG = {
@@ -38,3 +41,32 @@ def ensure_output_dir(path):
 
 # 初始化时确保默认目录存在
 DEFAULT_CONFIG['local_output_dir'] = ensure_output_dir(DEFAULT_CONFIG['local_output_dir'])
+
+
+# ── 配置文件读写 ────────────────────────────────────────────
+
+_CONFIG_PATH = Path.home() / ".h2ometa" / "config.json"
+
+
+def get_config() -> dict[str, Any]:
+    """读取用户配置文件，合并默认值。
+
+    配置文件路径: ~/.h2ometa/config.json
+    不存在时返回 DEFAULT_CONFIG 的副本。
+    """
+    config = dict(DEFAULT_CONFIG)
+    if _CONFIG_PATH.exists():
+        try:
+            with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                user_config = json.load(f)
+            config.update(user_config)
+        except Exception:
+            pass
+    return config
+
+
+def save_config(config: dict[str, Any]) -> None:
+    """保存配置到用户配置文件。"""
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_CONFIG_PATH, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)

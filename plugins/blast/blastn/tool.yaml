@@ -47,7 +47,7 @@ parameters:
 
 command_template: |
   blastn \
-    -query {{ input_query }} \
+    -query {{ query }} \
     -db {{ db }} \
     -out {{ output_dir }}/{{ sample_id }}.blastn.tsv \
     -evalue {{ evalue }} \

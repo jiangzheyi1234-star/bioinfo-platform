@@ -24,7 +24,8 @@ from core.data_importer import DataImporter
 from core.data_registry import DataRegistry
 from core.plugin_registry import PluginRegistry
 from core.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
-from core.tool_engine import CommandBuilder, ToolEngine
+from core.command_builder import CommandBuilder
+from core.tool_engine import ExecutionRecord, ToolEngine
 
 
 # ── Mock / Fake 对象 ──────────────────────────────────────
@@ -82,7 +83,7 @@ class FakeProjectManager:
         return self._conn
 
 
-# ── 测试用 tool.yaml 内容（使用 str.format 模板） ──────────
+# ── 测试用 tool.yaml 内容（使用 Jinja2 模板） ──────────
 
 
 SIMPLE_TOOL_YAML = {
@@ -100,13 +101,13 @@ SIMPLE_TOOL_YAML = {
             "name": "clean_reads",
             "type": "fastq",
             "tier": "intermediate",
-            "pattern": "{sample_id}.clean.fq.gz",
+            "pattern": "{output_dir}/{sample_id}.clean.fq.gz",
         },
         {
             "name": "report",
             "type": "json",
             "tier": "result",
-            "pattern": "{sample_id}.qc_report.json",
+            "pattern": "{output_dir}/{sample_id}.qc_report.json",
         },
     ],
     "parameters": [
@@ -114,11 +115,11 @@ SIMPLE_TOOL_YAML = {
         {"name": "min_length", "type": "int", "default": 50},
     ],
     "command_template": (
-        "conda run -n {conda_env} simple_qc "
-        "-i {reads_1} "
-        "-o {output_dir}/{sample_id}.clean.fq.gz "
-        "-r {output_dir}/{sample_id}.qc_report.json "
-        "-q {min_quality} -l {min_length}"
+        "simple_qc "
+        "-i {{ reads_1 }} "
+        "-o {{ clean_reads }} "
+        "-r {{ report }} "
+        "-q {{ min_quality }} -l {{ min_length }}"
     ),
     "databases": [],
 }

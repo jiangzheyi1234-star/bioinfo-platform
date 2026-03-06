@@ -1,9 +1,10 @@
 # core/task_manager.py
 """
-任务历史管理器
-- 保存任务记录到本地 JSON 文件
-- 程序启动时加载历史任务
-- 支持继续监控未完成的任务
+[DEPRECATED] 任务历史管理器 (JSON 持久化)
+
+已被 SQLite executions 表 + ExecutionHistoryCard 替代。
+保留此文件供过渡期兼容，Phase 3 移除。
+新代码请使用: DataRegistry + ToolEngine 的 ExecutionRecord。
 """
 import os
 import json

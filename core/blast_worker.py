@@ -1,4 +1,11 @@
 # core/blast_worker.py
+"""
+[DEPRECATED] BLAST 异步任务调度器
+
+已被 ToolEngine + _BlastSubmitWorker (detection_page.py) 替代。
+保留此文件供过渡期兼容，Phase 3 移除。
+新代码请使用: ToolEngine.execute("blastn", ...) + ServiceLocator 信号链路。
+"""
 import os
 import time
 import uuid

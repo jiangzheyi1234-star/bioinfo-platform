@@ -15,8 +15,6 @@ from main_window import MainWindow
 
 
 def main():
-
-
     try:
         app = QApplication(sys.argv)
 
@@ -31,6 +29,13 @@ def main():
         exit_code = app.exec()
         sys.exit(exit_code)
     except Exception as e:
+        import logging
+        import traceback
+        logging.basicConfig(filename=os.path.join(root_dir, "logs", "startup_error.log"),
+                            level=logging.ERROR)
+        logging.error("启动失败:\n%s", traceback.format_exc())
+        # 同时输出到控制台
+        traceback.print_exc()
         sys.exit(1)
 
 

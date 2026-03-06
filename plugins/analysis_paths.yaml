@@ -1,0 +1,28 @@
+# analysis_paths.yaml — 声明式流水线定义
+#
+# 定义预设分析路径，供 PipelineRunner.load_stages_from_yaml() 加载。
+# 用户可在运行时覆盖参数和数据库路径。
+
+paths:
+  read_based:
+    name: "读长分析路径"
+    description: "FASTQ 读长 → 质控 → 去宿主 → 物种分类"
+    stages:
+      - tool_id: fastp
+        input_type: fastq
+        required: true
+        description: "质控：去低质量碱基、短读长过滤"
+
+      - tool_id: hostile
+        input_type: fastq
+        depends_on: fastp
+        required: true
+        description: "去宿主：移除人类基因组污染"
+
+      - tool_id: kraken2
+        input_type: fastq
+        depends_on: hostile
+        required: true
+        description: "物种分类：基于 k-mer 的读长分类"
+        databases:
+          db: ""  # 用户运行时配置 kraken2 数据库路径

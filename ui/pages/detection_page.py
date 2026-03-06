@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+import logging
+import os
+import time
+from typing import Optional
+
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QVBoxLayout, QWidget, QStackedWidget, QLabel,
     QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog,
@@ -8,11 +13,60 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.page_base import BasePage
-from ui.widgets import styles, BlastResourceCard, BlastSampleCard, BlastRunCard, TaskHistoryCard
-from core.blast_worker import BlastWorker
-from core.task_recovery_worker import TaskRecoveryWorker, SingleTaskMonitorWorker
+from ui.widgets import styles, BlastResourceCard, BlastSampleCard, BlastRunCard, ExecutionHistoryCard
 from config import DEFAULT_CONFIG
-import os
+
+logger = logging.getLogger(__name__)
+
+
+class _BlastSubmitWorker(QThread):
+    """后台提交 BLAST 任务（上传文件 + 提交到 ToolEngine）"""
+
+    progress = pyqtSignal(str)
+    submitted = pyqtSignal(str, str)  # execution_id, sample_id
+    failed = pyqtSignal(str)  # error message
+
+    def __init__(self, locator, fasta_path: str, db_path: str):
+        super().__init__()
+        self._locator = locator
+        self._fasta_path = fasta_path
+        self._db_path = db_path
+
+    def run(self):
+        try:
+            ssh = self._locator.ssh_service
+            pm = self._locator.project_manager
+            registry = self._locator.data_registry
+            engine = self._locator.tool_engine
+
+            sample_name = f"blast_{int(time.time())}"
+            sample_id = registry.add_sample(sample_name)
+
+            self.progress.emit("正在上传序列文件...")
+            from core.data_importer import DataImporter
+            importer = DataImporter(ssh_service=ssh, registry=registry)
+            data_id = importer.import_file(
+                local_path=self._fasta_path,
+                sample_id=sample_id,
+                data_type="fasta",
+                project_remote_base=pm.current_project.remote_base,
+            )
+
+            self.progress.emit("正在启动远程 BLAST 比对...")
+            execution_id = engine.execute(
+                tool_id="blastn",
+                input_data_ids=[data_id],
+                parameters={},
+                sample_id=sample_id,
+                triggered_by="manual",
+                database_paths={"db": self._db_path},
+            )
+
+            self.submitted.emit(execution_id, sample_id)
+
+        except Exception as e:
+            logger.exception("BLAST 提交失败")
+            self.failed.emit(str(e))
 
 
 class DetectionPage(BasePage):
@@ -28,9 +82,14 @@ class DetectionPage(BasePage):
         self.all_data = [] # 缓存所有比对行数据
         self.current_page = 0
         self.page_size = 20
+        self._current_execution_id: Optional[str] = None
+        self._current_sample_id: Optional[str] = None
+        self._submit_worker: Optional[_BlastSubmitWorker] = None
         self._build_ui()
         # 初始化默认路径
         self.run_card.path_input.setText(DEFAULT_CONFIG.get('local_output_dir', ''))
+        # 连接 ServiceLocator 信号
+        self._connect_locator_signals()
 
     def get_ssh_client(self):
         """获取SSH客户端，通过主窗口获取"""
@@ -41,6 +100,20 @@ class DetectionPage(BasePage):
     def _set_settings_lock(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
         if self.main_window and hasattr(self.main_window, "set_settings_locked"):
             self.main_window.set_settings_locked(locked, reason)
+
+    def _get_locator(self):
+        """获取 ServiceLocator"""
+        if self.main_window and hasattr(self.main_window, 'service_locator'):
+            return self.main_window.service_locator
+        return None
+
+    def _connect_locator_signals(self) -> None:
+        """连接 ServiceLocator 执行信号"""
+        locator = self._get_locator()
+        if locator is None:
+            return
+        locator.execution_completed.connect(self._on_execution_completed)
+        locator.execution_failed.connect(self._on_execution_failed)
 
     def _build_ui(self):
         # 页面整体布局参数
@@ -158,106 +231,58 @@ class DetectionPage(BasePage):
         self.run_card.next_btn.clicked.connect(lambda: self._change_page(1))
 
     def _init_history_page_ui(self):
-        """初始化任务历史页面"""
+        """初始化执行历史页面（基于 SQLite）"""
         layout = QVBoxLayout(self.history_page)
         layout.setContentsMargins(0, 10, 0, 0)
         layout.setSpacing(12)
-        
-        self.history_card = TaskHistoryCard()
-        self.history_card.resume_task.connect(self._on_resume_task)
-        self.history_card.view_result.connect(self._on_view_result)
-        self.history_card.refresh_requested.connect(self._on_refresh_tasks)
-        layout.addWidget(self.history_card)
 
-    def _on_resume_task(self, job_id: str):
-        """继续监控某个任务"""
-        client = self.get_ssh_client()
-        if not client:
-            QMessageBox.warning(self, "提示", "请先在设置页连接服务器")
+        self.execution_history = ExecutionHistoryCard()
+        layout.addWidget(self.execution_history)
+
+        # 尝试设置数据库连接
+        self._refresh_history_db()
+
+    def _refresh_history_db(self) -> None:
+        """更新执行历史的数据库连接"""
+        if not hasattr(self, 'execution_history'):
             return
-        
-        self.monitor_worker = SingleTaskMonitorWorker(
-            client_provider=self.get_ssh_client,
-            job_id=job_id
-        )
-        self.monitor_worker.progress.connect(lambda msg: self.history_card.hint_label.setText(msg))
-        self.monitor_worker.finished.connect(self._on_monitor_finished)
-        self.history_card.refresh_btn.setEnabled(False)
-        self.monitor_worker.start()
-
-    def _on_monitor_finished(self, success, msg, local_path):
-        """监控任务完成"""
-        self.history_card.refresh_btn.setEnabled(True)
-        self.history_card.refresh_list()
-        
-        if success:
-            QMessageBox.information(self, "任务完成", msg)
-            if local_path:
-                self._on_view_result(local_path)
-        else:
-            self.history_card.hint_label.setText(msg)
-        
-        if hasattr(self, 'monitor_worker') and self.monitor_worker:
-            self.monitor_worker.deleteLater()
-            self.monitor_worker = None
+        locator = self._get_locator()
+        if locator is None:
+            return
+        pm = locator.project_manager
+        if pm and pm.current_project is not None:
+            try:
+                self.execution_history.set_db_connection(pm.db)
+            except Exception:
+                pass
 
     def _on_view_result(self, local_path: str):
-        """查看结果文件"""
+        """查看结果文件 — 加载本地 TSV 到 BLAST 表格"""
         if os.path.exists(local_path):
-            # 加载结果到 BLAST 页面
             try:
                 with open(local_path, 'r', encoding='utf-8') as f:
                     self.all_data = [line.strip().split('\t') for line in f if line.strip()]
-                
+
                 self.current_page = 0
                 self._update_table_view()
-                
+
                 if self.all_data:
                     top = self.all_data[0]
                     interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。"
                     self.run_card.interpret_label.setText(interpretation)
                     self.run_card.interpret_box.show()
-                
+
                 self.run_card.path_display.setText(f" 结果文件: {local_path}")
                 self.run_card.path_display.show()
-                
+
                 # 切换到 BLAST 页面显示结果
                 self.btn_blast.setChecked(True)
                 self.content_stack.setCurrentIndex(1)
-                
+
             except Exception as e:
                 QMessageBox.warning(self, "错误", f"读取结果失败: {e}")
         else:
             QMessageBox.warning(self, "提示", f"结果文件不存在: {local_path}")
-
-    def _on_refresh_tasks(self):
-        """刷新任务状态（从服务器检查）"""
-        client = self.get_ssh_client()
-        if not client:
-            self.history_card.refresh_list()  # 只刷新本地列表
-            return
-        
-        self.recovery_worker = TaskRecoveryWorker(client_provider=self.get_ssh_client)
-        self.recovery_worker.progress.connect(lambda msg: self.history_card.hint_label.setText(msg))
-        self.recovery_worker.task_updated.connect(self._on_task_updated)
-        self.recovery_worker.all_checked.connect(self._on_all_tasks_checked)
-        self.history_card.refresh_btn.setEnabled(False)
-        self.recovery_worker.start()
-
-    def _on_task_updated(self, job_id, status, msg, local_path):
-        """单个任务状态更新"""
-        self.history_card.update_task_status(job_id, status)
-
-    def _on_all_tasks_checked(self, total, done, failed):
-        """所有任务检查完成"""
-        self.history_card.refresh_btn.setEnabled(True)
-        self.history_card.refresh_list()
-        if total > 0:
-            self.history_card.hint_label.setText(f"✅ 检查完成: {total} 个任务, {done} 个已完成, {failed} 个失败")
-        
-        if hasattr(self, 'recovery_worker') and self.recovery_worker:
-            self.recovery_worker.deleteLater()
-            self.recovery_worker = None
 
     def _sync_status(self):
         db = self.resource_card.get_db_path()
@@ -275,51 +300,118 @@ class DetectionPage(BasePage):
             self.run_card.path_input.setText(dir_path)
 
     def _on_start(self):
-        client = self.get_ssh_client()
-        if not client:
+        """启动 BLAST 比对（通过 ToolEngine）"""
+        locator = self._get_locator()
+        ssh = locator.ssh_service if locator else None
+
+        if locator is None or ssh is None or not getattr(ssh, 'is_connected', False):
             self.run_card.status_msg.setText(" 请先在设置页连接服务器")
             return
 
-        # --- 【关键改进】锁死步骤一和步骤二按钮/交互 ---
+        pm = locator.project_manager
+        if pm.current_project is None:
+            self.run_card.status_msg.setText(" 请先选择或创建项目")
+            return
+
+        if locator.data_registry is None or locator.tool_engine is None:
+            self.run_card.status_msg.setText(" 请先打开项目")
+            return
+
+        # 锁定 UI
         self.resource_card.setEnabled(False)
         self.sample_card.setEnabled(False)
-        
-        # 获取配置中的工具路径 (来自设置页保存的结果)
-        blast_bin = DEFAULT_CONFIG.get('blast_bin', '/usr/bin/blastn')
-        
-        self.worker = BlastWorker(
-            client_provider=self.get_ssh_client,
-            local_fasta=self.sample_card.get_file_path(),
-            db_path=self.resource_card.get_db_path(),
-            task=self.resource_card.get_task(),
-            blast_bin=blast_bin,
-            local_out_dir=self.run_card.path_input.text()  # 传递用户选择的目录
-        )
-
-        self.worker.progress.connect(self.run_card.status_msg.setText)
-        self.worker.finished.connect(self._handle_result)
         self._set_settings_lock(True)
-        
         self.run_card.run_btn.setEnabled(False)
-        self.run_card.browse_btn.setEnabled(False)  # 运行时锁定目录选择
+        self.run_card.browse_btn.setEnabled(False)
         self.run_card.pbar.show()
-        self.run_card.pbar.setRange(0, 0) # 忙碌滚动
-        self.worker.start()
+        self.run_card.pbar.setRange(0, 0)
 
-    def _handle_result(self, success, msg, local_path):
-        """处理任务结束：解析数据并开启分页展示"""
-        # --- 【关键改进】恢复步骤一和步骤二交互 ---
+        # 在后台线程中执行上传 + 提交
+        self._submit_worker = _BlastSubmitWorker(
+            locator=locator,
+            fasta_path=self.sample_card.get_file_path(),
+            db_path=self.resource_card.get_db_path(),
+        )
+        self._submit_worker.progress.connect(self.run_card.status_msg.setText)
+        self._submit_worker.submitted.connect(self._on_submit_succeeded)
+        self._submit_worker.failed.connect(self._on_submit_failed)
+        self._submit_worker.start()
+
+    def _on_submit_succeeded(self, execution_id: str, sample_id: str) -> None:
+        """BLAST 任务提交成功"""
+        self._current_execution_id = execution_id
+        self._current_sample_id = sample_id
+        self.run_card.status_msg.setText(f"BLAST 任务已提交，正在执行... (ID: {execution_id})")
+        # 清理 worker
+        if self._submit_worker:
+            self._submit_worker.deleteLater()
+            self._submit_worker = None
+
+    def _on_submit_failed(self, error: str) -> None:
+        """BLAST 任务提交失败"""
+        self._unlock_blast_ui()
+        self.run_card.status_msg.setText(f"启动失败: {error}")
+        # 清理 worker
+        if self._submit_worker:
+            self._submit_worker.deleteLater()
+            self._submit_worker = None
+
+    def _unlock_blast_ui(self) -> None:
+        """解锁 BLAST 操作界面"""
         self.resource_card.setEnabled(True)
         self.sample_card.setEnabled(True)
         self._set_settings_lock(False)
-
-        self.run_card.show_loading(False)
-        self.run_card.status_msg.setText(msg)
-
-        # 重新启用按钮
         self.run_card.run_btn.setEnabled(True)
         self.run_card.browse_btn.setEnabled(True)
         self.run_card.pbar.hide()
+
+    def _on_execution_completed(self, execution_id: str) -> None:
+        """ToolEngine 执行完成回调 — 下载结果并展示"""
+        if execution_id != self._current_execution_id:
+            return
+
+        try:
+            locator = self._get_locator()
+            if locator is None:
+                return
+
+            pm = locator.project_manager
+            project = pm.current_project
+            sample_id = self._current_sample_id
+            output_dir = f"{project.remote_base}/intermediate/{sample_id}/blastn"
+            remote_path = f"{output_dir}/{sample_id}.blastn.tsv"
+
+            local_out_dir = self.run_card.path_input.text()
+            os.makedirs(local_out_dir, exist_ok=True)
+            local_path = os.path.join(local_out_dir, f"blast_res_{execution_id}.txt")
+
+            self.run_card.status_msg.setText("远程任务完成，正在同步结果...")
+            ssh = locator.ssh_service
+            ssh.download(remote_path, local_path)
+
+            self._handle_result(True, f"分析完成！\n执行ID: {execution_id}", local_path)
+        except Exception as e:
+            logger.exception("下载 BLAST 结果失败")
+            self._handle_result(False, f"下载结果失败: {e}", "")
+
+        # 刷新执行历史
+        self._refresh_history_db()
+
+    def _on_execution_failed(self, execution_id: str, error: str) -> None:
+        """ToolEngine 执行失败回调"""
+        if execution_id != self._current_execution_id:
+            return
+        self._handle_result(False, f"BLAST 执行失败: {error}", "")
+        # 刷新执行历史
+        self._refresh_history_db()
+
+    def _handle_result(self, success, msg, local_path):
+        """处理任务结束：解析数据并开启分页展示"""
+        # 恢复 UI 交互
+        self._unlock_blast_ui()
+
+        self.run_card.show_loading(False)
+        self.run_card.status_msg.setText(msg)
 
         if success and os.path.exists(local_path):
             # 显示保存路径和结果摘要
@@ -353,10 +445,10 @@ class DetectionPage(BasePage):
         else:
             self.run_card.path_display.hide()
 
-        # 清理worker对象，避免内存泄漏
-        if hasattr(self, 'worker') and self.worker:
-            self.worker.deleteLater()
-            self.worker = None
+        # 清理 worker 对象，避免内存泄漏
+        if self._submit_worker:
+            self._submit_worker.deleteLater()
+            self._submit_worker = None
 
     def _update_table_view(self):
         """根据当前页码更新表格内容"""

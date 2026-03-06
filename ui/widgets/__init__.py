@@ -35,9 +35,19 @@ except Exception:  # pragma: no cover
 
 try:
     from .task_history_card import TaskHistoryCard
-except Exception:  # pragma: no cover       
-    TaskHistoryCard = None  # type: ignore    
+except Exception:  # pragma: no cover
+    TaskHistoryCard = None  # type: ignore
+
+try:
+    from .stage_status_widget import StageStatusWidget
+except Exception:  # pragma: no cover
+    StageStatusWidget = None  # type: ignore
+
+try:
+    from .execution_history_card import ExecutionHistoryCard
+except Exception:  # pragma: no cover
+    ExecutionHistoryCard = None  # type: ignore
 
 from . import styles
 
-__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "BlastRunCard", "styles", "LinuxSettingsCard", "TaskHistoryCard"]
+__all__ = ["SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard", "BlastResourceCard", "BlastSampleCard", "BlastRunCard", "styles", "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget", "ExecutionHistoryCard"]
