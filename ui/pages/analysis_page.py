@@ -52,6 +52,8 @@ class AnalysisPage(QFrame):
         self._param_widgets: dict[str, dict[str, QWidget]] = {}
         self._db_widgets: dict[str, dict[str, QLineEdit]] = {}
 
+        self._selected_sample_id: Optional[str] = None
+        self._selected_project_id: Optional[str] = None
         self._r1_path: Optional[str] = None
         self._r2_path: Optional[str] = None
 
@@ -59,7 +61,7 @@ class AnalysisPage(QFrame):
         self._load_pipeline_definitions(path_id="read_based")
         self._build_ui()
         self._connect_signals()
-        self._update_run_button_state()
+        self.refresh_context()
 
     def _get_locator(self):
         if self._main_window and hasattr(self._main_window, "service_locator"):
@@ -159,13 +161,13 @@ class AnalysisPage(QFrame):
         name_row.setSpacing(8)
         name_label = QLabel("样本名:")
         name_label.setStyleSheet(styles.FORM_LABEL)
-        name_label.setFixedWidth(80)
+        name_label.setMinimumWidth(80)
         name_row.addWidget(name_label)
 
         self._sample_name_input = QLineEdit()
         self._sample_name_input.setPlaceholderText("例如 WaterSample01")
         self._sample_name_input.setStyleSheet(styles.INPUT_LINEEDIT)
-        self._sample_name_input.textChanged.connect(self._update_run_button_state)
+        self._sample_name_input.textChanged.connect(self._on_sample_name_changed)
         name_row.addWidget(self._sample_name_input)
         layout.addLayout(name_row)
 
@@ -173,7 +175,7 @@ class AnalysisPage(QFrame):
         file_row.setSpacing(8)
         file_label = QLabel("R1 文件:")
         file_label.setStyleSheet(styles.FORM_LABEL)
-        file_label.setFixedWidth(80)
+        file_label.setMinimumWidth(80)
         file_row.addWidget(file_label)
 
         self._r1_path_label = QLabel("未选择")
@@ -193,7 +195,7 @@ class AnalysisPage(QFrame):
         file_row2.setSpacing(8)
         file_label2 = QLabel("R2 文件:")
         file_label2.setStyleSheet(styles.FORM_LABEL)
-        file_label2.setFixedWidth(80)
+        file_label2.setMinimumWidth(80)
         file_row2.addWidget(file_label2)
 
         self._r2_path_label = QLabel("未选择（单端可留空）")
@@ -224,7 +226,7 @@ class AnalysisPage(QFrame):
                 w.setRange(1, 9999)
             if default is not None:
                 w.setValue(int(default))
-            w.setFixedWidth(120)
+            w.setMinimumWidth(120)
             return w
 
         if ptype == "float":
@@ -237,7 +239,7 @@ class AnalysisPage(QFrame):
                 w.setRange(0.0, 1000000.0)
             if default is not None:
                 w.setValue(float(default))
-            w.setFixedWidth(140)
+            w.setMinimumWidth(140)
             return w
 
         if ptype == "bool":
@@ -247,7 +249,7 @@ class AnalysisPage(QFrame):
             if bool(default) is False:
                 w.setCurrentIndex(1)
             w.setStyleSheet(styles.INPUT_COMBOBOX)
-            w.setFixedWidth(120)
+            w.setMinimumWidth(120)
             return w
 
         if ptype == "choice":
@@ -258,13 +260,13 @@ class AnalysisPage(QFrame):
             if default in choices:
                 w.setCurrentIndex(choices.index(default))
             w.setStyleSheet(styles.INPUT_COMBOBOX)
-            w.setFixedWidth(160)
+            w.setMinimumWidth(160)
             return w
 
         w = QLineEdit()
         w.setText("" if default is None else str(default))
         w.setStyleSheet(styles.INPUT_LINEEDIT)
-        w.setFixedWidth(220)
+        w.setMinimumWidth(220)
         return w
 
     def _read_param_widget(self, widget: QWidget) -> Any:
@@ -309,7 +311,7 @@ class AnalysisPage(QFrame):
 
                 label = QLabel(f"  {p.get('label') or p.get('name')}: ")
                 label.setStyleSheet(styles.FORM_LABEL)
-                label.setFixedWidth(160)
+                label.setMinimumWidth(160)
                 row.addWidget(label)
 
                 widget = self._create_param_widget(p)
@@ -327,7 +329,7 @@ class AnalysisPage(QFrame):
                 pname = db.get("param_name")
                 label = QLabel(f"  数据库({pname}):")
                 label.setStyleSheet(styles.FORM_LABEL)
-                label.setFixedWidth(160)
+                label.setMinimumWidth(160)
                 row.addWidget(label)
 
                 db_input = QLineEdit()
@@ -351,8 +353,8 @@ class AnalysisPage(QFrame):
 
         self._btn_run = QPushButton("运行流程")
         self._btn_run.setStyleSheet(styles.BUTTON_SUCCESS)
-        self._btn_run.setFixedHeight(40)
-        self._btn_run.setFixedWidth(160)
+        self._btn_run.setMinimumHeight(40)
+        self._btn_run.setMinimumWidth(160)
         self._btn_run.clicked.connect(self._on_run_clicked)
         row.addWidget(self._btn_run)
 
@@ -375,23 +377,15 @@ class AnalysisPage(QFrame):
         if not path:
             return
 
-        filename = Path(path).name
+        self._selected_sample_id = None
         if which == "r1":
             self._r1_path = path
-            self._r1_path_label.setText(filename)
-            self._r1_path_label.setStyleSheet(
-                f"font-size: 12px; color: {styles.COLOR_TEXT_DEFAULT};"
-                f"background: {styles.COLOR_BG_BLANK};"
-            )
+            self._set_path_label(self._r1_path_label, path, "未选择")
         elif which == "r2":
             self._r2_path = path
-            self._r2_path_label.setText(filename)
-            self._r2_path_label.setStyleSheet(
-                f"font-size: 12px; color: {styles.COLOR_TEXT_DEFAULT};"
-                f"background: {styles.COLOR_BG_BLANK};"
-            )
+            self._set_path_label(self._r2_path_label, path, "未选择（单端可留空）")
 
-        self._update_run_button_state()
+        self.refresh_context()
 
     def _on_run_clicked(self) -> None:
         locator = self._get_locator()
@@ -441,7 +435,18 @@ class AnalysisPage(QFrame):
             self._btn_run.setText("运行中...")
             self._status_text.setText("正在上传输入文件...")
 
-            sample_id = registry.add_sample(sample_name)
+            sample_id = self._selected_sample_id
+            if sample_id:
+                existing = registry.get_sample(sample_id)
+                if existing is None:
+                    sample_id = None
+
+            if sample_id is None:
+                sample_id = registry.add_sample(
+                    sample_name,
+                    metadata={"r1": self._r1_path, "r2": self._r2_path},
+                )
+                self._selected_sample_id = sample_id
 
             from core.data_importer import DataImporter
 
@@ -553,11 +558,15 @@ class AnalysisPage(QFrame):
         self._refresh_execution_history()
 
     def _on_execution_completed(self, execution_id: str) -> None:
-        # PipelineRunner 已处理阶段推进，这里保留扩展点
         _ = execution_id
 
     def _on_execution_failed(self, execution_id: str, error: str) -> None:
         _ = (execution_id, error)
+
+    def _on_sample_name_changed(self, *_args) -> None:
+        if self._selected_sample_id is not None:
+            self._selected_sample_id = None
+        self._update_run_button_state()
 
     def _update_run_button_state(self, *_args) -> None:
         if self._running:
@@ -598,6 +607,48 @@ class AnalysisPage(QFrame):
             self._status_text.setText("已就绪，可执行流程")
             self._status_text.setStyleSheet(styles.STATUS_SUCCESS)
 
+    def set_sample_context(
+        self,
+        sample_id: str,
+        sample_name: str,
+        r1_path: Optional[str],
+        r2_path: Optional[str] = None,
+    ) -> None:
+        """从首页复用现有样本上下文，避免重复建样本。"""
+        self._selected_sample_id = sample_id
+        self._sample_name_input.blockSignals(True)
+        self._sample_name_input.setText(sample_name)
+        self._sample_name_input.blockSignals(False)
+        self._r1_path = r1_path or None
+        self._r2_path = r2_path or None
+        self._set_path_label(self._r1_path_label, self._r1_path, "未选择")
+        self._set_path_label(self._r2_path_label, self._r2_path, "未选择（单端可留空）")
+        self._update_run_button_state()
+
+    def clear_sample_context(self) -> None:
+        self._selected_sample_id = None
+        self._sample_name_input.blockSignals(True)
+        self._sample_name_input.clear()
+        self._sample_name_input.blockSignals(False)
+        self._r1_path = None
+        self._r2_path = None
+        self._set_path_label(self._r1_path_label, None, "未选择")
+        self._set_path_label(self._r2_path_label, None, "未选择（单端可留空）")
+
+    def refresh_context(self) -> None:
+        locator = self._get_locator()
+        project_id = None
+        if locator and locator.project_manager.current_project is not None:
+            project_id = locator.project_manager.current_project.project_id
+
+        if project_id != self._selected_project_id:
+            if self._selected_project_id is not None:
+                self.clear_sample_context()
+            self._selected_project_id = project_id
+
+        self._refresh_execution_history()
+        self._update_run_button_state()
+
     def _refresh_execution_history(self) -> None:
         locator = self._get_locator()
         if locator is None:
@@ -611,3 +662,18 @@ class AnalysisPage(QFrame):
                 self._execution_history.refresh()
         else:
             self._execution_history.refresh()
+
+    def _set_path_label(self, label: QLabel, path: Optional[str], placeholder: str) -> None:
+        if path:
+            label.setText(Path(path).name)
+            label.setStyleSheet(
+                f"font-size: 12px; color: {styles.COLOR_TEXT_DEFAULT};"
+                f"background: {styles.COLOR_BG_BLANK};"
+            )
+            return
+
+        label.setText(placeholder)
+        label.setStyleSheet(
+            f"font-size: 12px; color: {styles.COLOR_TEXT_HINT};"
+            f"background: {styles.COLOR_BG_BLANK};"
+        )

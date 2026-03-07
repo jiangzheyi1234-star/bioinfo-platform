@@ -202,7 +202,7 @@ class SshSettingsCard(QFrame):
         self.arrow_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px; border: none; background: transparent;")
 
         self.modify_link = QPushButton("修改")
-        self.modify_link.setFixedWidth(60)
+        self.modify_link.setMinimumWidth(60)
         self.modify_link.setStyleSheet(BUTTON_LINK)
         self.modify_link.clicked.connect(self._enable_editing)
         # 修改按钮始终保持可见，不在初始化时隐藏
@@ -236,7 +236,7 @@ class SshSettingsCard(QFrame):
 
         row = QHBoxLayout()
         self.connect_btn = QPushButton("连接并锁定")
-        self.connect_btn.setFixedWidth(110)
+        self.connect_btn.setMinimumWidth(110)
         self.connect_btn.setEnabled(False)
         self.connect_btn.setStyleSheet(BUTTON_PRIMARY)
         self.connect_btn.clicked.connect(lambda checked=False: self._on_connect_ssh())

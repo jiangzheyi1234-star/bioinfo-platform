@@ -1,4 +1,4 @@
-﻿"""组装分析页：按 analysis_paths.yaml 的 assembly_based 路径动态构建流程。"""
+"""组装分析页：按 analysis_paths.yaml 的 assembly_based 路径动态构建流程。"""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ class _StageEditorCard(QGroupBox):
         tool_row = QHBoxLayout()
         tool_label = QLabel("工具")
         tool_label.setStyleSheet(styles.FORM_LABEL)
-        tool_label.setFixedWidth(80)
+        tool_label.setMinimumWidth(80)
         tool_row.addWidget(tool_label)
 
         self.tool_combo = QComboBox()
@@ -153,7 +153,7 @@ class _StageEditorCard(QGroupBox):
                 spin.setRange(1, 9999)
             if default is not None:
                 spin.setValue(int(default))
-            spin.setFixedWidth(140)
+            spin.setMinimumWidth(140)
             return spin
 
         if ptype == "float":
@@ -166,7 +166,7 @@ class _StageEditorCard(QGroupBox):
                 spin.setRange(0.0, 1000000.0)
             if default is not None:
                 spin.setValue(float(default))
-            spin.setFixedWidth(160)
+            spin.setMinimumWidth(160)
             return spin
 
         if ptype == "bool":
@@ -176,7 +176,7 @@ class _StageEditorCard(QGroupBox):
             combo.addItem("否", False)
             if default is False:
                 combo.setCurrentIndex(1)
-            combo.setFixedWidth(120)
+            combo.setMinimumWidth(120)
             return combo
 
         if ptype == "choice":
@@ -187,7 +187,7 @@ class _StageEditorCard(QGroupBox):
                 combo.addItem(str(choice), choice)
             if default in choices:
                 combo.setCurrentIndex(choices.index(default))
-            combo.setFixedWidth(180)
+            combo.setMinimumWidth(180)
             return combo
 
         line_edit = QLineEdit()
@@ -228,7 +228,7 @@ class _StageEditorCard(QGroupBox):
             label_text = str(param_def.get("label") or param_def.get("name") or "参数")
             label = QLabel(label_text)
             label.setStyleSheet(styles.FORM_LABEL)
-            label.setFixedWidth(160)
+            label.setMinimumWidth(160)
             row.addWidget(label)
 
             widget = self._create_param_widget(param_def)
@@ -248,7 +248,7 @@ class _StageEditorCard(QGroupBox):
             required = bool(db_def.get("required", False))
             label = QLabel(f"数据库({param_name}){' *' if required else ''}")
             label.setStyleSheet(styles.FORM_LABEL)
-            label.setFixedWidth(160)
+            label.setMinimumWidth(160)
             row.addWidget(label)
 
             line_edit = QLineEdit()
@@ -311,7 +311,7 @@ class AssemblyPage(BasePage):
 
         self._load_path_definitions()
         self._build_ui()
-        self._update_run_state()
+        self.refresh_context()
 
     def _get_locator(self):
         if self.main_window and hasattr(self.main_window, "service_locator"):
@@ -444,7 +444,7 @@ class AssemblyPage(BasePage):
         self._run_btn = QPushButton("启动组装流程")
         self._run_btn.setStyleSheet(styles.BUTTON_PRIMARY)
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._run_btn.setFixedHeight(36)
+        self._run_btn.setMinimumHeight(36)
         self._run_btn.clicked.connect(self._on_run)
         run_row.addWidget(self._run_btn)
         content_layout.addLayout(run_row)
@@ -497,7 +497,7 @@ class AssemblyPage(BasePage):
         row = QHBoxLayout()
         sample_lbl = QLabel("选择样本")
         sample_lbl.setStyleSheet(styles.FORM_LABEL)
-        sample_lbl.setFixedWidth(80)
+        sample_lbl.setMinimumWidth(80)
         row.addWidget(sample_lbl)
 
         self._sample_combo = QComboBox()
@@ -508,7 +508,7 @@ class AssemblyPage(BasePage):
 
         refresh_btn = QPushButton("刷新")
         refresh_btn.setStyleSheet(styles.BUTTON_SECONDARY)
-        refresh_btn.setFixedWidth(60)
+        refresh_btn.setMinimumWidth(60)
         refresh_btn.clicked.connect(self._refresh_samples)
         row.addWidget(refresh_btn)
 
@@ -519,6 +519,12 @@ class AssemblyPage(BasePage):
         inner.addWidget(hint)
 
         return sample_group
+
+
+    def refresh_context(self) -> None:
+        self._refresh_samples()
+        self._refresh_history()
+        self._update_run_state()
 
     def _refresh_samples(self) -> None:
         locator = self._get_locator()
@@ -755,3 +761,4 @@ class AssemblyPage(BasePage):
             self._run_btn.setEnabled(True)
             self._status_label.setText("已就绪，可启动组装流程")
             self._status_label.setStyleSheet(styles.STATUS_SUCCESS)
+

@@ -1,4 +1,4 @@
-﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
+"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
 from typing import Optional
@@ -28,6 +28,25 @@ from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 
 logger = logging.getLogger(__name__)
+
+class _CurrentPageStackedWidget(QStackedWidget):
+    """Only use the current page minimum/size hint to avoid window shrink lock."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.currentChanged.connect(lambda _idx: self.updateGeometry())
+
+    def minimumSizeHint(self):
+        current = self.currentWidget()
+        if current is not None:
+            return current.minimumSizeHint()
+        return super().minimumSizeHint()
+
+    def sizeHint(self):
+        current = self.currentWidget()
+        if current is not None:
+            return current.sizeHint()
+        return super().sizeHint()
 
 
 class MainWindow(QMainWindow):
@@ -103,7 +122,7 @@ class MainWindow(QMainWindow):
 
         middle_layout.addWidget(sidebar_widget)
 
-        self.content = QStackedWidget()
+        self.content = _CurrentPageStackedWidget()
 
         self.project_page = ProjectPage(
             self._pm,
@@ -154,12 +173,14 @@ class MainWindow(QMainWindow):
             self._ssh_service_wrapper = None
             self._locator.ssh_service = None  # type: ignore[assignment]
             self.status_bar.update_ssh_status(False)
+            self._notify_pages_context_changed()
             return
 
         self._ssh_service_wrapper = SSHService(lambda c=client: c)
         self._ssh_service_wrapper.connection_status_changed.connect(self.status_bar.update_ssh_status)
         self._locator.ssh_service = self._ssh_service_wrapper
         self.status_bar.update_ssh_status(self._ssh_service_wrapper.is_connected)
+        self._notify_pages_context_changed()
 
     def _refresh_project_combo(self) -> None:
         self._updating_combo = True
@@ -197,8 +218,21 @@ class MainWindow(QMainWindow):
 
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
+        self._notify_pages_context_changed()
 
         logger.info("项目已切换: %s", project_id)
+
+
+    def _notify_pages_context_changed(self) -> None:
+        """Notify pages to refresh UI state when SSH/project context changes."""
+        for page_name in ("home_page", "detection_page", "analysis_page", "assembly_page"):
+            page = getattr(self, page_name, None)
+            callback = getattr(page, "refresh_context", None)
+            if callable(callback):
+                try:
+                    callback()
+                except Exception:
+                    logger.exception("页面上下文刷新失败: %s", page_name)
 
     @property
     def service_locator(self) -> ServiceLocator:
@@ -245,3 +279,4 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._locator.shutdown()
         super().closeEvent(event)
+

@@ -83,12 +83,12 @@ class NcbiSettingsCard(QFrame):
         title.setStyleSheet(CARD_TITLE)
 
         self.modify_btn = QPushButton("修改")
-        self.modify_btn.setFixedWidth(60)
+        self.modify_btn.setMinimumWidth(60)
         self.modify_btn.setStyleSheet(BUTTON_LINK)
         self.modify_btn.clicked.connect(self._unlock_inputs)
 
         self.save_btn = QPushButton("保存")
-        self.save_btn.setFixedWidth(60)
+        self.save_btn.setMinimumWidth(60)
         self.save_btn.setStyleSheet(BUTTON_SUCCESS)
         self.save_btn.clicked.connect(self.request_save.emit)
         self.save_btn.hide()

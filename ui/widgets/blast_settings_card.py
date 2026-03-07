@@ -166,7 +166,7 @@ class BlastSettingsCard(QFrame):
         self.title_label.setStyleSheet(styles.CARD_TITLE)
 
         self.modify_btn = QPushButton("修改")
-        self.modify_btn.setFixedWidth(60)
+        self.modify_btn.setMinimumWidth(60)
         self.modify_btn.setStyleSheet(styles.BUTTON_LINK)
         self.modify_btn.clicked.connect(self._enable_editing)
 
@@ -214,7 +214,7 @@ class BlastSettingsCard(QFrame):
         btn_layout = QHBoxLayout()
 
         self.save_btn = QPushButton("验证并保存")
-        self.save_btn.setFixedWidth(120)
+        self.save_btn.setMinimumWidth(120)
         self.save_btn.setStyleSheet(styles.BUTTON_PRIMARY)
         self.save_btn.clicked.connect(self._start_verification)
 

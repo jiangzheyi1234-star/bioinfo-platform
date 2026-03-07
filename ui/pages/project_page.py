@@ -1,4 +1,4 @@
-﻿"""项目管理页面：创建、打开、归档与导出项目。"""
+"""项目管理页面：创建、打开、归档与导出项目。"""
 
 from __future__ import annotations
 
@@ -108,7 +108,6 @@ class ProjectCard(QFrame):
         self._project = project
         self.setObjectName(f"ProjectCard_{project.project_id}")
         self.setStyleSheet(styles.CARD_FRAME(self.objectName()))
-        self.setMinimumHeight(116)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -147,34 +146,38 @@ class ProjectCard(QFrame):
         action_col.setSpacing(8)
 
         action_wrap = QWidget()
-        action_wrap.setFixedWidth(96)
+        action_wrap.setMinimumWidth(124)
+        action_wrap.setMaximumWidth(140)
         action_wrap.setLayout(action_col)
 
         if self._project.status == "active":
             open_btn = QPushButton("打开")
             open_btn.setStyleSheet(styles.BUTTON_PRIMARY)
             open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            open_btn.setFixedSize(88, 30)
+            open_btn.setMinimumWidth(96)
+            open_btn.setMinimumHeight(32)
             open_btn.clicked.connect(lambda: self.open_clicked.emit(self._project.project_id))
             action_col.addWidget(open_btn)
 
             export_btn = QPushButton("导出")
             export_btn.setStyleSheet(styles.BUTTON_SECONDARY)
             export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            export_btn.setFixedSize(88, 30)
+            export_btn.setMinimumWidth(96)
+            export_btn.setMinimumHeight(32)
             export_btn.clicked.connect(lambda: self.export_clicked.emit(self._project.project_id))
             action_col.addWidget(export_btn)
 
             archive_btn = QPushButton("归档")
             archive_btn.setStyleSheet(styles.BUTTON_DANGER)
             archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            archive_btn.setFixedSize(88, 30)
+            archive_btn.setMinimumWidth(96)
+            archive_btn.setMinimumHeight(32)
             archive_btn.clicked.connect(lambda: self.archive_clicked.emit(self._project.project_id))
             action_col.addWidget(archive_btn)
         else:
             archived_label = QLabel("已归档")
             archived_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            archived_label.setFixedWidth(88)
+            archived_label.setMinimumWidth(96)
             archived_label.setStyleSheet(styles.LABEL_MUTED)
             action_col.addWidget(archived_label)
 

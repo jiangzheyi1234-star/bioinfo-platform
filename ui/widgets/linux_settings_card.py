@@ -216,7 +216,7 @@ class LinuxSettingsCard(QFrame):
         self.title_label.setStyleSheet(CARD_TITLE)
 
         self.modify_btn = QPushButton("修改")
-        self.modify_btn.setFixedWidth(60)
+        self.modify_btn.setMinimumWidth(60)
         self.modify_btn.setStyleSheet(BUTTON_LINK)
         self.modify_btn.clicked.connect(self._enable_editing)
 
@@ -258,13 +258,13 @@ class LinuxSettingsCard(QFrame):
         # 按钮与状态行
         row = QHBoxLayout()
         self.fetch_btn = QPushButton("获取远程环境")
-        self.fetch_btn.setFixedWidth(110)
+        self.fetch_btn.setMinimumWidth(110)
         self.fetch_btn.setStyleSheet(BUTTON_PRIMARY)
         self.fetch_btn.setEnabled(False)
         self.fetch_btn.clicked.connect(self._on_fetch_envs)
 
         self.lock_btn = QPushButton("确认并锁定")
-        self.lock_btn.setFixedWidth(110)
+        self.lock_btn.setMinimumWidth(110)
         self.lock_btn.setStyleSheet(BUTTON_PRIMARY)
         self.lock_btn.clicked.connect(self._on_save_and_lock)
 

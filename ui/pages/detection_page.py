@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
@@ -76,6 +76,7 @@ class DetectionPage(BasePage):
         self._load_tool_catalog()
         self._build_ui()
         self._connect_locator_signals()
+        self.refresh_context()
 
     def _get_locator(self):
         if self.main_window and hasattr(self.main_window, "service_locator"):
@@ -280,7 +281,7 @@ class DetectionPage(BasePage):
         run_row = QHBoxLayout()
         self._run_btn = QPushButton("运行")
         self._run_btn.setStyleSheet(styles.BUTTON_PRIMARY)
-        self._run_btn.setFixedHeight(36)
+        self._run_btn.setMinimumHeight(36)
         self._run_btn.clicked.connect(self._on_start)
         run_row.addWidget(self._run_btn)
         run_row.addStretch()
@@ -397,7 +398,7 @@ class DetectionPage(BasePage):
 
                 chip = QPushButton(name)
                 chip.setStyleSheet(styles.BUTTON_SECONDARY)
-                chip.setFixedHeight(30)
+                chip.setMinimumHeight(30)
                 chip.clicked.connect(lambda _=False, t=tid: self._select_tool(t))
                 chips_layout.addWidget(chip, idx // 4, idx % 4)
 
@@ -545,6 +546,8 @@ class DetectionPage(BasePage):
             row += 1
 
         self._prepare_result_table()
+        self._wire_form_signals()
+        self._update_run_state()
 
     def _prepare_result_table(self) -> None:
         outfmt = ""
@@ -662,6 +665,77 @@ class DetectionPage(BasePage):
         selected = QFileDialog.getExistingDirectory(self, "选择结果目录", self._output_dir_input.text())
         if selected:
             self._output_dir_input.setText(selected)
+
+
+    def _wire_form_signals(self) -> None:
+        self._sample_name_input.textChanged.connect(self._update_run_state)
+        self._output_dir_input.textChanged.connect(self._update_run_state)
+
+        for _, widget in self._input_widgets.values():
+            widget.textChanged.connect(self._update_run_state)
+        for widget in self._db_widgets.values():
+            widget.textChanged.connect(self._update_run_state)
+
+        for widget in self._param_widgets.values():
+            if isinstance(widget, QSpinBox):
+                widget.valueChanged.connect(self._update_run_state)
+            elif isinstance(widget, QDoubleSpinBox):
+                widget.valueChanged.connect(self._update_run_state)
+            elif isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(self._update_run_state)
+            elif isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._update_run_state)
+
+    def _update_run_state(self, *_args) -> None:
+        if self._running:
+            self._run_btn.setEnabled(False)
+            self._status_label.setStyleSheet(styles.LABEL_HINT)
+            return
+
+        reasons: list[str] = []
+        locator = self._get_locator()
+
+        if locator is None:
+            reasons.append("初始化服务")
+        else:
+            ssh = locator.ssh_service
+            if ssh is None or not getattr(ssh, "is_connected", False):
+                reasons.append("连接 SSH")
+            if locator.project_manager.current_project is None:
+                reasons.append("打开项目")
+            if locator.data_registry is None or locator.tool_engine is None:
+                reasons.append("项目服务就绪")
+
+        for inp in self._input_defs:
+            in_name = str(inp.get("name") or "")
+            required = bool(inp.get("required", False))
+            pair = self._input_widgets.get(in_name)
+            if not pair:
+                continue
+            value = pair[1].text().strip()
+            if required and not value:
+                reasons.append(f"输入: {in_name}")
+
+        for db in self._selected_descriptor.get("databases", []):
+            if not bool(db.get("required", False)):
+                continue
+            param_name = str(db.get("param_name") or "db")
+            widget = self._db_widgets.get(param_name)
+            if widget and not widget.text().strip():
+                reasons.append(f"数据库: {param_name}")
+
+        if reasons:
+            self._run_btn.setEnabled(False)
+            self._status_label.setText("请先: " + "、".join(reasons))
+            self._status_label.setStyleSheet(styles.LABEL_HINT)
+        else:
+            self._run_btn.setEnabled(True)
+            self._status_label.setText("已就绪，可执行当前插件任务")
+            self._status_label.setStyleSheet(styles.STATUS_SUCCESS)
+
+    def refresh_context(self) -> None:
+        self._refresh_history_db()
+        self._update_run_state()
 
     def _refresh_history_db(self) -> None:
         if self.execution_history is None:
@@ -886,8 +960,13 @@ class DetectionPage(BasePage):
 
     def _finish_run(self) -> None:
         self._running = False
-        self._run_btn.setEnabled(True)
+        self._current_execution_id = None
+        self._current_sample_id = None
+        self._current_tool_id = ""
+        self._current_descriptor = {}
+        self._current_local_output_dir = ""
         self._set_settings_lock(False)
+        self._update_run_state()
 
     def _on_execution_completed(self, execution_id: str) -> None:
         if execution_id != self._current_execution_id:
@@ -950,3 +1029,4 @@ class DetectionPage(BasePage):
 
         self._refresh_history_db()
         self._finish_run()
+
