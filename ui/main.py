@@ -11,7 +11,12 @@ root_dir = os.path.dirname(current_dir)
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 
-from main_window import MainWindow
+try:
+    # Prefer package import when launched as `python -m ui.main`.
+    from .main_window import MainWindow
+except ImportError:
+    # Fallback for direct script execution: `python ui/main.py`.
+    from main_window import MainWindow
 
 
 def _sanitize_qt_platform() -> None:
@@ -53,3 +58,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,4 +1,4 @@
-"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
+﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
 from typing import Optional
@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
     def __init__(self, project_manager: Optional[ProjectManager] = None):
         super().__init__()
         self.setWindowTitle("H2OMeta 宏基因组分析平台")
-        self.resize(1100, 750)
+        self.resize(980, 680)
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
 
         self._pm = project_manager or ProjectManager()
@@ -279,4 +279,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._locator.shutdown()
         super().closeEvent(event)
+
 

@@ -1,4 +1,4 @@
-"""项目管理页面：创建、打开、归档与导出项目。"""
+﻿"""项目管理页面：创建、打开、归档与导出项目。"""
 
 from __future__ import annotations
 
@@ -141,47 +141,46 @@ class ProjectCard(QFrame):
         info_layout.addStretch()
         layout.addLayout(info_layout, stretch=1)
 
-        action_col = QVBoxLayout()
-        action_col.setAlignment(Qt.AlignmentFlag.AlignTop)
-        action_col.setSpacing(8)
+        action_row = QHBoxLayout()
+        action_row.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        action_row.setSpacing(8)
 
         action_wrap = QWidget()
-        action_wrap.setMinimumWidth(124)
-        action_wrap.setMaximumWidth(140)
-        action_wrap.setLayout(action_col)
+        action_wrap.setMinimumWidth(320)
+        action_wrap.setMaximumWidth(360)
+        action_wrap.setLayout(action_row)
 
         if self._project.status == "active":
             open_btn = QPushButton("打开")
             open_btn.setStyleSheet(styles.BUTTON_PRIMARY)
             open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            open_btn.setMinimumWidth(96)
+            open_btn.setMinimumWidth(86)
             open_btn.setMinimumHeight(32)
             open_btn.clicked.connect(lambda: self.open_clicked.emit(self._project.project_id))
-            action_col.addWidget(open_btn)
+            action_row.addWidget(open_btn)
 
             export_btn = QPushButton("导出")
             export_btn.setStyleSheet(styles.BUTTON_SECONDARY)
             export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            export_btn.setMinimumWidth(96)
+            export_btn.setMinimumWidth(86)
             export_btn.setMinimumHeight(32)
             export_btn.clicked.connect(lambda: self.export_clicked.emit(self._project.project_id))
-            action_col.addWidget(export_btn)
+            action_row.addWidget(export_btn)
 
             archive_btn = QPushButton("归档")
             archive_btn.setStyleSheet(styles.BUTTON_DANGER)
             archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            archive_btn.setMinimumWidth(96)
+            archive_btn.setMinimumWidth(86)
             archive_btn.setMinimumHeight(32)
             archive_btn.clicked.connect(lambda: self.archive_clicked.emit(self._project.project_id))
-            action_col.addWidget(archive_btn)
+            action_row.addWidget(archive_btn)
         else:
             archived_label = QLabel("已归档")
             archived_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             archived_label.setMinimumWidth(96)
             archived_label.setStyleSheet(styles.LABEL_MUTED)
-            action_col.addWidget(archived_label)
+            action_row.addWidget(archived_label)
 
-        action_col.addStretch()
         layout.addWidget(action_wrap)
 
 
@@ -343,3 +342,6 @@ class ProjectPage(BasePage):
         except Exception as e:
             logger.error("打开导出对话框失败: %s", e)
             QMessageBox.critical(self, "错误", f"导出失败: {e}")
+
+
+

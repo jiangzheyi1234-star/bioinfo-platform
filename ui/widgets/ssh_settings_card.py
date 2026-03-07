@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import ipaddress
 from typing import Protocol, Callable, Optional
@@ -314,9 +314,8 @@ class SshSettingsCard(QFrame):
         self._on_connect_ssh()
 
     def _on_focus_changed(self, old, new) -> None:
-        from PyQt6.QtWidgets import QApplication
-
-        w = QApplication.focusWidget()
+        _ = old
+        w = new
         watched = {
             self.server_ip,
             self.ssh_user,
@@ -327,14 +326,20 @@ class SshSettingsCard(QFrame):
             self.container,
         }
 
-        if w in watched:
+        inside_card = False
+        if w is not None:
+            if w in watched:
+                inside_card = True
+            elif isinstance(w, QWidget) and (w is self or self.isAncestorOf(w)):
+                inside_card = True
+
+        if inside_card:
             if self._auto_fold_timer.isActive():
                 self._auto_fold_timer.stop()
             return
 
         if self.connected and (not self.server_ip.isEnabled()) and self.container.isVisible():
             self._auto_fold_timer.start(10_000)
-
     def _lock_inputs(self) -> None:
         for w in [self.server_ip, self.ssh_user, self.ssh_pwd, self.connect_btn]:
             w.setEnabled(False)
@@ -386,16 +391,10 @@ class SshSettingsCard(QFrame):
         ssh_thread.started.connect(ssh_worker.run)
         ssh_worker.finished.connect(self._on_connect_finished)
         
-        # 独立的清理函数
-        def cleanup_resources():
-            ssh_worker.deleteLater()
-            ssh_thread.quit()
-            ssh_thread.wait()
-            ssh_thread.deleteLater()
-        
-        # 连接清理函数到finished信号
-        ssh_worker.finished.connect(cleanup_resources)
-
+        # 使用异步清理，避免在槽中 wait() 导致 UI 卡住
+        ssh_worker.finished.connect(ssh_thread.quit)
+        ssh_worker.finished.connect(ssh_worker.deleteLater)
+        ssh_thread.finished.connect(ssh_thread.deleteLater)
         # 启动线程
         ssh_thread.start()
         
@@ -501,3 +500,4 @@ class SshSettingsCard(QFrame):
             self.connect_btn.setEnabled(False)
         if self.revert_btn.isVisible():
             self.revert_btn.setEnabled(True)
+
