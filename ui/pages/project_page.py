@@ -102,6 +102,7 @@ class ProjectCard(QFrame):
     open_clicked = pyqtSignal(str)
     archive_clicked = pyqtSignal(str)
     export_clicked = pyqtSignal(str)
+    delete_clicked = pyqtSignal(str)
 
     def __init__(self, project: ProjectInfo, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -181,6 +182,15 @@ class ProjectCard(QFrame):
             archived_label.setStyleSheet(styles.LABEL_MUTED)
             action_row.addWidget(archived_label)
 
+            # 已归档的项目可以删除
+            delete_btn = QPushButton("删除")
+            delete_btn.setStyleSheet(styles.BUTTON_DANGER)
+            delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            delete_btn.setMinimumWidth(86)
+            delete_btn.setMinimumHeight(32)
+            delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self._project.project_id))
+            action_row.addWidget(delete_btn)
+
         layout.addWidget(action_wrap)
 
 
@@ -209,6 +219,7 @@ class ProjectPage(BasePage):
 
         self._pm.project_created.connect(lambda _: self._refresh_list())
         self._pm.project_archived.connect(lambda _: self._refresh_list())
+        self._pm.project_deleted.connect(lambda _: self._refresh_list())
 
     def _build_ui(self) -> None:
         self.layout.setContentsMargins(30, 15, 30, 20)
@@ -268,6 +279,7 @@ class ProjectPage(BasePage):
                 card.open_clicked.connect(self._on_open)
                 card.archive_clicked.connect(self._on_archive)
                 card.export_clicked.connect(self._on_export)
+                card.delete_clicked.connect(self._on_delete)
                 self._cards_layout.addWidget(card)
 
         self._cards_layout.addStretch()
@@ -342,6 +354,22 @@ class ProjectPage(BasePage):
         except Exception as e:
             logger.error("打开导出对话框失败: %s", e)
             QMessageBox.critical(self, "错误", f"导出失败: {e}")
+
+    def _on_delete(self, project_id: str) -> None:
+        """删除项目（包括文件和索引记录）"""
+        result = QMessageBox.question(
+            self,
+            "确认删除",
+            "删除后项目文件将被永久删除，无法恢复，是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            try:
+                self._pm.delete_project(project_id)
+                QMessageBox.information(self, "成功", "项目已删除")
+            except Exception as e:
+                logger.error("删除项目失败: %s", e)
+                QMessageBox.critical(self, "错误", f"删除失败: {e}")
 
 
 
