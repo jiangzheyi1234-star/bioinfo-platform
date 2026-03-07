@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS executions (
     error TEXT,
     retry_count INTEGER DEFAULT 0,
     retry_of TEXT REFERENCES executions(execution_id),
-    remote_job_id TEXT
+    remote_job_id TEXT,
+    is_final_version INTEGER DEFAULT 0,  -- 标记为最终版本（用于导出和论文）
+    archived_at REAL  -- 文件已清理的时间戳（数据库记录保留）
 );
 
 CREATE TABLE IF NOT EXISTS data_items (
@@ -106,6 +108,7 @@ class ProjectManager(QObject):
     project_created = pyqtSignal(str)   # project_id
     project_opened = pyqtSignal(str)    # project_id
     project_archived = pyqtSignal(str)  # project_id
+    project_deleted = pyqtSignal(str)   # project_id
 
     def __init__(
         self,
@@ -204,6 +207,10 @@ class ProjectManager(QObject):
         self._db_conn.execute("PRAGMA journal_mode=WAL")
         self._db_conn.execute("PRAGMA foreign_keys=ON")
         self._db_conn.row_factory = sqlite3.Row
+
+        # 运行数据库迁移
+        self._migrate_database(self._db_conn)
+
         self._current_project = project
 
         logger.info("项目已打开: %s (%s)", project.name, project_id)
@@ -243,6 +250,37 @@ class ProjectManager(QObject):
         logger.info("项目已归档: %s", project_id)
         self.project_archived.emit(project_id)
 
+    def delete_project(self, project_id: str) -> None:
+        """删除项目（包括文件和索引记录）
+
+        Args:
+            project_id: 要删除的项目 ID
+
+        Raises:
+            KeyError: 项目不存在
+            RuntimeError: 无法删除当前打开的项目
+        """
+        if project_id not in self._index:
+            raise KeyError(f"项目不存在: {project_id}")
+
+        # 不能删除当前打开的项目
+        if self._current_project and self._current_project.project_id == project_id:
+            raise RuntimeError("无法删除当前打开的项目，请先关闭或切换到其他项目")
+
+        # 删除项目目录
+        project_dir = self._projects_root / project_id
+        if project_dir.exists():
+            import shutil
+            shutil.rmtree(project_dir)
+            logger.info("已删除项目目录: %s", project_dir)
+
+        # 从索引中移除
+        del self._index[project_id]
+        self._save_index()
+
+        logger.info("项目已删除: %s", project_id)
+        self.project_deleted.emit(project_id)
+
     @property
     def current_project(self) -> Optional[ProjectInfo]:
         """当前打开的项目"""
@@ -277,6 +315,33 @@ class ProjectManager(QObject):
             logger.debug("数据库已初始化: %s", db_path)
         finally:
             conn.close()
+
+    def _migrate_database(self, conn: sqlite3.Connection) -> None:
+        """迁移数据库 schema 到最新版本
+
+        添加新字段：
+        - executions.is_final_version: 标记为最终版本
+        - executions.archived_at: 文件清理时间戳
+        """
+        cursor = conn.cursor()
+
+        # 检查 is_final_version 字段是否存在
+        cursor.execute("PRAGMA table_info(executions)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "is_final_version" not in columns:
+            logger.info("迁移数据库：添加 is_final_version 字段")
+            conn.execute(
+                "ALTER TABLE executions ADD COLUMN is_final_version INTEGER DEFAULT 0"
+            )
+
+        if "archived_at" not in columns:
+            logger.info("迁移数据库：添加 archived_at 字段")
+            conn.execute(
+                "ALTER TABLE executions ADD COLUMN archived_at REAL"
+            )
+
+        conn.commit()
 
     def _close_db(self) -> None:
         """安全关闭当前数据库连接"""

@@ -1,4 +1,4 @@
-"""UI 冒烟测试：确保关键页面和主窗口可初始化。"""
+﻿"""UI 冒烟测试：确保关键页面和主窗口可初始化。"""
 
 import json
 import sys
@@ -224,7 +224,9 @@ def test_settings_save_updates_runtime_config(qapp, temp_main_window):
     _flush_events(qapp)
 
     assert temp_main_window.service_locator.job_queue.max_concurrent == 5
-    assert config.DEFAULT_CONFIG["max_concurrent"] == 5
-    assert config.DEFAULT_CONFIG["poll_interval"] == 11
-    assert config.DEFAULT_CONFIG["remote_db"] == "/remote/blast_nt"
-    assert config.DEFAULT_CONFIG["ncbi_email"] == "user@example.com"
+    assert config.get_runtime_setting("max_concurrent") == 5
+    assert config.get_runtime_setting("poll_interval") == 11
+    assert config.get_database_path("blast_nt") == "/remote/blast_nt"
+    assert config.get_ncbi_setting("email") == "user@example.com"
+
+

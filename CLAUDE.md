@@ -82,9 +82,10 @@ H2OMeta 是面向湿实验室研究人员的宏基因组桌面分析平台——
 - `pipeline_reconstructor`：从 SQLite 执行历史重建 DAG 结构（供结果浏览页使用）
 
 **数据与存储**
-- `data_registry`：追踪数据血缘，记录 data_items 和 execution_io
+- `data_registry`：追踪数据血缘，记录 data_items 和 execution_io，支持历史执行查询
 - `data_importer`：将本地文件上传远端并注册到 data_items
 - `storage_manager`：管理本地 / 远端文件路径，监控磁盘占用
+- `execution_cleaner`：管理历史执行的磁盘占用，支持归档旧执行、标记最终版本
 
 **项目与插件**
 - `project_manager`：项目生命周期（创建 / 切换 / 归档），维护 project.db
@@ -132,7 +133,9 @@ CREATE TABLE executions (
     execution_id TEXT PRIMARY KEY, sample_id TEXT, tool_id TEXT NOT NULL,
     parameters TEXT NOT NULL, status TEXT NOT NULL, triggered_by TEXT,
     created_at REAL NOT NULL, completed_at REAL, error TEXT,
-    retry_count INTEGER DEFAULT 0, retry_of TEXT, remote_job_id TEXT
+    retry_count INTEGER DEFAULT 0, retry_of TEXT, remote_job_id TEXT,
+    is_final_version INTEGER DEFAULT 0,  -- 标记为最终版本（用于导出和论文）
+    archived_at REAL  -- 文件已清理的时间戳（数据库记录保留）
 );
 CREATE TABLE data_items (
     data_id TEXT PRIMARY KEY, sample_id TEXT, file_path TEXT NOT NULL,
@@ -175,9 +178,11 @@ pytest，`bio_ui` conda 环境（Python 3.11），`tests/` 目录，18 个测试
 - [ ] DAG 视图（`dag_widget.py`）完全未建
 - [ ] `ResultSyncManager` 未建（任务完成后自动同步 `tier=result` 文件到本地）
 - [ ] 缺少插件 YAML：`bracken` · `krona` · `rgi` · `genomad` · `integron_finder` · `isescan` · `quast` · `amrfinderplus`
+- [ ] UI 层添加历史执行选择器（analysis_page / assembly_page）— 支持查看和切换同一工具的多次执行结果
 
 ### P3 — 体验完善
 - [x] `home_page.py` 旧架构已迁移 — 重写为"样本管理中心"（统计头/卡片网格/最近执行条/添加删除样本）
+- [x] 多版本执行支持 — 输出目录包含 execution_id，避免覆盖（2024-03-07 完成）
 
 ---
 

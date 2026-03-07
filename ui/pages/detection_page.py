@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import os
@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config import DEFAULT_CONFIG
+from config import get_database_path, get_runtime_setting
 from core.data_importer import DataImporter
 from ui.page_base import BasePage
 from ui.widgets import styles
@@ -510,7 +510,7 @@ class DetectionPage(BasePage):
         self.form_grid.addWidget(QLabel("结果目录", styleSheet=styles.FORM_LABEL), row, 0)
         self._output_dir_input = QLineEdit()
         self._output_dir_input.setStyleSheet(styles.INPUT_LINEEDIT)
-        self._output_dir_input.setText(DEFAULT_CONFIG.get("local_output_dir", ""))
+        self._output_dir_input.setText(str(get_runtime_setting("local_output_dir", "") or ""))
         self.form_grid.addWidget(self._output_dir_input, row, 1)
 
         output_btn = QPushButton("选择")
@@ -528,7 +528,7 @@ class DetectionPage(BasePage):
             db_edit.setStyleSheet(styles.INPUT_LINEEDIT)
             db_edit.setPlaceholderText("远端数据库路径")
             if param_name == "db":
-                db_edit.setText(DEFAULT_CONFIG.get("remote_db", ""))
+                db_edit.setText(get_database_path("blast_nt", ""))
             self.form_grid.addWidget(db_edit, row, 1, 1, 2)
 
             self._db_widgets[param_name] = db_edit
@@ -992,7 +992,7 @@ class DetectionPage(BasePage):
                 remote_output_dir=remote_output_dir,
             )
 
-            local_dir = self._current_local_output_dir or DEFAULT_CONFIG.get("local_output_dir", "")
+            local_dir = self._current_local_output_dir or str(get_runtime_setting("local_output_dir", "") or "")
             if local_dir:
                 os.makedirs(local_dir, exist_ok=True)
 
@@ -1029,4 +1029,5 @@ class DetectionPage(BasePage):
 
         self._refresh_history_db()
         self._finish_run()
+
 

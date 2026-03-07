@@ -73,6 +73,7 @@ class JobQueueProtocol(Protocol):
 
 
 @dataclass
+@dataclass
 class ExecutionRecord:
     """执行记录数据类"""
 
@@ -89,6 +90,8 @@ class ExecutionRecord:
     retry_count: int = 0
     retry_of: Optional[str] = None
     remote_job_id: Optional[str] = None
+    is_final_version: int = 0  # 标记为最终版本（用于导出和论文）
+    archived_at: Optional[float] = None  # 文件已清理的时间戳
 
 
 # ── 工具引擎 ──────────────────────────────────────────────
@@ -172,19 +175,22 @@ class ToolEngine(QObject):
         # 3. 合并参数（用户参数覆盖默认值）
         merged_params = self._merge_defaults(descriptor, parameters)
 
-        # 4. 获取输入文件路径
+        # 4. 生成 execution_id（需要在构建输出目录前生成）
+        execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+
+        # 5. 获取输入文件路径
         input_paths = self._resolve_inputs(descriptor, input_data_ids)
 
-        # 5. 构建输出目录
-        output_dir = f"{project.remote_base}/intermediate/{sample_id}/{tool_id}"
+        # 6. 构建输出目录（包含 execution_id 以支持多版本）
+        output_dir = f"{project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
 
-        # 6. 解析输出路径（模板中可能引用输出变量名如 clean_1、report_html）
+        # 7. 解析输出路径（模板中可能引用输出变量名如 clean_1、report_html）
         output_paths = CommandBuilder.resolve_output_paths(
             descriptor, output_dir, sample_id,
         )
         all_paths = {**input_paths, **output_paths}
 
-        # 7. 构建命令（使用 Jinja2 模板）
+        # 8. 构建命令（使用 Jinja2 模板）
         command = CommandBuilder.build(
             descriptor=descriptor,
             parameters=merged_params,
@@ -194,8 +200,7 @@ class ToolEngine(QObject):
             database_paths=database_paths,
         )
 
-        # 8. 创建 ExecutionRecord
-        execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+        # 9. 创建 ExecutionRecord
         record = ExecutionRecord(
             execution_id=execution_id,
             sample_id=sample_id,
@@ -399,8 +404,8 @@ class ToolEngine(QObject):
             "INSERT INTO executions "
             "(execution_id, sample_id, tool_id, tool_version, parameters, "
             "status, triggered_by, created_at, completed_at, error, "
-            "retry_count, retry_of, remote_job_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "retry_count, retry_of, remote_job_id, is_final_version, archived_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.execution_id,
                 record.sample_id,
@@ -415,6 +420,8 @@ class ToolEngine(QObject):
                 record.retry_count,
                 record.retry_of,
                 record.remote_job_id,
+                record.is_final_version,
+                record.archived_at,
             ),
         )
         db.commit()
@@ -451,6 +458,18 @@ class ToolEngine(QObject):
         """将数据库行转换为 ExecutionRecord"""
         params_str = row["parameters"]
         parameters = json.loads(params_str) if params_str else {}
+
+        # 处理新字段（向后兼容）
+        try:
+            is_final_version = row["is_final_version"]
+        except (KeyError, IndexError):
+            is_final_version = 0
+
+        try:
+            archived_at = row["archived_at"]
+        except (KeyError, IndexError):
+            archived_at = None
+
         return ExecutionRecord(
             execution_id=row["execution_id"],
             sample_id=row["sample_id"],
@@ -465,4 +484,6 @@ class ToolEngine(QObject):
             retry_count=row["retry_count"],
             retry_of=row["retry_of"],
             remote_job_id=row["remote_job_id"],
+            is_final_version=is_final_version,
+            archived_at=archived_at,
         )

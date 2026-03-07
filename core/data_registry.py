@@ -319,6 +319,102 @@ SELECT * FROM lineage
         rows = self._conn.execute(sql, (data_id,)).fetchall()
         return [self._row_to_data_item(r) for r in rows]
 
+    def find_by_execution(self, execution_id: str) -> list[DataItem]:
+        """查询特定执行的输出数据
+
+        Args:
+            execution_id: 执行 ID
+
+        Returns:
+            该执行产生的所有数据项列表
+        """
+        rows = self._conn.execute(
+            "SELECT d.* FROM data_items d "
+            "JOIN execution_io ei ON ei.data_id = d.data_id "
+            "WHERE ei.execution_id = ? AND ei.direction = 'output' "
+            "ORDER BY d.created_at DESC",
+            (execution_id,),
+        ).fetchall()
+        return [self._row_to_data_item(r) for r in rows]
+
+    def list_executions(
+        self, sample_id: str, tool_id: str, status: Optional[str] = None
+    ) -> list[dict]:
+        """列出同一工具的所有历史执行
+
+        Args:
+            sample_id: 样本 ID
+            tool_id: 工具 ID
+            status: 可选的状态过滤 (completed / failed / ...)
+
+        Returns:
+            执行记录列表，每条记录包含：
+            - execution_id: 执行 ID
+            - created_at: 创建时间
+            - completed_at: 完成时间
+            - status: 状态
+            - parameters: 参数 JSON 字符串
+            - is_final_version: 是否为最终版本
+            - archived_at: 归档时间
+        """
+        if status:
+            rows = self._conn.execute(
+                "SELECT execution_id, created_at, completed_at, status, "
+                "parameters, is_final_version, archived_at "
+                "FROM executions "
+                "WHERE sample_id = ? AND tool_id = ? AND status = ? "
+                "ORDER BY created_at DESC",
+                (sample_id, tool_id, status),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT execution_id, created_at, completed_at, status, "
+                "parameters, is_final_version, archived_at "
+                "FROM executions "
+                "WHERE sample_id = ? AND tool_id = ? "
+                "ORDER BY created_at DESC",
+                (sample_id, tool_id),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    def find_compatible_by_execution(
+        self,
+        sample_id: str,
+        data_type: str,
+        execution_id: str,
+        tier: Optional[str] = None,
+    ) -> list[DataItem]:
+        """按执行 ID 查找兼容数据（用于指定版本）
+
+        Args:
+            sample_id: 样本 ID
+            data_type: 需要的文件格式
+            execution_id: 执行 ID（用于过滤特定版本的输出）
+            tier: 可选的层级过滤
+
+        Returns:
+            匹配的数据项列表
+        """
+        if tier:
+            rows = self._conn.execute(
+                "SELECT d.* FROM data_items d "
+                "WHERE d.sample_id = ? AND d.data_type = ? AND d.tier = ? "
+                "AND d.produced_by = ? "
+                "ORDER BY d.created_at DESC",
+                (sample_id, data_type, tier, execution_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT d.* FROM data_items d "
+                "WHERE d.sample_id = ? AND d.data_type = ? "
+                "AND d.produced_by = ? "
+                "ORDER BY d.created_at DESC",
+                (sample_id, data_type, execution_id),
+            ).fetchall()
+
+        return [self._row_to_data_item(r) for r in rows]
+
     # ── 内部方法 ──────────────────────────────────────────────
 
     @staticmethod

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import shutil
 import sqlite3
 import sys
@@ -258,7 +258,7 @@ def test_input_selector_recommended_sort_uses_execution_tool_id() -> None:
     assert sorted_items[1].produced_by == "e_k2"
     assert tool_map["e_fastp"] == "fastp"
 
-def test_sync_default_from_schema_bridges_execution_and_databases() -> None:
+def test_helper_reads_v2_schema_after_save(local_tmp_dir: Path) -> None:
     schema = default_settings_schema()
     schema["execution"]["max_concurrent"] = 6
     schema["execution"]["poll_interval"] = 9
@@ -266,10 +266,18 @@ def test_sync_default_from_schema_bridges_execution_and_databases() -> None:
     schema["databases"]["blast_nt"] = "/db/blast_nt"
     schema["ncbi"]["email"] = "user@example.com"
 
-    config.sync_default_from_schema(schema)
+    original_path = config._CONFIG_PATH
+    try:
+        config._CONFIG_PATH = local_tmp_dir / "config.json"
+        config.save_config(schema)
 
-    assert config.DEFAULT_CONFIG["max_concurrent"] == 6
-    assert config.DEFAULT_CONFIG["poll_interval"] == 9
-    assert config.DEFAULT_CONFIG["screen_check_timeout"] == 17
-    assert config.DEFAULT_CONFIG["remote_db"] == "/db/blast_nt"
-    assert config.DEFAULT_CONFIG["ncbi_email"] == "user@example.com"
+        assert config.get_runtime_setting("max_concurrent") == 6
+        assert config.get_runtime_setting("poll_interval") == 9
+        assert config.get_runtime_setting("screen_check_timeout") == 17
+        assert config.get_database_path("blast_nt") == "/db/blast_nt"
+        assert config.get_ncbi_setting("email") == "user@example.com"
+    finally:
+        config._CONFIG_PATH = original_path
+
+
+

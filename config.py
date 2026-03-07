@@ -171,6 +171,36 @@ def save_config(config: dict[str, Any]) -> None:
         json.dump(schema, f, ensure_ascii=False, indent=2)
 
 
+def get_runtime_setting(key: str, default: Any = None) -> Any:
+    config = get_config()
+    execution = config.get("execution", {})
+    if key in execution:
+        return execution.get(key, default)
+
+    runtime = config.get("runtime", {})
+    if key in runtime:
+        return runtime.get(key, default)
+
+    return default
+
+
+def get_blast_setting(key: str, default: Any = None) -> Any:
+    return get_config().get("blast", {}).get(key, default)
+
+
+def get_database_path(key: str, default: str = "") -> str:
+    config = get_config()
+    databases = config.get("databases", {})
+    if key == "blast_nt":
+        fallback = str(config.get("blast", {}).get("db_path", default) or default)
+        return str(databases.get(key) or fallback)
+    return str(databases.get(key) or default)
+
+
+def get_ncbi_setting(key: str, default: Any = None) -> Any:
+    return get_config().get("ncbi", {}).get(key, default)
+
+
 def sync_default_from_schema(schema: dict[str, Any]) -> None:
     """将 v2 模型同步到旧模块依赖的扁平 DEFAULT_CONFIG。"""
     normalized = normalize_config(schema)
@@ -223,4 +253,6 @@ DB_MAP = {
 }
 
 sync_default_from_schema(get_config())
+
+
 

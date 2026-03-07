@@ -1,4 +1,4 @@
-# ui/widgets/blast_settings_card.py
+﻿# ui/widgets/blast_settings_card.py
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QFormLayout, QLineEdit, QPushButton,
     QLabel, QHBoxLayout, QWidget
@@ -385,8 +385,8 @@ class BlastSettingsCard(QFrame):
 
             if not project_path:
                 # 如果没有项目路径，从config.py中获取默认的remote_dir作为备选
-                from config import DEFAULT_CONFIG
-                remote_dir = DEFAULT_CONFIG.get('remote_dir', '').strip()
+                from config import get_blast_setting
+                remote_dir = str(get_blast_setting('remote_work_dir', '') or '').strip()
                 if remote_dir:
                     # 使用remote_dir的父目录作为项目路径
                     # 例如：/home/zyserver/project/lzc_project/blast_temp/ -> /home/zyserver/project/lzc_project
@@ -509,4 +509,6 @@ echo -e '{config_content}' >> "$CONFIG_FILE"
             self.bin_path_input.setEnabled(False)
             self.remote_dir_input.setEnabled(False)
             self.modify_btn.setEnabled(True)
+
+
 
