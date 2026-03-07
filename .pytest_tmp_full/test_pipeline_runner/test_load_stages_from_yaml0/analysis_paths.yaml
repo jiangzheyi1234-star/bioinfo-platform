@@ -1,0 +1,11 @@
+paths:
+  read_based:
+    name: 读长分析路径
+    stages:
+    - input_type: fastq
+      required: true
+      tool_id: fastp
+    - input_type: fastq
+      tool_id: hostile
+    - input_type: fastq
+      tool_id: kraken2

@@ -1,7 +1,7 @@
-"""项目管理页面 — 创建、打开、归档项目
+﻿"""项目管理页面：创建、打开、归档与导出项目。"""
 
-卡片式布局展示项目列表，支持创建新项目和管理已有项目。
-"""
+from __future__ import annotations
+
 import logging
 import time
 from typing import Optional
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class CreateProjectDialog(QDialog):
-    """创建新项目对话框"""
+    """创建新项目对话框。"""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -44,17 +44,15 @@ class CreateProjectDialog(QDialog):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
 
-        # 项目名称
         name_label = QLabel("项目名称")
         name_label.setStyleSheet(styles.FORM_LABEL)
         layout.addWidget(name_label)
 
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("例：人体肠道宏基因组分析")
+        self.name_input.setPlaceholderText("例如：人体肠道宏基因组分析")
         self.name_input.setStyleSheet(styles.INPUT_LINEEDIT)
         layout.addWidget(self.name_input)
 
-        # 项目描述
         desc_label = QLabel("项目描述（可选）")
         desc_label.setStyleSheet(styles.FORM_LABEL)
         layout.addWidget(desc_label)
@@ -62,7 +60,8 @@ class CreateProjectDialog(QDialog):
         self.desc_input = QTextEdit()
         self.desc_input.setPlaceholderText("简要描述分析目标...")
         self.desc_input.setMaximumHeight(70)
-        self.desc_input.setStyleSheet(f"""
+        self.desc_input.setStyleSheet(
+            f"""
             QTextEdit {{
                 padding: 8px 12px;
                 border: 1px solid {styles.COLOR_BORDER_INPUT};
@@ -74,17 +73,19 @@ class CreateProjectDialog(QDialog):
             QTextEdit:focus {{
                 border: 1px solid {styles.COLOR_BORDER_FOCUS};
             }}
-        """)
+            """
+        )
         layout.addWidget(self.desc_input)
 
-        # 按钮
         btn_box = QDialogButtonBox()
         self.btn_create = QPushButton("创建")
         self.btn_create.setStyleSheet(styles.BUTTON_PRIMARY)
         self.btn_create.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self.btn_cancel = QPushButton("取消")
         self.btn_cancel.setStyleSheet(styles.BUTTON_SECONDARY)
         self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+
         btn_box.addButton(self.btn_create, QDialogButtonBox.ButtonRole.AcceptRole)
         btn_box.addButton(self.btn_cancel, QDialogButtonBox.ButtonRole.RejectRole)
         btn_box.accepted.connect(self.accept)
@@ -92,105 +93,97 @@ class CreateProjectDialog(QDialog):
         layout.addWidget(btn_box)
 
     def get_values(self) -> tuple[str, str]:
-        """返回 (name, description)"""
         return self.name_input.text().strip(), self.desc_input.toPlainText().strip()
 
 
 class ProjectCard(QFrame):
-    """单个项目卡片"""
+    """单个项目卡片。"""
 
-    open_clicked = pyqtSignal(str)     # project_id
-    archive_clicked = pyqtSignal(str)  # project_id
-    export_clicked = pyqtSignal(str)   # project_id
+    open_clicked = pyqtSignal(str)
+    archive_clicked = pyqtSignal(str)
+    export_clicked = pyqtSignal(str)
 
     def __init__(self, project: ProjectInfo, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._project = project
         self.setObjectName(f"ProjectCard_{project.project_id}")
         self.setStyleSheet(styles.CARD_FRAME(self.objectName()))
-        self.setFixedHeight(100)
+        self.setMinimumHeight(116)
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 14, 20, 14)
+        layout.setSpacing(20)
 
-        # 左侧信息
         info_layout = QVBoxLayout()
-        info_layout.setSpacing(4)
+        info_layout.setSpacing(6)
 
-        # 项目名称
         name_label = QLabel(self._project.name)
         name_label.setStyleSheet(
-            f"font-size: 15px; font-weight: 600; color: {styles.COLOR_TEXT_TITLE}; "
-            f"background: {styles.COLOR_BG_BLANK};"
+            f"font-size: 16px; font-weight: 600; color: {styles.COLOR_TEXT_TITLE};"
+            f" background: {styles.COLOR_BG_BLANK};"
         )
         info_layout.addWidget(name_label)
 
-        # 描述（截断）
         desc_text = self._project.description or "无描述"
-        if len(desc_text) > 60:
-            desc_text = desc_text[:60] + "..."
+        if len(desc_text) > 80:
+            desc_text = desc_text[:80] + "..."
         desc_label = QLabel(desc_text)
         desc_label.setStyleSheet(styles.LABEL_HINT)
         info_layout.addWidget(desc_label)
 
-        # 元信息行
         created = time.strftime("%Y-%m-%d", time.localtime(self._project.created_at))
         status_text = "活跃" if self._project.status == "active" else "已归档"
-        meta_label = QLabel(f"创建于 {created}  |  {status_text}")
+        meta_label = QLabel(f"创建于 {created} | {status_text}")
         meta_label.setStyleSheet(styles.LABEL_MUTED)
         info_layout.addWidget(meta_label)
 
+        info_layout.addStretch()
         layout.addLayout(info_layout, stretch=1)
 
-        # 右侧按钮
-        btn_layout = QVBoxLayout()
-        btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        action_col = QVBoxLayout()
+        action_col.setAlignment(Qt.AlignmentFlag.AlignTop)
+        action_col.setSpacing(8)
+
+        action_wrap = QWidget()
+        action_wrap.setFixedWidth(96)
+        action_wrap.setLayout(action_col)
 
         if self._project.status == "active":
             open_btn = QPushButton("打开")
             open_btn.setStyleSheet(styles.BUTTON_PRIMARY)
             open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            open_btn.setFixedWidth(72)
-            open_btn.clicked.connect(
-                lambda: self.open_clicked.emit(self._project.project_id)
-            )
-            btn_layout.addWidget(open_btn)
+            open_btn.setFixedSize(88, 30)
+            open_btn.clicked.connect(lambda: self.open_clicked.emit(self._project.project_id))
+            action_col.addWidget(open_btn)
 
             export_btn = QPushButton("导出")
             export_btn.setStyleSheet(styles.BUTTON_SECONDARY)
             export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            export_btn.setFixedWidth(72)
-            export_btn.clicked.connect(
-                lambda: self.export_clicked.emit(self._project.project_id)
-            )
-            btn_layout.addWidget(export_btn)
+            export_btn.setFixedSize(88, 30)
+            export_btn.clicked.connect(lambda: self.export_clicked.emit(self._project.project_id))
+            action_col.addWidget(export_btn)
 
             archive_btn = QPushButton("归档")
-            archive_btn.setStyleSheet(styles.BUTTON_LINK)
+            archive_btn.setStyleSheet(styles.BUTTON_DANGER)
             archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            archive_btn.clicked.connect(
-                lambda: self.archive_clicked.emit(self._project.project_id)
-            )
-            btn_layout.addWidget(archive_btn)
+            archive_btn.setFixedSize(88, 30)
+            archive_btn.clicked.connect(lambda: self.archive_clicked.emit(self._project.project_id))
+            action_col.addWidget(archive_btn)
         else:
-            status_label = QLabel("已归档")
-            status_label.setStyleSheet(styles.LABEL_MUTED)
-            btn_layout.addWidget(status_label)
+            archived_label = QLabel("已归档")
+            archived_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            archived_label.setFixedWidth(88)
+            archived_label.setStyleSheet(styles.LABEL_MUTED)
+            action_col.addWidget(archived_label)
 
-        layout.addLayout(btn_layout)
+        action_col.addStretch()
+        layout.addWidget(action_wrap)
 
 
 class ProjectPage(BasePage):
-    """项目管理页面
-
-    展示项目列表（卡片式），支持创建、打开、归档操作。
-
-    Signals:
-        project_switched(str): 项目已切换，参数为 project_id
-    """
+    """项目管理页面。"""
 
     project_switched = pyqtSignal(str)
 
@@ -207,11 +200,11 @@ class ProjectPage(BasePage):
         self._pm = project_manager
         self.main_window = main_window
         self._locator = service_locator
+
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
         self._build_ui()
         self._refresh_list()
 
-        # 监听项目变化
         self._pm.project_created.connect(lambda _: self._refresh_list())
         self._pm.project_archived.connect(lambda _: self._refresh_list())
 
@@ -219,7 +212,6 @@ class ProjectPage(BasePage):
         self.layout.setContentsMargins(30, 15, 30, 20)
         self.layout.setSpacing(12)
 
-        # 顶部标题 + 创建按钮
         header_row = QHBoxLayout()
         header = QLabel("项目管理")
         header.setStyleSheet(styles.PAGE_HEADER_TITLE)
@@ -231,16 +223,13 @@ class ProjectPage(BasePage):
         self.btn_create.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_create.clicked.connect(self._on_create)
         header_row.addWidget(self.btn_create)
-
         self.layout.addLayout(header_row)
 
-        # 分隔线
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet(styles.DIVIDER)
         self.layout.addWidget(line)
 
-        # 滚动区域
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -257,15 +246,12 @@ class ProjectPage(BasePage):
         self.layout.addWidget(scroll)
 
     def _refresh_list(self) -> None:
-        """刷新项目卡片列表"""
-        # 清空现有卡片
         while self._cards_layout.count():
             item = self._cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
         projects = self._pm.list_projects()
-
         if not projects:
             empty_label = QLabel("暂无项目，点击上方按钮创建")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -285,7 +271,6 @@ class ProjectPage(BasePage):
         self._cards_layout.addStretch()
 
     def _on_create(self) -> None:
-        """创建新项目"""
         dialog = CreateProjectDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, desc = dialog.get_values()
@@ -301,7 +286,6 @@ class ProjectPage(BasePage):
                 QMessageBox.critical(self, "错误", f"创建项目失败: {e}")
 
     def _on_open(self, project_id: str) -> None:
-        """打开项目"""
         try:
             self._pm.open_project(project_id)
             self.project_switched.emit(project_id)
@@ -311,7 +295,6 @@ class ProjectPage(BasePage):
             QMessageBox.critical(self, "错误", f"打开项目失败: {e}")
 
     def _on_archive(self, project_id: str) -> None:
-        """归档项目"""
         result = QMessageBox.question(
             self,
             "确认归档",
@@ -326,8 +309,6 @@ class ProjectPage(BasePage):
                 QMessageBox.critical(self, "错误", f"归档失败: {e}")
 
     def _on_export(self, project_id: str) -> None:
-        """导出项目（论文/归档）"""
-        # 确保目标项目是当前打开的项目
         current = self._pm.current_project
         if current is None or current.project_id != project_id:
             QMessageBox.information(self, "提示", "请先打开该项目再导出")
@@ -335,7 +316,6 @@ class ProjectPage(BasePage):
 
         try:
             db = self._pm.db
-            # 收集插件描述符（如果有 ServiceLocator）
             plugin_descriptors: dict = {}
             if self._locator and self._locator.plugin_registry:
                 reg = self._locator.plugin_registry
@@ -352,9 +332,8 @@ class ProjectPage(BasePage):
             )
 
             from pathlib import Path
-            project_dir = str(
-                Path.home() / ".h2ometa" / "projects" / project_id
-            )
+
+            project_dir = str(Path.home() / ".h2ometa" / "projects" / project_id)
             dialog = ExportDialog(exporter, project_dir=project_dir, parent=self)
             dialog.exec()
 

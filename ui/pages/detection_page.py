@@ -1,487 +1,952 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import os
 import time
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+import yaml
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QVBoxLayout, QWidget, QStackedWidget, QLabel,
-    QPushButton, QButtonGroup, QComboBox, QLineEdit, QTableWidgetItem, QFileDialog,
-    QMessageBox
+    QButtonGroup,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QDoubleSpinBox,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
-from ui.page_base import BasePage
-from ui.widgets import styles, BlastResourceCard, BlastSampleCard, BlastRunCard, ExecutionHistoryCard
 from config import DEFAULT_CONFIG
+from core.data_importer import DataImporter
+from ui.page_base import BasePage
+from ui.widgets import styles
+from ui.widgets.execution_history_card import ExecutionHistoryCard
 
 logger = logging.getLogger(__name__)
 
 
-class _BlastSubmitWorker(QThread):
-    """后台提交 BLAST 任务（上传文件 + 提交到 ToolEngine）"""
-
-    progress = pyqtSignal(str)
-    submitted = pyqtSignal(str, str)  # execution_id, sample_id
-    failed = pyqtSignal(str)  # error message
-
-    def __init__(self, locator, fasta_path: str, db_path: str):
-        super().__init__()
-        self._locator = locator
-        self._fasta_path = fasta_path
-        self._db_path = db_path
-
-    def run(self):
-        try:
-            ssh = self._locator.ssh_service
-            pm = self._locator.project_manager
-            registry = self._locator.data_registry
-            engine = self._locator.tool_engine
-
-            sample_name = f"blast_{int(time.time())}"
-            sample_id = registry.add_sample(sample_name)
-
-            self.progress.emit("正在上传序列文件...")
-            from core.data_importer import DataImporter
-            importer = DataImporter(ssh_service=ssh, registry=registry)
-            data_id = importer.import_file(
-                local_path=self._fasta_path,
-                sample_id=sample_id,
-                data_type="fasta",
-                project_remote_base=pm.current_project.remote_base,
-            )
-
-            self.progress.emit("正在启动远程 BLAST 比对...")
-            execution_id = engine.execute(
-                tool_id="blastn",
-                input_data_ids=[data_id],
-                parameters={},
-                sample_id=sample_id,
-                triggered_by="manual",
-                database_paths={"db": self._db_path},
-            )
-
-            self.submitted.emit(execution_id, sample_id)
-
-        except Exception as e:
-            logger.exception("BLAST 提交失败")
-            self.failed.emit(str(e))
-
-
 class DetectionPage(BasePage):
-    """病原体检测页面：采用上下布局，上方功能导航区（选项卡式），下方内容展示区。"""
+    """病原检测页：插件卡片工作台 + 动态参数 + 执行历史。"""
 
     def __init__(self, main_window=None):
-        super().__init__("🧫 病原体检测")
+        super().__init__("病原检测")
         if hasattr(self, "label"):
             self.label.hide()
 
-        self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
         self.main_window = main_window
-        self.all_data = [] # 缓存所有比对行数据
-        self.current_page = 0
-        self.page_size = 20
+
+        self._tool_catalog: dict[str, dict[str, Any]] = {}
+        self._tool_order: list[str] = []
+        self._tool_cards: dict[str, QFrame] = {}
+
+        self._selected_tool_id: str = ""
+        self._selected_descriptor: dict[str, Any] = {}
+
+        self._input_defs: list[dict[str, Any]] = []
+        self._input_widgets: dict[str, tuple[str, QLineEdit]] = {}
+        self._param_widgets: dict[str, QWidget] = {}
+        self._db_widgets: dict[str, QLineEdit] = {}
+
+        self._running = False
         self._current_execution_id: Optional[str] = None
         self._current_sample_id: Optional[str] = None
-        self._submit_worker: Optional[_BlastSubmitWorker] = None
+        self._current_tool_id: str = ""
+        self._current_descriptor: dict[str, Any] = {}
+        self._current_local_output_dir: str = ""
+
+        self._result_columns: list[str] = []
+
+        self.execution_history: Optional[ExecutionHistoryCard] = None
+
+        self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
+
+        self._load_tool_catalog()
         self._build_ui()
-        # 初始化默认路径
-        self.run_card.path_input.setText(DEFAULT_CONFIG.get('local_output_dir', ''))
-        # 连接 ServiceLocator 信号
         self._connect_locator_signals()
 
-    def get_ssh_client(self):
-        """获取SSH客户端，通过主窗口获取"""
-        if self.main_window:
-            return self.main_window.get_ssh_service()
-        return None
-
-    def _set_settings_lock(self, locked: bool, reason: str = "SSH 正在使用中，系统设置已锁定") -> None:
-        if self.main_window and hasattr(self.main_window, "set_settings_locked"):
-            self.main_window.set_settings_locked(locked, reason)
-
     def _get_locator(self):
-        """获取 ServiceLocator"""
-        if self.main_window and hasattr(self.main_window, 'service_locator'):
+        if self.main_window and hasattr(self.main_window, "service_locator"):
             return self.main_window.service_locator
         return None
 
+    def _analysis_paths_file(self) -> Path:
+        return Path(__file__).resolve().parents[2] / "plugins" / "analysis_paths.yaml"
+
+    def _set_settings_lock(self, locked: bool, reason: str = "SSH 任务执行中，设置暂时锁定") -> None:
+        if self.main_window and hasattr(self.main_window, "set_settings_locked"):
+            self.main_window.set_settings_locked(locked, reason)
+
+    def _load_tool_catalog(self) -> None:
+        locator = self._get_locator()
+        reg = locator.plugin_registry if locator else None
+
+        preferred_order: list[str] = []
+
+        try:
+            with self._analysis_paths_file().open("r", encoding="utf-8") as f:
+                root = yaml.safe_load(f) or {}
+            paths = root.get("paths") or {}
+            for path_cfg in paths.values():
+                for stage in (path_cfg or {}).get("stages") or []:
+                    tid = str(stage.get("tool_id") or "").strip()
+                    if tid and tid not in preferred_order:
+                        preferred_order.append(tid)
+        except Exception:
+            logger.exception("读取 analysis_paths.yaml 失败")
+
+        all_ids: list[str] = []
+        if reg is not None:
+            try:
+                all_ids = list(reg.list_all_ids())
+            except Exception:
+                logger.exception("读取插件列表失败")
+
+        for tid in all_ids:
+            if tid not in preferred_order:
+                preferred_order.append(tid)
+
+        if reg is not None:
+            for tid in preferred_order:
+                try:
+                    self._tool_catalog[tid] = reg.get_descriptor(tid)
+                except Exception:
+                    logger.exception("读取插件失败: %s", tid)
+
+        if not self._tool_catalog:
+            self._tool_catalog = {
+                "blastn": {
+                    "id": "blastn",
+                    "name": "BLASTn",
+                    "version": "unknown",
+                    "category": "blast",
+                    "description": "核酸序列比对工具",
+                    "inputs": [{"name": "query", "type": "fasta", "required": True}],
+                    "parameters": [],
+                    "databases": [{"param_name": "db", "required": True}],
+                    "outputs": [],
+                }
+            }
+            preferred_order = ["blastn"]
+
+        self._tool_order = [tid for tid in preferred_order if tid in self._tool_catalog]
+        if not self._tool_order:
+            self._tool_order = sorted(self._tool_catalog.keys())
+
+        if "blastn" in self._tool_order:
+            self._selected_tool_id = "blastn"
+        else:
+            self._selected_tool_id = self._tool_order[0]
+        self._selected_descriptor = self._tool_catalog[self._selected_tool_id]
+
     def _connect_locator_signals(self) -> None:
-        """连接 ServiceLocator 执行信号"""
         locator = self._get_locator()
         if locator is None:
             return
         locator.execution_completed.connect(self._on_execution_completed)
         locator.execution_failed.connect(self._on_execution_failed)
 
-    def _build_ui(self):
-        # 页面整体布局参数
+    def _build_ui(self) -> None:
         self.layout.setContentsMargins(30, 15, 30, 20)
         self.layout.setSpacing(10)
 
-        # 顶部标题
-        header = QLabel("病原体检测")
-        header.setStyleSheet(styles.PAGE_HEADER_TITLE)
-        self.layout.addWidget(header)
+        title = QLabel("病原检测")
+        title.setStyleSheet(styles.PAGE_HEADER_TITLE)
+        self.layout.addWidget(title)
 
-        # 上方：选项卡式功能切换区 (Top Navigation)
-        self.nav_bar = QWidget()
-        nav_layout = QHBoxLayout(self.nav_bar)
+        nav = QWidget()
+        nav_layout = QHBoxLayout(nav)
         nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(5)  # 按钮间距紧凑
+        nav_layout.setSpacing(5)
 
-        # 使用 QButtonGroup 管理按钮的互斥高亮逻辑
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
 
-        # 创建功能按钮（无图标、压缩尺寸、带高亮逻辑）
-        self.btn_blast = self._create_nav_button("🧬 BLASTN 比对", 1)
-        self.btn_history = self._create_nav_button("📋 任务历史", 2)
-        self.btn_other = self._create_nav_button("🔬 其他分析", 3)
+        self.btn_workbench = self._create_nav_button("插件工作台", 0)
+        self.btn_history = self._create_nav_button("任务历史", 1)
+        self.btn_other = self._create_nav_button("其他分析", 2)
 
-        nav_layout.addWidget(self.btn_blast)
+        nav_layout.addWidget(self.btn_workbench)
         nav_layout.addWidget(self.btn_history)
         nav_layout.addWidget(self.btn_other)
         nav_layout.addStretch()
-        self.layout.addWidget(self.nav_bar)
+        self.layout.addWidget(nav)
 
-        # 细分割线
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(f"background-color: {styles.COLOR_BORDER}; max-height: 1px; border:none;")
+        line.setStyleSheet(styles.DIVIDER)
         self.layout.addWidget(line)
 
-        # 下方：对应功能的操作页面 (Content Area)
         self.content_stack = QStackedWidget()
         self.layout.addWidget(self.content_stack)
 
-        # 初始化各个功能页面
-        self._setup_stack_pages()
+        self.workbench_page = self._build_workbench_page()
+        self.history_page = self._build_history_page()
+        self.other_page = self._build_other_page()
 
-        # 默认选中第一个功能
-        self.btn_blast.setChecked(True)
-        self.content_stack.setCurrentIndex(1)
+        self.content_stack.addWidget(self.workbench_page)
+        self.content_stack.addWidget(self.history_page)
+        self.content_stack.addWidget(self.other_page)
 
-    def _create_nav_button(self, text: str, index: int):
-        """创建具备高亮和切换功能的精简按钮"""
+        self.btn_workbench.setChecked(True)
+        self.content_stack.setCurrentIndex(0)
+
+        self._select_tool(self._selected_tool_id)
+        self._refresh_history_db()
+
+    def _create_nav_button(self, text: str, index: int) -> QPushButton:
         btn = QPushButton(text)
-        btn.setCheckable(True)  # 开启可选状态
-        btn.setAutoExclusive(True)  # 开启自动互斥（同组内只能选一个）
+        btn.setCheckable(True)
+        btn.setAutoExclusive(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        # 样式：未选中时浅蓝色调，选中时蓝色高亮
         btn.setStyleSheet(styles.BUTTON_NAV_TOGGLE)
-        
-        # 点击后直接切换堆栈窗口，无需返回键逻辑
         btn.clicked.connect(lambda: self.content_stack.setCurrentIndex(index))
         self.nav_group.addButton(btn)
         return btn
 
-    def _setup_stack_pages(self):
-        """配置下方内容区的各个子页面"""
-        # 页面 0: 占位/欢迎
-        self.welcome_page = QLabel("请选择工具...")
-        self.welcome_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.welcome_page.setStyleSheet(f"color: {styles.COLOR_TEXT_HINT}; font-size: 14px;")
-        
-        # 页面 1: BLAST 操作页
-        self.blast_page = QWidget()
-        self._init_blast_workflow_ui()
-        
-        # 页面 2: 任务历史页
-        self.history_page = QWidget()
-        self._init_history_page_ui()
-        
-        # 页面 3: 其他分析页
-        self.other_page = QWidget()
-        self._init_other_workflow_ui()
+    def _build_workbench_page(self) -> QWidget:
+        page = QWidget()
+        root = QVBoxLayout(page)
+        root.setContentsMargins(0, 10, 0, 0)
+        root.setSpacing(12)
 
-        self.content_stack.addWidget(self.welcome_page)  # Index 0
-        self.content_stack.addWidget(self.blast_page)    # Index 1
-        self.content_stack.addWidget(self.history_page)  # Index 2
-        self.content_stack.addWidget(self.other_page)    # Index 3
+        cards_title = QLabel("插件功能卡片")
+        cards_title.setStyleSheet(styles.CARD_TITLE)
+        root.addWidget(cards_title)
 
-    def _init_blast_workflow_ui(self):
-        """优化的三步走布局"""
-        layout = QVBoxLayout(self.blast_page)
-        layout.setSpacing(15)
+        cards_scroll = QScrollArea()
+        cards_scroll.setWidgetResizable(True)
+        cards_scroll.setMaximumHeight(200)
+        cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        cards_scroll.setStyleSheet("background: transparent;")
 
-        # 1 & 2 步横向
-        top_row = QHBoxLayout()
-        self.resource_card = BlastResourceCard(self.get_ssh_client)
-        self.sample_card = BlastSampleCard()
-        top_row.addWidget(self.resource_card, 1)
-        top_row.addWidget(self.sample_card, 1)
-        layout.addLayout(top_row)
+        cards_wrap = QWidget()
+        cards_wrap.setStyleSheet("background: transparent;")
+        cards_grid = QGridLayout(cards_wrap)
+        cards_grid.setContentsMargins(0, 0, 0, 0)
+        cards_grid.setHorizontalSpacing(10)
+        cards_grid.setVerticalSpacing(10)
 
-        # 3 步纵向
-        self.run_card = BlastRunCard()
-        layout.addWidget(self.run_card, 2)
+        for i, tid in enumerate(self._tool_order):
+            desc = self._tool_catalog[tid]
+            card = self._build_tool_card(tid, desc)
+            self._tool_cards[tid] = card
+            cards_grid.addWidget(card, i // 3, i % 3)
 
-        # 信号绑定
-        self.resource_card.save_btn.clicked.connect(self._sync_status)
-        self.sample_card.file_selected.connect(self._sync_status)
-        self.run_card.run_btn.clicked.connect(self._on_start)
-        self.run_card.browse_btn.clicked.connect(self._on_browse_output_dir)
-        self.resource_card.ssh_usage_changed.connect(self._set_settings_lock)
-        
-        # 绑定分页按钮事件
-        self.run_card.prev_btn.clicked.connect(lambda: self._change_page(-1))
-        self.run_card.next_btn.clicked.connect(lambda: self._change_page(1))
+        cards_scroll.setWidget(cards_wrap)
+        root.addWidget(cards_scroll)
 
-    def _init_history_page_ui(self):
-        """初始化执行历史页面（基于 SQLite）"""
-        layout = QVBoxLayout(self.history_page)
+        self.meta_card = QFrame()
+        self.meta_card.setObjectName("DetectionMetaCard")
+        self.meta_card.setStyleSheet(styles.CARD_FRAME("DetectionMetaCard"))
+        meta_layout = QVBoxLayout(self.meta_card)
+        meta_layout.setContentsMargins(16, 12, 16, 12)
+        meta_layout.setSpacing(4)
+
+        self.meta_name = QLabel("工具: -")
+        self.meta_name.setStyleSheet(styles.CARD_TITLE)
+        self.meta_version = QLabel("版本: -")
+        self.meta_version.setStyleSheet(styles.LABEL_HINT)
+        self.meta_desc = QLabel("")
+        self.meta_desc.setWordWrap(True)
+        self.meta_desc.setStyleSheet(styles.LABEL_HINT)
+
+        meta_layout.addWidget(self.meta_name)
+        meta_layout.addWidget(self.meta_version)
+        meta_layout.addWidget(self.meta_desc)
+        root.addWidget(self.meta_card)
+
+        self.form_card = QFrame()
+        self.form_card.setObjectName("DetectionFormCard")
+        self.form_card.setStyleSheet(styles.CARD_FRAME("DetectionFormCard"))
+        self.form_grid = QGridLayout(self.form_card)
+        self.form_grid.setContentsMargins(16, 12, 16, 12)
+        self.form_grid.setHorizontalSpacing(10)
+        self.form_grid.setVerticalSpacing(10)
+        root.addWidget(self.form_card)
+
+        run_row = QHBoxLayout()
+        self._run_btn = QPushButton("运行")
+        self._run_btn.setStyleSheet(styles.BUTTON_PRIMARY)
+        self._run_btn.setFixedHeight(36)
+        self._run_btn.clicked.connect(self._on_start)
+        run_row.addWidget(self._run_btn)
+        run_row.addStretch()
+        root.addLayout(run_row)
+
+        self._status_label = QLabel("请先连接 SSH、选择项目并填写输入")
+        self._status_label.setStyleSheet(styles.LABEL_HINT)
+        root.addWidget(self._status_label)
+
+        self._result_label = QLabel("")
+        self._result_label.setStyleSheet(styles.LABEL_HINT)
+        self._result_label.hide()
+        root.addWidget(self._result_label)
+
+        self._result_table = QTableWidget()
+        self._result_table.setStyleSheet(styles.TABLE_WIDGET)
+        self._result_table.hide()
+        root.addWidget(self._result_table)
+
+        return page
+
+    def _build_tool_card(self, tool_id: str, descriptor: dict[str, Any]) -> QFrame:
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background:{styles.COLOR_BG_CARD}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CARD}; }}"
+        )
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
+
+        name = str(descriptor.get("name") or tool_id)
+        category = str(descriptor.get("category") or "unknown")
+        desc = str(descriptor.get("description") or "")
+
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet(styles.CARD_TITLE)
+        lay.addWidget(name_lbl)
+
+        id_lbl = QLabel(f"{tool_id} · {category}")
+        id_lbl.setStyleSheet(styles.LABEL_MUTED)
+        lay.addWidget(id_lbl)
+
+        short_desc = desc[:44] + ("..." if len(desc) > 44 else "")
+        desc_lbl = QLabel(short_desc)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet(styles.LABEL_HINT)
+        lay.addWidget(desc_lbl)
+
+        btn = QPushButton("使用该工具")
+        btn.setStyleSheet(styles.BUTTON_SECONDARY)
+        btn.clicked.connect(lambda: self._select_tool(tool_id))
+        lay.addWidget(btn)
+
+        return card
+
+    def _build_history_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 10, 0, 0)
         layout.setSpacing(12)
 
         self.execution_history = ExecutionHistoryCard()
         layout.addWidget(self.execution_history)
 
-        # 尝试设置数据库连接
-        self._refresh_history_db()
+        return page
+
+    def _build_other_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 10, 0, 0)
+        layout.setSpacing(12)
+
+        hint = QLabel("按路径分组展示插件入口，新增 tool.yaml 后可自动出现在这里。")
+        hint.setStyleSheet(styles.LABEL_HINT)
+        layout.addWidget(hint)
+
+        groups = self._load_path_groups()
+        if not groups:
+            empty = QLabel("未找到路径定义")
+            empty.setStyleSheet(styles.LABEL_MUTED)
+            layout.addWidget(empty)
+            layout.addStretch()
+            return page
+
+        for group in groups:
+            card = QFrame()
+            card.setStyleSheet(
+                f"QFrame {{ background:{styles.COLOR_BG_CARD}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CARD}; }}"
+            )
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(12, 10, 12, 10)
+            card_layout.setSpacing(6)
+
+            title = QLabel(str(group.get("name") or group.get("path_id") or "未命名路径"))
+            title.setStyleSheet(styles.CARD_TITLE)
+            card_layout.addWidget(title)
+
+            desc = QLabel(str(group.get("description") or ""))
+            desc.setStyleSheet(styles.LABEL_HINT)
+            desc.setWordWrap(True)
+            card_layout.addWidget(desc)
+
+            chips = QWidget()
+            chips_layout = QGridLayout(chips)
+            chips_layout.setContentsMargins(0, 0, 0, 0)
+            chips_layout.setHorizontalSpacing(6)
+            chips_layout.setVerticalSpacing(6)
+
+            tool_ids = group.get("tool_ids") or []
+            for idx, tid in enumerate(tool_ids):
+                entry = self._tool_catalog.get(tid, {})
+                name = str(entry.get("name") or tid)
+
+                chip = QPushButton(name)
+                chip.setStyleSheet(styles.BUTTON_SECONDARY)
+                chip.setFixedHeight(30)
+                chip.clicked.connect(lambda _=False, t=tid: self._select_tool(t))
+                chips_layout.addWidget(chip, idx // 4, idx % 4)
+
+            card_layout.addWidget(chips)
+            layout.addWidget(card)
+
+        layout.addStretch()
+        return page
+
+    def _load_path_groups(self) -> list[dict[str, Any]]:
+        groups: list[dict[str, Any]] = []
+        try:
+            with self._analysis_paths_file().open("r", encoding="utf-8") as f:
+                root = yaml.safe_load(f) or {}
+        except Exception:
+            logger.exception("读取 analysis_paths.yaml 失败")
+            return groups
+
+        for path_id, path_cfg in (root.get("paths") or {}).items():
+            tool_ids: list[str] = []
+            for stage in (path_cfg or {}).get("stages") or []:
+                tid = str(stage.get("tool_id") or "").strip()
+                if tid and tid in self._tool_catalog and tid not in tool_ids:
+                    tool_ids.append(tid)
+            groups.append(
+                {
+                    "path_id": str(path_id),
+                    "name": str((path_cfg or {}).get("name") or path_id),
+                    "description": str((path_cfg or {}).get("description") or ""),
+                    "tool_ids": tool_ids,
+                }
+            )
+        return groups
+
+    def _set_card_selected(self, selected_tool_id: str) -> None:
+        for tid, card in self._tool_cards.items():
+            if tid == selected_tool_id:
+                card.setStyleSheet(
+                    f"QFrame {{ background:{styles.COLOR_BG_SIDEBAR_SELECTED}; border:1px solid {styles.COLOR_PRIMARY}; border-radius:{styles.RADIUS_CARD}; }}"
+                )
+            else:
+                card.setStyleSheet(
+                    f"QFrame {{ background:{styles.COLOR_BG_CARD}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CARD}; }}"
+                )
+
+    def _clear_form(self) -> None:
+        while self.form_grid.count():
+            item = self.form_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _select_tool(self, tool_id: str) -> None:
+        if tool_id not in self._tool_catalog:
+            return
+
+        self._selected_tool_id = tool_id
+        self._selected_descriptor = self._tool_catalog[tool_id]
+        self._set_card_selected(tool_id)
+
+        name = str(self._selected_descriptor.get("name") or tool_id)
+        version = str(self._selected_descriptor.get("version") or "unknown")
+        desc = str(self._selected_descriptor.get("description") or "")
+
+        self.meta_name.setText(f"工具: {name} ({tool_id})")
+        self.meta_version.setText(f"版本: {version}")
+        self.meta_desc.setText(desc)
+        self._run_btn.setText(f"运行 {name}")
+
+        self._clear_form()
+        self._input_widgets.clear()
+        self._param_widgets.clear()
+        self._db_widgets.clear()
+
+        self._input_defs = list(self._selected_descriptor.get("inputs") or [])
+
+        row = 0
+
+        self.form_grid.addWidget(QLabel("样本名称", styleSheet=styles.FORM_LABEL), row, 0)
+        self._sample_name_input = QLineEdit()
+        self._sample_name_input.setStyleSheet(styles.INPUT_LINEEDIT)
+        self._sample_name_input.setPlaceholderText("留空将自动生成")
+        self.form_grid.addWidget(self._sample_name_input, row, 1, 1, 2)
+        row += 1
+
+        for inp in self._input_defs:
+            in_name = str(inp.get("name") or "")
+            in_type = str(inp.get("type") or "file")
+            required = bool(inp.get("required", False))
+
+            self.form_grid.addWidget(QLabel(f"输入({in_name}){' *' if required else ''}", styleSheet=styles.FORM_LABEL), row, 0)
+
+            path_edit = QLineEdit()
+            path_edit.setReadOnly(False)
+            path_edit.setStyleSheet(styles.INPUT_LINEEDIT)
+            if in_type == "directory":
+                path_edit.setPlaceholderText("本地目录或远端绝对路径")
+            else:
+                path_edit.setPlaceholderText(f"本地{in_type}文件或远端绝对路径")
+            self.form_grid.addWidget(path_edit, row, 1)
+
+            browse_btn = QPushButton("浏览")
+            browse_btn.setStyleSheet(styles.BUTTON_SECONDARY)
+            browse_btn.clicked.connect(lambda _=False, n=in_name: self._on_browse_input(n))
+            self.form_grid.addWidget(browse_btn, row, 2)
+
+            self._input_widgets[in_name] = (in_type, path_edit)
+            row += 1
+
+        self.form_grid.addWidget(QLabel("结果目录", styleSheet=styles.FORM_LABEL), row, 0)
+        self._output_dir_input = QLineEdit()
+        self._output_dir_input.setStyleSheet(styles.INPUT_LINEEDIT)
+        self._output_dir_input.setText(DEFAULT_CONFIG.get("local_output_dir", ""))
+        self.form_grid.addWidget(self._output_dir_input, row, 1)
+
+        output_btn = QPushButton("选择")
+        output_btn.setStyleSheet(styles.BUTTON_SECONDARY)
+        output_btn.clicked.connect(self._on_browse_output)
+        self.form_grid.addWidget(output_btn, row, 2)
+        row += 1
+
+        for db in self._selected_descriptor.get("databases", []):
+            param_name = str(db.get("param_name") or "db")
+            required = bool(db.get("required", False))
+
+            self.form_grid.addWidget(QLabel(f"数据库({param_name}){' *' if required else ''}", styleSheet=styles.FORM_LABEL), row, 0)
+            db_edit = QLineEdit()
+            db_edit.setStyleSheet(styles.INPUT_LINEEDIT)
+            db_edit.setPlaceholderText("远端数据库路径")
+            if param_name == "db":
+                db_edit.setText(DEFAULT_CONFIG.get("remote_db", ""))
+            self.form_grid.addWidget(db_edit, row, 1, 1, 2)
+
+            self._db_widgets[param_name] = db_edit
+            row += 1
+
+        for param in self._selected_descriptor.get("parameters", []):
+            pname = str(param.get("name") or "")
+            if not pname or pname == "outfmt":
+                continue
+
+            self.form_grid.addWidget(QLabel(str(param.get("label") or pname), styleSheet=styles.FORM_LABEL), row, 0)
+            widget = self._create_param_widget(param)
+            self.form_grid.addWidget(widget, row, 1, 1, 2)
+            self._param_widgets[pname] = widget
+            row += 1
+
+        self._prepare_result_table()
+
+    def _prepare_result_table(self) -> None:
+        outfmt = ""
+        for p in self._selected_descriptor.get("parameters", []):
+            if p.get("name") == "outfmt":
+                outfmt = str(p.get("default") or "")
+                break
+
+        if outfmt:
+            cols = outfmt.split()
+            if cols and cols[0] == "6":
+                cols = cols[1:]
+            self._result_columns = cols
+            self._result_table.setColumnCount(len(cols))
+            self._result_table.setHorizontalHeaderLabels(cols)
+            self._result_table.setRowCount(0)
+            self._result_table.show()
+        else:
+            self._result_columns = []
+            self._result_table.setRowCount(0)
+            self._result_table.hide()
+
+    def _create_param_widget(self, param: dict[str, Any]) -> QWidget:
+        ptype = str(param.get("type", "string"))
+        default = param.get("default")
+
+        if ptype == "int":
+            widget = QSpinBox()
+            rng = param.get("range", [1, 9999])
+            if isinstance(rng, list) and len(rng) == 2:
+                widget.setRange(int(rng[0]), int(rng[1]))
+            else:
+                widget.setRange(1, 9999)
+            if default is not None:
+                widget.setValue(int(default))
+            return widget
+
+        if ptype == "float":
+            widget = QDoubleSpinBox()
+            widget.setDecimals(8)
+            rng = param.get("range", [0.0, 1000000.0])
+            if isinstance(rng, list) and len(rng) == 2:
+                widget.setRange(float(rng[0]), float(rng[1]))
+            else:
+                widget.setRange(0.0, 1000000.0)
+            if default is not None:
+                widget.setValue(float(default))
+            return widget
+
+        if ptype == "bool":
+            widget = QComboBox()
+            widget.setStyleSheet(styles.INPUT_COMBOBOX)
+            widget.addItem("是", True)
+            widget.addItem("否", False)
+            if default is False:
+                widget.setCurrentIndex(1)
+            return widget
+
+        if ptype == "choice":
+            widget = QComboBox()
+            widget.setStyleSheet(styles.INPUT_COMBOBOX)
+            choices = list(param.get("choices") or [])
+            for c in choices:
+                widget.addItem(str(c), c)
+            if default in choices:
+                widget.setCurrentIndex(choices.index(default))
+            return widget
+
+        widget = QLineEdit()
+        widget.setStyleSheet(styles.INPUT_LINEEDIT)
+        widget.setText("" if default is None else str(default))
+        return widget
+
+    @staticmethod
+    def _read_param_widget(widget: QWidget) -> Any:
+        if isinstance(widget, QSpinBox):
+            return widget.value()
+        if isinstance(widget, QDoubleSpinBox):
+            return widget.value()
+        if isinstance(widget, QComboBox):
+            return widget.currentData()
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip()
+        return None
+
+    @staticmethod
+    def _file_filter(input_type: str) -> str:
+        if input_type == "fastq":
+            return "FASTQ 文件 (*.fq *.fq.gz *.fastq *.fastq.gz);;所有文件 (*)"
+        if input_type == "fasta":
+            return "FASTA 文件 (*.fasta *.fa *.fna *.fas *.txt);;所有文件 (*)"
+        return "所有文件 (*)"
+
+    def _on_browse_input(self, input_name: str) -> None:
+        if input_name not in self._input_widgets:
+            return
+
+        input_type, path_edit = self._input_widgets[input_name]
+        if input_type == "directory":
+            selected = QFileDialog.getExistingDirectory(self, f"选择目录输入: {input_name}", "")
+            if selected:
+                path_edit.setText(selected)
+            return
+
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            f"选择输入文件: {input_name}",
+            "",
+            self._file_filter(input_type),
+        )
+        if selected:
+            path_edit.setText(selected)
+
+    def _on_browse_output(self) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "选择结果目录", self._output_dir_input.text())
+        if selected:
+            self._output_dir_input.setText(selected)
 
     def _refresh_history_db(self) -> None:
-        """更新执行历史的数据库连接"""
-        if not hasattr(self, 'execution_history'):
+        if self.execution_history is None:
             return
+
         locator = self._get_locator()
         if locator is None:
             return
-        pm = locator.project_manager
-        if pm and pm.current_project is not None:
-            try:
-                self.execution_history.set_db_connection(pm.db)
-            except Exception:
-                pass
-
-    def _on_view_result(self, local_path: str):
-        """查看结果文件 — 加载本地 TSV 到 BLAST 表格"""
-        if os.path.exists(local_path):
-            try:
-                with open(local_path, 'r', encoding='utf-8') as f:
-                    self.all_data = [line.strip().split('\t') for line in f if line.strip()]
-
-                self.current_page = 0
-                self._update_table_view()
-
-                if self.all_data:
-                    top = self.all_data[0]
-                    interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。"
-                    self.run_card.interpret_label.setText(interpretation)
-                    self.run_card.interpret_box.show()
-
-                self.run_card.path_display.setText(f" 结果文件: {local_path}")
-                self.run_card.path_display.show()
-
-                # 切换到 BLAST 页面显示结果
-                self.btn_blast.setChecked(True)
-                self.content_stack.setCurrentIndex(1)
-
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"读取结果失败: {e}")
-        else:
-            QMessageBox.warning(self, "提示", f"结果文件不存在: {local_path}")
-
-    def _sync_status(self):
-        db = self.resource_card.get_db_path()
-        file = self.sample_card.get_file_path()
-        if db and file:
-            self.run_card.run_btn.setEnabled(True)
-            self.run_card.status_msg.setText(" 参数就绪，可以开始比对")
-        else:
-            self.run_card.run_btn.setEnabled(False)
-
-    def _on_browse_output_dir(self):
-        """弹出目录选择对话框"""
-        dir_path = QFileDialog.getExistingDirectory(self, "选择保存目录", self.run_card.path_input.text())
-        if dir_path:
-            self.run_card.path_input.setText(dir_path)
-
-    def _on_start(self):
-        """启动 BLAST 比对（通过 ToolEngine）"""
-        locator = self._get_locator()
-        ssh = locator.ssh_service if locator else None
-
-        if locator is None or ssh is None or not getattr(ssh, 'is_connected', False):
-            self.run_card.status_msg.setText(" 请先在设置页连接服务器")
-            return
 
         pm = locator.project_manager
-        if pm.current_project is None:
-            self.run_card.status_msg.setText(" 请先选择或创建项目")
-            return
-
-        if locator.data_registry is None or locator.tool_engine is None:
-            self.run_card.status_msg.setText(" 请先打开项目")
-            return
-
-        # 锁定 UI
-        self.resource_card.setEnabled(False)
-        self.sample_card.setEnabled(False)
-        self._set_settings_lock(True)
-        self.run_card.run_btn.setEnabled(False)
-        self.run_card.browse_btn.setEnabled(False)
-        self.run_card.pbar.show()
-        self.run_card.pbar.setRange(0, 0)
-
-        # 在后台线程中执行上传 + 提交
-        self._submit_worker = _BlastSubmitWorker(
-            locator=locator,
-            fasta_path=self.sample_card.get_file_path(),
-            db_path=self.resource_card.get_db_path(),
-        )
-        self._submit_worker.progress.connect(self.run_card.status_msg.setText)
-        self._submit_worker.submitted.connect(self._on_submit_succeeded)
-        self._submit_worker.failed.connect(self._on_submit_failed)
-        self._submit_worker.start()
-
-    def _on_submit_succeeded(self, execution_id: str, sample_id: str) -> None:
-        """BLAST 任务提交成功"""
-        self._current_execution_id = execution_id
-        self._current_sample_id = sample_id
-        self.run_card.status_msg.setText(f"BLAST 任务已提交，正在执行... (ID: {execution_id})")
-        # 清理 worker
-        if self._submit_worker:
-            self._submit_worker.deleteLater()
-            self._submit_worker = None
-
-    def _on_submit_failed(self, error: str) -> None:
-        """BLAST 任务提交失败"""
-        self._unlock_blast_ui()
-        self.run_card.status_msg.setText(f"启动失败: {error}")
-        # 清理 worker
-        if self._submit_worker:
-            self._submit_worker.deleteLater()
-            self._submit_worker = None
-
-    def _unlock_blast_ui(self) -> None:
-        """解锁 BLAST 操作界面"""
-        self.resource_card.setEnabled(True)
-        self.sample_card.setEnabled(True)
-        self._set_settings_lock(False)
-        self.run_card.run_btn.setEnabled(True)
-        self.run_card.browse_btn.setEnabled(True)
-        self.run_card.pbar.hide()
-
-    def _on_execution_completed(self, execution_id: str) -> None:
-        """ToolEngine 执行完成回调 — 下载结果并展示"""
-        if execution_id != self._current_execution_id:
+        if pm is None or pm.current_project is None:
             return
 
         try:
+            self.execution_history.set_db_connection(pm.db)
+        except Exception:
+            logger.exception("刷新执行历史失败")
+
+    def _validate_before_run(self) -> tuple[bool, str]:
+        locator = self._get_locator()
+        if locator is None:
+            return False, "未初始化服务容器"
+
+        ssh = locator.ssh_service
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return False, "请先连接 SSH"
+
+        pm = locator.project_manager
+        if pm.current_project is None:
+            return False, "请先打开项目"
+
+        if locator.data_registry is None or locator.tool_engine is None:
+            return False, "请先打开项目"
+
+        for inp in self._input_defs:
+            name = str(inp.get("name") or "")
+            required = bool(inp.get("required", False))
+            pair = self._input_widgets.get(name)
+            if not pair:
+                continue
+            text = pair[1].text().strip()
+            if required and not text:
+                return False, f"缺少必填输入: {name}"
+
+        for db in self._selected_descriptor.get("databases", []):
+            if not bool(db.get("required", False)):
+                continue
+            param_name = str(db.get("param_name") or "db")
+            widget = self._db_widgets.get(param_name)
+            if widget and not widget.text().strip():
+                return False, f"缺少必填数据库路径: {param_name}"
+
+        return True, ""
+
+    def _on_start(self) -> None:
+        if self._running:
+            return
+
+        ok, msg = self._validate_before_run()
+        if not ok:
+            QMessageBox.warning(self, "提示", msg)
+            self._status_label.setText(msg)
+            return
+
+        locator = self._get_locator()
+        if locator is None:
+            return
+
+        ssh = locator.ssh_service
+        pm = locator.project_manager
+        registry = locator.data_registry
+        engine = locator.tool_engine
+        project = pm.current_project
+
+        tool_id = self._selected_tool_id
+        descriptor = self._selected_descriptor
+
+        sample_name = self._sample_name_input.text().strip()
+        if not sample_name:
+            sample_name = f"{tool_id}_{time.strftime('%Y%m%d_%H%M%S')}"
+
+        try:
+            sample_id = registry.add_sample(sample_name)
+
+            importer = DataImporter(ssh_service=ssh, registry=registry)
+            input_data_ids: list[str] = []
+
+            for inp in self._input_defs:
+                in_name = str(inp.get("name") or "")
+                in_type = str(inp.get("type") or "file")
+
+                pair = self._input_widgets.get(in_name)
+                if pair is None:
+                    continue
+                raw_path = pair[1].text().strip()
+                if not raw_path:
+                    continue
+
+                if os.path.exists(raw_path):
+                    if os.path.isdir(raw_path):
+                        raise ValueError(
+                            f"输入 {in_name} 为本地目录。当前仅支持远端目录路径，请填写 / 开头的远端绝对路径"
+                        )
+
+                    data_id = importer.import_file(
+                        local_path=raw_path,
+                        sample_id=sample_id,
+                        data_type=in_type,
+                        project_remote_base=project.remote_base,
+                        tier="raw",
+                    )
+                    input_data_ids.append(data_id)
+                else:
+                    if not raw_path.startswith("/"):
+                        raise ValueError(
+                            f"输入 {in_name} 既不是本地文件，也不是远端绝对路径: {raw_path}"
+                        )
+
+                    data_id = registry.register_input(
+                        file_path=raw_path,
+                        sample_id=sample_id,
+                        data_type=in_type,
+                        tier="intermediate",
+                    )
+                    input_data_ids.append(data_id)
+
+            parameters: dict[str, Any] = {}
+            for name, widget in self._param_widgets.items():
+                value = self._read_param_widget(widget)
+                if value in (None, ""):
+                    continue
+                parameters[name] = value
+
+            db_paths: dict[str, str] = {}
+            for name, widget in self._db_widgets.items():
+                text = widget.text().strip()
+                if text:
+                    db_paths[name] = text
+
+            execution_id = engine.execute(
+                tool_id=tool_id,
+                input_data_ids=input_data_ids,
+                parameters=parameters,
+                sample_id=sample_id,
+                triggered_by="manual",
+                database_paths=db_paths or None,
+            )
+
+            self._running = True
+            self._current_execution_id = execution_id
+            self._current_sample_id = sample_id
+            self._current_tool_id = tool_id
+            self._current_descriptor = descriptor
+            self._current_local_output_dir = self._output_dir_input.text().strip()
+
+            self._run_btn.setEnabled(False)
+            self._set_settings_lock(True)
+            self._status_label.setText(f"任务已提交: {execution_id}，正在执行...")
+            self._result_label.hide()
+
+            self._refresh_history_db()
+
+        except Exception as exc:
+            logger.exception("启动任务失败")
+            self._finish_run()
+            self._status_label.setText(f"启动失败: {exc}")
+            QMessageBox.warning(self, "启动失败", str(exc))
+
+    def _find_output_remote_paths(self, descriptor: dict[str, Any], sample_id: str, remote_output_dir: str) -> list[str]:
+        outputs = descriptor.get("outputs") or []
+        if not outputs:
+            return []
+
+        paths: list[str] = []
+        for out_def in outputs:
+            pattern = str(out_def.get("pattern") or "").strip()
+            name = str(out_def.get("name") or "result")
+            if pattern:
+                try:
+                    remote_path = pattern.format(output_dir=remote_output_dir, sample_id=sample_id)
+                except Exception:
+                    remote_path = f"{remote_output_dir}/{sample_id}.{name}"
+            else:
+                remote_path = f"{remote_output_dir}/{sample_id}.{name}"
+            paths.append(remote_path)
+
+        dedup: list[str] = []
+        for p in paths:
+            if p not in dedup:
+                dedup.append(p)
+        return dedup
+
+    def _load_result_table(self, local_paths: list[str]) -> None:
+        if not self._result_columns:
+            return
+
+        candidate = ""
+        for p in local_paths:
+            if p.lower().endswith((".tsv", ".txt")) and os.path.exists(p):
+                candidate = p
+                break
+
+        if not candidate:
+            return
+
+        rows: list[list[str]] = []
+        try:
+            with open(candidate, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    text = line.strip()
+                    if not text:
+                        continue
+                    rows.append(text.split("\t"))
+        except Exception:
+            logger.exception("读取结果表失败: %s", candidate)
+            return
+
+        self._result_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c in range(min(len(row), self._result_table.columnCount())):
+                self._result_table.setItem(r, c, QTableWidgetItem(row[c]))
+
+    def _finish_run(self) -> None:
+        self._running = False
+        self._run_btn.setEnabled(True)
+        self._set_settings_lock(False)
+
+    def _on_execution_completed(self, execution_id: str) -> None:
+        if execution_id != self._current_execution_id:
+            return
+
+        local_paths: list[str] = []
+        try:
             locator = self._get_locator()
             if locator is None:
+                self._status_label.setText(f"任务完成: {execution_id}")
                 return
 
             pm = locator.project_manager
             project = pm.current_project
-            sample_id = self._current_sample_id
-            output_dir = f"{project.remote_base}/intermediate/{sample_id}/blastn"
-            remote_path = f"{output_dir}/{sample_id}.blastn.tsv"
+            if project is None or not self._current_sample_id or not self._current_tool_id:
+                self._status_label.setText(f"任务完成: {execution_id}")
+                return
 
-            local_out_dir = self.run_card.path_input.text()
-            os.makedirs(local_out_dir, exist_ok=True)
-            local_path = os.path.join(local_out_dir, f"blast_res_{execution_id}.txt")
+            remote_output_dir = f"{project.remote_base}/intermediate/{self._current_sample_id}/{self._current_tool_id}"
+            remote_paths = self._find_output_remote_paths(
+                descriptor=self._current_descriptor,
+                sample_id=self._current_sample_id,
+                remote_output_dir=remote_output_dir,
+            )
 
-            self.run_card.status_msg.setText("远程任务完成，正在同步结果...")
+            local_dir = self._current_local_output_dir or DEFAULT_CONFIG.get("local_output_dir", "")
+            if local_dir:
+                os.makedirs(local_dir, exist_ok=True)
+
             ssh = locator.ssh_service
-            ssh.download(remote_path, local_path)
+            for remote in remote_paths:
+                if not local_dir:
+                    break
+                local = os.path.join(local_dir, os.path.basename(remote))
+                try:
+                    ssh.download(remote, local)
+                    local_paths.append(local)
+                except Exception:
+                    logger.warning("下载输出失败: %s", remote, exc_info=True)
 
-            self._handle_result(True, f"分析完成！\n执行ID: {execution_id}", local_path)
-        except Exception as e:
-            logger.exception("下载 BLAST 结果失败")
-            self._handle_result(False, f"下载结果失败: {e}", "")
+            self._load_result_table(local_paths)
 
-        # 刷新执行历史
-        self._refresh_history_db()
+            self._status_label.setText(f"任务完成: {execution_id}")
+            if local_paths:
+                self._result_label.setText(f"已同步 {len(local_paths)} 个结果文件到: {local_dir}")
+            else:
+                self._result_label.setText("任务完成，但未下载到可见结果文件（可能为目录输出或输出尚未就绪）")
+            self._result_label.show()
+
+        finally:
+            self._refresh_history_db()
+            self._finish_run()
 
     def _on_execution_failed(self, execution_id: str, error: str) -> None:
-        """ToolEngine 执行失败回调"""
         if execution_id != self._current_execution_id:
             return
-        self._handle_result(False, f"BLAST 执行失败: {error}", "")
-        # 刷新执行历史
+
+        self._status_label.setText(f"任务失败: {error}")
+        self._result_label.hide()
+
         self._refresh_history_db()
-
-    def _handle_result(self, success, msg, local_path):
-        """处理任务结束：解析数据并开启分页展示"""
-        # 恢复 UI 交互
-        self._unlock_blast_ui()
-
-        self.run_card.show_loading(False)
-        self.run_card.status_msg.setText(msg)
-
-        if success and os.path.exists(local_path):
-            # 显示保存路径和结果摘要
-            result_summary = f" 结果已存至: {local_path}"
-            try:
-                with open(local_path, 'r', encoding='utf-8') as f:
-                    self.all_data = [line.strip().split('\t') for line in f if line.strip()]
-
-                # 显示结果摘要
-                total_matches = len(self.all_data)
-                if total_matches > 0:
-                    result_summary += f" (共 {total_matches} 个匹配项)"
-
-                # 自动解读 (Top Hit)
-                interpretation = "未发现显著匹配项。"
-                if self.all_data:
-                    top = self.all_data[0]
-                    interpretation = f"<b>自动解读：</b> 发现最佳匹配项 <u>{top[1]}</u>，一致性为 <b>{top[2]}%</b>，E-value 为 <b>{top[10]}</b>。建议查看详细比对表。"
-
-                self.current_page = 0
-                self._update_table_view()
-                self.run_card.interpret_label.setText(interpretation)
-                self.run_card.interpret_box.show()
-                if len(self.all_data) > self.page_size:
-                    self.run_card.page_nav.show()
-            except Exception as e:
-                self.run_card.status_msg.setText(f"解析失败: {e}")
-
-            self.run_card.path_display.setText(result_summary)
-            self.run_card.path_display.show()
-        else:
-            self.run_card.path_display.hide()
-
-        # 清理 worker 对象，避免内存泄漏
-        if self._submit_worker:
-            self._submit_worker.deleteLater()
-            self._submit_worker = None
-
-    def _update_table_view(self):
-        """根据当前页码更新表格内容"""
-        self.run_card.result_table.setRowCount(0)
-        start = self.current_page * self.page_size
-        end = start + self.page_size
-        items = self.all_data[start:end]
-        self.run_card.result_table.setRowCount(len(items))
-        for r, row in enumerate(items):
-            for c, val in enumerate(row):
-                item = QTableWidgetItem(val)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if c == 2 and float(val) >= 95.0:
-                    item.setForeground(Qt.GlobalColor.darkGreen)
-                self.run_card.result_table.setItem(r, c, item)
-        
-        total_pages = (len(self.all_data) + self.page_size - 1) // self.page_size
-        self.run_card.page_label.setText(f"第 {self.current_page+1} / {total_pages} 页")
-        self.run_card.prev_btn.setEnabled(self.current_page > 0)
-        self.run_card.next_btn.setEnabled(end < len(self.all_data))
-
-    def _change_page(self, delta):
-        self.current_page += delta
-        self._update_table_view()
-
-    def _init_other_workflow_ui(self):
-        """其他分析操作界面的具体布局逻辑入口"""
-        layout = QVBoxLayout(self.other_page)
-        layout.setContentsMargins(0, 10, 0, 0)
-        layout.setSpacing(12)
-
-        # 其他分析详情内容占位符
-        placeholder = QLabel("其他分析详情页（待实现）")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet(styles.LABEL_MUTED)
-        layout.addWidget(placeholder, 1)
+        self._finish_run()

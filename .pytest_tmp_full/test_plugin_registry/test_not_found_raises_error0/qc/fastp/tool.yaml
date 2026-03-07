@@ -1,0 +1,24 @@
+category: qc
+command_template: fastp -i {reads_1} -o {clean_1} -w {thread}
+conda_env: fastp_env
+databases: []
+description: 超快速 FASTQ 质量控制
+detection:
+  command: fastp --version
+  version_regex: fastp (\d+\.\d+\.\d+)
+id: fastp
+inputs:
+- name: reads_1
+  required: true
+  type: fastq
+name: fastp
+outputs:
+- name: clean_1
+  pattern: '{output_dir}/{sample_id}.clean.R1.fq.gz'
+  tier: intermediate
+  type: fastq
+parameters:
+- default: 4
+  name: thread
+  type: int
+version: 0.23.4

@@ -1,26 +1,33 @@
-# ui/main.py
-import sys
+﻿"""应用启动入口。"""
+
 import os
+import sys
+
+from PyQt6.QtWidgets import QApplication
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 获取项目根目录 (bio_ui)
 root_dir = os.path.dirname(current_dir)
 
-# 将根目录添加到 Python 搜索路径，防止以后引用 base 或 modules 报错
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 
-from PyQt6.QtWidgets import QApplication
-# 直接引用同目录下的 main_window
 from main_window import MainWindow
+
+
+def _sanitize_qt_platform() -> None:
+    """避免误设置 offscreen 导致窗口不可见。"""
+    platform = (os.environ.get("QT_QPA_PLATFORM") or "").strip().lower()
+    if platform == "offscreen":
+        os.environ.pop("QT_QPA_PLATFORM", None)
 
 
 def main():
     try:
+        _sanitize_qt_platform()
         app = QApplication(sys.argv)
 
-        # 统一字体
         font = app.font()
-        font.setFamily("Segoe UI" if os.name == 'nt' else "Arial")
+        font.setFamily("Segoe UI" if os.name == "nt" else "Arial")
         app.setFont(font)
 
         window = MainWindow()
@@ -28,13 +35,18 @@ def main():
 
         exit_code = app.exec()
         sys.exit(exit_code)
-    except Exception as e:
+    except Exception:
         import logging
         import traceback
-        logging.basicConfig(filename=os.path.join(root_dir, "logs", "startup_error.log"),
-                            level=logging.ERROR)
+
+        logs_dir = os.path.join(root_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        logging.basicConfig(
+            filename=os.path.join(logs_dir, "startup_error.log"),
+            level=logging.ERROR,
+            encoding="utf-8",
+        )
         logging.error("启动失败:\n%s", traceback.format_exc())
-        # 同时输出到控制台
         traceback.print_exc()
         sys.exit(1)
 

@@ -1,0 +1,18 @@
+{
+  "proj_42d1580268b7": {
+    "project_id": "proj_42d1580268b7",
+    "name": "项目A",
+    "description": "",
+    "created_at": 1772868911.2962704,
+    "status": "active",
+    "remote_base": "/h2ometa/projects/proj_42d1580268b7"
+  },
+  "proj_e13365692aff": {
+    "project_id": "proj_e13365692aff",
+    "name": "项目B",
+    "description": "",
+    "created_at": 1772868911.3012705,
+    "status": "active",
+    "remote_base": "/h2ometa/projects/proj_e13365692aff"
+  }
+}

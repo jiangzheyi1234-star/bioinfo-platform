@@ -1,0 +1,30 @@
+category: taxonomy
+command_template: kraken2 --db {db} --threads {threads} {input_reads}
+conda_env: kraken2_env
+databases:
+- id: kraken2_standard
+  param_name: db
+  required: true
+description: 超快速 k-mer 物种分类
+detection:
+  command: kraken2 --version
+  version_regex: version (\d+\.\d+\.\d+)
+id: kraken2
+inputs:
+- name: reads
+  required: true
+  type: fastq
+name: Kraken2
+outputs:
+- name: k2_report
+  pattern: '{output_dir}/{sample_id}.kreport'
+  tier: result
+  type: kreport
+parameters:
+- default: 0.0
+  name: confidence
+  type: float
+- default: 8
+  name: threads
+  type: int
+version: 2.1.3
