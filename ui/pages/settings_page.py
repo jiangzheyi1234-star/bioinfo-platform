@@ -17,7 +17,7 @@ from config import (
     sync_default_from_schema,
 )
 from ui.page_base import BasePage
-from ui.widgets import SshSettingsCard, NcbiSettingsCard, BlastSettingsCard, LinuxSettingsCard
+from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard, DatabasePathsCard
 from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP, SCROLL_BAR_ELEGANT
 
 
@@ -37,7 +37,6 @@ class SettingsPage(BasePage):
         self.init_ui()
         self.load_config()
 
-        # 启动后自动尝试一次 SSH 连通性检查
         QTimer.singleShot(1000, self.ssh_card.auto_check_on_start)
 
     def init_ui(self) -> None:
@@ -76,9 +75,9 @@ class SettingsPage(BasePage):
         self.linux_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.linux_card)
 
-        self.blast_card = BlastSettingsCard(self.ssh_card.get_active_client, self.linux_card.get_values)
-        self.blast_card.request_save.connect(self.save_config)
-        self.scroll_layout.addWidget(self.blast_card)
+        self.db_card = DatabasePathsCard()
+        self.db_card.request_save.connect(self.save_config)
+        self.scroll_layout.addWidget(self.db_card)
 
         self.ncbi_card = NcbiSettingsCard()
         self.ncbi_card.request_save.connect(self.save_config)
@@ -98,9 +97,9 @@ class SettingsPage(BasePage):
 
     def set_global_lock(self, locked: bool, reason: str = "SSH 任务执行中，设置暂时锁定") -> None:
         self.ssh_card.set_external_lock(locked, reason)
-        self.blast_card.set_external_lock(locked)
         if hasattr(self.linux_card, "set_external_lock"):
             self.linux_card.set_external_lock(locked)
+        self.db_card.set_external_lock(locked)
         self.ncbi_card.set_external_lock(locked)
 
     def _is_legacy_raw_config(self, raw: Any) -> bool:
@@ -119,7 +118,8 @@ class SettingsPage(BasePage):
     def _apply_schema_to_components(self, schema: dict[str, Any]) -> None:
         ssh = schema.get("ssh", {})
         linux = schema.get("linux", {})
-        blast = schema.get("blast", {})
+        execution = schema.get("execution", {})
+        databases = schema.get("databases", {})
         ncbi = schema.get("ncbi", {})
 
         self.ssh_card.set_values(
@@ -131,20 +131,21 @@ class SettingsPage(BasePage):
             project_path=str(linux.get("project_root", "") or ""),
             conda_env=str(linux.get("conda_env_path", "") or ""),
             conda_env_name=str(linux.get("conda_env_name", "") or ""),
+            max_concurrent=int(execution.get("max_concurrent", 3) or 3),
+            poll_interval=int(execution.get("poll_interval", 5) or 5),
         )
-        self.blast_card.set_values(
-            remote_db=str(blast.get("db_path", "") or ""),
-            blast_bin=str(blast.get("bin_path", "") or ""),
-            remote_dir=str(blast.get("remote_work_dir", "") or ""),
+        self.db_card.set_values(databases)
+        self.ncbi_card.set_values(
+            ncbi_api_key=str(ncbi.get("api_key", "") or ""),
+            email=str(ncbi.get("email", "") or ""),
         )
-        self.ncbi_card.set_values(ncbi_api_key=str(ncbi.get("api_key", "") or ""))
 
     def _collect_schema_from_components(self) -> dict[str, Any]:
         current = get_config()
 
         ssh_values = self.ssh_card.get_values()
         linux_values = self.linux_card.get_values()
-        blast_values = self.blast_card.get_values()
+        db_values = self.db_card.get_values()
         ncbi_values = self.ncbi_card.get_values()
 
         return {
@@ -159,14 +160,16 @@ class SettingsPage(BasePage):
                 "conda_env_path": str(linux_values.get("conda_env_path", "") or ""),
                 "conda_env_name": str(linux_values.get("conda_env_name", "") or ""),
             },
-            "blast": {
-                "db_path": str(blast_values.get("remote_db", "") or ""),
-                "bin_path": str(blast_values.get("blast_bin", "") or ""),
-                "remote_work_dir": str(blast_values.get("remote_dir", "") or ""),
-                "remote_script": str(current.get("blast", {}).get("remote_script", "") or ""),
+            "execution": {
+                "max_concurrent": int(linux_values.get("max_concurrent", 3)),
+                "poll_interval": int(linux_values.get("poll_interval", 5)),
+                "screen_check_timeout": int(current.get("execution", {}).get("screen_check_timeout", 10)),
             },
+            "databases": db_values,
+            "blast": current.get("blast", default_settings_schema()["blast"]),
             "ncbi": {
                 "api_key": str(ncbi_values.get("ncbi_api_key", "") or ""),
+                "email": str(ncbi_values.get("email", "") or ""),
             },
             "runtime": current.get("runtime", default_settings_schema()["runtime"]),
         }
@@ -209,6 +212,11 @@ class SettingsPage(BasePage):
         schema = self._collect_schema_from_components()
         save_config(schema)
         sync_default_from_schema(schema)
+
+        window = self.window()
+        locator = getattr(window, "service_locator", None)
+        if locator is not None and hasattr(locator, "update_max_concurrent"):
+            locator.update_max_concurrent(int(schema.get("execution", {}).get("max_concurrent", 3) or 3))
 
         try:
             self.ssh_card.status_label.setText("设置已保存")

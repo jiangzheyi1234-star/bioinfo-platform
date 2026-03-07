@@ -1,4 +1,4 @@
-﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
+"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
 from typing import Optional

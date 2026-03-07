@@ -53,11 +53,16 @@ try:
 except Exception:  # pragma: no cover
     ExportDialog = None  # type: ignore
 
+try:
+    from .database_paths_card import DatabasePathsCard
+except Exception:  # pragma: no cover
+    DatabasePathsCard = None  # type: ignore
+
 from . import styles
 
 __all__ = [
     "SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard",
     "BlastResourceCard", "BlastSampleCard", "BlastRunCard",
     "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget",
-    "ExecutionHistoryCard", "ExportDialog", "styles",
+    "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard", "styles",
 ]

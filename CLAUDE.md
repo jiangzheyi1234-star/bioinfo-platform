@@ -1,6 +1,44 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # H2OMeta — Claude 开发指令
 
 > 产品需求见 `PRODUCT.md`，技术架构见 `ARCHITECTURE.md`。
+
+## 常用命令
+
+### 运行应用
+```bash
+# 推荐方式（模块启动）
+python -m ui.main
+
+# 备用方式（直接脚本）
+python ui/main.py
+```
+
+### 测试
+```bash
+# 运行所有测试
+pytest
+
+# 运行单个测试文件
+pytest tests/test_plugin_registry.py
+
+# 运行特定测试函数
+pytest tests/test_plugin_registry.py::test_load_tool_yaml
+
+# 显示详细输出
+pytest -v
+
+# 显示打印输出（调试用）
+pytest -s
+```
+
+### 环境
+- Conda 环境名：`bio_ui`
+- Python 版本：3.11+
+- 主要依赖：PyQt6, paramiko, Jinja2, matplotlib, pytest
 
 ## 软件定位
 

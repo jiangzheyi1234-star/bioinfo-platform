@@ -1,4 +1,4 @@
-﻿import json
+import json
 import shutil
 import sqlite3
 import sys
@@ -257,3 +257,19 @@ def test_input_selector_recommended_sort_uses_execution_tool_id() -> None:
     assert sorted_items[0].produced_by == "e_fastp"
     assert sorted_items[1].produced_by == "e_k2"
     assert tool_map["e_fastp"] == "fastp"
+
+def test_sync_default_from_schema_bridges_execution_and_databases() -> None:
+    schema = default_settings_schema()
+    schema["execution"]["max_concurrent"] = 6
+    schema["execution"]["poll_interval"] = 9
+    schema["execution"]["screen_check_timeout"] = 17
+    schema["databases"]["blast_nt"] = "/db/blast_nt"
+    schema["ncbi"]["email"] = "user@example.com"
+
+    config.sync_default_from_schema(schema)
+
+    assert config.DEFAULT_CONFIG["max_concurrent"] == 6
+    assert config.DEFAULT_CONFIG["poll_interval"] == 9
+    assert config.DEFAULT_CONFIG["screen_check_timeout"] == 17
+    assert config.DEFAULT_CONFIG["remote_db"] == "/db/blast_nt"
+    assert config.DEFAULT_CONFIG["ncbi_email"] == "user@example.com"

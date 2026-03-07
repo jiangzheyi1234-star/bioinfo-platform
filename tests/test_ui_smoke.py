@@ -1,4 +1,4 @@
-﻿"""UI 冒烟测试：确保关键页面和主窗口可初始化。"""
+"""UI 冒烟测试：确保关键页面和主窗口可初始化。"""
 
 import json
 import sys
@@ -211,3 +211,20 @@ class TestServiceLocatorStartup:
         assert count >= 4
         assert locator.tool_engine is None
         locator.shutdown()
+
+def test_settings_save_updates_runtime_config(qapp, temp_main_window):
+    import config
+
+    settings_page = temp_main_window.settings_page
+    settings_page.linux_card.spin_concurrent.setValue(5)
+    settings_page.linux_card.spin_poll.setValue(11)
+    settings_page.db_card.set_values({"blast_nt": "/remote/blast_nt"})
+    settings_page.ncbi_card.set_values(email="user@example.com")
+    settings_page.save_config()
+    _flush_events(qapp)
+
+    assert temp_main_window.service_locator.job_queue.max_concurrent == 5
+    assert config.DEFAULT_CONFIG["max_concurrent"] == 5
+    assert config.DEFAULT_CONFIG["poll_interval"] == 11
+    assert config.DEFAULT_CONFIG["remote_db"] == "/remote/blast_nt"
+    assert config.DEFAULT_CONFIG["ncbi_email"] == "user@example.com"

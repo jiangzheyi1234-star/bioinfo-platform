@@ -55,6 +55,17 @@ def default_settings_schema() -> dict[str, Any]:
             "conda_env_path": "",
             "conda_env_name": "",
         },
+        "execution": {
+            "max_concurrent": 3,
+            "poll_interval": 5,
+            "screen_check_timeout": 10,
+        },
+        "databases": {
+            "kraken2": "",
+            "checkm2": "",
+            "gtdbtk": "",
+            "blast_nt": "",
+        },
         "blast": {
             "db_path": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",
             "bin_path": "/home/zyserver/anaconda3/envs/ncbi_download/bin/blastn",
@@ -63,6 +74,7 @@ def default_settings_schema() -> dict[str, Any]:
         },
         "ncbi": {
             "api_key": "",
+            "email": "",
         },
         "runtime": {
             "local_file": "",
@@ -80,6 +92,8 @@ def _is_v2_schema(data: Any) -> bool:
         and data.get("version") == CONFIG_VERSION
         and isinstance(data.get("ssh"), dict)
         and isinstance(data.get("linux"), dict)
+        and isinstance(data.get("execution"), dict)
+        and isinstance(data.get("databases"), dict)
         and isinstance(data.get("blast"), dict)
         and isinstance(data.get("ncbi"), dict)
         and isinstance(data.get("runtime"), dict)
@@ -127,7 +141,7 @@ def normalize_config(data: Any) -> dict[str, Any]:
 
     defaults = default_settings_schema()
     schema = deepcopy(defaults)
-    for section in ("ssh", "linux", "blast", "ncbi", "runtime"):
+    for section in ("ssh", "linux", "execution", "databases", "blast", "ncbi", "runtime"):
         section_data = data.get(section)
         if isinstance(section_data, dict):
             schema[section].update(section_data)
@@ -160,31 +174,37 @@ def save_config(config: dict[str, Any]) -> None:
 def sync_default_from_schema(schema: dict[str, Any]) -> None:
     """将 v2 模型同步到旧模块依赖的扁平 DEFAULT_CONFIG。"""
     normalized = normalize_config(schema)
+    databases = normalized["databases"]
+    execution = normalized["execution"]
+    runtime = normalized["runtime"]
+    blast = normalized["blast"]
     DEFAULT_CONFIG.update(
         {
             "ip": normalized["ssh"]["host"],
             "user": normalized["ssh"]["user"],
             "pwd": normalized["ssh"]["password"],
             "ncbi_api_key": normalized["ncbi"]["api_key"],
-            "remote_dir": normalized["blast"]["remote_work_dir"],
-            "remote_db": normalized["blast"]["db_path"],
-            "blast_bin": normalized["blast"]["bin_path"],
-            "remote_script": normalized["blast"]["remote_script"],
-            "local_file": normalized["runtime"]["local_file"],
-            "local_output_dir": normalized["runtime"]["local_output_dir"],
-            "poll_interval": normalized["runtime"]["poll_interval"],
-            "max_poll_retries": normalized["runtime"]["max_poll_retries"],
-            "screen_check_timeout": normalized["runtime"]["screen_check_timeout"],
+            "ncbi_email": normalized["ncbi"]["email"],
+            "remote_dir": blast["remote_work_dir"],
+            "remote_db": str(databases.get("blast_nt") or blast["db_path"]),
+            "blast_bin": blast["bin_path"],
+            "remote_script": blast["remote_script"],
+            "local_file": runtime["local_file"],
+            "local_output_dir": runtime["local_output_dir"],
+            "poll_interval": execution["poll_interval"],
+            "max_concurrent": execution["max_concurrent"],
+            "max_poll_retries": runtime["max_poll_retries"],
+            "screen_check_timeout": execution["screen_check_timeout"],
         }
     )
 
 
-# 旧代码仍引用 DEFAULT_CONFIG，这里保证其值来自统一 v2 配置模型
 DEFAULT_CONFIG = {
     "ip": "",
     "user": "",
     "pwd": "",
     "ncbi_api_key": "",
+    "ncbi_email": "",
     "remote_dir": "",
     "remote_db": "",
     "blast_bin": "",
@@ -192,6 +212,7 @@ DEFAULT_CONFIG = {
     "local_file": "",
     "local_output_dir": "",
     "poll_interval": 5,
+    "max_concurrent": 3,
     "max_poll_retries": 3,
     "screen_check_timeout": 10,
 }
@@ -202,3 +223,4 @@ DB_MAP = {
 }
 
 sync_default_from_schema(get_config())
+

@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "ssh": {
+    "host": "192.168.0.152",
+    "user": "zyserver",
+    "password": "abc123.."
+  },
+  "linux": {
+    "project_root": "",
+    "conda_env_path": "",
+    "conda_env_name": ""
+  },
+  "execution": {
+    "max_concurrent": 5,
+    "poll_interval": 11,
+    "screen_check_timeout": 10
+  },
+  "databases": {
+    "kraken2": "",
+    "checkm2": "",
+    "gtdbtk": "",
+    "blast_nt": "/remote/blast_nt"
+  },
+  "blast": {
+    "db_path": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",
+    "bin_path": "/home/zyserver/anaconda3/envs/ncbi_download/bin/blastn",
+    "remote_work_dir": "/home/zyserver/project/lzc_project/blast_temp/",
+    "remote_script": "/home/zyserver/project/lzc_project/project/h2oapp/blast_main.sh"
+  },
+  "ncbi": {
+    "api_key": "",
+    "email": "user@example.com"
+  },
+  "runtime": {
+    "local_file": "",
+    "local_output_dir": "C:\\PathogenAnalyzer\\output",
+    "poll_interval": 5,
+    "max_poll_retries": 3,
+    "screen_check_timeout": 10
+  }
+}

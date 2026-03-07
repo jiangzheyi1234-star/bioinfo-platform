@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -253,6 +254,22 @@ class LinuxSettingsCard(QFrame):
 
         form.addRow("项目根路径", self.linux_project_path)
         form.addRow("Conda 环境", self.conda_combo)
+
+        # 最大并发任务数
+        self.spin_concurrent = QSpinBox()
+        self.spin_concurrent.setRange(1, 8)
+        self.spin_concurrent.setValue(3)
+        self.spin_concurrent.setSuffix(" 个任务")
+
+        # 任务轮询间隔
+        self.spin_poll = QSpinBox()
+        self.spin_poll.setRange(1, 60)
+        self.spin_poll.setValue(5)
+        self.spin_poll.setSuffix(" 秒")
+
+        form.addRow("最大并发任务数", self.spin_concurrent)
+        form.addRow("任务轮询间隔", self.spin_poll)
+
         c_layout.addLayout(form)
 
         # 按钮与状态行
@@ -511,12 +528,17 @@ class LinuxSettingsCard(QFrame):
             "linux_project_path": self.linux_project_path.text().strip(),
             "conda_env_path": self.conda_combo.currentData() or "",
             "conda_env_name": self.conda_combo.currentText() or "",  # 保存显示名称
-            "is_locked": self._is_locked
+            "is_locked": self._is_locked,
+            "max_concurrent": self.spin_concurrent.value(),
+            "poll_interval": self.spin_poll.value(),
         }
 
-    def set_values(self, project_path: str = "", conda_env: str = "", conda_env_name: str = "") -> None:
+    def set_values(self, project_path: str = "", conda_env: str = "", conda_env_name: str = "",
+                   max_concurrent: int = 3, poll_interval: int = 5) -> None:
         """供 SettingsPage 回填数据。"""
         self.linux_project_path.setText(project_path)
+        self.spin_concurrent.setValue(max_concurrent)
+        self.spin_poll.setValue(poll_interval)
         # 保存待恢复的 conda 环境配置
         self._pending_conda_env = conda_env
         self._pending_conda_env_name = conda_env_name or (conda_env.split('/')[-1] if conda_env else "")
@@ -586,7 +608,8 @@ class LinuxSettingsCard(QFrame):
     def _refresh_interaction_state(self) -> None:
         """刷新交互状态，处理外部锁定等情况"""
         if self._external_lock:
-            for w in [self.linux_project_path, self.conda_combo, self.modify_btn, self.lock_btn]:
+            for w in [self.linux_project_path, self.conda_combo, self.modify_btn, self.lock_btn,
+                      self.spin_concurrent, self.spin_poll]:
                 w.setEnabled(False)
             return
 

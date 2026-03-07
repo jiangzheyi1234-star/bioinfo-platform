@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
@@ -7,7 +7,6 @@ from ui.widgets.styles import (
     CARD_FRAME,
     INPUT_LINEEDIT,
     CARD_TITLE,
-    FORM_LABEL,
     LABEL_MUTED,
     BUTTON_LINK,
     BUTTON_SUCCESS,
@@ -15,13 +14,7 @@ from ui.widgets.styles import (
 
 
 class NcbiSettingsCard(QFrame):
-    """NCBI 设置卡片组件。
-
-    Contract:
-      - set_values()/get_values()：与 SettingsPage 做配置同步。
-      - request_save：用户点“保存”时发出，让 SettingsPage 决定如何写入配置文件。
-      - lock_if_needed：保存后按 key 是否为空自动锁定/解锁。
-    """
+    """NCBI 设置卡片组件。"""
 
     request_save = pyqtSignal()
 
@@ -34,21 +27,22 @@ class NcbiSettingsCard(QFrame):
         self._build_ui()
         self._lock_inputs()
 
-    # -------------------------
-    # Public API: config sync
-    # -------------------------
-    def set_values(self, ncbi_api_key: str = "") -> None:
+    def set_values(self, ncbi_api_key: str = "", email: str = "") -> None:
         self.ncbi_api_key.setText(str(ncbi_api_key or ""))
-        if (ncbi_api_key or "").strip():
+        self.email_edit.setText(str(email or ""))
+        if self._has_credentials():
             self._lock_inputs()
         else:
             self._unlock_inputs()
 
     def get_values(self) -> dict:
-        return {"ncbi_api_key": self.ncbi_api_key.text().strip()}
+        return {
+            "ncbi_api_key": self.ncbi_api_key.text().strip(),
+            "email": self.email_edit.text().strip(),
+        }
 
     def lock_if_needed(self) -> None:
-        if self.ncbi_api_key.text().strip():
+        if self._has_credentials():
             self._lock_inputs()
         else:
             self._unlock_inputs()
@@ -59,14 +53,11 @@ class NcbiSettingsCard(QFrame):
         self._external_lock = locked
         if locked:
             self.status_label.setText("系统设置已锁定")
-            for w in [self.ncbi_api_key, self.modify_btn, self.save_btn]:
+            for w in [self.ncbi_api_key, self.email_edit, self.modify_btn, self.save_btn]:
                 w.setEnabled(False)
         else:
             self.lock_if_needed()
 
-    # -------------------------
-    # Internal UI
-    # -------------------------
     def _build_ui(self) -> None:
         self.setStyleSheet(CARD_FRAME("NCBICard"))
 
@@ -114,8 +105,12 @@ class NcbiSettingsCard(QFrame):
         self.ncbi_api_key.setStyleSheet(INPUT_LINEEDIT)
         self.ncbi_api_key.setPlaceholderText("可选：填写 NCBI API Key")
 
-        label = QLabel("NCBI API Key")
-        form.addRow(label, self.ncbi_api_key)
+        self.email_edit = QLineEdit()
+        self.email_edit.setStyleSheet(INPUT_LINEEDIT)
+        self.email_edit.setPlaceholderText("user@example.com（部分 NCBI 接口必须）")
+
+        form.addRow(QLabel("NCBI API Key"), self.ncbi_api_key)
+        form.addRow("Email", self.email_edit)
         content_layout.addLayout(form)
 
         self.status_label = QLabel("")
@@ -124,26 +119,33 @@ class NcbiSettingsCard(QFrame):
 
         main_layout.addWidget(content)
 
-    # -------------------------
-    # State helpers
-    # -------------------------
+    def _has_credentials(self) -> bool:
+        return bool(self.ncbi_api_key.text().strip() or self.email_edit.text().strip())
+
     def _lock_inputs(self) -> None:
         self.ncbi_api_key.setEnabled(False)
+        self.email_edit.setEnabled(False)
         self._in_edit_mode = False
         self.modify_btn.show()
         self.save_btn.hide()
-        # 显示当前状态信息
-        api_key = self.ncbi_api_key.text().strip()
-        if api_key:
+
+        has_api_key = bool(self.ncbi_api_key.text().strip())
+        has_email = bool(self.email_edit.text().strip())
+        if has_api_key and has_email:
+            self.status_label.setText("状态：已配置 API Key 和 Email")
+        elif has_api_key:
             self.status_label.setText("状态：已配置 API Key")
+        elif has_email:
+            self.status_label.setText("状态：已配置 Email")
         else:
-            self.status_label.setText("状态：未配置 API Key")
+            self.status_label.setText("状态：未配置 NCBI 凭证")
 
     def _unlock_inputs(self) -> None:
         if self._external_lock:
             return
         self.ncbi_api_key.setEnabled(True)
+        self.email_edit.setEnabled(True)
         self._in_edit_mode = True
         self.modify_btn.hide()
         self.save_btn.show()
-        self.status_label.setText("请填写 NCBI API Key 并点击保存")
+        self.status_label.setText("请填写 NCBI 凭证并点击保存")
