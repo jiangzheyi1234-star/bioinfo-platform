@@ -72,6 +72,9 @@ class DetectionPage(BasePage):
         self._current_local_output_dir: str = ""
 
         self._result_columns: list[str] = []
+
+        self._last_card_cols: int = 0
+        self._last_form_mode: str = ""
         self._workbench_scroll: Optional[QScrollArea] = None
         self._form_left_grid: Optional[QGridLayout] = None
         self._form_right_grid: Optional[QGridLayout] = None
@@ -89,7 +92,37 @@ class DetectionPage(BasePage):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "_cards_grid"):
-            self._rebuild_tool_cards()
+            current_cols = self._cards_per_row()
+            if current_cols != self._last_card_cols:
+                self._last_card_cols = current_cols
+                self._rebuild_tool_cards()
+        if hasattr(self, "_form_layout"):
+            self._adjust_form_layout()
+
+    def _adjust_form_layout(self) -> None:
+        """根据窗口宽度调整表单布局（双栏 vs 单栏）"""
+        if not hasattr(self, "_left_panel") or not hasattr(self, "_right_panel"):
+            return
+
+        width = self.width()
+        target_mode = "single" if width < 600 else "double"
+
+        if target_mode == self._current_form_mode:
+            return
+
+        while self._form_layout.count():
+            item = self._form_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+
+        if target_mode == "single":
+            self._form_layout.addWidget(self._left_panel)
+            self._form_layout.addWidget(self._right_panel)
+        else:
+            self._form_layout.addWidget(self._left_panel, 1)
+            self._form_layout.addWidget(self._right_panel, 1)
+
+        self._current_form_mode = target_mode
 
     def _get_locator(self):
         if self.main_window and hasattr(self.main_window, "service_locator"):
@@ -246,7 +279,6 @@ class DetectionPage(BasePage):
         self._workbench_scroll = scroll
 
         content = QWidget()
-        content.setMinimumWidth(1060)
         content.setStyleSheet("background: transparent;")
 
         root = QVBoxLayout(content)
@@ -317,15 +349,15 @@ class DetectionPage(BasePage):
         self.form_card.setObjectName("DetectionFormCard")
         self.form_card.setStyleSheet(styles.CARD_FRAME("DetectionFormCard"))
 
-        form_layout = QHBoxLayout(self.form_card)
-        form_layout.setContentsMargins(16, 12, 16, 12)
-        form_layout.setSpacing(16)
+        self._form_layout = QHBoxLayout(self.form_card)
+        self._form_layout.setContentsMargins(16, 12, 16, 12)
+        self._form_layout.setSpacing(16)
 
-        left_panel = QFrame()
-        left_panel.setStyleSheet(
+        self._left_panel = QFrame()
+        self._left_panel.setStyleSheet(
             f"QFrame {{ background:{styles.COLOR_BG_CARD_HIGHLIGHT}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CTRL}; }}"
         )
-        left_layout = QVBoxLayout(left_panel)
+        left_layout = QVBoxLayout(self._left_panel)
         left_layout.setContentsMargins(12, 10, 12, 10)
         left_layout.setSpacing(8)
         left_title = QLabel("输入与样本")
@@ -337,13 +369,13 @@ class DetectionPage(BasePage):
         self._form_left_grid.setVerticalSpacing(10)
         left_layout.addLayout(self._form_left_grid)
         left_layout.addStretch()
-        form_layout.addWidget(left_panel, 3)
+        self._form_layout.addWidget(self._left_panel, 1)
 
-        right_panel = QFrame()
-        right_panel.setStyleSheet(
+        self._right_panel = QFrame()
+        self._right_panel.setStyleSheet(
             f"QFrame {{ background:{styles.COLOR_BG_CARD_HIGHLIGHT}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CTRL}; }}"
         )
-        right_layout = QVBoxLayout(right_panel)
+        right_layout = QVBoxLayout(self._right_panel)
         right_layout.setContentsMargins(12, 10, 12, 10)
         right_layout.setSpacing(8)
         right_title = QLabel("参数与数据库")
@@ -355,7 +387,9 @@ class DetectionPage(BasePage):
         self._form_right_grid.setVerticalSpacing(10)
         right_layout.addLayout(self._form_right_grid)
         right_layout.addStretch()
-        form_layout.addWidget(right_panel, 2)
+        self._form_layout.addWidget(self._right_panel, 1)
+
+        self._current_form_mode = "double"
 
         root.addWidget(self.form_card)
 
@@ -391,7 +425,6 @@ class DetectionPage(BasePage):
     def _build_tool_card(self, tool_id: str, descriptor: dict[str, Any]) -> QFrame:
         card = QFrame()
         card.setCursor(Qt.CursorShape.PointingHandCursor)
-        card.setMinimumWidth(300)
         card.setMinimumHeight(148)
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -667,34 +700,37 @@ class DetectionPage(BasePage):
         return visible
 
     def _cards_per_row(self) -> int:
+        """根据可用宽度计算卡片列数（1-3列）"""
         width = 0
         if self._workbench_scroll is not None:
             width = self._workbench_scroll.viewport().width()
         if width <= 0:
             width = self.width()
-    
-        if width <= 760:
+
+        # 减去边距和滚动条宽度
+        available_width = width - 40
+
+        # 根据可用宽度决定列数
+        if available_width < 500:
             return 1
-        if width <= 1320:
+        elif available_width < 900:
             return 2
-        return 3
+        else:
+            return 3
 
     def _rebuild_tool_cards(self) -> None:
         self._clear_tool_cards()
         self._tool_cards.clear()
-    
+
         visible_ids = self._visible_tool_ids()
         self._tool_count_label.setText(f"{len(visible_ids)} / {len(self._tool_order)} 个工具")
-    
+
         cols = self._cards_per_row()
         for col in range(6):
             self._cards_grid.setColumnStretch(col, 0)
         for col in range(cols):
             self._cards_grid.setColumnStretch(col, 1)
-    
-        min_width = 760 if cols == 1 else (980 if cols == 2 else 1220)
-        self._cards_wrap.setMinimumWidth(min_width)
-    
+
         if not visible_ids:
             empty = QLabel("没有匹配的工具，尝试搜索别名、分类或功能关键词。")
             empty.setStyleSheet(styles.LABEL_HINT)
@@ -702,7 +738,7 @@ class DetectionPage(BasePage):
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._cards_grid.addWidget(empty, 0, 0)
             return
-    
+
         for i, tid in enumerate(visible_ids):
             desc = self._tool_catalog[tid]
             card = self._build_tool_card(tid, desc)
