@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QDoubleSpinBox,
     QStackedWidget,
@@ -51,6 +52,9 @@ class DetectionPage(BasePage):
         self._tool_catalog: dict[str, dict[str, Any]] = {}
         self._tool_order: list[str] = []
         self._tool_cards: dict[str, QFrame] = {}
+        self._tool_search_text: str = ""
+        self._active_category: str = "all"
+        self._category_buttons: dict[str, QPushButton] = {}
 
         self._selected_tool_id: str = ""
         self._selected_descriptor: dict[str, Any] = {}
@@ -68,6 +72,10 @@ class DetectionPage(BasePage):
         self._current_local_output_dir: str = ""
 
         self._result_columns: list[str] = []
+        self._cards_scroll: Optional[QScrollArea] = None
+        self._form_left_grid: Optional[QGridLayout] = None
+        self._form_right_grid: Optional[QGridLayout] = None
+        self.meta_stats: Optional[QLabel] = None
 
         self.execution_history: Optional[ExecutionHistoryCard] = None
 
@@ -77,6 +85,11 @@ class DetectionPage(BasePage):
         self._build_ui()
         self._connect_locator_signals()
         self.refresh_context()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_cards_grid"):
+            self._rebuild_tool_cards()
 
     def _get_locator(self):
         if self.main_window and hasattr(self.main_window, "service_locator"):
@@ -227,27 +240,49 @@ class DetectionPage(BasePage):
         cards_title.setStyleSheet(styles.CARD_TITLE)
         root.addWidget(cards_title)
 
+        cards_toolbar = QWidget()
+        cards_toolbar_layout = QHBoxLayout(cards_toolbar)
+        cards_toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        cards_toolbar_layout.setSpacing(10)
+
+        self._tool_search_input = QLineEdit()
+        self._tool_search_input.setPlaceholderText("搜索工具名、分类或功能，例如 kraken / taxonomy / 比对")
+        self._tool_search_input.setStyleSheet(styles.INPUT_LINEEDIT)
+        self._tool_search_input.textChanged.connect(self._on_tool_search_changed)
+        cards_toolbar_layout.addWidget(self._tool_search_input, stretch=1)
+
+        self._tool_count_label = QLabel("")
+        self._tool_count_label.setStyleSheet(styles.LABEL_HINT)
+        cards_toolbar_layout.addWidget(self._tool_count_label)
+        root.addWidget(cards_toolbar)
+
+        category_row = QWidget()
+        category_layout = QHBoxLayout(category_row)
+        category_layout.setContentsMargins(0, 0, 0, 0)
+        category_layout.setSpacing(8)
+        self._category_container = category_layout
+        self._build_category_filters()
+        root.addWidget(category_row)
+
         cards_scroll = QScrollArea()
         cards_scroll.setWidgetResizable(True)
-        cards_scroll.setMaximumHeight(200)
+        cards_scroll.setMinimumHeight(320)
+        cards_scroll.setMaximumHeight(420)
         cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
         cards_scroll.setStyleSheet("background: transparent;")
+        cards_scroll.verticalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
+        self._cards_scroll = cards_scroll
 
-        cards_wrap = QWidget()
-        cards_wrap.setStyleSheet("background: transparent;")
-        cards_grid = QGridLayout(cards_wrap)
-        cards_grid.setContentsMargins(0, 0, 0, 0)
-        cards_grid.setHorizontalSpacing(10)
-        cards_grid.setVerticalSpacing(10)
+        self._cards_wrap = QWidget()
+        self._cards_wrap.setStyleSheet("background: transparent;")
+        self._cards_grid = QGridLayout(self._cards_wrap)
+        self._cards_grid.setContentsMargins(0, 0, 6, 0)
+        self._cards_grid.setHorizontalSpacing(14)
+        self._cards_grid.setVerticalSpacing(14)
 
-        for i, tid in enumerate(self._tool_order):
-            desc = self._tool_catalog[tid]
-            card = self._build_tool_card(tid, desc)
-            self._tool_cards[tid] = card
-            cards_grid.addWidget(card, i // 3, i % 3)
-
-        cards_scroll.setWidget(cards_wrap)
+        cards_scroll.setWidget(self._cards_wrap)
         root.addWidget(cards_scroll)
+        self._rebuild_tool_cards()
 
         self.meta_card = QFrame()
         self.meta_card.setObjectName("DetectionMetaCard")
@@ -263,19 +298,60 @@ class DetectionPage(BasePage):
         self.meta_desc = QLabel("")
         self.meta_desc.setWordWrap(True)
         self.meta_desc.setStyleSheet(styles.LABEL_HINT)
+        self.meta_stats = QLabel("")
+        self.meta_stats.setWordWrap(True)
+        self.meta_stats.setStyleSheet(styles.LABEL_HINT)
 
         meta_layout.addWidget(self.meta_name)
         meta_layout.addWidget(self.meta_version)
         meta_layout.addWidget(self.meta_desc)
+        meta_layout.addWidget(self.meta_stats)
         root.addWidget(self.meta_card)
 
         self.form_card = QFrame()
         self.form_card.setObjectName("DetectionFormCard")
         self.form_card.setStyleSheet(styles.CARD_FRAME("DetectionFormCard"))
-        self.form_grid = QGridLayout(self.form_card)
-        self.form_grid.setContentsMargins(16, 12, 16, 12)
-        self.form_grid.setHorizontalSpacing(10)
-        self.form_grid.setVerticalSpacing(10)
+
+        form_layout = QHBoxLayout(self.form_card)
+        form_layout.setContentsMargins(16, 12, 16, 12)
+        form_layout.setSpacing(16)
+
+        left_panel = QFrame()
+        left_panel.setStyleSheet(
+            f"QFrame {{ background:{styles.COLOR_BG_CARD_HIGHLIGHT}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CTRL}; }}"
+        )
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(12, 10, 12, 10)
+        left_layout.setSpacing(8)
+        left_title = QLabel("输入与样本")
+        left_title.setStyleSheet(styles.CARD_TITLE)
+        left_layout.addWidget(left_title)
+
+        self._form_left_grid = QGridLayout()
+        self._form_left_grid.setHorizontalSpacing(10)
+        self._form_left_grid.setVerticalSpacing(10)
+        left_layout.addLayout(self._form_left_grid)
+        left_layout.addStretch()
+        form_layout.addWidget(left_panel, 3)
+
+        right_panel = QFrame()
+        right_panel.setStyleSheet(
+            f"QFrame {{ background:{styles.COLOR_BG_CARD_HIGHLIGHT}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CTRL}; }}"
+        )
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(12, 10, 12, 10)
+        right_layout.setSpacing(8)
+        right_title = QLabel("参数与数据库")
+        right_title.setStyleSheet(styles.CARD_TITLE)
+        right_layout.addWidget(right_title)
+
+        self._form_right_grid = QGridLayout()
+        self._form_right_grid.setHorizontalSpacing(10)
+        self._form_right_grid.setVerticalSpacing(10)
+        right_layout.addLayout(self._form_right_grid)
+        right_layout.addStretch()
+        form_layout.addWidget(right_panel, 2)
+
         root.addWidget(self.form_card)
 
         run_row = QHBoxLayout()
@@ -305,38 +381,102 @@ class DetectionPage(BasePage):
 
     def _build_tool_card(self, tool_id: str, descriptor: dict[str, Any]) -> QFrame:
         card = QFrame()
-        card.setStyleSheet(
-            f"QFrame {{ background:{styles.COLOR_BG_CARD}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CARD}; }}"
-        )
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card.setMinimumWidth(300)
+        card.setMinimumHeight(176)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(4)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
 
         name = str(descriptor.get("name") or tool_id)
         category = str(descriptor.get("category") or "unknown")
         desc = str(descriptor.get("description") or "")
+        version = str(descriptor.get("version") or "unknown")
+        inputs_count = len(descriptor.get("inputs") or [])
+        params_count = len(descriptor.get("parameters") or [])
+        db_count = len(descriptor.get("databases") or [])
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(8)
 
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(styles.CARD_TITLE)
-        lay.addWidget(name_lbl)
+        name_lbl.setStyleSheet("font-size: 18px; font-weight: 700; color: #111111; background: transparent;")
+        top_row.addWidget(name_lbl, stretch=1)
+
+        version_lbl = QLabel(f"v{version}")
+        version_lbl.setStyleSheet(
+            "font-size: 11px; color: rgba(0,0,0,0.55);"
+            "background: rgba(0,122,255,0.08); border: 1px solid rgba(0,122,255,0.12);"
+            "border-radius: 10px; padding: 3px 8px;"
+        )
+        top_row.addWidget(version_lbl)
+        lay.addLayout(top_row)
 
         id_lbl = QLabel(f"{tool_id} · {category}")
-        id_lbl.setStyleSheet(styles.LABEL_MUTED)
+        id_lbl.setStyleSheet("font-size: 12px; color: rgba(0,0,0,0.48); background: transparent;")
         lay.addWidget(id_lbl)
 
-        short_desc = desc[:44] + ("..." if len(desc) > 44 else "")
+        chips_row = QHBoxLayout()
+        chips_row.setContentsMargins(0, 0, 0, 0)
+        chips_row.setSpacing(8)
+        chips_row.addWidget(self._build_tool_meta_chip(category, "category"))
+        chips_row.addWidget(self._build_tool_meta_chip(f"{inputs_count} 输入", "input"))
+        chips_row.addWidget(self._build_tool_meta_chip(f"{params_count} 参数", "param"))
+        if db_count:
+            chips_row.addWidget(self._build_tool_meta_chip(f"{db_count} 数据库", "database"))
+        chips_row.addStretch()
+        lay.addLayout(chips_row)
+
+        short_desc = desc[:92] + ("..." if len(desc) > 92 else "")
         desc_lbl = QLabel(short_desc)
         desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet(styles.LABEL_HINT)
+        desc_lbl.setMinimumHeight(42)
+        desc_lbl.setStyleSheet("font-size: 12px; line-height: 1.4; color: rgba(0,0,0,0.62); background: transparent;")
         lay.addWidget(desc_lbl)
 
-        btn = QPushButton("使用该工具")
+        lay.addStretch()
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(8)
+
+        focus_lbl = QLabel("查看配置并开始任务")
+        focus_lbl.setStyleSheet("font-size: 11px; color: rgba(0,122,255,0.82); background: transparent;")
+        btn_row.addWidget(focus_lbl, stretch=1)
+
+        btn = QPushButton("配置工具")
+        btn.setMinimumHeight(34)
         btn.setStyleSheet(styles.BUTTON_SECONDARY)
         btn.clicked.connect(lambda: self._select_tool(tool_id))
-        lay.addWidget(btn)
+        btn_row.addWidget(btn)
+        lay.addLayout(btn_row)
+
+        def _card_mouse_press(event, tid=tool_id, target=card):
+            self._select_tool(tid)
+            QFrame.mousePressEvent(target, event)
+
+        card.mousePressEvent = _card_mouse_press
+        self._apply_tool_card_style(card, tool_id == self._selected_tool_id)
 
         return card
+
+    def _build_tool_meta_chip(self, text: str, tone: str) -> QLabel:
+        palette = {
+            "category": ("rgba(0,122,255,0.10)", "rgba(0,122,255,0.22)", "#0066D6"),
+            "input": ("rgba(6,148,61,0.10)", "rgba(6,148,61,0.18)", "#047A33"),
+            "param": ("rgba(255,149,0,0.12)", "rgba(255,149,0,0.20)", "#B16800"),
+            "database": ("rgba(87,86,214,0.10)", "rgba(87,86,214,0.20)", "#4746B6"),
+        }
+        bg, border, color = palette.get(tone, ("rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", "#444444"))
+        label = QLabel(text)
+        label.setStyleSheet(
+            f"font-size: 11px; color: {color}; background: {bg};"
+            f"border: 1px solid {border}; border-radius: 10px; padding: 3px 8px;"
+        )
+        return label
 
     def _build_history_page(self) -> QWidget:
         page = QWidget()
@@ -433,22 +573,136 @@ class DetectionPage(BasePage):
             )
         return groups
 
+    def _build_category_filters(self) -> None:
+        while self._category_container.count():
+            item = self._category_container.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        categories = {"all": "全部"}
+        for tid in self._tool_order:
+            category = str(self._tool_catalog.get(tid, {}).get("category") or "other")
+            if category not in categories:
+                categories[category] = category
+
+        self._category_buttons.clear()
+        for key, label in categories.items():
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+            btn.setMinimumHeight(30)
+            btn.setStyleSheet(styles.BUTTON_SECONDARY)
+            btn.clicked.connect(lambda _=False, cat=key: self._on_category_changed(cat))
+            self._category_buttons[key] = btn
+            self._category_container.addWidget(btn)
+
+        self._category_container.addStretch()
+        self._active_category = self._active_category if self._active_category in self._category_buttons else "all"
+        self._category_buttons[self._active_category].setChecked(True)
+
+    def _on_category_changed(self, category: str) -> None:
+        self._active_category = category
+        self._rebuild_tool_cards()
+
     def _set_card_selected(self, selected_tool_id: str) -> None:
         for tid, card in self._tool_cards.items():
-            if tid == selected_tool_id:
-                card.setStyleSheet(
-                    f"QFrame {{ background:{styles.COLOR_BG_SIDEBAR_SELECTED}; border:1px solid {styles.COLOR_PRIMARY}; border-radius:{styles.RADIUS_CARD}; }}"
-                )
-            else:
-                card.setStyleSheet(
-                    f"QFrame {{ background:{styles.COLOR_BG_CARD}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CARD}; }}"
-                )
+            self._apply_tool_card_style(card, tid == selected_tool_id)
+
+    def _apply_tool_card_style(self, card: QFrame, selected: bool) -> None:
+        if selected:
+            card.setStyleSheet(
+                "QFrame {"
+                f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(0,122,255,0.13), stop:1 {styles.COLOR_BG_CARD});"
+                f"border: 1px solid rgba(0,122,255,0.42); border-radius: {styles.RADIUS_CARD};"
+                "}"
+            )
+            return
+
+        card.setStyleSheet(
+            "QFrame {"
+            f"background: {styles.COLOR_BG_CARD}; border: 1px solid rgba(0,0,0,0.08); border-radius: {styles.RADIUS_CARD};"
+            "}"
+            "QFrame:hover {"
+            "border: 1px solid rgba(0,122,255,0.24);"
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(0,122,255,0.04), stop:1 rgba(255,255,255,1.0));"
+            "}"
+        )
+
+    def _clear_tool_cards(self) -> None:
+        while self._cards_grid.count():
+            item = self._cards_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _visible_tool_ids(self) -> list[str]:
+        if not self._tool_search_text:
+            return list(self._tool_order)
+
+        keyword = self._tool_search_text.lower()
+        visible: list[str] = []
+        for tid in self._tool_order:
+            desc = self._tool_catalog.get(tid, {})
+            haystack = " ".join(
+                [
+                    tid,
+                    str(desc.get("name") or ""),
+                    str(desc.get("category") or ""),
+                    str(desc.get("description") or ""),
+                ]
+            ).lower()
+            if keyword in haystack:
+                visible.append(tid)
+        return visible
+
+    def _cards_per_row(self) -> int:
+        if self._cards_scroll is None:
+            return 3
+
+        width = self._cards_scroll.viewport().width()
+        if width <= 700:
+            return 1
+        if width <= 1080:
+            return 2
+        if width <= 1460:
+            return 3
+        return 4
+
+    def _rebuild_tool_cards(self) -> None:
+        self._clear_tool_cards()
+        self._tool_cards.clear()
+
+        visible_ids = self._visible_tool_ids()
+        self._tool_count_label.setText(f"{len(visible_ids)} / {len(self._tool_order)} 个工具")
+
+        if not visible_ids:
+            empty = QLabel("没有匹配的工具，尝试搜索别名、分类或功能关键词。")
+            empty.setStyleSheet(styles.LABEL_HINT)
+            empty.setMinimumHeight(120)
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._cards_grid.addWidget(empty, 0, 0)
+            return
+
+        for i, tid in enumerate(visible_ids):
+            desc = self._tool_catalog[tid]
+            card = self._build_tool_card(tid, desc)
+            self._tool_cards[tid] = card
+            cols = self._cards_per_row()
+            self._cards_grid.addWidget(card, i // cols, i % cols)
+
+    def _on_tool_search_changed(self, text: str) -> None:
+        self._tool_search_text = text.strip()
+        self._rebuild_tool_cards()
 
     def _clear_form(self) -> None:
-        while self.form_grid.count():
-            item = self.form_grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        for grid in (self._form_left_grid, self._form_right_grid):
+            if grid is None:
+                continue
+            while grid.count():
+                item = grid.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
 
     def _select_tool(self, tool_id: str) -> None:
         if tool_id not in self._tool_catalog:
@@ -465,6 +719,13 @@ class DetectionPage(BasePage):
         self.meta_name.setText(f"工具: {name} ({tool_id})")
         self.meta_version.setText(f"版本: {version}")
         self.meta_desc.setText(desc)
+        if self.meta_stats is not None:
+            self.meta_stats.setText(
+                f"分类: {self._selected_descriptor.get('category', 'unknown')}    "
+                f"输入: {len(self._selected_descriptor.get('inputs') or [])}    "
+                f"参数: {len(self._selected_descriptor.get('parameters') or [])}    "
+                f"数据库: {len(self._selected_descriptor.get('databases') or [])}"
+            )
         self._run_btn.setText(f"运行 {name}")
 
         self._clear_form()
@@ -474,13 +735,17 @@ class DetectionPage(BasePage):
 
         self._input_defs = list(self._selected_descriptor.get("inputs") or [])
 
-        row = 0
+        left_grid = self._form_left_grid
+        right_grid = self._form_right_grid
+        if left_grid is None or right_grid is None:
+            return
 
-        self.form_grid.addWidget(QLabel("样本名称", styleSheet=styles.FORM_LABEL), row, 0)
+        row = 0
+        left_grid.addWidget(QLabel("样本名称", styleSheet=styles.FORM_LABEL), row, 0)
         self._sample_name_input = QLineEdit()
         self._sample_name_input.setStyleSheet(styles.INPUT_LINEEDIT)
         self._sample_name_input.setPlaceholderText("留空将自动生成")
-        self.form_grid.addWidget(self._sample_name_input, row, 1, 1, 2)
+        left_grid.addWidget(self._sample_name_input, row, 1, 1, 2)
         row += 1
 
         for inp in self._input_defs:
@@ -488,7 +753,7 @@ class DetectionPage(BasePage):
             in_type = str(inp.get("type") or "file")
             required = bool(inp.get("required", False))
 
-            self.form_grid.addWidget(QLabel(f"输入({in_name}){' *' if required else ''}", styleSheet=styles.FORM_LABEL), row, 0)
+            left_grid.addWidget(QLabel(f"输入({in_name}){' *' if required else ''}", styleSheet=styles.FORM_LABEL), row, 0)
 
             path_edit = QLineEdit()
             path_edit.setReadOnly(False)
@@ -497,53 +762,53 @@ class DetectionPage(BasePage):
                 path_edit.setPlaceholderText("本地目录或远端绝对路径")
             else:
                 path_edit.setPlaceholderText(f"本地{in_type}文件或远端绝对路径")
-            self.form_grid.addWidget(path_edit, row, 1)
+            left_grid.addWidget(path_edit, row, 1)
 
             browse_btn = QPushButton("浏览")
             browse_btn.setStyleSheet(styles.BUTTON_SECONDARY)
             browse_btn.clicked.connect(lambda _=False, n=in_name: self._on_browse_input(n))
-            self.form_grid.addWidget(browse_btn, row, 2)
+            left_grid.addWidget(browse_btn, row, 2)
 
             self._input_widgets[in_name] = (in_type, path_edit)
             row += 1
 
-        self.form_grid.addWidget(QLabel("结果目录", styleSheet=styles.FORM_LABEL), row, 0)
+        left_grid.addWidget(QLabel("结果目录", styleSheet=styles.FORM_LABEL), row, 0)
         self._output_dir_input = QLineEdit()
         self._output_dir_input.setStyleSheet(styles.INPUT_LINEEDIT)
         self._output_dir_input.setText(str(get_runtime_setting("local_output_dir", "") or ""))
-        self.form_grid.addWidget(self._output_dir_input, row, 1)
+        left_grid.addWidget(self._output_dir_input, row, 1)
 
         output_btn = QPushButton("选择")
         output_btn.setStyleSheet(styles.BUTTON_SECONDARY)
         output_btn.clicked.connect(self._on_browse_output)
-        self.form_grid.addWidget(output_btn, row, 2)
-        row += 1
+        left_grid.addWidget(output_btn, row, 2)
 
+        right_row = 0
         for db in self._selected_descriptor.get("databases", []):
             param_name = str(db.get("param_name") or "db")
             required = bool(db.get("required", False))
 
-            self.form_grid.addWidget(QLabel(f"数据库({param_name}){' *' if required else ''}", styleSheet=styles.FORM_LABEL), row, 0)
+            right_grid.addWidget(QLabel(f"数据库({param_name}){' *' if required else ''}", styleSheet=styles.FORM_LABEL), right_row, 0)
             db_edit = QLineEdit()
             db_edit.setStyleSheet(styles.INPUT_LINEEDIT)
             db_edit.setPlaceholderText("远端数据库路径")
             if param_name == "db":
                 db_edit.setText(get_database_path("blast_nt", ""))
-            self.form_grid.addWidget(db_edit, row, 1, 1, 2)
+            right_grid.addWidget(db_edit, right_row, 1, 1, 2)
 
             self._db_widgets[param_name] = db_edit
-            row += 1
+            right_row += 1
 
         for param in self._selected_descriptor.get("parameters", []):
             pname = str(param.get("name") or "")
             if not pname or pname == "outfmt":
                 continue
 
-            self.form_grid.addWidget(QLabel(str(param.get("label") or pname), styleSheet=styles.FORM_LABEL), row, 0)
+            right_grid.addWidget(QLabel(str(param.get("label") or pname), styleSheet=styles.FORM_LABEL), right_row, 0)
             widget = self._create_param_widget(param)
-            self.form_grid.addWidget(widget, row, 1, 1, 2)
+            right_grid.addWidget(widget, right_row, 1, 1, 2)
             self._param_widgets[pname] = widget
-            row += 1
+            right_row += 1
 
         self._prepare_result_table()
         self._wire_form_signals()
@@ -1029,5 +1294,6 @@ class DetectionPage(BasePage):
 
         self._refresh_history_db()
         self._finish_run()
+
 
 

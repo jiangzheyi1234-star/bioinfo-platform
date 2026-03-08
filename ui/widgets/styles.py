@@ -86,7 +86,8 @@ PADDING_INPUT = "8px 12px"
 
 FONT_FAMILY = (
     "'Microsoft YaHei UI', 'Microsoft YaHei', "
-    "-apple-system, BlinkMacSystemFont, 'Segoe UI', "
+    "'Segoe UI Emoji', 'Segoe UI', "
+    "-apple-system, BlinkMacSystemFont, "
     "Roboto, 'Helvetica Neue', Arial, sans-serif"
 )
 

@@ -1,4 +1,4 @@
-﻿"""应用启动入口。"""
+"""应用启动入口。"""
 
 import os
 import sys
@@ -32,7 +32,10 @@ def main():
         app = QApplication(sys.argv)
 
         font = app.font()
-        font.setFamily("Segoe UI" if os.name == "nt" else "Arial")
+        if os.name == "nt":
+            font.setFamilies(["Segoe UI", "Microsoft YaHei UI", "Segoe UI Emoji", "Arial"])
+        else:
+            font.setFamilies(["Arial", "Segoe UI Emoji"])
         app.setFont(font)
 
         window = MainWindow()
