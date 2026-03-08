@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QEvent, QTimer, Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -67,6 +67,8 @@ class MainWindow(QMainWindow):
         self._disk_timer.setInterval(300_000)
         self._disk_timer.timeout.connect(self._refresh_disk_usage)
 
+        self._prev_activated = True
+
         self.init_ui()
         self._refresh_project_combo()
         self._connect_service_signals()
@@ -117,6 +119,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(switcher_container)
 
         self.sidebar = QListWidget()
+        self.sidebar.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.sidebar.setStyleSheet(styles.SIDEBAR_NAV_ITEM)
         sidebar_layout.addWidget(self.sidebar)
 
@@ -154,6 +157,10 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(QListWidgetItem("系统设置"))
         self.sidebar.addItem(QListWidgetItem("分析工作台"))
         self.sidebar.addItem(QListWidgetItem("组装分析"))
+
+        for i in range(self.sidebar.count()):
+            item = self.sidebar.item(i)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
         self.sidebar.currentRowChanged.connect(self.content.setCurrentIndex)
         middle_layout.addWidget(self.content)
@@ -279,5 +286,21 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._locator.shutdown()
         super().closeEvent(event)
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.WindowActivate:
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+            self.raise_()
+            self.activateWindow()
+
+            if hasattr(self, "sidebar") and self.sidebar is not None:
+                if not self._prev_activated:
+                    self.sidebar.setCurrentRow(self.sidebar.currentRow())
+                    self._prev_activated = True
+        elif event.type() == QEvent.Type.WindowDeactivate:
+            self._prev_activated = False
+        return super().event(event)
+
 
 

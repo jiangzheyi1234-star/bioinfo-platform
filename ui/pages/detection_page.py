@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
@@ -72,7 +72,7 @@ class DetectionPage(BasePage):
         self._current_local_output_dir: str = ""
 
         self._result_columns: list[str] = []
-        self._cards_scroll: Optional[QScrollArea] = None
+        self._workbench_scroll: Optional[QScrollArea] = None
         self._form_left_grid: Optional[QGridLayout] = None
         self._form_right_grid: Optional[QGridLayout] = None
         self.meta_stats: Optional[QLabel] = None
@@ -232,7 +232,24 @@ class DetectionPage(BasePage):
 
     def _build_workbench_page(self) -> QWidget:
         page = QWidget()
-        root = QVBoxLayout(page)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setStyleSheet("background: transparent;")
+        scroll.verticalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
+        scroll.horizontalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
+        self._workbench_scroll = scroll
+
+        content = QWidget()
+        content.setMinimumWidth(1060)
+        content.setStyleSheet("background: transparent;")
+
+        root = QVBoxLayout(content)
         root.setContentsMargins(0, 10, 0, 0)
         root.setSpacing(12)
 
@@ -263,25 +280,13 @@ class DetectionPage(BasePage):
         self._category_container = category_layout
         self._build_category_filters()
         root.addWidget(category_row)
-
-        cards_scroll = QScrollArea()
-        cards_scroll.setWidgetResizable(True)
-        cards_scroll.setMinimumHeight(320)
-        cards_scroll.setMaximumHeight(420)
-        cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        cards_scroll.setStyleSheet("background: transparent;")
-        cards_scroll.verticalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
-        self._cards_scroll = cards_scroll
-
         self._cards_wrap = QWidget()
         self._cards_wrap.setStyleSheet("background: transparent;")
         self._cards_grid = QGridLayout(self._cards_wrap)
-        self._cards_grid.setContentsMargins(0, 0, 6, 0)
-        self._cards_grid.setHorizontalSpacing(14)
-        self._cards_grid.setVerticalSpacing(14)
-
-        cards_scroll.setWidget(self._cards_wrap)
-        root.addWidget(cards_scroll)
+        self._cards_grid.setContentsMargins(0, 0, 0, 0)
+        self._cards_grid.setHorizontalSpacing(12)
+        self._cards_grid.setVerticalSpacing(12)
+        root.addWidget(self._cards_wrap)
         self._rebuild_tool_cards()
 
         self.meta_card = QFrame()
@@ -377,18 +382,22 @@ class DetectionPage(BasePage):
         self._result_table.hide()
         root.addWidget(self._result_table)
 
+        root.addStretch()
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
+
         return page
 
     def _build_tool_card(self, tool_id: str, descriptor: dict[str, Any]) -> QFrame:
         card = QFrame()
         card.setCursor(Qt.CursorShape.PointingHandCursor)
         card.setMinimumWidth(300)
-        card.setMinimumHeight(176)
+        card.setMinimumHeight(148)
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(10)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
 
         name = str(descriptor.get("name") or tool_id)
         category = str(descriptor.get("category") or "unknown")
@@ -400,28 +409,28 @@ class DetectionPage(BasePage):
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(8)
+        top_row.setSpacing(6)
 
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet("font-size: 18px; font-weight: 700; color: #111111; background: transparent;")
+        name_lbl.setStyleSheet("font-size: 14px; font-weight: 700; color: #111111; background: transparent;")
         top_row.addWidget(name_lbl, stretch=1)
 
         version_lbl = QLabel(f"v{version}")
         version_lbl.setStyleSheet(
-            "font-size: 11px; color: rgba(0,0,0,0.55);"
+            "font-size: 10px; color: rgba(0,0,0,0.55);"
             "background: rgba(0,122,255,0.08); border: 1px solid rgba(0,122,255,0.12);"
-            "border-radius: 10px; padding: 3px 8px;"
+            "border-radius: 8px; padding: 2px 6px;"
         )
         top_row.addWidget(version_lbl)
         lay.addLayout(top_row)
 
         id_lbl = QLabel(f"{tool_id} · {category}")
-        id_lbl.setStyleSheet("font-size: 12px; color: rgba(0,0,0,0.48); background: transparent;")
+        id_lbl.setStyleSheet("font-size: 11px; color: rgba(0,0,0,0.48); background: transparent;")
         lay.addWidget(id_lbl)
 
         chips_row = QHBoxLayout()
         chips_row.setContentsMargins(0, 0, 0, 0)
-        chips_row.setSpacing(8)
+        chips_row.setSpacing(6)
         chips_row.addWidget(self._build_tool_meta_chip(category, "category"))
         chips_row.addWidget(self._build_tool_meta_chip(f"{inputs_count} 输入", "input"))
         chips_row.addWidget(self._build_tool_meta_chip(f"{params_count} 参数", "param"))
@@ -430,25 +439,26 @@ class DetectionPage(BasePage):
         chips_row.addStretch()
         lay.addLayout(chips_row)
 
-        short_desc = desc[:92] + ("..." if len(desc) > 92 else "")
+        short_desc = desc[:72] + ("..." if len(desc) > 72 else "")
         desc_lbl = QLabel(short_desc)
         desc_lbl.setWordWrap(True)
-        desc_lbl.setMinimumHeight(42)
-        desc_lbl.setStyleSheet("font-size: 12px; line-height: 1.4; color: rgba(0,0,0,0.62); background: transparent;")
+        desc_lbl.setMinimumHeight(34)
+        desc_lbl.setMaximumHeight(34)
+        desc_lbl.setStyleSheet("font-size: 11px; line-height: 1.3; color: rgba(0,0,0,0.62); background: transparent;")
         lay.addWidget(desc_lbl)
 
         lay.addStretch()
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 0, 0, 0)
-        btn_row.setSpacing(8)
+        btn_row.setSpacing(6)
 
-        focus_lbl = QLabel("查看配置并开始任务")
-        focus_lbl.setStyleSheet("font-size: 11px; color: rgba(0,122,255,0.82); background: transparent;")
+        focus_lbl = QLabel("查看配置")
+        focus_lbl.setStyleSheet("font-size: 10px; color: rgba(0,122,255,0.82); background: transparent;")
         btn_row.addWidget(focus_lbl, stretch=1)
 
         btn = QPushButton("配置工具")
-        btn.setMinimumHeight(34)
+        btn.setMinimumHeight(30)
         btn.setStyleSheet(styles.BUTTON_SECONDARY)
         btn.clicked.connect(lambda: self._select_tool(tool_id))
         btn_row.addWidget(btn)
@@ -473,8 +483,8 @@ class DetectionPage(BasePage):
         bg, border, color = palette.get(tone, ("rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", "#444444"))
         label = QLabel(text)
         label.setStyleSheet(
-            f"font-size: 11px; color: {color}; background: {bg};"
-            f"border: 1px solid {border}; border-radius: 10px; padding: 3px 8px;"
+            f"font-size: 10px; color: {color}; background: {bg};"
+            f"border: 1px solid {border}; border-radius: 8px; padding: 2px 6px;"
         )
         return label
 
@@ -657,25 +667,34 @@ class DetectionPage(BasePage):
         return visible
 
     def _cards_per_row(self) -> int:
-        if self._cards_scroll is None:
-            return 3
-
-        width = self._cards_scroll.viewport().width()
-        if width <= 700:
+        width = 0
+        if self._workbench_scroll is not None:
+            width = self._workbench_scroll.viewport().width()
+        if width <= 0:
+            width = self.width()
+    
+        if width <= 760:
             return 1
-        if width <= 1080:
+        if width <= 1320:
             return 2
-        if width <= 1460:
-            return 3
-        return 4
+        return 3
 
     def _rebuild_tool_cards(self) -> None:
         self._clear_tool_cards()
         self._tool_cards.clear()
-
+    
         visible_ids = self._visible_tool_ids()
         self._tool_count_label.setText(f"{len(visible_ids)} / {len(self._tool_order)} 个工具")
-
+    
+        cols = self._cards_per_row()
+        for col in range(6):
+            self._cards_grid.setColumnStretch(col, 0)
+        for col in range(cols):
+            self._cards_grid.setColumnStretch(col, 1)
+    
+        min_width = 760 if cols == 1 else (980 if cols == 2 else 1220)
+        self._cards_wrap.setMinimumWidth(min_width)
+    
         if not visible_ids:
             empty = QLabel("没有匹配的工具，尝试搜索别名、分类或功能关键词。")
             empty.setStyleSheet(styles.LABEL_HINT)
@@ -683,12 +702,11 @@ class DetectionPage(BasePage):
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._cards_grid.addWidget(empty, 0, 0)
             return
-
+    
         for i, tid in enumerate(visible_ids):
             desc = self._tool_catalog[tid]
             card = self._build_tool_card(tid, desc)
             self._tool_cards[tid] = card
-            cols = self._cards_per_row()
             self._cards_grid.addWidget(card, i // cols, i % cols)
 
     def _on_tool_search_changed(self, text: str) -> None:
@@ -813,6 +831,12 @@ class DetectionPage(BasePage):
         self._prepare_result_table()
         self._wire_form_signals()
         self._update_run_state()
+        self._scroll_to_form()
+
+    def _scroll_to_form(self) -> None:
+        if self._workbench_scroll is None:
+            return
+        self._workbench_scroll.ensureWidgetVisible(self.form_card, 0, 16)
 
     def _prepare_result_table(self) -> None:
         outfmt = ""
@@ -1294,6 +1318,9 @@ class DetectionPage(BasePage):
 
         self._refresh_history_db()
         self._finish_run()
+
+
+
 
 
 

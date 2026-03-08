@@ -363,23 +363,53 @@ SCROLL_BAR_ELEGANT = f"""
     QScrollBar:vertical {{
         border: none;
         background: transparent;
-        width: 6px;
+        width: 12px;
         margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: rgba(0, 0, 0, 0.15);
-        border-radius: 3px;
-        min-height: 30px;
+        background: rgba(0, 0, 0, 0.14);
+        border-radius: 6px;
+        min-height: 48px;
     }}
     QScrollBar::handle:vertical:hover {{
-        background: rgba(0, 0, 0, 0.3);
+        background: rgba(0, 0, 0, 0.22);
+    }}
+    QScrollBar::handle:vertical:pressed {{
+        background: rgba(0, 0, 0, 0.30);
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-        height: 0px;
-        background: none;
+        height: 0;
+        background: transparent;
+        border: none;
     }}
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
-        background: none;
+        background: transparent;
+    }}
+
+    QScrollBar:horizontal {{
+        border: none;
+        background: transparent;
+        height: 12px;
+        margin: 0;
+    }}
+    QScrollBar::handle:horizontal {{
+        background: rgba(0, 0, 0, 0.14);
+        border-radius: 6px;
+        min-width: 48px;
+    }}
+    QScrollBar::handle:horizontal:hover {{
+        background: rgba(0, 0, 0, 0.22);
+    }}
+    QScrollBar::handle:horizontal:pressed {{
+        background: rgba(0, 0, 0, 0.30);
+    }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+        width: 0;
+        background: transparent;
+        border: none;
+    }}
+    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+        background: transparent;
     }}
 """
 
