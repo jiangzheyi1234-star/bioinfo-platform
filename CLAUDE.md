@@ -98,7 +98,7 @@ H2OMeta 是面向湿实验室研究人员的宏基因组桌面分析平台——
 - `chart_data_parser`：解析 fastp JSON / kreport，输出 matplotlib 可用数据结构
 - `service_locator`：服务总线，持有所有模块引用并连接信号链路
 
-旧模块保留（未迁移）：`ssh_service` · `blast_worker` · `task_manager` · `task_recovery_worker` · `accession_worker` · `db_builder_worker`
+旧模块保留（未迁移）：`ssh_service` · `task_manager`（task_history_card 仍在使用）
 
 ### UI 页面
 | 文件 | 状态 |
