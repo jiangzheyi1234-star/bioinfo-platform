@@ -117,6 +117,48 @@ class ToolBridge(QObject):
         except Exception as e:
             logger.error(f"运行工具失败: {e}")
 
+    @pyqtSlot(result=str)
+    def get_execution_history(self) -> str:
+        """获取执行历史"""
+        if not self.main_window or not hasattr(self.main_window, 'service_locator'):
+            logger.warning("无法获取 ServiceLocator")
+            return json.dumps([], ensure_ascii=False)
+
+        try:
+            project_manager = self.main_window.service_locator.project_manager
+            if not project_manager or not project_manager.db:
+                logger.warning("ProjectManager 或数据库未初始化")
+                return json.dumps([], ensure_ascii=False)
+
+            # 查询最近的执行记录
+            cursor = project_manager.db.cursor()
+            cursor.execute("""
+                SELECT execution_id, sample_id, tool_id, status,
+                       created_at, completed_at, error
+                FROM executions
+                ORDER BY created_at DESC
+                LIMIT 50
+            """)
+
+            history = []
+            for row in cursor.fetchall():
+                history.append({
+                    'execution_id': row[0],
+                    'sample_id': row[1],
+                    'tool_id': row[2],
+                    'status': row[3],
+                    'created_at': row[4],
+                    'completed_at': row[5],
+                    'error': row[6]
+                })
+
+            logger.info(f"获取了 {len(history)} 条执行记录")
+            return json.dumps(history, ensure_ascii=False)
+
+        except Exception as e:
+            logger.error(f"获取执行历史失败: {e}", exc_info=True)
+            return json.dumps([], ensure_ascii=False)
+
 
 class DetectionPageWeb(QFrame):
     """病原检测页 - Web 版本"""

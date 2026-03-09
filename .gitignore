@@ -22,3 +22,17 @@ logs/
 
 # Claude Code
 .claude/
+
+# Test temp directories
+.pytest_tmp/
+.pytest_tmp_full/
+
+# Dev/debug scripts
+diagnose_*.py
+run_*.py
+run_*.bat
+test_web_*.py
+test_detection_page_*.py
+*_debug.py
+*.backup
+启动*.bat

@@ -106,8 +106,7 @@ H2OMeta 是面向湿实验室研究人员的宏基因组桌面分析平台——
 | `ui/pages/project_page.py` | ✅ 项目创建/切换/归档/删除/导出 |
 | `ui/pages/analysis_page.py` | ✅ YAML 驱动（analysis_paths.yaml → read_based），阶段状态实时更新 |
 | `ui/pages/assembly_page.py` | ✅ YAML 驱动（assembly_based，7阶段），全部通过 PipelineRunner 执行 |
-| `ui/pages/detection_page_web.py` | ✅ 插件工作台 Web 版本（QWebEngineView + CSS Grid 响应式布局，已替代原生版本） |
-| `ui/pages/detection_page.py.backup` | 📦 原生 Qt 版本备份（已废弃） |
+| `ui/pages/detection_page_web.py` | ✅ 插件工作台（QWebEngineView + Galaxy 风格双栏布局，标签切换插件工作台/任务历史） |
 | `ui/pages/settings_page.py` | ✅ SSH/NCBI 配置 |
 | `ui/pages/home_page.py` | ✅ 样本管理中心（统计头/卡片网格/最近执行条/添加删除样本） |
 
@@ -215,7 +214,6 @@ pytest，`bio_ui` conda 环境（Python 3.11），`tests/` 目录，21 个测试
 - [ ] 结果文件下载逻辑缺失：fastp JSON / kreport 在远端，需 `ssh.download()` 下载到本地再传给 `load_results()`
 
 ### P2 — 核心功能缺失
-- [ ] `detection_page.py` 合并至读长分析页（blastn 作为病原体标注结果内嵌，独立页面废弃）
 - [ ] 结果浏览页（`results_page.py`）完全未建
 - [ ] 数据库管理页（`database_page.py`）完全未建
 - [ ] AMR 分析页（`amr_page.py`）完全未建（污水研究核心）
@@ -226,10 +224,9 @@ pytest，`bio_ui` conda 环境（Python 3.11），`tests/` 目录，21 个测试
 
 ### P3 — 体验完善
 - [x] `home_page.py` 旧架构已迁移 — 重写为"样本管理中心"（统计头/卡片网格/最近执行条/添加删除样本）
-- [x] 多版本执行支持 — 输出目录包含 execution_id，避免覆盖（2024-03-07 完成）
-- [x] 项目删除功能 — 已归档项目可永久删除（2024-03-07 完成）
-- [x] `detection_page.py` 响应式布局 — 600px 断点双栏切换，卡片网格 1-3 列自适应，无闪烁无横向滚动（2024-03-09 完成）
-- [x] `detection_page_web.py` Web 版本 — QWebEngineView + CSS Grid 实现完美响应式布局（2026-03-09 完成）
+- [x] 多版本执行支持 — 输出目录包含 execution_id，避免覆盖（2026-03-07 完成）
+- [x] 项目删除功能 — 已归档项目可永久删除（2026-03-07 完成）
+- [x] `detection_page_web.py` — QWebEngineView + Galaxy 风格 Galaxy 双栏布局，标签切换插件工作台/任务历史（2026-03-09 完成）
 
 ---
 

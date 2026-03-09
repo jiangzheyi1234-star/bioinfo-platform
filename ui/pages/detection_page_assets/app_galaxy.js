@@ -15,6 +15,14 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
         console.log('Tool selected from Python:', tool_id);
     });
 
+    // 标签切换
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const tab = btn.dataset.tab;
+            switchTab(tab);
+        });
+    });
+
     // 加载工具列表
     loadTools();
 
@@ -23,12 +31,36 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
         renderToolsList(e.target.value);
     });
 
+    // 刷新历史按钮
+    document.getElementById('btn-refresh').addEventListener('click', loadHistory);
+
     // 运行按钮
     document.getElementById('run-btn').addEventListener('click', runTool);
 
     // 清空按钮
     document.getElementById('clear-btn').addEventListener('click', clearForm);
 });
+
+function switchTab(tab) {
+    // 更新按钮状态
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+
+    // 更新内容区状态
+    document.querySelectorAll('.tab-content').forEach(function(content) {
+        content.classList.remove('active');
+    });
+    const target = document.getElementById('tab-' + tab);
+    if (target) {
+        target.classList.add('active');
+    }
+
+    // 切换到历史标签时加载数据
+    if (tab === 'history') {
+        loadHistory();
+    }
+}
 
 function loadTools() {
     console.log('Loading tools...');
@@ -380,4 +412,93 @@ function clearForm() {
             input.value = '';
         }
     });
+}
+
+// 加载执行历史
+function loadHistory() {
+    console.log('Loading execution history...');
+    
+    // 调用 Python 获取执行历史
+    bridge.get_execution_history(function(json) {
+        try {
+            const history = JSON.parse(json);
+            console.log(`✓ Loaded ${history.length} execution records`);
+            renderHistory(history);
+        } catch (e) {
+            console.error('Failed to parse history:', e);
+        }
+    });
+}
+
+// 渲染执行历史
+function renderHistory(history) {
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = '';
+
+    if (history.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; color: #6c757d; padding: 20px;">
+                    暂无执行记录
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    history.forEach(record => {
+        const row = document.createElement('tr');
+        
+        // 状态样式
+        const statusClass = `status-${record.status}`;
+        const statusText = getStatusText(record.status);
+        
+        // 计算耗时
+        const duration = record.completed_at 
+            ? formatDuration(record.completed_at - record.created_at)
+            : '-';
+
+        row.innerHTML = `
+            <td>${record.tool_id}</td>
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+            <td>${record.sample_id || '-'}</td>
+            <td>${formatTime(record.created_at)}</td>
+            <td>${duration}</td>
+        `;
+
+        tbody.appendChild(row);
+    });
+}
+
+// 获取状态文本
+function getStatusText(status) {
+    const statusMap = {
+        'pending': '等待中',
+        'running': '运行中',
+        'completed': '已完成',
+        'failed': '失败'
+    };
+    return statusMap[status] || status;
+}
+
+// 格式化时间
+function formatTime(timestamp) {
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+// 格式化时长
+function formatDuration(seconds) {
+    if (seconds < 60) {
+        return `${Math.round(seconds)}秒`;
+    } else if (seconds < 3600) {
+        return `${Math.round(seconds / 60)}分钟`;
+    } else {
+        return `${Math.round(seconds / 3600)}小时`;
+    }
 }

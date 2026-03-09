@@ -3,76 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>病原检测</title>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <link rel="stylesheet" href="styles_galaxy.css">
-    <style>
-        /* 防止加载时的黑色闪烁 */
-        html {
-            background: #fafbfc;
-        }
-    </style>
+    <style>html { background: #fafbfc; }</style>
 </head>
 <body>
     <div class="main-container">
-        <!-- 左侧：工具列表（Galaxy 风格） -->
-        <div class="left-panel">
-            <header>
-                <div class="header-title">Tools</div>
-                <input type="text" id="search" placeholder="search tools">
-                <span id="count">0 tools</span>
-            </header>
 
-            <div class="tools-list" id="tools-list"></div>
-        </div>
-
-        <!-- 右侧：参数表单 -->
-        <div class="right-panel" id="right-panel">
-            <div class="panel-placeholder">
-                <div class="placeholder-icon">🔧</div>
-                <div class="placeholder-text">Select a tool to view parameters</div>
-            </div>
-
-            <div class="panel-content" id="panel-content" style="display: none;">
-                <div class="panel-header">
-                    <h2 id="tool-name">Tool Name</h2>
-                    <div class="tool-meta">
-                        <span id="tool-id" class="meta-item"></span>
-                        <span id="tool-version" class="meta-item"></span>
-                        <span id="tool-category" class="meta-item"></span>
-                    </div>
-                </div>
-
-                <div class="panel-body">
-                    <!-- 输入文件 -->
-                    <div class="form-section">
-                        <h3>Input Files</h3>
-                        <div id="inputs-container"></div>
-                    </div>
-
-                    <!-- 参数 -->
-                    <div class="form-section">
-                        <h3>Parameters</h3>
-                        <div id="params-container"></div>
-                    </div>
-
-                    <!-- 数据库 -->
-                    <div class="form-section" id="databases-section" style="display: none;">
-                        <h3>Databases</h3>
-                        <div id="databases-container"></div>
-                    </div>
-
-                    <!-- 执行按钮 -->
-                    <div class="form-actions">
-                        <button id="run-btn" class="btn-primary">Run Tool</button>
-                        <button id="clear-btn" class="btn-secondary">Clear Form</button>
-                    </div>
-                </div>
+        <!-- 顶部标签栏 -->
+        <div class="tab-bar">
+            <div class="tab-bar-inner">
+                <button class="tab-btn active" data-tab="tools">插件工作台</button>
+                <button class="tab-btn" data-tab="history">任务历史</button>
             </div>
         </div>
+
+        <!-- 插件工作台 -->
+        <div class="tab-content active" id="tab-tools">
+            <div class="left-panel">
+                <header>
+                    <div class="header-title">Tools</div>
+                    <input type="text" id="search" placeholder="search tools">
+                    <span id="count">0 tools</span>
+                </header>
+                <div class="tools-list" id="tools-list"></div>
+            </div>
+
+            <div class="right-panel" id="right-panel">
+                <div class="panel-placeholder" id="panel-placeholder">
+                    <div class="placeholder-icon">🔧</div>
+                    <div class="placeholder-text">选择一个工具查看参数</div>
+                </div>
+
+                <div class="panel-content" id="panel-content" style="display:none;">
+                    <div class="panel-header">
+                        <h2 id="tool-name"></h2>
+                        <div class="tool-meta">
+                            <span id="tool-id" class="meta-item"></span>
+                            <span id="tool-version" class="meta-item"></span>
+                            <span id="tool-category" class="meta-item"></span>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-section">
+                            <h3>输入文件</h3>
+                            <div id="inputs-container"></div>
+                        </div>
+                        <div class="form-section">
+                            <h3>参数</h3>
+                            <div id="params-container"></div>
+                        </div>
+                        <div class="form-section" id="databases-section" style="display:none;">
+                            <h3>数据库</h3>
+                            <div id="databases-container"></div>
+                        </div>
+                        <div class="form-actions">
+                            <button id="run-btn" class="btn-primary">▶ 运行工具</button>
+                            <button id="clear-btn" class="btn-secondary">清空</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务历史 -->
+        <div class="tab-content" id="tab-history">
+            <div class="history-page">
+                <div class="history-toolbar">
+                    <h2>任务历史</h2>
+                    <button class="btn-refresh" id="btn-refresh">↻ 刷新</button>
+                </div>
+                <div class="history-body">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>工具</th>
+                                <th>状态</th>
+                                <th>样本</th>
+                                <th>开始时间</th>
+                                <th>耗时</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody">
+                            <tr>
+                                <td colspan="5" class="empty-row">暂无执行记录</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </div>
-
     <script src="app_galaxy.js"></script>
 </body>
 </html>

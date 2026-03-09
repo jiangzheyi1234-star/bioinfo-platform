@@ -77,7 +77,7 @@ class StorageManager:
     def __init__(self, ssh_service: SSHServiceProtocol) -> None:
         self._ssh = ssh_service
 
-    def check_disk_usage(self, remote_path: str = "/h2ometa") -> DiskUsage:
+    def get_disk_usage(self, remote_path: str = "/h2ometa") -> DiskUsage:
         """检查远端磁盘使用情况
 
         Args:
@@ -89,12 +89,20 @@ class StorageManager:
         Raises:
             RuntimeError: SSH 命令执行失败或解析失败
         """
+        # 先尝试指定路径
         rc, stdout, stderr = self._ssh.run(
-            f"df -B1 {remote_path} | tail -1", timeout=15,
+            f"df -B1 {remote_path} 2>/dev/null | tail -1", timeout=15,
         )
 
-        if rc != 0:
-            raise RuntimeError(f"df 命令失败: {stderr.strip()}")
+        # 如果失败，尝试根目录
+        if rc != 0 or not stdout.strip():
+            logger.debug("%s 路径不可用，尝试根目录", remote_path)
+            rc, stdout, stderr = self._ssh.run(
+                "df -B1 / 2>/dev/null | tail -1", timeout=15,
+            )
+
+        if rc != 0 or not stdout.strip():
+            raise RuntimeError(f"df 命令失败: {stderr.strip() if stderr else '无输出'}")
 
         return self._parse_df_output(stdout.strip())
 
@@ -191,7 +199,7 @@ class StorageManager:
             True 如果磁盘使用率超过阈值
         """
         try:
-            usage = self.check_disk_usage(remote_path)
+            usage = self.get_disk_usage(remote_path)
             return usage.percent >= threshold
         except Exception:
             logger.exception("检查磁盘使用率失败")
@@ -218,11 +226,18 @@ class StorageManager:
         格式示例:
         /dev/sda1  500107862016  200043544064  274624765952  43% /home
         """
+        line = line.strip()
+        logger.debug("解析 df 输出: %r", line)
+
+        if not line:
+            raise RuntimeError("df 输出为空")
+
         parts = line.split()
 
-        # df 输出可能跨行，取最后 6 列
-        if len(parts) < 4:
-            raise RuntimeError(f"无法解析 df 输出: {line}")
+        # df 输出: 设备名 总块数 已用块数 可用块数 使用率% 挂载点
+        # 标准格式应该有 6 列
+        if len(parts) < 6:
+            raise RuntimeError(f"df 输出列数不足 ({len(parts)} < 6): {line}")
 
         # 从后向前取值更可靠（设备名可能包含空格）
         try:
@@ -232,11 +247,11 @@ class StorageManager:
             used = int(parts[-4])
             total = int(parts[-5])
         except (ValueError, IndexError) as e:
-            raise RuntimeError(f"解析 df 输出失败: {line}") from e
+            raise RuntimeError(f"解析 df 输出失败: {line}, parts={parts}") from e
 
         # 解析百分比
         percent_match = re.search(r"(\d+)%", percent_str)
-        percent = int(percent_match.group(1)) / 100.0 if percent_match else 0.0
+        percent = int(percent_match.group(1)) / 100.0 if percent_match else used / total if total > 0 else 0.0
 
         return DiskUsage(
             total_gb=total / (1024 ** 3),

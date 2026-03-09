@@ -111,7 +111,8 @@
 | 5 | 项目隔离 | **Project-based 隔离** | 项目作为数据和操作的边界 |
 | 6 | 数据关联 | **手动确认 + 智能推荐** | 精确性优先于自动化 |
 | 7 | 分析路径 | **向导模式 + 自由模式双轨** | 新手走向导，专家用自由模式 |
-| 8 | 可视化 | **Plotly + Krona + ECharts (QWebEngineView)** | Web 技术嵌入桌面 |
+| 8 | 图表可视化 | **matplotlib + FigureCanvasQTAgg** | 纯 Python，零前端依赖，与 Qt 原生集成 |
+| 8b | 复杂布局页面 | **QWebEngineView + HTML/CSS（仅 DetectionPage）** | 响应式工具列表 + 参数表单无法用 Qt 布局实现 |
 | 9 | 工作流可视化 | **只读 DAG 状态视图** | 不做拖拽编辑器 |
 | 10 | 存储 | **SQLite + 三层分级** | 事务安全，替代 JSON |
 | 11 | 可复现导出 | **Methods 文本 + Snakefile + 参数表** | 论文、复现、归档三场景 |
