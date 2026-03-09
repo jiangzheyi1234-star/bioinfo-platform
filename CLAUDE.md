@@ -38,7 +38,7 @@ pytest -s
 ### 环境
 - Conda 环境名：`bio_ui`
 - Python 版本：3.11+
-- 主要依赖：PyQt6, paramiko, Jinja2, matplotlib, pytest
+- 主要依赖：PyQt6, PyQt6-WebEngine, paramiko, Jinja2, matplotlib, pytest
 
 ## 软件定位
 
@@ -59,7 +59,9 @@ H2OMeta 是面向湿实验室研究人员的宏基因组桌面分析平台——
 - **Core 层**：只允许 `PyQt6.QtCore`（QObject/pyqtSignal/QThread），禁止 QtWidgets/QtGui
 - **UI 层**：新建 `ui/widgets/` 或 `ui/pages/` 文件后，**必须同步更新对应 `__init__.py`**
 - **插件**：`plugins/{category}/{tool_name}/tool.yaml`，规范见 ARCHITECTURE.md §5.1
-- **可视化**：matplotlib + FigureCanvasQTAgg，不用 QWebEngineView + ECharts
+- **可视化**：
+  - 图表：matplotlib + FigureCanvasQTAgg（不用 QWebEngineView + ECharts）
+  - 响应式布局：允许使用 QWebEngineView + HTML/CSS（仅限需要复杂响应式布局的页面）
 - **存储**：SQLite 每项目一个 `project.db`，本地 `~/.h2ometa/projects/{id}/`，远端 `/h2ometa/projects/{id}/`
 
 ## 当前模块实际状态
@@ -104,7 +106,8 @@ H2OMeta 是面向湿实验室研究人员的宏基因组桌面分析平台——
 | `ui/pages/project_page.py` | ✅ 项目创建/切换/归档/删除/导出 |
 | `ui/pages/analysis_page.py` | ✅ YAML 驱动（analysis_paths.yaml → read_based），阶段状态实时更新 |
 | `ui/pages/assembly_page.py` | ✅ YAML 驱动（assembly_based，7阶段），全部通过 PipelineRunner 执行 |
-| `ui/pages/detection_page.py` | ✅ 插件工作台 + 响应式布局（600px 断点双栏切换，1-3 列自适应卡片网格） |
+| `ui/pages/detection_page_web.py` | ✅ 插件工作台 Web 版本（QWebEngineView + CSS Grid 响应式布局，已替代原生版本） |
+| `ui/pages/detection_page.py.backup` | 📦 原生 Qt 版本备份（已废弃） |
 | `ui/pages/settings_page.py` | ✅ SSH/NCBI 配置 |
 | `ui/pages/home_page.py` | ✅ 样本管理中心（统计头/卡片网格/最近执行条/添加删除样本） |
 
@@ -226,6 +229,7 @@ pytest，`bio_ui` conda 环境（Python 3.11），`tests/` 目录，21 个测试
 - [x] 多版本执行支持 — 输出目录包含 execution_id，避免覆盖（2024-03-07 完成）
 - [x] 项目删除功能 — 已归档项目可永久删除（2024-03-07 完成）
 - [x] `detection_page.py` 响应式布局 — 600px 断点双栏切换，卡片网格 1-3 列自适应，无闪烁无横向滚动（2024-03-09 完成）
+- [x] `detection_page_web.py` Web 版本 — QWebEngineView + CSS Grid 实现完美响应式布局（2026-03-09 完成）
 
 ---
 

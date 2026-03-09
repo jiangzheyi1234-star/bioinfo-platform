@@ -20,10 +20,11 @@ from core.project_manager import ProjectManager
 from core.service_locator import ServiceLocator
 from core.ssh_service import SSHService
 from core.storage_manager import StorageManager
-from ui.pages import AnalysisPage, DetectionPage, SettingsPage
+from ui.pages import AnalysisPage, SettingsPage
 from ui.pages.assembly_page import AssemblyPage
 from ui.pages.home_page import HomePage
 from ui.pages.project_page import ProjectPage
+from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 
@@ -180,13 +181,16 @@ class MainWindow(QMainWindow):
             self._ssh_service_wrapper = None
             self._locator.ssh_service = None  # type: ignore[assignment]
             self.status_bar.update_ssh_status(False)
+            self._on_ssh_changed_for_disk(False)
             self._notify_pages_context_changed()
             return
 
         self._ssh_service_wrapper = SSHService(lambda c=client: c)
         self._ssh_service_wrapper.connection_status_changed.connect(self.status_bar.update_ssh_status)
+        self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_changed_for_disk)
         self._locator.ssh_service = self._ssh_service_wrapper
         self.status_bar.update_ssh_status(self._ssh_service_wrapper.is_connected)
+        self._on_ssh_changed_for_disk(self._ssh_service_wrapper.is_connected)
         self._notify_pages_context_changed()
 
     def _refresh_project_combo(self) -> None:
@@ -255,6 +259,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.set_global_lock(locked, reason)
 
+    def _on_ssh_changed_for_disk(self, connected: bool) -> None:
+        """SSH 连接状态变化时处理磁盘监控"""
+        if connected:
+            self._disk_timer.start()
+            self._refresh_disk_usage()  # 立即刷新一次
+        else:
+            self._disk_timer.stop()
+            self.status_bar.update_disk_usage(0, 0, 0)  # 清空显示
+
     def _refresh_disk_usage(self) -> None:
         ssh = self._locator.ssh_service
         if ssh is None or not getattr(ssh, "is_connected", False):
@@ -264,17 +277,21 @@ class MainWindow(QMainWindow):
             mgr = StorageManager(ssh)
             usage = mgr.get_disk_usage("/h2ometa")
             self.status_bar.update_disk_usage(usage.used_gb, usage.total_gb, usage.percent)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("刷新磁盘用量失败: %s", e)
+            # 调试：尝试获取原始输出
+            try:
+                rc, stdout, stderr = ssh.run("df -B1 /h2ometa 2>&1", timeout=15)
+                logger.debug("df 命令返回: rc=%s, stdout=%r, stderr=%r", rc, stdout, stderr)
+            except Exception as debug_e:
+                logger.debug("调试命令失败: %s", debug_e)
 
     def _connect_service_signals(self) -> None:
         queue = self._locator.job_queue
         queue.job_started.connect(self._update_queue_display)
         queue.queue_updated.connect(lambda _: self._update_queue_display())
 
-        self._locator.ssh_changed.connect(
-            lambda connected: self._disk_timer.start() if connected else self._disk_timer.stop()
-        )
+        self._locator.ssh_changed.connect(self._on_ssh_changed_for_disk)
 
     def _update_queue_display(self, *_args) -> None:
         status = self._locator.job_queue.get_status()
@@ -301,6 +318,7 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
+
 
 
 

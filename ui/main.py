@@ -3,6 +3,9 @@
 import os
 import sys
 
+# 重要：必须在创建 QApplication 之前导入 QtWebEngineWidgets
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+
 from PyQt6.QtWidgets import QApplication
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
