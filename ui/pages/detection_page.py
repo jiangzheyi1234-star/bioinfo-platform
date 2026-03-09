@@ -447,7 +447,7 @@ class DetectionPage(BasePage):
         card.setCursor(Qt.CursorShape.PointingHandCursor)
         card.setMinimumHeight(148)
         card.setMinimumWidth(220)  # 设置最小宽度，确保卡片不会太窄
-        card.setMaximumWidth(400)  # 设置最大宽度，避免单列时过宽
+        # 不设置最大宽度，让卡片能够扩展填满可用空间（类似 CSS Grid 的 1fr）
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         lay = QVBoxLayout(card)
