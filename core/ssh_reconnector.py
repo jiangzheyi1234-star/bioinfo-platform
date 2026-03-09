@@ -83,7 +83,7 @@ class SSHReconnector(QObject):
     """
 
     # 公开信号
-    reconnected = pyqtSignal()  # 重连成功
+    reconnected = pyqtSignal(object)  # 重连成功，附带新的 paramiko.SSHClient
     connection_lost = pyqtSignal()  # 连接丢失（开始重连前发出）
     retry_attempt = pyqtSignal(int, int)  # (当前次数, 最大次数)
     reconnect_failed = pyqtSignal(str)  # 重连最终失败，附带错误消息
@@ -156,7 +156,7 @@ class SSHReconnector(QObject):
         """重连成功"""
         self._is_reconnecting = False
         logger.info("SSH 重连成功")
-        self.reconnected.emit()
+        self.reconnected.emit(client)
 
     def _on_failure(self, error: str) -> None:
         """重连失败"""

@@ -1,4 +1,4 @@
-﻿import json
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -122,10 +122,18 @@ class SettingsPage(BasePage):
         databases = schema.get("databases", {})
         ncbi = schema.get("ncbi", {})
 
+        port = ssh.get("port", 22)
+        try:
+            ssh_port = int(port) if port else 22
+        except (ValueError, TypeError):
+            ssh_port = 22
         self.ssh_card.set_values(
             server_ip=str(ssh.get("host", "") or ""),
+            ssh_port=ssh_port,
             ssh_user=str(ssh.get("user", "") or ""),
             ssh_pwd=str(ssh.get("password", "") or ""),
+            use_key=bool(ssh.get("use_key", False)),
+            key_file=str(ssh.get("key_file", "") or ""),
         )
         self.linux_card.set_values(
             project_path=str(linux.get("project_root", "") or ""),
@@ -148,12 +156,20 @@ class SettingsPage(BasePage):
         db_values = self.db_card.get_values()
         ncbi_values = self.ncbi_card.get_values()
 
+        port_val = ssh_values.get("ssh_port", 22)
+        try:
+            ssh_port = int(port_val) if port_val else 22
+        except (ValueError, TypeError):
+            ssh_port = 22
         return {
             "version": CONFIG_VERSION,
             "ssh": {
                 "host": str(ssh_values.get("server_ip", "") or ""),
+                "port": ssh_port,
                 "user": str(ssh_values.get("ssh_user", "") or ""),
                 "password": str(ssh_values.get("ssh_pwd", "") or ""),
+                "use_key": bool(ssh_values.get("use_key", False)),
+                "key_file": str(ssh_values.get("key_file", "") or ""),
             },
             "linux": {
                 "project_root": str(linux_values.get("linux_project_path", "") or ""),

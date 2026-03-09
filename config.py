@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 from copy import deepcopy
 from pathlib import Path
@@ -47,8 +47,11 @@ def default_settings_schema() -> dict[str, Any]:
         "version": CONFIG_VERSION,
         "ssh": {
             "host": "192.168.0.152",
+            "port": 22,
             "user": "zyserver",
             "password": "abc123..",
+            "use_key": False,
+            "key_file": "",
         },
         "linux": {
             "project_root": "",
@@ -105,6 +108,11 @@ def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
     schema = default_settings_schema()
 
     schema["ssh"]["host"] = str(data.get("server_ip") or data.get("ip") or schema["ssh"]["host"])
+    port_val = data.get("ssh_port") or data.get("port") or schema["ssh"]["port"]
+    try:
+        schema["ssh"]["port"] = int(port_val)
+    except (ValueError, TypeError):
+        schema["ssh"]["port"] = 22
     schema["ssh"]["user"] = str(data.get("ssh_user") or data.get("user") or schema["ssh"]["user"])
     schema["ssh"]["password"] = str(data.get("ssh_pwd") or data.get("pwd") or schema["ssh"]["password"])
 
@@ -211,6 +219,7 @@ def sync_default_from_schema(schema: dict[str, Any]) -> None:
     DEFAULT_CONFIG.update(
         {
             "ip": normalized["ssh"]["host"],
+            "port": normalized["ssh"]["port"],
             "user": normalized["ssh"]["user"],
             "pwd": normalized["ssh"]["password"],
             "ncbi_api_key": normalized["ncbi"]["api_key"],

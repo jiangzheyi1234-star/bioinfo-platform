@@ -44,6 +44,7 @@ class SSHService(QObject):
         super().__init__(parent)
         self._client_provider = client_provider
         self._connect_fn = connect_fn
+        self._reconnected_client: Optional[paramiko.SSHClient] = None
 
         # 初始化重连器（仅在提供 connect_fn 时）
         self._reconnector: Optional[SSHReconnector] = None
@@ -71,6 +72,11 @@ class SSHService(QObject):
         return self._check_transport(client)
 
     def _client(self) -> Optional[paramiko.SSHClient]:
+        # 优先使用重连后的客户端
+        if self._reconnected_client is not None:
+            if self._check_transport(self._reconnected_client):
+                return self._reconnected_client
+            self._reconnected_client = None
         return self._client_provider()
 
     def _check_transport(self, client: paramiko.SSHClient) -> bool:
@@ -97,9 +103,10 @@ class SSHService(QObject):
 
         raise RuntimeError("SSH 未连接")
 
-    def _on_reconnected(self) -> None:
-        """重连成功回调"""
+    def _on_reconnected(self, client: paramiko.SSHClient) -> None:
+        """重连成功回调，存储新客户端"""
         logger.info("SSH 连接已恢复")
+        self._reconnected_client = client
         self.connection_status_changed.emit(True)
 
     def _on_connection_lost(self) -> None:

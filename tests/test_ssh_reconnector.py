@@ -206,7 +206,7 @@ class TestSSHReconnector:
         reconnector = SSHReconnector(connect_fn)
 
         # 验证信号存在（可连接）
-        reconnector.reconnected.connect(lambda: None)
+        reconnector.reconnected.connect(lambda client: None)
         reconnector.connection_lost.connect(lambda: None)
         reconnector.retry_attempt.connect(lambda a, b: None)
         reconnector.reconnect_failed.connect(lambda s: None)
@@ -314,8 +314,9 @@ class TestSSHServiceReconnectIntegration:
         status_spy = MagicMock()
         service.connection_status_changed.connect(status_spy)
 
-        # 模拟重连成功
-        service._on_reconnected()
+        # 模拟重连成功（传入新的 client）
+        mock_client = MagicMock()
+        service._on_reconnected(mock_client)
         status_spy.assert_called_with(True)
 
     def test_connection_status_signal_on_lost(self):

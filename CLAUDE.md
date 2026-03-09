@@ -107,7 +107,7 @@ H2OMeta 是面向湿实验室研究人员的宏基因组桌面分析平台——
 | `ui/pages/analysis_page.py` | ✅ YAML 驱动（analysis_paths.yaml → read_based），阶段状态实时更新 |
 | `ui/pages/assembly_page.py` | ✅ YAML 驱动（assembly_based，7阶段），全部通过 PipelineRunner 执行 |
 | `ui/pages/detection_page_web.py` | ✅ 插件工作台（QWebEngineView + Galaxy 风格双栏布局，标签切换插件工作台/任务历史） |
-| `ui/pages/settings_page.py` | ✅ SSH/NCBI 配置 |
+| `ui/pages/settings_page.py` | ✅ SSH/NCBI 配置（支持密钥认证、分步连接诊断） |
 | `ui/pages/home_page.py` | ✅ 样本管理中心（统计头/卡片网格/最近执行条/添加删除样本） |
 
 ### UI 控件（ui/widgets/）

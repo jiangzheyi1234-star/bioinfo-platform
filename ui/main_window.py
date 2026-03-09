@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+import paramiko
 from PyQt6.QtCore import QEvent, QTimer, Qt
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -177,6 +178,17 @@ class MainWindow(QMainWindow):
 
     def _on_settings_active_client_changed(self, client) -> None:
         """把 Settings 的 SSH 客户端统一注入 ServiceLocator。"""
+        # 断开旧 wrapper 的信号，防止悬空引用
+        if self._ssh_service_wrapper is not None:
+            try:
+                self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_status_changed)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_changed_for_disk)
+            except (TypeError, RuntimeError):
+                pass
+
         if client is None:
             self._ssh_service_wrapper = None
             self._locator.ssh_service = None  # type: ignore[assignment]
@@ -185,8 +197,37 @@ class MainWindow(QMainWindow):
             self._notify_pages_context_changed()
             return
 
-        self._ssh_service_wrapper = SSHService(lambda c=client: c)
-        self._ssh_service_wrapper.connection_status_changed.connect(self.status_bar.update_ssh_status)
+        # 构造重连函数：捕获当前连接参数，用于 SSHService 自动重连
+        ssh_cfg = self.settings_page.ssh_card.last_stable_config
+        connect_fn = None
+        if ssh_cfg:
+            def _make_connect_fn(cfg: dict):
+                def _connect() -> paramiko.SSHClient:
+                    c = paramiko.SSHClient()
+                    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    kwargs: dict = {
+                        "hostname": cfg.get("ip", ""),
+                        "port": cfg.get("port", 22),
+                        "username": cfg.get("user", ""),
+                        "timeout": 5,
+                        "allow_agent": False,
+                        "look_for_keys": False,
+                    }
+                    if cfg.get("use_key") and cfg.get("key_file"):
+                        kwargs["key_filename"] = cfg["key_file"]
+                    else:
+                        kwargs["password"] = cfg.get("pwd", "")
+                    c.connect(**kwargs)
+                    c.get_transport().set_keepalive(30)
+                    return c
+                return _connect
+            connect_fn = _make_connect_fn(ssh_cfg)
+
+        self._ssh_service_wrapper = SSHService(
+            lambda c=client: c,
+            connect_fn=connect_fn,
+        )
+        self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_status_changed)
         self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_changed_for_disk)
         self._locator.ssh_service = self._ssh_service_wrapper
         self.status_bar.update_ssh_status(self._ssh_service_wrapper.is_connected)
@@ -258,6 +299,10 @@ class MainWindow(QMainWindow):
     def set_settings_locked(self, locked: bool, reason: str = "SSH 任务执行中，设置暂时锁定") -> None:
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.set_global_lock(locked, reason)
+
+    def _on_ssh_status_changed(self, connected: bool) -> None:
+        """SSH 连接状态变化时更新状态栏"""
+        self.status_bar.update_ssh_status(connected)
 
     def _on_ssh_changed_for_disk(self, connected: bool) -> None:
         """SSH 连接状态变化时处理磁盘监控"""
