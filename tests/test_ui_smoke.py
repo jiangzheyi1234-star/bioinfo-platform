@@ -99,9 +99,9 @@ class TestMainWindowStartup:
 
 class TestPageStartup:
     def test_detection_page_starts(self, qapp):
-        from ui.pages.detection_page import DetectionPage
+        from ui.pages.detection_page_web import DetectionPageWeb
 
-        page = DetectionPage(main_window=None)
+        page = DetectionPageWeb(main_window=None)
         assert page is not None
         assert hasattr(page, "execution_history")
 
