@@ -1,7 +1,7 @@
 # H2OMeta — 产品需求文档
 
 > 描述软件要做什么，供开发决策参考。技术实现见 `ARCHITECTURE.md`，开发规则见 `CLAUDE.md`。
-> 最后更新：2026-03-07
+> 最后更新：2026-03-09
 
 ---
 
@@ -68,7 +68,8 @@ BLAST 核酸比对，已迁移至 ToolEngine。
 - 一键安装（优先国内镜像），安装进度实时显示
 
 ### 系统设置页 ✅
-SSH 连接（host/port/user/key）、NCBI API Key、远端工作目录。
+SSH 连接（host/port/user/password/密钥文件）、分步连接诊断（TCP→SSH握手→身份验证）、一键诊断对话框、NCBI API Key、远端工作目录。
+SSH 断线自动重连（使用保存的配置直接重连，SSHService 支持 connect_fn 操作中重连）。
 
 ---
 

@@ -1,8 +1,8 @@
 # H2OMeta 宏基因组平台 — 架构设计文档
 
-> 版本: v2.1 (审查修订版)
-> 日期: 2026-03-06
-> 状态: Phase 1 基础架构已完成 (2026-03-06)，Phase 2 流程串联待启动
+> 版本: v2.2 (Phase 2 进行中)
+> 日期: 2026-03-09
+> 状态: Phase 1 基础架构已完成，Phase 2 流程串联进行中
 
 ---
 
@@ -69,12 +69,11 @@
 | 模块 | 状态 | 文件 |
 |------|------|------|
 | SSH 远程连接 | ✅ 完成 | `core/ssh_service.py` |
-| BLASTN 核酸比对 | ✅ 完成 | `core/blast_worker.py` |
-| 自定义建库 | ✅ 完成 | `core/db_builder_worker.py` |
-| NCBI 基因组检索 | ✅ 完成 | `core/accession_worker.py` |
+| SSH 指数退避重连 | ✅ 完成 | `core/ssh_reconnector.py` |
 | 任务历史管理 | ✅ 完成 | `core/task_manager.py` |
-| 任务恢复监控 | ✅ 完成 | `core/task_recovery_worker.py` |
-| 系统设置 | ✅ 完成 | `ui/pages/settings_page.py` |
+| 系统设置（分步诊断+密钥认证） | ✅ 完成 | `ui/pages/settings_page.py` |
+
+> 已清理的旧模块（2026-03-09）：`blast_worker.py`、`db_builder_worker.py`、`accession_worker.py`、`task_recovery_worker.py` — 功能已被 ToolEngine / JobMonitor / PluginRegistry 替代。
 
 ### 现有技术栈
 
@@ -86,15 +85,15 @@
 
 ### 迁移计划
 
-| 现有模块 | 迁移目标 | 说明 |
+| 现有模块 | 迁移目标 | 状态 |
 |----------|----------|------|
-| `blast_worker.py` | `plugins/blast/blastn/tool.yaml` + ToolEngine | BLAST 变为普通插件，无特殊代码 |
-| `blast_main.sh` (远端) | 废弃 | 改为 command_template + JobDispatcher 通用包装 |
-| `task_manager.py` | SQLite `executions` 表 | 执行记录统一存储 |
-| `task_recovery_worker.py` | `job_monitor.py` | 合并到统一监控 |
-| `db_builder_worker.py` | `database_manager.py` | 合并到数据库管理 |
-| `accession_worker.py` | 保留 | NCBI 查询独立，不走 ToolEngine |
-| `config.py` | 逐步迁移到 `settings.yaml` | 兼容过渡 |
+| `blast_worker.py` | `plugins/blast/blastn/tool.yaml` + ToolEngine | ✅ 已删除，功能由 ToolEngine 替代 |
+| `blast_main.sh` (远端) | 废弃 | ✅ 改为 command_template + JobDispatcher |
+| `task_manager.py` | SQLite `executions` 表 | ⏳ task_history_card 仍在使用，保留 |
+| `task_recovery_worker.py` | `job_monitor.py` | ✅ 已删除，功能由 JobMonitor 替代 |
+| `db_builder_worker.py` | `database_manager.py` | ✅ 已删除 |
+| `accession_worker.py` | 独立 NCBI 查询 | ✅ 已删除 |
+| `config.py` | 逐步迁移到 `settings.yaml` | ⏳ 兼容过渡中 |
 
 ---
 
@@ -1174,11 +1173,7 @@ bio_ui/
 │   ├── pipeline_reconstructor.py      # DAG 重建
 │   ├── chart_parser.py                # 可视化数据解析 (纯数据，新增)
 │   │
-│   ├── task_manager.py                # (已有) → 逐步迁入 SQLite
-│   ├── task_recovery_worker.py        # (已有) → 迁入 job_monitor.py
-│   ├── blast_worker.py                # (已有) → 迁入 tool_engine + blastn/tool.yaml
-│   ├── db_builder_worker.py           # (已有) → 迁入 database_manager.py
-│   └── accession_worker.py            # (已有) 保留
+│   └── task_manager.py                # (已有) → 逐步迁入 SQLite
 │
 ├── ui/                                # UI 层 (PyQt6.QtWidgets)
 │   ├── main.py                        # 应用入口
@@ -1443,21 +1438,23 @@ SSHReconnector (指数退避: 2/4/8/16/32/60秒)
 **里程碑**: fastp → Kraken2 通过 ToolEngine 执行，数据有血缘，SQLite 存储。
 **测试**: 308 个单元测试 + 集成测试全部通过。
 
-### Phase 2: 分析能力 (6-8 周)
+### Phase 2: 分析能力 — 进行中
 
-| 任务 | 优先级 |
-|------|--------|
-| AnalysisWizard + analysis_paths.yaml | P0 |
-| DatabaseManager + databases.yaml | P0 |
-| EnvironmentProber (动态生成) | P0 |
-| ChartDataParser + ChartRenderer + Plotly | P1 |
-| Krona 集成 | P1 |
-| CheckpointManager | P1 |
-| ScreenHeartbeat | P1 |
-| 完整 tool.yaml 集合 | P1 |
-| UI: 分析工作台 (向导+自由) | P0 |
-| UI: 结果浏览页 | P1 |
-| UI: 数据库管理页 | P0 |
+| 任务 | 优先级 | 状态 |
+|------|--------|------|
+| ServiceLocator 服务总线 | P0 | ✅ `core/service_locator.py` |
+| PipelineRunner 流水线编排 | P0 | ✅ `core/pipeline_runner.py` |
+| UI: 分析工作台 (读长分析) | P0 | ✅ `ui/pages/analysis_page.py` |
+| UI: 组装分析页 (7阶段) | P0 | ✅ `ui/pages/assembly_page.py` |
+| UI: 插件工作台 (Galaxy 风格) | P0 | ✅ `ui/pages/detection_page_web.py` |
+| UI: 样本管理中心 | P1 | ✅ `ui/pages/home_page.py` |
+| SSH 设置优化 (分步诊断+密钥+重连) | P1 | ✅ `ui/widgets/ssh_settings_card.py` |
+| 遗留代码清理 | P2 | ✅ 删除 5 个无引用旧模块 |
+| ChartDataParser + ChartRenderer | P1 | ⏳ |
+| DatabaseManager + databases.yaml | P0 | ⏳ |
+| UI: 结果浏览页 | P1 | ⏳ |
+| UI: 数据库管理页 | P0 | ⏳ |
+| 完整 tool.yaml 集合 | P1 | ⏳ |
 
 **里程碑**: 完整读长分析路径可运行。
 
@@ -1509,4 +1506,4 @@ v2.1 版本经过逐项审查，确认以下修订：
 
 ---
 
-> 本文档 v2.1 版经过完整架构审查，所有 16 项决策已确认。
+> 本文档 v2.2 版，Phase 1 已完成，Phase 2 进行中。最后更新: 2026-03-09。
