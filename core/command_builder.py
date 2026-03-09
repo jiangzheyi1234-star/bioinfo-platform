@@ -24,6 +24,10 @@ _JINJA_ENV = Environment(
 # 心跳间隔（秒）
 HEARTBEAT_INTERVAL = 30
 
+# conda/mamba 执行器 — 默认使用 conda，可由外部覆盖为 "mamba" 以获得更快依赖解析。
+# 覆盖方式: import core.command_builder as cb; cb.CONDA_RUNNER = "mamba"
+CONDA_RUNNER = "conda"
+
 # 包装脚本模板
 _WRAPPER_TEMPLATE = r"""#!/bin/bash
 set -euo pipefail
@@ -149,9 +153,9 @@ class CommandBuilder:
         lines = [line for line in rendered.splitlines() if line.strip()]
         command = "\n".join(lines)
 
-        # conda 激活包装
+        # conda/mamba 激活包装（使用模块级 CONDA_RUNNER 常量，默认 "conda"）
         if conda_env:
-            command = f"conda run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
+            command = f"{CONDA_RUNNER} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
 
         logger.debug("已构建命令 (插件: %s): %s", descriptor.get("id"), command[:200])
         return command

@@ -127,6 +127,7 @@ class ToolEngine(QObject):
         project_manager: ProjectManagerProtocol,
         data_registry: DataRegistry,
         job_queue: JobQueueProtocol,
+        context_register_fn=None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
@@ -135,6 +136,9 @@ class ToolEngine(QObject):
         self._projects = project_manager
         self._registry = data_registry
         self._queue = job_queue
+        # 可选回调：fn(execution_id, command, descriptor, sample_id, output_dir, task_dir)
+        # 由 ServiceLocator 注入，用于在 job_queue.job_started 触发前注册执行上下文
+        self._context_register_fn = context_register_fn
 
     # ── 公开 API ──────────────────────────────────────────
 
@@ -221,6 +225,19 @@ class ToolEngine(QObject):
 
         # 11. 创建远端输出目录
         self._ssh.run(f"mkdir -p {output_dir}", timeout=15)
+
+        # 11.5 注册执行上下文（供 ServiceLocator._on_dispatch 取用）
+        # task_dir 即 output_dir，用于存放 run.sh / status.txt / heartbeat.txt
+        task_dir = output_dir
+        if self._context_register_fn is not None:
+            self._context_register_fn(
+                execution_id=execution_id,
+                command=command,
+                descriptor=descriptor,
+                sample_id=sample_id,
+                output_dir=output_dir,
+                task_dir=task_dir,
+            )
 
         # 12. 提交到 JobQueue
         self._queue.submit(

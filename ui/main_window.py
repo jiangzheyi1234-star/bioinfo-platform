@@ -147,6 +147,14 @@ class MainWindow(QMainWindow):
         self.settings_page.active_client_changed.connect(self._on_settings_active_client_changed)
         self.content.addWidget(self.settings_page)
 
+        # 将 PluginRegistry 注入 LinuxSettingsCard，支持动态工具环境检测
+        try:
+            pr = self._locator.plugin_registry
+            if pr and hasattr(self.settings_page, "linux_card"):
+                self.settings_page.linux_card.set_plugin_registry(pr)
+        except Exception:
+            logger.exception("注入 PluginRegistry 到 LinuxSettingsCard 失败")
+
         self.analysis_page = AnalysisPage(main_window=self)
         self.content.addWidget(self.analysis_page)
 

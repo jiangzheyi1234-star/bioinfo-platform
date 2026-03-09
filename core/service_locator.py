@@ -214,6 +214,7 @@ class ServiceLocator(QObject):
             project_manager=self._project_manager,
             data_registry=self._data_registry,
             job_queue=self._job_queue,
+            context_register_fn=self.register_execution_context,
         )
         self._tool_engine.execution_started.connect(self.execution_started.emit)
 

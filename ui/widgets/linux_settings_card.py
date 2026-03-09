@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
 from PyQt6.QtWidgets import (
-    QComboBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -21,7 +20,6 @@ from PyQt6.QtWidgets import (
 from ui.widgets.styles import (
     CARD_FRAME,
     INPUT_LINEEDIT,
-    INPUT_COMBOBOX,
     BUTTON_PRIMARY,
     CARD_TITLE,
     COLOR_TEXT_HINT,
@@ -30,6 +28,13 @@ from ui.widgets.styles import (
     STATUS_ERROR,
     BUTTON_LINK,
 )
+
+logger = logging.getLogger(__name__)
+
+# 工具环境检测状态图标
+_STATUS_PENDING = "⏳"
+_STATUS_OK = "✅"
+_STATUS_FAIL = "❌"
 
 
 class ClickableHeader(QFrame):
@@ -45,150 +50,117 @@ class ClickableHeader(QFrame):
         super().mouseReleaseEvent(event)
 
 
-class EnvFetchWorker(QObject):
-    finished = pyqtSignal(bool, list, str)  # 成功标志, 环境列表, 错误信息
+class EnvBatchCheckWorker(QObject):
+    """SSH 批量检测工具 conda 环境是否就绪。
 
-    def __init__(self, client):
+    检测策略：运行 `conda env list --json`，解析环境路径列表，
+    逐个比对工具 descriptor 中的 `conda_env` 字段。
+
+    Signals:
+        tool_checked(tool_id, env_name, ok): 单个工具检测完成
+        finished(conda_envs_list): 全部完成，返回已有环境路径列表
+        error(message): 检测出错
+    """
+
+    tool_checked = pyqtSignal(str, str, bool)   # tool_id, env_name, ok
+    finished = pyqtSignal(list)                  # conda_envs_list
+    error = pyqtSignal(str)                      # error_message
+
+    def __init__(self, client, tools: list[dict]):
+        """
+        Args:
+            client: paramiko SSHClient
+            tools: [{"id": ..., "conda_env": ...}, ...]
+        """
         super().__init__()
         self.client = client
+        self.tools = tools
 
     @pyqtSlot()
     def run(self):
         try:
-            # 记录开始
-            logging.info("开始获取远程 conda 环境列表")
-            
-            # 尝试多个可能的 conda 路径
+            # 获取远程 conda 环境列表
+            conda_envs: list[str] = []
             commands = [
                 "conda env list --json",
                 "source ~/.bashrc && conda env list --json",
                 "/opt/anaconda3/bin/conda env list --json",
                 "~/anaconda3/bin/conda env list --json",
-                "~/miniconda3/bin/conda env list --json"
+                "~/miniconda3/bin/conda env list --json",
             ]
 
-            output = ""
-            error = ""
-            
+            import json as _json
+
             for cmd in commands:
-                logging.debug(f"尝试命令: {cmd}")
                 try:
-                    stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
-                    output = stdout.read().decode('utf-8', errors='ignore').strip()
-                    error = stderr.read().decode('utf-8', errors='ignore').strip()
-                    
-                    logging.debug(f"输出长度: {len(output)}, 错误长度: {len(error)}")
-                    
+                    _, stdout, stderr = self.client.exec_command(cmd, timeout=15)
+                    output = stdout.read().decode("utf-8", errors="ignore").strip()
                     if output:
-                        # 查找 JSON 起始位置，忽略可能的 shell 输出
-                        json_start = output.find('{')
+                        json_start = output.find("{")
                         if json_start >= 0:
-                            output = output[json_start:]
-                            
-                            data = json.loads(output)
-                            envs = data.get('envs', [])
-                            
-                            logging.info(f"成功解析，找到 {len(envs)} 个环境")
-                            self.finished.emit(True, envs, "")
-                            return
-                
-                except json.JSONDecodeError as je:
-                    logging.warning(f"JSON 解析失败，尝试下一个命令: {je}")
+                            data = _json.loads(output[json_start:])
+                            conda_envs = data.get("envs", [])
+                            break
+                except Exception:
                     continue
-                except Exception as e:
-                    logging.debug(f"命令 '{cmd}' 执行失败: {e}")
+
+            # 提取环境名（路径末尾部分）
+            env_names_set = set()
+            for path in conda_envs:
+                name = path.split("/")[-1] if "/" in path else path
+                env_names_set.add(name)
+
+            # 逐个比对工具环境
+            for tool in self.tools:
+                tool_id = tool.get("id", "")
+                conda_env = tool.get("conda_env", "")
+                if not conda_env:
+                    # 工具无 conda_env 声明 — 视为就绪（直接系统调用）
+                    self.tool_checked.emit(tool_id, "(系统路径)", True)
                     continue
-            
-            # 如果所有命令都失败
-            if not output and error:
-                logging.error(f"所有命令都失败，最终错误: {error}")
-                self.finished.emit(False, [], error)
-            else:
-                # 成功执行但没有环境
-                logging.info("命令执行成功但未找到任何环境")
-                self.finished.emit(True, [], "")  # 成功但无环境
+
+                ok = conda_env in env_names_set
+                self.tool_checked.emit(tool_id, conda_env, ok)
+
+            self.finished.emit(conda_envs)
 
         except Exception as e:
-            logging.error(f"获取环境列表时发生异常: {str(e)}")
-            self.finished.emit(False, [], str(e))
-
-
-class ConfigVerifyWorker(QObject):
-    """验证 Linux 项目配置的 Worker"""
-    finished = pyqtSignal(bool, str)  # 成功标志, 消息
-
-    def __init__(self, client, project_path: str, conda_env_path: str):
-        super().__init__()
-        self.client = client
-        self.project_path = project_path
-        self.conda_env_path = conda_env_path
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            logging.info(f"开始验证配置: 项目路径={self.project_path}, Conda环境={self.conda_env_path}")
-
-            # 验证项目路径是否存在
-            cmd = f"test -d '{self.project_path}' && echo 'EXISTS' || echo 'NOT_EXISTS'"
-            stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
-            result = stdout.read().decode('utf-8', errors='ignore').strip()
-
-            if 'NOT_EXISTS' in result:
-                self.finished.emit(False, "项目路径不存在")
-                return
-
-            # 验证 conda 环境是否存在
-            cmd = f"test -d '{self.conda_env_path}' && echo 'EXISTS' || echo 'NOT_EXISTS'"
-            stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
-            result = stdout.read().decode('utf-8', errors='ignore').strip()
-
-            if 'NOT_EXISTS' in result:
-                self.finished.emit(False, "Conda 环境不存在")
-                return
-
-            # 验证 conda 环境中是否有 python
-            python_path = f"{self.conda_env_path}/bin/python"
-            cmd = f"test -f '{python_path}' && echo 'EXISTS' || echo 'NOT_EXISTS'"
-            stdin, stdout, stderr = self.client.exec_command(cmd, timeout=10)
-            result = stdout.read().decode('utf-8', errors='ignore').strip()
-
-            if 'NOT_EXISTS' in result:
-                self.finished.emit(False, "Conda 环境无效(缺少python)")
-                return
-
-            logging.info("配置验证成功")
-            self.finished.emit(True, "验证成功")
-
-        except Exception as e:
-            logging.error(f"验证配置时发生异常: {str(e)}")
-            self.finished.emit(False, str(e))
+            logger.exception("EnvBatchCheckWorker 出错")
+            self.error.emit(str(e))
 
 
 class LinuxSettingsCard(QFrame):
-    """Linux 项目与运行环境配置卡片。
-    
+    """Linux 项目与运行环境配置卡片（重构版）。
+
     功能：
       - 配置远程 Linux 项目的根路径。
-      - 自动拉取并选择远程 Conda 环境。
-      - 生成并同步 config.env 配置文件到服务器。
+      - 批量检测 16 个插件工具的 conda 环境是否就绪。
+      - 支持 plugin_registry 外部注入（PluginRegistry 动态读取工具列表）。
+
+    get_values() 返回字段（保持向后兼容）:
+      linux_project_path, max_concurrent, poll_interval,
+      conda_env_path(空), conda_env_name(空), is_locked
     """
 
     request_save = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, plugin_registry=None):
         super().__init__(parent)
         self.setObjectName("LinuxSettingsCard")
-        
-        self.active_client = None  # 存储由外部（如 SettingsPage）传入的 SSHClient
-        self._is_locked = False
-        self._fetching = False  # 添加标志来跟踪是否正在获取环境
-        self._in_edit_mode = False  # 添加编辑模式标志
-        self._external_lock = False  # 添加外部锁定标志
 
-        # 配置恢复相关
-        self._pending_conda_env = ""  # 待恢复的 conda 环境路径
-        self._pending_conda_env_name = ""  # 待恢复的 conda 环境名称
-        self._needs_auto_verify = False  # 是否需要自动验证
+        self.active_client = None
+        self._is_locked = False
+        self._checking = False
+        self._in_edit_mode = False
+        self._external_lock = False
+
+        # plugin_registry 可由外部注入，也可后续通过 set_plugin_registry() 设置
+        self._plugin_registry = plugin_registry
+
+        # 每行工具状态: {tool_id: QLabel}
+        self._status_labels: dict[str, QLabel] = {}
+        # 工具列表: [{"id": ..., "name": ..., "conda_env": ...}]
+        self._tools: list[dict] = []
 
         # 自动折叠定时器
         self._auto_fold_timer = QTimer(self)
@@ -196,7 +168,64 @@ class LinuxSettingsCard(QFrame):
         self._auto_fold_timer.timeout.connect(self._auto_fold)
 
         self._build_ui()
-        self._lock_inputs()  # 默认锁定状态
+        self._lock_inputs()
+
+    # ── 公开 API ─────────────────────────────────────────
+
+    def set_plugin_registry(self, plugin_registry) -> None:
+        """外部注入 PluginRegistry，用于刷新工具列表。"""
+        self._plugin_registry = plugin_registry
+        self._refresh_tool_list()
+
+    def set_active_client(self, client) -> None:
+        """接收外部传入的 SSH 客户端实例。"""
+        self.active_client = client
+        connected = client is not None
+
+        self.check_btn.setEnabled(connected and not self._is_locked and not self._external_lock)
+
+        if connected:
+            self.status_label.setText("SSH 已就绪，可一键检测")
+            self.status_label.setStyleSheet(STATUS_SUCCESS)
+        else:
+            self.status_label.setText("等待 SSH 连接")
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
+            # 清除检测状态
+            for lbl in self._status_labels.values():
+                lbl.setText(_STATUS_PENDING)
+
+    def get_values(self) -> dict:
+        """供 SettingsPage 获取数据（向后兼容）。"""
+        return {
+            "linux_project_path": self.linux_project_path.text().strip(),
+            "conda_env_path": "",       # 已移除，保留 key 兼容旧逻辑
+            "conda_env_name": "",       # 已移除，保留 key 兼容旧逻辑
+            "is_locked": self._is_locked,
+            "max_concurrent": self.spin_concurrent.value(),
+            "poll_interval": self.spin_poll.value(),
+        }
+
+    def set_values(
+        self,
+        project_path: str = "",
+        conda_env: str = "",
+        conda_env_name: str = "",
+        max_concurrent: int = 3,
+        poll_interval: int = 5,
+    ) -> None:
+        """供 SettingsPage 回填数据（签名向后兼容，conda_env 参数忽略）。"""
+        self.linux_project_path.setText(project_path)
+        self.spin_concurrent.setValue(max_concurrent)
+        self.spin_poll.setValue(poll_interval)
+
+    def set_external_lock(self, locked: bool) -> None:
+        """外部锁定功能，用于在 SSH 连接被占用时禁用编辑。"""
+        if self._external_lock == locked:
+            return
+        self._external_lock = locked
+        self._refresh_interaction_state()
+
+    # ── UI 构建 ──────────────────────────────────────────
 
     def _build_ui(self) -> None:
         self.setStyleSheet(CARD_FRAME("LinuxSettingsCard"))
@@ -205,7 +234,7 @@ class LinuxSettingsCard(QFrame):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 头部区域 (可点击折叠/展开)
+        # ── 头部（可点击折叠/展开）──
         self.header_area = ClickableHeader()
         self.header_area.setStyleSheet("background: transparent; border: none;")
         self.header_area.clicked.connect(self._toggle_container)
@@ -230,59 +259,76 @@ class LinuxSettingsCard(QFrame):
         header_layout.addWidget(self.arrow_label)
         main_layout.addWidget(self.header_area)
 
-        # 容器布局
+        # ── 可折叠容器 ──
         self.container = QWidget()
         self.container.setStyleSheet("background: transparent;")
         c_layout = QVBoxLayout(self.container)
         c_layout.setContentsMargins(20, 0, 20, 20)
+        c_layout.setSpacing(15)
 
-        # 表单布局
+        # ── 基础配置表单 ──
         form = QFormLayout()
-        form.setVerticalSpacing(15)
+        form.setVerticalSpacing(12)
 
-        # 1. Linux 项目根路径
         self.linux_project_path = QLineEdit()
         self.linux_project_path.setStyleSheet(INPUT_LINEEDIT)
-        self.linux_project_path.setPlaceholderText("例如: /home/zyserver/bioinfo-platform")
+        self.linux_project_path.setPlaceholderText("例如: /h2ometa/projects")
 
-        # 2. Conda 环境下拉框
-        self.conda_combo = QComboBox()
-        self.conda_combo.setPlaceholderText("请先连接服务器并获取列表...")
-        self.conda_combo.setEnabled(False)
-        # 限制下拉框可见行数以触发滚动条
-        self.conda_combo.setMaxVisibleItems(8)
-        # 使用 styles.py 中定义的 INPUT_COMBOBOX 样式
-        self.conda_combo.setStyleSheet(INPUT_COMBOBOX)
-
-        form.addRow("项目根路径", self.linux_project_path)
-        form.addRow("Conda 环境", self.conda_combo)
-
-        # 最大并发任务数
         self.spin_concurrent = QSpinBox()
         self.spin_concurrent.setRange(1, 8)
         self.spin_concurrent.setValue(3)
         self.spin_concurrent.setSuffix(" 个任务")
 
-        # 任务轮询间隔
         self.spin_poll = QSpinBox()
         self.spin_poll.setRange(1, 60)
         self.spin_poll.setValue(5)
         self.spin_poll.setSuffix(" 秒")
 
+        form.addRow("项目根路径", self.linux_project_path)
         form.addRow("最大并发任务数", self.spin_concurrent)
         form.addRow("任务轮询间隔", self.spin_poll)
-
         c_layout.addLayout(form)
 
-        # 按钮与状态行
-        row = QHBoxLayout()
-        self.fetch_btn = QPushButton("获取远程环境")
-        self.fetch_btn.setMinimumWidth(110)
-        self.fetch_btn.setStyleSheet(BUTTON_PRIMARY)
-        self.fetch_btn.setEnabled(False)
-        self.fetch_btn.clicked.connect(self._on_fetch_envs)
+        # ── 工具环境检测区 ──
+        env_header = QHBoxLayout()
+        env_title = QLabel("工具环境检测状态：")
+        env_title.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 13px;")
+        self.check_btn = QPushButton("一键检测")
+        self.check_btn.setMinimumWidth(90)
+        self.check_btn.setStyleSheet(BUTTON_PRIMARY)
+        self.check_btn.setEnabled(False)
+        self.check_btn.clicked.connect(self._on_batch_check)
 
-        self.lock_btn = QPushButton("确认并锁定")
+        env_header.addWidget(env_title)
+        env_header.addStretch()
+        env_header.addWidget(self.check_btn)
+        c_layout.addLayout(env_header)
+
+        # 工具环境状态滚动区
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setFixedHeight(220)
+        scroll.setStyleSheet("background: transparent;")
+
+        self._tool_list_widget = QWidget()
+        self._tool_list_widget.setStyleSheet("background: transparent;")
+        self._tool_list_layout = QVBoxLayout(self._tool_list_widget)
+        self._tool_list_layout.setContentsMargins(0, 4, 0, 4)
+        self._tool_list_layout.setSpacing(6)
+
+        # 占位提示（插件列表加载前显示）
+        self._placeholder_label = QLabel("（插件注册表未就绪，启动后自动填充）")
+        self._placeholder_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+        self._tool_list_layout.addWidget(self._placeholder_label)
+        self._tool_list_layout.addStretch()
+
+        scroll.setWidget(self._tool_list_widget)
+        c_layout.addWidget(scroll)
+
+        # ── 状态行 + 保存按钮 ──
+        row = QHBoxLayout()
+        self.lock_btn = QPushButton("确认并保存")
         self.lock_btn.setMinimumWidth(110)
         self.lock_btn.setStyleSheet(BUTTON_PRIMARY)
         self.lock_btn.clicked.connect(self._on_save_and_lock)
@@ -290,7 +336,6 @@ class LinuxSettingsCard(QFrame):
         self.status_label = QLabel("等待 SSH 连接")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
-        row.addWidget(self.fetch_btn)
         row.addWidget(self.lock_btn)
         row.addWidget(self.status_label)
         row.addStretch()
@@ -298,332 +343,270 @@ class LinuxSettingsCard(QFrame):
 
         main_layout.addWidget(self.container)
 
-    def set_active_client(self, client) -> None:
-        """接收外部传入的 SSH 客户端实例。"""
-        self.active_client = client
-        connected = client is not None
+    # ── 工具列表管理 ─────────────────────────────────────
 
-        self.fetch_btn.setEnabled(connected and not self._is_locked)
-        self.lock_btn.setEnabled(connected)
+    def _refresh_tool_list(self) -> None:
+        """从 PluginRegistry 动态读取工具列表，重建状态行。"""
+        self._tools = []
+        self._status_labels = {}
 
-        if connected:
-            self.status_label.setText("SSH 已就绪")
-            self.status_label.setStyleSheet(STATUS_SUCCESS)
+        # 清空布局（保留 stretch）
+        while self._tool_list_layout.count():
+            item = self._tool_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-            # 如果有待验证的配置，自动执行验证
-            if self._needs_auto_verify and self._pending_conda_env:
-                QTimer.singleShot(500, self._auto_verify_config)
-        else:
-            self.status_label.setText("等待 SSH 连接")
-            self.status_label.setStyleSheet(STATUS_NEUTRAL)
-            self.conda_combo.clear()
-            self.conda_combo.setEnabled(False)
-
-    def _auto_verify_config(self) -> None:
-        """自动验证已保存的配置，验证成功后锁定并折叠"""
-        if not self.active_client or not self._pending_conda_env:
+        if not self._plugin_registry:
+            self._placeholder_label = QLabel("（插件注册表未就绪）")
+            self._placeholder_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+            self._tool_list_layout.addWidget(self._placeholder_label)
+            self._tool_list_layout.addStretch()
             return
 
-        self.status_label.setText("正在验证配置...")
+        try:
+            for tool_id in self._plugin_registry.list_all_ids():
+                desc = self._plugin_registry.get_descriptor(tool_id)
+                tool_name = desc.get("name", tool_id)
+                conda_env = desc.get("conda_env", "")
+                self._tools.append({
+                    "id": tool_id,
+                    "name": tool_name,
+                    "conda_env": conda_env,
+                })
+        except Exception:
+            logger.exception("读取插件列表失败")
+
+        if not self._tools:
+            lbl = QLabel("（未发现任何插件）")
+            lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+            self._tool_list_layout.addWidget(lbl)
+            self._tool_list_layout.addStretch()
+            return
+
+        # 建立每行：[工具名]  [环境名]  [状态图标]
+        header_row = QHBoxLayout()
+        h_tool = QLabel("工具")
+        h_env = QLabel("Conda 环境")
+        h_status = QLabel("状态")
+        for lbl in (h_tool, h_env, h_status):
+            lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 11px; font-weight: bold;")
+        h_tool.setFixedWidth(120)
+        h_env.setFixedWidth(180)
+        h_status.setFixedWidth(28)
+        header_row.addWidget(h_tool)
+        header_row.addWidget(h_env)
+        header_row.addStretch()
+        header_row.addWidget(h_status)
+        self._tool_list_layout.addLayout(header_row)
+
+        # 分割线
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {COLOR_TEXT_HINT};")
+        self._tool_list_layout.addWidget(sep)
+
+        for tool in self._tools:
+            tid = tool["id"]
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(8)
+
+            name_lbl = QLabel(tool["name"])
+            name_lbl.setFixedWidth(120)
+            name_lbl.setStyleSheet("font-size: 13px;")
+
+            env_name = tool["conda_env"] or "(系统路径)"
+            env_lbl = QLabel(env_name)
+            env_lbl.setFixedWidth(180)
+            env_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+
+            status_lbl = QLabel(_STATUS_PENDING)
+            status_lbl.setFixedWidth(28)
+            status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            row_layout.addWidget(name_lbl)
+            row_layout.addWidget(env_lbl)
+            row_layout.addStretch()
+            row_layout.addWidget(status_lbl)
+            self._tool_list_layout.addLayout(row_layout)
+            self._status_labels[tid] = status_lbl
+
+        self._tool_list_layout.addStretch()
+
+    # ── 批量检测 ─────────────────────────────────────────
+
+    def _on_batch_check(self) -> None:
+        """一键检测所有工具环境。"""
+        if not self.active_client or self._checking or self._external_lock:
+            return
+
+        if not self._tools:
+            self.status_label.setText("未发现工具，请检查插件目录")
+            self.status_label.setStyleSheet(STATUS_ERROR)
+            return
+
+        # 重置状态图标
+        for lbl in self._status_labels.values():
+            lbl.setText(_STATUS_PENDING)
+
+        self._checking = True
+        self.check_btn.setEnabled(False)
+        self.status_label.setText("正在检测工具环境...")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
-        # 创建验证线程
-        self._verify_thread = QThread()
-        self._verify_worker = ConfigVerifyWorker(
-            self.active_client,
-            self.linux_project_path.text().strip(),
-            self._pending_conda_env
+        # 清理旧线程
+        self._cleanup_check_resources()
+
+        self._check_thread = QThread()
+        self._check_worker = EnvBatchCheckWorker(self.active_client, self._tools)
+        self._check_worker.moveToThread(self._check_thread)
+
+        self._check_thread.started.connect(self._check_worker.run)
+        self._check_worker.tool_checked.connect(self._on_tool_checked)
+        self._check_worker.finished.connect(self._on_batch_finished)
+        self._check_worker.error.connect(self._on_batch_error)
+        self._check_worker.finished.connect(self._cleanup_check_resources)
+
+        self._check_thread.start()
+
+    def _on_tool_checked(self, tool_id: str, env_name: str, ok: bool) -> None:
+        """单个工具检测完成，更新状态图标。"""
+        lbl = self._status_labels.get(tool_id)
+        if lbl:
+            lbl.setText(_STATUS_OK if ok else _STATUS_FAIL)
+
+    def _on_batch_finished(self, conda_envs: list) -> None:
+        """全部检测完成。"""
+        self._checking = False
+        self.check_btn.setEnabled(True)
+
+        ok_count = sum(
+            1 for lbl in self._status_labels.values()
+            if lbl.text() == _STATUS_OK
         )
-        self._verify_worker.moveToThread(self._verify_thread)
+        total = len(self._status_labels)
+        self.status_label.setText(f"检测完成：{ok_count}/{total} 个环境就绪")
+        if ok_count == total:
+            self.status_label.setStyleSheet(STATUS_SUCCESS)
+        elif ok_count == 0:
+            self.status_label.setStyleSheet(STATUS_ERROR)
+        else:
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
-        self._verify_thread.started.connect(self._verify_worker.run)
-        self._verify_worker.finished.connect(self._on_verify_finished)
-        self._verify_worker.finished.connect(self._cleanup_verify_resources)
+    def _on_batch_error(self, msg: str) -> None:
+        """检测出错。"""
+        self._checking = False
+        self.check_btn.setEnabled(True)
+        self.status_label.setText(f"检测失败: {msg[:30]}")
+        self.status_label.setStyleSheet(STATUS_ERROR)
 
-        self._verify_thread.start()
-
-    def _cleanup_verify_resources(self):
-        """清理验证线程资源"""
-        if hasattr(self, '_verify_thread') and self._verify_thread:
-            if self._verify_thread.isRunning():
-                self._verify_thread.quit()
-                self._verify_thread.wait(5000)
-            self._verify_thread.deleteLater()
+    def _cleanup_check_resources(self) -> None:
+        """清理检测线程资源。"""
+        for attr in ("_check_thread", "_check_worker"):
+            obj = getattr(self, attr, None)
+            if obj is None:
+                continue
+            if attr == "_check_thread" and obj.isRunning():
+                obj.quit()
+                obj.wait(5000)
+            obj.deleteLater()
             try:
-                delattr(self, '_verify_thread')
+                delattr(self, attr)
             except AttributeError:
                 pass
 
-        if hasattr(self, '_verify_worker') and self._verify_worker:
-            self._verify_worker.deleteLater()
-            try:
-                delattr(self, '_verify_worker')
-            except AttributeError:
-                pass
-
-    def _on_verify_finished(self, success: bool, message: str) -> None:
-        """配置验证完成回调"""
-        self._needs_auto_verify = False
-
-        if success:
-            # 验证成功，确保 conda 环境正确显示在下拉框中
-            if self._pending_conda_env:
-                # 检查下拉框中是否已有该项
-                found_index = -1
-                for i in range(self.conda_combo.count()):
-                    if self.conda_combo.itemData(i) == self._pending_conda_env:
-                        found_index = i
-                        break
-
-                if found_index >= 0:
-                    self.conda_combo.setCurrentIndex(found_index)
-                else:
-                    # 如果没有找到，添加它
-                    self.conda_combo.clear()
-                    self.conda_combo.addItem(self._pending_conda_env_name, self._pending_conda_env)
-                    self.conda_combo.setCurrentIndex(0)
-
-            # 自动锁定
-            self._is_locked = True
-            self.linux_project_path.setEnabled(False)
-            self.conda_combo.setEnabled(False)
-            self.fetch_btn.setEnabled(False)
-            self.lock_btn.setText("修改配置")
-
-            self.status_label.setText("配置验证成功")
-            self.status_label.setStyleSheet(STATUS_SUCCESS)
-
-            # 自动折叠（延迟执行，给用户看到成功状态）
-            self._auto_fold_timer.start(1500)
-        else:
-            # 验证失败，保持展开状态让用户修改
-            self.status_label.setText(f"验证失败: {message}")
-            self.status_label.setStyleSheet(STATUS_ERROR)
-            self.conda_combo.setEnabled(True)
-            self.fetch_btn.setEnabled(True)
-            self._pending_conda_env = ""
-            self._pending_conda_env_name = ""
-
-    def _on_fetch_envs(self) -> None:
-        """执行远程命令获取 Conda 环境列表。"""
-        if not self.active_client or self._fetching or self._external_lock:
-            return
-
-        # 首先更新UI状态
-        self.status_label.setText("正在同步环境 (后台运行)...")
-        self.fetch_btn.setEnabled(False)
-        self._fetching = True
-
-        # 确保之前的线程已经完全清理
-        if hasattr(self, '_thread') and self._thread:
-            if self._thread.isRunning():
-                self._thread.quit()
-                self._thread.wait(3000)  # 等待最多3秒
-            self._thread.deleteLater()
-        
-        if hasattr(self, '_worker') and self._worker:
-            self._worker.deleteLater()
-
-        # 创建新线程和worker
-        self._thread = QThread()
-        self._worker = EnvFetchWorker(self.active_client)
-        self._worker.moveToThread(self._thread)
-
-        # 信号绑定 - 在启动前连接
-        self._thread.started.connect(self._worker.run)
-        
-        # 断开之前的信号连接（如果存在），然后连接新的信号
-        try:
-            self._worker.finished.disconnect()
-        except:
-            pass  # 如果没有连接的信号，则忽略异常
-        
-        self._worker.finished.connect(self._on_fetch_finished)
-        self._worker.finished.connect(self._cleanup_fetch_resources)
-
-        # 启动线程
-        self._thread.start()
-
-    def _cleanup_fetch_resources(self):
-        """独立的资源清理方法"""
-        # 从主线程中清理资源
-        if hasattr(self, '_thread') and self._thread:
-            if self._thread.isRunning():
-                self._thread.quit()
-                self._thread.wait(5000)  # 等待最多5秒
-            self._thread.deleteLater()
-            try:
-                delattr(self, '_thread')
-            except AttributeError:
-                pass  # 如果属性已被删除，则忽略
-            
-        if hasattr(self, '_worker') and self._worker:
-            self._worker.deleteLater()
-            try:
-                delattr(self, '_worker')
-            except AttributeError:
-                pass  # 如果属性已被删除，则忽略
-
-    def _on_fetch_finished(self, success, envs, error_msg):
-        """线程结束后的回调"""
-        # 确保在主线程中执行，避免竞态条件
-        if hasattr(self, '_fetching') and self._fetching:
-            self._fetching = False
-            self.fetch_btn.setEnabled(True)
-
-        if success:
-            self.conda_combo.clear()
-            for path in envs:
-                name = path.split('/')[-1] if '/' in path else path
-                self.conda_combo.addItem(name, path)
-            self.conda_combo.setEnabled(True)
-            self.status_label.setText(f"成功获取 {len(envs)} 个环境")
-            self.status_label.setStyleSheet(STATUS_SUCCESS)
-        else:
-            self.status_label.setText(f"获取失败: {error_msg[:20]}...")
-            self.status_label.setStyleSheet(STATUS_ERROR)
+    # ── 保存/锁定 ─────────────────────────────────────────
 
     def _on_save_and_lock(self) -> None:
-        """生成远程 config.env 并切换锁定状态。"""
+        """保存配置并切换锁定状态。"""
         if self._is_locked:
-            # 解锁逻辑
+            # 解锁
             self._is_locked = False
             self.linux_project_path.setEnabled(True)
-            self.conda_combo.setEnabled(True)
-            self.fetch_btn.setEnabled(True)
-            self.lock_btn.setText("确认并锁定")
-            self.status_label.setText("配置已解锁")
+            self.spin_concurrent.setEnabled(True)
+            self.spin_poll.setEnabled(True)
+            self.check_btn.setEnabled(self.active_client is not None)
+            self.lock_btn.setText("确认并保存")
+            self.status_label.setText("配置已解锁，可修改")
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
             return
 
-        # 锁定逻辑
         project_path = self.linux_project_path.text().strip()
-        env_path = self.conda_combo.currentData()
-
-        if not project_path or not env_path:
-            self.status_label.setText("请填写路径并选择环境")
+        if not project_path:
+            self.status_label.setText("请填写项目根路径")
             self.status_label.setStyleSheet(STATUS_ERROR)
             return
 
-        try:
-            # 远程写入配置
-            config_content = f"CONDA_ENV_PATH={env_path}\\nPROJECT_ROOT={project_path}"
-            # 创建 config 目录并写入 config.env
-            cmd = f"mkdir -p {project_path}/config && echo -e '{config_content}' > {project_path}/config/config.env"
-            self.active_client.exec_command(cmd)
+        self._is_locked = True
+        self._lock_inputs()
+        self.lock_btn.setText("修改配置")
+        self.status_label.setText("配置已保存")
+        self.status_label.setStyleSheet(STATUS_SUCCESS)
+        self.request_save.emit()
 
-            self._is_locked = True
-            self.linux_project_path.setEnabled(False)
-            self.conda_combo.setEnabled(False)
-            self.fetch_btn.setEnabled(False)
-            self.lock_btn.setText("修改配置")
-            
-            self.status_label.setText("远程配置已生成并锁定")
-            self.status_label.setStyleSheet(STATUS_SUCCESS)
-            self.request_save.emit()
-        except Exception as e:
-            self.status_label.setText(f"保存失败: {str(e)}")
-            self.status_label.setStyleSheet(STATUS_ERROR)
+        # 延迟折叠
+        self._auto_fold_timer.start(1500)
 
-    def get_values(self) -> dict:
-        """供 SettingsPage 获取数据。"""
-        return {
-            "linux_project_path": self.linux_project_path.text().strip(),
-            "conda_env_path": self.conda_combo.currentData() or "",
-            "conda_env_name": self.conda_combo.currentText() or "",  # 保存显示名称
-            "is_locked": self._is_locked,
-            "max_concurrent": self.spin_concurrent.value(),
-            "poll_interval": self.spin_poll.value(),
-        }
-
-    def set_values(self, project_path: str = "", conda_env: str = "", conda_env_name: str = "",
-                   max_concurrent: int = 3, poll_interval: int = 5) -> None:
-        """供 SettingsPage 回填数据。"""
-        self.linux_project_path.setText(project_path)
-        self.spin_concurrent.setValue(max_concurrent)
-        self.spin_poll.setValue(poll_interval)
-        # 保存待恢复的 conda 环境配置
-        self._pending_conda_env = conda_env
-        self._pending_conda_env_name = conda_env_name or (conda_env.split('/')[-1] if conda_env else "")
-
-        # 如果已有 conda 环境配置，先添加一个占位项显示
-        if conda_env and self._pending_conda_env_name:
-            self.conda_combo.clear()
-            self.conda_combo.addItem(self._pending_conda_env_name, conda_env)
-            self.conda_combo.setCurrentIndex(0)
-            self.conda_combo.setEnabled(False)  # 等待验证后启用
-
-        # 标记需要自动验证
-        self._needs_auto_verify = bool(project_path and conda_env)
+    # ── 折叠/展开 ─────────────────────────────────────────
 
     def _toggle_container(self):
-        """折叠/展开"""
-        if self._fetching or self._external_lock:
+        if self._checking or self._external_lock:
             return
         visible = self.container.isVisible()
         self.container.setVisible(not visible)
         self.arrow_label.setText("▲" if not visible else "▼")
 
     def _auto_fold(self):
-        """自动折叠，仅在锁定且可见时触发"""
         if not self._in_edit_mode and self.container.isVisible():
             self.container.hide()
             self.arrow_label.setText("▼")
 
     def _enable_editing(self):
-        """进入编辑模式：解锁输入框，修改按钮保持可见，显示保存按钮"""
         if self._external_lock:
             return
         self.container.show()
         self.arrow_label.setText("▲")
 
         self.linux_project_path.setEnabled(True)
-        self.conda_combo.setEnabled(True)
-
+        self.spin_concurrent.setEnabled(True)
+        self.spin_poll.setEnabled(True)
+        if self.active_client:
+            self.check_btn.setEnabled(True)
         self.lock_btn.show()
         self.lock_btn.setEnabled(True)
-        self.modify_btn.show()  # 修改按钮保持可见
 
         self.status_label.setText("请修改配置并保存")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
         self._in_edit_mode = True
 
     def _lock_inputs(self):
-        """锁定模式：禁用输入框，修改按钮保持可见"""
         self.linux_project_path.setEnabled(False)
-        self.conda_combo.setEnabled(False)
-
+        self.spin_concurrent.setEnabled(False)
+        self.spin_poll.setEnabled(False)
         self.lock_btn.setText("修改配置")
-        self.modify_btn.show()  # 修改按钮始终保持可见
-        if self._is_locked:
-            self.status_label.setText("配置已保存")
-        else:
-            self.status_label.setText("等待配置")
         self._in_edit_mode = False
 
-    def set_external_lock(self, locked: bool) -> None:
-        """外部锁定功能，用于在SSH连接被占用时禁用编辑"""
-        if self._external_lock == locked:
-            return
-        self._external_lock = locked
-        self._refresh_interaction_state()
-
     def _refresh_interaction_state(self) -> None:
-        """刷新交互状态，处理外部锁定等情况"""
         if self._external_lock:
-            for w in [self.linux_project_path, self.conda_combo, self.modify_btn, self.lock_btn,
-                      self.spin_concurrent, self.spin_poll]:
+            for w in [
+                self.linux_project_path, self.modify_btn, self.lock_btn,
+                self.check_btn, self.spin_concurrent, self.spin_poll,
+            ]:
                 w.setEnabled(False)
             return
 
-        if self._fetching:
+        if self._checking:
             return
 
         if self._in_edit_mode:
             self.linux_project_path.setEnabled(True)
-            self.conda_combo.setEnabled(True)
+            self.spin_concurrent.setEnabled(True)
+            self.spin_poll.setEnabled(True)
             self.lock_btn.setEnabled(True)
             self.modify_btn.setEnabled(True)
+            self.check_btn.setEnabled(self.active_client is not None)
         else:
             self.linux_project_path.setEnabled(False)
-            self.conda_combo.setEnabled(False)
+            self.spin_concurrent.setEnabled(False)
+            self.spin_poll.setEnabled(False)
             self.modify_btn.setEnabled(True)
+            self.check_btn.setEnabled(self.active_client is not None and not self._is_locked)
