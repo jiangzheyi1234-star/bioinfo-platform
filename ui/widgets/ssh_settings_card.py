@@ -279,6 +279,11 @@ class SSHDiagnosticDialog(QDialog):
         self.setWindowTitle("SSH 连接诊断")
         self.setMinimumSize(520, 400)
         self.resize(560, 440)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #F0F7FF;
+            }
+        """)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -289,8 +294,8 @@ class SSHDiagnosticDialog(QDialog):
             QTextEdit {{
                 font-family: 'Consolas', 'Microsoft YaHei UI', monospace;
                 font-size: 13px;
-                background-color: #1E1E2E;
-                color: #CDD6F4;
+                background-color: #F5F5F5;
+                color: #333333;
                 border: none;
                 border-radius: 6px;
                 padding: 12px;
