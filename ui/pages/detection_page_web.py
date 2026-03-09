@@ -1,9 +1,10 @@
-"""Detection page implemented with Qt WebEngine (with graceful fallback)."""
+﻿"""Detection page implemented with Qt WebEngine (with graceful fallback)."""
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
@@ -80,11 +81,7 @@ class ToolBridge(QObject):
 
     @pyqtSlot(str, str)
     def run_tool(self, tool_id: str, params_json: str):
-        """执行工具 — 真正调用 ToolEngine.execute()。
-
-        执行后通过 JS 回调通知前端结果：
-          window._onRunResult({status: "ok"|"error"|"no_project"|"no_sample", ...})
-        """
+        """执行工具 — 真正调用 ToolEngine.execute()。"""
         try:
             params = json.loads(params_json)
         except Exception:
@@ -111,35 +108,45 @@ class ToolBridge(QObject):
                 self._send_run_result({"status": "no_project", "message": "请先选择或创建项目"})
                 return
 
-            # 3. 获取最近的样本 ID（project_manager 没有 current_sample_id，查 DB 最近一条）
-            sample_id = self._get_latest_sample_id(pm)
+            # 3. 获取工具描述符（用于输入/参数/数据库字段对齐）
+            descriptor = self.plugin_registry.get_descriptor(tool_id)
+
+            # 4. 样本选择：优先最近样本，无样本时自动创建
+            sample_id = self._ensure_sample_id(sl, pm, params, descriptor)
             if not sample_id:
-                self._send_run_result({"status": "no_sample", "message": "当前项目下没有样本，请先在主页添加样本"})
+                self._send_run_result({"status": "no_sample", "message": "无法确定样本，请先创建项目样本"})
                 return
 
-            # 4. 从 config 读取数据库路径，按工具 descriptor 中的 databases 声明组装
-            database_paths = self._build_database_paths(tool_id)
+            # 5. 输入导入：本地路径 -> 远端 raw -> data_id 列表
+            input_data_ids = self._import_inputs(sl, pm, sample_id, descriptor, params)
 
-            # 5. 调用 tool_engine.execute()
+            # 6. 参数/数据库路径组装
+            run_params = self._extract_run_params(descriptor, params)
+            database_paths = self._build_database_paths(tool_id, descriptor)
+            database_paths.update(self._extract_database_paths(descriptor, params))
+            self._validate_required_databases(descriptor, database_paths)
+
+            # 7. 调用 tool_engine.execute()
             execution_id = tool_engine.execute(
                 tool_id=tool_id,
-                input_data_ids=[],
-                parameters=params,
+                input_data_ids=input_data_ids,
+                parameters=run_params,
                 sample_id=sample_id,
                 triggered_by="manual",
                 database_paths=database_paths,
             )
 
             logger.info("工具已提交执行: tool=%s execution_id=%s sample=%s", tool_id, execution_id, sample_id)
-            self._send_run_result({
-                "status": "ok",
-                "execution_id": execution_id,
-                "sample_id": sample_id,
-                "message": f"任务已提交 ({execution_id[:16]}...)",
-            })
+            self._send_run_result(
+                {
+                    "status": "ok",
+                    "execution_id": execution_id,
+                    "sample_id": sample_id,
+                    "message": f"任务已提交 ({execution_id[:16]}...)",
+                }
+            )
 
         except ValueError as e:
-            # ToolEngine 抛出 ValueError（无项目/参数错误）
             logger.warning("run_tool ValueError: %s", e)
             self._send_run_result({"status": "error", "message": str(e)})
         except Exception:
@@ -151,9 +158,7 @@ class ToolBridge(QObject):
         try:
             db = pm.db
             cursor = db.cursor()
-            cursor.execute(
-                "SELECT sample_id FROM samples ORDER BY rowid DESC LIMIT 1"
-            )
+            cursor.execute("SELECT sample_id FROM samples ORDER BY rowid DESC LIMIT 1")
             row = cursor.fetchone()
             if row:
                 return row[0]
@@ -161,42 +166,27 @@ class ToolBridge(QObject):
             logger.exception("查询最近样本 ID 失败")
         return ""
 
-    def _build_database_paths(self, tool_id: str) -> dict:
-        """读取 config.databases，按工具 YAML 中的 databases 声明组装路径映射。
-
-        工具 YAML databases 字段格式（实际）：
-          databases:
-            - id: kraken2_standard   # 数据库 ID（用于前缀匹配 config key）
-              param_name: db         # Jinja2 模板中的变量名
-              required: true
-
-        config.json databases key：kraken2 / checkm2 / gtdbtk / blast_nt
-
-        匹配策略（优先级递减）：
-          1. id 与 config key 完全相同（如 id=kraken2 → key=kraken2）
-          2. id 以 config key 开头（如 id=kraken2_standard → key=kraken2）
-          3. tool_id 与 config key 完全相同（如 tool_id=kraken2 → key=kraken2）
-        """
+    def _build_database_paths(self, tool_id: str, descriptor: dict | None = None) -> dict:
+        """读取 config.databases，按工具 YAML 中的 databases 声明组装路径映射。"""
         try:
             from config import get_config
+
             cfg_databases = get_config().get("databases", {})
 
             if not self.plugin_registry:
                 return {}
 
-            desc = self.plugin_registry.get_descriptor(tool_id)
+            desc = descriptor or self.plugin_registry.get_descriptor(tool_id)
             db_decls = desc.get("databases", [])  # list[{id, param_name, ...}]
 
             paths: dict = {}
             for decl in db_decls:
-                # param_name 是 Jinja2 模板变量名（如 "db"、"database_path"）
                 var_name = decl.get("param_name", decl.get("name", ""))
                 db_id = decl.get("id", "")
 
                 if not var_name:
                     continue
 
-                # 按优先级查找 config key
                 resolved_path = ""
                 for cfg_key, cfg_path in cfg_databases.items():
                     if not cfg_path:
@@ -205,7 +195,6 @@ class ToolBridge(QObject):
                         resolved_path = cfg_path
                         break
 
-                # 回退：tool_id 前缀匹配
                 if not resolved_path:
                     for cfg_key, cfg_path in cfg_databases.items():
                         if not cfg_path:
@@ -216,16 +205,115 @@ class ToolBridge(QObject):
 
                 if resolved_path:
                     paths[var_name] = resolved_path
-                    logger.debug("数据库路径已匹配: tool=%s, id=%s → %s=%s",
-                                 tool_id, db_id, var_name, resolved_path)
+                    logger.debug(
+                        "数据库路径已匹配: tool=%s, id=%s → %s=%s",
+                        tool_id,
+                        db_id,
+                        var_name,
+                        resolved_path,
+                    )
                 else:
-                    logger.debug("数据库路径未配置: tool=%s, id=%s, var=%s",
-                                 tool_id, db_id, var_name)
+                    logger.debug("数据库路径未配置: tool=%s, id=%s, var=%s", tool_id, db_id, var_name)
 
             return paths
         except Exception:
             logger.exception("构建数据库路径失败 (tool=%s)", tool_id)
             return {}
+
+    def _ensure_sample_id(self, sl, pm, params: dict, descriptor: dict) -> str:
+        """为检测执行选择或创建样本。"""
+        explicit_sample_id = str(params.get("__sample_id", "")).strip()
+        if explicit_sample_id:
+            return explicit_sample_id
+
+        sample_id = self._get_latest_sample_id(pm)
+        if sample_id:
+            return sample_id
+
+        registry = getattr(sl, "data_registry", None)
+        if registry is None:
+            return ""
+
+        sample_name = str(params.get("__sample_name", "")).strip()
+        if not sample_name:
+            for inp in descriptor.get("inputs", []):
+                path = str(params.get(inp.get("name", ""), "")).strip()
+                if path:
+                    sample_name = Path(path).stem
+                    break
+        if not sample_name:
+            sample_name = f"detection_{time.strftime('%Y%m%d_%H%M%S')}"
+
+        return registry.add_sample(sample_name, source="detection_page")
+
+    def _import_inputs(self, sl, pm, sample_id: str, descriptor: dict, params: dict) -> list[str]:
+        """按插件 inputs 声明顺序导入本地输入文件。"""
+        registry = getattr(sl, "data_registry", None)
+        ssh = getattr(sl, "ssh_service", None)
+        if registry is None or ssh is None or not getattr(ssh, "is_connected", False):
+            raise ValueError("数据注册器或 SSH 未就绪")
+
+        from core.data_importer import DataImporter
+
+        importer = DataImporter(ssh_service=ssh, registry=registry)
+        input_data_ids: list[str] = []
+
+        for inp in descriptor.get("inputs", []):
+            name = str(inp.get("name", ""))
+            required = bool(inp.get("required", True))
+            local_path = str(params.get(name, "")).strip()
+
+            if not local_path:
+                if required:
+                    raise ValueError(f"缺少必需输入: {name}")
+                continue
+
+            data_id = importer.import_file(
+                local_path=local_path,
+                sample_id=sample_id,
+                data_type=str(inp.get("type", "unknown")),
+                project_remote_base=pm.current_project.remote_base,
+            )
+            input_data_ids.append(data_id)
+
+        return input_data_ids
+
+    @staticmethod
+    def _extract_run_params(descriptor: dict, params: dict) -> dict:
+        """只提取 tool.yaml parameters 声明的用户参数。"""
+        run_params: dict = {}
+        for p in descriptor.get("parameters", []):
+            name = str(p.get("name", ""))
+            if name and name in params:
+                run_params[name] = params[name]
+        return run_params
+
+    @staticmethod
+    def _extract_database_paths(descriptor: dict, params: dict) -> dict:
+        """从前端参数中提取数据库路径（兼容 param_name/name 两种 key）。"""
+        db_paths: dict = {}
+        for decl in descriptor.get("databases", []):
+            var_name = str(decl.get("param_name", decl.get("name", ""))).strip()
+            legacy_name = str(decl.get("name", "")).strip()
+            if not var_name:
+                continue
+
+            value = str(params.get(var_name, "")).strip()
+            if not value and legacy_name:
+                value = str(params.get(legacy_name, "")).strip()
+            if value:
+                db_paths[var_name] = value
+
+        return db_paths
+
+    @staticmethod
+    def _validate_required_databases(descriptor: dict, database_paths: dict) -> None:
+        for decl in descriptor.get("databases", []):
+            if not bool(decl.get("required", False)):
+                continue
+            var_name = str(decl.get("param_name", decl.get("name", ""))).strip()
+            if var_name and not str(database_paths.get(var_name, "")).strip():
+                raise ValueError(f"缺少必需数据库路径: {var_name}")
 
     def _send_run_result(self, result: dict) -> None:
         """通过 JS 回调向前端发送执行结果。"""

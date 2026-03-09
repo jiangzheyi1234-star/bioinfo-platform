@@ -1,4 +1,4 @@
-let bridge = null;
+﻿let bridge = null;
 let allTools = [];
 let selectedToolId = null;
 let selectedDescriptor = null;
@@ -39,6 +39,9 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // 清空按钮
     document.getElementById('clear-btn').addEventListener('click', clearForm);
+
+    // Python 回调：运行结果
+    window._onRunResult = onRunResult;
 });
 
 function switchTab(tab) {
@@ -324,12 +327,12 @@ function renderDatabases(databases) {
 
         group.innerHTML = `
             <label class="form-label">
-                ${db.label || db.name}${required}
+                ${db.label || (db.param_name || db.name)}${required}
             </label>
             <div class="input-group">
                 <input type="text"
                        class="form-input"
-                       id="db-${db.name}"
+                       id="db-${db.param_name || db.name}"
                        placeholder="${db.description || 'Database path...'}"
                        readonly>
                 <button class="btn-browse" onclick="browseFile('db-${db.name}')">Browse...</button>
@@ -352,33 +355,33 @@ function browseFile(inputId) {
 
 function runTool() {
     if (!selectedToolId || !selectedDescriptor) {
-        alert('Please select a tool first');
+        alert('请先选择工具');
         return;
     }
 
     console.log('Running tool:', selectedToolId);
 
-    // 收集参数
     const params = {};
 
-    // 收集输入文件
     const inputs = selectedDescriptor.inputs || [];
-    inputs.forEach(input => {
-        const value = document.getElementById(`input-${input.name}`)?.value;
+    for (const input of inputs) {
+        const value = document.getElementById(`input-${input.name}`)?.value?.trim();
+        if (input.required !== false && !value) {
+            alert(`缺少必填输入: ${input.label || input.name}`);
+            return;
+        }
         if (value) {
             params[input.name] = value;
         }
-    });
+    }
 
-    // 收集参数
     const parameters = selectedDescriptor.parameters || [];
     parameters.forEach(param => {
         const element = document.getElementById(`param-${param.name}`);
         if (element) {
             let value = element.value;
-            // 类型转换
             if (param.type === 'int' || param.type === 'integer') {
-                value = parseInt(value);
+                value = parseInt(value, 10);
             } else if (param.type === 'float' || param.type === 'number') {
                 value = parseFloat(value);
             } else if (param.type === 'bool' || param.type === 'boolean') {
@@ -388,23 +391,60 @@ function runTool() {
         }
     });
 
-    // 收集数据库
     const databases = selectedDescriptor.databases || [];
-    databases.forEach(db => {
-        const value = document.getElementById(`db-${db.name}`)?.value;
-        if (value) {
-            params[db.name] = value;
+    for (const db of databases) {
+        const key = db.param_name || db.name;
+        const value = document.getElementById(`db-${key}`)?.value?.trim();
+        if (db.required !== false && !value) {
+            alert(`缺少必填数据库路径: ${db.label || key}`);
+            return;
         }
-    });
+        if (value) {
+            params[key] = value;
+        }
+    }
 
     console.log('Parameters:', params);
 
-    // 调用 Python 执行
-    bridge.run_tool(selectedToolId, JSON.stringify(params));
+    const runBtn = document.getElementById('run-btn');
+    if (runBtn) {
+        runBtn.disabled = true;
+        runBtn.textContent = '运行中...';
+    }
 
-    alert('Tool submitted for execution!');
+    bridge.run_tool(selectedToolId, JSON.stringify(params));
 }
 
+function onRunResult(result) {
+    const runBtn = document.getElementById('run-btn');
+    if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.textContent = '▶ 运行工具';
+    }
+
+    if (!result || !result.status) {
+        alert('运行结果未知');
+        return;
+    }
+
+    if (result.status === 'ok') {
+        alert(result.message || '任务已提交');
+        loadHistory();
+        return;
+    }
+
+    if (result.status === 'no_project') {
+        alert(result.message || '请先选择项目');
+        return;
+    }
+
+    if (result.status === 'no_sample') {
+        alert(result.message || '样本不存在');
+        return;
+    }
+
+    alert(result.message || '任务提交失败');
+}
 function clearForm() {
     // 清空所有输入
     document.querySelectorAll('.form-input').forEach(input => {
@@ -502,3 +542,6 @@ function formatDuration(seconds) {
         return `${Math.round(seconds / 3600)}小时`;
     }
 }
+
+
+
