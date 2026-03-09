@@ -249,6 +249,8 @@ class LinuxSettingsCard(QFrame):
         self.conda_combo = QComboBox()
         self.conda_combo.setPlaceholderText("请先连接服务器并获取列表...")
         self.conda_combo.setEnabled(False)
+        # 限制下拉框可见行数以触发滚动条
+        self.conda_combo.setMaxVisibleItems(8)
         # 使用 styles.py 中定义的 INPUT_COMBOBOX 样式
         self.conda_combo.setStyleSheet(INPUT_COMBOBOX)
 

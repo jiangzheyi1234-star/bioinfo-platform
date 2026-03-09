@@ -157,6 +157,53 @@ _COMBOBOX_BASE = f"""
     QComboBox::down-arrow {{
         image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iOCIgdmlld0JveD0iMCAwIDEyIDgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEuNDEgMC41OEw2IDUuMTdsNC41OS00LjU5TDEyIDJsLTYgNkwwIDJsMS40MS0xLjQyeiIgZmlsbD0iIzNDM0M0Mzk5Ii8+PC9zdmc+);
     }}
+    QComboBox QAbstractItemView {{
+        border: 1px solid {COLOR_BORDER_INPUT};
+        border-radius: {RADIUS_CTRL};
+        background-color: {COLOR_BG_CARD};
+        selection-background-color: {COLOR_SELECTION_BG};
+        selection-color: {COLOR_PRIMARY};
+        outline: none;
+    }}
+    QComboBox QAbstractItemView::item {{
+        min-height: 32px;
+        padding: 4px 12px;
+        color: {COLOR_TEXT_DEFAULT};
+    }}
+    QComboBox QAbstractItemView::item:hover {{
+        background-color: {COLOR_SELECTION_HOVER};
+    }}
+    QComboBox QAbstractItemView::item:selected {{
+        background-color: {COLOR_SELECTION_BG};
+        color: {COLOR_PRIMARY};
+    }}
+    QComboBox QAbstractItemView QScrollBar:vertical {{
+        border: none;
+        background: transparent;
+        width: 8px;
+        margin: 2px;
+    }}
+    QComboBox QAbstractItemView QScrollBar::handle:vertical {{
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        min-height: 20px;
+    }}
+    QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {{
+        background: rgba(0, 0, 0, 0.35);
+    }}
+    QComboBox QAbstractItemView QScrollBar::handle:vertical:pressed {{
+        background: rgba(0, 0, 0, 0.5);
+    }}
+    QComboBox QAbstractItemView QScrollBar::add-line:vertical,
+    QComboBox QAbstractItemView QScrollBar::sub-line:vertical {{
+        height: 0px;
+        background: transparent;
+        border: none;
+    }}
+    QComboBox QAbstractItemView QScrollBar::add-page:vertical,
+    QComboBox QAbstractItemView QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
 """
 
 # ═══════════════════════════════════════════════════════════
