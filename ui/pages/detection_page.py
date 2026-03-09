@@ -91,6 +91,13 @@ class DetectionPage(BasePage):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+
+        # 动态约束 content 宽度到视口宽度
+        if hasattr(self, "_workbench_scroll") and hasattr(self, "_workbench_content"):
+            viewport_width = self._workbench_scroll.viewport().width()
+            if viewport_width > 0:
+                self._workbench_content.setMaximumWidth(viewport_width)
+
         if hasattr(self, "_cards_grid"):
             current_cols = self._cards_per_row()
             if current_cols != self._last_card_cols:
@@ -289,6 +296,7 @@ class DetectionPage(BasePage):
 
         # 确保内容宽度不超出滚动区域
         content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._workbench_content = content  # 保存引用，用于 resizeEvent 中动态约束宽度
 
         root = QVBoxLayout(content)
         root.setContentsMargins(0, 10, 0, 0)
@@ -438,6 +446,8 @@ class DetectionPage(BasePage):
         card = QFrame()
         card.setCursor(Qt.CursorShape.PointingHandCursor)
         card.setMinimumHeight(148)
+        card.setMinimumWidth(220)  # 设置最小宽度，确保卡片不会太窄
+        card.setMaximumWidth(400)  # 设置最大宽度，避免单列时过宽
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         lay = QVBoxLayout(card)
@@ -722,13 +732,13 @@ class DetectionPage(BasePage):
         # 使用实际可用宽度（考虑滚动条宽度约 20px）
         available_width = width - 20
 
-        # 考虑卡片间距（12px per gap）和最小卡片宽度（约 250px）
-        # 3 列: 3 * 250 + 2 * 12 = 774px
-        # 2 列: 2 * 250 + 1 * 12 = 512px
-        # 1 列: 1 * 250 = 250px
-        if available_width < 512:
+        # 考虑卡片间距（12px per gap）和最小卡片宽度（220px）
+        # 3 列: 3 * 220 + 2 * 12 = 684px
+        # 2 列: 2 * 220 + 1 * 12 = 452px
+        # 1 列: 1 * 220 = 220px
+        if available_width < 452:
             return 1
-        elif available_width < 800:
+        elif available_width < 700:
             return 2
         else:
             return 3
@@ -739,6 +749,12 @@ class DetectionPage(BasePage):
 
         visible_ids = self._visible_tool_ids()
         self._tool_count_label.setText(f"{len(visible_ids)} / {len(self._tool_order)} 个工具")
+
+        # 动态设置卡片容器的最大宽度，确保不超出视口
+        if self._workbench_scroll is not None:
+            viewport_width = self._workbench_scroll.viewport().width()
+            if viewport_width > 0:
+                self._cards_wrap.setMaximumWidth(viewport_width - 20)
 
         cols = self._cards_per_row()
         for col in range(6):
