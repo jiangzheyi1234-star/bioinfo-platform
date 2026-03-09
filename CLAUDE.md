@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 python -m ui.main          # 启动应用
-pytest                      # 运行全部 380+ 测试
+pytest                      # 运行全部 414 个测试
 pytest tests/test_xxx.py -v # 单文件测试
 ```
 
@@ -55,6 +55,18 @@ pytest tests/test_xxx.py -v # 单文件测试
 fastp · hostile · kraken2 · megahit · metaspades · metabat2 · maxbin2 · concoct · das_tool · checkm2 · busco · gtdbtk · prokka · bakta · eggnog · blastn
 声明式：`analysis_paths.yaml` · `databases.yaml`
 
+每个 tool.yaml 含以下关键字段：
+- `conda_env`: 工具专属 conda 环境名（如 `fastp_env`）
+- `install_cmd`: conda create 安装命令（如 `conda create -n fastp_env -c bioconda fastp -y`）
+- `databases`: 工具所需数据库声明（`id` + `param_name`）
+
+### 工具环境管理（✅ 已完成）
+`LinuxSettingsCard` 支持完整的"检测 + 安装"闭环：
+- **一键检测**：SSH `conda env list --json` 逐个比对，❌ 工具行显示「安装」按钮
+- **点击安装**：`EnvInstallDialog` 弹出，SSH 执行 `conda create`，输出实时滚动
+- **数据库提示**：安装需要数据库的工具后，自动弹出提示引导填写路径
+- **安装完成**：自动重新触发全量检测，更新 ✅/❌ 状态
+
 ## 待完成功能（每次开发前先 Review）
 
 ### P1 — 阻断（流程能跑但结果看不到）
@@ -64,7 +76,7 @@ fastp · hostile · kraken2 · megahit · metaspades · metabat2 · maxbin2 · c
 
 ### P2 — 核心功能缺失
 - [ ] 结果浏览页（`results_page.py`）
-- [ ] 数据库管理页（`database_page.py`）
+- [ ] 数据库管理页（`database_page.py`）— 工具环境已可安装，下一步需要数据库下载 UI
 - [ ] AMR 分析页（`amr_page.py`）— 污水研究核心
 - [ ] DAG 视图（`dag_widget.py`）
 - [ ] `ResultSyncManager`（任务完成自动同步 result 文件）
