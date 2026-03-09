@@ -24,8 +24,10 @@ logs/
 .claude/
 
 # Test temp directories
-.pytest_tmp/
-.pytest_tmp_full/
+.pytest_tmp*/
+.pytest_cache/
+.pycache_tmp/
+tmp_pytest*/
 data/
 
 # Runtime outputs
