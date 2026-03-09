@@ -26,6 +26,10 @@ logs/
 # Test temp directories
 .pytest_tmp/
 .pytest_tmp_full/
+data/
+
+# Runtime outputs
+logs/
 
 # Dev/debug scripts
 diagnose_*.py
