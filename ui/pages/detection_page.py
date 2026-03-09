@@ -323,6 +323,7 @@ class DetectionPage(BasePage):
         root.addWidget(category_row)
         self._cards_wrap = QWidget()
         self._cards_wrap.setStyleSheet("background: transparent;")
+        self._cards_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._cards_grid = QGridLayout(self._cards_wrap)
         self._cards_grid.setContentsMargins(0, 0, 0, 0)
         self._cards_grid.setHorizontalSpacing(12)
@@ -721,10 +722,13 @@ class DetectionPage(BasePage):
         # 使用实际可用宽度（考虑滚动条宽度约 20px）
         available_width = width - 20
 
-        # 根据可用宽度决定列数
-        if available_width < 500:
+        # 考虑卡片间距（12px per gap）和最小卡片宽度（约 250px）
+        # 3 列: 3 * 250 + 2 * 12 = 774px
+        # 2 列: 2 * 250 + 1 * 12 = 512px
+        # 1 列: 1 * 250 = 250px
+        if available_width < 512:
             return 1
-        elif available_width < 900:
+        elif available_width < 800:
             return 2
         else:
             return 3
