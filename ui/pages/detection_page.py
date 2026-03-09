@@ -754,10 +754,9 @@ class DetectionPage(BasePage):
         if self._workbench_scroll is not None:
             viewport_width = self._workbench_scroll.viewport().width()
             if viewport_width > 0:
-                # 设置固定宽度（而不是最大宽度），强制填满
-                target_width = viewport_width - 20
-                self._cards_wrap.setMinimumWidth(target_width)
-                self._cards_wrap.setMaximumWidth(target_width)
+                # 设置固定宽度，不减去滚动条宽度
+                self._cards_wrap.setMinimumWidth(viewport_width)
+                self._cards_wrap.setMaximumWidth(viewport_width)
 
         cols = self._cards_per_row()
         for col in range(6):
@@ -775,14 +774,23 @@ class DetectionPage(BasePage):
 
         # 计算每个卡片应该有的宽度（平均分配）
         viewport_width = self._workbench_scroll.viewport().width() if self._workbench_scroll else self.width()
-        available_width = viewport_width - 20  # 减去滚动条
+        # 不减去滚动条宽度，直接使用视口宽度
+        available_width = viewport_width
         spacing_total = (cols - 1) * 12  # 卡片间距总和
-        card_width = (available_width - spacing_total) // cols  # 每个卡片的宽度
+        base_card_width = (available_width - spacing_total) // cols  # 基础卡片宽度
+        remainder = (available_width - spacing_total) % cols  # 剩余像素
+
+        logger.debug(f"viewport_width={viewport_width}, available_width={available_width}, cols={cols}, base_card_width={base_card_width}")
 
         for i, tid in enumerate(visible_ids):
             desc = self._tool_catalog[tid]
             card = self._build_tool_card(tid, desc)
+
             # 设置卡片固定宽度，实现填满效果
+            # 将剩余像素分配给前 remainder 个卡片
+            col_index = i % cols
+            card_width = base_card_width + (1 if col_index < remainder else 0)
+
             if card_width > 220:  # 确保不小于最小宽度
                 card.setMinimumWidth(card_width)
                 card.setMaximumWidth(card_width)
