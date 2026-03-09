@@ -79,47 +79,83 @@ class EnvBatchCheckWorker(QObject):
     @pyqtSlot()
     def run(self):
         try:
-            # 获取远程 conda 环境列表
-            conda_envs: list[str] = []
-            commands = [
-                "conda env list --json",
-                "source ~/.bashrc && conda env list --json",
-                "/opt/anaconda3/bin/conda env list --json",
-                "~/anaconda3/bin/conda env list --json",
-                "~/miniconda3/bin/conda env list --json",
-            ]
-
             import json as _json
 
-            for cmd in commands:
+            # ── 第一步：获取远程 conda 环境列表 ──────────────────
+            # 优先用绝对路径，避免 PATH 未初始化的问题。
+            # 关键：必须等 channel.recv_exit_status() 确保命令执行完毕，
+            # exec_command 本身是异步的，直接 .read() 可能拿到空内容。
+            conda_envs: list[str] = []
+            candidates = [
+                # 按实际服务器路径优先排列
+                "/home/zyserver/anaconda3/bin/conda env list --json",
+                "/home/zyserver/miniconda3/bin/conda env list --json",
+                # 通用绝对路径
+                "~/anaconda3/bin/conda env list --json",
+                "~/miniconda3/bin/conda env list --json",
+                "/opt/anaconda3/bin/conda env list --json",
+                "/opt/miniconda3/bin/conda env list --json",
+                # fallback：依赖 PATH
+                "conda env list --json",
+            ]
+
+            for cmd in candidates:
                 try:
-                    _, stdout, stderr = self.client.exec_command(cmd, timeout=15)
+                    _, stdout, stderr = self.client.exec_command(cmd, timeout=30)
+                    # ★ 等待命令真正执行完毕
+                    exit_code = stdout.channel.recv_exit_status()
                     output = stdout.read().decode("utf-8", errors="ignore").strip()
-                    if output:
-                        json_start = output.find("{")
-                        if json_start >= 0:
-                            data = _json.loads(output[json_start:])
-                            conda_envs = data.get("envs", [])
-                            break
-                except Exception:
+                    err_out = stderr.read().decode("utf-8", errors="ignore").strip()
+
+                    logger.debug("conda cmd=%r exit=%d out_len=%d err=%s",
+                                 cmd, exit_code, len(output), err_out[:80])
+
+                    if exit_code != 0 or not output:
+                        continue
+
+                    json_start = output.find("{")
+                    if json_start < 0:
+                        continue
+
+                    data = _json.loads(output[json_start:])
+                    conda_envs = data.get("envs", [])
+                    logger.info("conda env list 成功，共 %d 个环境（命令: %s）",
+                                len(conda_envs), cmd)
+                    break
+
+                except _json.JSONDecodeError as e:
+                    logger.warning("JSON 解析失败 cmd=%r: %s", cmd, e)
+                    continue
+                except Exception as e:
+                    logger.debug("cmd=%r 失败: %s", cmd, e)
                     continue
 
-            # 提取环境名（路径末尾部分）
-            env_names_set = set()
+            if not conda_envs:
+                logger.warning("所有候选命令均未取到 conda 环境列表")
+
+            # ── 第二步：构建环境名集合（取路径末尾段）──────────────
+            # conda env list --json 返回完整路径，如：
+            #   /home/zyserver/anaconda3/envs/fastp_env
+            # 末尾段即环境名：fastp_env
+            env_names_set: set[str] = set()
             for path in conda_envs:
-                name = path.split("/")[-1] if "/" in path else path
+                name = path.rstrip("/").split("/")[-1]
                 env_names_set.add(name)
 
-            # 逐个比对工具环境
+            logger.debug("已知环境名: %s", env_names_set)
+
+            # ── 第三步：逐个比对工具的 conda_env 字段 ───────────────
             for tool in self.tools:
                 tool_id = tool.get("id", "")
                 conda_env = tool.get("conda_env", "")
+
                 if not conda_env:
-                    # 工具无 conda_env 声明 — 视为就绪（直接系统调用）
+                    # 工具无 conda_env 声明 → 直接系统调用，视为就绪
                     self.tool_checked.emit(tool_id, "(系统路径)", True)
                     continue
 
                 ok = conda_env in env_names_set
+                logger.debug("tool=%s conda_env=%s ok=%s", tool_id, conda_env, ok)
                 self.tool_checked.emit(tool_id, conda_env, ok)
 
             self.finished.emit(conda_envs)
@@ -178,15 +214,17 @@ class LinuxSettingsCard(QFrame):
         self._refresh_tool_list()
 
     def set_active_client(self, client) -> None:
-        """接收外部传入的 SSH 客户端实例。"""
+        """接收外部传入的 SSH 客户端实例。SSH 连接成功后自动触发一次环境检测。"""
         self.active_client = client
         connected = client is not None
 
         self.check_btn.setEnabled(connected and not self._is_locked and not self._external_lock)
 
         if connected:
-            self.status_label.setText("SSH 已就绪，可一键检测")
-            self.status_label.setStyleSheet(STATUS_SUCCESS)
+            self.status_label.setText("SSH 已就绪，正在检测工具环境...")
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
+            # SSH 连接成功后延迟 1s 自动触发检测（等 UI 渲染完毕）
+            QTimer.singleShot(1000, self._on_batch_check)
         else:
             self.status_label.setText("等待 SSH 连接")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
