@@ -5,4 +5,14 @@ from .home_page import HomePage
 from .analysis_page import AnalysisPage
 from .assembly_page import AssemblyPage
 
-__all__ = ["SettingsPage", "DetectionPageWeb", "HomePage", "AnalysisPage", "AssemblyPage"]
+# Backward-compatible export: legacy imports expect `DetectionPage`.
+DetectionPage = DetectionPageWeb
+
+__all__ = [
+    "SettingsPage",
+    "DetectionPageWeb",
+    "DetectionPage",
+    "HomePage",
+    "AnalysisPage",
+    "AssemblyPage",
+]

@@ -1,12 +1,11 @@
-"""应用启动入口。"""
+"""Application entrypoint."""
 
 import os
 import sys
 
-# 重要：必须在创建 QApplication 之前导入 QtWebEngineWidgets
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-
 from PyQt6.QtWidgets import QApplication
+
+from ui.qt_bootstrap import ensure_qt_webengine_ready
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(current_dir)
@@ -23,7 +22,7 @@ except ImportError:
 
 
 def _sanitize_qt_platform() -> None:
-    """避免误设置 offscreen 导致窗口不可见。"""
+    """Avoid forcing offscreen platform for normal interactive runs."""
     platform = (os.environ.get("QT_QPA_PLATFORM") or "").strip().lower()
     if platform == "offscreen":
         os.environ.pop("QT_QPA_PLATFORM", None)
@@ -31,6 +30,7 @@ def _sanitize_qt_platform() -> None:
 
 def main():
     try:
+        ensure_qt_webengine_ready()
         _sanitize_qt_platform()
         app = QApplication(sys.argv)
 
@@ -57,11 +57,10 @@ def main():
             level=logging.ERROR,
             encoding="utf-8",
         )
-        logging.error("启动失败:\n%s", traceback.format_exc())
+        logging.error("Startup failed:\n%s", traceback.format_exc())
         traceback.print_exc()
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
-
