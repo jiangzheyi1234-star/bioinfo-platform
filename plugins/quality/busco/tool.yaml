@@ -4,6 +4,7 @@ version: "5.7.1"
 category: quality
 description: "基于单拷贝直系同源基因的基因组完整性评估工具"
 conda_env: busco_env
+install_cmd: "conda create -n busco_env -c bioconda -c conda-forge busco -y"
 
 detection:
   command: "busco --version"

@@ -4,6 +4,7 @@ version: "1.2.9"
 category: assembly
 description: "超快速、内存高效的宏基因组组装工具"
 conda_env: megahit_env
+install_cmd: "conda create -n megahit_env -c bioconda -c conda-forge megahit -y"
 
 detection:
   command: "megahit --version"

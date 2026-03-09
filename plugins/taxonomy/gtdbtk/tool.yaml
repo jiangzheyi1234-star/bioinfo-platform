@@ -4,6 +4,7 @@ version: "2.3.2"
 category: taxonomy
 description: "基于 GTDB 的基因组分类学注释工具"
 conda_env: gtdbtk_env
+install_cmd: "conda create -n gtdbtk_env -c bioconda -c conda-forge gtdbtk -y"
 
 detection:
   command: "gtdbtk --version"

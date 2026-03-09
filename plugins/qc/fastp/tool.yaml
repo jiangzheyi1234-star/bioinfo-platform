@@ -4,6 +4,7 @@ version: "0.23.4"
 category: qc
 description: "超快速 FASTQ 质量控制与预处理工具"
 conda_env: fastp_env
+install_cmd: "conda create -n fastp_env -c bioconda -c conda-forge fastp -y"
 
 detection:
   command: "fastp --version"

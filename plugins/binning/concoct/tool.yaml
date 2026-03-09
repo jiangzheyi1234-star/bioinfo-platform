@@ -4,6 +4,7 @@ version: "1.1.0"
 category: binning
 description: "基于组成和覆盖度的无监督 binning 工具"
 conda_env: concoct_env
+install_cmd: "conda create -n concoct_env -c bioconda -c conda-forge concoct -y"
 
 detection:
   command: "concoct --version"

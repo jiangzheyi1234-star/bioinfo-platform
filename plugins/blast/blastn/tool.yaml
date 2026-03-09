@@ -4,6 +4,7 @@ version: "2.15.0"
 category: blast
 description: "核苷酸序列比对工具，用于序列相似性搜索"
 conda_env: blast_env
+install_cmd: "conda create -n blast_env -c bioconda -c conda-forge blast -y"
 
 detection:
   command: "blastn -version"

@@ -4,6 +4,7 @@ version: "1.1.6"
 category: binning
 description: "多种 binning 结果整合优化工具"
 conda_env: dastool_env
+install_cmd: "conda create -n dastool_env -c bioconda -c conda-forge das_tool -y"
 
 detection:
   command: "DAS_Tool --version 2>&1"

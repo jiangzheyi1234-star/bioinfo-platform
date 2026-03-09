@@ -4,6 +4,7 @@ version: "1.0.2"
 category: quality
 description: "基于机器学习的基因组完整性和污染度评估工具"
 conda_env: checkm2_env
+install_cmd: "conda create -n checkm2_env -c bioconda -c conda-forge checkm2 -y"
 
 detection:
   command: "checkm2 --version"

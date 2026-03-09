@@ -5,6 +5,8 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
 from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -13,6 +15,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +26,7 @@ from ui.widgets.styles import (
     BUTTON_PRIMARY,
     CARD_TITLE,
     COLOR_TEXT_HINT,
+    COLOR_BG_PAGE,
     STATUS_NEUTRAL,
     STATUS_SUCCESS,
     STATUS_ERROR,
@@ -48,6 +52,9 @@ class ClickableHeader(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mouseReleaseEvent(event)
+
+
+# ── 批量环境检测 Worker ─────────────────────────────────────────────
 
 
 class EnvBatchCheckWorker(QObject):
@@ -81,21 +88,15 @@ class EnvBatchCheckWorker(QObject):
         try:
             import json as _json
 
-            # ── 第一步：获取远程 conda 环境列表 ──────────────────
-            # 优先用绝对路径，避免 PATH 未初始化的问题。
-            # 关键：必须等 channel.recv_exit_status() 确保命令执行完毕，
-            # exec_command 本身是异步的，直接 .read() 可能拿到空内容。
+            # ── 获取远程 conda 环境列表 ──────────────────────────────
             conda_envs: list[str] = []
             candidates = [
-                # 按实际服务器路径优先排列
                 "/home/zyserver/anaconda3/bin/conda env list --json",
                 "/home/zyserver/miniconda3/bin/conda env list --json",
-                # 通用绝对路径
                 "~/anaconda3/bin/conda env list --json",
                 "~/miniconda3/bin/conda env list --json",
                 "/opt/anaconda3/bin/conda env list --json",
                 "/opt/miniconda3/bin/conda env list --json",
-                # fallback：依赖 PATH
                 "conda env list --json",
             ]
 
@@ -133,10 +134,7 @@ class EnvBatchCheckWorker(QObject):
             if not conda_envs:
                 logger.warning("所有候选命令均未取到 conda 环境列表")
 
-            # ── 第二步：构建环境名集合（取路径末尾段）──────────────
-            # conda env list --json 返回完整路径，如：
-            #   /home/zyserver/anaconda3/envs/fastp_env
-            # 末尾段即环境名：fastp_env
+            # ── 构建环境名集合（取路径末尾段）───────────────────────
             env_names_set: set[str] = set()
             for path in conda_envs:
                 name = path.rstrip("/").split("/")[-1]
@@ -144,13 +142,12 @@ class EnvBatchCheckWorker(QObject):
 
             logger.debug("已知环境名: %s", env_names_set)
 
-            # ── 第三步：逐个比对工具的 conda_env 字段 ───────────────
+            # ── 逐个比对工具的 conda_env 字段 ──────────────────────
             for tool in self.tools:
                 tool_id = tool.get("id", "")
                 conda_env = tool.get("conda_env", "")
 
                 if not conda_env:
-                    # 工具无 conda_env 声明 → 直接系统调用，视为就绪
                     self.tool_checked.emit(tool_id, "(系统路径)", True)
                     continue
 
@@ -165,12 +162,295 @@ class EnvBatchCheckWorker(QObject):
             self.error.emit(str(e))
 
 
+# ── 环境安装 Worker ────────────────────────────────────────────────
+
+
+class EnvInstallWorker(QObject):
+    """SSH 执行 conda create 安装工具环境，实时流式输出。
+
+    Signals:
+        output_line(str): 每读到一行输出
+        finished(bool): 安装完成，True=成功
+        error(str): 异常
+    """
+
+    output_line = pyqtSignal(str)   # 每行输出
+    finished = pyqtSignal(bool)     # True=成功
+    error = pyqtSignal(str)
+
+    def __init__(self, client, install_cmd: str):
+        super().__init__()
+        self.client = client
+        self.install_cmd = install_cmd
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            logger.info("开始安装环境: %s", self.install_cmd)
+            self.output_line.emit(f"$ {self.install_cmd}\n")
+
+            _, stdout, stderr = self.client.exec_command(
+                self.install_cmd, timeout=900  # 最长 15 分钟
+            )
+
+            # 流式读取 stdout（conda 主要输出在 stdout）
+            for line in iter(stdout.readline, ""):
+                if not line:
+                    break
+                self.output_line.emit(line)
+
+            # 等待命令完全结束，取退出码
+            exit_code = stdout.channel.recv_exit_status()
+
+            # 读取 stderr（conda 有时把进度写到 stderr）
+            err_text = stderr.read().decode("utf-8", errors="ignore").strip()
+            if err_text:
+                for line in err_text.splitlines():
+                    self.output_line.emit(f"[stderr] {line}\n")
+
+            success = exit_code == 0
+            logger.info("安装完成 exit_code=%d success=%s", exit_code, success)
+            self.finished.emit(success)
+
+        except Exception as e:
+            logger.exception("EnvInstallWorker 出错")
+            self.error.emit(str(e))
+
+
+# ── 环境安装对话框 ─────────────────────────────────────────────────
+
+
+class EnvInstallDialog(QDialog):
+    """安装工具 conda 环境的确认 + 进度对话框。
+
+    用法::
+        dlg = EnvInstallDialog(client, tool_info, parent=self)
+        dlg.install_succeeded.connect(callback)
+        dlg.exec()
+    """
+
+    install_succeeded = pyqtSignal(str)  # tool_id
+
+    def __init__(self, client, tool_info: dict, parent=None):
+        """
+        Args:
+            client: paramiko SSHClient
+            tool_info: {"id", "name", "conda_env", "install_cmd", "databases"}
+        """
+        super().__init__(parent)
+        self.client = client
+        self.tool_info = tool_info
+        self._installing = False
+        self._install_thread: Optional[QThread] = None
+        self._install_worker: Optional[EnvInstallWorker] = None
+
+        self.setWindowTitle("安装工具环境")
+        self.setMinimumWidth(580)
+        self.setMinimumHeight(440)
+        self.setStyleSheet(f"background-color: {COLOR_BG_PAGE};")
+
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        tool_name = self.tool_info.get("name", self.tool_info.get("id", ""))
+        conda_env = self.tool_info.get("conda_env", "")
+        install_cmd = self.tool_info.get("install_cmd", "")
+        databases = self.tool_info.get("databases", [])
+
+        # ── 工具信息区 ──
+        info_frame = QFrame()
+        info_frame.setStyleSheet(
+            "background: #f0f4ff; border: 1px solid #c5d0e8; border-radius: 6px;"
+        )
+        info_layout = QFormLayout(info_frame)
+        info_layout.setContentsMargins(14, 12, 14, 12)
+        info_layout.setVerticalSpacing(8)
+
+        def _info_lbl(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet("font-size: 13px; color: #333;")
+            return lbl
+
+        info_layout.addRow("工具:", _info_lbl(f"{tool_name}  ({conda_env})"))
+        info_layout.addRow("命令:", _info_lbl(install_cmd or "（未配置）"))
+
+        if databases:
+            db_ids = "、".join(d.get("id", "") for d in databases)
+            db_hint = QLabel(
+                f"⚠ 该工具需要数据库：{db_ids}\n"
+                "安装环境完成后，请在「数据库路径配置」卡片中填写数据库路径。"
+            )
+            db_hint.setWordWrap(True)
+            db_hint.setStyleSheet(
+                "color: #8a6300; background: #fff8e1;"
+                "border: 1px solid #ffe082; border-radius: 4px;"
+                "padding: 8px; font-size: 12px;"
+            )
+            info_layout.addRow("", db_hint)
+        else:
+            info_layout.addRow("数据库:", _info_lbl("无（不需要额外数据库）"))
+
+        layout.addWidget(info_frame)
+
+        # ── 安装输出区 ──
+        output_title = QLabel("安装输出：")
+        output_title.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+        layout.addWidget(output_title)
+
+        self.output_edit = QTextEdit()
+        self.output_edit.setReadOnly(True)
+        self.output_edit.setStyleSheet(
+            "background: #1e1e1e; color: #d4d4d4;"
+            "font-family: Consolas, 'Courier New', monospace;"
+            "font-size: 12px; border-radius: 4px; border: none;"
+        )
+        self.output_edit.setMinimumHeight(180)
+        layout.addWidget(self.output_edit)
+
+        # ── 状态行 ──
+        self.status_lbl = QLabel('点击「开始安装」执行 conda create 命令。安装可能需要 5-30 分钟。')
+        self.status_lbl.setWordWrap(True)
+        self.status_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+        layout.addWidget(self.status_lbl)
+
+        # ── 按钮行 ──
+        btn_row = QHBoxLayout()
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setFixedWidth(80)
+        self.cancel_btn.clicked.connect(self._on_cancel)
+
+        self.install_btn = QPushButton("开始安装")
+        self.install_btn.setFixedWidth(100)
+        self.install_btn.setStyleSheet(BUTTON_PRIMARY)
+        self.install_btn.clicked.connect(self._on_start_install)
+
+        if not install_cmd:
+            self.install_btn.setEnabled(False)
+            self.status_lbl.setText("该工具未配置 install_cmd，无法自动安装。")
+
+        btn_row.addStretch()
+        btn_row.addWidget(self.cancel_btn)
+        btn_row.addWidget(self.install_btn)
+        layout.addLayout(btn_row)
+
+    def _on_start_install(self):
+        if self._installing:
+            return
+        install_cmd = self.tool_info.get("install_cmd", "")
+        if not install_cmd:
+            return
+
+        self._installing = True
+        self.install_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(False)
+        self.status_lbl.setText("安装中，请勿关闭窗口……（conda 安装可能需要 5-30 分钟）")
+        self.status_lbl.setStyleSheet("color: #1565c0; font-size: 12px;")
+        self.output_edit.clear()
+
+        self._install_thread = QThread()
+        self._install_worker = EnvInstallWorker(self.client, install_cmd)
+        self._install_worker.moveToThread(self._install_thread)
+
+        self._install_thread.started.connect(self._install_worker.run)
+        self._install_worker.output_line.connect(self._append_output)
+        self._install_worker.finished.connect(self._on_install_finished)
+        self._install_worker.error.connect(self._on_install_error)
+        self._install_worker.finished.connect(self._cleanup_install)
+
+        self._install_thread.start()
+
+    def _append_output(self, line: str):
+        self.output_edit.insertPlainText(line)
+        sb = self.output_edit.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _on_install_finished(self, success: bool):
+        self._installing = False
+        self.cancel_btn.setEnabled(True)
+
+        if success:
+            self.output_edit.insertPlainText("\n✅ 安装成功！\n")
+            self.status_lbl.setText("✅ 环境安装成功！")
+            self.status_lbl.setStyleSheet(
+                "color: #2e7d32; font-size: 13px; font-weight: bold;"
+            )
+            self.install_btn.setText("关闭")
+            self.install_btn.setEnabled(True)
+            # 断开旧信号，改为关闭对话框
+            try:
+                self.install_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self.install_btn.clicked.connect(self.accept)
+            self.install_succeeded.emit(self.tool_info.get("id", ""))
+        else:
+            self.output_edit.insertPlainText("\n❌ 安装失败，请查看上方输出。\n")
+            self.status_lbl.setText("❌ 安装失败，请检查网络或手动安装。")
+            self.status_lbl.setStyleSheet("color: #c62828; font-size: 12px;")
+            self.install_btn.setText("重试")
+            self.install_btn.setEnabled(True)
+            try:
+                self.install_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self.install_btn.clicked.connect(self._on_start_install)
+
+    def _on_install_error(self, msg: str):
+        self._installing = False
+        self.cancel_btn.setEnabled(True)
+        self.install_btn.setText("重试")
+        self.install_btn.setEnabled(True)
+        self.status_lbl.setText(f"安装出错: {msg[:80]}")
+        self.status_lbl.setStyleSheet(STATUS_ERROR)
+        try:
+            self.install_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self.install_btn.clicked.connect(self._on_start_install)
+
+    def _cleanup_install(self):
+        for attr in ("_install_thread", "_install_worker"):
+            obj = getattr(self, attr, None)
+            if obj is None:
+                continue
+            if attr == "_install_thread" and obj.isRunning():
+                obj.quit()
+                obj.wait(3000)
+            obj.deleteLater()
+            try:
+                delattr(self, attr)
+            except AttributeError:
+                pass
+
+    def _on_cancel(self):
+        if self._installing:
+            return  # 安装中不允许关闭
+        self.reject()
+
+    def closeEvent(self, event):
+        if self._installing:
+            event.ignore()  # 安装中禁止关闭
+        else:
+            self._cleanup_install()
+            super().closeEvent(event)
+
+
+# ── LinuxSettingsCard ─────────────────────────────────────────────
+
+
 class LinuxSettingsCard(QFrame):
-    """Linux 项目与运行环境配置卡片（重构版）。
+    """Linux 项目与运行环境配置卡片（含工具环境检测+安装）。
 
     功能：
       - 配置远程 Linux 项目的根路径。
-      - 批量检测 16 个插件工具的 conda 环境是否就绪。
+      - 批量检测 16 个插件工具的 conda 环境是否就绪（一键检测）。
+      - 对 ❌ 工具提供"安装"按钮，点击后弹出 EnvInstallDialog 执行 conda create。
+      - 安装成功后自动重新检测；需要数据库的工具给出提示。
       - 支持 plugin_registry 外部注入（PluginRegistry 动态读取工具列表）。
 
     get_values() 返回字段（保持向后兼容）:
@@ -190,15 +470,15 @@ class LinuxSettingsCard(QFrame):
         self._in_edit_mode = False
         self._external_lock = False
 
-        # plugin_registry 可由外部注入，也可后续通过 set_plugin_registry() 设置
         self._plugin_registry = plugin_registry
 
-        # 每行工具状态: {tool_id: QLabel}
+        # 每行工具状态标签: {tool_id: QLabel}
         self._status_labels: dict[str, QLabel] = {}
-        # 工具列表: [{"id": ..., "name": ..., "conda_env": ...}]
+        # 每行安装按钮: {tool_id: QPushButton}
+        self._install_btns: dict[str, QPushButton] = {}
+        # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
 
-        # 自动折叠定时器
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
         self._auto_fold_timer.timeout.connect(self._auto_fold)
@@ -228,9 +508,10 @@ class LinuxSettingsCard(QFrame):
         else:
             self.status_label.setText("等待 SSH 连接")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
-            # 清除检测状态
             for lbl in self._status_labels.values():
                 lbl.setText(_STATUS_PENDING)
+            for btn in self._install_btns.values():
+                btn.setVisible(False)
 
     def get_values(self) -> dict:
         """供 SettingsPage 获取数据（向后兼容）。"""
@@ -327,7 +608,7 @@ class LinuxSettingsCard(QFrame):
         form.addRow("任务轮询间隔", self.spin_poll)
         c_layout.addLayout(form)
 
-        # ── 工具环境检测区 ──
+        # ── 工具环境检测区头部 ──
         env_header = QHBoxLayout()
         env_title = QLabel("工具环境检测状态：")
         env_title.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 13px;")
@@ -346,7 +627,7 @@ class LinuxSettingsCard(QFrame):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setFixedHeight(220)
+        scroll.setFixedHeight(260)
         scroll.setStyleSheet("background: transparent;")
 
         self._tool_list_widget = QWidget()
@@ -355,7 +636,6 @@ class LinuxSettingsCard(QFrame):
         self._tool_list_layout.setContentsMargins(0, 4, 0, 4)
         self._tool_list_layout.setSpacing(6)
 
-        # 占位提示（插件列表加载前显示）
         self._placeholder_label = QLabel("（插件注册表未就绪，启动后自动填充）")
         self._placeholder_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
         self._tool_list_layout.addWidget(self._placeholder_label)
@@ -384,32 +664,33 @@ class LinuxSettingsCard(QFrame):
     # ── 工具列表管理 ─────────────────────────────────────
 
     def _refresh_tool_list(self) -> None:
-        """从 PluginRegistry 动态读取工具列表，重建状态行。"""
+        """从 PluginRegistry 动态读取工具列表，重建状态行（含安装按钮）。"""
         self._tools = []
         self._status_labels = {}
+        self._install_btns = {}
 
-        # 清空布局（保留 stretch）
+        # 清空布局
         while self._tool_list_layout.count():
             item = self._tool_list_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
         if not self._plugin_registry:
-            self._placeholder_label = QLabel("（插件注册表未就绪）")
-            self._placeholder_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-            self._tool_list_layout.addWidget(self._placeholder_label)
+            lbl = QLabel("（插件注册表未就绪）")
+            lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+            self._tool_list_layout.addWidget(lbl)
             self._tool_list_layout.addStretch()
             return
 
         try:
             for tool_id in self._plugin_registry.list_all_ids():
                 desc = self._plugin_registry.get_descriptor(tool_id)
-                tool_name = desc.get("name", tool_id)
-                conda_env = desc.get("conda_env", "")
                 self._tools.append({
                     "id": tool_id,
-                    "name": tool_name,
-                    "conda_env": conda_env,
+                    "name": desc.get("name", tool_id),
+                    "conda_env": desc.get("conda_env", ""),
+                    "install_cmd": desc.get("install_cmd", ""),
+                    "databases": desc.get("databases", []),
                 })
         except Exception:
             logger.exception("读取插件列表失败")
@@ -421,23 +702,18 @@ class LinuxSettingsCard(QFrame):
             self._tool_list_layout.addStretch()
             return
 
-        # 建立每行：[工具名]  [环境名]  [状态图标]
+        # 表头行：[工具名 | 环境名 | 状态 | 操作]
         header_row = QHBoxLayout()
-        h_tool = QLabel("工具")
-        h_env = QLabel("Conda 环境")
-        h_status = QLabel("状态")
-        for lbl in (h_tool, h_env, h_status):
-            lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 11px; font-weight: bold;")
-        h_tool.setFixedWidth(120)
-        h_env.setFixedWidth(180)
-        h_status.setFixedWidth(28)
-        header_row.addWidget(h_tool)
-        header_row.addWidget(h_env)
-        header_row.addStretch()
-        header_row.addWidget(h_status)
+        for text, width in [("工具", 110), ("Conda 环境", 160), ("", 8), ("状态", 28), ("操作", 60)]:
+            lbl = QLabel(text)
+            lbl.setStyleSheet(
+                f"color: {COLOR_TEXT_HINT}; font-size: 11px; font-weight: bold;"
+            )
+            if width:
+                lbl.setFixedWidth(width)
+            header_row.addWidget(lbl)
         self._tool_list_layout.addLayout(header_row)
 
-        # 分割线
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {COLOR_TEXT_HINT};")
@@ -446,27 +722,49 @@ class LinuxSettingsCard(QFrame):
         for tool in self._tools:
             tid = tool["id"]
             row_layout = QHBoxLayout()
-            row_layout.setSpacing(8)
+            row_layout.setSpacing(6)
 
             name_lbl = QLabel(tool["name"])
-            name_lbl.setFixedWidth(120)
+            name_lbl.setFixedWidth(110)
             name_lbl.setStyleSheet("font-size: 13px;")
 
             env_name = tool["conda_env"] or "(系统路径)"
             env_lbl = QLabel(env_name)
-            env_lbl.setFixedWidth(180)
+            env_lbl.setFixedWidth(160)
             env_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
 
             status_lbl = QLabel(_STATUS_PENDING)
             status_lbl.setFixedWidth(28)
             status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+            # "安装"按钮：初始隐藏，检测到 ❌ 后显示
+            install_btn = QPushButton("安装")
+            install_btn.setFixedWidth(56)
+            install_btn.setStyleSheet(
+                "QPushButton {"
+                "  font-size: 11px; padding: 2px 4px;"
+                "  background: #1565c0; color: white;"
+                "  border-radius: 4px; border: none;"
+                "}"
+                "QPushButton:hover { background: #1976d2; }"
+                "QPushButton:disabled { background: #9e9e9e; }"
+            )
+            install_btn.setVisible(False)
+            # 用默认参数捕获 tool 快照，避免 lambda 闭包陷阱
+            _tool_snapshot = dict(tool)
+            install_btn.clicked.connect(
+                lambda checked=False, t=_tool_snapshot: self._on_install_click(t)
+            )
+
             row_layout.addWidget(name_lbl)
             row_layout.addWidget(env_lbl)
             row_layout.addStretch()
             row_layout.addWidget(status_lbl)
+            row_layout.addWidget(install_btn)
             self._tool_list_layout.addLayout(row_layout)
+
             self._status_labels[tid] = status_lbl
+            self._install_btns[tid] = install_btn
 
         self._tool_list_layout.addStretch()
 
@@ -482,16 +780,17 @@ class LinuxSettingsCard(QFrame):
             self.status_label.setStyleSheet(STATUS_ERROR)
             return
 
-        # 重置状态图标
+        # 重置所有状态
         for lbl in self._status_labels.values():
             lbl.setText(_STATUS_PENDING)
+        for btn in self._install_btns.values():
+            btn.setVisible(False)
 
         self._checking = True
         self.check_btn.setEnabled(False)
         self.status_label.setText("正在检测工具环境...")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
-        # 清理旧线程
         self._cleanup_check_resources()
 
         self._check_thread = QThread()
@@ -507,22 +806,42 @@ class LinuxSettingsCard(QFrame):
         self._check_thread.start()
 
     def _on_tool_checked(self, tool_id: str, env_name: str, ok: bool) -> None:
-        """单个工具检测完成，更新状态图标。"""
+        """单个工具检测完成，更新状态图标和安装按钮可见性。"""
         lbl = self._status_labels.get(tool_id)
         if lbl:
             lbl.setText(_STATUS_OK if ok else _STATUS_FAIL)
+
+        btn = self._install_btns.get(tool_id)
+        if btn:
+            # ❌ 显示安装按钮；✅ 隐藏
+            btn.setVisible(not ok)
+            # 检测进行中时禁用按钮（_on_batch_finished 再统一启用）
+            btn.setEnabled(False)
 
     def _on_batch_finished(self, conda_envs: list) -> None:
         """全部检测完成。"""
         self._checking = False
         self.check_btn.setEnabled(True)
 
+        # 统一启用所有可见的安装按钮
+        for btn in self._install_btns.values():
+            if btn.isVisible():
+                btn.setEnabled(self.active_client is not None)
+
         ok_count = sum(
             1 for lbl in self._status_labels.values()
             if lbl.text() == _STATUS_OK
         )
         total = len(self._status_labels)
-        self.status_label.setText(f"检测完成：{ok_count}/{total} 个环境就绪")
+        fail_count = total - ok_count
+
+        if fail_count > 0:
+            self.status_label.setText(
+                f"检测完成：{ok_count}/{total} 个环境就绪，{fail_count} 个需要安装"
+            )
+        else:
+            self.status_label.setText(f"检测完成：{ok_count}/{total} 个环境全部就绪 ✅")
+
         if ok_count == total:
             self.status_label.setStyleSheet(STATUS_SUCCESS)
         elif ok_count == 0:
@@ -551,6 +870,37 @@ class LinuxSettingsCard(QFrame):
                 delattr(self, attr)
             except AttributeError:
                 pass
+
+    # ── 安装 ─────────────────────────────────────────────
+
+    def _on_install_click(self, tool: dict) -> None:
+        """点击"安装"按钮，弹出安装对话框。"""
+        if not self.active_client:
+            self.status_label.setText("SSH 未连接，无法安装")
+            self.status_label.setStyleSheet(STATUS_ERROR)
+            return
+
+        dlg = EnvInstallDialog(self.active_client, tool, parent=self)
+        dlg.install_succeeded.connect(self._on_install_succeeded)
+        dlg.exec()
+
+    def _on_install_succeeded(self, tool_id: str) -> None:
+        """某工具安装成功后：提示数据库（如需要），然后重新检测。"""
+        tool = next((t for t in self._tools if t["id"] == tool_id), None)
+
+        if tool and tool.get("databases"):
+            from PyQt6.QtWidgets import QMessageBox
+            db_ids = "\n".join(f"  • {d.get('id', '')}" for d in tool["databases"])
+            QMessageBox.information(
+                self,
+                "请配置数据库路径",
+                f"工具【{tool.get('name', tool_id)}】环境安装成功！\n\n"
+                f"该工具运行需要以下数据库：\n{db_ids}\n\n"
+                f"请在下方「数据库路径配置」卡片中填写对应路径。",
+            )
+
+        # 重新检测所有工具
+        QTimer.singleShot(300, self._on_batch_check)
 
     # ── 保存/锁定 ─────────────────────────────────────────
 
@@ -581,7 +931,6 @@ class LinuxSettingsCard(QFrame):
         self.status_label.setStyleSheet(STATUS_SUCCESS)
         self.request_save.emit()
 
-        # 延迟折叠
         self._auto_fold_timer.start(1500)
 
     # ── 折叠/展开 ─────────────────────────────────────────
@@ -630,6 +979,8 @@ class LinuxSettingsCard(QFrame):
                 self.check_btn, self.spin_concurrent, self.spin_poll,
             ]:
                 w.setEnabled(False)
+            for btn in self._install_btns.values():
+                btn.setEnabled(False)
             return
 
         if self._checking:
@@ -648,3 +999,7 @@ class LinuxSettingsCard(QFrame):
             self.spin_poll.setEnabled(False)
             self.modify_btn.setEnabled(True)
             self.check_btn.setEnabled(self.active_client is not None and not self._is_locked)
+
+        for btn in self._install_btns.values():
+            if btn.isVisible():
+                btn.setEnabled(self.active_client is not None)

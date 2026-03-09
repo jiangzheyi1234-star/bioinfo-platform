@@ -4,6 +4,7 @@ version: "3.15.5"
 category: assembly
 description: "基于 de Bruijn 图的宏基因组组装工具"
 conda_env: spades_env
+install_cmd: "conda create -n spades_env -c bioconda -c conda-forge spades -y"
 
 detection:
   command: "metaspades.py --version"

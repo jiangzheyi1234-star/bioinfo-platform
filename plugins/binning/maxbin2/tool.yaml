@@ -4,6 +4,7 @@ version: "2.2.7"
 category: binning
 description: "基于期望最大化算法的宏基因组 binning 工具"
 conda_env: maxbin2_env
+install_cmd: "conda create -n maxbin2_env -c bioconda -c conda-forge maxbin2 -y"
 
 detection:
   command: "run_MaxBin.pl -v 2>&1"
