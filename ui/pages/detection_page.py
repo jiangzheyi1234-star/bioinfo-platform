@@ -750,11 +750,14 @@ class DetectionPage(BasePage):
         visible_ids = self._visible_tool_ids()
         self._tool_count_label.setText(f"{len(visible_ids)} / {len(self._tool_order)} 个工具")
 
-        # 动态设置卡片容器的最大宽度，确保不超出视口
+        # 动态设置卡片容器的宽度，确保填满视口
         if self._workbench_scroll is not None:
             viewport_width = self._workbench_scroll.viewport().width()
             if viewport_width > 0:
-                self._cards_wrap.setMaximumWidth(viewport_width - 20)
+                # 设置固定宽度（而不是最大宽度），强制填满
+                target_width = viewport_width - 20
+                self._cards_wrap.setMinimumWidth(target_width)
+                self._cards_wrap.setMaximumWidth(target_width)
 
         cols = self._cards_per_row()
         for col in range(6):
@@ -770,9 +773,19 @@ class DetectionPage(BasePage):
             self._cards_grid.addWidget(empty, 0, 0)
             return
 
+        # 计算每个卡片应该有的宽度（平均分配）
+        viewport_width = self._workbench_scroll.viewport().width() if self._workbench_scroll else self.width()
+        available_width = viewport_width - 20  # 减去滚动条
+        spacing_total = (cols - 1) * 12  # 卡片间距总和
+        card_width = (available_width - spacing_total) // cols  # 每个卡片的宽度
+
         for i, tid in enumerate(visible_ids):
             desc = self._tool_catalog[tid]
             card = self._build_tool_card(tid, desc)
+            # 设置卡片固定宽度，实现填满效果
+            if card_width > 220:  # 确保不小于最小宽度
+                card.setMinimumWidth(card_width)
+                card.setMaximumWidth(card_width)
             self._tool_cards[tid] = card
             self._cards_grid.addWidget(card, i // cols, i % cols)
 
