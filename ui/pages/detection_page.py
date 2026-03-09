@@ -100,6 +100,7 @@ class DetectionPage(BasePage):
 
         if hasattr(self, "_cards_grid"):
             current_cols = self._cards_per_row()
+            # 只在列数变化时重建卡片
             if current_cols != self._last_card_cols:
                 self._last_card_cols = current_cols
                 self._rebuild_tool_cards()
@@ -446,8 +447,8 @@ class DetectionPage(BasePage):
         card = QFrame()
         card.setCursor(Qt.CursorShape.PointingHandCursor)
         card.setMinimumHeight(148)
-        card.setMinimumWidth(220)  # 设置最小宽度，确保卡片不会太窄
-        # 不设置最大宽度，让卡片能够扩展填满可用空间（类似 CSS Grid 的 1fr）
+        # 只设置最小宽度，让 Expanding 策略和列拉伸因子自动分配剩余空间
+        card.setMinimumWidth(220)
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         lay = QVBoxLayout(card)
@@ -772,28 +773,10 @@ class DetectionPage(BasePage):
             self._cards_grid.addWidget(empty, 0, 0)
             return
 
-        # 计算每个卡片应该有的宽度（平均分配）
-        viewport_width = self._workbench_scroll.viewport().width() if self._workbench_scroll else self.width()
-        # 不减去滚动条宽度，直接使用视口宽度
-        available_width = viewport_width
-        spacing_total = (cols - 1) * 12  # 卡片间距总和
-        base_card_width = (available_width - spacing_total) // cols  # 基础卡片宽度
-        remainder = (available_width - spacing_total) % cols  # 剩余像素
-
-        logger.debug(f"viewport_width={viewport_width}, available_width={available_width}, cols={cols}, base_card_width={base_card_width}")
-
         for i, tid in enumerate(visible_ids):
             desc = self._tool_catalog[tid]
             card = self._build_tool_card(tid, desc)
-
-            # 设置卡片固定宽度，实现填满效果
-            # 将剩余像素分配给前 remainder 个卡片
-            col_index = i % cols
-            card_width = base_card_width + (1 if col_index < remainder else 0)
-
-            if card_width > 220:  # 确保不小于最小宽度
-                card.setMinimumWidth(card_width)
-                card.setMaximumWidth(card_width)
+            # 不设置固定宽度，让网格布局通过列拉伸因子自动分配
             self._tool_cards[tid] = card
             self._cards_grid.addWidget(card, i // cols, i % cols)
 
