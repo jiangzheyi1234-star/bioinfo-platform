@@ -104,7 +104,13 @@ class DetectionPage(BasePage):
         if not hasattr(self, "_left_panel") or not hasattr(self, "_right_panel"):
             return
 
-        width = self.width()
+        # 使用滚动区域视口宽度，与 _cards_per_row() 保持一致
+        width = 0
+        if self._workbench_scroll is not None:
+            width = self._workbench_scroll.viewport().width()
+        if width <= 0:
+            width = self.width()
+
         target_mode = "single" if width < 600 else "double"
 
         if target_mode == self._current_form_mode:
@@ -272,7 +278,7 @@ class DetectionPage(BasePage):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("background: transparent;")
         scroll.verticalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
         scroll.horizontalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
@@ -280,6 +286,9 @@ class DetectionPage(BasePage):
 
         content = QWidget()
         content.setStyleSheet("background: transparent;")
+
+        # 确保内容宽度不超出滚动区域
+        content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         root = QVBoxLayout(content)
         root.setContentsMargins(0, 10, 0, 0)
@@ -354,6 +363,7 @@ class DetectionPage(BasePage):
         self._form_layout.setSpacing(16)
 
         self._left_panel = QFrame()
+        self._left_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._left_panel.setStyleSheet(
             f"QFrame {{ background:{styles.COLOR_BG_CARD_HIGHLIGHT}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CTRL}; }}"
         )
@@ -372,6 +382,7 @@ class DetectionPage(BasePage):
         self._form_layout.addWidget(self._left_panel, 1)
 
         self._right_panel = QFrame()
+        self._right_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._right_panel.setStyleSheet(
             f"QFrame {{ background:{styles.COLOR_BG_CARD_HIGHLIGHT}; border:1px solid {styles.COLOR_BORDER}; border-radius:{styles.RADIUS_CTRL}; }}"
         )
@@ -707,8 +718,8 @@ class DetectionPage(BasePage):
         if width <= 0:
             width = self.width()
 
-        # 减去边距和滚动条宽度
-        available_width = width - 40
+        # 使用实际可用宽度（考虑滚动条宽度约 20px）
+        available_width = width - 20
 
         # 根据可用宽度决定列数
         if available_width < 500:
