@@ -131,7 +131,7 @@ class TestHomePageFlows:
         count = pm.db.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
         assert count == 1
         assert len(home_page._card_widgets) == 1
-        assert home_page._stat_samples.text() == "📁 1 个样本"
+        assert home_page._stat_samples.text() == "样本数: 1"
         assert home_page._add_btn.isEnabled() is True
 
     def test_continue_analysis_prefills_existing_sample_context(self, qapp, temp_main_window):
@@ -193,7 +193,7 @@ class TestHomePageFlows:
 
         assert window.home_page._proj_name_label.text() == "项目二"
         assert len(window.home_page._card_widgets) == 0
-        assert window.home_page._stat_samples.text() == "📁 0 个样本"
+        assert window.home_page._stat_samples.text() == "样本数: 0"
         assert window.analysis_page._selected_sample_id is None
         assert window.analysis_page._sample_name_input.text() == ""
         assert window.analysis_page._r1_path_label.text() == "未选择"
