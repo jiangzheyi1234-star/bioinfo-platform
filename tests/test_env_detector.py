@@ -5,9 +5,7 @@ import pytest
 from core.env_detector import (
     CondaDetectResult,
     CondaStatus,
-    can_install,
     detect,
-    enable_libmamba,
     install_miniforge,
     rewrite_install_cmd,
 )
@@ -39,42 +37,30 @@ def make_ssh_fn(responses: dict[str, tuple[int, str, str]]):
 class TestDetect:
     """env_detector.detect() 检测测试。"""
 
-    def test_configured_path_ok(self):
-        """configured_path 有效且 which 不可用时，回退到 configured_path。"""
+    def test_cached_path_verified_first(self):
+        """cached_path 有效时直接返回，不执行 which。"""
         fn = make_ssh_fn({
             "/custom/bin/conda --version": (0, "conda 24.1.2", ""),
         })
-        result = detect(fn, configured_path="/custom/bin/conda")
+        result = detect(fn, cached_path="/custom/bin/conda")
         assert result.status == CondaStatus.OK
         assert result.executable == "/custom/bin/conda"
         assert result.version == "24.1.2"
 
-    def test_configured_path_valid_but_which_takes_precedence(self):
-        """configured_path 有效，但当前用户 which conda 优先。"""
-        fn = make_ssh_fn({
-            "/custom/bin/conda --version": (0, "conda 24.1.2", ""),
-            "bash -ic 'which conda'": (0, "/opt/conda/bin/conda\n", ""),
-            "/opt/conda/bin/conda --version": (0, "conda 24.3.1", ""),
-        })
-        result = detect(fn, configured_path="/custom/bin/conda")
-        assert result.status == CondaStatus.OK
-        assert result.executable == "/opt/conda/bin/conda"
-        assert result.version == "24.3.1"
-
-    def test_configured_path_invalid_falls_through_to_which(self):
-        """configured_path 无效时 fallback 到 which conda。"""
+    def test_cached_path_invalid_falls_through_to_which(self):
+        """cached_path 无效时 fallback 到 which conda。"""
         fn = make_ssh_fn({
             "/bad/path/conda --version": (1, "", "not found"),
             "bash -ic 'which conda'": (0, "/usr/bin/conda\n", ""),
             "/usr/bin/conda --version": (0, "conda 23.5.0", ""),
         })
-        result = detect(fn, configured_path="/bad/path/conda")
+        result = detect(fn, cached_path="/bad/path/conda")
         assert result.status == CondaStatus.OK
         assert result.executable == "/usr/bin/conda"
         assert result.version == "23.5.0"
 
     def test_which_conda_success(self):
-        """bash -ic which conda 成功时返回 OK（最高优先级）。"""
+        """bash -ic which conda 成功时返回 OK。"""
         fn = make_ssh_fn({
             "bash -ic 'which conda'": (0, "/home/user/anaconda3/bin/conda\n", ""),
             "/home/user/anaconda3/bin/conda --version": (0, "conda 24.3.0", ""),
@@ -86,9 +72,7 @@ class TestDetect:
     def test_which_fails_scan_hits_anaconda3(self):
         """which 失败，常见目录扫描优先命中 ~/anaconda3。"""
         fn = make_ssh_fn({
-            "bash -lc 'which conda'": (1, "", ""),
             "bash -ic 'which conda'": (1, "", ""),
-            "which conda": (1, "", ""),
             'test -x "$(eval echo ~/anaconda3/bin/conda)"': (0, "", ""),
             "~/anaconda3/bin/conda --version": (0, "conda 22.9.0", ""),
         })
@@ -103,29 +87,13 @@ class TestDetect:
         assert result.status == CondaStatus.NOT_FOUND
         assert result.executable is None
 
-    def test_version_parse_failed(self):
-        """conda --version 输出格式异常 → VERSION_PARSE_FAILED。"""
+    def test_empty_cached_path_ignored(self):
+        """空 cached_path 应被忽略。"""
         fn = make_ssh_fn({
-            "bash -lc 'which conda'": (0, "/usr/bin/conda\n", ""),
-            "/usr/bin/conda --version": (0, "some weird output", ""),
-            # 扫描也匹配到同一个
-            'test -x "$(eval echo ~/.h2ometa/conda/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo ~/miniforge3/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo ~/miniconda3/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo ~/anaconda3/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo /opt/miniforge3/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo /opt/conda/bin/conda)"': (1, "", ""),
-        })
-        result = detect(fn)
-        assert result.status == CondaStatus.VERSION_PARSE_FAILED
-
-    def test_empty_configured_path_ignored(self):
-        """空 configured_path 应被忽略。"""
-        fn = make_ssh_fn({
-            "bash -lc 'which conda'": (0, "/usr/bin/conda\n", ""),
+            "bash -ic 'which conda'": (0, "/usr/bin/conda\n", ""),
             "/usr/bin/conda --version": (0, "conda 24.0.0", ""),
         })
-        result = detect(fn, configured_path="")
+        result = detect(fn, cached_path="")
         assert result.status == CondaStatus.OK
 
     def test_version_from_stderr(self):
@@ -133,80 +101,20 @@ class TestDetect:
         fn = make_ssh_fn({
             "/custom/conda --version": (0, "", "conda 24.7.1"),
         })
-        result = detect(fn, configured_path="/custom/conda")
+        result = detect(fn, cached_path="/custom/conda")
         assert result.status == CondaStatus.OK
         assert result.version == "24.7.1"
 
-    def test_bash_interactive_fallback(self):
-        """bash -l 失败但 bash -i 成功（conda init 在 .bashrc）。"""
+    def test_version_unparseable_still_ok(self):
+        """rc==0 但版本格式异常 → 仍然 OK，version=None。"""
         fn = make_ssh_fn({
-            "bash -lc 'which conda'": (1, "", ""),
-            "bash -ic 'which conda'": (0, "/home/user/anaconda3/bin/conda\n", ""),
-            "/home/user/anaconda3/bin/conda --version": (0, "conda 23.11.0", ""),
+            "bash -ic 'which conda'": (0, "/usr/bin/conda\n", ""),
+            "/usr/bin/conda --version": (0, "some weird output", ""),
         })
         result = detect(fn)
         assert result.status == CondaStatus.OK
-        assert result.executable == "/home/user/anaconda3/bin/conda"
-        assert result.version == "23.11.0"
-
-    def test_plain_which_fallback(self):
-        """bash -l 和 bash -i 都失败，plain which conda 成功。"""
-        fn = make_ssh_fn({
-            "bash -lc 'which conda'": (1, "", ""),
-            "bash -ic 'which conda'": (1, "", ""),
-            "which conda": (0, "/opt/conda/bin/conda\n", ""),
-            "/opt/conda/bin/conda --version": (0, "conda 24.5.0", ""),
-        })
-        result = detect(fn)
-        assert result.status == CondaStatus.OK
-        assert result.executable == "/opt/conda/bin/conda"
-
-
-# ---------------------------------------------------------------------------
-# can_install() 测试
-# ---------------------------------------------------------------------------
-
-class TestCanInstall:
-    """can_install() 前置检查测试。"""
-
-    def test_ok(self):
-        fn = make_ssh_fn({
-            "uname -m": (0, "x86_64", ""),
-            "command -v curl": (0, "/usr/bin/curl", ""),
-            "command -v wget": (0, "/usr/bin/wget", ""),
-            "dir=": (0, "ok", ""),  # 前缀匹配 can_install 的目录检查命令
-        })
-        ok, _ = can_install(fn)
-        assert ok
-
-    def test_unsupported_arch(self):
-        fn = make_ssh_fn({
-            "uname -m": (0, "armv7l", ""),
-        })
-        ok, reason = can_install(fn)
-        assert not ok
-        assert "架构" in reason
-
-    def test_no_download_tool(self):
-        fn = make_ssh_fn({
-            "uname -m": (0, "x86_64", ""),
-            "command -v curl": (1, "", ""),
-            "command -v wget": (1, "", ""),
-        })
-        ok, reason = can_install(fn)
-        assert not ok
-        assert "curl" in reason or "wget" in reason
-
-    def test_dir_exists(self):
-        fn = make_ssh_fn({
-            "uname -m": (0, "x86_64", ""),
-            "command -v curl": (0, "/usr/bin/curl", ""),
-            "command -v wget": (1, "", ""),
-            "dir=": (0, "exists", ""),  # 前缀匹配
-        })
-        ok, reason = can_install(fn)
-        assert not ok
-        assert "已存在" in reason
+        assert result.executable == "/usr/bin/conda"
+        assert result.version is None
 
 
 # ---------------------------------------------------------------------------
@@ -217,11 +125,10 @@ class TestInstallMiniforge:
 
     def test_install_success(self):
         fn = make_ssh_fn({
-            # can_install checks
+            # pre-checks
             "uname -m": (0, "x86_64", ""),
             "command -v curl": (0, "/usr/bin/curl", ""),
             "command -v wget": (1, "", ""),
-            "dir=": (0, "ok", ""),  # 前缀匹配目录检查
             # download
             "curl -fsSL": (0, "", ""),
             # install
@@ -229,22 +136,32 @@ class TestInstallMiniforge:
             # cleanup
             "rm -f /tmp/miniforge_install.sh": (0, "", ""),
             # channel config
-            "~/.h2ometa/conda/bin/conda config --add channels bioconda": (0, "", ""),
-            "~/.h2ometa/conda/bin/conda config --set channel_priority strict": (0, "", ""),
+            "~/miniforge3/bin/conda config --add channels bioconda": (0, "", ""),
+            "~/miniforge3/bin/conda config --set channel_priority strict": (0, "", ""),
             # validate
-            "~/.h2ometa/conda/bin/conda --version": (0, "conda 24.7.1", ""),
+            "~/miniforge3/bin/conda --version": (0, "conda 24.7.1", ""),
         })
         result = install_miniforge(fn)
         assert result.status == CondaStatus.OK
         assert result.version == "24.7.1"
 
-    def test_install_fails_on_precondition(self):
+    def test_install_fails_on_unsupported_arch(self):
         fn = make_ssh_fn({
             "uname -m": (0, "armv7l", ""),
         })
         result = install_miniforge(fn)
         assert result.status == CondaStatus.NOT_FOUND
-        assert "架构" in result.message or "无法安装" in result.message
+        assert "架构" in result.message
+
+    def test_install_fails_no_download_tool(self):
+        fn = make_ssh_fn({
+            "uname -m": (0, "x86_64", ""),
+            "command -v curl": (1, "", ""),
+            "command -v wget": (1, "", ""),
+        })
+        result = install_miniforge(fn)
+        assert result.status == CondaStatus.NOT_FOUND
+        assert "curl" in result.message or "wget" in result.message
 
 
 # ---------------------------------------------------------------------------
@@ -285,22 +202,3 @@ class TestRewriteInstallCmd:
     def test_bare_conda_word(self):
         result = rewrite_install_cmd("conda", "/usr/bin/conda")
         assert result == "/usr/bin/conda"
-
-
-# ---------------------------------------------------------------------------
-# enable_libmamba() 测试
-# ---------------------------------------------------------------------------
-
-class TestEnableLibmamba:
-
-    def test_success(self):
-        fn = make_ssh_fn({
-            "/usr/bin/conda config --set solver libmamba": (0, "", ""),
-        })
-        assert enable_libmamba(fn, "/usr/bin/conda") is True
-
-    def test_failure(self):
-        fn = make_ssh_fn({
-            "/usr/bin/conda config --set solver libmamba": (1, "", "error"),
-        })
-        assert enable_libmamba(fn, "/usr/bin/conda") is False

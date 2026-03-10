@@ -114,15 +114,15 @@ class CondaDetectWorker(QObject):
     finished = pyqtSignal(object)  # CondaDetectResult
     error = pyqtSignal(str)
 
-    def __init__(self, ssh_run_fn, configured_path=""):
+    def __init__(self, ssh_run_fn, cached_path=""):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
-        self._configured_path = configured_path
+        self._cached_path = cached_path
 
     @pyqtSlot()
     def run(self):
         try:
-            result = env_detector.detect(self._ssh_run_fn, self._configured_path)
+            result = env_detector.detect(self._ssh_run_fn, self._cached_path)
             self.finished.emit(result)
         except Exception as e:
             logger.exception("CondaDetectWorker 出错")
@@ -139,10 +139,9 @@ class MiniforgeInstallWorker(QObject):
     finished = pyqtSignal(object)  # CondaDetectResult
     error = pyqtSignal(str)
 
-    def __init__(self, ssh_run_fn, install_dir="~/.h2ometa/conda"):
+    def __init__(self, ssh_run_fn):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
-        self._install_dir = install_dir
 
     @pyqtSlot()
     def run(self):
@@ -163,9 +162,7 @@ class MiniforgeInstallWorker(QObject):
                         self.output_line.emit(f"[stderr] {clean}")
                 return rc, stdout, stderr
 
-            result = env_detector.install_miniforge(
-                logging_fn, self._install_dir,
-            )
+            result = env_detector.install_miniforge(logging_fn)
             self.finished.emit(result)
         except Exception as e:
             logger.exception("MiniforgeInstallWorker 出错")
@@ -959,7 +956,7 @@ class LinuxSettingsCard(QFrame):
         self._conda_detect_thread = QThread()
         self._conda_detect_worker = CondaDetectWorker(
             ssh_run_fn=self._make_ssh_run_fn(),
-            configured_path=self._conda_executable,
+            cached_path=self._conda_executable,
         )
         self._conda_detect_worker.moveToThread(self._conda_detect_thread)
 
@@ -976,7 +973,8 @@ class LinuxSettingsCard(QFrame):
 
         if result.status == CondaStatus.OK:
             self._conda_executable = result.executable
-            self._set_status(f"conda {result.version} 就绪，正在检测工具环境...", STATUS_SUCCESS)
+            version_str = f" {result.version}" if result.version else ""
+            self._set_status(f"conda{version_str} 就绪，正在检测工具环境...", STATUS_SUCCESS)
 
             # 更新 ServiceLocator
             window = self.window()
@@ -996,9 +994,6 @@ class LinuxSettingsCard(QFrame):
         elif result.status == CondaStatus.NOT_FOUND:
             self._set_status("未检测到 conda", STATUS_ERROR)
             self._prompt_miniforge_install()
-
-        elif result.status == CondaStatus.VERSION_PARSE_FAILED:
-            self._set_status("检测到 conda 但版本不可识别，请手动指定路径", STATUS_ERROR)
 
     def _on_conda_detect_error(self, msg: str) -> None:
         """conda 检测出错。"""
@@ -1024,7 +1019,7 @@ class LinuxSettingsCard(QFrame):
         btn_manual = box.addButton("手动指定路径", QMessageBox.ButtonRole.ActionRole)
         btn_install = box.addButton("安装 Miniforge", QMessageBox.ButtonRole.AcceptRole)
         btn_cancel = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(btn_manual)
+        box.setDefaultButton(btn_install)
         box.exec()
 
         clicked = box.clickedButton()
