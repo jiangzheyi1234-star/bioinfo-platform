@@ -19,6 +19,9 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     document.getElementById('card-header').addEventListener('click', toggleExpand);
     document.getElementById('btn-check').addEventListener('click', startCheck);
 
+    // 初始化高度（折叠状态）
+    updateHeight();
+
     // 加载工具列表
     loadTools();
 });
