@@ -124,13 +124,13 @@ def detect(
         else:
             logger.info("配置路径无效 (%s), 继续搜索", configured_path)
 
-    # 2. which conda — 尝试多种 shell 方式
-    #    conda init 可能写在 .bashrc（非登录 shell）或 .bash_profile（登录 shell），
-    #    两者都试以覆盖所有配置方式。
+    # 2. which conda — 优先让用户的 shell 环境告诉我们 conda 在哪
+    #    核心原则：不解析配置文件文本，而是实际执行用户 shell 让它解析。
+    #    bash -i 最接近用户 SSH 登录后的真实环境（source .bashrc → conda init）。
     for which_cmd in [
-        "bash -l -c 'which conda'",          # 登录 shell（source .profile/.bash_profile）
-        "bash -i -c 'which conda' 2>/dev/null",  # 交互 shell（source .bashrc）
-        "which conda",                         # 当前 shell PATH
+        "bash -ic 'which conda' 2>/dev/null",   # 交互 shell — 用户实际环境（.bashrc）
+        "bash -lc 'which conda'",               # 登录 shell（.bash_profile/.profile）
+        "which conda",                           # 当前 PATH（兜底）
     ]:
         try:
             rc, stdout, _stderr = ssh_run_fn(which_cmd, timeout)
