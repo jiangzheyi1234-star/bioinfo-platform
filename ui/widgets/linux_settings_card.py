@@ -35,6 +35,35 @@ from ui.widgets.styles import (
 )
 
 logger = logging.getLogger(__name__)
+CONDA_EXE_CANDIDATES = [
+    "/home/zyserver/anaconda3/bin/conda",
+    "/home/zyserver/miniconda3/bin/conda",
+    "~/anaconda3/bin/conda",
+    "~/miniconda3/bin/conda",
+    "/opt/anaconda3/bin/conda",
+    "/opt/miniconda3/bin/conda",
+    "conda",
+]
+
+
+def _resolve_conda_executable(client, timeout: int = 15) -> str:
+    for exe in CONDA_EXE_CANDIDATES:
+        try:
+            _, stdout, _ = client.exec_command(f"{exe} --version", timeout=timeout)
+            if stdout.channel.recv_exit_status() == 0:
+                return exe
+        except Exception:
+            continue
+    return "conda"
+
+
+def _rewrite_conda_install_cmd(install_cmd: str, client) -> str:
+    stripped = install_cmd.lstrip()
+    if not (stripped == "conda" or stripped.startswith("conda ")):
+        return install_cmd
+    prefix = install_cmd[: len(install_cmd) - len(stripped)]
+    remainder = stripped[5:]
+    return f"{prefix}{_resolve_conda_executable(client)}{remainder}"
 
 # 工具环境检测状态图标
 _STATUS_PENDING = "..."
@@ -91,15 +120,7 @@ class EnvBatchCheckWorker(QObject):
 
             # ── 获取远程 conda 环境列表 ──────────────────────────────
             conda_envs: list[str] = []
-            candidates = [
-                "/home/zyserver/anaconda3/bin/conda env list --json",
-                "/home/zyserver/miniconda3/bin/conda env list --json",
-                "~/anaconda3/bin/conda env list --json",
-                "~/miniconda3/bin/conda env list --json",
-                "/opt/anaconda3/bin/conda env list --json",
-                "/opt/miniconda3/bin/conda env list --json",
-                "conda env list --json",
-            ]
+            candidates = [f"{exe} env list --json" for exe in CONDA_EXE_CANDIDATES]
 
             for cmd in candidates:
                 try:
@@ -187,11 +208,11 @@ class EnvInstallWorker(QObject):
     @pyqtSlot()
     def run(self):
         try:
-            logger.info("开始安装环境: %s", self.install_cmd)
-            self.output_line.emit(f"$ {self.install_cmd}\n")
-
+            resolved_cmd = _rewrite_conda_install_cmd(self.install_cmd, self.client)
+            logger.info("开始安装环境: %s", resolved_cmd)
+            self.output_line.emit(f"$ {resolved_cmd}\n")
             _, stdout, stderr = self.client.exec_command(
-                self.install_cmd, timeout=900  # 最长 15 分钟
+                resolved_cmd, timeout=900  # 最长 15 分钟
             )
 
             # 流式读取 stdout（conda 主要输出在 stdout）
