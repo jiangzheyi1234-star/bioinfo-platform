@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -577,7 +576,6 @@ class LinuxSettingsCard(QFrame):
     """Linux 项目与运行环境配置卡片（含工具环境检测+安装）。
 
     功能：
-      - 配置远程 Linux 项目的根路径。
       - 批量检测 16 个插件工具的 conda 环境是否就绪（一键检测）。
       - 对 ❌ 工具提供"安装"按钮，点击后弹出 EnvInstallDialog 执行 conda create。
       - 安装成功后自动重新检测；需要数据库的工具给出提示。
@@ -585,7 +583,7 @@ class LinuxSettingsCard(QFrame):
       - 使用 Web UI (QWebEngineView) 展示工具环境表格，解决对齐问题。
 
     get_values() 返回字段（保持向后兼容）:
-      linux_project_path, max_concurrent, poll_interval,
+      max_concurrent, poll_interval,
       conda_env_path(空), conda_env_name(空), is_locked
     """
 
@@ -644,7 +642,6 @@ class LinuxSettingsCard(QFrame):
     def get_values(self) -> dict:
         """供 SettingsPage 获取数据。"""
         return {
-            "linux_project_path": self.linux_project_path.text().strip(),
             "conda_executable": self._conda_executable,
             "auto_installed": self._auto_installed,
             "conda_env_path": "",       # DEPRECATED, 保留 key 兼容旧逻辑
@@ -656,7 +653,6 @@ class LinuxSettingsCard(QFrame):
 
     def set_values(
         self,
-        project_path: str = "",
         conda_env: str = "",
         conda_env_name: str = "",
         conda_executable: str = "",
@@ -665,7 +661,6 @@ class LinuxSettingsCard(QFrame):
         poll_interval: int = 5,
     ) -> None:
         """供 SettingsPage 回填数据。"""
-        self.linux_project_path.setText(project_path)
         self.spin_concurrent.setValue(max_concurrent)
         self.spin_poll.setValue(poll_interval)
         self._conda_executable = conda_executable
@@ -723,10 +718,6 @@ class LinuxSettingsCard(QFrame):
         form = QFormLayout()
         form.setVerticalSpacing(12)
 
-        self.linux_project_path = QLineEdit()
-        self.linux_project_path.setStyleSheet(INPUT_LINEEDIT)
-        self.linux_project_path.setPlaceholderText("例如: /h2ometa/projects")
-
         self.spin_concurrent = QSpinBox()
         self.spin_concurrent.setRange(1, 8)
         self.spin_concurrent.setValue(3)
@@ -737,7 +728,6 @@ class LinuxSettingsCard(QFrame):
         self.spin_poll.setValue(5)
         self.spin_poll.setSuffix(" 秒")
 
-        form.addRow("项目根路径", self.linux_project_path)
         form.addRow("最大并发任务数", self.spin_concurrent)
         form.addRow("任务轮询间隔", self.spin_poll)
         c_layout.addLayout(form)
@@ -1169,18 +1159,11 @@ class LinuxSettingsCard(QFrame):
         if self._is_locked:
             # 解锁
             self._is_locked = False
-            self.linux_project_path.setEnabled(True)
             self.spin_concurrent.setEnabled(True)
             self.spin_poll.setEnabled(True)
             self.lock_btn.setText("确认并保存")
             self.status_label.setText("配置已解锁，可修改")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
-            return
-
-        project_path = self.linux_project_path.text().strip()
-        if not project_path:
-            self.status_label.setText("请填写项目根路径")
-            self.status_label.setStyleSheet(STATUS_ERROR)
             return
 
         self._is_locked = True
@@ -1212,7 +1195,6 @@ class LinuxSettingsCard(QFrame):
         self.container.show()
         self.arrow_label.setText("▲")
 
-        self.linux_project_path.setEnabled(True)
         self.spin_concurrent.setEnabled(True)
         self.spin_poll.setEnabled(True)
         self.lock_btn.show()
@@ -1223,7 +1205,6 @@ class LinuxSettingsCard(QFrame):
         self._in_edit_mode = True
 
     def _lock_inputs(self):
-        self.linux_project_path.setEnabled(False)
         self.spin_concurrent.setEnabled(False)
         self.spin_poll.setEnabled(False)
         self.lock_btn.setText("修改配置")
@@ -1232,7 +1213,7 @@ class LinuxSettingsCard(QFrame):
     def _refresh_interaction_state(self) -> None:
         if self._external_lock:
             for w in [
-                self.linux_project_path, self.modify_btn, self.lock_btn,
+                self.modify_btn, self.lock_btn,
                 self.spin_concurrent, self.spin_poll,
             ]:
                 w.setEnabled(False)
@@ -1242,13 +1223,11 @@ class LinuxSettingsCard(QFrame):
             return
 
         if self._in_edit_mode:
-            self.linux_project_path.setEnabled(True)
             self.spin_concurrent.setEnabled(True)
             self.spin_poll.setEnabled(True)
             self.lock_btn.setEnabled(True)
             self.modify_btn.setEnabled(True)
         else:
-            self.linux_project_path.setEnabled(False)
             self.spin_concurrent.setEnabled(False)
             self.spin_poll.setEnabled(False)
             self.modify_btn.setEnabled(True)

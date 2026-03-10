@@ -136,7 +136,6 @@ class SettingsPage(BasePage):
             key_file=str(ssh.get("key_file", "") or ""),
         )
         self.linux_card.set_values(
-            project_path=str(linux.get("project_root", "") or ""),
             conda_env=str(linux.get("conda_env_path", "") or ""),
             conda_env_name=str(linux.get("conda_env_name", "") or ""),
             conda_executable=str(linux.get("conda_executable", "") or ""),
@@ -174,7 +173,6 @@ class SettingsPage(BasePage):
                 "key_file": str(ssh_values.get("key_file", "") or ""),
             },
             "linux": {
-                "project_root": str(linux_values.get("linux_project_path", "") or ""),
                 "conda_executable": str(linux_values.get("conda_executable", "") or ""),
                 "auto_installed": bool(linux_values.get("auto_installed", False)),
                 "conda_env_path": str(linux_values.get("conda_env_path", "") or ""),

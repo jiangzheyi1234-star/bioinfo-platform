@@ -54,7 +54,6 @@ def default_settings_schema() -> dict[str, Any]:
             "key_file": "",
         },
         "linux": {
-            "project_root": "",
             "conda_executable": "",      # 检测到的 conda 绝对路径
             "auto_installed": False,     # 是否 H2OMeta 自动安装的 Miniforge
             "conda_env_path": "",        # DEPRECATED, 保留兼容
@@ -118,7 +117,6 @@ def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
     schema["ssh"]["user"] = str(data.get("ssh_user") or data.get("user") or schema["ssh"]["user"])
     schema["ssh"]["password"] = str(data.get("ssh_pwd") or data.get("pwd") or schema["ssh"]["password"])
 
-    schema["linux"]["project_root"] = str(data.get("linux_project_path") or schema["linux"]["project_root"])
     schema["linux"]["conda_env_path"] = str(data.get("conda_env_path") or schema["linux"]["conda_env_path"])
     schema["linux"]["conda_env_name"] = str(data.get("conda_env_name") or schema["linux"]["conda_env_name"])
 
