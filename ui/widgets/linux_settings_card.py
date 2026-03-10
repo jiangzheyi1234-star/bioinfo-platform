@@ -1010,20 +1010,37 @@ class LinuxSettingsCard(QFrame):
         _cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=5000)
 
     def _prompt_miniforge_install(self) -> None:
-        """弹窗提示安装 Miniforge。"""
-        from PyQt6.QtWidgets import QMessageBox
+        """弹窗提示：未检测到 conda，提供手动指定路径 / 自动安装 Miniforge 两个选项。"""
+        from PyQt6.QtWidgets import QMessageBox, QInputDialog
 
-        result = QMessageBox.question(
-            self,
-            "未检测到 conda",
-            "远端服务器未检测到 conda 环境管理器。\n\n"
-            "是否自动安装 Miniforge3？（推荐，约 100MB）\n"
-            "安装目录: ~/.h2ometa/conda\n"
-            "不会修改系统环境变量。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        box = QMessageBox(self)
+        box.setWindowTitle("未检测到 conda")
+        box.setText(
+            "远端服务器未自动检测到 conda 环境管理器。\n\n"
+            "如果你已安装 conda / anaconda / miniconda，\n"
+            "请点击「手动指定」输入 conda 可执行文件的绝对路径。\n\n"
+            "如果没有 conda，可点击「安装 Miniforge」自动安装。"
         )
+        btn_manual = box.addButton("手动指定路径", QMessageBox.ButtonRole.ActionRole)
+        btn_install = box.addButton("安装 Miniforge", QMessageBox.ButtonRole.AcceptRole)
+        btn_cancel = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_manual)
+        box.exec()
 
-        if result == QMessageBox.StandardButton.Yes:
+        clicked = box.clickedButton()
+        if clicked == btn_manual:
+            path, ok = QInputDialog.getText(
+                self,
+                "指定 conda 路径",
+                "请输入远端 conda 可执行文件的绝对路径：\n"
+                "（例如 /home/zyserver/anaconda3/bin/conda）",
+            )
+            if ok and path.strip():
+                self._conda_executable = path.strip()
+                self.request_save.emit()
+                # 用指定路径重新检测
+                QTimer.singleShot(200, self._ensure_conda_ready)
+        elif clicked == btn_install:
             self._start_miniforge_install()
 
     def _start_miniforge_install(self) -> None:

@@ -25,11 +25,12 @@ _MINIFORGE_URL = (
 _DEFAULT_INSTALL_DIR = "~/.h2ometa/conda"
 
 # 远端常见 conda 安装目录（参考 Galaxy find_conda_prefix）
+# 顺序：用户级完整安装 → 用户级精简安装 → 自动安装 → 系统级
 _COMMON_CONDA_PATHS = [
-    "~/.h2ometa/conda/bin/conda",
-    "~/miniforge3/bin/conda",
-    "~/miniconda3/bin/conda",
     "~/anaconda3/bin/conda",
+    "~/miniconda3/bin/conda",
+    "~/miniforge3/bin/conda",
+    "~/.h2ometa/conda/bin/conda",
     "/opt/miniforge3/bin/conda",
     "/opt/conda/bin/conda",
 ]
@@ -98,41 +99,56 @@ def detect(
     """按优先级检测远端 conda 可执行文件。
 
     检测顺序（参考 Galaxy CondaContext.__init__ + find_conda_prefix）：
-    1. configured_path 非空 → 直接验证
-    2. which conda → 取 stdout → 验证
+    1. 验证 configured_path（仅作为回退候选）
+    2. which conda → 取 stdout → 验证（优先当前用户 shell 环境）
     3. 常见安装目录扫描
-    4. 全部失败 → NOT_FOUND
+    4. 若仍失败且 configured_path 可用 → 回退到 configured_path
+    5. 全部失败 → NOT_FOUND
 
     Args:
         ssh_run_fn: SSH 命令执行回调 (cmd, timeout) -> (rc, stdout, stderr)
-        configured_path: 用户配置的 conda 路径（优先级最高）
+        configured_path: 用户配置的 conda 路径（作为回退候选）
         timeout: 单次命令超时秒数
 
     Returns:
         CondaDetectResult
     """
-    # 1. 用户配置路径
+    configured_result: Optional[CondaDetectResult] = None
+
+    # 1. 用户配置路径（记录为回退候选）
     if configured_path and configured_path.strip():
         result = _validate_conda(ssh_run_fn, configured_path.strip(), timeout)
-        if result.status == CondaStatus.OK:
-            logger.info("配置路径有效: %s", configured_path)
-            return result
-        logger.info("配置路径无效 (%s), 继续搜索", configured_path)
+        if result.status in (CondaStatus.OK, CondaStatus.VERSION_PARSE_FAILED):
+            configured_result = result
+            logger.info("配置路径有效，记录为回退候选: %s", configured_path)
+        else:
+            logger.info("配置路径无效 (%s), 继续搜索", configured_path)
 
-    # 2. which conda（通过 bash -l 登录 shell，source .bashrc/.profile）
-    try:
-        rc, stdout, _stderr = ssh_run_fn(
-            "bash -l -c 'which conda'", timeout,
-        )
-        if rc == 0 and stdout.strip():
-            which_path = stdout.strip().splitlines()[0].strip()
-            if which_path:
-                result = _validate_conda(ssh_run_fn, which_path, timeout)
-                if result.status in (CondaStatus.OK, CondaStatus.VERSION_PARSE_FAILED):
-                    logger.info("which conda 找到: %s (status=%s)", which_path, result.status)
-                    return result
-    except Exception as e:
-        logger.debug("which conda 失败: %s", e)
+    # 2. which conda — 尝试多种 shell 方式
+    #    conda init 可能写在 .bashrc（非登录 shell）或 .bash_profile（登录 shell），
+    #    两者都试以覆盖所有配置方式。
+    for which_cmd in [
+        "bash -l -c 'which conda'",          # 登录 shell（source .profile/.bash_profile）
+        "bash -i -c 'which conda' 2>/dev/null",  # 交互 shell（source .bashrc）
+        "which conda",                         # 当前 shell PATH
+    ]:
+        try:
+            rc, stdout, _stderr = ssh_run_fn(which_cmd, timeout)
+            if rc == 0 and stdout.strip():
+                which_path = stdout.strip().splitlines()[0].strip()
+                if which_path and not which_path.startswith("which:"):
+                    result = _validate_conda(ssh_run_fn, which_path, timeout)
+                    if result.status in (CondaStatus.OK, CondaStatus.VERSION_PARSE_FAILED):
+                        if configured_result and configured_result.executable != which_path:
+                            logger.info(
+                                "使用当前用户 conda 路径: %s（覆盖配置路径: %s）",
+                                which_path,
+                                configured_result.executable,
+                            )
+                        logger.info("which conda 找到: %s (cmd=%s)", which_path, which_cmd)
+                        return result
+        except Exception as e:
+            logger.debug("which conda 失败 (cmd=%s): %s", which_cmd, e)
 
     # 3. 常见安装目录扫描
     for candidate in _COMMON_CONDA_PATHS:
@@ -153,7 +169,16 @@ def detect(
         except Exception:
             continue
 
-    # 4. 全部失败
+    # 4. 回退到配置路径
+    if configured_result:
+        logger.info(
+            "使用配置路径作为回退 conda: %s (status=%s)",
+            configured_result.executable,
+            configured_result.status,
+        )
+        return configured_result
+
+    # 5. 全部失败
     return CondaDetectResult(
         status=CondaStatus.NOT_FOUND,
         executable=None,

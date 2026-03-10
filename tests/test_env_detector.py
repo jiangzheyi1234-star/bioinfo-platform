@@ -40,7 +40,7 @@ class TestDetect:
     """env_detector.detect() 检测测试。"""
 
     def test_configured_path_ok(self):
-        """configured_path 有效时直接返回 OK。"""
+        """configured_path 有效且 which 不可用时，回退到 configured_path。"""
         fn = make_ssh_fn({
             "/custom/bin/conda --version": (0, "conda 24.1.2", ""),
         })
@@ -48,6 +48,18 @@ class TestDetect:
         assert result.status == CondaStatus.OK
         assert result.executable == "/custom/bin/conda"
         assert result.version == "24.1.2"
+
+    def test_configured_path_valid_but_which_takes_precedence(self):
+        """configured_path 有效，但当前用户 which conda 优先。"""
+        fn = make_ssh_fn({
+            "/custom/bin/conda --version": (0, "conda 24.1.2", ""),
+            "bash -l -c 'which conda'": (0, "/opt/conda/bin/conda\n", ""),
+            "/opt/conda/bin/conda --version": (0, "conda 24.3.1", ""),
+        })
+        result = detect(fn, configured_path="/custom/bin/conda")
+        assert result.status == CondaStatus.OK
+        assert result.executable == "/opt/conda/bin/conda"
+        assert result.version == "24.3.1"
 
     def test_configured_path_invalid_falls_through_to_which(self):
         """configured_path 无效时 fallback 到 which conda。"""
@@ -72,15 +84,13 @@ class TestDetect:
         assert result.executable == "/home/user/miniconda3/bin/conda"
 
     def test_which_fails_scan_hits_anaconda3(self):
-        """which 失败，常见目录扫描命中 ~/anaconda3。"""
+        """which 失败，常见目录扫描优先命中 ~/anaconda3。"""
         fn = make_ssh_fn({
             "bash -l -c 'which conda'": (1, "", ""),
+            "bash -i -c 'which conda'": (1, "", ""),
+            "which conda": (1, "", ""),
             'test -x "$(eval echo ~/anaconda3/bin/conda)"': (0, "", ""),
             "~/anaconda3/bin/conda --version": (0, "conda 22.9.0", ""),
-            # 前面的候选路径都失败
-            'test -x "$(eval echo ~/.h2ometa/conda/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo ~/miniforge3/bin/conda)"': (1, "", ""),
-            'test -x "$(eval echo ~/miniconda3/bin/conda)"': (1, "", ""),
         })
         result = detect(fn)
         assert result.status == CondaStatus.OK
@@ -126,6 +136,30 @@ class TestDetect:
         result = detect(fn, configured_path="/custom/conda")
         assert result.status == CondaStatus.OK
         assert result.version == "24.7.1"
+
+    def test_bash_interactive_fallback(self):
+        """bash -l 失败但 bash -i 成功（conda init 在 .bashrc）。"""
+        fn = make_ssh_fn({
+            "bash -l -c 'which conda'": (1, "", ""),
+            "bash -i -c 'which conda'": (0, "/home/user/anaconda3/bin/conda\n", ""),
+            "/home/user/anaconda3/bin/conda --version": (0, "conda 23.11.0", ""),
+        })
+        result = detect(fn)
+        assert result.status == CondaStatus.OK
+        assert result.executable == "/home/user/anaconda3/bin/conda"
+        assert result.version == "23.11.0"
+
+    def test_plain_which_fallback(self):
+        """bash -l 和 bash -i 都失败，plain which conda 成功。"""
+        fn = make_ssh_fn({
+            "bash -l -c 'which conda'": (1, "", ""),
+            "bash -i -c 'which conda'": (1, "", ""),
+            "which conda": (0, "/opt/conda/bin/conda\n", ""),
+            "/opt/conda/bin/conda --version": (0, "conda 24.5.0", ""),
+        })
+        result = detect(fn)
+        assert result.status == CondaStatus.OK
+        assert result.executable == "/opt/conda/bin/conda"
 
 
 # ---------------------------------------------------------------------------
