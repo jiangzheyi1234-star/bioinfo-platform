@@ -412,6 +412,28 @@ class TestToolEngineExecute:
         assert len(mkdir_cmds) == 1
         assert sample_id in mkdir_cmds[0]
 
+    def test_execute_quotes_remote_dir(
+        self,
+        engine: ToolEngine,
+        registry: DataRegistry,
+        sample_id: str,
+        ssh: FakeSSHService,
+        pm: FakeProjectManager,
+    ) -> None:
+        pm.current_project.remote_base = "/proj base/with spaces"
+        data_id = registry.register_input("/data/r1.fq", sample_id, "fastq")
+
+        engine.execute(
+            tool_id="fastp",
+            input_data_ids=[data_id],
+            parameters={},
+            sample_id=sample_id,
+        )
+
+        mkdir_cmds = [c for c in ssh.commands_run if "mkdir -p" in c]
+        assert len(mkdir_cmds) == 1
+        assert "'/proj base/with spaces" in mkdir_cmds[0]
+
     def test_execute_emits_started_signal(
         self,
         engine: ToolEngine,
@@ -508,6 +530,20 @@ class TestToolEngineExecute:
 
 
 # ── ToolEngine.on_job_completed 测试 ──────────────────────
+
+
+def test_on_job_completed_quotes_file_checks(
+    engine: ToolEngine,
+    ssh: FakeSSHService,
+    sample_id: str,
+) -> None:
+    output_dir = f"/proj base/with spaces/intermediate/{sample_id}/fastp_exec_123"
+
+    engine.on_job_completed("exec_123", FASTP_DESCRIPTOR, sample_id, output_dir)
+
+    test_file_cmds = [c for c in ssh.commands_run if c.startswith("test -f ")]
+    assert test_file_cmds
+    assert "'/proj base/with spaces" in test_file_cmds[0]
 
 
 class TestToolEngineOnCompleted:

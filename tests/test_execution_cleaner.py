@@ -54,6 +54,41 @@ def execution_cleaner(project_manager, mock_ssh):
     return ExecutionCleaner(projects=project_manager, ssh=mock_ssh)
 
 
+def test_archive_execution_accepts_tuple_result_and_quotes_path(
+    execution_cleaner, project_manager, data_registry, mock_ssh
+):
+    """archive_execution should support tuple SSH results and quote remote paths."""
+    sample_id = data_registry.add_sample("quoted sample", source="local")
+
+    db = project_manager.db
+    execution_id = "exec_testquoted"
+    db.execute(
+        "INSERT INTO executions "
+        "(execution_id, sample_id, tool_id, tool_version, parameters, "
+        "status, triggered_by, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            execution_id,
+            sample_id,
+            "fastp",
+            "0.23.0",
+            '{}',
+            "completed",
+            "manual",
+            time.time(),
+        ),
+    )
+    db.commit()
+
+    project_manager.current_project.remote_base = "/remote base/with spaces"
+    mock_ssh.run.return_value = (0, "", "")
+
+    execution_cleaner.archive_execution(execution_id)
+
+    expected_dir = f"/remote base/with spaces/intermediate/{sample_id}/fastp_{execution_id}"
+    mock_ssh.run.assert_called_with(f"rm -rf '{expected_dir}'", timeout=30)
+
+
 def test_archive_execution_deletes_files_and_updates_db(
     execution_cleaner, project_manager, data_registry, mock_ssh
 ):

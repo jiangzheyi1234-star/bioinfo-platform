@@ -22,6 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from shlex import quote
 from typing import Any, Optional, Protocol
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -72,7 +73,6 @@ class JobQueueProtocol(Protocol):
 # ── 数据类 ────────────────────────────────────────────────
 
 
-@dataclass
 @dataclass
 class ExecutionRecord:
     """执行记录数据类"""
@@ -224,7 +224,7 @@ class ToolEngine(QObject):
             self._registry.add_execution_io(execution_id, data_id, "input")
 
         # 11. 创建远端输出目录
-        self._ssh.run(f"mkdir -p {output_dir}", timeout=15)
+        self._ssh.run(f"mkdir -p {quote(output_dir)}", timeout=15)
 
         # 11.5 注册执行上下文（供 ServiceLocator._on_dispatch 取用）
         # task_dir 即 output_dir，用于存放 run.sh / status.txt / heartbeat.txt
@@ -296,7 +296,7 @@ class ToolEngine(QObject):
                 # Risk 1 缓解: 验证远程文件是否存在
                 try:
                     rc, _, _ = self._ssh.run(
-                        f"test -f {file_path}", timeout=10,
+                        f"test -f {quote(file_path)}", timeout=10,
                     )
                     if rc != 0:
                         logger.warning(

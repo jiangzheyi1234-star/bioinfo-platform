@@ -14,6 +14,7 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass
+from shlex import quote
 from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -22,6 +23,20 @@ from core.project_manager import ProjectManager
 from core.ssh_service import SSHService
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_ssh_result(result: object) -> tuple[int, str, str]:
+    """Normalize SSHService.run() results from tuple or object forms."""
+    if isinstance(result, tuple):
+        rc, stdout, stderr = result
+        return int(rc), str(stdout), str(stderr)
+
+    exit_code = getattr(result, "exit_code", None)
+    stdout = getattr(result, "stdout", "")
+    stderr = getattr(result, "stderr", "")
+    if exit_code is None:
+        raise TypeError("Unsupported SSH run result")
+    return int(exit_code), str(stdout), str(stderr)
 
 
 @dataclass
@@ -102,9 +117,11 @@ class ExecutionCleaner(QObject):
             )
 
             # 删除远端目录
-            result = self._ssh.run(f"rm -rf {output_dir}", timeout=30)
-            if result.exit_code != 0:
-                raise RuntimeError(f"删除远端目录失败: {result.stderr}")
+            rc, _, stderr = _coerce_ssh_result(
+                self._ssh.run(f"rm -rf {quote(output_dir)}", timeout=30)
+            )
+            if rc != 0:
+                raise RuntimeError(f"Failed to delete remote directory: {stderr}")
 
             # 更新数据库
             db.execute(
