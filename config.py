@@ -55,8 +55,10 @@ def default_settings_schema() -> dict[str, Any]:
         },
         "linux": {
             "project_root": "",
-            "conda_env_path": "",
-            "conda_env_name": "",
+            "conda_executable": "",      # 检测到的 conda 绝对路径
+            "auto_installed": False,     # 是否 H2OMeta 自动安装的 Miniforge
+            "conda_env_path": "",        # DEPRECATED, 保留兼容
+            "conda_env_name": "",        # DEPRECATED, 保留兼容
         },
         "execution": {
             "max_concurrent": 3,

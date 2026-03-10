@@ -342,3 +342,50 @@ class TestWrap:
         """包装脚本应使用 set -euo pipefail。"""
         script = CommandBuilder.wrap("echo", "job1", "/tmp/t")
         assert "set -euo pipefail" in script
+
+
+# ---------------------------------------------------------------------------
+# conda_executable 参数测试
+# ---------------------------------------------------------------------------
+
+class TestCondaExecutable:
+    """CommandBuilder.build() 的 conda_executable 参数测试。"""
+
+    def test_conda_executable_overrides_default(self, fastp_descriptor: dict) -> None:
+        """传入 conda_executable 时应使用绝对路径而非默认 "conda"。"""
+        cmd = CommandBuilder.build(
+            descriptor=fastp_descriptor,
+            parameters={"qualified_quality_phred": 15, "length_required": 50, "thread": 4},
+            input_paths={"reads_1": "/data/r1.fq", "clean_1": "/out/c1.fq"},
+            output_dir="/out",
+            sample_id="s1",
+            conda_executable="/home/user/miniconda3/bin/conda",
+        )
+        assert "/home/user/miniconda3/bin/conda run -n fastp_env" in cmd
+        assert "conda run -n fastp_env" in cmd
+
+    def test_empty_conda_executable_uses_default(self, fastp_descriptor: dict) -> None:
+        """空 conda_executable 应回退到 CONDA_RUNNER 默认值。"""
+        cmd = CommandBuilder.build(
+            descriptor=fastp_descriptor,
+            parameters={"qualified_quality_phred": 15, "length_required": 50, "thread": 4},
+            input_paths={"reads_1": "/data/r1.fq", "clean_1": "/out/c1.fq"},
+            output_dir="/out",
+            sample_id="s1",
+            conda_executable="",
+        )
+        # 默认 CONDA_RUNNER 是 "conda"
+        assert "conda run -n fastp_env" in cmd
+
+    def test_no_conda_env_ignores_executable(self, simple_descriptor: dict) -> None:
+        """没有 conda_env 时即使传了 conda_executable 也不包装。"""
+        cmd = CommandBuilder.build(
+            descriptor=simple_descriptor,
+            parameters={"flag": "test"},
+            input_paths={"input_file": "/data/test.txt"},
+            output_dir="/output",
+            sample_id="s1",
+            conda_executable="/home/user/miniconda3/bin/conda",
+        )
+        assert "conda run" not in cmd
+        assert "miniconda3" not in cmd

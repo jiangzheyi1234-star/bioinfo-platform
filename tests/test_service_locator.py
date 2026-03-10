@@ -277,3 +277,58 @@ class TestServiceLocatorShutdown:
         locator = ServiceLocator(plugins_dir=plugins_dir)
         locator.initialize()
         locator.shutdown()
+
+
+class TestServiceLocatorCondaExecutable:
+    """conda_executable 传播测试"""
+
+    def test_conda_executable_default_empty(self, tmp_path) -> None:
+        """conda_executable 默认为空字符串"""
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+        assert locator.conda_executable == ""
+
+    def test_conda_executable_setter_updates(self, tmp_path) -> None:
+        """设置 conda_executable 后应可读取"""
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+
+        locator.conda_executable = "/home/user/miniconda3/bin/conda"
+        assert locator.conda_executable == "/home/user/miniconda3/bin/conda"
+
+    def test_conda_executable_propagates_to_engine(
+        self, db_conn, project, ssh, tmp_path,
+    ) -> None:
+        """设置 conda_executable 后应触发 engine 重建并传播"""
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        pm = FakeProjectManager(db_conn, project)
+        locator = ServiceLocator(
+            ssh_service=ssh,  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+            project_manager=pm,  # type: ignore[arg-type]
+        )
+        locator.initialize()
+        assert locator.tool_engine is not None
+
+        # 设置 conda_executable 触发 engine 重建
+        locator.conda_executable = "/opt/conda/bin/conda"
+        assert locator.tool_engine._conda_executable == "/opt/conda/bin/conda"
+
+    def test_conda_executable_none_converts_to_empty(self, tmp_path) -> None:
+        """设置 None 应转为空字符串"""
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+
+        locator.conda_executable = None  # type: ignore[assignment]
+        assert locator.conda_executable == ""

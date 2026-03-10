@@ -62,6 +62,7 @@ class ServiceLocator(QObject):
         self._data_registry: Optional[DataRegistry] = None
         self._tool_engine: Optional[ToolEngine] = None
         self._execution_ctx: dict[str, dict[str, Any]] = {}
+        self._conda_executable: str = ""
 
     def initialize(self) -> int:
         count = self._plugin_registry.scan()
@@ -115,6 +116,17 @@ class ServiceLocator(QObject):
     @property
     def tool_engine(self) -> Optional[ToolEngine]:
         return self._tool_engine
+
+    @property
+    def conda_executable(self) -> str:
+        return self._conda_executable
+
+    @conda_executable.setter
+    def conda_executable(self, path: str) -> None:
+        self._conda_executable = path or ""
+        if self._data_registry is not None:
+            self._rebuild_engine()
+        logger.info("conda_executable 已更新: %s", self._conda_executable or "(空)")
 
     def update_max_concurrent(self, n: int) -> None:
         self._job_queue.update_max_concurrent(n)
@@ -215,6 +227,7 @@ class ServiceLocator(QObject):
             data_registry=self._data_registry,
             job_queue=self._job_queue,
             context_register_fn=self.register_execution_context,
+            conda_executable=self._conda_executable,
         )
         self._tool_engine.execution_started.connect(self.execution_started.emit)
 

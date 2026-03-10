@@ -139,6 +139,8 @@ class SettingsPage(BasePage):
             project_path=str(linux.get("project_root", "") or ""),
             conda_env=str(linux.get("conda_env_path", "") or ""),
             conda_env_name=str(linux.get("conda_env_name", "") or ""),
+            conda_executable=str(linux.get("conda_executable", "") or ""),
+            auto_installed=bool(linux.get("auto_installed", False)),
             max_concurrent=int(execution.get("max_concurrent", 3) or 3),
             poll_interval=int(execution.get("poll_interval", 5) or 5),
         )
@@ -173,6 +175,8 @@ class SettingsPage(BasePage):
             },
             "linux": {
                 "project_root": str(linux_values.get("linux_project_path", "") or ""),
+                "conda_executable": str(linux_values.get("conda_executable", "") or ""),
+                "auto_installed": bool(linux_values.get("auto_installed", False)),
                 "conda_env_path": str(linux_values.get("conda_env_path", "") or ""),
                 "conda_env_name": str(linux_values.get("conda_env_name", "") or ""),
             },
@@ -231,8 +235,11 @@ class SettingsPage(BasePage):
 
         window = self.window()
         locator = getattr(window, "service_locator", None)
-        if locator is not None and hasattr(locator, "update_max_concurrent"):
-            locator.update_max_concurrent(int(schema.get("execution", {}).get("max_concurrent", 3) or 3))
+        if locator is not None:
+            if hasattr(locator, "update_max_concurrent"):
+                locator.update_max_concurrent(int(schema.get("execution", {}).get("max_concurrent", 3) or 3))
+            if hasattr(locator, "conda_executable"):
+                locator.conda_executable = schema["linux"].get("conda_executable", "")
 
         try:
             self.ssh_card.status_label.setText("设置已保存")

@@ -128,6 +128,7 @@ class ToolEngine(QObject):
         data_registry: DataRegistry,
         job_queue: JobQueueProtocol,
         context_register_fn=None,
+        conda_executable: str = "",
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
@@ -139,6 +140,7 @@ class ToolEngine(QObject):
         # 可选回调：fn(execution_id, command, descriptor, sample_id, output_dir, task_dir)
         # 由 ServiceLocator 注入，用于在 job_queue.job_started 触发前注册执行上下文
         self._context_register_fn = context_register_fn
+        self._conda_executable = conda_executable
 
     # ── 公开 API ──────────────────────────────────────────
 
@@ -202,6 +204,7 @@ class ToolEngine(QObject):
             output_dir=output_dir,
             sample_id=sample_id,
             database_paths=database_paths,
+            conda_executable=self._conda_executable,
         )
 
         # 9. 创建 ExecutionRecord

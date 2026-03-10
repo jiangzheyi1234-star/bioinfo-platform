@@ -36,36 +36,10 @@ from ui.widgets.styles import (
     SCROLL_BAR_ELEGANT,
 )
 
+from core import env_detector
+from core.env_detector import CondaStatus
+
 logger = logging.getLogger(__name__)
-CONDA_EXE_CANDIDATES = [
-    "/home/zyserver/anaconda3/bin/conda",
-    "/home/zyserver/miniconda3/bin/conda",
-    "~/anaconda3/bin/conda",
-    "~/miniconda3/bin/conda",
-    "/opt/anaconda3/bin/conda",
-    "/opt/miniconda3/bin/conda",
-    "conda",
-]
-
-
-def _resolve_conda_executable(client, timeout: int = 15) -> str:
-    for exe in CONDA_EXE_CANDIDATES:
-        try:
-            _, stdout, _ = client.exec_command(f"{exe} --version", timeout=timeout)
-            if stdout.channel.recv_exit_status() == 0:
-                return exe
-        except Exception:
-            continue
-    return "conda"
-
-
-def _rewrite_conda_install_cmd(install_cmd: str, client) -> str:
-    stripped = install_cmd.lstrip()
-    if not (stripped == "conda" or stripped.startswith("conda ")):
-        return install_cmd
-    prefix = install_cmd[: len(install_cmd) - len(stripped)]
-    remainder = stripped[5:]
-    return f"{prefix}{_resolve_conda_executable(client)}{remainder}"
 
 # 工具环境检测状态图标
 _STATUS_PENDING = "..."
@@ -84,6 +58,69 @@ class ClickableHeader(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mouseReleaseEvent(event)
+
+
+# ── Conda 检测 Worker ─────────────────────────────────────────────
+
+
+class CondaDetectWorker(QObject):
+    """在 QThread 中运行 env_detector.detect()，避免阻塞主线程。"""
+
+    finished = pyqtSignal(object)  # CondaDetectResult
+    error = pyqtSignal(str)
+
+    def __init__(self, ssh_run_fn, configured_path=""):
+        super().__init__()
+        self._ssh_run_fn = ssh_run_fn
+        self._configured_path = configured_path
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            result = env_detector.detect(self._ssh_run_fn, self._configured_path)
+            self.finished.emit(result)
+        except Exception as e:
+            logger.exception("CondaDetectWorker 出错")
+            self.error.emit(str(e))
+
+
+# ── Miniforge 安装 Worker ─────────────────────────────────────────
+
+
+class MiniforgeInstallWorker(QObject):
+    """在 QThread 中运行 env_detector.install_miniforge()。"""
+
+    output_line = pyqtSignal(str)
+    finished = pyqtSignal(object)  # CondaDetectResult
+    error = pyqtSignal(str)
+
+    def __init__(self, ssh_run_fn, install_dir="~/.h2ometa/conda"):
+        super().__init__()
+        self._ssh_run_fn = ssh_run_fn
+        self._install_dir = install_dir
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            # 包装 ssh_run_fn 以输出日志
+            original_fn = self._ssh_run_fn
+
+            def logging_fn(cmd, timeout=15):
+                self.output_line.emit(f"$ {cmd}\n")
+                rc, stdout, stderr = original_fn(cmd, timeout)
+                if stdout.strip():
+                    self.output_line.emit(stdout)
+                if stderr.strip():
+                    self.output_line.emit(f"[stderr] {stderr}")
+                return rc, stdout, stderr
+
+            result = env_detector.install_miniforge(
+                logging_fn, self._install_dir,
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            logger.exception("MiniforgeInstallWorker 出错")
+            self.error.emit(str(e))
 
 
 # ── 工具环境 Bridge (Python ↔ JS) ───────────────────────────────────
@@ -171,15 +208,17 @@ class EnvBatchCheckWorker(QObject):
     finished = pyqtSignal(list)                  # conda_envs_list
     error = pyqtSignal(str)                      # error_message
 
-    def __init__(self, client, tools: list[dict]):
+    def __init__(self, client, tools: list[dict], conda_executable: str = ""):
         """
         Args:
             client: paramiko SSHClient
             tools: [{"id": ..., "conda_env": ...}, ...]
+            conda_executable: 检测到的 conda 绝对路径
         """
         super().__init__()
         self.client = client
         self.tools = tools
+        self._conda_executable = conda_executable or "conda"
 
     @pyqtSlot()
     def run(self):
@@ -188,38 +227,29 @@ class EnvBatchCheckWorker(QObject):
 
             # ── 获取远程 conda 环境列表 ──────────────────────────────
             conda_envs: list[str] = []
-            candidates = [f"{exe} env list --json" for exe in CONDA_EXE_CANDIDATES]
+            cmd = f"{self._conda_executable} env list --json"
 
-            for cmd in candidates:
-                try:
-                    _, stdout, stderr = self.client.exec_command(cmd, timeout=30)
-                    # ★ 等待命令真正执行完毕
-                    exit_code = stdout.channel.recv_exit_status()
-                    output = stdout.read().decode("utf-8", errors="ignore").strip()
-                    err_out = stderr.read().decode("utf-8", errors="ignore").strip()
+            try:
+                _, stdout, stderr = self.client.exec_command(cmd, timeout=30)
+                # ★ 等待命令真正执行完毕
+                exit_code = stdout.channel.recv_exit_status()
+                output = stdout.read().decode("utf-8", errors="ignore").strip()
+                err_out = stderr.read().decode("utf-8", errors="ignore").strip()
 
-                    logger.debug("conda cmd=%r exit=%d out_len=%d err=%s",
-                                 cmd, exit_code, len(output), err_out[:80])
+                logger.debug("conda cmd=%r exit=%d out_len=%d err=%s",
+                             cmd, exit_code, len(output), err_out[:80])
 
-                    if exit_code != 0 or not output:
-                        continue
-
+                if exit_code == 0 and output:
                     json_start = output.find("{")
-                    if json_start < 0:
-                        continue
+                    if json_start >= 0:
+                        data = _json.loads(output[json_start:])
+                        conda_envs = data.get("envs", [])
+                        logger.info("conda env list 成功，共 %d 个环境", len(conda_envs))
 
-                    data = _json.loads(output[json_start:])
-                    conda_envs = data.get("envs", [])
-                    logger.info("conda env list 成功，共 %d 个环境（命令: %s）",
-                                len(conda_envs), cmd)
-                    break
-
-                except _json.JSONDecodeError as e:
-                    logger.warning("JSON 解析失败 cmd=%r: %s", cmd, e)
-                    continue
-                except Exception as e:
-                    logger.debug("cmd=%r 失败: %s", cmd, e)
-                    continue
+            except _json.JSONDecodeError as e:
+                logger.warning("JSON 解析失败 cmd=%r: %s", cmd, e)
+            except Exception as e:
+                logger.debug("cmd=%r 失败: %s", cmd, e)
 
             if not conda_envs:
                 logger.warning("所有候选命令均未取到 conda 环境列表")
@@ -268,15 +298,18 @@ class EnvInstallWorker(QObject):
     finished = pyqtSignal(bool)     # True=成功
     error = pyqtSignal(str)
 
-    def __init__(self, client, install_cmd: str):
+    def __init__(self, client, install_cmd: str, conda_executable: str = ""):
         super().__init__()
         self.client = client
         self.install_cmd = install_cmd
+        self._conda_executable = conda_executable
 
     @pyqtSlot()
     def run(self):
         try:
-            resolved_cmd = _rewrite_conda_install_cmd(self.install_cmd, self.client)
+            resolved_cmd = env_detector.rewrite_install_cmd(
+                self.install_cmd, self._conda_executable,
+            )
             logger.info("开始安装环境: %s", resolved_cmd)
             self.output_line.emit(f"$ {resolved_cmd}\n")
             _, stdout, stderr = self.client.exec_command(
@@ -333,6 +366,10 @@ class EnvInstallDialog(QDialog):
         self._installing = False
         self._install_thread: Optional[QThread] = None
         self._install_worker: Optional[EnvInstallWorker] = None
+        # 从父级 LinuxSettingsCard 获取 conda_executable
+        self._conda_executable = ""
+        if parent and hasattr(parent, "_conda_executable"):
+            self._conda_executable = parent._conda_executable
 
         self.setWindowTitle("安装工具环境")
         self.setMinimumWidth(580)
@@ -444,7 +481,9 @@ class EnvInstallDialog(QDialog):
         self.output_edit.clear()
 
         self._install_thread = QThread()
-        self._install_worker = EnvInstallWorker(self.client, install_cmd)
+        self._install_worker = EnvInstallWorker(
+            self.client, install_cmd, self._conda_executable,
+        )
         self._install_worker.moveToThread(self._install_thread)
 
         self._install_thread.started.connect(self._install_worker.run)
@@ -563,6 +602,8 @@ class LinuxSettingsCard(QFrame):
         self._external_lock = False
 
         self._plugin_registry = plugin_registry
+        self._conda_executable: str = ""
+        self._auto_installed: bool = False
 
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
@@ -587,25 +628,27 @@ class LinuxSettingsCard(QFrame):
         self._refresh_tool_list()
 
     def set_active_client(self, client) -> None:
-        """接收外部传入的 SSH 客户端实例。SSH 连接成功后自动触发一次环境检测。"""
+        """接收外部传入的 SSH 客户端实例。SSH 连接成功后自动触发 conda 检测。"""
         self.active_client = client
         connected = client is not None
 
         if connected:
             self.status_label.setText("SSH 已就绪")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
-            # SSH 连接成功后延迟 1s 自动触发检测（等 UI 渲染完毕）
-            QTimer.singleShot(1000, self._on_batch_check)
+            # SSH 连接成功后延迟 1s 自动触发 conda 检测
+            QTimer.singleShot(1000, self._ensure_conda_ready)
         else:
             self.status_label.setText("等待 SSH 连接")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
     def get_values(self) -> dict:
-        """供 SettingsPage 获取数据（向后兼容）。"""
+        """供 SettingsPage 获取数据。"""
         return {
             "linux_project_path": self.linux_project_path.text().strip(),
-            "conda_env_path": "",       # 已移除，保留 key 兼容旧逻辑
-            "conda_env_name": "",       # 已移除，保留 key 兼容旧逻辑
+            "conda_executable": self._conda_executable,
+            "auto_installed": self._auto_installed,
+            "conda_env_path": "",       # DEPRECATED, 保留 key 兼容旧逻辑
+            "conda_env_name": "",       # DEPRECATED, 保留 key 兼容旧逻辑
             "is_locked": self._is_locked,
             "max_concurrent": self.spin_concurrent.value(),
             "poll_interval": self.spin_poll.value(),
@@ -616,13 +659,17 @@ class LinuxSettingsCard(QFrame):
         project_path: str = "",
         conda_env: str = "",
         conda_env_name: str = "",
+        conda_executable: str = "",
+        auto_installed: bool = False,
         max_concurrent: int = 3,
         poll_interval: int = 5,
     ) -> None:
-        """供 SettingsPage 回填数据（签名向后兼容，conda_env 参数忽略）。"""
+        """供 SettingsPage 回填数据。"""
         self.linux_project_path.setText(project_path)
         self.spin_concurrent.setValue(max_concurrent)
         self.spin_poll.setValue(poll_interval)
+        self._conda_executable = conda_executable
+        self._auto_installed = auto_installed
 
     def set_external_lock(self, locked: bool) -> None:
         """外部锁定功能，用于在 SSH 连接被占用时禁用编辑。"""
@@ -789,6 +836,185 @@ class LinuxSettingsCard(QFrame):
         if self._bridge:
             self._bridge.set_tools(self._tools)
 
+    # ── conda 检测 ────────────────────────────────────────
+
+    def _make_ssh_run_fn(self):
+        """封装 paramiko client 为 env_detector 所需的 ssh_run_fn 回调。"""
+        client = self.active_client
+
+        def run(cmd, timeout=15):
+            _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
+            rc = stdout.channel.recv_exit_status()
+            return rc, stdout.read().decode("utf-8", errors="ignore"), stderr.read().decode("utf-8", errors="ignore")
+
+        return run
+
+    def _ensure_conda_ready(self) -> None:
+        """SSH 连接后的第一层检测 — 检测 conda 是否可用。
+
+        成功后缓存路径、保存配置、更新 ServiceLocator，然后继续 batch check。
+        未找到时弹窗提示安装 Miniforge。
+        """
+        if not self.active_client or self._checking or self._external_lock:
+            return
+
+        self._checking = True
+        self.status_label.setText("正在检测 conda 环境...")
+        self.status_label.setStyleSheet(STATUS_NEUTRAL)
+
+        self._cleanup_conda_detect_resources()
+
+        self._conda_detect_thread = QThread()
+        self._conda_detect_worker = CondaDetectWorker(
+            ssh_run_fn=self._make_ssh_run_fn(),
+            configured_path=self._conda_executable,
+        )
+        self._conda_detect_worker.moveToThread(self._conda_detect_thread)
+
+        self._conda_detect_thread.started.connect(self._conda_detect_worker.run)
+        self._conda_detect_worker.finished.connect(self._on_conda_detected)
+        self._conda_detect_worker.error.connect(self._on_conda_detect_error)
+        self._conda_detect_worker.finished.connect(self._cleanup_conda_detect_resources)
+
+        self._conda_detect_thread.start()
+
+    def _on_conda_detected(self, result) -> None:
+        """conda 检测完成回调。"""
+        self._checking = False
+
+        if result.status == CondaStatus.OK:
+            self._conda_executable = result.executable
+            self.status_label.setText(f"conda {result.version} 就绪，正在检测工具环境...")
+            self.status_label.setStyleSheet(STATUS_SUCCESS)
+
+            # 更新 ServiceLocator
+            window = self.window()
+            locator = getattr(window, "service_locator", None)
+            if locator is not None and hasattr(locator, "conda_executable"):
+                locator.conda_executable = self._conda_executable
+
+            # 保存配置
+            self.request_save.emit()
+
+            # 继续批量检测工具环境
+            QTimer.singleShot(200, self._on_batch_check)
+
+        elif result.status == CondaStatus.NOT_FOUND:
+            self.status_label.setText("未检测到 conda")
+            self.status_label.setStyleSheet(STATUS_ERROR)
+            self._prompt_miniforge_install()
+
+        elif result.status == CondaStatus.VERSION_PARSE_FAILED:
+            self.status_label.setText("检测到 conda 但版本不可识别，请手动指定路径")
+            self.status_label.setStyleSheet(STATUS_ERROR)
+
+    def _on_conda_detect_error(self, msg: str) -> None:
+        """conda 检测出错。"""
+        self._checking = False
+        self.status_label.setText(f"conda 检测失败: {msg[:40]}")
+        self.status_label.setStyleSheet(STATUS_ERROR)
+
+    def _cleanup_conda_detect_resources(self) -> None:
+        """清理 conda 检测线程资源。"""
+        for attr in ("_conda_detect_thread", "_conda_detect_worker"):
+            obj = getattr(self, attr, None)
+            if obj is None:
+                continue
+            if attr == "_conda_detect_thread" and obj.isRunning():
+                obj.quit()
+                obj.wait(5000)
+            obj.deleteLater()
+            try:
+                delattr(self, attr)
+            except AttributeError:
+                pass
+
+    def _prompt_miniforge_install(self) -> None:
+        """弹窗提示安装 Miniforge。"""
+        from PyQt6.QtWidgets import QMessageBox
+
+        result = QMessageBox.question(
+            self,
+            "未检测到 conda",
+            "远端服务器未检测到 conda 环境管理器。\n\n"
+            "是否自动安装 Miniforge3？（推荐，约 100MB）\n"
+            "安装目录: ~/.h2ometa/conda\n"
+            "不会修改系统环境变量。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            self._start_miniforge_install()
+
+    def _start_miniforge_install(self) -> None:
+        """启动 Miniforge 安装。"""
+        if not self.active_client:
+            return
+
+        dlg = EnvInstallDialog(
+            self.active_client,
+            {
+                "id": "miniforge3",
+                "name": "Miniforge3 (conda 环境管理器)",
+                "conda_env": "",
+                "install_cmd": "",
+                "databases": [],
+            },
+            parent=self,
+        )
+        dlg.setWindowTitle("安装 Miniforge3")
+
+        # 覆盖安装按钮行为
+        dlg.install_btn.setText("开始安装")
+        dlg.install_btn.setEnabled(True)
+        dlg.status_lbl.setText(
+            "将安装 Miniforge3 到 ~/.h2ometa/conda，这可能需要几分钟。"
+        )
+
+        # 替换安装逻辑
+        try:
+            dlg.install_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+
+        def _do_miniforge():
+            dlg.install_btn.setEnabled(False)
+            dlg.cancel_btn.setEnabled(False)
+            dlg.status_lbl.setText("正在安装 Miniforge3...")
+            dlg.status_lbl.setStyleSheet("color: #1565c0; font-size: 12px;")
+            dlg.output_edit.clear()
+
+            thread = QThread()
+            worker = MiniforgeInstallWorker(self._make_ssh_run_fn())
+            worker.moveToThread(thread)
+
+            thread.started.connect(worker.run)
+            worker.output_line.connect(dlg._append_output)
+
+            def on_finished(result):
+                thread.quit()
+                thread.wait(3000)
+                if result.status == CondaStatus.OK:
+                    self._conda_executable = result.executable
+                    self._auto_installed = True
+                    dlg._on_install_finished(True)
+                    # re-detect 并继续
+                    QTimer.singleShot(500, self._ensure_conda_ready)
+                else:
+                    dlg.output_edit.insertPlainText(f"\n{result.message}\n")
+                    dlg._on_install_finished(False)
+
+            worker.finished.connect(on_finished)
+            worker.error.connect(lambda msg: dlg._on_install_error(msg))
+
+            # 保持引用防止 GC
+            dlg._mf_thread = thread
+            dlg._mf_worker = worker
+            thread.start()
+
+        dlg.install_btn.clicked.connect(_do_miniforge)
+        dlg.exec()
+
     # ── 批量检测 ─────────────────────────────────────────
 
     def _on_batch_check(self) -> None:
@@ -796,8 +1022,11 @@ class LinuxSettingsCard(QFrame):
         self._do_batch_check()
 
     def _on_batch_check_from_web(self) -> None:
-        """从 Web UI 调用的检测入口。"""
-        self._do_batch_check()
+        """从 Web UI 调用的检测入口 — 如果 conda 已知则直接检测，否则先检测 conda。"""
+        if self._conda_executable:
+            self._do_batch_check()
+        else:
+            self._ensure_conda_ready()
 
     def _do_batch_check(self) -> None:
         """实际执行批量检测。"""
@@ -820,7 +1049,9 @@ class LinuxSettingsCard(QFrame):
         self._cleanup_check_resources()
 
         self._check_thread = QThread()
-        self._check_worker = EnvBatchCheckWorker(self.active_client, self._tools)
+        self._check_worker = EnvBatchCheckWorker(
+            self.active_client, self._tools, self._conda_executable,
+        )
         self._check_worker.moveToThread(self._check_thread)
 
         self._check_thread.started.connect(self._check_worker.run)

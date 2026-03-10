@@ -98,6 +98,7 @@ class CommandBuilder:
         output_dir: str,
         sample_id: str,
         database_paths: Optional[Dict[str, str]] = None,
+        conda_executable: str = "",
     ) -> str:
         """渲染 command_template，生成纯命令字符串（不含包装）。
 
@@ -108,6 +109,7 @@ class CommandBuilder:
             output_dir: 输出目录的远端绝对路径。
             sample_id: 样本 ID。
             database_paths: 数据库路径映射，如 {"db": "/path/to/kraken2_db"}。
+            conda_executable: conda 绝对路径，优先于 CONDA_RUNNER 常量。
 
         Returns:
             渲染后的命令字符串。
@@ -153,9 +155,10 @@ class CommandBuilder:
         lines = [line for line in rendered.splitlines() if line.strip()]
         command = "\n".join(lines)
 
-        # conda/mamba 激活包装（使用模块级 CONDA_RUNNER 常量，默认 "conda"）
+        # conda/mamba 激活包装（优先使用传入的 conda_executable，回退到模块级常量）
         if conda_env:
-            command = f"{CONDA_RUNNER} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
+            runner = conda_executable or CONDA_RUNNER
+            command = f"{runner} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
 
         logger.debug("已构建命令 (插件: %s): %s", descriptor.get("id"), command[:200])
         return command
