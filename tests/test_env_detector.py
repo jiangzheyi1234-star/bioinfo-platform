@@ -53,7 +53,7 @@ class TestDetect:
         """configured_path 无效时 fallback 到 which conda。"""
         fn = make_ssh_fn({
             "/bad/path/conda --version": (1, "", "not found"),
-            "which conda": (0, "/usr/bin/conda\n", ""),
+            "bash -l -c 'which conda'": (0, "/usr/bin/conda\n", ""),
             "/usr/bin/conda --version": (0, "conda 23.5.0", ""),
         })
         result = detect(fn, configured_path="/bad/path/conda")
@@ -64,7 +64,7 @@ class TestDetect:
     def test_which_conda_success(self):
         """which conda 成功时返回 OK。"""
         fn = make_ssh_fn({
-            "which conda": (0, "/home/user/miniconda3/bin/conda\n", ""),
+            "bash -l -c 'which conda'": (0, "/home/user/miniconda3/bin/conda\n", ""),
             "/home/user/miniconda3/bin/conda --version": (0, "conda 24.3.0", ""),
         })
         result = detect(fn)
@@ -74,7 +74,7 @@ class TestDetect:
     def test_which_fails_scan_hits_anaconda3(self):
         """which 失败，常见目录扫描命中 ~/anaconda3。"""
         fn = make_ssh_fn({
-            "which conda": (1, "", ""),
+            "bash -l -c 'which conda'": (1, "", ""),
             'test -x "$(eval echo ~/anaconda3/bin/conda)"': (0, "", ""),
             "~/anaconda3/bin/conda --version": (0, "conda 22.9.0", ""),
             # 前面的候选路径都失败
@@ -96,7 +96,7 @@ class TestDetect:
     def test_version_parse_failed(self):
         """conda --version 输出格式异常 → VERSION_PARSE_FAILED。"""
         fn = make_ssh_fn({
-            "which conda": (0, "/usr/bin/conda\n", ""),
+            "bash -l -c 'which conda'": (0, "/usr/bin/conda\n", ""),
             "/usr/bin/conda --version": (0, "some weird output", ""),
             # 扫描也匹配到同一个
             'test -x "$(eval echo ~/.h2ometa/conda/bin/conda)"': (1, "", ""),
@@ -112,7 +112,7 @@ class TestDetect:
     def test_empty_configured_path_ignored(self):
         """空 configured_path 应被忽略。"""
         fn = make_ssh_fn({
-            "which conda": (0, "/usr/bin/conda\n", ""),
+            "bash -l -c 'which conda'": (0, "/usr/bin/conda\n", ""),
             "/usr/bin/conda --version": (0, "conda 24.0.0", ""),
         })
         result = detect(fn, configured_path="")

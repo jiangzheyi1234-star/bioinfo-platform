@@ -119,9 +119,11 @@ def detect(
             return result
         logger.info("配置路径无效 (%s), 继续搜索", configured_path)
 
-    # 2. which conda
+    # 2. which conda（通过 bash -l 登录 shell，source .bashrc/.profile）
     try:
-        rc, stdout, _stderr = ssh_run_fn("which conda", timeout)
+        rc, stdout, _stderr = ssh_run_fn(
+            "bash -l -c 'which conda'", timeout,
+        )
         if rc == 0 and stdout.strip():
             which_path = stdout.strip().splitlines()[0].strip()
             if which_path:
