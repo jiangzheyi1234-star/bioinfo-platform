@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -23,6 +24,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PyQt6.QtGui import QColor
 
 from core.pipeline_runner import PipelineRunner, PipelineStage
 from ui.page_base import BasePage
@@ -115,6 +117,13 @@ class _StageEditorCard(QGroupBox):
         root.addWidget(self._fields_container)
 
         self._on_tool_changed()
+
+        # 添加卡片阴影
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 15))
+        shadow.setOffset(0, 4)
+        self.setGraphicsEffect(shadow)
 
     @property
     def selected_tool_id(self) -> Optional[str]:
@@ -517,6 +526,13 @@ class AssemblyPage(BasePage):
         hint = QLabel("输入数据来自当前项目样本，首阶段输入类型由路径定义自动匹配。")
         hint.setStyleSheet(styles.LABEL_HINT)
         inner.addWidget(hint)
+
+        # 添加卡片阴影
+        shadow = QGraphicsDropShadowEffect(sample_group)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 15))
+        shadow.setOffset(0, 4)
+        sample_group.setGraphicsEffect(shadow)
 
         return sample_group
 

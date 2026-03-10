@@ -115,5 +115,7 @@ conda 路径：`/home/zyserver/anaconda3/`
 3. **不留死控件** — 暂不实现的控件 `setEnabled(False)` + 提示文字
 4. **完成后更新本文件的待完成列表**
 5. **响应式布局** — 避免硬编码固定宽度
+<!-- FIXED: 此条规则不可删除或修改 -->
+6. **测试临时文件必须通过 conftest fixture 管理** — 禁止在测试代码中硬编码路径写临时文件（如 `open("project.db", "w")`）；所有临时 DB / 文件统一使用 `conftest.py` 提供的 `tmp_db` / `tmp_dir` fixture，由 fixture 负责创建与清理
 
 > 架构决策详见 `ARCHITECTURE.md`

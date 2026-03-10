@@ -34,19 +34,19 @@ class TaskHistoryCard(QWidget):
         
         # 标题栏
         header_layout = QHBoxLayout()
-        title = QLabel("📋 任务历史")
+        title = QLabel("任务历史")
         title.setStyleSheet(styles.CARD_TITLE)
         header_layout.addWidget(title)
-        
+
         header_layout.addStretch()
-        
+
         # 刷新按钮
-        self.refresh_btn = QPushButton("🔄 刷新状态")
+        self.refresh_btn = QPushButton("刷新状态")
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_btn.setStyleSheet(styles.BUTTON_SECONDARY)
         self.refresh_btn.clicked.connect(self._on_refresh)
         header_layout.addWidget(self.refresh_btn)
-        
+
         layout.addLayout(header_layout)
         
         # 分割线
@@ -74,7 +74,7 @@ class TaskHistoryCard(QWidget):
         layout.addWidget(self.table)
         
         # 提示信息
-        self.hint_label = QLabel("💡 提示：程序关闭后重新打开，可以在这里看到之前的任务")
+        self.hint_label = QLabel("提示：程序关闭后重新打开，可以在这里看到之前的任务")
         self.hint_label.setStyleSheet(f"color: {styles.COLOR_TEXT_SUB}; font-size: 12px;")
         layout.addWidget(self.hint_label)
         

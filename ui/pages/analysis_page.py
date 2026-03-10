@@ -20,7 +20,9 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
+    QGraphicsDropShadowEffect,
 )
+from PyQt6.QtGui import QColor
 
 from core.pipeline_runner import PipelineRunner, PipelineStage
 from ui.widgets import styles
@@ -111,27 +113,34 @@ class AnalysisPage(QFrame):
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 16, 24, 16)
+        main_layout.setContentsMargins(30, 20, 30, 20)
         main_layout.setSpacing(16)
 
         title = QLabel("分析工作台")
-        title.setStyleSheet(styles.PAGE_HEADER_TITLE)
+        title.setStyleSheet(
+            f"font-size: 26px; font-weight: 800; color: {styles.COLOR_TEXT_TITLE};"
+            "background: transparent; letter-spacing: -0.5px;"
+        )
         main_layout.addWidget(title)
 
         desc = QLabel("按预设路径执行分析流程，参数与数据库字段来自插件定义。")
-        desc.setStyleSheet(styles.LABEL_HINT)
+        desc.setStyleSheet(
+            f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+        )
         main_layout.addWidget(desc)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE};")
+        scroll.setStyleSheet("background-color: transparent;")
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        scroll.verticalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
 
         content = QWidget()
-        content.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE};")
+        content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 10, 0)
+        layout.setSpacing(16)
 
         self._build_sample_section(layout)
         self._build_pipeline_section(layout)
@@ -147,20 +156,31 @@ class AnalysisPage(QFrame):
     def _build_sample_section(self, parent_layout: QVBoxLayout) -> None:
         card = QFrame()
         card.setObjectName("SampleCard")
-        card.setStyleSheet(styles.CARD_FRAME("SampleCard"))
+        card.setStyleSheet(f"""
+            QFrame#SampleCard {{
+                background: {styles.COLOR_BG_CARD};
+                border: 1px solid {styles.COLOR_BORDER};
+                border-radius: {styles.RADIUS_CARD};
+            }}
+        """)
+        styles.apply_card_shadow(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
 
         title = QLabel("样本输入")
-        title.setStyleSheet(styles.CARD_TITLE)
+        title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {styles.COLOR_TEXT_TITLE}; background: transparent;"
+        )
         layout.addWidget(title)
 
         name_row = QHBoxLayout()
-        name_row.setSpacing(8)
+        name_row.setSpacing(10)
         name_label = QLabel("样本名:")
-        name_label.setStyleSheet(styles.FORM_LABEL)
+        name_label.setStyleSheet(
+            f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+        )
         name_label.setMinimumWidth(80)
         name_row.addWidget(name_label)
 
@@ -172,16 +192,17 @@ class AnalysisPage(QFrame):
         layout.addLayout(name_row)
 
         file_row = QHBoxLayout()
-        file_row.setSpacing(8)
+        file_row.setSpacing(10)
         file_label = QLabel("R1 文件:")
-        file_label.setStyleSheet(styles.FORM_LABEL)
+        file_label.setStyleSheet(
+            f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+        )
         file_label.setMinimumWidth(80)
         file_row.addWidget(file_label)
 
         self._r1_path_label = QLabel("未选择")
         self._r1_path_label.setStyleSheet(
-            f"font-size: 12px; color: {styles.COLOR_TEXT_HINT};"
-            f"background: {styles.COLOR_BG_BLANK};"
+            f"font-size: 13px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
         )
         file_row.addWidget(self._r1_path_label, stretch=1)
 
@@ -192,16 +213,17 @@ class AnalysisPage(QFrame):
         layout.addLayout(file_row)
 
         file_row2 = QHBoxLayout()
-        file_row2.setSpacing(8)
+        file_row2.setSpacing(10)
         file_label2 = QLabel("R2 文件:")
-        file_label2.setStyleSheet(styles.FORM_LABEL)
+        file_label2.setStyleSheet(
+            f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+        )
         file_label2.setMinimumWidth(80)
         file_row2.addWidget(file_label2)
 
         self._r2_path_label = QLabel("未选择（单端可留空）")
         self._r2_path_label.setStyleSheet(
-            f"font-size: 12px; color: {styles.COLOR_TEXT_HINT};"
-            f"background: {styles.COLOR_BG_BLANK};"
+            f"font-size: 13px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
         )
         file_row2.addWidget(self._r2_path_label, stretch=1)
 
@@ -283,14 +305,23 @@ class AnalysisPage(QFrame):
     def _build_pipeline_section(self, parent_layout: QVBoxLayout) -> None:
         card = QFrame()
         card.setObjectName("PipelineCard")
-        card.setStyleSheet(styles.CARD_FRAME("PipelineCard"))
+        card.setStyleSheet(f"""
+            QFrame#PipelineCard {{
+                background: {styles.COLOR_BG_CARD};
+                border: 1px solid {styles.COLOR_BORDER};
+                border-radius: {styles.RADIUS_CARD};
+            }}
+        """)
+        styles.apply_card_shadow(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
 
         title = QLabel("流程配置（来自插件）")
-        title.setStyleSheet(styles.CARD_TITLE)
+        title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {styles.COLOR_TEXT_TITLE}; background: transparent;"
+        )
         layout.addWidget(title)
 
         self._stage_widgets = []
@@ -306,11 +337,13 @@ class AnalysisPage(QFrame):
             self._param_widgets[tool_id] = {}
             for p in stage.get("parameters", []):
                 row = QHBoxLayout()
-                row.setSpacing(8)
+                row.setSpacing(10)
                 row.setContentsMargins(24, 0, 0, 0)
 
                 label = QLabel(f"  {p.get('label') or p.get('name')}: ")
-                label.setStyleSheet(styles.FORM_LABEL)
+                label.setStyleSheet(
+                    f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+                )
                 label.setMinimumWidth(160)
                 row.addWidget(label)
 
@@ -323,12 +356,14 @@ class AnalysisPage(QFrame):
             self._db_widgets[tool_id] = {}
             for db in stage.get("databases", []):
                 row = QHBoxLayout()
-                row.setSpacing(8)
+                row.setSpacing(10)
                 row.setContentsMargins(24, 0, 0, 0)
 
                 pname = db.get("param_name")
                 label = QLabel(f"  数据库({pname}):")
-                label.setStyleSheet(styles.FORM_LABEL)
+                label.setStyleSheet(
+                    f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+                )
                 label.setMinimumWidth(160)
                 row.addWidget(label)
 
@@ -348,13 +383,36 @@ class AnalysisPage(QFrame):
         row.setSpacing(12)
 
         self._status_text = QLabel()
-        self._status_text.setStyleSheet(styles.LABEL_HINT)
+        self._status_text.setStyleSheet(
+            f"font-size: 13px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+        )
         row.addWidget(self._status_text, stretch=1)
 
         self._btn_run = QPushButton("运行流程")
-        self._btn_run.setStyleSheet(styles.BUTTON_SUCCESS)
-        self._btn_run.setMinimumHeight(40)
+        self._btn_run.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7DD3FC, stop:1 #38BDF8);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 24px;
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BAE6FD, stop:1 #7DD3FC);
+            }}
+            QPushButton:pressed {{
+                background: #0EA5E9;
+            }}
+            QPushButton:disabled {{
+                background: #E2E8F0;
+                color: #94A3B8;
+            }}
+        """)
+        self._btn_run.setMinimumHeight(42)
         self._btn_run.setMinimumWidth(160)
+        self._btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_run.clicked.connect(self._on_run_clicked)
         row.addWidget(self._btn_run)
 

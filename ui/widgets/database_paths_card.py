@@ -153,7 +153,7 @@ class DatabasePathsCard(QFrame):
             content_layout.addLayout(row)
 
         # 提示文字
-        tip = QLabel("💡 未填写的数据库在运行对应工具时会要求临时指定路径")
+        tip = QLabel("未填写的数据库在运行对应工具时会要求临时指定路径")
         tip.setStyleSheet(LABEL_MUTED)
         tip.setWordWrap(True)
         content_layout.addWidget(tip)

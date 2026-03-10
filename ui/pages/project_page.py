@@ -20,7 +20,9 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QGraphicsDropShadowEffect
 )
+from PyQt6.QtGui import QColor
 
 from core.project_exporter import ProjectExporter
 from core.project_manager import ProjectInfo, ProjectManager
@@ -108,12 +110,22 @@ class ProjectCard(QFrame):
         super().__init__(parent)
         self._project = project
         self.setObjectName(f"ProjectCard_{project.project_id}")
-        self.setStyleSheet(styles.CARD_FRAME(self.objectName()))
+        self.setStyleSheet(f"""
+            QFrame#{self.objectName()} {{
+                background: {styles.COLOR_BG_CARD};
+                border: 1px solid {styles.COLOR_BORDER};
+                border-radius: {styles.RADIUS_CARD};
+            }}
+            QFrame#{self.objectName()}:hover {{
+                border: 1px solid {styles.COLOR_TEXT_HINT};
+            }}
+        """)
+        styles.apply_card_shadow(self)
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 14, 20, 14)
+        layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(20)
 
         info_layout = QVBoxLayout()
@@ -121,8 +133,8 @@ class ProjectCard(QFrame):
 
         name_label = QLabel(self._project.name)
         name_label.setStyleSheet(
-            f"font-size: 16px; font-weight: 600; color: {styles.COLOR_TEXT_TITLE};"
-            f" background: {styles.COLOR_BG_BLANK};"
+            f"font-size: 16px; font-weight: 700; color: {styles.COLOR_TEXT_TITLE};"
+            f" background: transparent;"
         )
         info_layout.addWidget(name_label)
 
@@ -130,13 +142,17 @@ class ProjectCard(QFrame):
         if len(desc_text) > 80:
             desc_text = desc_text[:80] + "..."
         desc_label = QLabel(desc_text)
-        desc_label.setStyleSheet(styles.LABEL_HINT)
+        desc_label.setStyleSheet(
+            f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+        )
         info_layout.addWidget(desc_label)
 
         created = time.strftime("%Y-%m-%d", time.localtime(self._project.created_at))
         status_text = "活跃" if self._project.status == "active" else "已归档"
         meta_label = QLabel(f"创建于 {created} | {status_text}")
-        meta_label.setStyleSheet(styles.LABEL_MUTED)
+        meta_label.setStyleSheet(
+            f"font-size: 11px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+        )
         info_layout.addWidget(meta_label)
 
         info_layout.addStretch()
@@ -144,7 +160,7 @@ class ProjectCard(QFrame):
 
         action_row = QHBoxLayout()
         action_row.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
-        action_row.setSpacing(8)
+        action_row.setSpacing(10)
 
         action_wrap = QWidget()
         action_wrap.setMinimumWidth(320)
@@ -153,10 +169,10 @@ class ProjectCard(QFrame):
 
         if self._project.status == "active":
             open_btn = QPushButton("打开")
-            open_btn.setStyleSheet(styles.BUTTON_PRIMARY)
+            open_btn.setStyleSheet(styles.BUTTON_PASTEL_PRIMARY)
             open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             open_btn.setMinimumWidth(86)
-            open_btn.setMinimumHeight(32)
+            open_btn.setMinimumHeight(34)
             open_btn.clicked.connect(lambda: self.open_clicked.emit(self._project.project_id))
             action_row.addWidget(open_btn)
 
@@ -164,7 +180,7 @@ class ProjectCard(QFrame):
             export_btn.setStyleSheet(styles.BUTTON_SECONDARY)
             export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             export_btn.setMinimumWidth(86)
-            export_btn.setMinimumHeight(32)
+            export_btn.setMinimumHeight(34)
             export_btn.clicked.connect(lambda: self.export_clicked.emit(self._project.project_id))
             action_row.addWidget(export_btn)
 
@@ -172,14 +188,16 @@ class ProjectCard(QFrame):
             archive_btn.setStyleSheet(styles.BUTTON_DANGER)
             archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             archive_btn.setMinimumWidth(86)
-            archive_btn.setMinimumHeight(32)
+            archive_btn.setMinimumHeight(34)
             archive_btn.clicked.connect(lambda: self.archive_clicked.emit(self._project.project_id))
             action_row.addWidget(archive_btn)
         else:
             archived_label = QLabel("已归档")
             archived_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             archived_label.setMinimumWidth(96)
-            archived_label.setStyleSheet(styles.LABEL_MUTED)
+            archived_label.setStyleSheet(
+                f"font-size: 13px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            )
             action_row.addWidget(archived_label)
 
             # 已归档的项目可以删除
@@ -187,7 +205,7 @@ class ProjectCard(QFrame):
             delete_btn.setStyleSheet(styles.BUTTON_DANGER)
             delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             delete_btn.setMinimumWidth(86)
-            delete_btn.setMinimumHeight(32)
+            delete_btn.setMinimumHeight(34)
             delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self._project.project_id))
             action_row.addWidget(delete_btn)
 
@@ -222,17 +240,36 @@ class ProjectPage(BasePage):
         self._pm.project_deleted.connect(lambda _: self._refresh_list())
 
     def _build_ui(self) -> None:
-        self.layout.setContentsMargins(30, 15, 30, 20)
-        self.layout.setSpacing(12)
+        self.layout.setContentsMargins(30, 20, 30, 20)
+        self.layout.setSpacing(16)
 
         header_row = QHBoxLayout()
         header = QLabel("项目管理")
-        header.setStyleSheet(styles.PAGE_HEADER_TITLE)
+        header.setStyleSheet(
+            f"font-size: 26px; font-weight: 800; color: {styles.COLOR_TEXT_TITLE};"
+            "background: transparent; letter-spacing: -0.5px;"
+        )
         header_row.addWidget(header)
         header_row.addStretch()
 
         self.btn_create = QPushButton("+ 新建项目")
-        self.btn_create.setStyleSheet(styles.BUTTON_PRIMARY)
+        self.btn_create.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7DD3FC, stop:1 #38BDF8);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BAE6FD, stop:1 #7DD3FC);
+            }}
+            QPushButton:pressed {{
+                background: #0EA5E9;
+            }}
+        """)
         self.btn_create.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_create.clicked.connect(self._on_create)
         header_row.addWidget(self.btn_create)
@@ -240,20 +277,21 @@ class ProjectPage(BasePage):
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(styles.DIVIDER)
+        line.setStyleSheet(f"background: {styles.COLOR_BORDER}; max-height: 1px; border: none;")
         self.layout.addWidget(line)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("background-color: transparent;")
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.verticalScrollBar().setStyleSheet(styles.SCROLL_BAR_ELEGANT)
 
         self._cards_container = QWidget()
         self._cards_container.setStyleSheet("background-color: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_container)
         self._cards_layout.setContentsMargins(0, 0, 10, 0)
-        self._cards_layout.setSpacing(12)
+        self._cards_layout.setSpacing(16)
 
         scroll.setWidget(self._cards_container)
         self.layout.addWidget(scroll)
@@ -269,8 +307,8 @@ class ProjectPage(BasePage):
             empty_label = QLabel("暂无项目，点击上方按钮创建")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_label.setStyleSheet(
-                f"color: {styles.COLOR_TEXT_HINT}; font-size: 14px; padding: 40px;"
-                f" background: {styles.COLOR_BG_BLANK};"
+                f"color: {styles.COLOR_TEXT_HINT}; font-size: 15px; font-weight: 500; padding: 60px;"
+                f" background: transparent;"
             )
             self._cards_layout.addWidget(empty_label)
         else:

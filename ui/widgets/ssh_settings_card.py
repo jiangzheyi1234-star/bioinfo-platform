@@ -300,6 +300,31 @@ class SSHDiagnosticDialog(QDialog):
                 border-radius: 6px;
                 padding: 12px;
             }}
+            QTextEdit QScrollBar:vertical {{
+                border: none;
+                background: transparent;
+                width: 10px;
+                margin: 0;
+            }}
+            QTextEdit QScrollBar::handle:vertical {{
+                background: rgba(0, 0, 0, 0.15);
+                border-radius: 5px;
+                min-height: 40px;
+            }}
+            QTextEdit QScrollBar::handle:vertical:hover {{
+                background: rgba(0, 0, 0, 0.25);
+            }}
+            QTextEdit QScrollBar::handle:vertical:pressed {{
+                background: rgba(0, 0, 0, 0.35);
+            }}
+            QTextEdit QScrollBar::add-line:vertical, QTextEdit QScrollBar::sub-line:vertical {{
+                height: 0;
+                background: transparent;
+                border: none;
+            }}
+            QTextEdit QScrollBar::add-page:vertical, QTextEdit QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
         """)
         layout.addWidget(self.output)
 

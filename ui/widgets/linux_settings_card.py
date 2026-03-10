@@ -31,14 +31,15 @@ from ui.widgets.styles import (
     STATUS_SUCCESS,
     STATUS_ERROR,
     BUTTON_LINK,
+    SCROLL_BAR_ELEGANT,
 )
 
 logger = logging.getLogger(__name__)
 
 # 工具环境检测状态图标
-_STATUS_PENDING = "⏳"
-_STATUS_OK = "✅"
-_STATUS_FAIL = "❌"
+_STATUS_PENDING = "..."
+_STATUS_OK = "OK"
+_STATUS_FAIL = "×"
 
 
 class ClickableHeader(QFrame):
@@ -309,6 +310,7 @@ class EnvInstallDialog(QDialog):
             "font-family: Consolas, 'Courier New', monospace;"
             "font-size: 12px; border-radius: 4px; border: none;"
         )
+        self.output_edit.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
         self.output_edit.setMinimumHeight(180)
         layout.addWidget(self.output_edit)
 
@@ -629,6 +631,7 @@ class LinuxSettingsCard(QFrame):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setFixedHeight(260)
         scroll.setStyleSheet("background: transparent;")
+        scroll.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
 
         self._tool_list_widget = QWidget()
         self._tool_list_widget.setStyleSheet("background: transparent;")

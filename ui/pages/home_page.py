@@ -28,7 +28,9 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QGraphicsDropShadowEffect
 )
+from PyQt6.QtGui import QColor
 
 from ui.page_base import BasePage
 from ui.widgets import styles
@@ -78,10 +80,10 @@ class _StageNode(QWidget):
     """单个阶段节点：圆圈 + 标签，颜色随状态变化。"""
 
     _COLOR_MAP = {
-        _STATUS_PENDING:   ("#CCCCCC", "#999999"),   # (圆圈色, 文字色)
-        _STATUS_RUNNING:   ("#007AFF", "#007AFF"),
-        _STATUS_COMPLETED: ("#06943D", "#06943D"),
-        _STATUS_FAILED:    ("#FF3B30", "#FF3B30"),
+        _STATUS_PENDING:   (styles.COLOR_TEXT_MUTED, styles.COLOR_TEXT_HINT),   # (圆圈色, 文字色)
+        _STATUS_RUNNING:   (styles.COLOR_PRIMARY, styles.COLOR_PRIMARY),
+        _STATUS_COMPLETED: (styles.COLOR_SUCCESS, styles.COLOR_SUCCESS),
+        _STATUS_FAILED:    (styles.COLOR_DANGER, styles.COLOR_DANGER),
     }
     _SYMBOL_MAP = {
         _STATUS_PENDING:   "○",
@@ -94,7 +96,7 @@ class _StageNode(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         circle_color, text_color = self._COLOR_MAP.get(status, self._COLOR_MAP[_STATUS_PENDING])
@@ -103,13 +105,13 @@ class _StageNode(QWidget):
         self._dot = QLabel(symbol)
         self._dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dot.setStyleSheet(
-            f"color: {circle_color}; font-size: 16px; background: transparent;"
+            f"color: {circle_color}; font-size: 18px; font-weight: bold; background: transparent;"
         )
 
         self._label = QLabel(tool_id)
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(
-            f"color: {text_color}; font-size: 10px; background: transparent;"
+            f"color: {text_color}; font-size: 11px; font-weight: 600; background: transparent;"
         )
 
         layout.addWidget(self._dot)
@@ -140,8 +142,8 @@ class _PipelineProgress(QWidget):
                 line = QLabel("—")
                 line.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 line.setStyleSheet(
-                    f"color: {styles.COLOR_TEXT_MUTED}; font-size: 12px;"
-                    "background: transparent; padding-bottom: 14px;"
+                    f"color: {styles.COLOR_TEXT_MUTED}; font-size: 14px;"
+                    "background: transparent; padding-bottom: 16px;"
                 )
                 layout.addWidget(line)
 
@@ -173,21 +175,24 @@ class _SampleCard(QFrame):
         self._stage_statuses = stage_statuses
 
         self.setObjectName("SampleCard")
-        self.setFixedWidth(240)
+        self.setFixedWidth(260)
+
         self.setStyleSheet(f"""
             QFrame#SampleCard {{
                 background: {styles.COLOR_BG_CARD};
                 border: 1px solid {styles.COLOR_BORDER};
-                border-radius: 8px;
+                border-radius: {styles.RADIUS_CARD};
             }}
             QFrame#SampleCard:hover {{
-                border-color: rgba(0, 122, 255, 0.25);
+                border: 1px solid {styles.COLOR_TEXT_HINT};
             }}
         """)
 
+        styles.apply_card_shadow(self)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
 
         # ── 顶部行：名称 + 删除按钮 ──
         top_row = QHBoxLayout()
@@ -195,27 +200,27 @@ class _SampleCard(QFrame):
 
         name_label = QLabel(name)
         name_label.setStyleSheet(
-            f"font-size: 14px; font-weight: 600; color: {styles.COLOR_TEXT_DEFAULT};"
-            "background: transparent;"
+            f"font-size: 15px; font-weight: 700; color: {styles.COLOR_TEXT_TITLE};"
+            "background: transparent; border: none;"
         )
         name_label.setWordWrap(False)
         top_row.addWidget(name_label, stretch=1)
 
         del_btn = QPushButton("×")
-        del_btn.setFixedSize(20, 20)
+        del_btn.setFixedSize(24, 24)
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         del_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
                 border: none;
                 color: {styles.COLOR_TEXT_HINT};
-                font-size: 14px;
+                font-size: 18px;
                 font-weight: bold;
-                border-radius: 10px;
+                border-radius: 12px;
                 padding: 0;
             }}
             QPushButton:hover {{
-                background: rgba(255, 59, 48, 0.12);
+                background: #FEE2E2;
                 color: {styles.COLOR_DANGER};
             }}
         """)
@@ -226,10 +231,9 @@ class _SampleCard(QFrame):
         # ── 来源行 ──
         src_label = QLabel(source or "无来源信息")
         src_label.setStyleSheet(
-            f"font-size: 12px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            f"font-size: 12px; font-weight: 500; color: {styles.COLOR_TEXT_SUB}; background: transparent; border: none;"
         )
         src_label.setWordWrap(False)
-        src_label.setMaximumWidth(210)
         src_text = source or "无来源信息"
         # 截断过长文本
         if len(src_text) > 26:
@@ -237,16 +241,21 @@ class _SampleCard(QFrame):
         src_label.setText(src_text)
         layout.addWidget(src_label)
 
-        # ── 分隔线 ──
-        layout.addWidget(self._make_divider())
+        # ── 留白 ──
+        layout.addSpacing(4)
 
         # ── 进度区 ──
+        progress_container = QWidget()
+        progress_container.setStyleSheet(f"background: {styles.COLOR_BG_APP}; border-radius: 8px;")
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(10, 10, 10, 10)
         progress = _PipelineProgress(stages, stage_statuses)
-        progress.setStyleSheet("background: transparent;")
-        layout.addWidget(progress)
+        progress.setStyleSheet("background: transparent; border: none;")
+        progress_layout.addWidget(progress)
+        layout.addWidget(progress_container)
 
-        # ── 分隔线 ──
-        layout.addWidget(self._make_divider())
+        # ── 留白 ──
+        layout.addSpacing(4)
 
         # ── 最后活动时间 ──
         if last_activity:
@@ -255,13 +264,14 @@ class _SampleCard(QFrame):
             time_text = "未开始分析"
         time_label = QLabel(time_text)
         time_label.setStyleSheet(
-            f"font-size: 11px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            f"font-size: 11px; font-weight: 500; color: {styles.COLOR_TEXT_HINT}; background: transparent; border: none;"
         )
         layout.addWidget(time_label)
 
         # ── 操作按钮 ──
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
+        btn_row.setSpacing(8)
+        btn_row.setContentsMargins(0, 4, 0, 0)
 
         all_done = all(
             stage_statuses.get(s, _STATUS_PENDING) == _STATUS_COMPLETED
@@ -280,15 +290,15 @@ class _SampleCard(QFrame):
             action_text = "开始分析"
 
         action_btn = QPushButton(action_text)
-        action_btn.setStyleSheet(styles.BUTTON_PRIMARY)
         action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        action_btn.setStyleSheet(styles.BUTTON_PASTEL_PRIMARY)
         action_btn.clicked.connect(lambda: self.continue_requested.emit(self._sample_id))
         btn_row.addWidget(action_btn)
 
         results_btn = QPushButton("查看结果")
-        results_btn.setStyleSheet(styles.BUTTON_SECONDARY)
         results_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         results_btn.setEnabled(any_started)
+        results_btn.setStyleSheet(styles.BUTTON_SECONDARY)
         results_btn.clicked.connect(lambda: self.results_requested.emit(self._sample_id))
         btn_row.addWidget(results_btn)
 
@@ -316,18 +326,18 @@ class _AddSamplePlaceholder(QFrame):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("AddPlaceholder")
-        self.setFixedWidth(240)
-        self.setMinimumHeight(180)
+        self.setFixedWidth(260)
+        self.setMinimumHeight(200)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(f"""
             QFrame#AddPlaceholder {{
-                background: transparent;
+                background: {styles.COLOR_BG_CARD_HIGHLIGHT};
                 border: 2px dashed {styles.COLOR_BORDER_INPUT};
-                border-radius: 8px;
+                border-radius: {styles.RADIUS_CARD};
             }}
             QFrame#AddPlaceholder:hover {{
                 border-color: {styles.COLOR_PRIMARY};
-                background: rgba(0, 122, 255, 0.03);
+                background: {styles.COLOR_BG_CARD_INTERPRET};
             }}
         """)
 
@@ -337,14 +347,14 @@ class _AddSamplePlaceholder(QFrame):
         plus = QLabel("+")
         plus.setAlignment(Qt.AlignmentFlag.AlignCenter)
         plus.setStyleSheet(
-            f"font-size: 28px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            f"font-size: 32px; font-weight: 300; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
         )
         layout.addWidget(plus)
 
         hint = QLabel("添加新样本")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet(
-            f"font-size: 13px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            f"font-size: 14px; font-weight: 600; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
         )
         layout.addWidget(hint)
 
@@ -363,15 +373,24 @@ class SampleAddDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("添加样本")
-        self.setMinimumWidth(460)
-        self.setStyleSheet(f"background: {styles.COLOR_BG_APP};")
+        self.setMinimumWidth(480)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {styles.COLOR_BG_CARD};
+            }}
+            QLabel {{
+                font-size: 13px;
+                color: {styles.COLOR_TEXT_DEFAULT};
+                font-weight: 500;
+            }}
+        """)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(24, 24, 24, 24)
 
         form = QFormLayout()
-        form.setSpacing(10)
+        form.setSpacing(12)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         # 样本名称
@@ -382,6 +401,7 @@ class SampleAddDialog(QDialog):
 
         # R1 文件
         r1_row = QHBoxLayout()
+        r1_row.setSpacing(8)
         self._r1_edit = QLineEdit()
         self._r1_edit.setPlaceholderText("R1 FASTQ 文件路径（必填）")
         self._r1_edit.setReadOnly(True)
@@ -396,6 +416,7 @@ class SampleAddDialog(QDialog):
 
         # R2 文件（可选）
         r2_row = QHBoxLayout()
+        r2_row.setSpacing(8)
         self._r2_edit = QLineEdit()
         self._r2_edit.setPlaceholderText("R2 FASTQ 文件路径（可选，双端测序）")
         self._r2_edit.setReadOnly(True)
@@ -429,6 +450,8 @@ class SampleAddDialog(QDialog):
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
         btn_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet(styles.BUTTON_PRIMARY)
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setStyleSheet(styles.BUTTON_SECONDARY)
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_box.button(QDialogButtonBox.StandardButton.Cancel).setCursor(Qt.CursorShape.PointingHandCursor)
         btn_box.accepted.connect(self._on_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -487,7 +510,7 @@ class HomePage(BasePage):
         self._search_text = ""
         self._card_widgets: list[_SampleCard] = []
 
-        self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
+        self.setStyleSheet("background-color: #F8FAFC;")
         self._build_ui()
 
     # ── 公开接口 ─────────────────────────────────────────────
@@ -517,7 +540,25 @@ class HomePage(BasePage):
         self._scroll_area.setWidgetResizable(True)
         self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll_area.setStyleSheet("background: transparent; border: none;")
+        self._scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #F1F5F9;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #CBD5E1;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #94A3B8;
+            }
+        """)
 
         self._grid_container = QWidget()
         self._grid_container.setStyleSheet("background: transparent;")
@@ -535,7 +576,7 @@ class HomePage(BasePage):
         self._empty_label = QLabel('请先在\u201c项目管理\u201d中创建或选择一个项目')
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet(
-            f"font-size: 14px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            "font-size: 15px; font-weight: 500; color: #94A3B8; background: transparent; padding: 40px;"
         )
         self._empty_label.hide()
         self.layout.addWidget(self._empty_label)
@@ -552,15 +593,15 @@ class HomePage(BasePage):
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         v = QVBoxLayout(widget)
-        v.setContentsMargins(0, 0, 0, 10)
-        v.setSpacing(8)
+        v.setContentsMargins(0, 0, 0, 16)
+        v.setSpacing(10)
 
         # 项目名行
         name_row = QHBoxLayout()
         self._proj_name_label = QLabel("—")
         self._proj_name_label.setStyleSheet(
-            f"font-size: 20px; font-weight: 700; color: {styles.COLOR_TEXT_DEFAULT};"
-            "background: transparent;"
+            f"font-size: 26px; font-weight: 800; color: {styles.COLOR_TEXT_TITLE};"
+            "background: transparent; letter-spacing: -0.5px;"
         )
         name_row.addWidget(self._proj_name_label)
         name_row.addStretch()
@@ -568,18 +609,18 @@ class HomePage(BasePage):
 
         self._proj_desc_label = QLabel("")
         self._proj_desc_label.setStyleSheet(
-            f"font-size: 12px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+            f"font-size: 13px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
         )
         v.addWidget(self._proj_desc_label)
 
         # 统计条
         stats_row = QHBoxLayout()
-        stats_row.setSpacing(12)
+        stats_row.setSpacing(16)
 
-        self._stat_samples = self._make_stat_chip("📁", "0 个样本")
-        self._stat_execs = self._make_stat_chip("▶", "0 次执行")
-        self._stat_success = self._make_stat_chip("✅", "0 次成功")
-        self._stat_disk = self._make_stat_chip("💾", "—")
+        self._stat_samples = self._make_stat_chip("样本数", "0", "#F0F9FF", "#0EA5E9")
+        self._stat_execs = self._make_stat_chip("执行数", "0", "#F5F3FF", "#6D28D9")
+        self._stat_success = self._make_stat_chip("成功数", "0", "#ECFDF5", "#047857")
+        self._stat_disk = self._make_stat_chip("磁盘占用", "—", "#FFFBEB", "#B45309")
 
         for chip in (self._stat_samples, self._stat_execs, self._stat_success, self._stat_disk):
             stats_row.addWidget(chip)
@@ -589,23 +630,25 @@ class HomePage(BasePage):
         # 细分隔线
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(
-            f"background: {styles.COLOR_BORDER}; max-height: 1px; border: none;"
-        )
+        line.setStyleSheet("background: #E2E8F0; max-height: 1px; border: none;")
         v.addWidget(line)
 
         return widget
 
     @staticmethod
-    def _make_stat_chip(icon: str, text: str) -> QLabel:
-        label = QLabel(f"{icon} {text}")
-        label.setStyleSheet(
-            f"font-size: 12px; color: {styles.COLOR_TEXT_SUB};"
-            f"background: {styles.COLOR_BG_CARD};"
-            f"border: 1px solid {styles.COLOR_BORDER};"
-            "border-radius: 4px;"
-            "padding: 3px 10px;"
-        )
+    def _make_stat_chip(title: str, text: str, bg_color: str, text_color: str) -> QLabel:
+        label = QLabel(f"{title}: {text}")
+        label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 13px;
+                font-weight: 600;
+                color: {text_color};
+                background: {bg_color};
+                border: 1px solid rgba(0,0,0,0.03);
+                border-radius: 6px;
+                padding: 6px 14px;
+            }}
+        """)
         return label
 
     def _build_toolbar(self) -> QWidget:
@@ -613,20 +656,53 @@ class HomePage(BasePage):
         toolbar = QWidget()
         toolbar.setStyleSheet("background: transparent;")
         row = QHBoxLayout(toolbar)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(10)
+        row.setContentsMargins(0, 8, 0, 8)
+        row.setSpacing(12)
 
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("🔍  搜索样本名称或来源…")
-        self._search_edit.setStyleSheet(styles.INPUT_LINEEDIT)
-        self._search_edit.setMaximumWidth(280)
+        self._search_edit.setPlaceholderText("🔍 搜索样本名称或来源…")
+        self._search_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 10px 14px;
+                border: 1px solid #CBD5E1;
+                border-radius: 8px;
+                background-color: #FFFFFF;
+                color: #0F172A;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QLineEdit:hover {
+                border-color: #94A3B8;
+            }
+            QLineEdit:focus {
+                border-color: #7DD3FC;
+                background-color: #F8FAFC;
+            }
+        """)
+        self._search_edit.setMaximumWidth(320)
         self._search_edit.textChanged.connect(self._on_search_changed)
         row.addWidget(self._search_edit)
         row.addStretch()
 
-        self._add_btn = QPushButton("+ 添加样本")
-        self._add_btn.setStyleSheet(styles.BUTTON_PRIMARY)
+        self._add_btn = QPushButton("+ 添加新样本")
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7DD3FC, stop:1 #38BDF8);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BAE6FD, stop:1 #7DD3FC);
+            }
+            QPushButton:pressed {
+                background: #0EA5E9;
+            }
+        """)
         self._add_btn.clicked.connect(self._on_add_sample)
         row.addWidget(self._add_btn)
 
@@ -636,23 +712,31 @@ class HomePage(BasePage):
         """底部最近执行栏。"""
         widget = QFrame()
         widget.setObjectName("RecentBar")
-        widget.setStyleSheet(f"""
-            QFrame#RecentBar {{
-                background: {styles.COLOR_BG_CARD};
-                border: 1px solid {styles.COLOR_BORDER};
-                border-radius: 6px;
-            }}
+        widget.setStyleSheet("""
+            QFrame#RecentBar {
+                background: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+            }
         """)
-        widget.setMaximumHeight(90)
+
+        # Adding a subtle shadow to the recent bar as well
+        shadow = QGraphicsDropShadowEffect(widget)
+        shadow.setBlurRadius(12)
+        shadow.setColor(QColor(0, 0, 0, 10))
+        shadow.setOffset(0, -2)
+        widget.setGraphicsEffect(shadow)
+
+        widget.setMaximumHeight(100)
 
         v = QVBoxLayout(widget)
-        v.setContentsMargins(14, 8, 14, 8)
-        v.setSpacing(4)
+        v.setContentsMargins(18, 12, 18, 12)
+        v.setSpacing(8)
 
-        header = QLabel("最近执行")
+        header = QLabel("最近活动执行")
         header.setStyleSheet(
-            f"font-size: 11px; font-weight: 600; color: {styles.COLOR_TEXT_HINT};"
-            "background: transparent;"
+            "font-size: 13px; font-weight: 700; color: #475569;"
+            "background: transparent; border: none; letter-spacing: 0.5px;"
         )
         v.addWidget(header)
 
@@ -660,7 +744,7 @@ class HomePage(BasePage):
         self._recent_rows_widget.setStyleSheet("background: transparent;")
         self._recent_rows_layout = QVBoxLayout(self._recent_rows_widget)
         self._recent_rows_layout.setContentsMargins(0, 0, 0, 0)
-        self._recent_rows_layout.setSpacing(2)
+        self._recent_rows_layout.setSpacing(6)
         v.addWidget(self._recent_rows_widget)
 
         return widget
@@ -682,10 +766,10 @@ class HomePage(BasePage):
     def _show_no_project_state(self) -> None:
         self._proj_name_label.setText("无活动项目")
         self._proj_desc_label.setText('请在\u201c项目管理\u201d中创建或选择一个项目')
-        self._stat_samples.setText("📁 — 个样本")
-        self._stat_execs.setText("▶ — 次执行")
-        self._stat_success.setText("✅ — 次成功")
-        self._stat_disk.setText("💾 —")
+        self._stat_samples.setText("样本数: —")
+        self._stat_execs.setText("执行数: —")
+        self._stat_success.setText("成功数: —")
+        self._stat_disk.setText("磁盘占用: —")
         self._clear_grid()
         self._empty_label.show()
         self._add_btn.setEnabled(False)
@@ -711,13 +795,13 @@ class HomePage(BasePage):
             exec_count = row[0] or 0
             success_count = int(row[1] or 0)
 
-            self._stat_samples.setText(f"📁 {sample_count} 个样本")
-            self._stat_execs.setText(f"▶ {exec_count} 次执行")
-            self._stat_success.setText(f"✅ {success_count} 次成功")
+            self._stat_samples.setText(f"样本数: {sample_count}")
+            self._stat_execs.setText(f"执行数: {exec_count}")
+            self._stat_success.setText(f"成功数: {success_count}")
 
             # 磁盘：尝试通过 storage_manager 获取，否则显示 —
             disk_text = self._query_disk_usage()
-            self._stat_disk.setText(f"💾 {disk_text}")
+            self._stat_disk.setText(f"磁盘占用: {disk_text}")
         except Exception:
             logger.exception("统计数据加载失败")
 
@@ -837,27 +921,27 @@ class HomePage(BasePage):
         if not rows:
             placeholder = QLabel("暂无执行记录")
             placeholder.setStyleSheet(
-                f"font-size: 11px; color: {styles.COLOR_TEXT_HINT}; background: transparent;"
+                "font-size: 13px; color: #94A3B8; background: transparent; font-weight: 500;"
             )
             self._recent_rows_layout.addWidget(placeholder)
             return
 
         _STATUS_ICONS = {
-            "completed": "✅",
-            "running":   "🔄",
-            "failed":    "❌",
-            "pending":   "⏳",
-            "retrying":  "🔁",
+            "completed": "[成功]",
+            "running":   "[运行中]",
+            "failed":    "[失败]",
+            "pending":   "[排队中]",
+            "retrying":  "[重试中]",
         }
         for row in rows:
-            icon = _STATUS_ICONS.get(row["status"], "•")
+            icon = _STATUS_ICONS.get(row["status"], "[未知]")
             sample_name = row["sample_name"] or row["sample_id"] or "—"
             time_text = _human_time_ago(row["created_at"]) if row["created_at"] else "—"
             text = f"{icon}  {row['tool_id']}  ·  {sample_name}  ·  {time_text}"
 
             lbl = QLabel(text)
             lbl.setStyleSheet(
-                f"font-size: 11px; color: {styles.COLOR_TEXT_SUB}; background: transparent;"
+                f"font-size: 12px; color: {styles.COLOR_TEXT_SUB}; background: transparent; font-weight: 500;"
             )
             self._recent_rows_layout.addWidget(lbl)
 

@@ -12,73 +12,73 @@
 #  颜色常量 (Tokens)
 # ═══════════════════════════════════════════════════════════
 
-# 主色调 — Apple HIG 蓝
-COLOR_PRIMARY = "#007AFF"
-COLOR_PRIMARY_HOVER = "#3395FF"
-COLOR_PRIMARY_PRESSED = "#0062CC"
+# 主色调 — 柔和的天空蓝 (Soft Sky Blue) - 清新轻盈
+COLOR_PRIMARY = "#7DD3FC"          # Tailwind Sky 300 - 更柔和的天空蓝
+COLOR_PRIMARY_HOVER = "#38BDF8"    # Tailwind Sky 400
+COLOR_PRIMARY_PRESSED = "#0EA5E9"  # Tailwind Sky 500
 
-# 成功状态色
-COLOR_SUCCESS = "#06943D"
-COLOR_SUCCESS_HOVER = "#0AAF4A"
-COLOR_SUCCESS_PRESSED = "#057A32"
+# 成功状态色 — 柔和绿
+COLOR_SUCCESS = "#10B981"          # Tailwind Emerald 500
+COLOR_SUCCESS_HOVER = "#059669"    # Tailwind Emerald 600
+COLOR_SUCCESS_PRESSED = "#047857"  # Tailwind Emerald 700
 
 # 辅助颜色
-COLOR_DANGER = "#FF3B30"
-COLOR_WARNING = "#FF9500"
+COLOR_DANGER = "#EF4444"           # Tailwind Red 500
+COLOR_WARNING = "#F59E0B"          # Tailwind Amber 500
 
-# 背景色系 — 通过层次区分，不靠边框
-COLOR_BG_APP = "#F5F5F5"              # 内容区浅灰底
-COLOR_BG_CARD = "#FFFFFF"             # 卡片/侧边栏白底
-COLOR_BG_PAGE = "#F5F5F5"             # 页面背景 = 内容区
+# 背景色系
+COLOR_BG_APP = "#F8FAFC"              # Tailwind Slate 50
+COLOR_BG_CARD = "#FFFFFF"             # 纯白卡片
+COLOR_BG_PAGE = "#F8FAFC"             # 同 APP 背景
 COLOR_BG_BLANK = "transparent"
 
-# 边框色系 — 极淡，6%-10% 可见度
-COLOR_BORDER = "rgba(0, 0, 0, 0.08)"          # 通用分割线
-COLOR_BORDER_INPUT = "rgba(0, 0, 0, 0.12)"    # 输入框边框（略深）
-COLOR_BORDER_FOCUS = "rgba(0, 122, 255, 0.45)"  # 聚焦边框 — 柔和蓝
+# 边框色系
+COLOR_BORDER = "#E2E8F0"              # Tailwind Slate 200 (更明亮清晰的边框)
+COLOR_BORDER_INPUT = "#CBD5E1"        # Tailwind Slate 300
+COLOR_BORDER_FOCUS = "#7DD3FC"        # 聚焦边框 Sky 300
 
-# 选中态色系 — 极柔和的蓝色底色，避免刺眼
-COLOR_SELECTION_BG = "rgba(0, 122, 255, 0.08)"    # 选中行背景 8%
-COLOR_SELECTION_HOVER = "rgba(0, 122, 255, 0.05)"  # 悬停行背景 5%
+# 选中态色系
+COLOR_SELECTION_BG = "#F0F9FF"        # Tailwind Sky 50 - 极淡的天空蓝
+COLOR_SELECTION_HOVER = "#F1F5F9"     # Tailwind Slate 100
 
-# 文字色系 — 黑底灰辅，苹果风格
-COLOR_TEXT_TITLE = "#000000"           # 纯黑标题
-COLOR_TEXT_DEFAULT = "#1D1D1F"         # 正文深黑
-COLOR_TEXT_SUB = "rgba(60, 60, 67, 0.6)"  # 次要文字 60% 透明
-COLOR_TEXT_HINT = "rgba(60, 60, 67, 0.35)"  # 提示文字 35% 透明
-COLOR_TEXT_MUTED = "rgba(60, 60, 67, 0.25)"  # 弱化文字
+# 文字色系 (Slate 体系)
+COLOR_TEXT_TITLE = "#0F172A"           # Tailwind Slate 900
+COLOR_TEXT_DEFAULT = "#334155"         # Tailwind Slate 700
+COLOR_TEXT_SUB = "#475569"             # Tailwind Slate 600
+COLOR_TEXT_HINT = "#94A3B8"            # Tailwind Slate 400
+COLOR_TEXT_MUTED = "#CBD5E1"           # Tailwind Slate 300
 COLOR_TEXT_WHITE = "#FFFFFF"
-COLOR_TEXT_DISABLED = "rgba(60, 60, 67, 0.2)"
-COLOR_TEXT_INTERPRET = "#003A8C"        # 解读区域文字
+COLOR_TEXT_DISABLED = "#94A3B8"
+COLOR_TEXT_INTERPRET = "#075985"       # Tailwind Sky 800
 
 # 侧边栏
-COLOR_BG_SIDEBAR_ITEM = "rgba(0, 0, 0, 0.04)"     # hover: 4% 黑色薄雾
-COLOR_BG_SIDEBAR_SELECTED = "rgba(0, 122, 255, 0.12)"  # 12% 主色调底色
+COLOR_BG_SIDEBAR_ITEM = "#F1F5F9"          # hover: Slate 100
+COLOR_BG_SIDEBAR_SELECTED = "#F0F9FF"      # Sky 50
 
 # 按钮 & 交互
-COLOR_BG_BUTTON_HOVER = "rgba(0, 122, 255, 0.06)"  # 极淡蓝
-COLOR_BG_BUTTON_CHECKED = "#007AFF"
+COLOR_BG_BUTTON_HOVER = "#F8FAFC"          # Slate 50
+COLOR_BG_BUTTON_CHECKED = "#7DD3FC"        # Sky 300
 
 # 表格 & 进度条
-COLOR_BG_PROGRESS_BAR = "rgba(0, 0, 0, 0.04)"
+COLOR_BG_PROGRESS_BAR = "#F1F5F9"          # Slate 100
 COLOR_BG_TABLE = "#FFFFFF"
-COLOR_BG_TABLE_CELL = "#FAFAFA"
-COLOR_BG_TABLE_GRIDLINE = "rgba(0, 0, 0, 0.05)"
-COLOR_BG_PROGRESS_CHUNK = "#007AFF"
+COLOR_BG_TABLE_CELL = "#FFFFFF"
+COLOR_BG_TABLE_GRIDLINE = "#E2E8F0"        # Slate 200
+COLOR_BG_PROGRESS_CHUNK = "#7DD3FC"
 
 # 卡片高亮 & 解读区
-COLOR_BG_CARD_HIGHLIGHT = "#FAFAFA"
-COLOR_BG_CARD_INTERPRET = "rgba(0, 122, 255, 0.04)"
-COLOR_BG_INPUT_DISABLED = "#F5F5F5"
+COLOR_BG_CARD_HIGHLIGHT = "#F8FAFC"
+COLOR_BG_CARD_INTERPRET = "#F0F9FF"
+COLOR_BG_INPUT_DISABLED = "#F1F5F9"
 
 # ═══════════════════════════════════════════════════════════
 #  尺寸常量
 # ═══════════════════════════════════════════════════════════
 
-RADIUS_CARD = "8px"
-RADIUS_CTRL = "6px"
-PADDING_CTRL = "8px 16px"
-PADDING_INPUT = "8px 12px"
+RADIUS_CARD = "12px"      # 从 8px 增加到 12px
+RADIUS_CTRL = "8px"       # 从 6px 增加到 8px
+PADDING_CTRL = "10px 20px"
+PADDING_INPUT = "10px 14px"
 
 # ═══════════════════════════════════════════════════════════
 #  字体栈 — 跟随系统，CJK 优先微软雅黑
@@ -91,6 +91,16 @@ FONT_FAMILY = (
     "Roboto, 'Helvetica Neue', Arial, sans-serif"
 )
 
+def apply_card_shadow(widget) -> None:
+    """给卡片应用全局一致的 Light & Clinical 风格悬浮阴影"""
+    from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+    from PyQt6.QtGui import QColor
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(15)
+    shadow.setColor(QColor(0, 0, 0, 15))
+    shadow.setOffset(0, 4)
+    widget.setGraphicsEffect(shadow)
+
 # ═══════════════════════════════════════════════════════════
 #  基础样式模板
 # ═══════════════════════════════════════════════════════════
@@ -99,7 +109,7 @@ _BTN_BASE = f"""
     QPushButton {{
         border-radius: {RADIUS_CTRL};
         padding: {PADDING_CTRL};
-        font-weight: 500;
+        font-weight: 600;
         font-size: 13px;
         border: none;
     }}
@@ -212,43 +222,35 @@ _COMBOBOX_BASE = f"""
 
 BUTTON_PRIMARY = _BTN_BASE + f"""
     QPushButton {{
-        background-color: rgba(0, 122, 255, 0.1);
-        color: {COLOR_PRIMARY};
-        border: 1px solid rgba(0, 122, 255, 0.2);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7DD3FC, stop:1 #38BDF8);
+        color: {COLOR_TEXT_WHITE};
     }}
     QPushButton:hover {{
-        background-color: rgba(0, 122, 255, 0.16);
-        border: 1px solid rgba(0, 122, 255, 0.3);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BAE6FD, stop:1 #7DD3FC);
     }}
     QPushButton:pressed {{
-        background-color: rgba(0, 122, 255, 0.22);
-        border: 1px solid rgba(0, 122, 255, 0.35);
+        background: #0EA5E9;
     }}
     QPushButton:disabled {{
-        background-color: rgba(0, 122, 255, 0.04);
-        color: rgba(0, 122, 255, 0.3);
-        border: 1px solid rgba(0, 122, 255, 0.06);
+        background: #E2E8F0;
+        color: #94A3B8;
     }}
 """
 
 BUTTON_SUCCESS = _BTN_BASE + f"""
     QPushButton {{
-        background-color: rgba(6, 148, 61, 0.1);
-        color: {COLOR_SUCCESS};
-        border: 1px solid rgba(6, 148, 61, 0.2);
+        background-color: {COLOR_SUCCESS};
+        color: {COLOR_TEXT_WHITE};
     }}
     QPushButton:hover {{
-        background-color: rgba(6, 148, 61, 0.16);
-        border: 1px solid rgba(6, 148, 61, 0.3);
+        background-color: {COLOR_SUCCESS_HOVER};
     }}
     QPushButton:pressed {{
-        background-color: rgba(6, 148, 61, 0.22);
-        border: 1px solid rgba(6, 148, 61, 0.35);
+        background-color: {COLOR_SUCCESS_PRESSED};
     }}
     QPushButton:disabled {{
-        background-color: rgba(6, 148, 61, 0.04);
-        color: rgba(6, 148, 61, 0.3);
-        border: 1px solid rgba(6, 148, 61, 0.06);
+        background-color: #E2E8F0;
+        color: #94A3B8;
     }}
 """
 
@@ -258,23 +260,42 @@ BUTTON_SECONDARY = f"""
         border: 1px solid {COLOR_BORDER_INPUT};
         color: {COLOR_TEXT_DEFAULT};
         border-radius: {RADIUS_CTRL};
-        padding: 8px 16px;
-        font-weight: 500;
+        padding: {PADDING_CTRL};
+        font-weight: 600;
         font-size: 13px;
     }}
     QPushButton:hover {{
-        border-color: rgba(0, 122, 255, 0.35);
-        color: {COLOR_PRIMARY};
+        border-color: #94A3B8;
         background-color: {COLOR_BG_BUTTON_HOVER};
+        color: #0F172A;
     }}
     QPushButton:pressed {{
         border-color: {COLOR_PRIMARY_PRESSED};
-        color: {COLOR_PRIMARY_PRESSED};
+        background-color: #F1F5F9;
     }}
     QPushButton:disabled {{
-        border-color: {COLOR_TEXT_DISABLED};
-        color: {COLOR_TEXT_DISABLED};
-        background-color: {COLOR_BG_INPUT_DISABLED};
+        border-color: #E2E8F0;
+        color: #94A3B8;
+        background-color: #F8FAFC;
+    }}
+"""
+
+BUTTON_PASTEL_PRIMARY = f"""
+    QPushButton {{
+        background: #F0F9FF;
+        color: #0369A1;
+        border: 1px solid #BAE6FD;
+        border-radius: {RADIUS_CTRL};
+        padding: 8px 16px;
+        font-weight: 600;
+        font-size: 13px;
+    }}
+    QPushButton:hover {{
+        background: #E0F2FE;
+        border-color: #7DD3FC;
+    }}
+    QPushButton:pressed {{
+        background: #BAE6FD;
     }}
 """
 
@@ -410,19 +431,19 @@ SCROLL_BAR_ELEGANT = f"""
     QScrollBar:vertical {{
         border: none;
         background: transparent;
-        width: 12px;
+        width: 10px;
         margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: rgba(0, 0, 0, 0.14);
-        border-radius: 6px;
-        min-height: 48px;
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 5px;
+        min-height: 40px;
     }}
     QScrollBar::handle:vertical:hover {{
-        background: rgba(0, 0, 0, 0.22);
+        background: rgba(0, 0, 0, 0.25);
     }}
     QScrollBar::handle:vertical:pressed {{
-        background: rgba(0, 0, 0, 0.30);
+        background: rgba(0, 0, 0, 0.35);
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
@@ -436,19 +457,19 @@ SCROLL_BAR_ELEGANT = f"""
     QScrollBar:horizontal {{
         border: none;
         background: transparent;
-        height: 12px;
+        height: 10px;
         margin: 0;
     }}
     QScrollBar::handle:horizontal {{
-        background: rgba(0, 0, 0, 0.14);
-        border-radius: 6px;
-        min-width: 48px;
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 5px;
+        min-width: 40px;
     }}
     QScrollBar::handle:horizontal:hover {{
-        background: rgba(0, 0, 0, 0.22);
+        background: rgba(0, 0, 0, 0.25);
     }}
     QScrollBar::handle:horizontal:pressed {{
-        background: rgba(0, 0, 0, 0.30);
+        background: rgba(0, 0, 0, 0.35);
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         width: 0;
@@ -527,5 +548,55 @@ TABLE_WIDGET = f"""
         border-bottom: 1px solid {COLOR_BORDER};
         font-weight: 600;
         color: {COLOR_TEXT_TITLE};
+    }}
+    QTableWidget QScrollBar:vertical {{
+        border: none;
+        background: transparent;
+        width: 10px;
+        margin: 0;
+    }}
+    QTableWidget QScrollBar::handle:vertical {{
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 5px;
+        min-height: 40px;
+    }}
+    QTableWidget QScrollBar::handle:vertical:hover {{
+        background: rgba(0, 0, 0, 0.25);
+    }}
+    QTableWidget QScrollBar::handle:vertical:pressed {{
+        background: rgba(0, 0, 0, 0.35);
+    }}
+    QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical {{
+        height: 0;
+        background: transparent;
+        border: none;
+    }}
+    QTableWidget QScrollBar::add-page:vertical, QTableWidget QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
+    QTableWidget QScrollBar:horizontal {{
+        border: none;
+        background: transparent;
+        height: 10px;
+        margin: 0;
+    }}
+    QTableWidget QScrollBar::handle:horizontal {{
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 5px;
+        min-width: 40px;
+    }}
+    QTableWidget QScrollBar::handle:horizontal:hover {{
+        background: rgba(0, 0, 0, 0.25);
+    }}
+    QTableWidget QScrollBar::handle:horizontal:pressed {{
+        background: rgba(0, 0, 0, 0.35);
+    }}
+    QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal {{
+        width: 0;
+        background: transparent;
+        border: none;
+    }}
+    QTableWidget QScrollBar::add-page:horizontal, QTableWidget QScrollBar::sub-page:horizontal {{
+        background: transparent;
     }}
 """
