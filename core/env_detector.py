@@ -49,7 +49,12 @@ class CondaDetectResult:
 def _validate_conda(ssh_run_fn: SshRunFn, exe: str, timeout: int = 15) -> CondaDetectResult:
     """验证 conda 可执行文件：运行 --version 并解析版本号。"""
     try:
-        rc, stdout, stderr = ssh_run_fn(f"{exe} --version", timeout)
+        # 展开 ~ 为 $HOME（SSH 中直接执行 ~/xxx 可能不会展开）
+        if exe.startswith("~"):
+            exe_for_cmd = exe.replace("~/", "$HOME/", 1)
+        else:
+            exe_for_cmd = exe
+        rc, stdout, stderr = ssh_run_fn(f"bash -c '{exe_for_cmd} --version'", timeout)
         if rc != 0:
             return CondaDetectResult(
                 status=CondaStatus.NOT_FOUND,
@@ -62,17 +67,20 @@ def _validate_conda(ssh_run_fn: SshRunFn, exe: str, timeout: int = 15) -> CondaD
         m = _VERSION_RE.search(output)
         if m:
             version = m.group(1)
-            return CondaDetectResult(
-                status=CondaStatus.OK,
-                executable=exe,
-                version=version,
-                message=f"检测到 conda {version} ({exe})",
-            )
+        # 如果使用了 $HOME，展开为实际路径
+        final_exe = exe_for_cmd
+        if exe_for_cmd.startswith("$HOME/"):
+            try:
+                rc2, stdout2, _ = ssh_run_fn(f"eval echo {exe_for_cmd}", 10)
+                if rc2 == 0 and stdout2.strip():
+                    final_exe = stdout2.strip()
+            except Exception:
+                pass
         return CondaDetectResult(
             status=CondaStatus.OK,
-            executable=exe,
-            version=None,
-            message=f"检测到 conda ({exe})",
+            executable=final_exe,
+            version=version if m else None,
+            message=f"检测到 conda {version if m else ''} ({final_exe})",
         )
     except Exception as e:
         logger.debug("验证 %s 失败: %s", exe, e)
@@ -86,34 +94,24 @@ def _validate_conda(ssh_run_fn: SshRunFn, exe: str, timeout: int = 15) -> CondaD
 
 def detect(
     ssh_run_fn: SshRunFn,
-    cached_path: str = "",
     timeout: int = 15,
 ) -> CondaDetectResult:
-    """按优先级检测远端 conda 可执行文件。
+    """检测远端 conda 可执行文件（自动模式）。
 
     检测顺序：
-    0. 快速验证 cached_path（上次保存的路径，避免重复 SSH 开销）
-    1. bash -ic 'which conda'（用户 shell 实际环境，覆盖 95% 场景）
+    1. bash -ic 'which conda'（用户 shell 实际环境）
     2. 常见安装目录扫描（anaconda3/miniconda3/miniforge3/.h2ometa/conda）
     3. NOT_FOUND
 
     Args:
         ssh_run_fn: SSH 命令执行回调 (cmd, timeout) -> (rc, stdout, stderr)
-        cached_path: 上次检测到的 conda 路径（快速验证缓存）
         timeout: 单次命令超时秒数
 
     Returns:
         CondaDetectResult
     """
-    # Step 0: 快速验证 cached_path
-    if cached_path and cached_path.strip():
-        result = _validate_conda(ssh_run_fn, cached_path.strip(), timeout)
-        if result.status == CondaStatus.OK:
-            logger.info("缓存路径验证通过: %s", cached_path)
-            return result
-        logger.info("缓存路径无效 (%s), 继续搜索", cached_path)
 
-    # Step 1: bash -ic 'which conda' — 用户 shell 实际环境
+    # Step 1: bash -ic 'which conda' — 用户 shell 实际环境（自动检测）
     try:
         rc, stdout, _stderr = ssh_run_fn(
             "bash -ic 'which conda' 2>/dev/null", timeout,

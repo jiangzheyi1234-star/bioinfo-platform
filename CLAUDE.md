@@ -63,9 +63,10 @@ pytest tests/test_xxx.py -v    # 单文件测试
 fastp · hostile · kraken2 · megahit · metaspades · metabat2 · maxbin2 · concoct · das_tool · checkm2 · busco · gtdbtk · prokka · bakta · eggnog · blastn
 + 声明式：`analysis_paths.yaml` · `databases.yaml`
 
-### 工具环境管理（LinuxSettingsCard + env_detector）
-- **conda 自动发现**：`env_detector.detect()` 按优先级检测：用户配置路径 → `which conda` → 常见目录扫描
-- **Miniforge 自动安装**：未检测到 conda 时弹窗引导安装 Miniforge3 到 `~/.h2ometa/conda`
+### 工具环境管理（LinuxSettingsCard + env_detector + env_installer）
+- **conda 自动检测**：`env_detector.detect()` 优先执行 `bash -ic 'which conda'`，失败后扫描常见目录
+- **移除缓存路径**：不再使用 cached_path 参数，避免配置路径与实际 which 结果不一致
+- **Miniforge 自动安装**：未检测到 conda 时弹窗引导安装 Miniforge3 到 `~/miniforge3`
 - **执行链路统一**：检测到的 conda 绝对路径通过 `ServiceLocator.conda_executable` → `ToolEngine` → `CommandBuilder.build()` 传递
 - **一键检测**：使用检测到的 conda 路径运行 `conda env list --json`，逐个比对 `conda_env` 字段
 - **点击安装**：`EnvInstallDialog` 弹出，SSH 执行 `install_cmd`（自动替换 conda 路径），输出实时滚动

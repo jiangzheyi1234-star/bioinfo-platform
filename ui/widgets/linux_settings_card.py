@@ -114,15 +114,14 @@ class CondaDetectWorker(QObject):
     finished = pyqtSignal(object)  # CondaDetectResult
     error = pyqtSignal(str)
 
-    def __init__(self, ssh_run_fn, cached_path=""):
+    def __init__(self, ssh_run_fn):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
-        self._cached_path = cached_path
 
     @pyqtSlot()
     def run(self):
         try:
-            result = env_detector.detect(self._ssh_run_fn, self._cached_path)
+            result = env_detector.detect(self._ssh_run_fn)
             self.finished.emit(result)
         except Exception as e:
             logger.exception("CondaDetectWorker 出错")
@@ -956,7 +955,6 @@ class LinuxSettingsCard(QFrame):
         self._conda_detect_thread = QThread()
         self._conda_detect_worker = CondaDetectWorker(
             ssh_run_fn=self._make_ssh_run_fn(),
-            cached_path=self._conda_executable,
         )
         self._conda_detect_worker.moveToThread(self._conda_detect_thread)
 
