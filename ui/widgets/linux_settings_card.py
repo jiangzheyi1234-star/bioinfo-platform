@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl, QSize
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -13,7 +15,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
@@ -82,6 +84,72 @@ class ClickableHeader(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mouseReleaseEvent(event)
+
+
+# ── 工具环境 Bridge (Python ↔ JS) ───────────────────────────────────
+
+class ToolEnvBridge(QObject):
+    """Bridge between Python and JavaScript via QWebChannel for tool environment detection."""
+
+    # Python → JS 信号
+    toolListLoaded = pyqtSignal(str, arguments=["json"])  # JSON数组
+    checkStarted = pyqtSignal(arguments=[])
+    toolChecked = pyqtSignal(str, bool, arguments=["tool_id", "ok"])
+    checkFinished = pyqtSignal(str, arguments=["result_json"])
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._tools: list[dict] = []
+        self._parent_card = parent  # LinuxSettingsCard 引用
+
+    def set_tools(self, tools: list[dict]) -> None:
+        """设置工具列表。"""
+        self._tools = tools
+        self.toolListLoaded.emit(json.dumps(tools, ensure_ascii=False))
+
+    def get_tools(self) -> list[dict]:
+        """获取工具列表。"""
+        return self._tools
+
+    @pyqtSlot(result=str)
+    def getTools(self) -> str:
+        """JS 调用：获取工具列表 JSON。"""
+        return json.dumps(self._tools, ensure_ascii=False)
+
+    @pyqtSlot()
+    def startCheck(self) -> None:
+        """JS 调用：开始一键检测。"""
+        if self._parent_card:
+            self._parent_card._on_batch_check_from_web()
+
+    @pyqtSlot(str)
+    def installTool(self, tool_id: str) -> None:
+        """JS 调用：安装工具。"""
+        if self._parent_card:
+            self._parent_card._on_install_from_web(tool_id)
+
+    @pyqtSlot(int)
+    def setHeight(self, height: int) -> None:
+        """JS 调用：动态调整 WebView 高度。"""
+        if self._parent_card and hasattr(self._parent_card, '_web_view'):
+            web_view = self._parent_card._web_view
+            if web_view:
+                # 限制高度范围
+                new_height = max(45, min(height + 10, 400))
+                web_view.setFixedHeight(new_height)
+
+    def emit_check_started(self) -> None:
+        """Python 调用：通知 JS 检测开始。"""
+        self.checkStarted.emit()
+
+    def emit_tool_checked(self, tool_id: str, ok: bool) -> None:
+        """Python 调用：通知 JS 单个工具检测完成。"""
+        self.toolChecked.emit(tool_id, ok)
+
+    def emit_check_finished(self, ready_count: int, total_count: int) -> None:
+        """Python 调用：通知 JS 检测完成。"""
+        result = {"ready_count": ready_count, "total_count": total_count}
+        self.checkFinished.emit(json.dumps(result, ensure_ascii=False))
 
 
 # ── 批量环境检测 Worker ─────────────────────────────────────────────
@@ -475,6 +543,7 @@ class LinuxSettingsCard(QFrame):
       - 对 ❌ 工具提供"安装"按钮，点击后弹出 EnvInstallDialog 执行 conda create。
       - 安装成功后自动重新检测；需要数据库的工具给出提示。
       - 支持 plugin_registry 外部注入（PluginRegistry 动态读取工具列表）。
+      - 使用 Web UI (QWebEngineView) 展示工具环境表格，解决对齐问题。
 
     get_values() 返回字段（保持向后兼容）:
       linux_project_path, max_concurrent, poll_interval,
@@ -495,12 +564,13 @@ class LinuxSettingsCard(QFrame):
 
         self._plugin_registry = plugin_registry
 
-        # 每行工具状态标签: {tool_id: QLabel}
-        self._status_labels: dict[str, QLabel] = {}
-        # 每行安装按钮: {tool_id: QPushButton}
-        self._install_btns: dict[str, QPushButton] = {}
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
+
+        # Web UI 相关
+        self._web_view = None
+        self._bridge: Optional[ToolEnvBridge] = None
+        self._channel = None
 
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
@@ -521,20 +591,14 @@ class LinuxSettingsCard(QFrame):
         self.active_client = client
         connected = client is not None
 
-        self.check_btn.setEnabled(connected and not self._is_locked and not self._external_lock)
-
         if connected:
-            self.status_label.setText("SSH 已就绪，正在检测工具环境...")
+            self.status_label.setText("SSH 已就绪")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
             # SSH 连接成功后延迟 1s 自动触发检测（等 UI 渲染完毕）
             QTimer.singleShot(1000, self._on_batch_check)
         else:
             self.status_label.setText("等待 SSH 连接")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
-            for lbl in self._status_labels.values():
-                lbl.setText(_STATUS_PENDING)
-            for btn in self._install_btns.values():
-                btn.setVisible(False)
 
     def get_values(self) -> dict:
         """供 SettingsPage 获取数据（向后兼容）。"""
@@ -631,42 +695,8 @@ class LinuxSettingsCard(QFrame):
         form.addRow("任务轮询间隔", self.spin_poll)
         c_layout.addLayout(form)
 
-        # ── 工具环境检测区头部 ──
-        env_header = QHBoxLayout()
-        env_title = QLabel("工具环境检测状态：")
-        env_title.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 13px;")
-        self.check_btn = QPushButton("一键检测")
-        self.check_btn.setMinimumWidth(90)
-        self.check_btn.setStyleSheet(BUTTON_PRIMARY)
-        self.check_btn.setEnabled(False)
-        self.check_btn.clicked.connect(self._on_batch_check)
-
-        env_header.addWidget(env_title)
-        env_header.addStretch()
-        env_header.addWidget(self.check_btn)
-        c_layout.addLayout(env_header)
-
-        # 工具环境状态滚动区
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setFixedHeight(260)
-        scroll.setStyleSheet("background: transparent;")
-        scroll.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
-
-        self._tool_list_widget = QWidget()
-        self._tool_list_widget.setStyleSheet("background: transparent;")
-        self._tool_list_layout = QVBoxLayout(self._tool_list_widget)
-        self._tool_list_layout.setContentsMargins(0, 4, 0, 4)
-        self._tool_list_layout.setSpacing(6)
-
-        self._placeholder_label = QLabel("（插件注册表未就绪，启动后自动填充）")
-        self._placeholder_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-        self._tool_list_layout.addWidget(self._placeholder_label)
-        self._tool_list_layout.addStretch()
-
-        scroll.setWidget(self._tool_list_widget)
-        c_layout.addWidget(scroll)
+        # ── 工具环境检测区（Web UI）──
+        self._build_tool_env_web_view(c_layout)
 
         # ── 状态行 + 保存按钮 ──
         row = QHBoxLayout()
@@ -685,25 +715,60 @@ class LinuxSettingsCard(QFrame):
 
         main_layout.addWidget(self.container)
 
+    def _build_tool_env_web_view(self, parent_layout) -> None:
+        """创建工具环境检测的 Web UI（QWebEngineView）。"""
+        # 延迟导入 WebEngine（必须在 QApplication 创建后）
+        from ui.qt_bootstrap import ensure_qt_webengine_ready
+        ensure_qt_webengine_ready()
+
+        try:
+            from PyQt6.QtWebChannel import QWebChannel
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+        except ImportError as exc:
+            logger.warning("QtWebEngine 不可用: %s", exc)
+            fallback = QLabel("工具环境检测需要 QtWebEngine 支持")
+            fallback.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+            parent_layout.addWidget(fallback)
+            return
+
+        # 创建 Bridge
+        self._bridge = ToolEnvBridge(parent=self)
+
+        # 创建 WebView
+        self._web_view = QWebEngineView()
+        self._web_view.setMinimumHeight(45)  # 最小高度（折叠时只显示标题行）
+        self._web_view.setMaximumHeight(400)  # 最大高度
+        self._web_view.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+        self._web_view.setStyleSheet("background: transparent; border: none;")
+
+        # 设置 WebChannel
+        self._channel = QWebChannel()
+        self._channel.registerObject("bridge", self._bridge)
+        self._web_view.page().setWebChannel(self._channel)
+
+        # 加载 HTML
+        assets_dir = Path(__file__).parent.parent / "pages" / "settings_page_assets"
+        html_path = assets_dir / "tool_env_table.html"
+
+        if html_path.exists():
+            self._web_view.setUrl(QUrl.fromLocalFile(str(html_path)))
+        else:
+            logger.error("HTML 文件未找到: %s", html_path)
+
+        parent_layout.addWidget(self._web_view)
+
     # ── 工具列表管理 ─────────────────────────────────────
 
     def _refresh_tool_list(self) -> None:
-        """从 PluginRegistry 动态读取工具列表，重建状态行（含安装按钮）。"""
+        """从 PluginRegistry 动态读取工具列表，更新到 Web UI。"""
         self._tools = []
-        self._status_labels = {}
-        self._install_btns = {}
-
-        # 清空布局
-        while self._tool_list_layout.count():
-            item = self._tool_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
 
         if not self._plugin_registry:
-            lbl = QLabel("（插件注册表未就绪）")
-            lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-            self._tool_list_layout.addWidget(lbl)
-            self._tool_list_layout.addStretch()
+            logger.warning("插件注册表未就绪")
+            if self._bridge:
+                self._bridge.set_tools([])
             return
 
         try:
@@ -719,83 +784,22 @@ class LinuxSettingsCard(QFrame):
         except Exception:
             logger.exception("读取插件列表失败")
 
-        if not self._tools:
-            lbl = QLabel("（未发现任何插件）")
-            lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-            self._tool_list_layout.addWidget(lbl)
-            self._tool_list_layout.addStretch()
-            return
-
-        # 表头行：[工具名 | 环境名 | 状态 | 操作]
-        header_row = QHBoxLayout()
-        for text, width in [("工具", 110), ("Conda 环境", 160), ("", 8), ("状态", 28), ("操作", 60)]:
-            lbl = QLabel(text)
-            lbl.setStyleSheet(
-                f"color: {COLOR_TEXT_HINT}; font-size: 11px; font-weight: bold;"
-            )
-            if width:
-                lbl.setFixedWidth(width)
-            header_row.addWidget(lbl)
-        self._tool_list_layout.addLayout(header_row)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {COLOR_TEXT_HINT};")
-        self._tool_list_layout.addWidget(sep)
-
-        for tool in self._tools:
-            tid = tool["id"]
-            row_layout = QHBoxLayout()
-            row_layout.setSpacing(6)
-
-            name_lbl = QLabel(tool["name"])
-            name_lbl.setFixedWidth(110)
-            name_lbl.setStyleSheet("font-size: 13px;")
-
-            env_name = tool["conda_env"] or "(系统路径)"
-            env_lbl = QLabel(env_name)
-            env_lbl.setFixedWidth(160)
-            env_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-
-            status_lbl = QLabel(_STATUS_PENDING)
-            status_lbl.setFixedWidth(28)
-            status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            # "安装"按钮：初始隐藏，检测到 ❌ 后显示
-            install_btn = QPushButton("安装")
-            install_btn.setFixedWidth(56)
-            install_btn.setStyleSheet(
-                "QPushButton {"
-                "  font-size: 11px; padding: 2px 4px;"
-                "  background: #1565c0; color: white;"
-                "  border-radius: 4px; border: none;"
-                "}"
-                "QPushButton:hover { background: #1976d2; }"
-                "QPushButton:disabled { background: #9e9e9e; }"
-            )
-            install_btn.setVisible(False)
-            # 用默认参数捕获 tool 快照，避免 lambda 闭包陷阱
-            _tool_snapshot = dict(tool)
-            install_btn.clicked.connect(
-                lambda checked=False, t=_tool_snapshot: self._on_install_click(t)
-            )
-
-            row_layout.addWidget(name_lbl)
-            row_layout.addWidget(env_lbl)
-            row_layout.addStretch()
-            row_layout.addWidget(status_lbl)
-            row_layout.addWidget(install_btn)
-            self._tool_list_layout.addLayout(row_layout)
-
-            self._status_labels[tid] = status_lbl
-            self._install_btns[tid] = install_btn
-
-        self._tool_list_layout.addStretch()
+        # 更新 Web UI
+        if self._bridge:
+            self._bridge.set_tools(self._tools)
 
     # ── 批量检测 ─────────────────────────────────────────
 
     def _on_batch_check(self) -> None:
-        """一键检测所有工具环境。"""
+        """一键检测所有工具环境（外部调用入口）。"""
+        self._do_batch_check()
+
+    def _on_batch_check_from_web(self) -> None:
+        """从 Web UI 调用的检测入口。"""
+        self._do_batch_check()
+
+    def _do_batch_check(self) -> None:
+        """实际执行批量检测。"""
         if not self.active_client or self._checking or self._external_lock:
             return
 
@@ -804,16 +808,13 @@ class LinuxSettingsCard(QFrame):
             self.status_label.setStyleSheet(STATUS_ERROR)
             return
 
-        # 重置所有状态
-        for lbl in self._status_labels.values():
-            lbl.setText(_STATUS_PENDING)
-        for btn in self._install_btns.values():
-            btn.setVisible(False)
-
         self._checking = True
-        self.check_btn.setEnabled(False)
         self.status_label.setText("正在检测工具环境...")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
+
+        # 通知 Web UI 检测开始
+        if self._bridge:
+            self._bridge.emit_check_started()
 
         self._cleanup_check_resources()
 
@@ -830,33 +831,27 @@ class LinuxSettingsCard(QFrame):
         self._check_thread.start()
 
     def _on_tool_checked(self, tool_id: str, env_name: str, ok: bool) -> None:
-        """单个工具检测完成，更新状态图标和安装按钮可见性。"""
-        lbl = self._status_labels.get(tool_id)
-        if lbl:
-            lbl.setText(_STATUS_OK if ok else _STATUS_FAIL)
-
-        btn = self._install_btns.get(tool_id)
-        if btn:
-            # ❌ 显示安装按钮；✅ 隐藏
-            btn.setVisible(not ok)
-            # 检测进行中时禁用按钮（_on_batch_finished 再统一启用）
-            btn.setEnabled(False)
+        """单个工具检测完成，通知 Web UI 更新状态。"""
+        if self._bridge:
+            self._bridge.emit_tool_checked(tool_id, ok)
 
     def _on_batch_finished(self, conda_envs: list) -> None:
         """全部检测完成。"""
         self._checking = False
-        self.check_btn.setEnabled(True)
 
-        # 统一启用所有可见的安装按钮
-        for btn in self._install_btns.values():
-            if btn.isVisible():
-                btn.setEnabled(self.active_client is not None)
-
+        # 计算结果
         ok_count = sum(
-            1 for lbl in self._status_labels.values()
-            if lbl.text() == _STATUS_OK
+            1 for tool in self._tools
+            if tool.get("conda_env", "") == "" or tool.get("conda_env", "") in [
+                path.rstrip("/").split("/")[-1] for path in conda_envs
+            ]
         )
-        total = len(self._status_labels)
+        total = len(self._tools)
+
+        # 通知 Web UI 检测完成
+        if self._bridge:
+            self._bridge.emit_check_finished(ok_count, total)
+
         fail_count = total - ok_count
 
         if fail_count > 0:
@@ -876,7 +871,6 @@ class LinuxSettingsCard(QFrame):
     def _on_batch_error(self, msg: str) -> None:
         """检测出错。"""
         self._checking = False
-        self.check_btn.setEnabled(True)
         self.status_label.setText(f"检测失败: {msg[:30]}")
         self.status_label.setStyleSheet(STATUS_ERROR)
 
@@ -899,6 +893,16 @@ class LinuxSettingsCard(QFrame):
 
     def _on_install_click(self, tool: dict) -> None:
         """点击"安装"按钮，弹出安装对话框。"""
+        self._do_install_tool(tool)
+
+    def _on_install_from_web(self, tool_id: str) -> None:
+        """从 Web UI 调用安装工具。"""
+        tool = next((t for t in self._tools if t["id"] == tool_id), None)
+        if tool:
+            self._do_install_tool(tool)
+
+    def _do_install_tool(self, tool: dict) -> None:
+        """实际执行安装工具。"""
         if not self.active_client:
             self.status_label.setText("SSH 未连接，无法安装")
             self.status_label.setStyleSheet(STATUS_ERROR)
@@ -936,7 +940,6 @@ class LinuxSettingsCard(QFrame):
             self.linux_project_path.setEnabled(True)
             self.spin_concurrent.setEnabled(True)
             self.spin_poll.setEnabled(True)
-            self.check_btn.setEnabled(self.active_client is not None)
             self.lock_btn.setText("确认并保存")
             self.status_label.setText("配置已解锁，可修改")
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
@@ -980,8 +983,6 @@ class LinuxSettingsCard(QFrame):
         self.linux_project_path.setEnabled(True)
         self.spin_concurrent.setEnabled(True)
         self.spin_poll.setEnabled(True)
-        if self.active_client:
-            self.check_btn.setEnabled(True)
         self.lock_btn.show()
         self.lock_btn.setEnabled(True)
 
@@ -1000,11 +1001,9 @@ class LinuxSettingsCard(QFrame):
         if self._external_lock:
             for w in [
                 self.linux_project_path, self.modify_btn, self.lock_btn,
-                self.check_btn, self.spin_concurrent, self.spin_poll,
+                self.spin_concurrent, self.spin_poll,
             ]:
                 w.setEnabled(False)
-            for btn in self._install_btns.values():
-                btn.setEnabled(False)
             return
 
         if self._checking:
@@ -1016,14 +1015,8 @@ class LinuxSettingsCard(QFrame):
             self.spin_poll.setEnabled(True)
             self.lock_btn.setEnabled(True)
             self.modify_btn.setEnabled(True)
-            self.check_btn.setEnabled(self.active_client is not None)
         else:
             self.linux_project_path.setEnabled(False)
             self.spin_concurrent.setEnabled(False)
             self.spin_poll.setEnabled(False)
             self.modify_btn.setEnabled(True)
-            self.check_btn.setEnabled(self.active_client is not None and not self._is_locked)
-
-        for btn in self._install_btns.values():
-            if btn.isVisible():
-                btn.setEnabled(self.active_client is not None)
