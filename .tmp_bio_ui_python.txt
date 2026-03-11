@@ -1,2 +1,0 @@
-﻿C:\Users\Administrator\miniconda3\envs\bio_ui\python.exe
-
