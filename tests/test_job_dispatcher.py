@@ -114,6 +114,25 @@ class TestJobDispatcher:
         assert "H2O_SCRIPT_EOF" in write_cmd
         assert "echo 'running fastp'" in write_cmd
 
+    def test_submit_quotes_dangerous_task_dir(self) -> None:
+        """task_dir 含 shell 元字符时必须安全转义。"""
+        ssh = MockSSHService([
+            (0, "", ""),  # mkdir
+            (0, "", ""),  # cat heredoc
+            (0, "", ""),  # chmod
+            (0, "", ""),  # screen
+        ])
+        dangerous_dir = "/tmp/task'; touch /tmp/pwn #"
+        JobDispatcher.submit(
+            ssh_service=ssh,
+            wrapped_script="echo ok",
+            execution_id="exec_quoted",
+            task_dir=dangerous_dir,
+        )
+        all_cmd = "\n".join(ssh.commands)
+        assert "touch /tmp/pwn" in all_cmd
+        assert "'/tmp/task'\"'\"'; touch /tmp/pwn #'" in all_cmd
+
 
 class TestJobDispatcherSessionOps:
     """JobDispatcher 会话操作测试。"""
@@ -143,6 +162,12 @@ class TestJobDispatcherSessionOps:
         """终止 session 失败返回 False。"""
         ssh = MockSSHService([(1, "", "")])
         assert JobDispatcher.kill_session(ssh, "h2o_test") is False
+
+    def test_check_session_uses_fixed_string_grep(self) -> None:
+        """会话检测应使用 -F，避免正则注入。"""
+        ssh = MockSSHService([(0, "", "")])
+        JobDispatcher.check_session_exists(ssh, "h2o_[a-z]+")
+        assert "grep -Fq --" in ssh.commands[0]
 
 
 # ---------------------------------------------------------------------------
@@ -310,3 +335,42 @@ class TestJobMonitor:
         assert monitor._stop_requested is False
         monitor.request_stop()
         assert monitor._stop_requested is True
+
+
+class TestWaiterThread:
+    """_WaiterThread 行为测试。"""
+
+    def test_waiter_ignores_transient_screen_check_exception(self) -> None:
+        """screen 检查异常应视为暂时未知，不应立即判失败。"""
+        class FlakySSH:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run(self, cmd: str, timeout: int = 10):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("temporary network glitch")
+                if "screen -ls" in cmd:
+                    return (1, "", "")
+                if "exit_code.txt" in cmd:
+                    return (0, "0\n", "")
+                return (0, "", "")
+
+        from core.job_dispatcher import _WaiterThread  # 仅用于单测
+
+        ssh = FlakySSH()
+        thread = _WaiterThread(
+            ssh_service=ssh,
+            execution_id="exec_flaky",
+            job_id="h2o_flaky",
+            task_dir="/tmp/flaky",
+            check_interval=0,
+        )
+        completed: list[str] = []
+        failed: list[tuple[str, str]] = []
+        thread.completed.connect(completed.append)
+        thread.failed.connect(lambda eid, err: failed.append((eid, err)))
+
+        thread.run()
+        assert completed == ["exec_flaky"]
+        assert failed == []

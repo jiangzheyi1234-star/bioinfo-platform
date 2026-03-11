@@ -7,6 +7,7 @@
   3. 检测心跳超时（任务卡死）
 """
 import logging
+import shlex
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -228,7 +229,7 @@ class JobMonitor(QThread):
     def _read_remote_file(self, ssh: Any, remote_path: str) -> str:
         """读取远端文件内容，失败时返回空字符串。"""
         try:
-            rc, out, _ = ssh.run(f"cat {remote_path} 2>/dev/null", timeout=10)
+            rc, out, _ = ssh.run(f"cat {shlex.quote(remote_path)} 2>/dev/null", timeout=10)
             return out if rc == 0 else ""
         except Exception:
             return ""
@@ -244,7 +245,10 @@ class JobMonitor(QThread):
     def _check_screen_session(self, ssh: Any, job_id: str) -> bool:
         """检查 screen 会话是否存在。"""
         try:
-            rc, _, _ = ssh.run(f"screen -ls | grep -q {job_id}", timeout=10)
+            rc, _, _ = ssh.run(
+                f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
+                timeout=10,
+            )
             return rc == 0
         except Exception:
             return False
