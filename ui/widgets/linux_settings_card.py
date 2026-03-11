@@ -787,6 +787,8 @@ class LinuxSettingsCard(QFrame):
 
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
+        # 正在安装的工具 ID 集合（用于检测时跳过）
+        self._installing_tool_ids: set[str] = set()
 
         # Web UI 相关
         self._web_view = None
@@ -1263,6 +1265,9 @@ class LinuxSettingsCard(QFrame):
 
     def _on_tool_checked(self, tool_id: str, env_name: str, ok: bool) -> None:
         """单个工具检测完成，通知 Web UI 更新状态。"""
+        # 跳过正在安装的工具（保持"安装中"状态）
+        if tool_id in self._installing_tool_ids:
+            return
         if self._bridge:
             self._bridge.emit_tool_checked(tool_id, ok)
 
@@ -1335,6 +1340,10 @@ class LinuxSettingsCard(QFrame):
         """实际执行安装工具。"""
         if not self.active_client:
             self._set_status("SSH 未连接，无法安装", STATUS_ERROR)
+            # 从安装中集合移除（如果之前被添加）
+            self._installing_tool_ids.discard(tool.get("id", ""))
+            if self._bridge:
+                self._bridge.emit_install_finished(tool.get("id", ""), False)
             return
 
         try:
@@ -1344,11 +1353,14 @@ class LinuxSettingsCard(QFrame):
             dlg.exec()
         except Exception as exc:
             tool_name = tool.get("name") or tool.get("id") or "未知工具"
+            tool_id = tool.get("id", "")
             logger.exception("打开安装对话框失败: tool=%s", tool_name)
+            # 从安装中集合移除
+            self._installing_tool_ids.discard(tool_id)
             self._set_status(f"打开安装窗口失败: {tool_name}", STATUS_ERROR)
             # 通知 JS 安装失败
             if self._bridge:
-                self._bridge.emit_install_finished(tool.get("id", ""), False)
+                self._bridge.emit_install_finished(tool_id, False)
             QMessageBox.critical(
                 self,
                 "安装窗口打开失败",
@@ -1357,6 +1369,8 @@ class LinuxSettingsCard(QFrame):
 
     def _on_install_succeeded(self, tool_id: str) -> None:
         """某工具安装成功后：提示数据库（如需要），然后重新检测。"""
+        # 从安装中集合移除
+        self._installing_tool_ids.discard(tool_id)
         # 通知 JS 安装完成
         if self._bridge:
             self._bridge.emit_install_finished(tool_id, True)
@@ -1379,13 +1393,15 @@ class LinuxSettingsCard(QFrame):
 
     def _on_install_failed(self, tool_id: str) -> None:
         """安装失败后通知 JS 更新状态。"""
+        # 从安装中集合移除
+        self._installing_tool_ids.discard(tool_id)
         if self._bridge:
             self._bridge.emit_install_finished(tool_id, False)
 
     def _recover_running_installs(self) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。
 
-        - RUNNING → 状态栏提示"XX 正在后台安装"
+        - RUNNING → 状态栏提示"XX 正在后台安装"，Web UI 显示"安装中"
         - DONE（新完成的）→ 触发重新检测 + 清理
         """
         if not self.active_client:
@@ -1404,6 +1420,10 @@ class LinuxSettingsCard(QFrame):
             task_dir = item["task_dir"]
             if status == "RUNNING":
                 running_tools.append(tool_id)
+                self._installing_tool_ids.add(tool_id)
+                # 通知 Web UI 显示"安装中"状态
+                if self._bridge:
+                    self._bridge.emit_install_started(tool_id)
             elif status == "DONE":
                 newly_done = True
                 # 清理已完成的安装目录
