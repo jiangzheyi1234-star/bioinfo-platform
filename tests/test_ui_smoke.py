@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -248,3 +249,60 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
 
     window.close()
     pm.close()
+
+
+def test_linux_settings_web_install_is_deferred(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+
+    scheduled = []
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QTimer.singleShot",
+        lambda delay, callback: scheduled.append((delay, callback)),
+    )
+
+    launched = []
+    monkeypatch.setattr(card, "_do_install_tool", lambda tool: launched.append(tool))
+
+    card._on_install_from_web("fastp")
+
+    assert launched == []
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == 0
+
+    scheduled[0][1]()
+    assert launched == [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+
+    card.close()
+
+
+def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+
+    card = LinuxSettingsCard()
+    card.active_client = MagicMock()
+    monkeypatch.setattr(card, "_make_ssh_run_fn", lambda: MagicMock())
+
+    def raise_dialog_error(*args, **kwargs):
+        raise RuntimeError("dialog boom")
+
+    critical_calls = []
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", raise_dialog_error)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QMessageBox.critical",
+        lambda *args: critical_calls.append(args),
+    )
+
+    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+
+    assert card.status_label.text() == "打开安装窗口失败: fastp"
+    assert len(critical_calls) == 1
+
+    card.close()

@@ -9,9 +9,11 @@ from typing import Optional
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl
 from PyQt6.QtWidgets import (
     QDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QTextEdit,
@@ -176,6 +178,8 @@ class ToolEnvBridge(QObject):
     checkStarted = pyqtSignal(arguments=[])
     toolChecked = pyqtSignal(str, bool, arguments=["tool_id", "ok"])
     checkFinished = pyqtSignal(str, arguments=["result_json"])
+    installStarted = pyqtSignal(str, arguments=["tool_id"])
+    installFinished = pyqtSignal(str, bool, arguments=["tool_id", "success"])
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -230,6 +234,14 @@ class ToolEnvBridge(QObject):
         """Python 调用：通知 JS 检测完成。"""
         result = {"ready_count": ready_count, "total_count": total_count}
         self.checkFinished.emit(json.dumps(result, ensure_ascii=False))
+
+    def emit_install_started(self, tool_id: str) -> None:
+        """Python 调用：通知 JS 安装开始。"""
+        self.installStarted.emit(tool_id)
+
+    def emit_install_finished(self, tool_id: str, success: bool) -> None:
+        """Python 调用：通知 JS 安装结束。"""
+        self.installFinished.emit(tool_id, success)
 
 
 # ── 批量环境检测 Worker ─────────────────────────────────────────────
@@ -353,6 +365,38 @@ class EnvBatchCheckWorker(QObject):
             self.error.emit(str(e))
 
 
+# ── 安装状态检查 Worker（对话框初始化时使用）────────────────────────
+
+
+class EnvInstallCheckWorker(QObject):
+    """在 QThread 中检查是否已有正在运行的安装（避免阻塞 UI）。"""
+
+    finished = pyqtSignal(dict)  # {"is_running": bool, "task_dir": str, "job_id": str}
+    error = pyqtSignal(str)
+
+    def __init__(self, ssh_run_fn, tool_id: str):
+        super().__init__()
+        self._ssh_run_fn = ssh_run_fn
+        self._tool_id = tool_id
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            task_dir = f"{_INSTALL_BASE}/{self._tool_id}"
+            status = EnvInstaller.check_status(self._ssh_run_fn, task_dir)
+            if status["status"] == "RUNNING":
+                self.finished.emit({
+                    "is_running": True,
+                    "task_dir": task_dir,
+                    "job_id": f"h2o_install_{self._tool_id}",
+                })
+            else:
+                self.finished.emit({"is_running": False})
+        except Exception as e:
+            logger.exception("EnvInstallCheckWorker 出错")
+            self.error.emit(str(e))
+
+
 # ── 安装状态轮询 Worker ────────────────────────────────────────────
 
 
@@ -404,6 +448,7 @@ class EnvInstallDialog(QDialog):
     """
 
     install_succeeded = pyqtSignal(str)  # tool_id
+    install_failed = pyqtSignal(str)  # tool_id
 
     # 轮询间隔（毫秒）
     POLL_INTERVAL_MS = 3000
@@ -530,26 +575,47 @@ class EnvInstallDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _check_existing_install(self):
-        """检查是否已有正在运行的安装，自动接续轮询。"""
+        """检查是否已有正在运行的安装，自动接续轮询。
+
+        使用 QThread 在后台执行 SSH 检查，避免阻塞 UI。
+        """
         tool_id = self.tool_info.get("id", "")
         if not tool_id:
             return
-        try:
-            task_dir = f"{_INSTALL_BASE}/{tool_id}"
-            status = EnvInstaller.check_status(self._ssh_run_fn, task_dir)
-            if status["status"] == "RUNNING":
-                self._task_dir = task_dir
-                self._job_id = f"h2o_install_{tool_id}"
-                self._installing = True
-                self.install_btn.setEnabled(False)
-                self.cancel_btn.setText("关闭")
-                self._set_status(
-                    "检测到正在后台安装，已接续显示进度...",
-                    "color: #1565c0; font-size: 12px;",
-                )
-                self._start_polling()
-        except Exception as e:
-            logger.debug("检查已有安装失败: %s", e)
+
+        # 在后台线程中检查，避免阻塞对话框显示
+        self._check_install_thread = QThread()
+        self._check_install_worker = EnvInstallCheckWorker(self._ssh_run_fn, tool_id)
+        self._check_install_worker.moveToThread(self._check_install_thread)
+
+        self._check_install_thread.started.connect(self._check_install_worker.run)
+        self._check_install_worker.finished.connect(self._on_check_install_finished)
+        self._check_install_worker.error.connect(self._on_check_install_error)
+        self._check_install_worker.finished.connect(self._cleanup_check_install_resources)
+
+        self._check_install_thread.start()
+
+    def _on_check_install_finished(self, result: dict):
+        """检查完成回调。"""
+        if result.get("is_running"):
+            self._task_dir = result["task_dir"]
+            self._job_id = result["job_id"]
+            self._installing = True
+            self.install_btn.setEnabled(False)
+            self.cancel_btn.setText("关闭")
+            self._set_status(
+                "检测到正在后台安装，已接续显示进度...",
+                "color: #1565c0; font-size: 12px;",
+            )
+            self._start_polling()
+
+    def _on_check_install_error(self, msg: str):
+        """检查出错回调。"""
+        logger.debug("检查已有安装失败: %s", msg)
+
+    def _cleanup_check_install_resources(self):
+        """清理检查线程资源。"""
+        _cleanup_thread_pair(self, "_check_install_thread", "_check_install_worker", wait_ms=3000)
 
     def _on_start_install(self):
         if self._installing:
@@ -649,6 +715,7 @@ class EnvInstallDialog(QDialog):
             self.install_btn.setEnabled(True)
             self._rebind_install_btn(self._on_start_install)
             self.cancel_btn.setText("关闭")
+            self.install_failed.emit(self.tool_info.get("id", ""))
 
     def _on_log_updated(self, log_text: str):
         # 替换整个输出区内容（因为 tail 已返回最新的尾部日志）
@@ -681,6 +748,7 @@ class EnvInstallDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_polling()
+        self._cleanup_check_install_resources()
         super().closeEvent(event)
 
 
@@ -1053,7 +1121,7 @@ class LinuxSettingsCard(QFrame):
         layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        info_lbl = QLabel("将安装 Miniforge3 到 ~/.h2ometa/conda，这可能需要几分钟。")
+        info_lbl = QLabel("将安装 Miniforge3 到 ~/miniforge3，这可能需要几分钟。")
         info_lbl.setWordWrap(True)
         info_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
         layout.addWidget(info_lbl)
@@ -1247,13 +1315,21 @@ class LinuxSettingsCard(QFrame):
 
     def _on_install_click(self, tool: dict) -> None:
         """点击"安装"按钮，弹出安装对话框。"""
-        self._do_install_tool(tool)
+        self._queue_install_tool(tool)
 
     def _on_install_from_web(self, tool_id: str) -> None:
         """从 Web UI 调用安装工具。"""
         tool = next((t for t in self._tools if t["id"] == tool_id), None)
         if tool:
-            self._do_install_tool(tool)
+            # 通知 JS 安装开始，显示"安装中"状态
+            if self._bridge:
+                self._bridge.emit_install_started(tool_id)
+            self._queue_install_tool(tool)
+
+    def _queue_install_tool(self, tool: dict) -> None:
+        """在当前事件结束后再打开安装对话框，避免 WebChannel 回调重入。"""
+        tool_snapshot = dict(tool)
+        QTimer.singleShot(0, lambda: self._do_install_tool(tool_snapshot))
 
     def _do_install_tool(self, tool: dict) -> None:
         """实际执行安装工具。"""
@@ -1261,12 +1337,30 @@ class LinuxSettingsCard(QFrame):
             self._set_status("SSH 未连接，无法安装", STATUS_ERROR)
             return
 
-        dlg = EnvInstallDialog(self._make_ssh_run_fn(), tool, parent=self)
-        dlg.install_succeeded.connect(self._on_install_succeeded)
-        dlg.exec()
+        try:
+            dlg = EnvInstallDialog(self._make_ssh_run_fn(), tool, parent=self)
+            dlg.install_succeeded.connect(self._on_install_succeeded)
+            dlg.install_failed.connect(self._on_install_failed)
+            dlg.exec()
+        except Exception as exc:
+            tool_name = tool.get("name") or tool.get("id") or "未知工具"
+            logger.exception("打开安装对话框失败: tool=%s", tool_name)
+            self._set_status(f"打开安装窗口失败: {tool_name}", STATUS_ERROR)
+            # 通知 JS 安装失败
+            if self._bridge:
+                self._bridge.emit_install_finished(tool.get("id", ""), False)
+            QMessageBox.critical(
+                self,
+                "安装窗口打开失败",
+                f"工具【{tool_name}】的安装窗口打开失败。\n\n错误信息：{exc}",
+            )
 
     def _on_install_succeeded(self, tool_id: str) -> None:
         """某工具安装成功后：提示数据库（如需要），然后重新检测。"""
+        # 通知 JS 安装完成
+        if self._bridge:
+            self._bridge.emit_install_finished(tool_id, True)
+
         tool = next((t for t in self._tools if t["id"] == tool_id), None)
 
         if tool and tool.get("databases"):
@@ -1282,6 +1376,11 @@ class LinuxSettingsCard(QFrame):
 
         # 重新检测所有工具
         QTimer.singleShot(300, self._on_batch_check)
+
+    def _on_install_failed(self, tool_id: str) -> None:
+        """安装失败后通知 JS 更新状态。"""
+        if self._bridge:
+            self._bridge.emit_install_finished(tool_id, False)
 
     def _recover_running_installs(self) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。

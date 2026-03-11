@@ -27,7 +27,6 @@ _COMMON_CONDA_PATHS = [
     "~/anaconda3/bin/conda",
     "~/miniconda3/bin/conda",
     "~/miniforge3/bin/conda",
-    "~/.h2ometa/conda/bin/conda",
 ]
 
 # conda --version 输出正则: "conda 24.1.2"
@@ -101,7 +100,7 @@ def detect(
 
     检测顺序：
     1. bash -ic 'which conda'（用户 shell 实际环境）
-    2. 常见安装目录扫描（anaconda3/miniconda3/miniforge3/.h2ometa/conda）
+    2. 常见安装目录扫描（anaconda3/miniconda3/miniforge3）
     3. NOT_FOUND
 
     Args:

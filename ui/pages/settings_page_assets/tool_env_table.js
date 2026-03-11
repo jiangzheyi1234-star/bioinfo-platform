@@ -14,6 +14,8 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     bridge.checkStarted.connect(onCheckStarted);
     bridge.toolChecked.connect(onToolChecked);
     bridge.checkFinished.connect(onCheckFinished);
+    bridge.installStarted.connect(onInstallStarted);
+    bridge.installFinished.connect(onInstallFinished);
 
     // 绑定事件
     document.getElementById('card-header').addEventListener('click', toggleExpand);
@@ -147,6 +149,19 @@ function onToolChecked(toolId, ok) {
     updateToolStatus(toolId, ok ? 'ready' : 'missing');
 }
 
+function onInstallStarted(toolId) {
+    console.log('Install started: ' + toolId);
+    updateToolStatus(toolId, 'installing');
+}
+
+function onInstallFinished(toolId, success) {
+    console.log('Install finished: ' + toolId + ', success=' + success);
+    // 安装成功会在 Python 端触发重新检测，这里只需要处理失败的情况
+    if (!success) {
+        updateToolStatus(toolId, 'missing');
+    }
+}
+
 function onCheckFinished(resultJson) {
     console.log('Check finished: ' + resultJson);
     checkInProgress = false;
@@ -219,6 +234,11 @@ function updateToolStatus(toolId, status) {
         case 'checking':
             dot.classList.add('dot-checking');
             text.textContent = '检测中';
+            if (btn) btn.classList.add('hidden');
+            break;
+        case 'installing':
+            dot.classList.add('dot-installing');
+            text.textContent = '安装中';
             if (btn) btn.classList.add('hidden');
             break;
         case 'pending':
