@@ -91,6 +91,7 @@ FONT_FAMILY = (
     "Roboto, 'Helvetica Neue', Arial, sans-serif"
 )
 
+
 def apply_card_shadow(widget) -> None:
     """给卡片应用全局一致的 Light & Clinical 风格悬浮阴影"""
     from PyQt6.QtWidgets import QGraphicsDropShadowEffect
@@ -100,6 +101,7 @@ def apply_card_shadow(widget) -> None:
     shadow.setColor(QColor(0, 0, 0, 15))
     shadow.setOffset(0, 4)
     widget.setGraphicsEffect(shadow)
+
 
 # ═══════════════════════════════════════════════════════════
 #  基础样式模板
@@ -373,6 +375,10 @@ def CARD_FRAME(object_name: str) -> str:
             border: none;
             border-radius: {RADIUS_CARD};
             padding: 15px;
+        }}
+        QFrame#{object_name}:hover {{
+            background-color: {COLOR_BG_CARD};
+            border: none;
         }}
     """
 

@@ -310,7 +310,19 @@ class EnvBatchCheckWorker(QObject):
                 logger.warning("所有候选命令均未取到 conda 环境列表")
 
             conda_root = env_detector.infer_conda_root(self._conda_executable)
-            logger.debug("conda 根目录：%s", conda_root or "(未知)")
+            logger.debug("conda 根目录（原始）：%s", conda_root or "(未知)")
+
+            # 展开路径中的 ~ 为绝对路径（远程端执行）
+            if conda_root and "~" in conda_root:
+                try:
+                    _, stdout, _ = self.client.exec_command(f"eval echo {conda_root}", timeout=10)
+                    stdout.channel.recv_exit_status()
+                    expanded = stdout.read().decode("utf-8", errors="ignore").strip()
+                    if expanded and not expanded.startswith("~"):
+                        conda_root = expanded
+                        logger.debug("conda 根目录（展开后）：%s", conda_root)
+                except Exception as e:
+                    logger.debug("展开 ~ 失败: %s", e)
 
             # 只保留当前 conda 根目录下的环境，避免多个发行版混用。
             if conda_root:
@@ -343,9 +355,12 @@ class EnvBatchCheckWorker(QObject):
                     self.tool_checked.emit(tool_id, "(系统路径)", True)
                     continue
 
-                expected_path = env_detector.expected_env_path(
-                    self._conda_executable, conda_env
-                )
+                # 使用展开后的 conda_root 构建预期路径
+                if conda_root:
+                    expected_path = f"{conda_root}/envs/{conda_env}"
+                else:
+                    expected_path = ""
+
                 if expected_path:
                     ok = expected_path in env_paths_set
                     if not ok and conda_env in env_names_set:
@@ -355,7 +370,7 @@ class EnvBatchCheckWorker(QObject):
                         )
                 else:
                     ok = conda_env in env_names_set
-                logger.debug("tool=%s conda_env=%s ok=%s", tool_id, conda_env, ok)
+                logger.debug("tool=%s conda_env=%s expected=%s ok=%s", tool_id, conda_env, expected_path, ok)
                 self.tool_checked.emit(tool_id, conda_env, ok)
 
             self.finished.emit(conda_envs)
@@ -1283,11 +1298,13 @@ class LinuxSettingsCard(QFrame):
             if not conda_env:
                 ok_count += 1
                 continue
+            # 优先使用环境名匹配（不受 ~ 展开影响）
+            if conda_env in env_names:
+                ok_count += 1
+                continue
+            # 路径匹配作为备选
             expected_path = env_detector.expected_env_path(self._conda_executable, conda_env)
-            if expected_path:
-                if expected_path in env_paths_set:
-                    ok_count += 1
-            elif conda_env in env_names:
+            if expected_path and expected_path in env_paths_set:
                 ok_count += 1
         total = len(self._tools)
 
@@ -1401,7 +1418,7 @@ class LinuxSettingsCard(QFrame):
     def _recover_running_installs(self) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。
 
-        - RUNNING → 状态栏提示"XX 正在后台安装"，Web UI 显示"安装中"
+        - RUNNING → 检查环境是否实际已存在（防残留），存在则视为完成
         - DONE（新完成的）→ 触发重新检测 + 清理
         """
         if not self.active_client:
@@ -1414,16 +1431,32 @@ class LinuxSettingsCard(QFrame):
 
         running_tools = []
         newly_done = False
+
+        # 获取当前所有已存在的 conda 环境路径
+        existing_env_paths = self._get_existing_env_paths()
+
         for item in installs:
             tool_id = item["tool_id"]
             status = item["status"]
             task_dir = item["task_dir"]
+
             if status == "RUNNING":
-                running_tools.append(tool_id)
-                self._installing_tool_ids.add(tool_id)
-                # 通知 Web UI 显示"安装中"状态
-                if self._bridge:
-                    self._bridge.emit_install_started(tool_id)
+                # 检查该工具的环境是否实际已存在（防止状态文件残留）
+                tool = next((t for t in self._tools if t["id"] == tool_id), None)
+                if tool and self._is_tool_env_exists(tool, existing_env_paths):
+                    logger.info("工具 %s 状态为 RUNNING 但环境已存在，视为安装完成", tool_id)
+                    newly_done = True
+                    # 清理残留的安装目录
+                    try:
+                        EnvInstaller.cleanup(self._make_ssh_run_fn(), task_dir)
+                    except Exception:
+                        pass
+                else:
+                    running_tools.append(tool_id)
+                    self._installing_tool_ids.add(tool_id)
+                    # 通知 Web UI 显示"安装中"状态
+                    if self._bridge:
+                        self._bridge.emit_install_started(tool_id)
             elif status == "DONE":
                 newly_done = True
                 # 清理已完成的安装目录
@@ -1441,6 +1474,56 @@ class LinuxSettingsCard(QFrame):
 
         if newly_done:
             QTimer.singleShot(500, self._on_batch_check)
+
+    def _get_existing_env_paths(self) -> set[str]:
+        """获取远端所有已存在的 conda 环境路径集合。"""
+        if not self.active_client or not self._conda_executable:
+            return set()
+
+        try:
+            import json as _json
+            cmd = f"{self._conda_executable} env list --json"
+            _, stdout, stderr = self.active_client.exec_command(cmd, timeout=30)
+            exit_code = stdout.channel.recv_exit_status()
+            output = stdout.read().decode("utf-8", errors="ignore").strip()
+
+            if exit_code == 0 and output:
+                json_start = output.find("{")
+                if json_start >= 0:
+                    data = _json.loads(output[json_start:])
+                    return {p.rstrip("/") for p in data.get("envs", [])}
+        except Exception as e:
+            logger.debug("获取环境列表失败: %s", e)
+
+        return set()
+
+    def _is_tool_env_exists(self, tool: dict, existing_env_paths: set[str]) -> bool:
+        """检查指定工具的环境是否已存在。"""
+        conda_env = tool.get("conda_env", "")
+        if not conda_env:
+            return True  # 无环境要求，视为已存在
+
+        # 使用环境名匹配（更可靠，不受 ~ 展开影响）
+        env_names = {p.rstrip("/").split("/")[-1] for p in existing_env_paths}
+        if conda_env in env_names:
+            return True
+
+        # 也可以尝试路径匹配（展开 ~）
+        expected_path = env_detector.expected_env_path(
+            self._conda_executable, conda_env
+        )
+        if expected_path and "~" in expected_path:
+            try:
+                _, stdout, _ = self._make_ssh_run_fn()(
+                    f"eval echo {expected_path}", 10
+                )
+                expanded = stdout.strip()
+                if expanded in existing_env_paths:
+                    return True
+            except Exception:
+                pass
+
+        return False
 
     # ── 保存/锁定 ─────────────────────────────────────────
 
