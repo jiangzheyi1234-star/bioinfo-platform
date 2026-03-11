@@ -50,7 +50,6 @@ class ServiceLocator(QObject):
         ssh_service: Optional[SSHService] = None,
         plugins_dir: Optional[Path] = None,
         project_manager: Optional[ProjectManager] = None,
-        max_concurrent: int = 3,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
@@ -59,7 +58,7 @@ class ServiceLocator(QObject):
         self._plugins_dir = plugins_dir or _DEFAULT_PLUGINS_DIR
         self._plugin_registry = PluginRegistry(self._plugins_dir)
         self._project_manager = project_manager or ProjectManager()
-        self._job_queue = JobQueue(max_concurrent=max_concurrent)
+        self._job_queue = JobQueue()
         self._job_dispatcher = JobDispatcher()
         self._retry_manager = RetryManager()
         self._data_registry: Optional[DataRegistry] = None
@@ -126,9 +125,6 @@ class ServiceLocator(QObject):
         if self._data_registry is not None:
             self._rebuild_engine()
         logger.info("conda_executable 已更新: %s", self._conda_executable or "(空)")
-
-    def update_max_concurrent(self, n: int) -> None:
-        self._job_queue.update_max_concurrent(n)
 
     def _connect_signals(self) -> None:
         self._job_queue.job_started.connect(self._on_dispatch)

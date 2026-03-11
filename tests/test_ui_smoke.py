@@ -233,9 +233,7 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     window = MainWindow(project_manager=pm)
     _flush_events(qapp)
 
-    assert window.service_locator.job_queue.max_concurrent == 3
     assert "execution" not in config.get_config()
-
 
     settings_page = window.settings_page
     settings_page.db_card.set_values({"blast_nt": "/remote/blast_nt"})
@@ -244,7 +242,6 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     _flush_events(qapp)
 
     saved = config.get_config()
-    assert window.service_locator.job_queue.max_concurrent == 3
     assert "execution" not in saved
     assert config.get_database_path("blast_nt") == "/remote/blast_nt"
     assert config.get_ncbi_setting("email") == "user@example.com"

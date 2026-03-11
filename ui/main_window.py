@@ -342,7 +342,6 @@ class MainWindow(QMainWindow):
     def _connect_service_signals(self) -> None:
         queue = self._locator.job_queue
         queue.job_started.connect(self._update_queue_display)
-        queue.queue_updated.connect(lambda _: self._update_queue_display())
 
         self._locator.ssh_changed.connect(self._on_ssh_changed_for_disk)
 
