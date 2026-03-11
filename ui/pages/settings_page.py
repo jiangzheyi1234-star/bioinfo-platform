@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,12 +22,12 @@ from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP, SCROLL_BAR_ELEGAN
 
 
 class SettingsPage(BasePage):
-    """统一设置页（v2 配置模型）。"""
+    """Settings page backed by the v2 config schema."""
 
     active_client_changed = pyqtSignal(object)
 
     def __init__(self):
-        super().__init__("设置")
+        super().__init__("Settings")
         if hasattr(self, "label"):
             self.label.hide()
 
@@ -63,7 +63,7 @@ class SettingsPage(BasePage):
         self.layout.addWidget(scroll_area)
 
     def _init_header(self) -> None:
-        header_title = QLabel("系统设置")
+        header_title = QLabel("Settings")
         header_title.setStyleSheet(PAGE_HEADER_TITLE)
         self.layout.addWidget(header_title)
 
@@ -95,7 +95,7 @@ class SettingsPage(BasePage):
     def get_active_client(self):
         return self.ssh_card.get_active_client()
 
-    def set_global_lock(self, locked: bool, reason: str = "SSH 任务执行中，设置暂时锁定") -> None:
+    def set_global_lock(self, locked: bool, reason: str = "SSH disconnected; settings are locked") -> None:
         self.ssh_card.set_external_lock(locked, reason)
         if hasattr(self.linux_card, "set_external_lock"):
             self.linux_card.set_external_lock(locked)
@@ -118,7 +118,6 @@ class SettingsPage(BasePage):
     def _apply_schema_to_components(self, schema: dict[str, Any]) -> None:
         ssh = schema.get("ssh", {})
         linux = schema.get("linux", {})
-        execution = schema.get("execution", {})
         databases = schema.get("databases", {})
         ncbi = schema.get("ncbi", {})
 
@@ -136,11 +135,8 @@ class SettingsPage(BasePage):
             key_file=str(ssh.get("key_file", "") or ""),
         )
         self.linux_card.set_values(
-            conda_env=str(linux.get("conda_env_path", "") or ""),
-            conda_env_name=str(linux.get("conda_env_name", "") or ""),
             conda_executable=str(linux.get("conda_executable", "") or ""),
             auto_installed=bool(linux.get("auto_installed", False)),
-            max_concurrent=int(execution.get("max_concurrent", 3) or 3),
         )
         self.db_card.set_values(databases)
         self.ncbi_card.set_values(
@@ -174,12 +170,6 @@ class SettingsPage(BasePage):
             "linux": {
                 "conda_executable": str(linux_values.get("conda_executable", "") or ""),
                 "auto_installed": bool(linux_values.get("auto_installed", False)),
-                "conda_env_path": str(linux_values.get("conda_env_path", "") or ""),
-                "conda_env_name": str(linux_values.get("conda_env_name", "") or ""),
-            },
-            "execution": {
-                "max_concurrent": int(linux_values.get("max_concurrent", 3)),
-                "screen_check_timeout": int(current.get("execution", {}).get("screen_check_timeout", 10)),
             },
             "databases": db_values,
             "blast": current.get("blast", default_settings_schema()["blast"]),
@@ -199,9 +189,8 @@ class SettingsPage(BasePage):
         if self._is_legacy_raw_config(raw) and raw:
             result = QMessageBox.question(
                 self,
-                "检测到旧版设置",
-                "发现旧版设置格式。是否现在迁移到新设置模型？\n"
-                "选择“是”会自动备份旧文件并完成迁移；选择“否”将继续使用默认设置。",
+                "Legacy Config Detected",
+                "A legacy settings file was found. Migrate it to the current schema now?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
@@ -211,13 +200,13 @@ class SettingsPage(BasePage):
                 save_config(migrated)
                 sync_default_from_schema(migrated)
                 self._apply_schema_to_components(migrated)
-                QMessageBox.information(self, "迁移完成", f"旧配置已备份到:\n{backup}")
+                QMessageBox.information(self, "Migration Complete", f"Legacy config backup saved to:\n{backup}")
                 return
 
             defaults = default_settings_schema()
             sync_default_from_schema(defaults)
             self._apply_schema_to_components(defaults)
-            QMessageBox.information(self, "未迁移", "已保留旧配置文件不变，当前会话使用默认设置。")
+            QMessageBox.information(self, "Defaults Loaded", "Legacy config was skipped. Default settings were loaded.")
             return
 
         schema = get_config()
@@ -231,14 +220,11 @@ class SettingsPage(BasePage):
 
         window = self.window()
         locator = getattr(window, "service_locator", None)
-        if locator is not None:
-            if hasattr(locator, "update_max_concurrent"):
-                locator.update_max_concurrent(int(schema.get("execution", {}).get("max_concurrent", 3) or 3))
-            if hasattr(locator, "conda_executable"):
-                locator.conda_executable = schema["linux"].get("conda_executable", "")
+        if locator is not None and hasattr(locator, "conda_executable"):
+            locator.conda_executable = schema["linux"].get("conda_executable", "")
 
         try:
-            self.ssh_card.status_label.setText("设置已保存")
+            self.ssh_card.status_label.setText("Settings saved")
         except Exception:
             pass
 

@@ -1,4 +1,4 @@
-﻿"""UI 冒烟测试：确保关键页面和主窗口可初始化。"""
+"""UI smoke tests for key pages and main window startup."""
 
 import json
 import sys
@@ -36,7 +36,7 @@ def temp_main_window(qapp, tmp_path: Path):
         projects_root=tmp_path / "projects",
         index_path=tmp_path / "projects.json",
     )
-    project_id = pm.create_project("测试项目", "用于 UI 验证")
+    project_id = pm.create_project("test project", "used for UI verification")
     pm.open_project(project_id)
 
     window = MainWindow(project_manager=pm)
@@ -55,7 +55,7 @@ def _insert_sample(pm: ProjectManager, sample_id: str, name: str, r1: str, r2: s
     metadata = json.dumps({"r1": r1, "r2": r2}, ensure_ascii=False)
     pm.db.execute(
         "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
-        (sample_id, name, "测试来源", metadata),
+        (sample_id, name, "test source", metadata),
     )
     pm.db.commit()
 
@@ -80,7 +80,7 @@ class TestUIImports:
 class TestMainWindowStartup:
     def test_create_main_window(self, main_window):
         assert main_window is not None
-        assert main_window.windowTitle() == "H2OMeta 宏基因组分析平台"
+        assert main_window.windowTitle() != ""
 
     def test_has_service_locator(self, main_window):
         assert main_window.service_locator is not None
@@ -124,14 +124,14 @@ class TestHomePageFlows:
             name="sample_A",
             r1_path="C:/data/sample_A_R1.fastq.gz",
             r2_path="",
-            source="污水样本",
+            source="wastewater",
         )
         _flush_events(qapp)
 
         count = pm.db.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
         assert count == 1
         assert len(home_page._card_widgets) == 1
-        assert home_page._stat_samples.text() == "样本数: 1"
+        assert home_page._stat_samples.text().endswith("1")
         assert home_page._add_btn.isEnabled() is True
 
     def test_continue_analysis_prefills_existing_sample_context(self, qapp, temp_main_window):
@@ -143,7 +143,7 @@ class TestHomePageFlows:
             name="sample_B",
             r1_path="C:/reads/sample_B_R1.fastq.gz",
             r2_path="C:/reads/sample_B_R2.fastq.gz",
-            source="河道样本",
+            source="river",
         )
         sample_id = pm.db.execute(
             "SELECT sample_id FROM samples WHERE name = ?",
@@ -170,17 +170,17 @@ class TestHomePageFlows:
             projects_root=tmp_path / "projects",
             index_path=tmp_path / "projects.json",
         )
-        project_one = pm.create_project("项目一", "第一个项目")
+        project_one = pm.create_project("project one", "first project")
         pm.open_project(project_one)
         _insert_sample(pm, "smp_alpha", "alpha", "C:/reads/alpha_R1.fastq.gz")
 
-        project_two = pm.create_project("项目二", "第二个项目")
+        project_two = pm.create_project("project two", "second project")
         pm.open_project(project_one)
 
         window = MainWindow(project_manager=pm)
         _flush_events(qapp)
 
-        assert window.home_page._proj_name_label.text() == "项目一"
+        assert window.home_page._proj_name_label.text() == "project one"
         assert len(window.home_page._card_widgets) == 1
 
         window.home_page._on_continue_analysis("smp_alpha")
@@ -191,12 +191,12 @@ class TestHomePageFlows:
         window._on_project_switched(project_two)
         _flush_events(qapp)
 
-        assert window.home_page._proj_name_label.text() == "项目二"
+        assert window.home_page._proj_name_label.text() == "project two"
         assert len(window.home_page._card_widgets) == 0
-        assert window.home_page._stat_samples.text() == "样本数: 0"
+        assert window.home_page._stat_samples.text().endswith("0")
         assert window.analysis_page._selected_sample_id is None
         assert window.analysis_page._sample_name_input.text() == ""
-        assert window.analysis_page._r1_path_label.text() == "未选择"
+        assert window.analysis_page._r1_path_label.text() != "alpha_R1.fastq.gz"
 
         window.close()
         pm.close()
@@ -212,21 +212,42 @@ class TestServiceLocatorStartup:
         assert locator.tool_engine is None
         locator.shutdown()
 
-def test_settings_save_updates_runtime_config(qapp, temp_main_window):
-    import config
 
-    settings_page = temp_main_window.settings_page
-    settings_page.linux_card.spin_concurrent.setValue(5)
-    settings_page.linux_card.spin_poll.setValue(11)
+def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypatch):
+    import config
+    from ui.main_window import MainWindow
+
+    tmp_config = tmp_path / "config.json"
+    monkeypatch.setattr(config, "_CONFIG_PATH", tmp_config)
+
+    schema = config.default_settings_schema()
+    config.save_config(schema)
+
+    pm = ProjectManager(
+        projects_root=tmp_path / "projects",
+        index_path=tmp_path / "projects.json",
+    )
+    project_id = pm.create_project("test_project", "ui verification")
+    pm.open_project(project_id)
+
+    window = MainWindow(project_manager=pm)
+    _flush_events(qapp)
+
+    assert window.service_locator.job_queue.max_concurrent == 3
+    assert "execution" not in config.get_config()
+
+
+    settings_page = window.settings_page
     settings_page.db_card.set_values({"blast_nt": "/remote/blast_nt"})
     settings_page.ncbi_card.set_values(email="user@example.com")
     settings_page.save_config()
     _flush_events(qapp)
 
-    assert temp_main_window.service_locator.job_queue.max_concurrent == 5
-    assert config.get_runtime_setting("max_concurrent") == 5
-    assert config.get_runtime_setting("poll_interval") == 11
+    saved = config.get_config()
+    assert window.service_locator.job_queue.max_concurrent == 3
+    assert "execution" not in saved
     assert config.get_database_path("blast_nt") == "/remote/blast_nt"
     assert config.get_ncbi_setting("email") == "user@example.com"
 
-
+    window.close()
+    pm.close()

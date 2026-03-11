@@ -56,12 +56,6 @@ def default_settings_schema() -> dict[str, Any]:
         "linux": {
             "conda_executable": "",      # 检测到的 conda 绝对路径
             "auto_installed": False,     # 是否 H2OMeta 自动安装的 Miniforge
-            "conda_env_path": "",        # DEPRECATED, 保留兼容
-            "conda_env_name": "",        # DEPRECATED, 保留兼容
-        },
-        "execution": {
-            "max_concurrent": 3,
-            "screen_check_timeout": 10,
         },
         "databases": {
             "kraken2": "",
@@ -94,7 +88,6 @@ def _is_v2_schema(data: Any) -> bool:
         and data.get("version") == CONFIG_VERSION
         and isinstance(data.get("ssh"), dict)
         and isinstance(data.get("linux"), dict)
-        and isinstance(data.get("execution"), dict)
         and isinstance(data.get("databases"), dict)
         and isinstance(data.get("blast"), dict)
         and isinstance(data.get("ncbi"), dict)
@@ -114,9 +107,6 @@ def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
         schema["ssh"]["port"] = 22
     schema["ssh"]["user"] = str(data.get("ssh_user") or data.get("user") or schema["ssh"]["user"])
     schema["ssh"]["password"] = str(data.get("ssh_pwd") or data.get("pwd") or schema["ssh"]["password"])
-
-    schema["linux"]["conda_env_path"] = str(data.get("conda_env_path") or schema["linux"]["conda_env_path"])
-    schema["linux"]["conda_env_name"] = str(data.get("conda_env_name") or schema["linux"]["conda_env_name"])
 
     schema["blast"]["db_path"] = str(data.get("remote_db") or schema["blast"]["db_path"])
     schema["blast"]["bin_path"] = str(data.get("blast_bin") or schema["blast"]["bin_path"])
@@ -145,7 +135,7 @@ def normalize_config(data: Any) -> dict[str, Any]:
 
     defaults = default_settings_schema()
     schema = deepcopy(defaults)
-    for section in ("ssh", "linux", "execution", "databases", "blast", "ncbi", "runtime"):
+    for section in ("ssh", "linux", "databases", "blast", "ncbi", "runtime"):
         section_data = data.get(section)
         if isinstance(section_data, dict):
             schema[section].update(section_data)
@@ -177,15 +167,8 @@ def save_config(config: dict[str, Any]) -> None:
 
 def get_runtime_setting(key: str, default: Any = None) -> Any:
     config = get_config()
-    execution = config.get("execution", {})
-    if key in execution:
-        return execution.get(key, default)
-
     runtime = config.get("runtime", {})
-    if key in runtime:
-        return runtime.get(key, default)
-
-    return default
+    return runtime.get(key, default)
 
 
 def get_blast_setting(key: str, default: Any = None) -> Any:
@@ -209,7 +192,6 @@ def sync_default_from_schema(schema: dict[str, Any]) -> None:
     """将 v2 模型同步到旧模块依赖的扁平 DEFAULT_CONFIG。"""
     normalized = normalize_config(schema)
     databases = normalized["databases"]
-    execution = normalized["execution"]
     runtime = normalized["runtime"]
     blast = normalized["blast"]
     DEFAULT_CONFIG.update(
@@ -226,9 +208,8 @@ def sync_default_from_schema(schema: dict[str, Any]) -> None:
             "remote_script": blast["remote_script"],
             "local_file": runtime["local_file"],
             "local_output_dir": runtime["local_output_dir"],
-            "max_concurrent": execution["max_concurrent"],
             "max_poll_retries": runtime["max_poll_retries"],
-            "screen_check_timeout": execution["screen_check_timeout"],
+            "screen_check_timeout": runtime["screen_check_timeout"],
         }
     )
 
@@ -245,7 +226,6 @@ DEFAULT_CONFIG = {
     "remote_script": "",
     "local_file": "",
     "local_output_dir": "",
-    "max_concurrent": 3,
     "max_poll_retries": 3,
     "screen_check_timeout": 10,
 }

@@ -9,13 +9,11 @@ from typing import Optional
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl
 from PyQt6.QtWidgets import (
     QDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -699,9 +697,8 @@ class LinuxSettingsCard(QFrame):
       - 支持 plugin_registry 外部注入（PluginRegistry 动态读取工具列表）。
       - 使用 Web UI (QWebEngineView) 展示工具环境表格，解决对齐问题。
 
-    get_values() 返回字段（保持向后兼容）:
-      max_concurrent,
-      conda_env_path(空), conda_env_name(空), is_locked
+    get_values() 返回字段:
+      conda_executable, auto_installed, conda_env_path(空), conda_env_name(空), is_locked
     """
 
     request_save = pyqtSignal()
@@ -757,22 +754,15 @@ class LinuxSettingsCard(QFrame):
         return {
             "conda_executable": self._conda_executable,
             "auto_installed": self._auto_installed,
-            "conda_env_path": "",       # DEPRECATED, 保留 key 兼容旧逻辑
-            "conda_env_name": "",       # DEPRECATED, 保留 key 兼容旧逻辑
             "is_locked": self._is_locked,
-            "max_concurrent": self.spin_concurrent.value(),
         }
 
     def set_values(
         self,
-        conda_env: str = "",
-        conda_env_name: str = "",
         conda_executable: str = "",
         auto_installed: bool = False,
-        max_concurrent: int = 3,
     ) -> None:
         """供 SettingsPage 回填数据。"""
-        self.spin_concurrent.setValue(max_concurrent)
         self._conda_executable = conda_executable
         self._auto_installed = auto_installed
 
@@ -788,7 +778,7 @@ class LinuxSettingsCard(QFrame):
         self.status_label.setStyleSheet(style)
 
     def _set_form_enabled(self, enabled: bool) -> None:
-        self.spin_concurrent.setEnabled(enabled)
+        pass  # 不再需要启用/禁用表单控件
 
     # ── UI 构建 ──────────────────────────────────────────
 
@@ -830,18 +820,6 @@ class LinuxSettingsCard(QFrame):
         c_layout = QVBoxLayout(self.container)
         c_layout.setContentsMargins(20, 0, 20, 20)
         c_layout.setSpacing(15)
-
-        # ── 基础配置表单 ──
-        form = QFormLayout()
-        form.setVerticalSpacing(12)
-
-        self.spin_concurrent = QSpinBox()
-        self.spin_concurrent.setRange(1, 8)
-        self.spin_concurrent.setValue(3)
-        self.spin_concurrent.setSuffix(" 个任务")
-
-        form.addRow("最大并发任务数", self.spin_concurrent)
-        c_layout.addLayout(form)
 
         # ── 工具环境检测区（Web UI）──
         self._build_tool_env_web_view(c_layout)
@@ -1401,7 +1379,6 @@ class LinuxSettingsCard(QFrame):
         if self._external_lock:
             for w in [
                 self.modify_btn, self.lock_btn,
-                self.spin_concurrent,
             ]:
                 w.setEnabled(False)
             return
