@@ -24,7 +24,11 @@ logs/
 .claude/
 
 # Test temp directories
-.pytest_tmp*/
+tests/.pytest_cache/
+tests/__pycache__/
+tests/.coverage
+tests/htmlcov/
+tests/.pytest_tmp*/
 .pytest_cache/
 .pycache_tmp/
 tmp_pytest*/

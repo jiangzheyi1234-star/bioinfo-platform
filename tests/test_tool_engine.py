@@ -15,7 +15,7 @@ import pytest
 from PyQt6.QtCore import QObject
 
 from core.data_registry import DataRegistry
-from core.project_manager import ProjectInfo, _SCHEMA_SQL
+from core.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 from core.data_importer import DataImporter
 from core.command_builder import CommandBuilder, CommandBuildError
 from core.tool_engine import ExecutionRecord, ToolEngine
@@ -877,3 +877,158 @@ class TestMergeDefaults:
         descriptor: dict[str, Any] = {"parameters": []}
         merged = ToolEngine._merge_defaults(descriptor, {"x": 1})
         assert merged == {"x": 1}
+
+
+# ── ExecutionRecord 字段测试 ─────────────────────────────
+
+
+@pytest.fixture
+def tmp_pm(tmp_path: Path) -> ProjectManager:
+    """临时项目管理器"""
+    pm = ProjectManager(projects_root=tmp_path)
+    project_id = pm.create_project("测试项目", "字段测试")
+    pm.open_project(project_id)
+    return pm
+
+
+class TestExecutionRecordFields:
+    """ExecutionRecord 新字段处理测试"""
+
+    def test_row_to_record_reads_new_fields(self, tmp_pm: ProjectManager):
+        """测试 _row_to_record 正确读取 is_final_version 和 archived_at"""
+        db = tmp_pm.db
+        db.execute(
+            "INSERT INTO samples (sample_id, name) VALUES (?, ?)",
+            ("smp_test", "测试样本"),
+        )
+        db.commit()
+
+        execution_id = "exec_test123456"
+        db.execute(
+            "INSERT INTO executions "
+            "(execution_id, sample_id, tool_id, tool_version, parameters, "
+            "status, triggered_by, created_at, is_final_version, archived_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                execution_id,
+                "smp_test",
+                "fastp",
+                "0.23.0",
+                '{"qualified_quality_phred": 20}',
+                "completed",
+                "manual",
+                time.time(),
+                1,
+                time.time(),
+            ),
+        )
+        db.commit()
+
+        row = db.execute(
+            "SELECT * FROM executions WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+
+        record = ToolEngine._row_to_record(row)
+        assert record.is_final_version == 1
+        assert record.archived_at is not None
+        assert isinstance(record.archived_at, float)
+
+    def test_row_to_record_handles_missing_fields(self, tmp_pm):
+        """测试 _row_to_record 处理缺失字段（向后兼容）"""
+        db = tmp_pm.db
+        db.execute(
+            "INSERT INTO samples (sample_id, name) VALUES (?, ?)",
+            ("smp_test2", "测试样本2"),
+        )
+        db.commit()
+
+        execution_id = "exec_test789012"
+        db.execute(
+            "INSERT INTO executions "
+            "(execution_id, sample_id, tool_id, tool_version, parameters, "
+            "status, triggered_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                execution_id,
+                "smp_test2",
+                "fastp",
+                "0.23.0",
+                '{"qualified_quality_phred": 20}',
+                "completed",
+                "manual",
+                time.time(),
+            ),
+        )
+        db.commit()
+
+        row = db.execute(
+            "SELECT * FROM executions WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+
+        record = ToolEngine._row_to_record(row)
+        assert record.is_final_version == 0
+        assert record.archived_at is None
+
+    def test_row_to_record_preserves_all_fields(self, tmp_pm):
+        """测试 _row_to_record 保留所有字段"""
+        db = tmp_pm.db
+        db.execute(
+            "INSERT INTO samples (sample_id, name) VALUES (?, ?)",
+            ("smp_test3", "测试样本3"),
+        )
+        db.commit()
+
+        execution_id = "exec_complete"
+        created_at = time.time()
+        completed_at = time.time() + 100
+        archived_at = time.time() + 200
+
+        db.execute(
+            "INSERT INTO executions "
+            "(execution_id, sample_id, tool_id, tool_version, parameters, "
+            "status, triggered_by, created_at, completed_at, error, "
+            "retry_count, retry_of, remote_job_id, is_final_version, archived_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                execution_id,
+                "smp_test3",
+                "fastp",
+                "0.23.0",
+                '{"qualified_quality_phred": 20}',
+                "completed",
+                "manual",
+                created_at,
+                completed_at,
+                "test error",
+                2,
+                None,
+                "screen_12345",
+                1,
+                archived_at,
+            ),
+        )
+        db.commit()
+
+        row = db.execute(
+            "SELECT * FROM executions WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+
+        record = ToolEngine._row_to_record(row)
+        assert record.execution_id == execution_id
+        assert record.sample_id == "smp_test3"
+        assert record.tool_id == "fastp"
+        assert record.tool_version == "0.23.0"
+        assert record.parameters == {"qualified_quality_phred": 20}
+        assert record.status == "completed"
+        assert record.triggered_by == "manual"
+        assert record.created_at == created_at
+        assert record.completed_at == completed_at
+        assert record.error == "test error"
+        assert record.retry_count == 2
+        assert record.retry_of is None
+        assert record.remote_job_id == "screen_12345"
+        assert record.is_final_version == 1
+        assert record.archived_at == archived_at

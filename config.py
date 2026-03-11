@@ -46,10 +46,10 @@ def default_settings_schema() -> dict[str, Any]:
     return {
         "version": CONFIG_VERSION,
         "ssh": {
-            "host": "192.168.0.152",
+            "host": "",
             "port": 22,
-            "user": "zyserver",
-            "password": "abc123..",
+            "user": "",
+            "password": "",
             "use_key": False,
             "key_file": "",
         },
@@ -70,10 +70,10 @@ def default_settings_schema() -> dict[str, Any]:
             "blast_nt": "",
         },
         "blast": {
-            "db_path": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",
-            "bin_path": "/home/zyserver/anaconda3/envs/ncbi_download/bin/blastn",
-            "remote_work_dir": "/home/zyserver/project/lzc_project/blast_temp/",
-            "remote_script": "/home/zyserver/project/lzc_project/project/h2oapp/blast_main.sh",
+            "db_path": "",
+            "bin_path": "",
+            "remote_work_dir": "",
+            "remote_script": "",
         },
         "ncbi": {
             "api_key": "",
@@ -248,11 +248,6 @@ DEFAULT_CONFIG = {
     "max_concurrent": 3,
     "max_poll_retries": 3,
     "screen_check_timeout": 10,
-}
-
-DB_MAP = {
-    "Core nucleotide database (core_nt)": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",
-    "Custom (manual input)": "",
 }
 
 sync_default_from_schema(get_config())

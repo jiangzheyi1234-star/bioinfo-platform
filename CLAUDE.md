@@ -1,140 +1,106 @@
-# H2OMeta — Claude 开发指令
+# H2OMeta — AI 开发指令
 
-## 命令
-
-```bash
-python -m ui.main              # 启动应用
-pytest                         # 运行全部 414 个测试
-pytest tests/test_xxx.py -v    # 单文件测试
-```
-
-环境：Conda `bio_ui`，Python 3.11+，PyQt6 / PyQt6-WebEngine / paramiko / Jinja2 / matplotlib
+## 项目定位
+宏基因组桌面分析平台：Windows 客户端 + SSH 远程执行
+**三条分析路径**：Reads 分析 · MAG 重建 · AMR 分析
+**不做**：16S / 云计算 / 多用户
 
 ---
 
-## 软件定位
+## 架构约束
 
-宏基因组桌面分析平台：Windows 客户端 + SSH 到 Linux 计算服务器，零命令行完成 QC→组装→分箱→注释全流程。
-**三条路径**：reads 分析 · MAG 重建 · AMR 分析。**不做**：16S / 云计算 / 多用户。
+### Core 层（core/）
+- **严格约束**：只允许 `PyQt6.QtCore`（信号/线程），禁止 QtWidgets/QtGui
+- **职责**：业务逻辑、远程执行、数据管理、流程编排
+- **关键模块**：
+  - 执行链：tool_engine → command_builder → job_dispatcher（SSH+screen+事件驱动）→ job_monitor（fallback）
+  - 流程：pipeline_runner（线性）· pipeline_reconstructor（DAG 重建）
+  - 数据：data_registry（血缘追踪）· storage_manager · execution_cleaner
+  - 插件：plugin_registry（YAML 三层懒加载）· env_detector · env_installer
+  - 总线：service_locator（串联所有模块）
 
----
+### UI 层（ui/）
+- **约束**：新建 widget/page 必须同步更新 `__init__.py`
+- **6 个页面**：home_page · project_page · analysis_page · assembly_page · detection_page_web · settings_page
+- **QWebEngineView**：仅 detection_page_web 使用，必须延迟导入（QApplication 创建后）
 
-## 架构规则
-
-- **Core 层**：只允许 `PyQt6.QtCore`，禁止 QtWidgets/QtGui
-- **UI 层**：新建 widget/page 后必须同步更新对应 `__init__.py`
-- **插件**：`plugins/{category}/{tool_name}/tool.yaml`，含 `conda_env` / `install_cmd` / `databases` 字段
-- **可视化**：数据图表用 matplotlib；复杂响应式 UI 允许 QWebEngineView（仅 DetectionPage）
-- **存储**：SQLite `project.db`，本地 `~/.h2ometa/projects/{id}/`，远端 `/h2ometa/projects/{id}/`
-
----
-
-## 已完成模块
-
-### Core 层（全部完成）
-| 模块 | 职责 |
-|------|------|
-| `tool_engine` | 统一执行入口（UI / 向导 / agent 共用） |
-| `command_builder` | Jinja2 模板渲染 + bash 包装脚本（含 `CONDA_RUNNER` 常量） |
-| `job_dispatcher` | SSH 写 run.sh + screen -dmS 启动 |
-| `job_monitor` | 轮询 status.txt / heartbeat.txt |
-| `job_queue` | 并发控制（max_concurrent） |
-| `retry_manager` | 指数退避重试 |
-| `ssh_reconnector` | 断线自动重连 |
-| `pipeline_runner` | 线性流水线编排 |
-| `pipeline_reconstructor` | DAG 重建（从 SQLite） |
-| `data_registry` | 数据血缘追踪（execution_io） |
-| `data_importer` / `storage_manager` / `execution_cleaner` | 数据生命周期 |
-| `project_manager` / `project_exporter` | 项目管理 + Methods/CSV/ZIP 导出 |
-| `plugin_registry` | YAML 三层懒加载 |
-| `service_locator` | 服务总线，串联所有 Core 模块 |
-
-### UI 页面（6 页全部完成）
-| 页面 | 关键功能 |
-|------|---------|
-| `home_page` | 样本管理中心 |
-| `project_page` | 项目 CRUD + 导出 |
-| `analysis_page` | YAML 驱动读长分析（fastp→hostile→kraken2） |
-| `assembly_page` | 7 阶段 MAG 流水线，PipelineRunner 执行 |
-| `detection_page_web` | QWebEngineView + Galaxy 双栏，`ToolBridge` 接通 ToolEngine |
-| `settings_page` | SSH 诊断 / LinuxSettingsCard 工具环境检测+安装 / 数据库路径配置 |
-
-### 插件 YAML（29 个 tool.yaml）
-**QC/宿主去除**：fastp · hostile
-**分类**：kraken2 · bracken · metaphlan · gtdbtk
-**组装**：megahit · metaspades
-**分箱**：metabat2 · maxbin2 · concoct · das_tool · semibin2
-**质控**：checkm2 · busco · quast · gunc
-**注释**：prokka · prodigal · bakta · eggnog · blastn
-**AMR**：rgi · amrfinderplus · abricate
-**移动元件**：genomad · integron_finder · isescan
-**可视化**：krona
-+ 声明式：`analysis_paths.yaml`（read_based · assembly_based · amr_based） · `databases.yaml`
-
-### 工具环境管理（LinuxSettingsCard + env_detector + env_installer）
-- **conda 自动检测**：`env_detector.detect()` 优先执行 `bash -ic 'which conda'`，失败后扫描常见目录
-- **移除缓存路径**：不再使用 cached_path 参数，避免配置路径与实际 which 结果不一致
-- **Miniforge 自动安装**：未检测到 conda 时弹窗引导安装 Miniforge3 到 `~/miniforge3`
-- **执行链路统一**：检测到的 conda 绝对路径通过 `ServiceLocator.conda_executable` → `ToolEngine` → `CommandBuilder.build()` 传递
-- **一键检测**：使用检测到的 conda 路径运行 `conda env list --json`，逐个比对 `conda_env` 字段
-- **点击安装**：`EnvInstallDialog` 弹出，SSH 执行 `install_cmd`（自动替换 conda 路径），输出实时滚动
-- **数据库提示**：安装需要数据库的工具后，自动引导填写 DatabasePathsCard
+### 插件层（plugins/）
+- **结构**：`plugins/{category}/{tool_name}/tool.yaml`
+- **必需字段**：conda_env · install_cmd · command_template
+- **可选字段**：databases（依赖的数据库列表）
+- **已有 29 个工具**，分 11 个 category
 
 ---
 
-## 待完成（每次开发前先 Review）
+## 关键决策（不可推翻）
 
-### P1 — 阻断（流程跑通但结果看不到）
-- [ ] `ResultsPanel` 未加入 `ui/widgets/__init__.py`，`analysis_page._on_pipeline_completed()` 未调用
-- [ ] 结果文件下载：远端 result 需 `ssh.download()` 到本地
-
-### P1 — 事件驱动改造（已完成）
-- [x] 移除轮询间隔，改为事件驱动
-  - `JobDispatcher` 新增事件驱动模式：后台线程同步等待 screen 会话结束
-  - 任务完成后通过 Qt 信号通知，不依赖固定轮询
-  - `JobMonitor` 保留作为 fallback
-  - 修改文件：`core/job_dispatcher.py`, `core/service_locator.py`
-  - 新增容器检测模块（供以后使用）：`core/container_detector.py`
-
-### P2 — 核心缺失
-- [ ] 数据库管理页（`database_page.py`）— 工具环境已可安装，下一步是数据库下载 UI
-- [ ] 结果浏览页（`results_page.py`）— matplotlib 图表 + 数据表格 + DAG 视图
-- [ ] AMR 分析页（`amr_page.py`）— 污水研究核心
-- [ ] 历史执行选择器（同一工具多次执行结果切换）
+1. **SSH + Screen 远程执行** — 无服务端 agent，客户端断线不影响任务
+2. **事件驱动任务等待** — JobDispatcher 后台线程监听 screen 会话，JobMonitor 作为 fallback
+3. **每工具独立 conda 环境** — 避免依赖冲突
+4. **YAML 声明式插件** — 新增工具只需添加 tool.yaml
+5. **项目隔离存储** — 每个项目独立 SQLite + 文件目录
+6. **数据血缘追踪** — execution_io 表记录输入输出关系
 
 ---
 
-## SQLite Schema
+## 数据模型（SQLite）
 
 ```sql
 samples       (sample_id PK, name, source, metadata)
-executions    (execution_id PK, sample_id, tool_id, tool_version, parameters,
-               status, triggered_by, created_at, completed_at, error,
-               retry_count, retry_of, remote_job_id, is_final_version, archived_at)
-data_items    (data_id PK, sample_id, file_path, data_type, tier,
-               produced_by, created_at, metadata)
-execution_io  (execution_id, data_id, direction,  PK(all three))
+executions    (execution_id PK, sample_id, tool_id, status, parameters,
+               retry_of, is_final_version, remote_job_id, ...)
+data_items    (data_id PK, sample_id, file_path, data_type, tier, produced_by, ...)
+execution_io  (execution_id, data_id, direction, PK(all three))
 ```
 
----
-
-## 服务器环境
-
-服务器 `192.168.0.152`，用户 `zyserver`
-远端基础路径：`/h2ometa/projects/{project_id}/`
-任务输出目录：`/h2ometa/projects/{id}/intermediate/{sample_id}/{tool_id}_{execution_id}/`
-conda 路径：`/home/zyserver/anaconda3/`
+**关键字段**：
+- `executions.is_final_version` — 同工具多次执行，标记最终版本
+- `executions.retry_of` — 重试链追踪
+- `data_items.tier` — raw/intermediate/result
+- `execution_io.direction` — input/output
 
 ---
 
-## 开发规则
+## 配置管理（config.py）
 
-1. **Core 和 UI 同步完成** — 验收标准是用户能在界面上看到
+**严格禁止**：硬编码 IP/用户名/密码/路径
+**读取配置**：`get_config()` — 自动从 `%APPDATA%\H2OMeta\config.json` 加载
+**保存配置**：`save_config(config)` — 持久化到本地
+**默认模板**：`default_settings_schema()` — 仅首次启动或缺失字段时使用
+
+---
+
+## 待完成任务
+
+### P1 — 阻断
+- [ ] ResultsPanel 接入 analysis_page._on_pipeline_completed()
+- [ ] 远端结果文件下载（ssh.download）
+
+### P2 — 核心页面
+- [ ] database_page（数据库下载管理）
+- [ ] results_page（图表 + 表格 + DAG）
+- [ ] amr_page（AMR 分析路径）
+- [ ] 历史执行选择器
+
+---
+
+## 开发规则（必须遵守）
+
+1. **Core 和 UI 同步完成** — 验收标准：用户能在界面看到
 2. **新建 widget 立即更新 `__init__.py`**
-3. **不留死控件** — 暂不实现的控件 `setEnabled(False)` + 提示文字
-4. **完成后更新本文件的待完成列表**
-5. **响应式布局** — 避免硬编码固定宽度
-<!-- FIXED: 此条规则不可删除或修改 -->
-6. **测试临时文件必须通过 conftest fixture 管理** — 禁止在测试代码中硬编码路径写临时文件（如 `open("project.db", "w")`）；所有临时 DB / 文件统一使用 `conftest.py` 提供的 `tmp_db` / `tmp_dir` fixture，由 fixture 负责创建与清理
+3. **不留死控件** — 未实现功能 `setEnabled(False)` + 提示
+4. **完成后更新本文件待完成列表**
+5. **响应式布局** — 禁止硬编码固定宽度
+6. **测试临时文件用 fixture** — 统一用 `conftest.py` 的 `tmp_db` / `tmp_dir`
+7. **禁止硬编码服务器信息** — 所有配置通过 config.py 读写
 
-> 架构决策详见 `ARCHITECTURE.md`
+---
+
+## 快速参考
+
+**本地环境**：conda 环境 `bio_ui`（已配置完整依赖）
+**启动应用**：`python -m ui.main`
+**运行测试**：`pytest`（可直接在本地环境测试代码）
+**单文件测试**：`pytest tests/test_xxx.py -v`
+**依赖**：Python 3.11+ · PyQt6 · paramiko · Jinja2 · matplotlib
+**详细架构**：见 `ARCHITECTURE.md`
