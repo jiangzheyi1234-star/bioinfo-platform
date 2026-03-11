@@ -4,6 +4,7 @@ let selectedToolId = null;
 let selectedDescriptor = null;
 let integratedWorkbench = null;
 let selectedIntegratedFeatureId = null;
+const toolDescriptorCache = {};
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -47,7 +48,79 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // Python 回调：运行结果
     window._onRunResult = onRunResult;
+
+    const remotePrimerLoadBtn = document.getElementById('remote-primer-load-btn');
+    if (remotePrimerLoadBtn) {
+        remotePrimerLoadBtn.addEventListener('click', loadRemotePrimerResults);
+    }
+
+    const integratedRunBtn = document.getElementById('integrated-run-btn');
+    if (integratedRunBtn) {
+        integratedRunBtn.addEventListener('click', openIntegratedRunEntry);
+    }
+
+    initializeIntegratedSectionToggles();
 });
+
+function getIntegratedToolId(feature, view) {
+    return (view && view.tool_ids && view.tool_ids[0])
+        || (feature && feature.tool_ids && feature.tool_ids[0])
+        || null;
+}
+
+function openIntegratedRunEntry() {
+    if (!integratedWorkbench || !selectedIntegratedFeatureId) {
+        return;
+    }
+
+    const feature = (integratedWorkbench.features || []).find(item => item.id === selectedIntegratedFeatureId);
+    const view = (integratedWorkbench.views || {})[selectedIntegratedFeatureId];
+    const toolId = getIntegratedToolId(feature, view);
+    if (!toolId) {
+        alert('当前功能暂未接入执行入口');
+        return;
+    }
+
+    switchTab('tools');
+    selectTool(toolId);
+
+    const panel = document.getElementById('right-panel');
+    if (panel && panel.scrollIntoView) {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function initializeIntegratedSectionToggles() {
+    document.querySelectorAll('.section-toggle-btn').forEach(function(btn) {
+        if (btn.dataset.bound === '1') {
+            return;
+        }
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function() {
+            const targetId = btn.dataset.target;
+            const body = document.getElementById(targetId);
+            if (!body) {
+                return;
+            }
+            const willCollapse = !body.classList.contains('collapsed');
+            setSectionCollapsed(targetId, willCollapse);
+        });
+    });
+}
+
+function setSectionCollapsed(targetId, collapsed) {
+    const body = document.getElementById(targetId);
+    if (!body) {
+        return;
+    }
+    body.classList.toggle('collapsed', collapsed);
+
+    const btn = document.querySelector(`.section-toggle-btn[data-target="${targetId}"]`);
+    if (btn) {
+        btn.textContent = collapsed ? '展开' : '收起';
+        btn.setAttribute('aria-expanded', String(!collapsed));
+    }
+}
 
 function switchTab(tab) {
     // 更新按钮状态
@@ -119,12 +192,15 @@ function renderIntegratedWorkbench() {
         const item = document.createElement('button');
         item.className = 'integrated-feature-item';
         item.dataset.featureId = feature.id;
+        const badgeHtml = feature.badge
+            ? `<span class="integrated-feature-badge">${escapeHtml(feature.badge)}</span>`
+            : '';
         item.innerHTML = `
             <div class="integrated-feature-main">
                 <div class="integrated-feature-name">${escapeHtml(feature.name || feature.id)}</div>
                 <div class="integrated-feature-desc">${escapeHtml(feature.description || '')}</div>
             </div>
-            <span class="integrated-feature-badge">${escapeHtml(feature.badge || '')}</span>
+            ${badgeHtml}
         `;
         item.addEventListener('click', function() {
             selectIntegratedFeature(feature.id);
@@ -175,10 +251,172 @@ function renderIntegratedFeature(feature, view) {
     document.getElementById('feature-state-label').textContent = view.status?.label || '已就绪';
     document.getElementById('feature-state-detail').textContent = view.status?.detail || '';
 
+    const remoteLoaderCard = document.getElementById('remote-loader-card');
+    const remoteInput = document.getElementById('remote-primer-dir');
+    const remoteHint = document.getElementById('remote-primer-hint');
+    if (remoteLoaderCard) {
+        remoteLoaderCard.style.display = feature.id === 'primer_design' ? 'block' : 'none';
+    }
+    if (remoteInput && feature.id === 'primer_design') {
+        remoteInput.value = view.remote_result_dir || '';
+    }
+    if (remoteHint && feature.id === 'primer_design') {
+        remoteHint.textContent = view.remote_result_dir
+            ? `当前目录：${view.remote_result_dir}`
+            : '直接读取服务器上的 primer 结果目录，并优先载入 primer_result_final_2.txt。';
+    }
+
+    initializeIntegratedSectionToggles();
+    setSectionCollapsed('integrated-run-body', true);
+    setSectionCollapsed('remote-loader-body', Boolean(view.remote_result_dir));
+    setSectionCollapsed('parameter-list-wrap', true);
+    setSectionCollapsed('artifact-list-wrap', true);
+
+    renderIntegratedRunEntry(feature, view);
     renderSummaryGrid(view.summary || []);
     renderParameterList(view.parameters || []);
     renderArtifactList(view.artifacts || []);
     renderIntegratedTable(view.columns || [], view.rows || []);
+}
+
+function renderIntegratedRunEntry(feature, view) {
+    const card = document.getElementById('integrated-run-card');
+    const hint = document.getElementById('integrated-run-hint');
+    const list = document.getElementById('integrated-input-list');
+    const badge = document.getElementById('integrated-run-badge');
+    const runBtn = document.getElementById('integrated-run-btn');
+
+    if (!card || !hint || !list || !badge || !runBtn) {
+        return;
+    }
+
+    const toolId = getIntegratedToolId(feature, view);
+    if (!toolId) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = 'flex';
+    badge.textContent = toolId;
+    hint.textContent = '在这里查看输入要求，点击右侧按钮可直接进入插件工作台配置输入文件并提交任务。';
+    runBtn.disabled = false;
+    list.innerHTML = '<div class="integrated-input-empty">正在读取输入要求…</div>';
+
+    const cached = toolDescriptorCache[toolId];
+    if (cached) {
+        updateIntegratedRunEntryFromDescriptor(feature?.id, toolId, cached);
+        return;
+    }
+
+    if (!bridge || !bridge.get_tool_descriptor) {
+        list.innerHTML = '<div class="integrated-input-empty">工具描述符不可用，暂时无法显示输入要求。</div>';
+        return;
+    }
+
+    bridge.get_tool_descriptor(toolId, function(json) {
+        try {
+            const descriptor = JSON.parse(json || '{}');
+            toolDescriptorCache[toolId] = descriptor;
+            updateIntegratedRunEntryFromDescriptor(feature?.id, toolId, descriptor);
+        } catch (error) {
+            console.error('Failed to parse integrated tool descriptor:', error);
+            if (selectedIntegratedFeatureId === feature?.id) {
+                list.innerHTML = '<div class="integrated-input-empty">输入要求解析失败。</div>';
+            }
+        }
+    });
+}
+
+function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
+    if (selectedIntegratedFeatureId !== featureId) {
+        return;
+    }
+
+    const list = document.getElementById('integrated-input-list');
+    const hint = document.getElementById('integrated-run-hint');
+    const runBtn = document.getElementById('integrated-run-btn');
+    if (!list || !hint || !runBtn) {
+        return;
+    }
+
+    const inputs = descriptor.inputs || [];
+    const paramCount = (descriptor.parameters || []).length;
+    const dbCount = (descriptor.databases || []).length;
+    hint.textContent = `需要输入文件 ${inputs.length} 项，参数 ${paramCount} 项，数据库 ${dbCount} 项；点击右侧按钮可直接进入插件工作台配置并提交任务。`;
+    runBtn.textContent = `配置并运行 ${descriptor.name || toolId}`;
+
+    if (inputs.length === 0) {
+        list.innerHTML = '<div class="integrated-input-empty">当前工具没有声明输入文件，可直接进入插件工作台查看参数并运行。</div>';
+        return;
+    }
+
+    list.innerHTML = inputs.map(input => `
+        <div class="integrated-input-item">
+            <div class="integrated-input-label-row">
+                <span class="integrated-input-label">${escapeHtml(input.label || input.name || '输入文件')}</span>
+                ${input.required !== false ? '<span class="integrated-input-required">必填</span>' : ''}
+            </div>
+            <div class="integrated-input-desc">${escapeHtml(input.description || '请在插件工作台中选择文件')}</div>
+        </div>
+    `).join('');
+}
+
+function loadRemotePrimerResults() {
+    if (!bridge || !bridge.get_remote_primer_results) {
+        alert('远程结果接口不可用');
+        return;
+    }
+
+    const input = document.getElementById('remote-primer-dir');
+    const hint = document.getElementById('remote-primer-hint');
+    const loadBtn = document.getElementById('remote-primer-load-btn');
+    const remoteDir = input?.value?.trim() || '';
+    if (!remoteDir) {
+        alert('请先输入远程结果目录');
+        return;
+    }
+
+    if (loadBtn) {
+        loadBtn.disabled = true;
+        loadBtn.textContent = '加载中...';
+    }
+    if (hint) {
+        hint.textContent = `正在读取：${remoteDir}`;
+    }
+
+    bridge.get_remote_primer_results(remoteDir, function(json) {
+        if (loadBtn) {
+            loadBtn.disabled = false;
+            loadBtn.textContent = '加载';
+        }
+
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok' || !payload.view) {
+                if (hint) {
+                    hint.textContent = payload.message || '远程结果读取失败';
+                }
+                alert(payload.message || '远程结果读取失败');
+                return;
+            }
+
+            if (!integratedWorkbench || !integratedWorkbench.views) {
+                return;
+            }
+
+            integratedWorkbench.views.primer_design = payload.view;
+            if (hint) {
+                hint.textContent = `已加载：${payload.view.remote_result_dir || remoteDir}`;
+            }
+            selectIntegratedFeature('primer_design');
+        } catch (error) {
+            console.error('Failed to parse remote primer results:', error);
+            if (hint) {
+                hint.textContent = '远程结果解析失败';
+            }
+            alert('远程结果解析失败');
+        }
+    });
 }
 
 function renderSummaryGrid(summaryItems) {
@@ -238,7 +476,10 @@ function renderIntegratedTable(columns, rows) {
         return;
     }
 
-    head.innerHTML = `<tr>${columns.map(column => `<th>${escapeHtml(column.label || column.key || '')}</th>`).join('')}</tr>`;
+    head.innerHTML = `<tr>${columns.map(column => {
+        const key = column.key || '';
+        return `<th class="col-${escapeHtml(key)}">${escapeHtml(column.label || key || '')}</th>`;
+    }).join('')}</tr>`;
     body.innerHTML = '';
 
     if (!rows.length) {
@@ -250,10 +491,27 @@ function renderIntegratedTable(columns, rows) {
         const tr = document.createElement('tr');
         tr.innerHTML = columns.map(column => {
             const value = row[column.key] ?? '-';
-            return `<td>${escapeHtml(String(value))}</td>`;
+            const text = escapeHtml(String(value));
+            const rawKey = column.key || 'value';
+            const key = escapeHtml(rawKey);
+            const extraClass = getIntegratedColumnCellClass(rawKey);
+            return `<td class="col-${key}${extraClass ? ` ${extraClass}` : ''}" title="${text}">${text}</td>`;
         }).join('');
         body.appendChild(tr);
     });
+}
+
+function getIntegratedColumnCellClass(columnKey) {
+    const truncateColumns = new Set(['region_id', 'position']);
+    const wrapColumns = new Set(['pathogen', 'forward_primer', 'reverse_primer', 'amplicon']);
+
+    if (truncateColumns.has(columnKey)) {
+        return 'table-cell-truncate';
+    }
+    if (wrapColumns.has(columnKey)) {
+        return 'table-cell-wrap';
+    }
+    return '';
 }
 
 function escapeHtml(value) {
@@ -403,6 +661,7 @@ function selectTool(toolId) {
     bridge.get_tool_descriptor(toolId, function(json) {
         try {
             selectedDescriptor = JSON.parse(json);
+            toolDescriptorCache[toolId] = selectedDescriptor;
             console.log('Tool descriptor:', selectedDescriptor);
             showToolPanel(selectedDescriptor);
         } catch (e) {

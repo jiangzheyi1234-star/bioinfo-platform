@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
 from ui.qt_bootstrap import ensure_qt_webengine_ready
@@ -33,27 +34,27 @@ class ToolBridge(QObject):
     def _base_integrated_workbench_config() -> dict:
         return {
             "title": "集成分析工作台",
-            "subtitle": "先稳定展示引物设计能力，后续两个入口按同一布局继续扩展。",
+            "subtitle": "集中承载多个分析能力，统一查看流程状态与分析结果。",
             "features": [
                 {
                     "id": "primer_design",
                     "name": "引物设计",
-                    "badge": "已接入",
-                    "description": "面向 Linux 命令行引物设计流程的结果展示与后续执行入口。",
+                    "badge": "",
+                    "description": "面向 Linux 命令行引物设计流程的结果查看与执行入口。",
                     "status": "active",
                 },
                 {
                     "id": "sequence_alignment",
-                    "name": "序列比对",
-                    "badge": "预留",
-                    "description": "预留给第二个同类集成功能。",
+                    "name": "靶向分析",
+                    "badge": "",
+                    "description": "按同一工作台布局接入靶向分析能力。",
                     "status": "placeholder",
                 },
                 {
                     "id": "target_screening",
-                    "name": "靶标筛选",
-                    "badge": "预留",
-                    "description": "预留给第三个同类集成功能。",
+                    "name": "基因组分析",
+                    "badge": "",
+                    "description": "按同一工作台布局接入基因组分析能力。",
                     "status": "placeholder",
                 },
             ],
@@ -64,8 +65,8 @@ class ToolBridge(QObject):
                     "description": "上传或选择待分析序列后，在 Linux 端执行引物设计流程，并在此查看推荐结果。",
                     "status": {
                         "state": "ready",
-                        "label": "展示已就绪",
-                        "detail": "当前先提供稳定结果展示；执行链路下一步接入远程任务提交。",
+                        "label": "结果已就绪",
+                        "detail": "支持查看推荐结果，并可继续接入远程任务执行链路。",
                     },
                     "parameters": [
                         {"label": "输入序列", "value": "FASTA / FNA 序列集合"},
@@ -224,6 +225,23 @@ class ToolBridge(QObject):
         except Exception:
             return {}
 
+    def _get_default_primer_result_dir(self) -> str:
+        default_root = "/home/zyserver/project_ssd/primer_design"
+
+        if self.plugin_registry is not None:
+            try:
+                desc = self.plugin_registry.get_descriptor("primer_design")
+                for param in desc.get("parameters", []):
+                    if param.get("name") == "workflow_root":
+                        configured_root = str(param.get("default") or "").strip()
+                        if configured_root:
+                            default_root = configured_root.rstrip("/")
+                        break
+            except Exception:
+                logger.debug("无法从 primer_design 插件描述符读取 workflow_root，使用默认结果目录")
+
+        return f"{default_root.rstrip('/')}/my_result"
+
     def _get_live_primer_design_view(self) -> dict | None:
         base = copy.deepcopy(self._base_integrated_workbench_config()["views"]["primer_design"])
         execution = self._find_latest_completed_execution(list(base.get("tool_ids", [])))
@@ -275,6 +293,49 @@ class ToolBridge(QObject):
             f"{output_dir}/primer_result.txt",
             f"{output_dir}/dimer_score.txt",
         ]
+        base["remote_result_dir"] = output_dir
+        return base
+
+    def _build_primer_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
+        base = copy.deepcopy(self._base_integrated_workbench_config()["views"]["primer_design"])
+        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
+        if not normalized_dir:
+            return None
+
+        final_path = f"{normalized_dir}/primer_result_final_2.txt"
+        rows = self._parse_primer_result_text(self._read_remote_file(final_path))
+        if not rows:
+            return None
+
+        all_candidates_count = self._count_remote_lines(f"{normalized_dir}/primer_result.txt") or len(rows)
+        filtered_count = self._count_remote_lines(f"{normalized_dir}/primer_result_final.txt") or len(rows)
+        dimer_count = self._count_remote_lines(f"{normalized_dir}/dimer_score.txt") or len(rows)
+
+        base["description"] = f"当前结果来自远程目录：{normalized_dir}"
+        base["status"] = {
+            "state": "completed",
+            "label": "已加载远程结果",
+            "detail": "直接从服务器结果目录读取，并同步载入主结果文件。",
+        }
+        base["parameters"] = [
+            {"label": "结果目录", "value": normalized_dir},
+            {"label": "结果来源", "value": "远程目录直接读取"},
+            {"label": "主文件", "value": "primer_result_final_2.txt"},
+        ]
+        base["summary"] = [
+            {"label": "目标病原体", "value": str(len(rows)), "tone": "primary"},
+            {"label": "候选引物对", "value": str(all_candidates_count), "tone": "info"},
+            {"label": "通过二聚体过滤", "value": str(filtered_count), "tone": "success"},
+            {"label": "二聚体分析记录", "value": str(dimer_count), "tone": "accent"},
+        ]
+        base["rows"] = rows
+        base["artifacts"] = [
+            f"{normalized_dir}/primer_result_final_2.txt",
+            f"{normalized_dir}/primer_result_final.txt",
+            f"{normalized_dir}/primer_result.txt",
+            f"{normalized_dir}/dimer_score.txt",
+        ]
+        base["remote_result_dir"] = normalized_dir
         return base
 
     @pyqtSlot(result=str)
@@ -621,7 +682,29 @@ class ToolBridge(QObject):
         live_primer_view = self._get_live_primer_design_view()
         if live_primer_view is not None:
             config["views"]["primer_design"] = live_primer_view
+        else:
+            default_remote_view = self._build_primer_view_from_result_dir(self._get_default_primer_result_dir())
+            if default_remote_view is not None:
+                default_remote_view["status"] = {
+                    "state": "completed",
+                    "label": "已加载默认远程结果",
+                    "detail": "未找到历史执行记录，已自动读取服务器默认 primer 结果目录。",
+                }
+                config["views"]["primer_design"] = default_remote_view
         return json.dumps(config, ensure_ascii=False)
+
+    @pyqtSlot(str, result=str)
+    def get_remote_primer_results(self, remote_result_dir: str) -> str:
+        view = self._build_primer_view_from_result_dir(remote_result_dir)
+        if view is None:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "未能从该远程目录读取 primer_result_final_2.txt，请检查 SSH 连接和目录路径。",
+                },
+                ensure_ascii=False,
+            )
+        return json.dumps({"status": "ok", "view": view}, ensure_ascii=False)
 
 
 class DetectionPageWeb(QFrame):
@@ -655,10 +738,17 @@ class DetectionPageWeb(QFrame):
             return
 
         self.web_view = QWebEngineView()
+        self.web_view.setStyleSheet("background: #fafbfc; border: none;")
 
         settings = self.web_view.settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
+        self.web_view.page().setBackgroundColor(QColor("#fafbfc"))
+        self.web_view.loadFinished.connect(self._on_load_finished)
+
+        render_process_terminated = getattr(self.web_view.page(), "renderProcessTerminated", None)
+        if render_process_terminated is not None:
+            render_process_terminated.connect(self._on_render_process_terminated)
 
         plugin_registry = self._get_plugin_registry()
         self.bridge = ToolBridge(plugin_registry, main_window, web_view=self.web_view)
@@ -676,6 +766,17 @@ class DetectionPageWeb(QFrame):
             logger.error("HTML file not found: %s", html_path)
 
         layout.addWidget(self.web_view)
+
+    def _on_load_finished(self, ok: bool) -> None:
+        if not ok:
+            logger.error("Detection page failed to load in QWebEngineView")
+
+    def _on_render_process_terminated(self, termination_status, exit_code: int) -> None:
+        logger.error(
+            "Detection page render process terminated: status=%s exit_code=%s",
+            termination_status,
+            exit_code,
+        )
 
     def _get_plugin_registry(self):
         if self.main_window and hasattr(self.main_window, "service_locator"):

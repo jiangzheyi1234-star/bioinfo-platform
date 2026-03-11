@@ -127,7 +127,7 @@
                     <div class="integrated-sidebar-header">
                         <div class="integrated-kicker">Integrated Console</div>
                         <h2>集成分析工作台</h2>
-                        <p>左侧切换功能，右侧稳定展示参数、状态与结果。</p>
+                        <p>左侧切换功能，右侧查看参数、状态与分析结果。</p>
                     </div>
                     <div class="integrated-feature-list" id="integrated-feature-list"></div>
                 </aside>
@@ -137,7 +137,7 @@
                         <div>
                             <div class="integrated-kicker">Workbench</div>
                             <h2 id="integrated-title">集成分析工作台</h2>
-                            <p id="integrated-subtitle">集中承载多个类似能力，先保证结果展示稳定。</p>
+                            <p id="integrated-subtitle">集中承载多个分析能力，统一查看流程状态与结果。</p>
                         </div>
                         <div class="integrated-status-chip" id="integrated-status-chip">待选择功能</div>
                     </div>
@@ -145,7 +145,7 @@
                     <div class="integrated-empty-state" id="integrated-empty-state">
                         <div class="empty-emoji">🧪</div>
                         <h3>选择左侧功能开始查看</h3>
-                        <p>第一个入口用于引物设计结果展示，其余两个入口预留给后续相似分析能力。</p>
+                        <p>当前已接入引物设计，其他能力会按同一工作台布局持续接入。</p>
                     </div>
 
                     <div class="integrated-detail" id="integrated-detail" style="display:none;">
@@ -160,37 +160,92 @@
                             </div>
                         </div>
 
-                        <div class="summary-grid" id="summary-grid"></div>
-
-                        <div class="detail-grid">
-                            <div class="detail-card">
-                                <div class="card-title-row">
-                                    <h4>参数概览</h4>
-                                    <span class="card-badge">展示优先</span>
+                        <div class="integrated-main-layout">
+                            <div class="integrated-primary-column">
+                                <div class="detail-card results-card">
+                                    <div class="card-title-row">
+                                        <h4>推荐引物结果</h4>
+                                        <span class="card-badge">primer_result_final_2.txt</span>
+                                    </div>
+                                    <div class="results-card-subtitle">优先呈现最终推荐引物，便于快速查看与比对。</div>
+                                    <div class="results-table-wrap">
+                                        <table class="integrated-table">
+                                            <thead id="integrated-table-head"></thead>
+                                            <tbody id="integrated-table-body"></tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                                <div class="parameter-list" id="parameter-list"></div>
                             </div>
 
-                            <div class="detail-card">
-                                <div class="card-title-row">
-                                    <h4>结果文件</h4>
-                                    <span class="card-badge">后续可下载</span>
+                            <div class="integrated-side-column">
+                                <div class="detail-card compact-detail-card integrated-run-card" id="integrated-run-card" style="display:none;">
+                                    <div class="card-title-row compact-title-row">
+                                        <h4>执行入口</h4>
+                                        <div class="side-card-actions integrated-run-actions">
+                                            <span class="card-badge" id="integrated-run-badge">运行入口</span>
+                                            <button class="section-toggle-btn" data-target="integrated-run-body" type="button">展开</button>
+                                        </div>
+                                    </div>
+                                    <div class="side-section-body collapsed" id="integrated-run-body">
+                                        <div class="integrated-run-hint" id="integrated-run-hint"></div>
+                                        <div class="integrated-input-list" id="integrated-input-list"></div>
+                                        <button class="btn-primary integrated-run-btn" id="integrated-run-btn" type="button">配置并运行</button>
+                                    </div>
                                 </div>
-                                <ul class="artifact-list" id="artifact-list"></ul>
+
+                                <div class="detail-card integrated-loader-card" id="remote-loader-card">
+                                    <div class="card-title-row compact-title-row">
+                                        <h4>远程结果目录</h4>
+                                        <div class="side-card-actions">
+                                            <span class="card-badge">服务器</span>
+                                            <button class="section-toggle-btn" data-target="remote-loader-body" type="button">收起</button>
+                                        </div>
+                                    </div>
+                                    <div class="side-section-body" id="remote-loader-body">
+                                        <div class="integrated-loader-row">
+                                            <input
+                                                type="text"
+                                                class="form-input integrated-loader-input"
+                                                id="remote-primer-dir"
+                                                placeholder="例如 /home/zyserver/project_ssd/primer_design/my_result"
+                                            >
+                                            <button class="btn-primary integrated-loader-btn" id="remote-primer-load-btn">加载</button>
+                                        </div>
+                                        <div class="integrated-loader-hint" id="remote-primer-hint">
+                                            直接读取服务器上的 primer 结果目录，并优先载入 primer_result_final_2.txt。
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="summary-grid integrated-summary-grid" id="summary-grid"></div>
+
+                                <div class="detail-card compact-detail-card">
+                                    <div class="card-title-row compact-title-row">
+                                        <h4>参数概览</h4>
+                                        <div class="side-card-actions">
+                                            <span class="card-badge">当前来源</span>
+                                            <button class="section-toggle-btn" data-target="parameter-list-wrap" type="button">展开</button>
+                                        </div>
+                                    </div>
+                                    <div class="side-section-body collapsed" id="parameter-list-wrap">
+                                        <div class="parameter-list" id="parameter-list"></div>
+                                    </div>
+                                </div>
+
+                                <div class="detail-card compact-detail-card">
+                                    <div class="card-title-row compact-title-row">
+                                        <h4>结果文件</h4>
+                                        <div class="side-card-actions">
+                                            <span class="card-badge">可追溯</span>
+                                            <button class="section-toggle-btn" data-target="artifact-list-wrap" type="button">展开</button>
+                                        </div>
+                                    </div>
+                                    <div class="side-section-body collapsed" id="artifact-list-wrap">
+                                        <ul class="artifact-list" id="artifact-list"></ul>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-
-                        <div class="detail-card results-card">
-                            <div class="card-title-row">
-                                <h4>推荐引物结果</h4>
-                                <span class="card-badge">primer_result_final_2.txt</span>
-                            </div>
-                            <div class="results-table-wrap">
-                                <table class="integrated-table">
-                                    <thead id="integrated-table-head"></thead>
-                                    <tbody id="integrated-table-body"></tbody>
-                                </table>
-                            </div>
                         </div>
                     </div>
                 </section>

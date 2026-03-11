@@ -152,12 +152,72 @@ class TestDetectionIntegratedWorkbench:
         assert payload["views"]["primer_design"]["title"] == "实时引物结果"
         assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_A"
 
+    def test_tool_bridge_falls_back_to_default_remote_result_dir(self, monkeypatch):
+        from ui.pages.detection_page_web import ToolBridge
+
+        bridge = ToolBridge(plugin_registry=None)
+        monkeypatch.setattr(bridge, "_get_live_primer_design_view", lambda: None)
+        monkeypatch.setattr(
+            bridge,
+            "_get_default_primer_result_dir",
+            lambda: "/remote/default/primer_design/my_result",
+        )
+        monkeypatch.setattr(
+            bridge,
+            "_build_primer_view_from_result_dir",
+            lambda remote_dir: {
+                "title": "默认远程结果",
+                "description": f"来自 {remote_dir}",
+                "status": {"state": "completed", "label": "已加载远程结果", "detail": "默认目录"},
+                "parameters": [{"label": "结果目录", "value": remote_dir}],
+                "summary": [{"label": "目标病原体", "value": "1", "tone": "primary"}],
+                "columns": [{"key": "pathogen", "label": "病原体"}],
+                "rows": [{"pathogen": "Virus_Default"}],
+                "artifacts": [f"{remote_dir}/primer_result_final_2.txt"],
+                "remote_result_dir": remote_dir,
+            },
+        )
+
+        payload = json.loads(bridge.get_integrated_workbench_config())
+
+        assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_Default"
+        assert payload["views"]["primer_design"]["remote_result_dir"] == "/remote/default/primer_design/my_result"
+
+    def test_tool_bridge_returns_remote_primer_results_payload(self, monkeypatch):
+        from ui.pages.detection_page_web import ToolBridge
+
+        bridge = ToolBridge(plugin_registry=None)
+        monkeypatch.setattr(
+            bridge,
+            "_build_primer_view_from_result_dir",
+            lambda remote_dir: {
+                "title": "远程结果",
+                "description": f"来自 {remote_dir}",
+                "status": {"state": "completed", "label": "已加载远程结果", "detail": "测试"},
+                "parameters": [{"label": "结果目录", "value": remote_dir}],
+                "summary": [{"label": "目标病原体", "value": "1", "tone": "primary"}],
+                "columns": [{"key": "pathogen", "label": "病原体"}],
+                "rows": [{"pathogen": "Virus_A"}],
+                "artifacts": [f"{remote_dir}/primer_result_final_2.txt"],
+                "remote_result_dir": remote_dir,
+            },
+        )
+
+        payload = json.loads(bridge.get_remote_primer_results("/remote/primer_job/my_result"))
+
+        assert payload["status"] == "ok"
+        assert payload["view"]["remote_result_dir"] == "/remote/primer_job/my_result"
+
     def test_detection_asset_contains_integrated_console_markup(self):
         html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
 
         assert 'id="tab-integrated"' in html
         assert 'id="integrated-feature-list"' in html
+        assert 'id="integrated-run-card"' in html
+        assert 'id="integrated-run-btn"' in html
+        assert 'id="integrated-input-list"' in html
         assert 'id="integrated-table-body"' in html
+        assert 'id="remote-primer-dir"' in html
 
 
 class TestHomePageFlows:
