@@ -371,6 +371,7 @@ class ClickableHeader(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, False)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -575,13 +576,16 @@ class SshSettingsCard(QFrame):
 
         self.ssh_title = QLabel("Linux服务器SSH连接")
         self.ssh_title.setStyleSheet(CARD_TITLE)
+        self.ssh_title.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.arrow_label = QLabel("▲")
         self.arrow_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px; border: none; background: transparent;")
+        self.arrow_label.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.modify_link = QPushButton("修改")
         self.modify_link.setMinimumWidth(60)
         self.modify_link.setStyleSheet(BUTTON_LINK)
+        self.modify_link.setCursor(Qt.CursorShape.PointingHandCursor)
         self.modify_link.clicked.connect(self._enable_editing)
 
         header_layout.addWidget(self.ssh_title)

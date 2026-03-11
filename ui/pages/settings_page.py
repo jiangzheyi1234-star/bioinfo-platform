@@ -48,11 +48,11 @@ class SettingsPage(BasePage):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setStyleSheet("background-color: transparent;")
+        scroll_area.setStyleSheet(f"background-color: {COLOR_BG_APP};")
         scroll_area.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
 
         self.scroll_content = QWidget()
-        self.scroll_content.setStyleSheet("background-color: transparent;")
+        self.scroll_content.setStyleSheet(f"background-color: {COLOR_BG_APP};")
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setContentsMargins(0, 0, 10, 0)
         self.scroll_layout.setSpacing(25)

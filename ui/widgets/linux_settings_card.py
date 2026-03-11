@@ -98,6 +98,7 @@ class ClickableHeader(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, False)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -884,14 +885,17 @@ class LinuxSettingsCard(QFrame):
 
         self.title_label = QLabel("Linux 端运行环境配置")
         self.title_label.setStyleSheet(CARD_TITLE)
+        self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.modify_btn = QPushButton("修改")
         self.modify_btn.setMinimumWidth(60)
         self.modify_btn.setStyleSheet(BUTTON_LINK)
+        self.modify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.modify_btn.clicked.connect(self._enable_editing)
 
         self.arrow_label = QLabel("▲")
         self.arrow_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+        self.arrow_label.setCursor(Qt.CursorShape.PointingHandCursor)
 
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
