@@ -70,17 +70,29 @@ execution_io  (execution_id, data_id, direction, PK(all three))
 
 ---
 
+## 项目进度
+
+**Phase 2 ✅ 完成**
+- ✅ 6 个 UI 页面：home_page · project_page · analysis_page · assembly_page · detection_page_web · settings_page
+- ✅ 29 个 tool.yaml（11 个 category）
+- ✅ conda 环境管理：env_detector · env_installer · LinuxSettingsCard 升级
+- ✅ 完整执行链：ToolEngine → JobQueue → JobDispatcher（事件驱动）→ DataRegistry
+
+**Phase 3 进行中**
+
+---
+
 ## 待完成任务
 
-### P1 — 阻断
+### P1 — 阻断块（结果展示）
 - [ ] ResultsPanel 接入 analysis_page._on_pipeline_completed()
 - [ ] 远端结果文件下载（ssh.download）
 
-### P2 — 核心页面
+### P2 — 核心功能（Phase 3）
 - [ ] database_page（数据库下载管理）
-- [ ] results_page（图表 + 表格 + DAG）
-- [ ] amr_page（AMR 分析路径）
-- [ ] 历史执行选择器
+- [ ] results_page（matplotlib 图表 + 数据表格 + DAG 可视化）
+- [ ] amr_page（AMR 分析路径专用页面）
+- [ ] 历史执行选择器（切换重试和最终版本）
 
 ---
 
