@@ -37,6 +37,11 @@ data/
 # Runtime outputs
 logs/
 
+# Temporary test/debug files
+.tmp_*
+*.tmp
+*.log
+
 # Dev/debug scripts
 diagnose_*.py
 run_*.py
@@ -46,3 +51,4 @@ test_detection_page_*.py
 *_debug.py
 *.backup
 启动*.bat
+

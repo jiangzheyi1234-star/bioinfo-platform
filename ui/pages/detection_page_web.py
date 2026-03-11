@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
+import shlex
 import time
 from pathlib import Path
 
@@ -26,6 +28,254 @@ class ToolBridge(QObject):
         self.plugin_registry = plugin_registry
         self.main_window = main_window
         self.web_view = web_view  # 用于 _send_run_result JS 回调
+
+    @staticmethod
+    def _base_integrated_workbench_config() -> dict:
+        return {
+            "title": "集成分析工作台",
+            "subtitle": "先稳定展示引物设计能力，后续两个入口按同一布局继续扩展。",
+            "features": [
+                {
+                    "id": "primer_design",
+                    "name": "引物设计",
+                    "badge": "已接入",
+                    "description": "面向 Linux 命令行引物设计流程的结果展示与后续执行入口。",
+                    "status": "active",
+                },
+                {
+                    "id": "sequence_alignment",
+                    "name": "序列比对",
+                    "badge": "预留",
+                    "description": "预留给第二个同类集成功能。",
+                    "status": "placeholder",
+                },
+                {
+                    "id": "target_screening",
+                    "name": "靶标筛选",
+                    "badge": "预留",
+                    "description": "预留给第三个同类集成功能。",
+                    "status": "placeholder",
+                },
+            ],
+            "views": {
+                "primer_design": {
+                    "tool_ids": ["primer_design"],
+                    "title": "多病原体引物设计",
+                    "description": "上传或选择待分析序列后，在 Linux 端执行引物设计流程，并在此查看推荐结果。",
+                    "status": {
+                        "state": "ready",
+                        "label": "展示已就绪",
+                        "detail": "当前先提供稳定结果展示；执行链路下一步接入远程任务提交。",
+                    },
+                    "parameters": [
+                        {"label": "输入序列", "value": "FASTA / FNA 序列集合"},
+                        {"label": "运行模式", "value": "quick / advanced"},
+                        {"label": "候选产物长度", "value": "100-300 bp"},
+                        {"label": "Tm 范围", "value": "57-63 ℃"},
+                        {"label": "GC 范围", "value": "30-70 %"},
+                    ],
+                    "summary": [
+                        {"label": "目标病原体", "value": "5", "tone": "primary"},
+                        {"label": "候选引物对", "value": "18", "tone": "info"},
+                        {"label": "通过二聚体过滤", "value": "9", "tone": "success"},
+                        {"label": "最终推荐", "value": "5", "tone": "accent"},
+                    ],
+                    "columns": [
+                        {"key": "pathogen", "label": "病原体"},
+                        {"key": "region_id", "label": "区域 ID"},
+                        {"key": "forward_primer", "label": "Forward Primer"},
+                        {"key": "reverse_primer", "label": "Reverse Primer"},
+                        {"key": "position", "label": "位置"},
+                        {"key": "amplicon", "label": "扩增子"},
+                    ],
+                    "rows": [
+                        {
+                            "pathogen": "Mycobacterium tuberculosis",
+                            "region_id": "MTB_region_01",
+                            "forward_primer": "AGTGACCGTTCGATGATGAC",
+                            "reverse_primer": "CTTGATCGGCTTCTTCAGGT",
+                            "position": "1520-1688",
+                            "amplicon": "169 bp",
+                        },
+                        {
+                            "pathogen": "Influenza A virus",
+                            "region_id": "FLUA_region_02",
+                            "forward_primer": "TGGACTAGCGAAAGCAGGTA",
+                            "reverse_primer": "CACCTTGTCTTTGCCAGTTC",
+                            "position": "845-1016",
+                            "amplicon": "172 bp",
+                        },
+                        {
+                            "pathogen": "Rubella virus",
+                            "region_id": "RUB_region_01",
+                            "forward_primer": "GGATGGTGATGACACCAAGA",
+                            "reverse_primer": "TTCCACCTTGAGGTTGTTGA",
+                            "position": "221-373",
+                            "amplicon": "153 bp",
+                        },
+                    ],
+                    "artifacts": [
+                        "primer_result_final_2.txt（首选展示）",
+                        "primer_result_final.txt",
+                        "dimer_score.txt",
+                        "运行日志 / 原始结果包",
+                    ],
+                }
+            },
+        }
+
+    @staticmethod
+    def _parse_primer_result_text(content: str) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for line in content.splitlines():
+            parts = line.strip().split("\t")
+            if len(parts) < 6:
+                continue
+            rows.append(
+                {
+                    "pathogen": parts[0],
+                    "region_id": parts[1],
+                    "forward_primer": parts[2],
+                    "reverse_primer": parts[3],
+                    "position": parts[4],
+                    "amplicon": parts[5],
+                }
+            )
+        return rows
+
+    def _get_service_locator(self):
+        if self.main_window and hasattr(self.main_window, "service_locator"):
+            return self.main_window.service_locator
+        return None
+
+    def _find_latest_completed_execution(self, tool_ids: list[str]) -> dict | None:
+        sl = self._get_service_locator()
+        if sl is None:
+            return None
+
+        pm = getattr(sl, "project_manager", None)
+        if pm is None or pm.current_project is None or not tool_ids:
+            return None
+
+        placeholders = ",".join("?" for _ in tool_ids)
+        query = (
+            "SELECT e.execution_id, e.tool_id, e.sample_id, e.parameters, e.created_at, "
+            "e.completed_at, s.name AS sample_name "
+            "FROM executions e "
+            "LEFT JOIN samples s ON s.sample_id = e.sample_id "
+            f"WHERE e.status = 'completed' AND e.tool_id IN ({placeholders}) "
+            "ORDER BY COALESCE(e.completed_at, e.created_at) DESC LIMIT 1"
+        )
+        row = pm.db.execute(query, tuple(tool_ids)).fetchone()
+        return dict(row) if row else None
+
+    def _find_registered_output(self, execution_id: str, basename: str) -> str:
+        sl = self._get_service_locator()
+        registry = getattr(sl, "data_registry", None) if sl is not None else None
+        if registry is None:
+            return ""
+
+        for item in registry.find_by_execution(execution_id):
+            if Path(item.file_path).name == basename:
+                return item.file_path
+        return ""
+
+    def _read_remote_file(self, file_path: str) -> str:
+        if not file_path:
+            return ""
+
+        sl = self._get_service_locator()
+        ssh = getattr(sl, "ssh_service", None) if sl is not None else None
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return ""
+
+        try:
+            rc, out, _ = ssh.run(f"cat {shlex.quote(file_path)} 2>/dev/null", timeout=15)
+            if rc == 0:
+                return out
+        except Exception:
+            logger.exception("读取远端文件失败: %s", file_path)
+        return ""
+
+    def _count_remote_lines(self, file_path: str) -> int | None:
+        if not file_path:
+            return None
+
+        sl = self._get_service_locator()
+        ssh = getattr(sl, "ssh_service", None) if sl is not None else None
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return None
+
+        try:
+            rc, out, _ = ssh.run(f"wc -l < {shlex.quote(file_path)} 2>/dev/null", timeout=10)
+            if rc == 0:
+                return int((out or "0").strip())
+        except Exception:
+            logger.exception("统计远端文件行数失败: %s", file_path)
+        return None
+
+    @staticmethod
+    def _safe_json_loads(raw: str) -> dict:
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _get_live_primer_design_view(self) -> dict | None:
+        base = copy.deepcopy(self._base_integrated_workbench_config()["views"]["primer_design"])
+        execution = self._find_latest_completed_execution(list(base.get("tool_ids", [])))
+        if not execution:
+            return None
+
+        final_path = self._find_registered_output(execution["execution_id"], "primer_result_final_2.txt")
+        if not final_path:
+            return None
+
+        rows = self._parse_primer_result_text(self._read_remote_file(final_path))
+        if not rows:
+            return None
+
+        output_dir = str(Path(final_path).parent).replace("\\", "/")
+        all_candidates_count = self._count_remote_lines(f"{output_dir}/primer_result.txt") or len(rows)
+        filtered_count = self._count_remote_lines(f"{output_dir}/primer_result_final.txt") or len(rows)
+        dimer_count = self._count_remote_lines(f"{output_dir}/dimer_score.txt") or len(rows)
+        params = self._safe_json_loads(execution.get("parameters") or "")
+        mode = params.get("mode", "quick")
+        ts = execution.get("completed_at") or execution.get("created_at") or time.time()
+
+        base["description"] = (
+            f"最新结果来自样本 {execution.get('sample_name') or execution.get('sample_id') or '-'}，"
+            f"执行 ID：{execution['execution_id']}。"
+        )
+        base["status"] = {
+            "state": "completed",
+            "label": "已加载最新结果",
+            "detail": f"完成时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))} · 模式：{mode}",
+        }
+        base["parameters"] = [
+            {"label": "样本", "value": execution.get("sample_name") or execution.get("sample_id") or "-"},
+            {"label": "工具 ID", "value": execution.get("tool_id") or "primer_design"},
+            {"label": "运行模式", "value": str(mode)},
+            {"label": "执行 ID", "value": execution["execution_id"]},
+            {"label": "输出目录", "value": output_dir},
+        ]
+        base["summary"] = [
+            {"label": "目标病原体", "value": str(len(rows)), "tone": "primary"},
+            {"label": "候选引物对", "value": str(all_candidates_count), "tone": "info"},
+            {"label": "通过二聚体过滤", "value": str(filtered_count), "tone": "success"},
+            {"label": "二聚体分析记录", "value": str(dimer_count), "tone": "accent"},
+        ]
+        base["rows"] = rows
+        base["artifacts"] = [
+            f"{output_dir}/primer_result_final_2.txt",
+            f"{output_dir}/primer_result_final.txt",
+            f"{output_dir}/primer_result.txt",
+            f"{output_dir}/dimer_score.txt",
+        ]
+        return base
 
     @pyqtSlot(result=str)
     def get_tools(self) -> str:
@@ -367,97 +617,10 @@ class ToolBridge(QObject):
     @pyqtSlot(result=str)
     def get_integrated_workbench_config(self) -> str:
         """Return a stable initial config for the integrated analysis console."""
-        config = {
-            "title": "集成分析工作台",
-            "subtitle": "先稳定展示引物设计能力，后续两个入口按同一布局继续扩展。",
-            "features": [
-                {
-                    "id": "primer_design",
-                    "name": "引物设计",
-                    "badge": "已接入",
-                    "description": "面向 Linux 命令行引物设计流程的结果展示与后续执行入口。",
-                    "status": "active",
-                },
-                {
-                    "id": "sequence_alignment",
-                    "name": "序列比对",
-                    "badge": "预留",
-                    "description": "预留给第二个同类集成功能。",
-                    "status": "placeholder",
-                },
-                {
-                    "id": "target_screening",
-                    "name": "靶标筛选",
-                    "badge": "预留",
-                    "description": "预留给第三个同类集成功能。",
-                    "status": "placeholder",
-                },
-            ],
-            "views": {
-                "primer_design": {
-                    "title": "多病原体引物设计",
-                    "description": "上传或选择待分析序列后，在 Linux 端执行引物设计流程，并在此查看推荐结果。",
-                    "status": {
-                        "state": "ready",
-                        "label": "展示已就绪",
-                        "detail": "当前先提供稳定结果展示；执行链路下一步接入远程任务提交。",
-                    },
-                    "parameters": [
-                        {"label": "输入序列", "value": "FASTA / FNA 序列集合"},
-                        {"label": "运行模式", "value": "quick / advanced"},
-                        {"label": "候选产物长度", "value": "100-300 bp"},
-                        {"label": "Tm 范围", "value": "57-63 ℃"},
-                        {"label": "GC 范围", "value": "30-70 %"},
-                    ],
-                    "summary": [
-                        {"label": "目标病原体", "value": "5", "tone": "primary"},
-                        {"label": "候选引物对", "value": "18", "tone": "info"},
-                        {"label": "通过二聚体过滤", "value": "9", "tone": "success"},
-                        {"label": "最终推荐", "value": "5", "tone": "accent"},
-                    ],
-                    "columns": [
-                        {"key": "pathogen", "label": "病原体"},
-                        {"key": "region_id", "label": "区域 ID"},
-                        {"key": "forward_primer", "label": "Forward Primer"},
-                        {"key": "reverse_primer", "label": "Reverse Primer"},
-                        {"key": "position", "label": "位置"},
-                        {"key": "amplicon", "label": "扩增子"},
-                    ],
-                    "rows": [
-                        {
-                            "pathogen": "Mycobacterium tuberculosis",
-                            "region_id": "MTB_region_01",
-                            "forward_primer": "AGTGACCGTTCGATGATGAC",
-                            "reverse_primer": "CTTGATCGGCTTCTTCAGGT",
-                            "position": "1520-1688",
-                            "amplicon": "169 bp",
-                        },
-                        {
-                            "pathogen": "Influenza A virus",
-                            "region_id": "FLUA_region_02",
-                            "forward_primer": "TGGACTAGCGAAAGCAGGTA",
-                            "reverse_primer": "CACCTTGTCTTTGCCAGTTC",
-                            "position": "845-1016",
-                            "amplicon": "172 bp",
-                        },
-                        {
-                            "pathogen": "Rubella virus",
-                            "region_id": "RUB_region_01",
-                            "forward_primer": "GGATGGTGATGACACCAAGA",
-                            "reverse_primer": "TTCCACCTTGAGGTTGTTGA",
-                            "position": "221-373",
-                            "amplicon": "153 bp",
-                        },
-                    ],
-                    "artifacts": [
-                        "primer_result_final_2.txt（首选展示）",
-                        "primer_result_final.txt",
-                        "dimer_score.txt",
-                        "运行日志 / 原始结果包",
-                    ],
-                }
-            },
-        }
+        config = self._base_integrated_workbench_config()
+        live_primer_view = self._get_live_primer_design_view()
+        if live_primer_view is not None:
+            config["views"]["primer_design"] = live_primer_view
         return json.dumps(config, ensure_ascii=False)
 
 

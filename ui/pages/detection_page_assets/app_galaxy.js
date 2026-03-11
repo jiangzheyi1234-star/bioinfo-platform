@@ -69,13 +69,18 @@ function switchTab(tab) {
         loadHistory();
     }
 
-    if (tab === 'integrated' && !integratedWorkbench) {
-        loadIntegratedWorkbench();
+    if (tab === 'integrated') {
+        loadIntegratedWorkbench(true);
     }
 }
 
-function loadIntegratedWorkbench() {
+function loadIntegratedWorkbench(forceRefresh = false) {
     if (!bridge || !bridge.get_integrated_workbench_config) {
+        return;
+    }
+
+    if (integratedWorkbench && !forceRefresh) {
+        renderIntegratedWorkbench();
         return;
     }
 
@@ -625,6 +630,7 @@ function onRunResult(result) {
     if (result.status === 'ok') {
         alert(result.message || '任务已提交');
         loadHistory();
+        loadIntegratedWorkbench(true);
         return;
     }
 

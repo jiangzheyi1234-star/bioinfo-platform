@@ -115,6 +115,51 @@ class TestPageStartup:
         assert len(page._stage_widgets) >= 1
 
 
+class TestDetectionIntegratedWorkbench:
+    def test_tool_bridge_parses_primer_result_text(self):
+        from ui.pages.detection_page_web import ToolBridge
+
+        rows = ToolBridge._parse_primer_result_text(
+            "Virus_A\tregion_1\tAAA\tTTT\t10-120\tATGC\n"
+            "Virus_B\tregion_2\tCCC\tGGG\t30-150\tCGTA\n"
+        )
+
+        assert len(rows) == 2
+        assert rows[0]["pathogen"] == "Virus_A"
+        assert rows[1]["reverse_primer"] == "GGG"
+
+    def test_tool_bridge_merges_live_primer_results(self, monkeypatch):
+        from ui.pages.detection_page_web import ToolBridge
+
+        bridge = ToolBridge(plugin_registry=None)
+        monkeypatch.setattr(
+            bridge,
+            "_get_live_primer_design_view",
+            lambda: {
+                "title": "实时引物结果",
+                "description": "来自最近一次完成任务",
+                "status": {"state": "completed", "label": "已加载", "detail": "测试数据"},
+                "parameters": [{"label": "样本", "value": "demo"}],
+                "summary": [{"label": "最终推荐", "value": "2", "tone": "accent"}],
+                "columns": [{"key": "pathogen", "label": "病原体"}],
+                "rows": [{"pathogen": "Virus_A"}],
+                "artifacts": ["/remote/primer_result_final_2.txt"],
+            },
+        )
+
+        payload = json.loads(bridge.get_integrated_workbench_config())
+
+        assert payload["views"]["primer_design"]["title"] == "实时引物结果"
+        assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_A"
+
+    def test_detection_asset_contains_integrated_console_markup(self):
+        html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
+
+        assert 'id="tab-integrated"' in html
+        assert 'id="integrated-feature-list"' in html
+        assert 'id="integrated-table-body"' in html
+
+
 class TestHomePageFlows:
     def test_add_sample_updates_home_page_state(self, qapp, temp_main_window):
         home_page = temp_main_window.home_page
