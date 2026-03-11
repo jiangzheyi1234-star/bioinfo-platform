@@ -1,0 +1,53 @@
+id: isescan
+name: ISEScan
+version: "1.7.2.3"
+category: mobile_elements
+description: "细菌插入序列（IS elements）识别工具"
+conda_env: isescan_env
+install_cmd: "conda create -n isescan_env -c bioconda -c conda-forge isescan -y"
+
+detection:
+  command: "isescan.py --help"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装序列（FASTA）"
+
+outputs:
+  - name: isescan_results
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/isescan_out/*.is.fna"
+    sync_to_local: true
+  - name: isescan_out
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/isescan_out"
+
+parameters:
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  isescan.py \
+    --seqfile {{ contigs }} \
+    --output {{ output_dir }}/isescan_out \
+    --nthread {{ threads }}
+
+databases: []
+
+methods_template: >
+  Insertion sequence elements were predicted using ISEScan v{version}.
+
+result_views:
+  - type: table
+    title: "ISEScan 插入序列检测"
+    data_source: "isescan_out"
+    config:
+      sortable: true

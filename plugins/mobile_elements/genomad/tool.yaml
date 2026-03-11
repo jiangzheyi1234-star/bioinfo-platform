@@ -1,0 +1,76 @@
+id: genomad
+name: geNomad
+version: "1.8.1"
+category: mobile_elements
+description: "宏基因组病毒与质粒检测工具（端到端鉴定与打分）"
+conda_env: genomad_env
+install_cmd: "conda create -n genomad_env -c bioconda -c conda-forge genomad -y"
+
+detection:
+  command: "genomad --version"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装后的 contigs 文件"
+
+outputs:
+  - name: virus_summary
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/genomad_out/*_summary/*_virus_summary.tsv"
+    sync_to_local: true
+  - name: plasmid_summary
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/genomad_out/*_summary/*_plasmid_summary.tsv"
+    sync_to_local: true
+  - name: genomad_out
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/genomad_out"
+
+parameters:
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+  - name: min_score
+    type: float
+    default: 0.7
+    range: [0.0, 1.0]
+    label: "最低置信度"
+    description: "病毒/质粒分类的最低得分阈值"
+
+command_template: |
+  genomad end-to-end \
+    {{ contigs }} \
+    {{ output_dir }}/genomad_out \
+    {{ db }} \
+    --threads {{ threads }} \
+    --min-score {{ min_score }}
+
+databases:
+  - id: genomad_db
+    param_name: db
+    required: true
+    description: "geNomad 病毒/质粒参考数据库"
+
+methods_template: >
+  Viral and plasmid sequences were identified using geNomad v{version}
+  with minimum classification score {min_score}.
+
+result_views:
+  - type: table
+    title: "病毒序列汇总"
+    data_source: "*_virus_summary.tsv"
+    config:
+      sortable: true
+  - type: table
+    title: "质粒序列汇总"
+    data_source: "*_plasmid_summary.tsv"
+    config:
+      sortable: true

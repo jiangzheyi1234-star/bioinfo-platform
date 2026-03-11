@@ -6,7 +6,10 @@ from core.env_detector import (
     CondaStatus,
     CondaDetectResult,
     detect,
+    expected_env_path,
+    infer_conda_root,
     install_miniforge,
+    pin_create_env_to_conda_root,
     rewrite_install_cmd,
     _COMMON_CONDA_PATHS,
 )
@@ -194,3 +197,30 @@ class TestRewriteInstallCmd:
             "/usr/local/conda/bin/conda",
         )
         assert result == "/usr/local/conda/bin/conda"
+
+
+class TestCondaRootHelpers:
+    def test_infer_conda_root(self):
+        assert infer_conda_root("/home/user/anaconda3/bin/conda") == "/home/user/anaconda3"
+        assert infer_conda_root("") == ""
+
+    def test_expected_env_path(self):
+        assert (
+            expected_env_path("/opt/miniconda3/bin/conda", "fastp_env")
+            == "/opt/miniconda3/envs/fastp_env"
+        )
+        assert expected_env_path("", "fastp_env") == ""
+
+    def test_pin_create_env_to_conda_root(self):
+        cmd = "/opt/conda/bin/conda create -n fastp_env -c bioconda fastp -y"
+        pinned = pin_create_env_to_conda_root(cmd, "/opt/conda/bin/conda")
+        assert " -n fastp_env" not in pinned
+        assert " -p /opt/conda/envs/fastp_env " in f" {pinned} "
+
+    def test_pin_create_env_preserves_non_create(self):
+        cmd = "/opt/conda/bin/conda env list --json"
+        assert pin_create_env_to_conda_root(cmd, "/opt/conda/bin/conda") == cmd
+
+    def test_pin_create_env_preserves_compound_shell_cmd(self):
+        cmd = "/opt/conda/bin/conda create -n x -y && echo done"
+        assert pin_create_env_to_conda_root(cmd, "/opt/conda/bin/conda") == cmd

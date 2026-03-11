@@ -59,9 +59,17 @@ pytest tests/test_xxx.py -v    # 单文件测试
 | `detection_page_web` | QWebEngineView + Galaxy 双栏，`ToolBridge` 接通 ToolEngine |
 | `settings_page` | SSH 诊断 / LinuxSettingsCard 工具环境检测+安装 / 数据库路径配置 |
 
-### 插件 YAML（16 个 tool.yaml）
-fastp · hostile · kraken2 · megahit · metaspades · metabat2 · maxbin2 · concoct · das_tool · checkm2 · busco · gtdbtk · prokka · bakta · eggnog · blastn
-+ 声明式：`analysis_paths.yaml` · `databases.yaml`
+### 插件 YAML（29 个 tool.yaml）
+**QC/宿主去除**：fastp · hostile
+**分类**：kraken2 · bracken · metaphlan · gtdbtk
+**组装**：megahit · metaspades
+**分箱**：metabat2 · maxbin2 · concoct · das_tool · semibin2
+**质控**：checkm2 · busco · quast · gunc
+**注释**：prokka · prodigal · bakta · eggnog · blastn
+**AMR**：rgi · amrfinderplus · abricate
+**移动元件**：genomad · integron_finder · isescan
+**可视化**：krona
++ 声明式：`analysis_paths.yaml`（read_based · assembly_based · amr_based） · `databases.yaml`
 
 ### 工具环境管理（LinuxSettingsCard + env_detector + env_installer）
 - **conda 自动检测**：`env_detector.detect()` 优先执行 `bash -ic 'which conda'`，失败后扫描常见目录
@@ -84,7 +92,6 @@ fastp · hostile · kraken2 · megahit · metaspades · metabat2 · maxbin2 · c
 - [ ] 数据库管理页（`database_page.py`）— 工具环境已可安装，下一步是数据库下载 UI
 - [ ] 结果浏览页（`results_page.py`）— matplotlib 图表 + 数据表格 + DAG 视图
 - [ ] AMR 分析页（`amr_page.py`）— 污水研究核心
-- [ ] 缺少插件 YAML：bracken · krona · rgi · genomad · integron_finder · isescan · quast · amrfinderplus
 - [ ] 历史执行选择器（同一工具多次执行结果切换）
 
 ---

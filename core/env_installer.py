@@ -9,7 +9,11 @@ import logging
 import re
 import uuid
 
-from core.env_detector import SshRunFn, rewrite_install_cmd
+from core.env_detector import (
+    SshRunFn,
+    pin_create_env_to_conda_root,
+    rewrite_install_cmd,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,7 @@ class EnvInstaller:
             {"job_id": str, "task_dir": str}
         """
         resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable)
+        resolved_cmd = pin_create_env_to_conda_root(resolved_cmd, conda_executable)
 
         task_dir_raw = f"{INSTALL_BASE}/{tool_id}"
         task_dir_expanded = f'"$(eval echo {_expand_path(task_dir_raw)})"'

@@ -1,0 +1,41 @@
+id: krona
+name: Krona
+version: "2.8.1"
+category: visualization
+description: "交互式层级可视化工具，可将分类结果渲染为 HTML 太阳图"
+conda_env: krona_env
+install_cmd: "conda create -n krona_env -c bioconda -c conda-forge krona -y"
+
+detection:
+  command: "ktImportTaxonomy -h"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: k2_output
+    type: k2output
+    required: true
+    description: "Kraken2 分类明细输出（--output 结果）"
+
+outputs:
+  - name: krona_html
+    type: html
+    tier: result
+    pattern: "{output_dir}/{sample_id}.krona.html"
+    sync_to_local: true
+
+parameters: []
+
+command_template: |
+  ktImportTaxonomy \
+    {{ k2_output }} \
+    -o {{ output_dir }}/{{ sample_id }}.krona.html
+
+databases: []
+
+methods_template: >
+  Interactive taxonomic profiles were visualized using Krona v{version}.
+
+result_views:
+  - type: html
+    title: "Krona 交互式分类图"
+    data_source: "{sample_id}.krona.html"

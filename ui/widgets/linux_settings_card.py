@@ -299,7 +299,24 @@ class EnvBatchCheckWorker(QObject):
             if not conda_envs:
                 logger.warning("所有候选命令均未取到 conda 环境列表")
 
-            # ── 构建环境名集合（取路径末尾段）───────────────────────
+            conda_root = env_detector.infer_conda_root(self._conda_executable)
+            logger.debug("conda 根目录：%s", conda_root or "(未知)")
+
+            # 只保留当前 conda 根目录下的环境，避免多个发行版混用。
+            if conda_root:
+                filtered_envs: list[str] = []
+                for path in conda_envs:
+                    p = path.rstrip("/")
+                    if p == conda_root or p.startswith(conda_root + "/"):
+                        filtered_envs.append(p)
+                conda_envs = filtered_envs
+                if filtered_envs:
+                    logger.debug("过滤后保留 %d 个环境（仅当前 conda 根目录）", len(conda_envs))
+                else:
+                    logger.warning("过滤后没有环境，按严格模式处理为 0 个环境")
+
+            # 构建环境名集合（取路径末尾段）
+            env_paths_set = {p.rstrip("/") for p in conda_envs}
             env_names_set: set[str] = set()
             for path in conda_envs:
                 name = path.rstrip("/").split("/")[-1]
@@ -316,7 +333,18 @@ class EnvBatchCheckWorker(QObject):
                     self.tool_checked.emit(tool_id, "(系统路径)", True)
                     continue
 
-                ok = conda_env in env_names_set
+                expected_path = env_detector.expected_env_path(
+                    self._conda_executable, conda_env
+                )
+                if expected_path:
+                    ok = expected_path in env_paths_set
+                    if not ok and conda_env in env_names_set:
+                        logger.warning(
+                            "tool=%s conda_env=%s 命中同名环境但路径不匹配，expected=%s",
+                            tool_id, conda_env, expected_path,
+                        )
+                else:
+                    ok = conda_env in env_names_set
                 logger.debug("tool=%s conda_env=%s ok=%s", tool_id, conda_env, ok)
                 self.tool_checked.emit(tool_id, conda_env, ok)
 
@@ -1206,12 +1234,20 @@ class LinuxSettingsCard(QFrame):
         """全部检测完成。"""
         self._checking = False
 
+        env_paths_set = {path.rstrip("/") for path in conda_envs if path}
         env_names = {path.rstrip("/").split("/")[-1] for path in conda_envs}
-        ok_count = sum(
-            1
-            for tool in self._tools
-            if not tool.get("conda_env", "") or tool.get("conda_env", "") in env_names
-        )
+        ok_count = 0
+        for tool in self._tools:
+            conda_env = tool.get("conda_env", "")
+            if not conda_env:
+                ok_count += 1
+                continue
+            expected_path = env_detector.expected_env_path(self._conda_executable, conda_env)
+            if expected_path:
+                if expected_path in env_paths_set:
+                    ok_count += 1
+            elif conda_env in env_names:
+                ok_count += 1
         total = len(self._tools)
 
         # 通知 Web UI 检测完成

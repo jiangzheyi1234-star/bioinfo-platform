@@ -1,0 +1,59 @@
+id: integron_finder
+name: IntegronFinder
+version: "2.0.6"
+category: mobile_elements
+description: "整合子与相关元件检测工具，常用于抗性传播研究"
+conda_env: integron_finder_env
+install_cmd: "conda create -n integron_finder_env -c bioconda -c conda-forge integron_finder -y"
+
+detection:
+  command: "integron_finder --version"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装序列（FASTA）"
+
+outputs:
+  - name: integron_summary
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/integron_finder_out/Results_Integron_Finder_*/integron_finder.summary"
+    sync_to_local: true
+  - name: integron_out
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/integron_finder_out"
+
+parameters:
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+  - name: local_max
+    type: bool
+    default: false
+    label: "局部最大值"
+    description: "使用局部最大值搜索模式（更敏感）"
+
+command_template: |
+  integron_finder \
+    {{ contigs }} \
+    --outdir {{ output_dir }}/integron_finder_out \
+    --cpu {{ threads }} \
+    {%- if local_max %} --local-max {%- endif %}
+
+databases: []
+
+methods_template: >
+  Integron-associated elements were detected using IntegronFinder v{version}.
+
+result_views:
+  - type: table
+    title: "IntegronFinder 整合子检测"
+    data_source: "integron_finder.summary"
+    config:
+      sortable: true

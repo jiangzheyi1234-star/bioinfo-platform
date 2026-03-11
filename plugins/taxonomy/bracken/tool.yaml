@@ -1,0 +1,74 @@
+id: bracken
+name: Bracken
+version: "2.9"
+category: taxonomy
+description: "Kraken2 分类结果的贝叶斯重估计工具，用于物种丰度校正"
+conda_env: bracken_env
+install_cmd: "conda create -n bracken_env -c bioconda -c conda-forge bracken -y"
+
+detection:
+  command: "bracken -v"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: k2_report
+    type: kreport
+    required: true
+    description: "Kraken2 生成的 kreport 文件"
+
+outputs:
+  - name: bracken_abundance
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.bracken.tsv"
+    sync_to_local: true
+  - name: bracken_kreport
+    type: kreport
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.bracken.kreport"
+
+parameters:
+  - name: read_length
+    type: int
+    default: 150
+    label: "读长长度"
+    description: "样本读长长度，用于丰度重估"
+  - name: level
+    type: choice
+    default: S
+    choices: [S, G, F, O, C, P, D]
+    label: "分类层级"
+    description: "S=Species, G=Genus 等"
+  - name: threshold
+    type: int
+    default: 10
+    range: [1, 1000]
+    label: "最小读数阈值"
+
+command_template: |
+  bracken \
+    -d {{ db }} \
+    -i {{ k2_report }} \
+    -o {{ output_dir }}/{{ sample_id }}.bracken.tsv \
+    -w {{ output_dir }}/{{ sample_id }}.bracken.kreport \
+    -r {{ read_length }} \
+    -l {{ level }} \
+    -t {{ threshold }}
+
+databases:
+  - id: kraken2_standard
+    param_name: db
+    required: true
+    description: "Kraken2/Bracken 兼容数据库目录"
+
+methods_template: >
+  Taxonomic abundance was re-estimated using Bracken v{version}
+  at rank {level} with read length {read_length}.
+
+result_views:
+  - type: table
+    title: "Bracken 丰度结果"
+    data_source: "{sample_id}.bracken.tsv"
+    config:
+      columns: [name, taxonomy_id, taxonomy_lvl, new_est_reads, fraction_total_reads]
+      sortable: true

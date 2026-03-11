@@ -6,6 +6,7 @@
 
 import logging
 import re
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional, Tuple
@@ -282,3 +283,79 @@ def rewrite_install_cmd(install_cmd: str, conda_executable: str) -> str:
     prefix = install_cmd[: len(install_cmd) - len(stripped)]
     remainder = stripped[len("conda"):]
     return f"{prefix}{conda_executable}{remainder}"
+
+
+def infer_conda_root(conda_executable: str) -> str:
+    """从 conda 可执行路径推断 conda 根目录。"""
+    exe = (conda_executable or "").strip().rstrip("/")
+    if not exe:
+        return ""
+
+    if exe.endswith("/bin/conda"):
+        return exe[: -len("/bin/conda")]
+
+    parts = exe.split("/")
+    if len(parts) >= 3 and parts[-1] == "conda":
+        return "/".join(parts[:-2])
+    return ""
+
+
+def expected_env_path(conda_executable: str, env_name: str) -> str:
+    """给定 conda 可执行路径和环境名，返回预期的环境绝对路径。"""
+    root = infer_conda_root(conda_executable)
+    if not root or not env_name:
+        return ""
+    return f"{root}/envs/{env_name}"
+
+
+def pin_create_env_to_conda_root(install_cmd: str, conda_executable: str) -> str:
+    """将 `conda create -n/--name` 命令绑定到指定 conda 根目录下的 envs 目录。
+
+    例如:
+      /opt/conda/bin/conda create -n fastp_env -y
+    -> /opt/conda/bin/conda create -p /opt/conda/envs/fastp_env -y
+    """
+    root = infer_conda_root(conda_executable)
+    if not root or not install_cmd.strip():
+        return install_cmd
+
+    # 仅处理单条 conda create 命令，避免改写复合 shell 命令语义。
+    if any(op in install_cmd for op in ("&&", "||", "|", ";", ">", "<")):
+        return install_cmd
+
+    try:
+        tokens = shlex.split(install_cmd, posix=True)
+    except Exception:
+        return install_cmd
+
+    if len(tokens) < 3:
+        return install_cmd
+    if not tokens[0].endswith("conda"):
+        return install_cmd
+    if tokens[1] != "create":
+        return install_cmd
+    if any(tok in ("-p", "--prefix") for tok in tokens):
+        return install_cmd
+
+    name_idx = -1
+    env_name = ""
+    for i, tok in enumerate(tokens):
+        if tok in ("-n", "--name") and i + 1 < len(tokens):
+            name_idx = i
+            env_name = tokens[i + 1]
+            break
+        if tok.startswith("--name="):
+            name_idx = i
+            env_name = tok.split("=", 1)[1]
+            break
+
+    if not env_name:
+        return install_cmd
+
+    env_path = f"{root}/envs/{env_name}"
+    if tokens[name_idx] in ("-n", "--name"):
+        tokens[name_idx:name_idx + 2] = ["-p", env_path]
+    else:
+        tokens[name_idx:name_idx + 1] = ["-p", env_path]
+
+    return " ".join(shlex.quote(tok) for tok in tokens)

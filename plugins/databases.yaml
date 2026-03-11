@@ -148,6 +148,89 @@ databases:
       key_files: ["eggnog.db", "eggnog_proteins.dmnd"]
       min_size_mb: 40000
 
+  # ── AMR 数据库 ──────────────────────────────────────────
+
+  card_db:
+    name: "CARD 耐药基因数据库"
+    description: "Comprehensive Antibiotic Resistance Database，RGI 依赖"
+    install_path: "/h2ometa/databases/card"
+    size_mb: 500
+    tools: ["rgi"]
+    mirrors:
+      - url: "https://card.mcmaster.ca/latest/data"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["card.json"]
+      min_size_mb: 200
+    install_cmd: "rgi load --card_json /h2ometa/databases/card/card.json --local"
+
+  amrfinder_db:
+    name: "NCBI AMR 参考数据库"
+    description: "AMRFinderPlus 参考数据库（含耐药/毒力/应激基因）"
+    install_path: "/h2ometa/databases/amrfinder"
+    size_mb: 1000
+    tools: ["amrfinderplus"]
+    mirrors:
+      - url: "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/latest/"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["AMR_CDS", "AMRProt"]
+      min_size_mb: 500
+    install_cmd: "amrfinder_update --force_update --database /h2ometa/databases/amrfinder"
+
+  # ── 质控/嵌合检测数据库 ────────────────────────────────
+
+  gunc_db:
+    name: "GUNC proGenomes 数据库"
+    description: "GUNC MAG 嵌合体检测参考数据库"
+    install_path: "/h2ometa/databases/gunc"
+    size_mb: 15000
+    tools: ["gunc"]
+    mirrors:
+      - url: "https://swifter.embl.de/~fullam/gunc/gunc_db_progenomes2.1.dmnd.gz"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["gunc_db_progenomes2.1.dmnd"]
+      min_size_mb: 10000
+
+  # ── 分类数据库（标记基因） ─────────────────────────────
+
+  metaphlan_db:
+    name: "MetaPhlAn ChocoPhlAn 数据库"
+    description: "MetaPhlAn 标记基因分类数据库"
+    install_path: "/h2ometa/databases/metaphlan"
+    size_mb: 15000
+    tools: ["metaphlan"]
+    mirrors:
+      - url: "http://cmprod1.cibio.unitn.it/biobakery4/metaphlan_databases/"
+        mirror: "official"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["mpa_vJun23_CHOCOPhlAnSGB_202403.md5"]
+      min_size_mb: 10000
+
+  # ── 移动元件数据库 ─────────────────────────────────────
+
+  genomad_db:
+    name: "geNomad 参考数据库"
+    description: "geNomad 病毒/质粒参考数据库"
+    install_path: "/h2ometa/databases/genomad"
+    size_mb: 3000
+    tools: ["genomad"]
+    mirrors:
+      - url: "https://zenodo.org/records/8339387/files/genomad_db_v1.5.tar.gz"
+        mirror: "zenodo"
+    integrity_check:
+      status_file: ".install_ok"
+      key_files: ["genomad_db/"]
+      min_size_mb: 2000
+    install_cmd: "genomad download-database /h2ometa/databases/genomad"
+
+  # ── 其他 ───────────────────────────────────────────────
+
   hostile_human_t2t:
     name: "Human T2T-HLA 参考索引"
     description: "Hostile 宿主去除参考基因组（内置，无需手动安装）"

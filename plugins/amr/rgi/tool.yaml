@@ -1,0 +1,74 @@
+id: rgi
+name: RGI
+version: "6.0.4"
+category: amr
+description: "CARD 数据库耐药基因识别工具（Resistance Gene Identifier）"
+conda_env: rgi_env
+install_cmd: "conda create -n rgi_env -c bioconda -c conda-forge rgi -y"
+
+detection:
+  command: "rgi main --version"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装序列或蛋白质序列文件"
+
+outputs:
+  - name: rgi_hits
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.rgi.txt"
+    sync_to_local: true
+  - name: rgi_json
+    type: json
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.rgi.json"
+
+parameters:
+  - name: input_type
+    type: choice
+    default: contig
+    choices: [contig, protein]
+    label: "输入类型"
+    description: "contig=核酸序列, protein=蛋白质序列"
+  - name: alignment_tool
+    type: choice
+    default: BLAST
+    choices: [BLAST, DIAMOND]
+    label: "比对工具"
+    description: "BLAST 更准确，DIAMOND 更快"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  rgi main \
+    --input_sequence {{ contigs }} \
+    --output_file {{ output_dir }}/{{ sample_id }}.rgi \
+    --input_type {{ input_type }} \
+    --alignment_tool {{ alignment_tool }} \
+    --num_threads {{ threads }} \
+    --clean
+
+databases:
+  - id: card_db
+    param_name: db
+    required: true
+    description: "CARD 耐药基因参考数据库"
+
+methods_template: >
+  Antimicrobial resistance genes were identified using RGI v{version}
+  with the CARD database and {alignment_tool} alignment.
+
+result_views:
+  - type: table
+    title: "RGI 耐药基因注释"
+    data_source: "{sample_id}.rgi.txt"
+    config:
+      columns: [ORF_ID, Best_Hit_ARO, Drug_Class, Resistance_Mechanism, AMR_Gene_Family]
+      sortable: true

@@ -1,0 +1,73 @@
+id: semibin2
+name: SemiBin2
+version: "2.1.0"
+category: binning
+description: "深度学习宏基因组分箱工具，nf-core/mag 推荐"
+conda_env: semibin2_env
+install_cmd: "conda create -n semibin2_env -c bioconda -c conda-forge semibin -y"
+
+detection:
+  command: "SemiBin2 --version"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: contigs
+    type: fasta
+    required: true
+    description: "组装后的 contigs FASTA 文件"
+  - name: sorted_bam
+    type: bam
+    required: true
+    description: "reads 比对到 contigs 的排序 BAM 文件"
+
+outputs:
+  - name: bins_dir
+    type: directory
+    tier: result
+    pattern: "{output_dir}/semibin2_out/output_bins"
+    sync_to_local: false
+  - name: semibin2_out
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/semibin2_out"
+
+parameters:
+  - name: environment
+    type: choice
+    default: global
+    choices: [global, human_gut, dog_gut, ocean, soil, cat_gut, human_oral, mouse_gut, pig_gut, built_environment, wastewater]
+    label: "预训练模型"
+    description: "选择与样本来源匹配的预训练模型（global 为通用模型）"
+  - name: min_len
+    type: int
+    default: 1000
+    range: [500, 5000]
+    label: "最小 contig 长度"
+    description: "参与分箱的最短 contig 长度"
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+
+command_template: |
+  SemiBin2 single_easy_bin \
+    -i {{ contigs }} \
+    -b {{ sorted_bam }} \
+    -o {{ output_dir }}/semibin2_out \
+    --environment {{ environment }} \
+    --min-len {{ min_len }} \
+    -t {{ threads }}
+
+databases: []
+
+methods_template: >
+  Metagenomic binning was performed using SemiBin2 v{version}
+  with the {environment} pre-trained model (min contig length = {min_len} bp).
+
+result_views:
+  - type: table
+    title: "SemiBin2 分箱结果"
+    data_source: "output_bins"
+    config:
+      sortable: true

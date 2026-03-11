@@ -80,7 +80,7 @@ class TestSubmit:
         )
 
         assert len(written_script) == 1
-        assert "/opt/conda/bin/conda create -n fastp_env -y" in written_script[0]
+        assert "/opt/conda/bin/conda create -p /opt/conda/envs/fastp_env -y" in written_script[0]
 
     def test_submit_script_write_failure(self):
         """脚本写入失败时应抛出 RuntimeError。"""

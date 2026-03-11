@@ -1,0 +1,67 @@
+id: gunc
+name: GUNC
+version: "1.0.6"
+category: quality
+description: "MAG 嵌合体与污染检测工具（基于 proGenomes 分类一致性）"
+conda_env: gunc_env
+install_cmd: "conda create -n gunc_env -c bioconda -c conda-forge gunc -y"
+
+detection:
+  command: "gunc --version"
+  version_regex: "(\\d+\\.\\d+(?:\\.\\d+)?)"
+
+inputs:
+  - name: bins_dir
+    type: directory
+    required: true
+    description: "包含 MAG FASTA 文件的目录"
+
+outputs:
+  - name: gunc_scores
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/gunc_out/GUNC.progenomes_2.1.maxCSS_level.tsv"
+    sync_to_local: true
+  - name: gunc_out
+    type: directory
+    tier: intermediate
+    pattern: "{output_dir}/gunc_out"
+
+parameters:
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+  - name: sensitive
+    type: bool
+    default: false
+    label: "敏感模式"
+    description: "使用更敏感的 DIAMOND 搜索模式"
+
+command_template: |
+  gunc run \
+    --input_dir {{ bins_dir }} \
+    --db_file {{ db }} \
+    --out_dir {{ output_dir }}/gunc_out \
+    --threads {{ threads }} \
+    {%- if sensitive %} --sensitive {%- endif %} \
+    --detailed_output
+
+databases:
+  - id: gunc_db
+    param_name: db
+    required: true
+    description: "GUNC proGenomes 参考数据库"
+
+methods_template: >
+  Chimeric contamination in MAGs was assessed using GUNC v{version}
+  with the proGenomes 2.1 reference database.
+
+result_views:
+  - type: table
+    title: "GUNC 嵌合体检测结果"
+    data_source: "GUNC.progenomes_2.1.maxCSS_level.tsv"
+    config:
+      columns: [genome, n_genes_called, n_genes_mapped, taxonomic_level, proportion_genes_retained_in_major_clade, genes_retained_index, clade_separation_score, contamination_portion, pass.GUNC]
+      sortable: true
