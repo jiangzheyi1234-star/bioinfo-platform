@@ -114,15 +114,6 @@ class TestServiceLocatorInitialization:
         locator.initialize()
         assert locator.job_queue is not None
 
-    def test_job_monitor_accessible(self, tmp_path) -> None:
-        """job_monitor 应可访问"""
-        plugins_dir = tmp_path / "plugins"
-        plugins_dir.mkdir()
-
-        locator = ServiceLocator(plugins_dir=plugins_dir)
-        locator.initialize()
-        assert locator.job_monitor is not None
-
 
 class TestServiceLocatorSSH:
     """SSH 相关测试"""

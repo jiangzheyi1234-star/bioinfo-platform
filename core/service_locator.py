@@ -14,7 +14,6 @@
 事件驱动模式:
   - JobDispatcher 在后台线程中同步等待 screen 会话结束
   - 任务完成后通过信号通知，不依赖固定轮询
-  - JobMonitor 保留作为 fallback
 """
 
 import logging
@@ -26,7 +25,6 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from core.command_builder import CommandBuilder
 from core.data_registry import DataRegistry
 from core.job_dispatcher import JobDispatcher
-from core.job_monitor import JobMonitor
 from core.job_queue import JobQueue
 from core.plugin_registry import PluginRegistry
 from core.project_manager import ProjectManager
@@ -62,8 +60,7 @@ class ServiceLocator(QObject):
         self._plugin_registry = PluginRegistry(self._plugins_dir)
         self._project_manager = project_manager or ProjectManager()
         self._job_queue = JobQueue(max_concurrent=max_concurrent)
-        self._job_monitor = JobMonitor()
-        self._job_dispatcher = JobDispatcher()  # 事件驱动核心
+        self._job_dispatcher = JobDispatcher()
         self._retry_manager = RetryManager()
         self._data_registry: Optional[DataRegistry] = None
         self._tool_engine: Optional[ToolEngine] = None
@@ -108,10 +105,6 @@ class ServiceLocator(QObject):
         return self._job_queue
 
     @property
-    def job_monitor(self) -> JobMonitor:
-        return self._job_monitor
-
-    @property
     def retry_manager(self) -> RetryManager:
         return self._retry_manager
 
@@ -142,9 +135,6 @@ class ServiceLocator(QObject):
         # 事件驱动：JobDispatcher 的信号
         self._job_dispatcher.job_completed.connect(self._on_completed)
         self._job_dispatcher.job_failed.connect(self._on_failed)
-        # Fallback：JobMonitor 的信号（保留以防事件驱动失败）
-        self._job_monitor.job_completed.connect(self._on_completed)
-        self._job_monitor.job_failed.connect(self._on_failed)
         self._retry_manager.retry_exhausted.connect(
             lambda eid, err: logger.warning("任务重试用尽: %s — %s", eid, err)
         )
@@ -179,17 +169,6 @@ class ServiceLocator(QObject):
                 job_id=job_id,
                 task_dir=task_dir,
             )
-
-            # Fallback：同时添加到 JobMonitor（以防事件驱动线程异常退出）
-            self._job_monitor.add_job(
-                execution_id=execution_id,
-                job_id=job_id,
-                task_dir=task_dir,
-                ssh_service=self._ssh,
-            )
-
-            if not self._job_monitor.isRunning():
-                self._job_monitor.start()
 
             logger.info("任务已派发: %s → screen %s", execution_id, job_id)
         except Exception as e:
@@ -276,12 +255,7 @@ class ServiceLocator(QObject):
         }
 
     def shutdown(self) -> None:
-        # 停止事件驱动的等待线程
         self._job_dispatcher.stop_all()
-        # 停止 JobMonitor
-        self._job_monitor.request_stop()
-        if self._job_monitor.isRunning():
-            self._job_monitor.wait(5000)
         self._project_manager.close()
         logger.info("ServiceLocator 已关闭")
 
