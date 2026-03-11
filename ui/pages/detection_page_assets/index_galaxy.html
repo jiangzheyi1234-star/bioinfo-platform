@@ -121,6 +121,82 @@
             </div>
         </div>
 
+        <div class="tab-content" id="tab-integrated">
+            <div class="integrated-shell">
+                <aside class="integrated-sidebar">
+                    <div class="integrated-sidebar-header">
+                        <div class="integrated-kicker">Integrated Console</div>
+                        <h2>集成分析工作台</h2>
+                        <p>左侧切换功能，右侧稳定展示参数、状态与结果。</p>
+                    </div>
+                    <div class="integrated-feature-list" id="integrated-feature-list"></div>
+                </aside>
+
+                <section class="integrated-content">
+                    <div class="integrated-hero">
+                        <div>
+                            <div class="integrated-kicker">Workbench</div>
+                            <h2 id="integrated-title">集成分析工作台</h2>
+                            <p id="integrated-subtitle">集中承载多个类似能力，先保证结果展示稳定。</p>
+                        </div>
+                        <div class="integrated-status-chip" id="integrated-status-chip">待选择功能</div>
+                    </div>
+
+                    <div class="integrated-empty-state" id="integrated-empty-state">
+                        <div class="empty-emoji">🧪</div>
+                        <h3>选择左侧功能开始查看</h3>
+                        <p>第一个入口用于引物设计结果展示，其余两个入口预留给后续相似分析能力。</p>
+                    </div>
+
+                    <div class="integrated-detail" id="integrated-detail" style="display:none;">
+                        <div class="detail-header-card">
+                            <div>
+                                <h3 id="feature-title"></h3>
+                                <p id="feature-description"></p>
+                            </div>
+                            <div class="feature-state-card">
+                                <div class="feature-state-label" id="feature-state-label"></div>
+                                <div class="feature-state-detail" id="feature-state-detail"></div>
+                            </div>
+                        </div>
+
+                        <div class="summary-grid" id="summary-grid"></div>
+
+                        <div class="detail-grid">
+                            <div class="detail-card">
+                                <div class="card-title-row">
+                                    <h4>参数概览</h4>
+                                    <span class="card-badge">展示优先</span>
+                                </div>
+                                <div class="parameter-list" id="parameter-list"></div>
+                            </div>
+
+                            <div class="detail-card">
+                                <div class="card-title-row">
+                                    <h4>结果文件</h4>
+                                    <span class="card-badge">后续可下载</span>
+                                </div>
+                                <ul class="artifact-list" id="artifact-list"></ul>
+                            </div>
+                        </div>
+
+                        <div class="detail-card results-card">
+                            <div class="card-title-row">
+                                <h4>推荐引物结果</h4>
+                                <span class="card-badge">primer_result_final_2.txt</span>
+                            </div>
+                            <div class="results-table-wrap">
+                                <table class="integrated-table">
+                                    <thead id="integrated-table-head"></thead>
+                                    <tbody id="integrated-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
       
 
     </div>

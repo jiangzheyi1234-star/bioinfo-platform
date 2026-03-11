@@ -364,6 +364,102 @@ class ToolBridge(QObject):
             logger.exception("Failed to get execution history")
             return json.dumps([], ensure_ascii=False)
 
+    @pyqtSlot(result=str)
+    def get_integrated_workbench_config(self) -> str:
+        """Return a stable initial config for the integrated analysis console."""
+        config = {
+            "title": "集成分析工作台",
+            "subtitle": "先稳定展示引物设计能力，后续两个入口按同一布局继续扩展。",
+            "features": [
+                {
+                    "id": "primer_design",
+                    "name": "引物设计",
+                    "badge": "已接入",
+                    "description": "面向 Linux 命令行引物设计流程的结果展示与后续执行入口。",
+                    "status": "active",
+                },
+                {
+                    "id": "sequence_alignment",
+                    "name": "序列比对",
+                    "badge": "预留",
+                    "description": "预留给第二个同类集成功能。",
+                    "status": "placeholder",
+                },
+                {
+                    "id": "target_screening",
+                    "name": "靶标筛选",
+                    "badge": "预留",
+                    "description": "预留给第三个同类集成功能。",
+                    "status": "placeholder",
+                },
+            ],
+            "views": {
+                "primer_design": {
+                    "title": "多病原体引物设计",
+                    "description": "上传或选择待分析序列后，在 Linux 端执行引物设计流程，并在此查看推荐结果。",
+                    "status": {
+                        "state": "ready",
+                        "label": "展示已就绪",
+                        "detail": "当前先提供稳定结果展示；执行链路下一步接入远程任务提交。",
+                    },
+                    "parameters": [
+                        {"label": "输入序列", "value": "FASTA / FNA 序列集合"},
+                        {"label": "运行模式", "value": "quick / advanced"},
+                        {"label": "候选产物长度", "value": "100-300 bp"},
+                        {"label": "Tm 范围", "value": "57-63 ℃"},
+                        {"label": "GC 范围", "value": "30-70 %"},
+                    ],
+                    "summary": [
+                        {"label": "目标病原体", "value": "5", "tone": "primary"},
+                        {"label": "候选引物对", "value": "18", "tone": "info"},
+                        {"label": "通过二聚体过滤", "value": "9", "tone": "success"},
+                        {"label": "最终推荐", "value": "5", "tone": "accent"},
+                    ],
+                    "columns": [
+                        {"key": "pathogen", "label": "病原体"},
+                        {"key": "region_id", "label": "区域 ID"},
+                        {"key": "forward_primer", "label": "Forward Primer"},
+                        {"key": "reverse_primer", "label": "Reverse Primer"},
+                        {"key": "position", "label": "位置"},
+                        {"key": "amplicon", "label": "扩增子"},
+                    ],
+                    "rows": [
+                        {
+                            "pathogen": "Mycobacterium tuberculosis",
+                            "region_id": "MTB_region_01",
+                            "forward_primer": "AGTGACCGTTCGATGATGAC",
+                            "reverse_primer": "CTTGATCGGCTTCTTCAGGT",
+                            "position": "1520-1688",
+                            "amplicon": "169 bp",
+                        },
+                        {
+                            "pathogen": "Influenza A virus",
+                            "region_id": "FLUA_region_02",
+                            "forward_primer": "TGGACTAGCGAAAGCAGGTA",
+                            "reverse_primer": "CACCTTGTCTTTGCCAGTTC",
+                            "position": "845-1016",
+                            "amplicon": "172 bp",
+                        },
+                        {
+                            "pathogen": "Rubella virus",
+                            "region_id": "RUB_region_01",
+                            "forward_primer": "GGATGGTGATGACACCAAGA",
+                            "reverse_primer": "TTCCACCTTGAGGTTGTTGA",
+                            "position": "221-373",
+                            "amplicon": "153 bp",
+                        },
+                    ],
+                    "artifacts": [
+                        "primer_result_final_2.txt（首选展示）",
+                        "primer_result_final.txt",
+                        "dimer_score.txt",
+                        "运行日志 / 原始结果包",
+                    ],
+                }
+            },
+        }
+        return json.dumps(config, ensure_ascii=False)
+
 
 class DetectionPageWeb(QFrame):
     """Web-based detection page."""

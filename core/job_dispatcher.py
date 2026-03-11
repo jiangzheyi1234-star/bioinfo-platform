@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, QWaitCondition, pyqtSignal, pyqtSlot
 
 logger = logging.getLogger(__name__)
 
@@ -239,12 +239,21 @@ class _WaiterThread(QThread):
         self._task_dir = task_dir
         self._check_interval = check_interval
         self._stop_requested = False
+        self._mutex = QMutex()
+        self._wait_condition = QWaitCondition()
 
     def run(self) -> None:
         """轮询等待任务完成。"""
         logger.debug("开始等待任务: %s", self._execution_id)
 
-        while not self._stop_requested:
+        while True:
+            # 检查停止标志
+            locker = QMutexLocker(self._mutex)
+            if self._stop_requested:
+                logger.info("等待线程已停止: %s", self._execution_id)
+                return
+            del locker
+
             # 检查 screen 会话是否还存在
             session_exists = self._check_screen_session()
             if session_exists is None:
@@ -263,12 +272,11 @@ class _WaiterThread(QThread):
             # 等待下次检查
             self._sleep(self._check_interval)
 
-        # 请求停止
-        logger.info("等待线程已停止: %s", self._execution_id)
-
     def stop(self) -> None:
-        """请求停止等待。"""
+        """请求停止等待并唤醒等待条件。"""
+        locker = QMutexLocker(self._mutex)
         self._stop_requested = True
+        self._wait_condition.wakeAll()
 
     def _check_screen_session(self) -> Optional[bool]:
         """检查 screen 会话是否存在。
@@ -339,9 +347,6 @@ class _WaiterThread(QThread):
             self.failed.emit(self._execution_id, str(e))
 
     def _sleep(self, seconds: float) -> None:
-        """可中断的睡眠。"""
-        elapsed = 0.0
-        while elapsed < seconds and not self._stop_requested:
-            step = min(0.2, seconds - elapsed)
-            self.msleep(int(step * 1000))
-            elapsed += step
+        """使用 QWaitCondition 的可中断睡眠 — 避免轮询。"""
+        locker = QMutexLocker(self._mutex)
+        self._wait_condition.wait(self._mutex, int(seconds * 1000))

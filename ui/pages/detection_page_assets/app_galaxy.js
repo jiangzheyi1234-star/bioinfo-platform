@@ -2,6 +2,8 @@
 let allTools = [];
 let selectedToolId = null;
 let selectedDescriptor = null;
+let integratedWorkbench = null;
+let selectedIntegratedFeatureId = null;
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -25,6 +27,9 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // 加载工具列表
     loadTools();
+
+    // 加载集成分析工作台
+    loadIntegratedWorkbench();
 
     // 搜索功能
     document.getElementById('search').addEventListener('input', function(e) {
@@ -63,6 +68,196 @@ function switchTab(tab) {
     if (tab === 'history') {
         loadHistory();
     }
+
+    if (tab === 'integrated' && !integratedWorkbench) {
+        loadIntegratedWorkbench();
+    }
+}
+
+function loadIntegratedWorkbench() {
+    if (!bridge || !bridge.get_integrated_workbench_config) {
+        return;
+    }
+
+    bridge.get_integrated_workbench_config(function(json) {
+        try {
+            integratedWorkbench = JSON.parse(json);
+            renderIntegratedWorkbench();
+        } catch (e) {
+            console.error('Failed to parse integrated workbench config:', e);
+        }
+    });
+}
+
+function renderIntegratedWorkbench() {
+    if (!integratedWorkbench) {
+        return;
+    }
+
+    const title = document.getElementById('integrated-title');
+    const subtitle = document.getElementById('integrated-subtitle');
+    if (title) {
+        title.textContent = integratedWorkbench.title || '集成分析工作台';
+    }
+    if (subtitle) {
+        subtitle.textContent = integratedWorkbench.subtitle || '';
+    }
+
+    const container = document.getElementById('integrated-feature-list');
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+    const features = integratedWorkbench.features || [];
+    features.forEach(feature => {
+        const item = document.createElement('button');
+        item.className = 'integrated-feature-item';
+        item.dataset.featureId = feature.id;
+        item.innerHTML = `
+            <div class="integrated-feature-main">
+                <div class="integrated-feature-name">${escapeHtml(feature.name || feature.id)}</div>
+                <div class="integrated-feature-desc">${escapeHtml(feature.description || '')}</div>
+            </div>
+            <span class="integrated-feature-badge">${escapeHtml(feature.badge || '')}</span>
+        `;
+        item.addEventListener('click', function() {
+            selectIntegratedFeature(feature.id);
+        });
+        container.appendChild(item);
+    });
+
+    const preferredFeature = features.find(feature => feature.status === 'active') || features[0];
+    if (preferredFeature) {
+        selectIntegratedFeature(preferredFeature.id);
+    }
+}
+
+function selectIntegratedFeature(featureId) {
+    if (!integratedWorkbench) {
+        return;
+    }
+
+    selectedIntegratedFeatureId = featureId;
+    document.querySelectorAll('.integrated-feature-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.featureId === featureId);
+    });
+
+    const features = integratedWorkbench.features || [];
+    const feature = features.find(item => item.id === featureId);
+    const view = (integratedWorkbench.views || {})[featureId];
+    renderIntegratedFeature(feature, view);
+}
+
+function renderIntegratedFeature(feature, view) {
+    const emptyState = document.getElementById('integrated-empty-state');
+    const detail = document.getElementById('integrated-detail');
+    const statusChip = document.getElementById('integrated-status-chip');
+
+    if (!feature || !view) {
+        if (emptyState) emptyState.style.display = 'flex';
+        if (detail) detail.style.display = 'none';
+        if (statusChip) statusChip.textContent = '待选择功能';
+        return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (detail) detail.style.display = 'flex';
+    if (statusChip) statusChip.textContent = feature.badge || '已选择';
+
+    document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
+    document.getElementById('feature-description').textContent = view.description || '';
+    document.getElementById('feature-state-label').textContent = view.status?.label || '已就绪';
+    document.getElementById('feature-state-detail').textContent = view.status?.detail || '';
+
+    renderSummaryGrid(view.summary || []);
+    renderParameterList(view.parameters || []);
+    renderArtifactList(view.artifacts || []);
+    renderIntegratedTable(view.columns || [], view.rows || []);
+}
+
+function renderSummaryGrid(summaryItems) {
+    const container = document.getElementById('summary-grid');
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+    summaryItems.forEach(item => {
+        const card = document.createElement('div');
+        card.className = `summary-card tone-${item.tone || 'default'}`;
+        card.innerHTML = `
+            <div class="summary-label">${escapeHtml(item.label || '')}</div>
+            <div class="summary-value">${escapeHtml(String(item.value ?? ''))}</div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function renderParameterList(parameters) {
+    const container = document.getElementById('parameter-list');
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+    parameters.forEach(param => {
+        const row = document.createElement('div');
+        row.className = 'parameter-row';
+        row.innerHTML = `
+            <span class="parameter-label">${escapeHtml(param.label || '')}</span>
+            <span class="parameter-value">${escapeHtml(param.value || '')}</span>
+        `;
+        container.appendChild(row);
+    });
+}
+
+function renderArtifactList(artifacts) {
+    const container = document.getElementById('artifact-list');
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+    artifacts.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        container.appendChild(li);
+    });
+}
+
+function renderIntegratedTable(columns, rows) {
+    const head = document.getElementById('integrated-table-head');
+    const body = document.getElementById('integrated-table-body');
+    if (!head || !body) {
+        return;
+    }
+
+    head.innerHTML = `<tr>${columns.map(column => `<th>${escapeHtml(column.label || column.key || '')}</th>`).join('')}</tr>`;
+    body.innerHTML = '';
+
+    if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">暂无结果</td></tr>`;
+        return;
+    }
+
+    rows.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = columns.map(column => {
+            const value = row[column.key] ?? '-';
+            return `<td>${escapeHtml(String(value))}</td>`;
+        }).join('');
+        body.appendChild(tr);
+    });
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function loadTools() {
