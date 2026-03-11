@@ -88,6 +88,14 @@ pytest tests/test_xxx.py -v    # 单文件测试
 - [ ] `ResultsPanel` 未加入 `ui/widgets/__init__.py`，`analysis_page._on_pipeline_completed()` 未调用
 - [ ] 结果文件下载：远端 result 需 `ssh.download()` 到本地
 
+### P1 — 事件驱动改造（已完成）
+- [x] 移除轮询间隔，改为事件驱动
+  - `JobDispatcher` 新增事件驱动模式：后台线程同步等待 screen 会话结束
+  - 任务完成后通过 Qt 信号通知，不依赖固定轮询
+  - `JobMonitor` 保留作为 fallback
+  - 修改文件：`core/job_dispatcher.py`, `core/service_locator.py`
+  - 新增容器检测模块（供以后使用）：`core/container_detector.py`
+
 ### P2 — 核心缺失
 - [ ] 数据库管理页（`database_page.py`）— 工具环境已可安装，下一步是数据库下载 UI
 - [ ] 结果浏览页（`results_page.py`）— matplotlib 图表 + 数据表格 + DAG 视图

@@ -61,7 +61,6 @@ def default_settings_schema() -> dict[str, Any]:
         },
         "execution": {
             "max_concurrent": 3,
-            "poll_interval": 5,
             "screen_check_timeout": 10,
         },
         "databases": {
@@ -83,7 +82,6 @@ def default_settings_schema() -> dict[str, Any]:
         "runtime": {
             "local_file": "",
             "local_output_dir": ensure_output_dir(r"C:\PathogenAnalyzer\output"),
-            "poll_interval": 5,
             "max_poll_retries": 3,
             "screen_check_timeout": 10,
         },
@@ -132,8 +130,6 @@ def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
         runtime["local_file"] = str(data.get("local_file") or "")
     if "local_output_dir" in data:
         runtime["local_output_dir"] = ensure_output_dir(str(data.get("local_output_dir") or runtime["local_output_dir"]))
-    if "poll_interval" in data:
-        runtime["poll_interval"] = int(data.get("poll_interval") or runtime["poll_interval"])
     if "max_poll_retries" in data:
         runtime["max_poll_retries"] = int(data.get("max_poll_retries") or runtime["max_poll_retries"])
     if "screen_check_timeout" in data:
@@ -230,7 +226,6 @@ def sync_default_from_schema(schema: dict[str, Any]) -> None:
             "remote_script": blast["remote_script"],
             "local_file": runtime["local_file"],
             "local_output_dir": runtime["local_output_dir"],
-            "poll_interval": execution["poll_interval"],
             "max_concurrent": execution["max_concurrent"],
             "max_poll_retries": runtime["max_poll_retries"],
             "screen_check_timeout": execution["screen_check_timeout"],
@@ -250,7 +245,6 @@ DEFAULT_CONFIG = {
     "remote_script": "",
     "local_file": "",
     "local_output_dir": "",
-    "poll_interval": 5,
     "max_concurrent": 3,
     "max_poll_retries": 3,
     "screen_check_timeout": 10,

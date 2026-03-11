@@ -700,7 +700,7 @@ class LinuxSettingsCard(QFrame):
       - 使用 Web UI (QWebEngineView) 展示工具环境表格，解决对齐问题。
 
     get_values() 返回字段（保持向后兼容）:
-      max_concurrent, poll_interval,
+      max_concurrent,
       conda_env_path(空), conda_env_name(空), is_locked
     """
 
@@ -761,7 +761,6 @@ class LinuxSettingsCard(QFrame):
             "conda_env_name": "",       # DEPRECATED, 保留 key 兼容旧逻辑
             "is_locked": self._is_locked,
             "max_concurrent": self.spin_concurrent.value(),
-            "poll_interval": self.spin_poll.value(),
         }
 
     def set_values(
@@ -771,11 +770,9 @@ class LinuxSettingsCard(QFrame):
         conda_executable: str = "",
         auto_installed: bool = False,
         max_concurrent: int = 3,
-        poll_interval: int = 5,
     ) -> None:
         """供 SettingsPage 回填数据。"""
         self.spin_concurrent.setValue(max_concurrent)
-        self.spin_poll.setValue(poll_interval)
         self._conda_executable = conda_executable
         self._auto_installed = auto_installed
 
@@ -792,7 +789,6 @@ class LinuxSettingsCard(QFrame):
 
     def _set_form_enabled(self, enabled: bool) -> None:
         self.spin_concurrent.setEnabled(enabled)
-        self.spin_poll.setEnabled(enabled)
 
     # ── UI 构建 ──────────────────────────────────────────
 
@@ -844,13 +840,7 @@ class LinuxSettingsCard(QFrame):
         self.spin_concurrent.setValue(3)
         self.spin_concurrent.setSuffix(" 个任务")
 
-        self.spin_poll = QSpinBox()
-        self.spin_poll.setRange(1, 60)
-        self.spin_poll.setValue(5)
-        self.spin_poll.setSuffix(" 秒")
-
         form.addRow("最大并发任务数", self.spin_concurrent)
-        form.addRow("任务轮询间隔", self.spin_poll)
         c_layout.addLayout(form)
 
         # ── 工具环境检测区（Web UI）──
@@ -1205,7 +1195,7 @@ class LinuxSettingsCard(QFrame):
         self._checking = True
         self._set_status("正在检测工具环境...")
 
-        # 通知 Web UI 检测开始
+        # 立即通知 Web UI 检测开始（避免用户感觉点击后无响应）
         if self._bridge:
             self._bridge.emit_check_started()
 
@@ -1411,7 +1401,7 @@ class LinuxSettingsCard(QFrame):
         if self._external_lock:
             for w in [
                 self.modify_btn, self.lock_btn,
-                self.spin_concurrent, self.spin_poll,
+                self.spin_concurrent,
             ]:
                 w.setEnabled(False)
             return

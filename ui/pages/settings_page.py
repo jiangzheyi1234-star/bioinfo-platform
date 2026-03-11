@@ -141,7 +141,6 @@ class SettingsPage(BasePage):
             conda_executable=str(linux.get("conda_executable", "") or ""),
             auto_installed=bool(linux.get("auto_installed", False)),
             max_concurrent=int(execution.get("max_concurrent", 3) or 3),
-            poll_interval=int(execution.get("poll_interval", 5) or 5),
         )
         self.db_card.set_values(databases)
         self.ncbi_card.set_values(
@@ -180,7 +179,6 @@ class SettingsPage(BasePage):
             },
             "execution": {
                 "max_concurrent": int(linux_values.get("max_concurrent", 3)),
-                "poll_interval": int(linux_values.get("poll_interval", 5)),
                 "screen_check_timeout": int(current.get("execution", {}).get("screen_check_timeout", 10)),
             },
             "databases": db_values,

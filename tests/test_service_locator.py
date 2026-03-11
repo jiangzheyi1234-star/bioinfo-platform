@@ -261,6 +261,16 @@ class TestServiceLocatorSignalChain:
             lambda eid, err: received.append((eid, err))
         )
 
+        # 先注册执行上下文（模拟实际派发流程）
+        locator.register_execution_context(
+            execution_id="exec_fail001",
+            command="test cmd",
+            descriptor={"id": "test"},
+            sample_id="smp_002",
+            output_dir="/tmp/test",
+            task_dir="/tmp/test",
+        )
+
         locator._on_failed("exec_fail001", "内存不足")
         assert len(received) == 1
         assert received[0] == ("exec_fail001", "内存不足")

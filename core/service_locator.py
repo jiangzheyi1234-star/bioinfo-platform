@@ -2,14 +2,19 @@
 
 职责:
   1. 持有 SSHService 引用（从 SettingsPage 注入，可 hot-swap）
-  2. 创建和管理 PluginRegistry、ProjectManager、JobQueue、JobMonitor 等
+  2. 创建和管理 PluginRegistry、ProjectManager、JobQueue、JobDispatcher 等
   3. 信号链路:
      JobQueue.job_started → _on_dispatch → CommandBuilder.wrap() → JobDispatcher.submit()
-       → JobMonitor.add_job()
-     JobMonitor.job_completed → _on_completed → ToolEngine.on_job_completed()
+       → JobDispatcher.start_waiting() (事件驱动)
+       → JobDispatcher.job_completed → _on_completed → ToolEngine.on_job_completed()
        → JobQueue.on_job_finished()
-     JobMonitor.job_failed → RetryManager.on_task_failed()
+     JobDispatcher.job_failed → _on_failed → RetryManager.on_task_failed()
   4. 监听 ProjectManager.project_opened → 重建 DataRegistry
+
+事件驱动模式:
+  - JobDispatcher 在后台线程中同步等待 screen 会话结束
+  - 任务完成后通过信号通知，不依赖固定轮询
+  - JobMonitor 保留作为 fallback
 """
 
 import logging
@@ -58,6 +63,7 @@ class ServiceLocator(QObject):
         self._project_manager = project_manager or ProjectManager()
         self._job_queue = JobQueue(max_concurrent=max_concurrent)
         self._job_monitor = JobMonitor()
+        self._job_dispatcher = JobDispatcher()  # 事件驱动核心
         self._retry_manager = RetryManager()
         self._data_registry: Optional[DataRegistry] = None
         self._tool_engine: Optional[ToolEngine] = None
@@ -133,6 +139,10 @@ class ServiceLocator(QObject):
 
     def _connect_signals(self) -> None:
         self._job_queue.job_started.connect(self._on_dispatch)
+        # 事件驱动：JobDispatcher 的信号
+        self._job_dispatcher.job_completed.connect(self._on_completed)
+        self._job_dispatcher.job_failed.connect(self._on_failed)
+        # Fallback：JobMonitor 的信号（保留以防事件驱动失败）
         self._job_monitor.job_completed.connect(self._on_completed)
         self._job_monitor.job_failed.connect(self._on_failed)
         self._retry_manager.retry_exhausted.connect(
@@ -162,6 +172,15 @@ class ServiceLocator(QObject):
                 task_dir=task_dir,
             )
 
+            # 事件驱动：启动后台等待线程
+            self._job_dispatcher.start_waiting(
+                ssh_service=self._ssh,
+                execution_id=execution_id,
+                job_id=job_id,
+                task_dir=task_dir,
+            )
+
+            # Fallback：同时添加到 JobMonitor（以防事件驱动线程异常退出）
             self._job_monitor.add_job(
                 execution_id=execution_id,
                 job_id=job_id,
@@ -195,6 +214,14 @@ class ServiceLocator(QObject):
         self.execution_completed.emit(execution_id)
 
     def _on_failed(self, execution_id: str, error: str) -> None:
+        # 幂等保护：防止重复处理（事件驱动和 JobMonitor fallback 同时触发）
+        # 如果上下文已被弹出，说明已处理过，跳过
+        ctx = self._execution_ctx.get(execution_id)
+        if ctx is None:
+            logger.debug("失败回调: 上下文已处理 %s", execution_id)
+            return
+
+        # 弹出上下文，防止后续重复处理
         self._execution_ctx.pop(execution_id, None)
 
         if self._tool_engine:
@@ -249,6 +276,9 @@ class ServiceLocator(QObject):
         }
 
     def shutdown(self) -> None:
+        # 停止事件驱动的等待线程
+        self._job_dispatcher.stop_all()
+        # 停止 JobMonitor
         self._job_monitor.request_stop()
         if self._job_monitor.isRunning():
             self._job_monitor.wait(5000)
