@@ -11,6 +11,17 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_qapp():
+    """Session-wide QApplication — 所有需要 Qt 信号的测试共享同一个实例。"""
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
+    yield app
+
+
 @pytest.fixture
 def tmp_dir(tmp_path: Path) -> Path:
     """返回一个每个测试独立的临时目录，测试结束后由 pytest 自动清理。"""

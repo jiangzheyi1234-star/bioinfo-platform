@@ -78,6 +78,7 @@ def default_settings_schema() -> dict[str, Any]:
             "local_output_dir": ensure_output_dir(r"C:\PathogenAnalyzer\output"),
             "max_poll_retries": 3,
             "screen_check_timeout": 10,
+            "primer_result_root": "",
         },
     }
 
@@ -231,6 +232,5 @@ DEFAULT_CONFIG = {
 }
 
 sync_default_from_schema(get_config())
-
 
 

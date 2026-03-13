@@ -1,17 +1,11 @@
 # tests/test_job_dispatcher.py
 """JobDispatcher + JobMonitor 单元测试 — 使用 mock SSH 服务测试分发和监控逻辑。"""
-import sys
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from core.job_dispatcher import DispatchError, JobDispatcher
 from core.job_monitor import JobMonitor, MonitoredJob
-
-# PyQt6 信号需要 QCoreApplication 实例才能工作
-from PyQt6.QtCore import QCoreApplication
-
-_app = QCoreApplication.instance() or QCoreApplication(sys.argv)
 
 
 # ---------------------------------------------------------------------------

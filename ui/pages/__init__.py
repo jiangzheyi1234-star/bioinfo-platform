@@ -4,6 +4,7 @@ from .detection_page_web import DetectionPageWeb
 from .home_page import HomePage
 from .analysis_page import AnalysisPage
 from .assembly_page import AssemblyPage
+from .project_page import ProjectPage
 
 # Backward-compatible export: legacy imports expect `DetectionPage`.
 DetectionPage = DetectionPageWeb
@@ -15,4 +16,5 @@ __all__ = [
     "HomePage",
     "AnalysisPage",
     "AssemblyPage",
+    "ProjectPage",
 ]

@@ -226,7 +226,17 @@ class ToolBridge(QObject):
             return {}
 
     def _get_default_primer_result_dir(self) -> str:
-        default_root = "/home/zyserver/project_ssd/primer_design"
+        default_root = ""
+
+        try:
+            from config import get_config
+
+            runtime_cfg = get_config().get("runtime", {})
+            configured_root = str(runtime_cfg.get("primer_result_root", "") or "").strip()
+            if configured_root:
+                default_root = configured_root.rstrip("/")
+        except Exception:
+            logger.debug("无法从配置读取 runtime.primer_result_root，回退到插件默认值")
 
         if self.plugin_registry is not None:
             try:
@@ -234,13 +244,15 @@ class ToolBridge(QObject):
                 for param in desc.get("parameters", []):
                     if param.get("name") == "workflow_root":
                         configured_root = str(param.get("default") or "").strip()
-                        if configured_root:
+                        if configured_root and not default_root:
                             default_root = configured_root.rstrip("/")
                         break
             except Exception:
                 logger.debug("无法从 primer_design 插件描述符读取 workflow_root，使用默认结果目录")
 
-        return f"{default_root.rstrip('/')}/my_result"
+        if default_root:
+            return f"{default_root.rstrip('/')}/my_result"
+        return "my_result"
 
     def _get_live_primer_design_view(self) -> dict | None:
         base = copy.deepcopy(self._base_integrated_workbench_config()["views"]["primer_design"])
@@ -710,7 +722,7 @@ class ToolBridge(QObject):
 class DetectionPageWeb(QFrame):
     """Web-based detection page."""
 
-    def __init__(self, main_window=None):
+    def __init__(self, main_window=None, enable_webengine: bool = True):
         # Compatibility attr expected by legacy smoke tests.
         self.execution_history = []
 
@@ -720,6 +732,15 @@ class DetectionPageWeb(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        if not enable_webengine:
+            placeholder = QLabel("检测页 WebEngine 已在当前运行模式下禁用。")
+            placeholder.setWordWrap(True)
+            layout.addWidget(placeholder)
+            self.web_view = None
+            self.bridge = None
+            self.channel = None
+            return
 
         ensure_qt_webengine_ready()
         try:

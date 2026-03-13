@@ -58,11 +58,29 @@ try:
 except Exception:  # pragma: no cover
     DatabasePathsCard = None  # type: ignore
 
+try:
+    from .chart_widget import ChartWidget, ResultsPanel
+except Exception:  # pragma: no cover
+    ChartWidget = None  # type: ignore
+    ResultsPanel = None  # type: ignore
+
+try:
+    from .environment_status_bar import EnvironmentStatusBar
+except Exception:  # pragma: no cover
+    EnvironmentStatusBar = None  # type: ignore
+
+try:
+    from .input_data_selector import InputDataSelector
+except Exception:  # pragma: no cover
+    InputDataSelector = None  # type: ignore
+
 from . import styles
 
 __all__ = [
     "SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard",
     "BlastResourceCard", "BlastSampleCard", "BlastRunCard",
     "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget",
-    "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard", "styles",
+    "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard",
+    "ChartWidget", "ResultsPanel", "EnvironmentStatusBar", "InputDataSelector",
+    "styles",
 ]

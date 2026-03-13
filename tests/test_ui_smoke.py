@@ -3,30 +3,46 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from core.project_manager import ProjectManager
 
+pytestmark = pytest.mark.ui
+
+
+def _make_fake_detection_page():
+    """Return a lightweight QWidget stub so QWebEngineView is never loaded."""
+    from PyQt6.QtWidgets import QWidget
+
+    class _FakeDetectionPage(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            self.execution_history = None
+
+        def refresh_data(self, *a, **kw):
+            pass
+
+        def clear_context(self, *a, **kw):
+            pass
+
+    return _FakeDetectionPage
+
 
 @pytest.fixture(scope="module")
-def qapp():
-    from PyQt6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
+def qapp(_ensure_qapp):
+    yield _ensure_qapp
 
 
 @pytest.fixture(scope="module")
 def main_window(qapp):
     from ui.main_window import MainWindow
 
-    window = MainWindow()
-    yield window
-    window.close()
+    with patch("ui.main_window.DetectionPage", _make_fake_detection_page()):
+        window = MainWindow()
+        yield window
+        window.close()
 
 
 @pytest.fixture()
@@ -40,10 +56,11 @@ def temp_main_window(qapp, tmp_path: Path):
     project_id = pm.create_project("test project", "used for UI verification")
     pm.open_project(project_id)
 
-    window = MainWindow(project_manager=pm)
-    qapp.processEvents()
-    yield window
-    window.close()
+    with patch("ui.main_window.DetectionPage", _make_fake_detection_page()):
+        window = MainWindow(project_manager=pm)
+        qapp.processEvents()
+        yield window
+        window.close()
     pm.close()
 
 
@@ -102,9 +119,10 @@ class TestPageStartup:
     def test_detection_page_starts(self, qapp):
         from ui.pages.detection_page_web import DetectionPageWeb
 
-        page = DetectionPageWeb(main_window=None)
+        page = DetectionPageWeb(main_window=None, enable_webengine=False)
         assert page is not None
         assert hasattr(page, "execution_history")
+        assert page.web_view is None
 
     def test_analysis_page_starts(self, qapp):
         from ui.pages.analysis_page import AnalysisPage
@@ -283,7 +301,8 @@ class TestHomePageFlows:
         project_two = pm.create_project("project two", "second project")
         pm.open_project(project_one)
 
-        window = MainWindow(project_manager=pm)
+        with patch("ui.main_window.DetectionPage", _make_fake_detection_page()):
+            window = MainWindow(project_manager=pm)
         _flush_events(qapp)
 
         assert window.home_page._proj_name_label.text() == "project one"
@@ -336,7 +355,8 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     project_id = pm.create_project("test_project", "ui verification")
     pm.open_project(project_id)
 
-    window = MainWindow(project_manager=pm)
+    with patch("ui.main_window.DetectionPage", _make_fake_detection_page()):
+        window = MainWindow(project_manager=pm)
     _flush_events(qapp)
 
     assert "execution" not in config.get_config()

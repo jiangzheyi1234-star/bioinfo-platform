@@ -60,7 +60,7 @@ class ServiceLocator(QObject):
         self._project_manager = project_manager or ProjectManager()
         self._job_queue = JobQueue()
         self._job_dispatcher = JobDispatcher()
-        self._retry_manager = RetryManager()
+        self._retry_manager = RetryManager(retry_callback=self._retry_execution)
         self._data_registry: Optional[DataRegistry] = None
         self._tool_engine: Optional[ToolEngine] = None
         self._execution_ctx: dict[str, dict[str, Any]] = {}
@@ -196,15 +196,36 @@ class ServiceLocator(QObject):
             logger.debug("失败回调: 上下文已处理 %s", execution_id)
             return
 
-        # 弹出上下文，防止后续重复处理
-        self._execution_ctx.pop(execution_id, None)
+        self._job_queue.on_job_finished(execution_id)
+        retry_decision = self._retry_manager.on_task_failed(execution_id, error)
+        if retry_decision == "auto_retry":
+            logger.info("任务进入自动重试: %s", execution_id)
+            return
 
+        # 自动重试未生效或重试用尽时，标记最终失败并弹出上下文
+        self._execution_ctx.pop(execution_id, None)
         if self._tool_engine:
             self._tool_engine.on_job_failed(execution_id, error)
-
-        self._retry_manager.on_task_failed(execution_id, error)
-        self._job_queue.on_job_finished(execution_id)
         self.execution_failed.emit(execution_id, error)
+
+    def _retry_execution(self, execution_id: str) -> None:
+        """RetryManager 回调：使用原执行上下文重提同一 execution_id 任务。"""
+        ctx = self._execution_ctx.get(execution_id)
+        if ctx is None:
+            raise RuntimeError(f"重试失败：找不到执行上下文 {execution_id}")
+        if self._ssh is None:
+            raise RuntimeError(f"重试失败：SSH 未连接 ({execution_id})")
+
+        self._job_queue.submit(
+            execution_id=execution_id,
+            command=ctx["command"],
+            metadata={
+                "tool_id": ctx["descriptor"].get("id", ""),
+                "sample_id": ctx["sample_id"],
+                "retry": True,
+            },
+        )
+        logger.info("已重新提交任务: %s", execution_id)
 
     def _on_project_opened(self, project_id: str) -> None:
         logger.info("项目切换: %s, 重建 DataRegistry", project_id)

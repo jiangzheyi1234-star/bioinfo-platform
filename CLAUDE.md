@@ -28,7 +28,7 @@
 - **结构**：`plugins/{category}/{tool_name}/tool.yaml`
 - **必需字段**：conda_env · install_cmd · command_template
 - **可选字段**：databases（依赖的数据库列表）
-- **已有 29 个工具**，分 11 个 category
+- **已有 30 个工具**，分 11 个 category
 
 ---
 
@@ -74,11 +74,11 @@ execution_io  (execution_id, data_id, direction, PK(all three))
 
 **Phase 2 ✅ 完成**
 - ✅ 6 个 UI 页面：home_page · project_page · analysis_page · assembly_page · detection_page_web · settings_page
-- ✅ 29 个 tool.yaml（11 个 category）
+- ✅ 30 个 tool.yaml（11 个 category）
 - ✅ conda 环境管理：env_detector · env_installer · LinuxSettingsCard 升级
 - ✅ 完整执行链：ToolEngine → JobQueue → JobDispatcher（事件驱动）→ DataRegistry
 
-**Phase 3 进行中**
+**Phase 3 进行中** — 结果展示 + 页面扩展
 
 ---
 
@@ -105,6 +105,8 @@ execution_io  (execution_id, data_id, direction, PK(all three))
 5. **响应式布局** — 禁止硬编码固定宽度
 6. **测试临时文件用 fixture** — 统一用 `conftest.py` 的 `tmp_db` / `tmp_dir`
 7. **禁止硬编码服务器信息** — 所有配置通过 config.py 读写
+8. **测试禁止 module-level 创建 QApplication/QCoreApplication** — 统一用 `conftest.py` 的 `_ensure_qapp`（session-scope QApplication）。Qt 同一进程只允许一个 Application 实例，混用 QCoreApplication 和 QApplication 会导致 `0xC0000409` 原生崩溃
+9. **测试中禁止实例化 QWebEngineView** — UI 测试需 `patch("ui.main_window.DetectionPage", FakeWidget)` 替换，避免 Chromium 子进程在无头环境崩溃
 
 ---
 

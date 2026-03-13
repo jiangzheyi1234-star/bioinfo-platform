@@ -100,7 +100,7 @@ bio_ui/
 │   ├── {category}/{tool}/tool.yaml
 │   ├── databases.yaml        # 数据库清单（安装路径 / 镜像 / 校验）
 │   └── analysis_paths.yaml   # 分析路径声明（三条路径的阶段定义）
-├── tests/              # 414 个测试
+├── tests/              # 单元测试 + 集成测试（21 个测试模块）
 └── config.py           # V2 配置模型（databases / ssh / linux / execution）
 ```
 
