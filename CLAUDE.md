@@ -114,7 +114,9 @@ execution_io  (execution_id, data_id, direction, PK(all three))
 
 **本地环境**：conda 环境 `bio_ui`（已配置完整依赖）
 **启动应用**：`python -m ui.main`
-**运行测试**：`pytest`（可直接在本地环境测试代码）
+**运行全量测试**：`QT_QPA_PLATFORM=offscreen pytest -p no:cacheprovider tests -q`
 **单文件测试**：`pytest tests/test_xxx.py -v`
+**仅 Core 测试**：`pytest tests -m "not ui" -q`（跳过 UI smoke，速度更快）
+**仅 UI 测试**：`pytest tests/test_ui_smoke.py -v`
 **依赖**：Python 3.11+ · PyQt6 · paramiko · Jinja2 · matplotlib
 **详细架构**：见 `ARCHITECTURE.md`
