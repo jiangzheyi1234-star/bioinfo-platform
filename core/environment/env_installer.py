@@ -9,7 +9,7 @@ import logging
 import re
 import uuid
 
-from core.env_detector import (
+from core.environment.env_detector import (
     SshRunFn,
     pin_create_env_to_conda_root,
     rewrite_install_cmd,

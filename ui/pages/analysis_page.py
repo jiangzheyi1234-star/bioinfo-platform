@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 
-from core.pipeline_runner import PipelineRunner, PipelineStage
+from core.pipeline.pipeline_runner import PipelineRunner, PipelineStage
 from ui.widgets import styles
 from ui.widgets.execution_history_card import ExecutionHistoryCard
 from ui.widgets.stage_status_widget import (
@@ -506,7 +506,7 @@ class AnalysisPage(QFrame):
                 )
                 self._selected_sample_id = sample_id
 
-            from core.data_importer import DataImporter
+            from core.data.data_importer import DataImporter
 
             importer = DataImporter(ssh_service=ssh, registry=registry)
             data_ids = []

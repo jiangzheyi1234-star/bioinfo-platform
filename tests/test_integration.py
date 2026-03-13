@@ -20,12 +20,12 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from core.data_importer import DataImporter
-from core.data_registry import DataRegistry
-from core.plugin_registry import PluginRegistry
-from core.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
-from core.command_builder import CommandBuilder
-from core.tool_engine import ExecutionRecord, ToolEngine
+from core.data.data_importer import DataImporter
+from core.data.data_registry import DataRegistry
+from core.plugins.plugin_registry import PluginRegistry
+from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
+from core.execution.command_builder import CommandBuilder
+from core.execution.tool_engine import ExecutionRecord, ToolEngine
 
 
 # ── Mock / Fake 对象 ──────────────────────────────────────
@@ -480,8 +480,8 @@ class TestMultiStepLineage:
         )
 
         # ── Step 2: 第一次执行 (time=1000) ──
-        with patch("core.tool_engine.time") as mt_engine, \
-             patch("core.data_registry.time") as mt_reg:
+        with patch("core.execution.tool_engine.time") as mt_engine, \
+             patch("core.data.data_registry.time") as mt_reg:
             mt_engine.time.return_value = 1000.0
             mt_reg.time.return_value = 1000.0
             exec_id_1 = engine.execute(
@@ -501,8 +501,8 @@ class TestMultiStepLineage:
         clean_id = clean_items[0].data_id
 
         # ── Step 3: 第二次执行 (time=2000) ──
-        with patch("core.tool_engine.time") as mt_engine, \
-             patch("core.data_registry.time") as mt_reg:
+        with patch("core.execution.tool_engine.time") as mt_engine, \
+             patch("core.data.data_registry.time") as mt_reg:
             mt_engine.time.return_value = 2000.0
             mt_reg.time.return_value = 2000.0
             exec_id_2 = engine.execute(
@@ -620,8 +620,8 @@ class TestFindCompatibleRecommendation:
         descriptor = plugin_registry.get_descriptor("simple_qc")
 
         # 第一次执行（time=1000）
-        with patch("core.tool_engine.time") as mock_time_engine, \
-             patch("core.data_registry.time") as mock_time_registry:
+        with patch("core.execution.tool_engine.time") as mock_time_engine, \
+             patch("core.data.data_registry.time") as mock_time_registry:
             mock_time_engine.time.return_value = 1000.0
             mock_time_registry.time.return_value = 1000.0
             exec_1 = engine.execute(
@@ -636,8 +636,8 @@ class TestFindCompatibleRecommendation:
             )
 
         # 第二次执行（time=2000）
-        with patch("core.tool_engine.time") as mock_time_engine, \
-             patch("core.data_registry.time") as mock_time_registry:
+        with patch("core.execution.tool_engine.time") as mock_time_engine, \
+             patch("core.data.data_registry.time") as mock_time_registry:
             mock_time_engine.time.return_value = 2000.0
             mock_time_registry.time.return_value = 2000.0
             exec_2 = engine.execute(

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.retry_manager import (
+from core.execution.retry_manager import (
     RetryManager,
     TRANSIENT_ERRORS,
     MAX_AUTO_RETRY,

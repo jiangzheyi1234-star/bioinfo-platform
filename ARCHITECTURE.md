@@ -84,24 +84,47 @@ detection:
 
 ```
 bio_ui/
-├── core/               # 纯逻辑层，禁 QtWidgets
-│   ├── service_locator.py    # 服务总线
-│   ├── tool_engine.py        # 统一执行入口
-│   ├── command_builder.py    # 命令渲染（CONDA_RUNNER 常量）
-│   ├── job_dispatcher.py     # SSH 投递
-│   ├── job_monitor.py        # 状态轮询
-│   └── ...
+├── core/                    # 纯逻辑层，禁 QtWidgets
+│   ├── __init__.py          # 子包汇总
+│   ├── service_locator.py   # 服务总线（根级）
+│   ├── execution/           # 执行链（6 个模块）
+│   │   ├── tool_engine.py   # 统一执行入口
+│   │   ├── command_builder.py  # Jinja2 命令渲染
+│   │   ├── job_dispatcher.py   # SSH + screen 投递
+│   │   ├── job_monitor.py      # 状态轮询（fallback）
+│   │   ├── job_queue.py        # 并发控制
+│   │   └── retry_manager.py    # 自动重试
+│   ├── data/                # 数据管理（4 个模块）
+│   │   ├── data_registry.py    # 血缘追踪
+│   │   ├── data_importer.py    # 数据导入
+│   │   ├── project_manager.py  # 项目管理
+│   │   └── execution_cleaner.py # 归档清理
+│   ├── remote/              # SSH 连接（3 个模块）
+│   │   ├── ssh_service.py      # SSH 封装
+│   │   ├── ssh_reconnector.py  # 自动重连
+│   │   └── storage_manager.py  # 远端存储
+│   ├── pipeline/            # 流程编排（4 个模块）
+│   │   ├── pipeline_runner.py     # 线性流水线
+│   │   ├── pipeline_reconstructor.py  # DAG 重建
+│   │   ├── chart_data_parser.py   # 结果解析
+│   │   └── project_exporter.py    # 项目导出
+│   ├── environment/         # 环境管理（3 个模块）
+│   │   ├── env_detector.py      # conda 检测
+│   │   ├── env_installer.py     # conda 安装
+│   │   └── container_detector.py # 容器检测（预留）
+│   └── plugins/             # 插件系统（2 个模块）
+│       ├── plugin_registry.py   # YAML 三层懒加载
+│       └── task_manager.py      # 任务管理（legacy）
 ├── ui/
-│   ├── pages/          # 6 个页面
-│   ├── widgets/        # 可复用控件
-│   │   └── linux_settings_card.py  # 工具环境检测+安装
+│   ├── pages/               # 6 个页面
+│   ├── widgets/             # 可复用控件
 │   └── main_window.py
 ├── plugins/
 │   ├── {category}/{tool}/tool.yaml
-│   ├── databases.yaml        # 数据库清单（安装路径 / 镜像 / 校验）
-│   └── analysis_paths.yaml   # 分析路径声明（三条路径的阶段定义）
-├── tests/              # 单元测试 + 集成测试（21 个测试模块）
-└── config.py           # V2 配置模型（databases / ssh / linux / execution）
+│   ├── databases.yaml       # 数据库清单
+│   └── analysis_paths.yaml  # 分析路径声明
+├── tests/                   # 单元测试 + 集成测试
+└── config.py                # V2 配置模型
 ```
 
 ---

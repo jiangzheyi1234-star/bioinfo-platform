@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from core.project_exporter import ProjectExporter
+from core.pipeline.project_exporter import ProjectExporter
 
 
 # ── Fixtures ──────────────────────────────────────────────

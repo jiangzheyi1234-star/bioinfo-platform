@@ -12,12 +12,14 @@
 ### Core 层（core/）
 - **严格约束**：只允许 `PyQt6.QtCore`（信号/线程），禁止 QtWidgets/QtGui
 - **职责**：业务逻辑、远程执行、数据管理、流程编排
-- **关键模块**：
-  - 执行链：tool_engine → command_builder → job_dispatcher（SSH+screen+事件驱动）→ job_monitor（fallback）
-  - 流程：pipeline_runner（线性）· pipeline_reconstructor（DAG 重建）
-  - 数据：data_registry（血缘追踪）· storage_manager · execution_cleaner
-  - 插件：plugin_registry（YAML 三层懒加载）· env_detector · env_installer
-  - 总线：service_locator（串联所有模块）
+- **子包结构**（6 个子包）：
+  - `execution/`：执行链 — tool_engine, command_builder, job_dispatcher, job_queue, job_monitor, retry_manager
+  - `data/`：数据管理 — data_registry, data_importer, project_manager, execution_cleaner
+  - `remote/`：SSH 连接 — ssh_service, ssh_reconnector, storage_manager
+  - `pipeline/`：流程编排 — pipeline_runner, pipeline_reconstructor, chart_data_parser, project_exporter
+  - `environment/`：环境管理 — env_detector, env_installer, container_detector
+  - `plugins/`：插件系统 — plugin_registry（YAML 三层懒加载）, task_manager
+- **总线**：`service_locator.py`（根级，串联所有子包）
 
 ### UI 层（ui/）
 - **约束**：新建 widget/page 必须同步更新 `__init__.py`

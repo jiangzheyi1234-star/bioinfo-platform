@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PyQt6.QtCore import QObject
 
-from core.data_registry import DataRegistry
-from core.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
+from core.data.data_registry import DataRegistry
+from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 from core.service_locator import ServiceLocator
 
 

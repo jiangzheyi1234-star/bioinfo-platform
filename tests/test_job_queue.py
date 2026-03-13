@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.job_queue import JobQueue, QueuedJob
+from core.execution.job_queue import JobQueue, QueuedJob
 
 
 class TestJobQueueInit:

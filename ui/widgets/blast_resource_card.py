@@ -4,7 +4,7 @@ from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
 
 from config import get_blast_setting, get_database_path
-from core.ssh_service import SSHService
+from core.remote.ssh_service import SSHService
 from ui.widgets import styles
 
 

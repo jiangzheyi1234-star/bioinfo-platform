@@ -2,7 +2,7 @@
 """CommandBuilder 单元测试 — 覆盖模板渲染、参数合并、包装脚本生成等场景。"""
 import pytest
 
-from core.command_builder import CommandBuildError, CommandBuilder, HEARTBEAT_INTERVAL
+from core.execution.command_builder import CommandBuildError, CommandBuilder, HEARTBEAT_INTERVAL
 
 
 # ---------------------------------------------------------------------------

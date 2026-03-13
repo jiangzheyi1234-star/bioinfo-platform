@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 
-from core.project_exporter import ProjectExporter
-from core.project_manager import ProjectInfo, ProjectManager
+from core.pipeline.project_exporter import ProjectExporter
+from core.data.project_manager import ProjectInfo, ProjectManager
 from ui.page_base import BasePage
 from ui.widgets import styles
 from ui.widgets.export_dialog import ExportDialog

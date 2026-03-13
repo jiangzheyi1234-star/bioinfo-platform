@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.data_registry import DataItem, DataRegistry
+from core.data.data_registry import DataItem, DataRegistry
 from ui.widgets import styles
 
 logger = logging.getLogger(__name__)

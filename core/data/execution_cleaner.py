@@ -19,8 +19,8 @@ from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.project_manager import ProjectManager
-from core.ssh_service import SSHService
+from core.data.project_manager import ProjectManager
+from core.remote.ssh_service import SSHService
 
 logger = logging.getLogger(__name__)
 

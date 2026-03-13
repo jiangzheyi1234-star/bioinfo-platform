@@ -814,7 +814,7 @@ class HomePage(BasePage):
             ssh = getattr(locator, "ssh_service", None)
             if ssh is None or not getattr(ssh, "is_connected", False):
                 return "—"
-            from core.storage_manager import StorageManager
+            from core.remote.storage_manager import StorageManager
             mgr = StorageManager(ssh)
             usage = mgr.get_disk_usage("/h2ometa")
             return f"{usage.used_gb:.1f} / {usage.total_gb:.0f} GB"

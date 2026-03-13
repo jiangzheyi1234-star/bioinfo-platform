@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from core.command_builder import CommandBuilder, HEARTBEAT_INTERVAL
-from core.plugin_registry import PluginRegistry
+from core.execution.command_builder import CommandBuilder, HEARTBEAT_INTERVAL
+from core.plugins.plugin_registry import PluginRegistry
 
 # 项目真实 plugins 目录
 _PLUGINS_DIR = Path(__file__).parent.parent / "plugins"

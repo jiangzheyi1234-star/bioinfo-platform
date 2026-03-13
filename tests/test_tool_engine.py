@@ -14,11 +14,11 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from PyQt6.QtCore import QObject
 
-from core.data_registry import DataRegistry
-from core.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
-from core.data_importer import DataImporter
-from core.command_builder import CommandBuilder, CommandBuildError
-from core.tool_engine import ExecutionRecord, ToolEngine
+from core.data.data_registry import DataRegistry
+from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
+from core.data.data_importer import DataImporter
+from core.execution.command_builder import CommandBuilder, CommandBuildError
+from core.execution.tool_engine import ExecutionRecord, ToolEngine
 
 
 # ── 测试用 Mock / Fake 对象 ──────────────────────────────

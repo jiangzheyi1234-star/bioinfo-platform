@@ -1,6 +1,6 @@
 """container_detector 命令构造安全性测试。"""
 
-from core import container_detector as cd
+from core.environment import container_detector as cd
 
 
 def test_pull_singularity_image_quotes_user_inputs() -> None:

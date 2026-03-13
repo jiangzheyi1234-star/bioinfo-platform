@@ -16,7 +16,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Optional
 
-from core.pipeline_reconstructor import PipelineReconstructor
+from core.pipeline.pipeline_reconstructor import PipelineReconstructor
 
 logger = logging.getLogger(__name__)
 

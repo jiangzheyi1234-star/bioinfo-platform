@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from core.plugin_registry import PluginNotFoundError, PluginRegistry
+from core.plugins.plugin_registry import PluginNotFoundError, PluginRegistry
 
 
 # ---------------------------------------------------------------------------

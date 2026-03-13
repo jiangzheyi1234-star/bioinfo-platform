@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from core.pipeline_reconstructor import (
+from core.pipeline.pipeline_reconstructor import (
     DAGEdge,
     DAGNode,
     ExecutionDAG,

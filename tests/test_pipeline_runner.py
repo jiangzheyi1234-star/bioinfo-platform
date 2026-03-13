@@ -10,10 +10,10 @@ import pytest
 import yaml
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.command_builder import CommandBuilder
-from core.data_registry import DataRegistry
-from core.pipeline_runner import PipelineRunner, PipelineStage
-from core.project_manager import ProjectInfo, _SCHEMA_SQL
+from core.execution.command_builder import CommandBuilder
+from core.data.data_registry import DataRegistry
+from core.pipeline.pipeline_runner import PipelineRunner, PipelineStage
+from core.data.project_manager import ProjectInfo, _SCHEMA_SQL
 
 
 # ── Fake 对象 ─────────────────────────────────────────────
@@ -177,7 +177,7 @@ def plugin_registry() -> MagicMock:
 
 @pytest.fixture()
 def engine(ssh, plugin_registry, db_conn, project, registry, queue):
-    from core.tool_engine import ToolEngine
+    from core.execution.tool_engine import ToolEngine
 
     pm = FakeProjectManager(db_conn, project)
     return ToolEngine(

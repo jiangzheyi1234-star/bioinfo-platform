@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.env_detector import (
+from core.environment.env_detector import (
     CondaStatus,
     detect,
     expected_env_path,
@@ -15,7 +15,7 @@ from core.env_detector import (
     rewrite_install_cmd,
     _COMMON_CONDA_PATHS,
 )
-from core.env_installer import EnvInstaller, INSTALL_BASE
+from core.environment.env_installer import EnvInstaller, INSTALL_BASE
 
 
 # ----------------------------------------------------------------------------

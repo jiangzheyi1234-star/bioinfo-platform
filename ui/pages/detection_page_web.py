@@ -576,7 +576,7 @@ class ToolBridge(QObject):
         if registry is None or ssh is None or not getattr(ssh, "is_connected", False):
             raise ValueError("数据注册器或 SSH 未就绪")
 
-        from core.data_importer import DataImporter
+        from core.data.data_importer import DataImporter
 
         importer = DataImporter(ssh_service=ssh, registry=registry)
         input_data_ids: list[str] = []

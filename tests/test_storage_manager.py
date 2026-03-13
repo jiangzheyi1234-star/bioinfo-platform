@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.storage_manager import DiskUsage, StorageManager, StorageReport
+from core.remote.storage_manager import DiskUsage, StorageManager, StorageReport
 
 
 # ── Fake SSH ──────────────────────────────────────────────

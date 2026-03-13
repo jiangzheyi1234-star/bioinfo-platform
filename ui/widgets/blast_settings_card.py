@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, pyqtSlot, QTimer
 from ui.widgets import styles
-from core.ssh_service import SSHService
+from core.remote.ssh_service import SSHService
 
 
 class ClickableHeader(QFrame):

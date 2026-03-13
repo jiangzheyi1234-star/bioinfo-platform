@@ -9,7 +9,7 @@ from typing import Optional, Tuple, Callable, List
 import paramiko
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.ssh_reconnector import SSHReconnector
+from core.remote.ssh_reconnector import SSHReconnector
 
 logger = logging.getLogger(__name__)
 

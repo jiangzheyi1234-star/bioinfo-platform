@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 import paramiko
 
-from core.ssh_reconnector import SSHReconnector, _ReconnectWorker, BACKOFF_DELAYS
-from core.ssh_service import SSHService
+from core.remote.ssh_reconnector import SSHReconnector, _ReconnectWorker, BACKOFF_DELAYS
+from core.remote.ssh_service import SSHService
 
 
 # ──────────────────── SSHReconnector 测试 ────────────────────
@@ -42,7 +42,7 @@ class TestReconnectWorker:
         worker.attempt_made.connect(attempt_spy)
 
         # 用 patch 跳过 time.sleep
-        with patch("core.ssh_reconnector.time.sleep"):
+        with patch("core.remote.ssh_reconnector.time.sleep"):
             worker.run()
 
         connect_fn.assert_called_once()
@@ -75,7 +75,7 @@ class TestReconnectWorker:
         worker.failed.connect(failed_spy)
         worker.attempt_made.connect(attempt_spy)
 
-        with patch("core.ssh_reconnector.time.sleep"):
+        with patch("core.remote.ssh_reconnector.time.sleep"):
             worker.run()
 
         assert connect_fn.call_count == 3
@@ -96,7 +96,7 @@ class TestReconnectWorker:
         worker.succeeded.connect(succeeded_spy)
         worker.failed.connect(failed_spy)
 
-        with patch("core.ssh_reconnector.time.sleep"):
+        with patch("core.remote.ssh_reconnector.time.sleep"):
             worker.run()
 
         assert connect_fn.call_count == 3
@@ -118,7 +118,7 @@ class TestReconnectWorker:
         # 立即取消
         worker.cancel()
 
-        with patch("core.ssh_reconnector.time.sleep"):
+        with patch("core.remote.ssh_reconnector.time.sleep"):
             worker.run()
 
         connect_fn.assert_not_called()
@@ -141,7 +141,7 @@ class TestReconnectWorker:
         worker.succeeded.connect(succeeded_spy)
         worker.failed.connect(failed_spy)
 
-        with patch("core.ssh_reconnector.time.sleep"):
+        with patch("core.remote.ssh_reconnector.time.sleep"):
             worker.run()
 
         assert connect_fn.call_count == 2
@@ -162,7 +162,7 @@ class TestReconnectWorker:
         def mock_sleep(duration):
             sleep_calls.append(duration)
 
-        with patch("core.ssh_reconnector.time.sleep", side_effect=mock_sleep):
+        with patch("core.remote.ssh_reconnector.time.sleep", side_effect=mock_sleep):
             worker.run()
 
         # 验证第 7 和第 8 次的延迟用的是 60 秒（分段为 0.1s * 600 次）

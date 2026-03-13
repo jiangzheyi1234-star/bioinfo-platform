@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from core.plugin_registry import PluginRegistry
+from core.plugins.plugin_registry import PluginRegistry
 
 
 def test_primer_design_plugin_is_discoverable() -> None:

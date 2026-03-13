@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.data_registry import DataRegistry
-from core.execution_cleaner import ExecutionCleaner
-from core.project_manager import ProjectManager
-from core.ssh_service import SSHService
-from core.tool_engine import ToolEngine
+from core.data.data_registry import DataRegistry
+from core.data.execution_cleaner import ExecutionCleaner
+from core.data.project_manager import ProjectManager
+from core.remote.ssh_service import SSHService
+from core.execution.tool_engine import ToolEngine
 
 
 @pytest.fixture

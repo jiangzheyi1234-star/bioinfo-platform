@@ -11,7 +11,7 @@ from typing import Any, Optional, Protocol
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.data_registry import DataRegistry
+from core.data.data_registry import DataRegistry
 
 logger = logging.getLogger(__name__)
 

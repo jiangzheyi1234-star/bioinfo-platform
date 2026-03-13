@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 
-from core.pipeline_runner import PipelineRunner, PipelineStage
+from core.pipeline.pipeline_runner import PipelineRunner, PipelineStage
 from ui.page_base import BasePage
 from ui.widgets import styles
 from ui.widgets.execution_history_card import ExecutionHistoryCard

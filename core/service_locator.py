@@ -22,15 +22,15 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.command_builder import CommandBuilder
-from core.data_registry import DataRegistry
-from core.job_dispatcher import JobDispatcher
-from core.job_queue import JobQueue
-from core.plugin_registry import PluginRegistry
-from core.project_manager import ProjectManager
-from core.retry_manager import RetryManager
-from core.ssh_service import SSHService
-from core.tool_engine import ToolEngine
+from core.execution.command_builder import CommandBuilder
+from core.data.data_registry import DataRegistry
+from core.execution.job_dispatcher import JobDispatcher
+from core.execution.job_queue import JobQueue
+from core.plugins.plugin_registry import PluginRegistry
+from core.data.project_manager import ProjectManager
+from core.execution.retry_manager import RetryManager
+from core.remote.ssh_service import SSHService
+from core.execution.tool_engine import ToolEngine
 
 logger = logging.getLogger(__name__)
 

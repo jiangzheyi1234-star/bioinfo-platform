@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from core.data_registry import DataItem, DataRegistry, SampleInfo
-from core.project_manager import _SCHEMA_SQL
+from core.data.data_registry import DataItem, DataRegistry, SampleInfo
+from core.data.project_manager import _SCHEMA_SQL
 
 
 # ── Fixtures ──────────────────────────────────────────────
@@ -326,7 +326,7 @@ class TestFindCompatible:
         self, registry: DataRegistry, sample_id: str
     ) -> None:
         """结果应按创建时间倒序排列"""
-        with patch("core.data_registry.time") as mock_time:
+        with patch("core.data.data_registry.time") as mock_time:
             mock_time.time.return_value = 1000.0
             id1 = registry.register_input("/data/old.fq", sample_id, "fastq")
             mock_time.time.return_value = 2000.0

@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QMessageBox
 )
 from ui.widgets import styles
-from core.task_manager import get_task_manager, TaskRecord
+from core.plugins.task_manager import get_task_manager, TaskRecord
 
 
 class TaskHistoryCard(QWidget):

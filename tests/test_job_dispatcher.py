@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from core.job_dispatcher import DispatchError, JobDispatcher
-from core.job_monitor import JobMonitor, MonitoredJob
+from core.execution.job_dispatcher import DispatchError, JobDispatcher
+from core.execution.job_monitor import JobMonitor, MonitoredJob
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +350,7 @@ class TestWaiterThread:
                     return (0, "0\n", "")
                 return (0, "", "")
 
-        from core.job_dispatcher import _WaiterThread  # 仅用于单测
+        from core.execution.job_dispatcher import _WaiterThread  # 仅用于单测
 
         ssh = FlakySSH()
         thread = _WaiterThread(

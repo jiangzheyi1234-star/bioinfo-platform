@@ -17,10 +17,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.project_manager import ProjectManager
+from core.data.project_manager import ProjectManager
 from core.service_locator import ServiceLocator
-from core.ssh_service import SSHService
-from core.storage_manager import StorageManager
+from core.remote.ssh_service import SSHService
+from core.remote.storage_manager import StorageManager
 from ui.pages import AnalysisPage, SettingsPage
 from ui.pages.assembly_page import AssemblyPage
 from ui.pages.home_page import HomePage

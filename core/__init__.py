@@ -1,23 +1,24 @@
 """Core 模块 — H2OMeta 核心功能
 
-包含：
-- 项目管理
-- 数据注册
-- 工具执行
-- 流水线编排
-- 执行清理
-- SSH 服务
-- 环境检测
-- 环境安装
+子包结构:
+  - execution/: 执行链 (ToolEngine, JobDispatcher, CommandBuilder...)
+  - data/: 数据管理 (DataRegistry, ProjectManager, DataImporter...)
+  - remote/: SSH 连接 (SSHService, SSHReconnector, StorageManager)
+  - pipeline/: 流程编排 (PipelineRunner, PipelineReconstructor, ProjectExporter)
+  - environment/: 环境管理 (env_detector, env_installer, ContainerDetector)
+  - plugins/: 插件系统 (PluginRegistry, TaskManager)
+
+使用示例:
+    from core.execution.tool_engine import ToolEngine
+    from core.data.data_registry import DataRegistry
+    from core.remote.ssh_service import SSHService
 """
 
-from core.execution_cleaner import ExecutionCleaner, ExecutionDiskUsage
-from core import env_detector
-from core import env_installer
+from core.data.execution_cleaner import ExecutionCleaner, ExecutionDiskUsage
+from core import environment
 
 __all__ = [
     "ExecutionCleaner",
     "ExecutionDiskUsage",
-    "env_detector",
-    "env_installer",
+    "environment",
 ]

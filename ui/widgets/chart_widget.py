@@ -288,7 +288,7 @@ class ResultsPanel(QFrame):
             fastp_json_path: 本地或远程已下载的 fastp JSON 文件路径
             kreport_path:    本地或远程已下载的 kreport 文件路径
         """
-        from core.chart_data_parser import ChartDataParser
+        from core.pipeline.chart_data_parser import ChartDataParser
         has_data = False
 
         if fastp_json_path:

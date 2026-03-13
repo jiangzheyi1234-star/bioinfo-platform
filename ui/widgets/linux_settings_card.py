@@ -34,9 +34,9 @@ from ui.widgets.styles import (
     SCROLL_BAR_ELEGANT,
 )
 
-from core import env_detector
-from core.env_detector import CondaStatus
-from core.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
+from core.environment import env_detector
+from core.environment.env_detector import CondaStatus
+from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
 
 logger = logging.getLogger(__name__)
 

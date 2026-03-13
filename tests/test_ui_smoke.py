@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.project_manager import ProjectManager
+from core.data.project_manager import ProjectManager
 
 pytestmark = pytest.mark.ui
 

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PyQt6.QtCore import QObject
 
-from core.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
+from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 
 
 # ── Fixtures ──────────────────────────────────────────────
