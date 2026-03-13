@@ -1,18 +1,39 @@
 @echo off
+setlocal
 chcp 65001 >nul
 title H2OMeta
 
-:: 激活 conda 环境并启动应用
-call conda activate bio_ui 2>nul
-if errorlevel 1 (
-    echo [错误] conda 环境 bio_ui 未找到，请先运行: conda create -n bio_ui python=3.11
+set "CONDA_BAT=%USERPROFILE%\miniconda3\condabin\conda.bat"
+if not exist "%CONDA_BAT%" (
+    for /f "delims=" %%I in ('where conda.bat 2^>nul') do (
+        set "CONDA_BAT=%%I"
+        goto :conda_found
+    )
+    echo [ERROR] Cannot find conda.bat. Please install Miniconda/Anaconda first.
     pause
     exit /b 1
 )
 
-python -m ui.main
+:conda_found
+call "%CONDA_BAT%" activate bio_ui
 if errorlevel 1 (
-    echo.
-    echo [错误] 启动失败，按任意键退出
-    pause >nul
+    echo [ERROR] Cannot activate conda env "bio_ui".
+    echo Run: conda create -n bio_ui python=3.11
+    pause
+    exit /b 1
 )
+
+if /I "%~1"=="--check" (
+    echo [OK] Conda env "bio_ui" activated.
+    endlocal & exit /b 0
+)
+
+python -m ui.main
+set "APP_EXIT=%ERRORLEVEL%"
+if not "%APP_EXIT%"=="0" (
+    echo.
+    echo [ERROR] App exited with code %APP_EXIT%.
+    pause
+)
+
+endlocal & exit /b %APP_EXIT%
