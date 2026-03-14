@@ -10,18 +10,14 @@ build/
 # IDE
 .vscode/
 .idea/
+.codex/
 *.swp
 *.swo
 
-# Logs
-logs/
-
-# Environment
-.env
-*.env
-
 # Claude Code
 .claude/
+.agents/
+skills-lock.json
 
 # Test temp directories
 tests/.pytest_cache/
@@ -31,8 +27,10 @@ tests/htmlcov/
 tests/.pytest_tmp*/
 .pytest_tmp*/
 .pytest_cache/
-.pycache_tmp/
-tmp_pytest*/
+pycache_tmp*/
+pytest_tmp*/
+.pytmp/
+.tmp/
 data/
 
 # Runtime outputs
