@@ -109,6 +109,21 @@ execution_io  (execution_id, data_id, direction, PK(all three))
 7. **禁止硬编码服务器信息** — 所有配置通过 config.py 读写
 8. **测试禁止 module-level 创建 QApplication/QCoreApplication** — 统一用 `conftest.py` 的 `_ensure_qapp`（session-scope QApplication）。Qt 同一进程只允许一个 Application 实例，混用 QCoreApplication 和 QApplication 会导致 `0xC0000409` 原生崩溃
 9. **测试中禁止实例化 QWebEngineView** — UI 测试需 `patch("ui.main_window.DetectionPage", FakeWidget)` 替换，避免 Chromium 子进程在无头环境崩溃
+10. **UI 文件禁止包含后端逻辑** — UI 层（ui/）只负责：布局、样式、用户交互、信号连接。以下逻辑必须放 core/：
+    - SQL 查询（SELECT/INSERT/DELETE 等数据库操作）
+    - SSH 操作（远程命令执行、文件读写）
+    - 数据解析与转换（TSV/CSV 解析、结果文件处理）
+    - 文件 I/O（本地或远程文件读写）
+    - 业务验证（非 UI 输入校验的业务规则）
+    - QThread Worker 类的纯计算/IO 逻辑放 core/，UI 层只做信号绑定和结果显示
+11. **已知待重构：UI 后端逻辑抽取** — 以下文件混入了过多后端逻辑，新增功能时应逐步将后端逻辑迁移到 core/：
+
+    | UI 文件 | 后端占比 | 待抽取到 | 主要问题 |
+    |---------|---------|---------|---------|
+    | `detection_page_web.py` | 81% | `core/execution/` + `core/remote/` | ToolBridge.run_tool() 整个是后端编排；远程文件读写、结果解析、样本解析应抽到 core |
+    | `linux_settings_card.py` | 60% | `core/environment/` | CondaDetectWorker、EnvInstallPollWorker 的 IO 逻辑、ANSI 清理、环境恢复逻辑 |
+    | `home_page.py` | 57% | `core/data/` | 样本增删的 SQL 操作、统计查询、stage 状态聚合应抽到 sample_manager/analytics |
+    | `ssh_settings_card.py` | 55% | `core/remote/` | SSHWorker、SSHDiagnosticWorker 的连接/诊断逻辑、错误分类 |
 
 ---
 

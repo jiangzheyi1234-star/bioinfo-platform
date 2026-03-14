@@ -31,6 +31,8 @@ from ui.widgets.environment_status_bar import EnvironmentStatusBar
 
 logger = logging.getLogger(__name__)
 
+_ANALYSIS_PAGE_INDEX = 4
+
 class _CurrentPageStackedWidget(QStackedWidget):
     """Only use the current page minimum/size hint to avoid window shrink lock."""
 
@@ -308,6 +310,36 @@ class MainWindow(QMainWindow):
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.set_global_lock(locked, reason)
 
+    def open_analysis_for_sample(
+        self,
+        *,
+        sample_id: str,
+        sample_name: str,
+        r1_path: str = "",
+        r2_path: str = "",
+    ) -> bool:
+        if hasattr(self, "sidebar") and self.sidebar is not None:
+            self.sidebar.setCurrentRow(_ANALYSIS_PAGE_INDEX)
+
+        analysis_page = getattr(self, "analysis_page", None)
+        if analysis_page is None:
+            return False
+
+        if hasattr(analysis_page, "set_sample_context"):
+            analysis_page.set_sample_context(
+                sample_id=sample_id,
+                sample_name=sample_name,
+                r1_path=r1_path,
+                r2_path=r2_path,
+            )
+            return True
+
+        if hasattr(analysis_page, "refresh_context"):
+            analysis_page.refresh_context()
+            return True
+
+        return False
+
     def _on_ssh_status_changed(self, connected: bool) -> None:
         """SSH 连接状态变化时更新状态栏"""
         self.status_bar.update_ssh_status(connected)
@@ -370,7 +402,6 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
-
 
 
 

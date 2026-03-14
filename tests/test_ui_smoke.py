@@ -135,9 +135,9 @@ class TestPageStartup:
 
 class TestDetectionIntegratedWorkbench:
     def test_tool_bridge_parses_primer_result_text(self):
-        from ui.pages.detection_page_web import ToolBridge
+        from core.execution.tool_bridge_service import ToolBridgeService
 
-        rows = ToolBridge._parse_primer_result_text(
+        rows = ToolBridgeService.parse_primer_result_text(
             "Virus_A\tregion_1\tAAA\tTTT\t10-120\tATGC\n"
             "Virus_B\tregion_2\tCCC\tGGG\t30-150\tCGTA\n"
         )
@@ -147,12 +147,12 @@ class TestDetectionIntegratedWorkbench:
         assert rows[1]["reverse_primer"] == "GGG"
 
     def test_tool_bridge_merges_live_primer_results(self, monkeypatch):
-        from ui.pages.detection_page_web import ToolBridge
+        from core.execution.tool_bridge_service import ToolBridgeService
 
-        bridge = ToolBridge(plugin_registry=None)
+        service = ToolBridgeService()
         monkeypatch.setattr(
-            bridge,
-            "_get_live_primer_design_view",
+            service,
+            "get_live_primer_design_view",
             lambda: {
                 "title": "实时引物结果",
                 "description": "来自最近一次完成任务",
@@ -165,24 +165,24 @@ class TestDetectionIntegratedWorkbench:
             },
         )
 
-        payload = json.loads(bridge.get_integrated_workbench_config())
+        payload = service.get_integrated_workbench_config()
 
         assert payload["views"]["primer_design"]["title"] == "实时引物结果"
         assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_A"
 
     def test_tool_bridge_falls_back_to_default_remote_result_dir(self, monkeypatch):
-        from ui.pages.detection_page_web import ToolBridge
+        from core.execution.tool_bridge_service import ToolBridgeService
 
-        bridge = ToolBridge(plugin_registry=None)
-        monkeypatch.setattr(bridge, "_get_live_primer_design_view", lambda: None)
+        service = ToolBridgeService()
+        monkeypatch.setattr(service, "get_live_primer_design_view", lambda: None)
         monkeypatch.setattr(
-            bridge,
-            "_get_default_primer_result_dir",
+            service,
+            "get_default_primer_result_dir",
             lambda: "/remote/default/primer_design/my_result",
         )
         monkeypatch.setattr(
-            bridge,
-            "_build_primer_view_from_result_dir",
+            service,
+            "build_primer_view_from_result_dir",
             lambda remote_dir: {
                 "title": "默认远程结果",
                 "description": f"来自 {remote_dir}",
@@ -196,18 +196,18 @@ class TestDetectionIntegratedWorkbench:
             },
         )
 
-        payload = json.loads(bridge.get_integrated_workbench_config())
+        payload = service.get_integrated_workbench_config()
 
         assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_Default"
         assert payload["views"]["primer_design"]["remote_result_dir"] == "/remote/default/primer_design/my_result"
 
     def test_tool_bridge_returns_remote_primer_results_payload(self, monkeypatch):
-        from ui.pages.detection_page_web import ToolBridge
+        from core.execution.tool_bridge_service import ToolBridgeService
 
-        bridge = ToolBridge(plugin_registry=None)
+        service = ToolBridgeService()
         monkeypatch.setattr(
-            bridge,
-            "_build_primer_view_from_result_dir",
+            service,
+            "build_primer_view_from_result_dir",
             lambda remote_dir: {
                 "title": "远程结果",
                 "description": f"来自 {remote_dir}",
@@ -221,7 +221,7 @@ class TestDetectionIntegratedWorkbench:
             },
         )
 
-        payload = json.loads(bridge.get_remote_primer_results("/remote/primer_job/my_result"))
+        payload = service.get_remote_primer_results("/remote/primer_job/my_result")
 
         assert payload["status"] == "ok"
         assert payload["view"]["remote_result_dir"] == "/remote/primer_job/my_result"
@@ -240,16 +240,18 @@ class TestDetectionIntegratedWorkbench:
 
 class TestHomePageFlows:
     def test_add_sample_updates_home_page_state(self, qapp, temp_main_window):
+        from core.data.sample_service import SampleService
+
         home_page = temp_main_window.home_page
         pm = temp_main_window._pm
 
-        home_page._on_sample_added(
-            pm,
+        service = SampleService(pm.db)
+        service.add_sample(
             name="sample_A",
-            r1_path="C:/data/sample_A_R1.fastq.gz",
-            r2_path="",
             source="wastewater",
+            metadata={"r1": "C:/data/sample_A_R1.fastq.gz", "r2": ""},
         )
+        home_page._load_all()
         _flush_events(qapp)
 
         count = pm.db.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
@@ -259,15 +261,16 @@ class TestHomePageFlows:
         assert home_page._add_btn.isEnabled() is True
 
     def test_continue_analysis_prefills_existing_sample_context(self, qapp, temp_main_window):
+        from core.data.sample_service import SampleService
+
         home_page = temp_main_window.home_page
         pm = temp_main_window._pm
 
-        home_page._on_sample_added(
-            pm,
+        service = SampleService(pm.db)
+        service.add_sample(
             name="sample_B",
-            r1_path="C:/reads/sample_B_R1.fastq.gz",
-            r2_path="C:/reads/sample_B_R2.fastq.gz",
             source="river",
+            metadata={"r1": "C:/reads/sample_B_R1.fastq.gz", "r2": "C:/reads/sample_B_R2.fastq.gz"},
         )
         sample_id = pm.db.execute(
             "SELECT sample_id FROM samples WHERE name = ?",

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import ipaddress
 import socket
-import time
 from typing import Protocol, Callable, Optional
 
 import paramiko
@@ -23,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.remote.ssh_connector import classify_ssh_error, ssh_connect, run_diagnostics, diagnose_to_text
 from ui.widgets.styles import (
     CARD_FRAME,
     INPUT_LINEEDIT,
@@ -46,30 +45,6 @@ from ui.widgets.styles import (
 )
 
 
-# ---- 错误消息分类 ----
-def _classify_ssh_error(exc: Exception) -> str:
-    """将 paramiko / socket 异常转为用户友好的中文消息。"""
-    if isinstance(exc, paramiko.AuthenticationException):
-        return "认证失败 — 用户名或密码（密钥）不正确"
-    if isinstance(exc, paramiko.SSHException):
-        return f"SSH 协议错误 — {exc}"
-    if isinstance(exc, socket.timeout):
-        return "连接超时 — 服务器地址或端口不可达"
-    if isinstance(exc, ConnectionRefusedError):
-        return "连接被拒绝 — 目标端口未开放"
-    if isinstance(exc, socket.gaierror):
-        return "无法解析主机 — 检查 IP 地址或网络连接"
-    if isinstance(exc, OSError):
-        msg = str(exc)
-        if "No route to host" in msg:
-            return "无法路由到主机 — 检查网络连接"
-        if "Network is unreachable" in msg:
-            return "网络不可达 — 检查本地网络连接"
-        return f"系统错误 — {msg}"
-    return f"未知错误 — {exc}"
-
-
-# ---- Typed signal Protocols for better IDE hints ----
 class _FinishedSignal(Protocol):
     def connect(self, slot: Callable[[bool, str, object], None]) -> None: ...
     def emit(self, ok: bool, msg: str, client: object) -> None: ...
@@ -81,10 +56,14 @@ class _NoArgSignal(Protocol):
 
 
 class SSHWorker(QObject):
-    """后台连接工作线程，分步骤汇报进度。"""
+    """后台连接工作线程，分步骤汇报进度。
+
+    薄壳层：仅负责信号转发，后端逻辑委托给 ssh_connector.ssh_connect()。
+    """
+
     finished: _FinishedSignal = pyqtSignal(bool, str, object)
-    step_updated = pyqtSignal(int, str)   # (step_index, "running"/"ok"/"fail")
-    error_detail = pyqtSignal(str)        # 详细错误消息
+    step_updated = pyqtSignal(int, str)
+    error_detail = pyqtSignal(str)
 
     def __init__(self, ip: str, port: int, user: str, pwd: str,
                  key_file: str = "", parent=None):
@@ -97,7 +76,6 @@ class SSHWorker(QObject):
         try:
             self._do_connect()
         except Exception as e:
-            # 兜底：确保 finished 始终被发射，避免 UI 卡死
             try:
                 self.error_detail.emit(f"未知错误 — {e}")
             except Exception:
@@ -108,62 +86,48 @@ class SSHWorker(QObject):
                 pass
 
     def _do_connect(self):
-        # --- Step 0: TCP 端口可达性 ---
         self.step_updated.emit(0, "running")
         try:
-            sock = socket.create_connection((self.ip, self.port), timeout=5)
+            import socket as _socket
+            sock = _socket.create_connection((self.ip, self.port), timeout=5)
             sock.close()
         except Exception as e:
             self.step_updated.emit(0, "fail")
-            self.error_detail.emit(_classify_ssh_error(e))
+            self.error_detail.emit(classify_ssh_error(e))
             self.finished.emit(False, "连接失败", None)
             return
         self.step_updated.emit(0, "ok")
 
-        # --- Step 1: SSH 握手 + 身份验证 ---
         self.step_updated.emit(1, "running")
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        try:
-            connect_kwargs: dict = {
-                "hostname": self.ip,
-                "port": self.port,
-                "username": self.user,
-                "timeout": 5,
-                "allow_agent": False,
-                "look_for_keys": False,
-            }
-            if self.key_file:
-                connect_kwargs["key_filename"] = self.key_file
+        result = ssh_connect(
+            ip=self.ip,
+            port=self.port,
+            user=self.user,
+            password="" if self.key_file else self.pwd,
+            key_file=self.key_file,
+        )
+
+        if not result.ok:
+            if "认证失败" in result.message:
+                self.step_updated.emit(1, "ok")
+                self.step_updated.emit(2, "fail")
             else:
-                connect_kwargs["password"] = self.pwd
-            client.connect(**connect_kwargs)
-        except paramiko.AuthenticationException as e:
-            # SSH 握手成功，认证失败 → step1 ok, step2 fail
-            self.step_updated.emit(1, "ok")
-            self.step_updated.emit(2, "fail")
-            self.error_detail.emit(_classify_ssh_error(e))
-            self.finished.emit(False, "认证失败", None)
+                self.step_updated.emit(1, "fail")
+            self.error_detail.emit(result.message)
+            self.finished.emit(False, result.message, None)
             return
-        except Exception as e:
-            self.step_updated.emit(1, "fail")
-            self.error_detail.emit(_classify_ssh_error(e))
-            self.finished.emit(False, "连接失败", None)
-            return
+
         self.step_updated.emit(1, "ok")
-
-        # --- Step 2: 身份验证成功 ---
         self.step_updated.emit(2, "ok")
-        try:
-            client.get_transport().set_keepalive(30)
-        except Exception:
-            pass
-        self.finished.emit(True, "连接成功", client)
+        self.finished.emit(True, "连接成功", result.client)
 
 
-# ---- 诊断对话框 ----
 class SSHDiagnosticWorker(QObject):
-    """独立诊断工作线程，返回详细逐步结果。"""
+    """独立诊断工作线程，返回详细逐步结果。
+
+    薄壳层：仅负责信号转发，后端逻辑委托给 ssh_connector.run_diagnostics()。
+    """
+
     log = pyqtSignal(str)
     done = pyqtSignal()
 
@@ -179,94 +143,34 @@ class SSHDiagnosticWorker(QObject):
         self.log.emit(f"  SSH 连接诊断 — {self.ip}:{self.port}")
         self.log.emit("=" * 45 + "\n")
 
-        # Step 1: DNS / IP 解析
-        self.log.emit("① 检查主机地址格式...")
-        try:
-            ipaddress.ip_address(self.ip)
-            self.log.emit(f"   ✓ {self.ip} 格式正确（IPv4 地址）\n")
-        except ValueError:
-            try:
-                resolved = socket.getaddrinfo(self.ip, self.port)
-                ip = resolved[0][4][0]
-                self.log.emit(f"   ✓ 域名解析成功 → {ip}\n")
-            except Exception as e:
-                self.log.emit(f"   ✗ 域名解析失败: {e}\n")
-                self.log.emit("\n结论：无法解析主机地址，请检查输入。")
-                self.done.emit()
-                return
+        steps = run_diagnostics(
+            ip=self.ip,
+            port=self.port,
+            user=self.user,
+            password=self.pwd,
+            key_file=self.key_file,
+        )
 
-        # Step 2: TCP 连接
-        self.log.emit(f"② TCP 连接到端口 {self.port}...")
-        t0 = time.perf_counter()
-        try:
-            sock = socket.create_connection((self.ip, self.port), timeout=5)
-            elapsed = (time.perf_counter() - t0) * 1000
-            sock.close()
-            self.log.emit(f"   ✓ 成功 ({elapsed:.0f}ms)\n")
-        except socket.timeout:
-            self.log.emit(f"   ✗ 超时 (>5s) — 端口可能被防火墙屏蔽\n")
-            self.log.emit("\n结论：TCP 无法到达目标端口，检查防火墙或 IP/端口设置。")
-            self.done.emit()
-            return
-        except ConnectionRefusedError:
-            self.log.emit(f"   ✗ 连接被拒绝 — 端口 {self.port} 未开放\n")
-            self.log.emit("\n结论：目标端口未开放，确认 SSH 服务是否运行。")
-            self.done.emit()
-            return
-        except Exception as e:
-            self.log.emit(f"   ✗ 失败: {e}\n")
-            self.log.emit("\n结论：无法建立 TCP 连接。")
-            self.done.emit()
-            return
+        step_names = ["① 检查主机地址格式", "② TCP 连接", "③ SSH 协议握手", "④ 身份验证"]
 
-        # Step 3: SSH 握手
-        self.log.emit("③ SSH 协议握手...")
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        try:
-            transport = paramiko.Transport((self.ip, self.port))
-            transport.connect()
-            remote_version = transport.remote_version or "未知"
-            transport.close()
-            self.log.emit(f"   ✓ 成功 (服务器: {remote_version})\n")
-        except Exception as e:
-            self.log.emit(f"   ✗ SSH 握手失败: {e}\n")
-            self.log.emit("\n结论：TCP 可达但 SSH 握手失败，端口可能不是 SSH 服务。")
-            self.done.emit()
-            return
+        for i, step in enumerate(steps):
+            if i < len(step_names):
+                self.log.emit(f"{step_names[i]}...")
+            icon = "✓" if step.status == "ok" else "✗"
+            color_icon = f'<span style="color: #A6E3A1;">✓</span>' if step.status == "ok" else f'<span style="color: #F38BA8;">✗</span>'
+            msg = step.message
+            self.log.emit(f"   {color_icon} {msg}\n")
+            if step.status == "fail":
+                break
 
-        # Step 4: 身份验证
-        auth_method = "密钥文件" if self.key_file else "密码"
-        self.log.emit(f"④ 身份验证 (方式: {auth_method})...")
-        try:
-            connect_kwargs: dict = {
-                "hostname": self.ip,
-                "port": self.port,
-                "username": self.user,
-                "timeout": 5,
-                "allow_agent": False,
-                "look_for_keys": False,
-            }
-            if self.key_file:
-                connect_kwargs["key_filename"] = self.key_file
-            else:
-                connect_kwargs["password"] = self.pwd
-            client.connect(**connect_kwargs)
-            client.close()
-            self.log.emit(f"   ✓ 认证成功\n")
-        except paramiko.AuthenticationException:
-            self.log.emit(f"   ✗ 认证失败 — 用户名或{auth_method}不正确\n")
-            self.log.emit(f"\n结论：服务器可达，SSH 正常，请检查用户名和{auth_method}。")
-            self.done.emit()
-            return
-        except Exception as e:
-            self.log.emit(f"   ✗ 认证过程出错: {e}\n")
-            self.log.emit("\n结论：认证过程异常。")
-            self.done.emit()
-            return
+        all_ok = all(s.status == "ok" for s in steps)
+        if all_ok:
+            self.log.emit("─" * 45)
+            self.log.emit('<span style="color: #F9E2AF; font-weight: bold;">结论：所有检查通过，连接配置正常。</span>')
+        else:
+            failed = [s for s in steps if s.status == "fail"]
+            self.log.emit(f"\n结论：{failed[0].message if failed else '检查失败'}")
 
-        self.log.emit("─" * 45)
-        self.log.emit("结论：所有检查通过，连接配置正常。")
         self.done.emit()
 
 
@@ -338,7 +242,6 @@ class SSHDiagnosticDialog(QDialog):
         btn_row.addWidget(self.close_btn)
         layout.addLayout(btn_row)
 
-        # 启动诊断线程
         self._thread = QThread(self)
         self._worker = SSHDiagnosticWorker(ip, port, user, pwd, key_file)
         self._worker.moveToThread(self._thread)
@@ -351,7 +254,6 @@ class SSHDiagnosticDialog(QDialog):
         self._thread.start()
 
     def _append_log(self, text: str) -> None:
-        # 将特殊字符着色
         html = text
         if "✓" in html:
             html = html.replace("✓", '<span style="color: #A6E3A1;">✓</span>')
@@ -379,7 +281,6 @@ class ClickableHeader(QFrame):
         super().mouseReleaseEvent(event)
 
 
-# ---- 分步状态指示器 ----
 class StepIndicator(QWidget):
     """三步骤连接进度指示器：TCP连接 → SSH握手 → 身份验证"""
 
@@ -448,11 +349,11 @@ class SshSettingsCard(QFrame):
     Contract:
       - set_values()/get_values()：与 SettingsPage 做配置同步。
       - get_active_client()：对外提供可复用的 SSHClient（可能为 None）。
-      - request_save：当卡片内发生"需要保存"的动作时发出（当前用于状态联动，可选）。
+      - request_save：当卡片内发生"需要保存"的动作时发出。
     """
 
     request_save = pyqtSignal()
-    connection_state_changed = pyqtSignal(bool)  # connected
+    connection_state_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -466,7 +367,6 @@ class SshSettingsCard(QFrame):
         self._external_lock = False
         self._status_cache: Optional[tuple[str, str]] = None
 
-        # timers
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
         self._auto_fold_timer.timeout.connect(self._auto_fold_after_idle)
@@ -486,9 +386,6 @@ class SshSettingsCard(QFrame):
         self._build_ui()
         self._bind_global_focus_listener()
 
-    # -------------------------
-    # Public API: config sync
-    # -------------------------
     def set_values(self, server_ip: str = "", ssh_port: int = 22,
                    ssh_user: str = "", ssh_pwd: str = "",
                    use_key: bool = False, key_file: str = "") -> None:
@@ -558,9 +455,6 @@ class SshSettingsCard(QFrame):
                 self._status_cache = None
         self._refresh_interaction_state()
 
-    # -------------------------
-    # Internal UI
-    # -------------------------
     def _build_ui(self) -> None:
         self.setStyleSheet(CARD_FRAME("SSHCard"))
 
@@ -623,16 +517,13 @@ class SshSettingsCard(QFrame):
         form.addRow("SSH 端口", self.ssh_port)
         form.addRow("用户名", self.ssh_user)
 
-        # 密钥认证切换
         self.use_key_cb = QCheckBox("使用密钥文件认证")
         self.use_key_cb.setStyleSheet(f"color: {COLOR_TEXT_SUB}; font-size: 12px; background: transparent;")
         self.use_key_cb.toggled.connect(self._toggle_auth_mode)
 
-        # 密码行
         self.pwd_label = QLabel("SSH 密码")
         form.addRow(self.pwd_label, self.ssh_pwd)
 
-        # 密钥文件行
         self.key_file_row = QWidget()
         self.key_file_row.setStyleSheet("background: transparent;")
         key_layout = QHBoxLayout(self.key_file_row)
@@ -653,18 +544,15 @@ class SshSettingsCard(QFrame):
         form.addRow(self.key_file_label, self.key_file_row)
         form.addRow("", self.use_key_cb)
 
-        # 默认隐藏密钥行
         self.key_file_label.hide()
         self.key_file_row.hide()
 
         c_layout.addLayout(form)
 
-        # 分步状态指示器
         self.step_indicator = StepIndicator()
         self.step_indicator.hide()
         c_layout.addWidget(self.step_indicator)
 
-        # 错误详情标签
         self.error_detail_label = QLabel()
         self.error_detail_label.setStyleSheet(
             f"color: {COLOR_DANGER}; font-size: 12px; background: transparent; padding: 4px 0;"
@@ -673,7 +561,6 @@ class SshSettingsCard(QFrame):
         self.error_detail_label.hide()
         c_layout.addWidget(self.error_detail_label)
 
-        # 按钮行
         row = QHBoxLayout()
         self.connect_btn = QPushButton("连接并锁定")
         self.connect_btn.setMinimumWidth(110)
@@ -708,9 +595,6 @@ class SshSettingsCard(QFrame):
         if app is not None and hasattr(app, "focusChanged"):
             app.focusChanged.connect(self._on_focus_changed)
 
-    # -------------------------
-    # Auth mode toggle
-    # -------------------------
     def _toggle_auth_mode(self, use_key: bool) -> None:
         self.ssh_pwd.setVisible(not use_key)
         self.pwd_label.setVisible(not use_key)
@@ -726,10 +610,9 @@ class SshSettingsCard(QFrame):
         if path:
             self.key_file_input.setText(path)
 
-    # -------------------------
-    # Behavior
-    # -------------------------
     def _validate_inputs(self) -> None:
+        import ipaddress
+
         ip = self.server_ip.text().strip()
         port_str = self.ssh_port.text().strip()
         user = self.ssh_user.text().strip()
@@ -865,7 +748,6 @@ class SshSettingsCard(QFrame):
         if self._edit_idle_timer.isActive():
             self._edit_idle_timer.stop()
 
-        # 创建新的线程和工作对象
         ssh_thread = QThread(self)
         port = int(self.ssh_port.text() or 22)
         use_key = self.use_key_cb.isChecked()
@@ -877,13 +759,11 @@ class SshSettingsCard(QFrame):
         )
         ssh_worker.moveToThread(ssh_thread)
 
-        # 连接信号
         ssh_thread.started.connect(ssh_worker.run)
         ssh_worker.finished.connect(self._on_connect_finished)
         ssh_worker.step_updated.connect(self._on_step_updated)
         ssh_worker.error_detail.connect(self._on_error_detail)
 
-        # 清理：finished → 先停线程 → 线程结束后再删 worker 和 thread
         ssh_worker.finished.connect(ssh_thread.quit)
         ssh_thread.finished.connect(ssh_worker.deleteLater)
         ssh_thread.finished.connect(ssh_thread.deleteLater)
@@ -946,7 +826,6 @@ class SshSettingsCard(QFrame):
         self.revert_btn.hide()
 
     def _on_diagnose(self) -> None:
-        """打开诊断对话框。"""
         ip = self.server_ip.text().strip()
         port_str = self.ssh_port.text().strip()
         user = self.ssh_user.text().strip()
@@ -995,16 +874,13 @@ class SshSettingsCard(QFrame):
             self.status_label.setStyleSheet(STATUS_ERROR)
             self.status_label.setText("连接已断开，正在重连…")
 
-            # 使用 last_stable_config 直接重连，不依赖表单和按钮状态
             if self.last_stable_config:
                 self._reconnect_from_stable_config()
             else:
-                # 没有保存的配置，回退到编辑模式让用户手动处理
                 self._in_edit_mode = True
                 self._refresh_interaction_state()
 
     def _reconnect_from_stable_config(self) -> None:
-        """使用 last_stable_config 保存的参数直接发起重连。"""
         if self._connecting or not self.last_stable_config:
             return
 

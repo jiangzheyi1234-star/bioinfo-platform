@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +36,8 @@ from ui.widgets.styles import (
 from core.environment import env_detector
 from core.environment.env_detector import CondaStatus
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
+from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, get_existing_env_paths
+from core.utils import sanitize_terminal_line
 
 logger = logging.getLogger(__name__)
 
@@ -61,35 +62,6 @@ def _cleanup_thread_pair(owner, thread_attr: str, worker_attr: str, wait_ms: int
             delattr(owner, worker_attr)
         except AttributeError:
             pass
-
-
-# ANSI 转义码正则 (ESC[ ... 终止字母) + OSC 序列
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07")
-
-
-def _sanitize_terminal_line(text: str) -> str:
-    """清理终端输出：去 ANSI 转义码，处理 \\r 覆写。
-
-    conda 的 spinner / 进度条使用 ``\\r`` 在同一行反复覆写，
-    多包下载区域使用 ``ESC[A`` 光标上移重绘。
-    直接 insertPlainText 会导致乱码。这里只保留最后一段有意义的内容。
-    """
-    text = _ANSI_RE.sub("", text)
-    # \r 覆写：保留最后一个 \r 后的内容
-    if "\r" in text:
-        parts = text.split("\r")
-        last = ""
-        for p in reversed(parts):
-            if p.strip():
-                last = p
-                break
-        if text.endswith("\n") and not last.endswith("\n"):
-            last += "\n"
-        text = last
-    # 过滤纯空白行（大量空行来自光标上移清屏）
-    if not text.strip():
-        return ""
-    return text
 
 
 class ClickableHeader(QFrame):
@@ -152,11 +124,11 @@ class MiniforgeInstallWorker(QObject):
                 self.output_line.emit(f"$ {cmd}\n")
                 rc, stdout, stderr = original_fn(cmd, timeout)
                 if stdout.strip():
-                    clean = _sanitize_terminal_line(stdout)
+                    clean = sanitize_terminal_line(stdout)
                     if clean:
                         self.output_line.emit(clean)
                 if stderr.strip():
-                    clean = _sanitize_terminal_line(stderr)
+                    clean = sanitize_terminal_line(stderr)
                     if clean:
                         self.output_line.emit(f"[stderr] {clean}")
                 return rc, stdout, stderr
@@ -250,8 +222,7 @@ class ToolEnvBridge(QObject):
 class EnvBatchCheckWorker(QObject):
     """SSH 批量检测工具 conda 环境是否就绪。
 
-    检测策略：运行 `conda env list --json`，解析环境路径列表，
-    逐个比对工具 descriptor 中的 `conda_env` 字段。
+    薄壳层：仅负责信号转发，后端逻辑委托给 env_batch_checker.check_all_envs()。
 
     Signals:
         tool_checked(tool_id, env_name, ok): 单个工具检测完成
@@ -259,17 +230,11 @@ class EnvBatchCheckWorker(QObject):
         error(message): 检测出错
     """
 
-    tool_checked = pyqtSignal(str, str, bool)   # tool_id, env_name, ok
-    finished = pyqtSignal(list)                  # conda_envs_list
-    error = pyqtSignal(str)                      # error_message
+    tool_checked = pyqtSignal(str, str, bool)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
 
     def __init__(self, client, tools: list[dict], conda_executable: str = ""):
-        """
-        Args:
-            client: paramiko SSHClient
-            tools: [{"id": ..., "conda_env": ...}, ...]
-            conda_executable: 检测到的 conda 绝对路径
-        """
         super().__init__()
         self.client = client
         self.tools = tools
@@ -278,100 +243,21 @@ class EnvBatchCheckWorker(QObject):
     @pyqtSlot()
     def run(self):
         try:
-            import json as _json
-
-            # ── 获取远程 conda 环境列表 ──────────────────────────────
-            conda_envs: list[str] = []
-            cmd = f"{self._conda_executable} env list --json"
-
-            try:
-                _, stdout, stderr = self.client.exec_command(cmd, timeout=30)
-                # ★ 等待命令真正执行完毕
+            def ssh_run_fn(cmd, timeout=30):
+                _, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
                 exit_code = stdout.channel.recv_exit_status()
-                output = stdout.read().decode("utf-8", errors="ignore").strip()
-                err_out = stderr.read().decode("utf-8", errors="ignore").strip()
+                output = stdout.read().decode("utf-8", errors="ignore")
+                err_out = stderr.read().decode("utf-8", errors="ignore")
+                return exit_code, output, err_out
 
-                logger.debug("conda cmd=%r exit=%d out_len=%d err=%s",
-                             cmd, exit_code, len(output), err_out[:80])
+            results, conda_envs = check_all_envs(
+                ssh_run_fn=ssh_run_fn,
+                tools=self.tools,
+                conda_executable=self._conda_executable,
+            )
 
-                if exit_code == 0 and output:
-                    json_start = output.find("{")
-                    if json_start >= 0:
-                        data = _json.loads(output[json_start:])
-                        conda_envs = data.get("envs", [])
-                        logger.info("conda env list 成功，共 %d 个环境", len(conda_envs))
-
-            except _json.JSONDecodeError as e:
-                logger.warning("JSON 解析失败 cmd=%r: %s", cmd, e)
-            except Exception as e:
-                logger.debug("cmd=%r 失败: %s", cmd, e)
-
-            if not conda_envs:
-                logger.warning("所有候选命令均未取到 conda 环境列表")
-
-            conda_root = env_detector.infer_conda_root(self._conda_executable)
-            logger.debug("conda 根目录（原始）：%s", conda_root or "(未知)")
-
-            # 展开路径中的 ~ 为绝对路径（远程端执行）
-            if conda_root and "~" in conda_root:
-                try:
-                    _, stdout, _ = self.client.exec_command(f"eval echo {conda_root}", timeout=10)
-                    stdout.channel.recv_exit_status()
-                    expanded = stdout.read().decode("utf-8", errors="ignore").strip()
-                    if expanded and not expanded.startswith("~"):
-                        conda_root = expanded
-                        logger.debug("conda 根目录（展开后）：%s", conda_root)
-                except Exception as e:
-                    logger.debug("展开 ~ 失败: %s", e)
-
-            # 只保留当前 conda 根目录下的环境，避免多个发行版混用。
-            if conda_root:
-                filtered_envs: list[str] = []
-                for path in conda_envs:
-                    p = path.rstrip("/")
-                    if p == conda_root or p.startswith(conda_root + "/"):
-                        filtered_envs.append(p)
-                conda_envs = filtered_envs
-                if filtered_envs:
-                    logger.debug("过滤后保留 %d 个环境（仅当前 conda 根目录）", len(conda_envs))
-                else:
-                    logger.warning("过滤后没有环境，按严格模式处理为 0 个环境")
-
-            # 构建环境名集合（取路径末尾段）
-            env_paths_set = {p.rstrip("/") for p in conda_envs}
-            env_names_set: set[str] = set()
-            for path in conda_envs:
-                name = path.rstrip("/").split("/")[-1]
-                env_names_set.add(name)
-
-            logger.debug("已知环境名: %s", env_names_set)
-
-            # ── 逐个比对工具的 conda_env 字段 ──────────────────────
-            for tool in self.tools:
-                tool_id = tool.get("id", "")
-                conda_env = tool.get("conda_env", "")
-
-                if not conda_env:
-                    self.tool_checked.emit(tool_id, "(系统路径)", True)
-                    continue
-
-                # 使用展开后的 conda_root 构建预期路径
-                if conda_root:
-                    expected_path = f"{conda_root}/envs/{conda_env}"
-                else:
-                    expected_path = ""
-
-                if expected_path:
-                    ok = expected_path in env_paths_set
-                    if not ok and conda_env in env_names_set:
-                        logger.warning(
-                            "tool=%s conda_env=%s 命中同名环境但路径不匹配，expected=%s",
-                            tool_id, conda_env, expected_path,
-                        )
-                else:
-                    ok = conda_env in env_names_set
-                logger.debug("tool=%s conda_env=%s expected=%s ok=%s", tool_id, conda_env, expected_path, ok)
-                self.tool_checked.emit(tool_id, conda_env, ok)
+            for r in results:
+                self.tool_checked.emit(r.tool_id, r.env_name, r.ok)
 
             self.finished.emit(conda_envs)
 

@@ -74,6 +74,15 @@ try:
 except Exception:  # pragma: no cover
     InputDataSelector = None  # type: ignore
 
+try:
+    from .home_page_components import AddSamplePlaceholder, PipelineProgress, SampleAddDialog, SampleCard, StageNode
+except Exception:  # pragma: no cover
+    AddSamplePlaceholder = None  # type: ignore
+    PipelineProgress = None  # type: ignore
+    SampleAddDialog = None  # type: ignore
+    SampleCard = None  # type: ignore
+    StageNode = None  # type: ignore
+
 from . import styles
 
 __all__ = [
@@ -82,5 +91,6 @@ __all__ = [
     "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget",
     "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard",
     "ChartWidget", "ResultsPanel", "EnvironmentStatusBar", "InputDataSelector",
+    "AddSamplePlaceholder", "PipelineProgress", "SampleAddDialog", "SampleCard", "StageNode",
     "styles",
 ]
