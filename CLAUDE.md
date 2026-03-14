@@ -9,39 +9,22 @@
 
 ## 架构约束
 
-### Core 层（core/）
-- **严格约束**：只允许 `PyQt6.QtCore`（信号/线程），禁止 QtWidgets/QtGui
-- **职责**：业务逻辑、远程执行、数据管理、流程编排
-- **子包结构**（6 个子包）：
-  - `execution/`：执行链 — tool_engine, command_builder, job_dispatcher, job_queue, job_monitor, retry_manager
-  - `data/`：数据管理 — data_registry, data_importer, project_manager, execution_cleaner
-  - `remote/`：SSH 连接 — ssh_service, ssh_reconnector, storage_manager
-  - `pipeline/`：流程编排 — pipeline_runner, pipeline_reconstructor, chart_data_parser, project_exporter
-  - `environment/`：环境管理 — env_detector, env_installer, container_detector
-  - `plugins/`：插件系统 — plugin_registry（YAML 三层懒加载）, task_manager
-- **总线**：`service_locator.py`（根级，串联所有子包）
+- **Core 层（core/）**：只允许 `PyQt6.QtCore`，禁止 QtWidgets/QtGui。6 个子包：execution/ · data/ · remote/ · pipeline/ · environment/ · plugins/，总线 `service_locator.py`
+- **UI 层（ui/）**：新建 widget/page 必须同步更新 `__init__.py`。6 个页面。QWebEngineView 当前用于 `detection_page_web` 与 `linux_settings_card`，必须延迟导入
+- **插件层（plugins/）**：`plugins/{category}/{tool_name}/tool.yaml`，必需字段：conda_env · install_cmd · command_template，30 个工具 / 12 个 category
 
-### UI 层（ui/）
-- **约束**：新建 widget/page 必须同步更新 `__init__.py`
-- **6 个页面**：home_page · project_page · analysis_page · assembly_page · detection_page_web · settings_page
-- **QWebEngineView**：仅 detection_page_web 使用，必须延迟导入（QApplication 创建后）
-
-### 插件层（plugins/）
-- **结构**：`plugins/{category}/{tool_name}/tool.yaml`
-- **必需字段**：conda_env · install_cmd · command_template
-- **可选字段**：databases（依赖的数据库列表）
-- **已有 30 个工具**，分 11 个 category
+**详细目录结构与模块清单**：见 `ARCHITECTURE.md`
 
 ---
 
 ## 关键决策（不可推翻）
 
-1. **SSH + Screen 远程执行** — 无服务端 agent，客户端断线不影响任务
-2. **事件驱动任务等待** — JobDispatcher 后台线程监听 screen 会话，JobMonitor 作为 fallback
-3. **每工具独立 conda 环境** — 避免依赖冲突
-4. **YAML 声明式插件** — 新增工具只需添加 tool.yaml
-5. **项目隔离存储** — 每个项目独立 SQLite + 文件目录
-6. **数据血缘追踪** — execution_io 表记录输入输出关系
+1. SSH + Screen 远程执行 — 无服务端 agent，客户端断线不影响任务
+2. 事件驱动任务等待 — JobDispatcher 后台线程 + JobMonitor fallback
+3. 每工具独立 conda 环境 — 避免依赖冲突
+4. YAML 声明式插件 — 新增工具只需添加 tool.yaml
+5. 项目隔离存储 — 每项目独立 SQLite + 文件目录
+6. 数据血缘追踪 — execution_io 表记录输入输出关系
 
 ---
 
@@ -55,46 +38,19 @@ data_items    (data_id PK, sample_id, file_path, data_type, tier, produced_by, .
 execution_io  (execution_id, data_id, direction, PK(all three))
 ```
 
-**关键字段**：
-- `executions.is_final_version` — 同工具多次执行，标记最终版本
-- `executions.retry_of` — 重试链追踪
-- `data_items.tier` — raw/intermediate/result
-- `execution_io.direction` — input/output
-
 ---
 
 ## 配置管理（config.py）
 
 **严格禁止**：硬编码 IP/用户名/密码/路径
-**读取配置**：`get_config()` — 自动从 `%APPDATA%\H2OMeta\config.json` 加载
-**保存配置**：`save_config(config)` — 持久化到本地
-**默认模板**：`default_settings_schema()` — 仅首次启动或缺失字段时使用
-
----
-
-## 项目进度
-
-**Phase 2 ✅ 完成**
-- ✅ 6 个 UI 页面：home_page · project_page · analysis_page · assembly_page · detection_page_web · settings_page
-- ✅ 30 个 tool.yaml（11 个 category）
-- ✅ conda 环境管理：env_detector · env_installer · LinuxSettingsCard 升级
-- ✅ 完整执行链：ToolEngine → JobQueue → JobDispatcher（事件驱动）→ DataRegistry
-
-**Phase 3 进行中** — 结果展示 + 页面扩展
+`get_config()` 从 `%APPDATA%\H2OMeta\config.json` 加载 · `save_config(config)` 持久化 · `default_settings_schema()` 仅首次启动用
 
 ---
 
 ## 待完成任务
 
-### P1 — 阻断块（结果展示）
-- [ ] ResultsPanel 接入 analysis_page._on_pipeline_completed()
-- [ ] 远端结果文件下载（ssh.download）
-
-### P2 — 核心功能（Phase 3）
-- [ ] database_page（数据库下载管理）
-- [ ] results_page（matplotlib 图表 + 数据表格 + DAG 可视化）
-- [ ] amr_page（AMR 分析路径专用页面）
-- [ ] 历史执行选择器（切换重试和最终版本）
+**P1 — 阻断块**：ResultsPanel 接入 analysis_page · 远端结果文件下载（ssh.download）
+**P2 — Phase 3**：database_page · results_page（图表+DAG） · amr_page · 历史执行选择器
 
 ---
 
@@ -107,33 +63,22 @@ execution_io  (execution_id, data_id, direction, PK(all three))
 5. **响应式布局** — 禁止硬编码固定宽度
 6. **测试临时文件用 fixture** — 统一用 `conftest.py` 的 `tmp_db` / `tmp_dir`
 7. **禁止硬编码服务器信息** — 所有配置通过 config.py 读写
-8. **测试禁止 module-level 创建 QApplication/QCoreApplication** — 统一用 `conftest.py` 的 `_ensure_qapp`（session-scope QApplication）。Qt 同一进程只允许一个 Application 实例，混用 QCoreApplication 和 QApplication 会导致 `0xC0000409` 原生崩溃
-9. **测试中禁止实例化 QWebEngineView** — UI 测试需 `patch("ui.main_window.DetectionPage", FakeWidget)` 替换，避免 Chromium 子进程在无头环境崩溃
-10. **UI 文件禁止包含后端逻辑** — UI 层（ui/）只负责：布局、样式、用户交互、信号连接。以下逻辑必须放 core/：
-    - SQL 查询（SELECT/INSERT/DELETE 等数据库操作）
-    - SSH 操作（远程命令执行、文件读写）
-    - 数据解析与转换（TSV/CSV 解析、结果文件处理）
-    - 文件 I/O（本地或远程文件读写）
-    - 业务验证（非 UI 输入校验的业务规则）
-    - QThread Worker 类的纯计算/IO 逻辑放 core/，UI 层只做信号绑定和结果显示
-11. **已知待重构：UI 后端逻辑抽取** — 以下文件混入了过多后端逻辑，新增功能时应逐步将后端逻辑迁移到 core/：
-
-    | UI 文件 | 后端占比 | 待抽取到 | 主要问题 |
-    |---------|---------|---------|---------|
-    | `detection_page_web.py` | 81% | `core/execution/` + `core/remote/` | ToolBridge.run_tool() 整个是后端编排；远程文件读写、结果解析、样本解析应抽到 core |
-    | `linux_settings_card.py` | 60% | `core/environment/` | CondaDetectWorker、EnvInstallPollWorker 的 IO 逻辑、ANSI 清理、环境恢复逻辑 |
-    | `home_page.py` | 57% | `core/data/` | 样本增删的 SQL 操作、统计查询、stage 状态聚合应抽到 sample_manager/analytics |
-    | `ssh_settings_card.py` | 55% | `core/remote/` | SSHWorker、SSHDiagnosticWorker 的连接/诊断逻辑、错误分类 |
+8. **测试禁止 module-level 创建 QApp** — 统一用 `conftest.py` 的 `_ensure_qapp`（session-scope），Qt 只允许一个 Application 实例
+9. **测试禁止实例化 QWebEngineView** — `patch("ui.main_window.DetectionPage", FakeWidget)` 替换
+10. **分层禁令** — ui/ 只负责界面渲染、信号绑定、状态展示。SQL/SSH/数据解析/文件IO/配置拼装一律放 core/。跨页面协作放 ui/controllers/ 或 MainWindow 公开接口。plugins/ 只放 YAML 静态声明
+11. **体积约束** — UI 页面 ≤ 400 行，复杂卡片 ≤ 500 行，超 600 行必须先拆分再加功能。函数超 40 行评估拆分
+12. **新增代码放置** — 弹窗/子卡片 → `ui/widgets/*_components.py`；页面编排 → `ui/controllers/*_controller.py`；查询/执行逻辑 → `core/*/*_service.py`；通用函数 → `core/utils.py`；Worker 纯逻辑放 core/，UI 只做信号壳
 
 ---
 
 ## 快速参考
 
-**本地环境**：conda 环境 `bio_ui`（已配置完整依赖）
-**启动应用**：`python -m ui.main`
-**运行全量测试**：`QT_QPA_PLATFORM=offscreen pytest -p no:cacheprovider tests -q`
-**单文件测试**：`pytest tests/test_xxx.py -v`
-**仅 Core 测试**：`pytest tests -m "not ui" -q`（跳过 UI smoke，速度更快）
-**仅 UI 测试**：`pytest tests/test_ui_smoke.py -v`
-**依赖**：Python 3.11+ · PyQt6 · paramiko · Jinja2 · matplotlib
-**详细架构**：见 `ARCHITECTURE.md`
+```
+启动应用：  python -m ui.main
+全量测试：  QT_QPA_PLATFORM=offscreen pytest -p no:cacheprovider tests -q
+单文件测试：pytest tests/test_xxx.py -v
+Core 测试： pytest tests -m "not ui" -q
+UI 测试：   pytest tests/test_ui_smoke.py -v
+```
+
+**环境**：conda `bio_ui` · Python 3.11+ · PyQt6 · paramiko · Jinja2 · matplotlib

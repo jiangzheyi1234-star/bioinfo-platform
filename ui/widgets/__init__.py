@@ -83,6 +83,20 @@ except Exception:  # pragma: no cover
     SampleCard = None  # type: ignore
     StageNode = None  # type: ignore
 
+try:
+    from .ssh_settings_components import ClickableHeader, SSHDiagnosticDialog, StepIndicator
+except Exception:  # pragma: no cover
+    ClickableHeader = None  # type: ignore
+    SSHDiagnosticDialog = None  # type: ignore
+    StepIndicator = None  # type: ignore
+
+try:
+    from .linux_settings_components import EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
+except Exception:  # pragma: no cover
+    EnvInstallDialog = None  # type: ignore
+    ToolEnvBridge = None  # type: ignore
+    cleanup_thread_pair = None  # type: ignore
+
 from . import styles
 
 __all__ = [
@@ -92,5 +106,7 @@ __all__ = [
     "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard",
     "ChartWidget", "ResultsPanel", "EnvironmentStatusBar", "InputDataSelector",
     "AddSamplePlaceholder", "PipelineProgress", "SampleAddDialog", "SampleCard", "StageNode",
+    "ClickableHeader", "SSHDiagnosticDialog", "StepIndicator",
+    "EnvInstallDialog", "ToolEnvBridge", "cleanup_thread_pair",
     "styles",
 ]

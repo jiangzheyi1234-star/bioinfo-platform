@@ -1,6 +1,6 @@
 # H2OMeta — 架构决策速查
 
-> 详细产品需求见 `PRODUCT.md`。日常开发看 `CLAUDE.md` 即可。
+> 日常开发看 `CLAUDE.md` 即可；本文件维护当前代码结构与边界约束。
 
 ---
 
@@ -87,20 +87,23 @@ bio_ui/
 ├── core/                    # 纯逻辑层，禁 QtWidgets
 │   ├── __init__.py          # 子包汇总
 │   ├── service_locator.py   # 服务总线（根级）
-│   ├── execution/           # 执行链（6 个模块）
+│   ├── execution/           # 执行链（7 个模块）
 │   │   ├── tool_engine.py   # 统一执行入口
+│   │   ├── tool_bridge_service.py # UI→Core 桥接服务
 │   │   ├── command_builder.py  # Jinja2 命令渲染
 │   │   ├── job_dispatcher.py   # SSH + screen 投递
 │   │   ├── job_monitor.py      # 状态轮询（fallback）
 │   │   ├── job_queue.py        # 并发控制
 │   │   └── retry_manager.py    # 自动重试
-│   ├── data/                # 数据管理（4 个模块）
+│   ├── data/                # 数据管理（5 个模块）
 │   │   ├── data_registry.py    # 血缘追踪
 │   │   ├── data_importer.py    # 数据导入
 │   │   ├── project_manager.py  # 项目管理
+│   │   ├── sample_service.py   # 样本 CRUD 服务
 │   │   └── execution_cleaner.py # 归档清理
-│   ├── remote/              # SSH 连接（3 个模块）
+│   ├── remote/              # SSH 连接（4 个模块）
 │   │   ├── ssh_service.py      # SSH 封装
+│   │   ├── ssh_connector.py    # 连接/诊断服务
 │   │   ├── ssh_reconnector.py  # 自动重连
 │   │   └── storage_manager.py  # 远端存储
 │   ├── pipeline/            # 流程编排（4 个模块）
@@ -108,9 +111,10 @@ bio_ui/
 │   │   ├── pipeline_reconstructor.py  # DAG 重建
 │   │   ├── chart_data_parser.py   # 结果解析
 │   │   └── project_exporter.py    # 项目导出
-│   ├── environment/         # 环境管理（3 个模块）
+│   ├── environment/         # 环境管理（4 个模块）
 │   │   ├── env_detector.py      # conda 检测
 │   │   ├── env_installer.py     # conda 安装
+│   │   ├── env_batch_checker.py # 批量环境状态检查
 │   │   └── container_detector.py # 容器检测（预留）
 │   └── plugins/             # 插件系统（2 个模块）
 │       ├── plugin_registry.py   # YAML 三层懒加载
@@ -118,6 +122,9 @@ bio_ui/
 ├── ui/
 │   ├── pages/               # 6 个页面
 │   ├── widgets/             # 可复用控件
+│   │   ├── *_components.py  # 子卡片/弹窗组件
+│   │   └── ...
+│   ├── controllers/         # 跨页面编排
 │   └── main_window.py
 ├── plugins/
 │   ├── {category}/{tool}/tool.yaml
@@ -136,3 +143,23 @@ bio_ui/
 | Phase 1 | Core 骨架（Plugin + Project + DataRegistry + ToolEngine） | ✅ 完成 |
 | Phase 2 | ServiceLocator + PipelineRunner + 6 个 UI 页面全部接通 | ✅ 完成 |
 | Phase 3 | 结果可视化 + 数据库管理页 + AMR 分析路径 | 🚧 进行中 |
+
+---
+
+## Code Placement Rules
+
+| What you're adding | Where it goes |
+|---|---|
+| New dialog / sub-card | `ui/widgets/*_components.py` |
+| Cross-page orchestration | `ui/controllers/*_controller.py` |
+| Query / aggregation / execution logic | `core/*/*_service.py` |
+| Shared utility functions | `core/utils.py` |
+| Worker pure logic (IO, computation) | `core/` (UI layer = signal shell only) |
+| New tool | `plugins/{category}/{tool_name}/tool.yaml` |
+
+**Layer boundaries**:
+- `ui/` — rendering, signal binding, state display. No SQL, SSH, file I/O, data parsing.
+- `core/` — business logic, remote execution, data management. Only `PyQt6.QtCore` allowed.
+- `plugins/` — YAML static declarations only.
+
+**Size limits**: UI page ≤ 400 lines, complex card ≤ 500 lines, must split before adding features if > 600 lines. Evaluate splitting any function > 40 lines.
