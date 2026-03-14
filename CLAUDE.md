@@ -82,3 +82,11 @@ UI 测试：   pytest tests/test_ui_smoke.py -v
 ```
 
 **环境**：conda `bio_ui` · Python 3.11+ · PyQt6 · paramiko · Jinja2 · matplotlib
+---
+
+## 环境管理（必须遵守）
+
+1. **`conda` 只用于创建 `bio_ui` 环境，不要用 `conda install pyqt/qt`。**
+2. **项目依赖统一通过 `pip` 安装；新机器或环境损坏时优先使用 `environment.yml` 重建。**
+3. **Qt 相关包禁止混装来源：仅使用 `pip` 的 `PyQt6` / `PyQt6-WebEngine`，不要安装 `PyQt5`、`PyQtWebEngine` 或 conda 的 `pyqt`。**
+4. **新增直接依赖时必须同步更新 `requirements.txt`，环境稳定后再更新 `environment.yml`。**
