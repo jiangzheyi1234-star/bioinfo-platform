@@ -13,13 +13,6 @@ if root_dir not in sys.path:
 
 from ui.qt_bootstrap import ensure_qt_webengine_ready
 
-try:
-    # Prefer package import when launched as `python -m ui.main`.
-    from .main_window import MainWindow
-except ImportError:
-    # Fallback for direct script execution: `python ui/main.py`.
-    from main_window import MainWindow
-
 
 def _sanitize_qt_platform() -> None:
     """Avoid forcing offscreen platform for normal interactive runs."""
@@ -28,10 +21,21 @@ def _sanitize_qt_platform() -> None:
         os.environ.pop("QT_QPA_PLATFORM", None)
 
 
+def _import_main_window():
+    try:
+        # Prefer package import when launched as `python -m ui.main`.
+        from .main_window import MainWindow
+    except ImportError:
+        # Fallback for direct script execution: `python ui/main.py`.
+        from main_window import MainWindow
+    return MainWindow
+
+
 def main():
     try:
         ensure_qt_webengine_ready()
         _sanitize_qt_platform()
+        MainWindow = _import_main_window()
         app = QApplication(sys.argv)
 
         font = app.font()
@@ -64,4 +68,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

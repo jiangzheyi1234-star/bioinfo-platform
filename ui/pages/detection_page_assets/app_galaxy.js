@@ -807,11 +807,11 @@ function renderDatabases(databases) {
 
 function getInputBrowseFilter(input, descriptor) {
     if (descriptor?.id === 'primer_design' && input?.name === 'genomes_bundle') {
-        return 'Primer 输入文件 (*.zip *.tar *.tar.gz *.tgz *.fasta *.fna *.fa);;压缩包 (*.zip *.tar *.tar.gz *.tgz);;序列文件 (*.fasta *.fna *.fa);;所有文件 (*.*)';
+        return 'Primer 输入文件 (*.zip *.tar *.tar.gz *.tgz *.fasta *.fna *.fa);;压缩包 (*.zip *.tar *.tar.gz *.tgz);;序列文件 (*.fasta *.fna *.fa)';
     }
 
     if (input?.type === 'archive') {
-        return '压缩包 (*.zip *.tar *.tar.gz *.tgz);;所有文件 (*.*)';
+        return '压缩包 (*.zip *.tar *.tar.gz *.tgz)';
     }
 
     return '所有文件 (*.*)';
