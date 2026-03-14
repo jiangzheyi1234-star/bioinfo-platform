@@ -54,11 +54,13 @@ class ToolBridge(QObject):
         self.tool_selected.emit(tool_id)
 
     @pyqtSlot(str, result=str)
-    def browse_file(self, input_id: str) -> str:
+    @pyqtSlot(str, str, result=str)
+    def browse_file(self, input_id: str, file_filter: str = "所有文件 (*.*)") -> str:
         from PyQt6.QtWidgets import QFileDialog
 
         parent = self.main_window if self.main_window else None
-        file_path, _ = QFileDialog.getOpenFileName(parent, "选择文件", "", "所有文件 (*.*)")
+        selected_filter = file_filter or "所有文件 (*.*)"
+        file_path, _ = QFileDialog.getOpenFileName(parent, "选择文件", "", selected_filter)
         return file_path or ""
 
     @pyqtSlot(str, str)

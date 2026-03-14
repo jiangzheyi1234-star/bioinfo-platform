@@ -710,6 +710,8 @@ function renderInputs(inputs) {
         group.className = 'form-group';
 
         const required = input.required !== false ? '<span class="required">*</span>' : '';
+        const browseFilter = getInputBrowseFilter(input, selectedDescriptor || {});
+        const validator = getInputSelectionValidator(input, selectedDescriptor || {});
 
         group.innerHTML = `
             <label class="form-label">
@@ -721,7 +723,7 @@ function renderInputs(inputs) {
                        id="input-${input.name}"
                        placeholder="${input.description || 'Select file...'}"
                        readonly>
-                <button class="btn-browse" onclick="browseFile('input-${input.name}')">Browse...</button>
+                <button class="btn-browse" onclick="browseFile('input-${input.name}', '${browseFilter}', '${validator}')">Browse...</button>
             </div>
             ${input.description ? `<div class="form-help">${input.description}</div>` : ''}
         `;
@@ -794,7 +796,7 @@ function renderDatabases(databases) {
                        id="db-${db.param_name || db.name}"
                        placeholder="${db.description || 'Database path...'}"
                        readonly>
-                <button class="btn-browse" onclick="browseFile('db-${db.name}')">Browse...</button>
+                <button class="btn-browse" onclick="browseFile('db-${db.param_name || db.name}')">Browse...</button>
             </div>
             ${db.description ? `<div class="form-help">${db.description}</div>` : ''}
         `;
@@ -803,10 +805,44 @@ function renderDatabases(databases) {
     });
 }
 
-function browseFile(inputId) {
+function getInputBrowseFilter(input, descriptor) {
+    if (descriptor?.id === 'primer_design' && input?.name === 'genomes_bundle') {
+        return 'Primer 输入文件 (*.zip *.tar *.tar.gz *.tgz *.fasta *.fna *.fa);;压缩包 (*.zip *.tar *.tar.gz *.tgz);;序列文件 (*.fasta *.fna *.fa);;所有文件 (*.*)';
+    }
+
+    if (input?.type === 'archive') {
+        return '压缩包 (*.zip *.tar *.tar.gz *.tgz);;所有文件 (*.*)';
+    }
+
+    return '所有文件 (*.*)';
+}
+
+function getInputSelectionValidator(input, descriptor) {
+    if (descriptor?.id === 'primer_design' && input?.name === 'genomes_bundle') {
+        return 'primer_genomes_bundle';
+    }
+    return '';
+}
+
+function isPrimerGenomesBundlePath(filePath) {
+    const path = String(filePath || '').toLowerCase();
+    return path.endsWith('.zip')
+        || path.endsWith('.tar.gz')
+        || path.endsWith('.tgz')
+        || path.endsWith('.tar')
+        || path.endsWith('.fasta')
+        || path.endsWith('.fna')
+        || path.endsWith('.fa');
+}
+
+function browseFile(inputId, fileFilter = '所有文件 (*.*)', validator = '') {
     console.log('Browse file:', inputId);
-    bridge.browse_file(inputId, function(filePath) {
+    bridge.browse_file(inputId, fileFilter, function(filePath) {
         if (filePath) {
+            if (validator === 'primer_genomes_bundle' && !isPrimerGenomesBundlePath(filePath)) {
+                alert('仅支持 .zip/.tar/.tar.gz/.tgz 或单个 .fasta/.fna/.fa 文件');
+                return;
+            }
             document.getElementById(inputId).value = filePath;
         }
     });
