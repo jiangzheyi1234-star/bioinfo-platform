@@ -28,6 +28,7 @@ from typing import Any, Optional, Protocol
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.execution.command_builder import CommandBuilder, CommandBuildError
+from core.execution.workflow_uploader import get_local_workflow_dir, upload_workflow
 from core.data.data_registry import DataRegistry
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,14 @@ class ToolEngine(QObject):
         )
         all_paths = {**input_paths, **output_paths}
 
+        # 7.5 上传本地 workflow 脚本（仅 primer_design 等含自研脚本的插件）
+        workflow_dir = ""
+        yaml_path = descriptor.get("_yaml_path", "")
+        local_wf = get_local_workflow_dir(yaml_path) if yaml_path else None
+        if local_wf is not None:
+            workflow_dir = f"{output_dir}/workflow"
+            upload_workflow(self._ssh, local_wf, workflow_dir)
+
         # 8. 构建命令（使用 Jinja2 模板）
         command = CommandBuilder.build(
             descriptor=descriptor,
@@ -205,6 +214,7 @@ class ToolEngine(QObject):
             sample_id=sample_id,
             database_paths=database_paths,
             conda_executable=self._conda_executable,
+            workflow_dir=workflow_dir,
         )
 
         # 9. 创建 ExecutionRecord

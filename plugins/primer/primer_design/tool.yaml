@@ -42,11 +42,6 @@ outputs:
     pattern: "{output_dir}/task.log"
 
 parameters:
-  - name: workflow_root
-    type: string
-    default: "/home/zyserver/project_ssd/lcy_project/project20260108_targeted_seq"
-    label: "远端 primer_design 根目录"
-    description: "Linux 服务器上 primer_design 目录的位置，需包含 0_auto_run.sh、my_code、primer、software。"
   - name: mode
     type: choice
     default: "quick"
@@ -57,7 +52,7 @@ parameters:
 command_template: |
   set -euo pipefail
   export PRIMER_INPUT_PATH="{{ input_genomes_bundle }}"
-  export PRIMER_WORKFLOW_ROOT="{{ workflow_root }}"
+  export PRIMER_WORKFLOW_ROOT="{{ workflow_dir }}"
   export PRIMER_DB_PATH="{{ db }}"
   export PRIMER_WORK_DIR="{{ output_dir }}/primer_workspace"
 

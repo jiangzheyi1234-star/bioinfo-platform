@@ -874,9 +874,8 @@ function renderDatabases(databases) {
                 <input type="text"
                        class="form-input"
                        id="db-${db.param_name || db.name}"
-                       placeholder="${db.description || 'Database path...'}"
-                       readonly>
-                <button class="btn-browse" onclick="browseFile('db-${db.param_name || db.name}')">Browse...</button>
+                       placeholder="${db.description || '远端数据库路径...'}">
+                <button class="btn-browse" onclick="browseRemoteFile('db-${db.param_name || db.name}')">Browse...</button>
             </div>
             ${db.description ? `<div class="form-help">${db.description}</div>` : ''}
         `;
@@ -913,6 +912,34 @@ function isPrimerGenomesBundlePath(filePath) {
         || path.endsWith('.fasta')
         || path.endsWith('.fna')
         || path.endsWith('.fa');
+}
+
+function browseRemoteFile(inputId) {
+    console.log('Browse remote file:', inputId);
+    bridge.browse_remote_file(inputId, function(rawResult) {
+        if (!rawResult) {
+            return;
+        }
+
+        let payload = null;
+        try {
+            payload = JSON.parse(rawResult);
+        } catch (e) {
+            payload = { path: rawResult, error: '' };
+        }
+
+        const filePath = String(payload?.path || '');
+        const errorMessage = String(payload?.error || '');
+
+        if (errorMessage) {
+            showNotice(errorMessage);
+            return;
+        }
+
+        if (filePath) {
+            document.getElementById(inputId).value = filePath;
+        }
+    });
 }
 
 function browseFile(inputId, fileFilter = '所有文件 (*.*)', validator = '') {

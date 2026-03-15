@@ -99,6 +99,7 @@ class CommandBuilder:
         sample_id: str,
         database_paths: Optional[Dict[str, str]] = None,
         conda_executable: str = "",
+        workflow_dir: str = "",
     ) -> str:
         """渲染 command_template，生成纯命令字符串（不含包装）。
 
@@ -142,6 +143,10 @@ class CommandBuilder:
         conda_env = descriptor.get("conda_env")
         if conda_env:
             context["conda_env"] = conda_env
+
+        # workflow 目录（自研脚本上传后的远端路径）
+        if workflow_dir:
+            context["workflow_dir"] = workflow_dir
 
         try:
             template = _JINJA_ENV.from_string(template_str)

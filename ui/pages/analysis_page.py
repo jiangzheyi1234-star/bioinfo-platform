@@ -26,6 +26,7 @@ from PyQt6.QtGui import QColor
 
 from core.pipeline.pipeline_runner import PipelineRunner, PipelineStage
 from ui.widgets import styles
+from ui.widgets.chart_widget import ResultsPanel
 from ui.widgets.execution_history_card import ExecutionHistoryCard
 from ui.widgets.stage_status_widget import (
     STATUS_COMPLETED,
@@ -148,6 +149,9 @@ class AnalysisPage(QFrame):
 
         self._execution_history = ExecutionHistoryCard()
         layout.addWidget(self._execution_history)
+
+        self._results_panel = ResultsPanel()
+        layout.addWidget(self._results_panel)
 
         layout.addStretch()
         scroll.setWidget(content)
@@ -492,6 +496,7 @@ class AnalysisPage(QFrame):
             self._btn_run.setEnabled(False)
             self._btn_run.setText("运行中...")
             self._status_text.setText("正在上传输入文件...")
+            self._results_panel.reset()
 
             sample_id = self._selected_sample_id
             if sample_id:
@@ -599,6 +604,7 @@ class AnalysisPage(QFrame):
             sw.set_status(STATUS_COMPLETED)
 
         self._refresh_execution_history()
+        self._load_pipeline_results()
 
     def _on_pipeline_failed(self, run_id: str, stage_idx: int, error: str) -> None:
         if run_id != self._pipeline_run_id:
@@ -620,6 +626,53 @@ class AnalysisPage(QFrame):
 
     def _on_execution_failed(self, execution_id: str, error: str) -> None:
         _ = (execution_id, error)
+
+    def _load_pipeline_results(self) -> None:
+        """流程完成后，下载 fastp json 和 kraken2 kreport 并加载结果图表。"""
+        locator = self._get_locator()
+        if not locator:
+            return
+        sample_id = self._selected_sample_id
+        if not sample_id:
+            return
+
+        registry = locator.data_registry
+        ssh = locator.ssh_service
+        if registry is None or ssh is None:
+            return
+
+        pm = locator.project_manager
+        if pm is None or pm.current_project is None:
+            return
+
+        project_dir = pm._projects_root / pm.current_project.project_id
+        dl_dir = project_dir / "downloads" / sample_id
+        dl_dir.mkdir(parents=True, exist_ok=True)
+
+        fastp_local = self._download_latest(
+            registry, ssh, sample_id, "json", dl_dir
+        )
+        kreport_local = self._download_latest(
+            registry, ssh, sample_id, "kreport", dl_dir
+        )
+        self._results_panel.load_results(fastp_local, kreport_local)
+
+    def _download_latest(
+        self, registry, ssh, sample_id: str, data_type: str, dl_dir: Path
+    ) -> Optional[str]:
+        """下载指定类型的最新数据项到本地目录，返回本地路径。"""
+        items = registry.find_compatible(sample_id, data_type)
+        if not items:
+            return None
+        remote_path = items[0].file_path
+        file_name = Path(remote_path).name
+        local_path = dl_dir / file_name
+        try:
+            ssh.download(remote_path, str(local_path))
+            return str(local_path)
+        except Exception:
+            logger.exception("下载 %s 失败: %s", data_type, remote_path)
+            return None
 
     def _on_sample_name_changed(self, *_args) -> None:
         if self._selected_sample_id is not None:

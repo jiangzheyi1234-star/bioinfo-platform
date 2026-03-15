@@ -109,6 +109,7 @@ class PluginRegistry:
             try:
                 with open(yaml_path, "r", encoding="utf-8") as fh:
                     self._descriptors[tool_id] = yaml.safe_load(fh)
+                self._descriptors[tool_id]["_yaml_path"] = str(yaml_path)
                 logger.debug("已加载描述符: %s", tool_id)
             except Exception:
                 logger.exception("加载插件描述符失败: %s (%s)", tool_id, yaml_path)
