@@ -771,10 +771,12 @@ class ToolBridgeService:
             cursor = db.cursor()
             cursor.execute(
                 """
-                SELECT execution_id, sample_id, tool_id, status,
-                       created_at, completed_at, error
-                FROM executions
-                ORDER BY created_at DESC
+                SELECT e.execution_id, e.sample_id, s.name AS sample_name,
+                       e.tool_id, e.status, e.parameters,
+                       e.created_at, e.completed_at, e.error
+                FROM executions e
+                LEFT JOIN samples s ON e.sample_id = s.sample_id
+                ORDER BY e.created_at DESC
                 LIMIT 50
                 """
             )
@@ -782,11 +784,13 @@ class ToolBridgeService:
                 {
                     "execution_id": row[0],
                     "sample_id": row[1],
-                    "tool_id": row[2],
-                    "status": row[3],
-                    "created_at": row[4],
-                    "completed_at": row[5],
-                    "error": row[6],
+                    "sample_name": row[2],
+                    "tool_id": row[3],
+                    "status": row[4],
+                    "parameters": row[5],
+                    "created_at": row[6],
+                    "completed_at": row[7],
+                    "error": row[8],
                 }
                 for row in cursor.fetchall()
             ]
