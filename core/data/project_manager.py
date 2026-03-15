@@ -7,6 +7,7 @@
 
 import json
 import logging
+import shutil
 import sqlite3
 import time
 import uuid
@@ -211,17 +212,18 @@ class ProjectManager(QObject):
         # 关闭旧连接
         self._close_db()
 
-        # 清理残留 WAL 锁（上次崩溃可能留下 -shm/-wal）
-        self._try_checkpoint_wal(db_path)
-
         # 建立新连接
-        self._db_conn = sqlite3.connect(str(db_path))
-        self._db_conn.execute("PRAGMA journal_mode=WAL")
-        self._db_conn.execute("PRAGMA foreign_keys=ON")
-        self._db_conn.row_factory = sqlite3.Row
+        try:
+            self._db_conn = sqlite3.connect(str(db_path))
+            self._db_conn.execute("PRAGMA foreign_keys=ON")
+            self._db_conn.row_factory = sqlite3.Row
 
-        # 运行数据库迁移
-        self._migrate_database(self._db_conn)
+            # 运行数据库迁移
+            self._migrate_database(self._db_conn)
+        except Exception:
+            logger.exception("Failed to open project database: %s", db_path)
+            self._close_db()
+            raise
 
         self._current_project = project
 
@@ -314,13 +316,58 @@ class ProjectManager(QObject):
         self._close_db()
         self._current_project = None
 
+    def backup_current_project(self, reason: str = "manual") -> Path:
+        """备份当前项目数据库和项目索引。"""
+        if self._current_project is None:
+            raise RuntimeError("没有打开的项目")
+
+        project_id = self._current_project.project_id
+        project_dir = self._projects_root / project_id
+        db_path = project_dir / "project.db"
+        if not db_path.exists():
+            raise FileNotFoundError(f"项目数据库不存在: {db_path}")
+
+        backups_root = self._projects_root / "_backups" / project_id
+        try:
+            backups_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            backups_root = project_dir / "_backups"
+            backups_root.mkdir(parents=True, exist_ok=True)
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        backup_dir = backups_root / f"{timestamp}_{reason}"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        backup_db = backup_dir / "project.db"
+        if self._db_conn is not None:
+            dest = sqlite3.connect(str(backup_db))
+            try:
+                self._db_conn.backup(dest)
+            finally:
+                dest.close()
+        else:
+            shutil.copy2(db_path, backup_db)
+
+        for candidate in (project_dir / "project.db-wal", project_dir / "project.db-shm"):
+            if candidate.exists():
+                try:
+                    shutil.copy2(candidate, backup_dir / candidate.name)
+                except OSError:
+                    logger.warning("Failed to copy SQLite sidecar during backup: %s", candidate)
+
+        if self._index_path.exists():
+            shutil.copy2(self._index_path, backup_dir / "projects.json")
+
+        logger.info("已备份当前项目: %s -> %s", project_id, backup_dir)
+        return backup_dir
+
     # ── 内部方法 ──────────────────────────────────────────────
 
     def _init_database(self, db_path: Path) -> None:
         """初始化项目数据库，创建所有表"""
         conn = sqlite3.connect(str(db_path))
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA journal_mode=DELETE")
             conn.execute("PRAGMA foreign_keys=ON")
             conn.executescript(_SCHEMA_SQL)
             conn.commit()

@@ -1,0 +1,117 @@
+id: multiplex_primer_panel
+name: Multiplex Panel Design
+version: "0.1.0"
+category: primer
+description: "Optimize pathogen-specific primer candidates into a multiplex PCR panel."
+conda_env: PCR
+
+detection:
+  command: "bash --version"
+  version_regex: "GNU bash, version (\\d+\\.\\d+\\.\\d+)"
+
+inputs:
+  - name: primer_candidates
+    type: tsv
+    required: true
+    label: "候选引物结果"
+    description: "来自 primer_design 的 primer_result.txt，全量候选引物对。"
+  - name: genomes_bundle
+    type: archive
+    required: true
+    label: "病原体基因组包"
+    description: "用于后续池级验证的病原体基因组文件包。"
+
+outputs:
+  - name: multiplex_panel
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/multiplex_panel.txt"
+    sync_to_local: true
+  - name: synthesis_order
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/synthesis_order.txt"
+    sync_to_local: true
+  - name: pool_cross_dimer
+    type: txt
+    tier: intermediate
+    pattern: "{output_dir}/pool_cross_dimer.txt"
+  - name: optimization_log
+    type: txt
+    tier: intermediate
+    pattern: "{output_dir}/optimization_log.txt"
+  - name: task_log
+    type: log
+    tier: intermediate
+    pattern: "{output_dir}/task.log"
+
+parameters:
+  - name: max_cross_dimer_score
+    type: float
+    default: 10
+    label: "最大交叉二聚体分数"
+    description: "超过该分数的引物对将被视为冲突。"
+  - name: max_cross_dimer_dg
+    type: float
+    default: 6
+    label: "最大交叉二聚体 ΔG"
+    description: "用于池内二聚体过滤的 ΔG 阈值。"
+  - name: min_amplicon_diff_bp
+    type: int
+    default: 10
+    label: "最小扩增子长度差"
+    description: "任意两条扩增子之间允许的最小长度差。"
+  - name: max_tm_deviation
+    type: float
+    default: 2.0
+    label: "最大 Tm 偏差"
+    description: "单条引物相对池内平均 Tm 的允许偏差。"
+  - name: max_iterations
+    type: int
+    default: 50
+    label: "最大迭代次数"
+    description: "贪心替换优化的最大迭代轮数。"
+
+command_template: |
+  set -euo pipefail
+  export MULTIPLEX_INPUT_CANDIDATES="{{ input_primer_candidates }}"
+  export MULTIPLEX_INPUT_GENOMES="{{ input_genomes_bundle }}"
+  export MULTIPLEX_WORKFLOW_ROOT="{{ workflow_dir }}"
+  export MULTIPLEX_OUTPUT_DIR="{{ output_dir }}"
+  export MULTIPLEX_MAX_CROSS_DIMER_SCORE="{{ param_max_cross_dimer_score }}"
+  export MULTIPLEX_MAX_CROSS_DIMER_DG="{{ param_max_cross_dimer_dg }}"
+  export MULTIPLEX_MIN_AMPLICON_DIFF_BP="{{ param_min_amplicon_diff_bp }}"
+  export MULTIPLEX_MAX_TM_DEVIATION="{{ param_max_tm_deviation }}"
+  export MULTIPLEX_MAX_ITERATIONS="{{ param_max_iterations }}"
+
+  python - <<'PY'
+  import os
+  import shutil
+  from pathlib import Path
+
+  workflow_root = Path(os.environ["MULTIPLEX_WORKFLOW_ROOT"])
+  output_dir = Path(os.environ["MULTIPLEX_OUTPUT_DIR"])
+  work_dir = output_dir / "multiplex_workspace"
+
+  if work_dir.exists():
+      shutil.rmtree(work_dir)
+  work_dir.mkdir(parents=True, exist_ok=True)
+
+  for name in ("my_code",):
+      src = workflow_root / name
+      dst = work_dir / name
+      if src.is_dir():
+          shutil.copytree(src, dst, dirs_exist_ok=True)
+  shutil.copy2(workflow_root / "0_auto_run.sh", work_dir / "0_auto_run.sh")
+  PY
+
+  cd "{{ output_dir }}/multiplex_workspace"
+  bash 0_auto_run.sh > "{{ output_dir }}/task.log" 2>&1
+
+result_views:
+  - type: table
+    title: "多重引物池结果"
+    data_source: "multiplex_panel.txt"
+    config:
+      columns: [pathogen, region_id, forward_primer, reverse_primer, amplicon_length, pool_score]
+      sortable: true

@@ -1,5 +1,6 @@
 ﻿"""Application entrypoint."""
 
+import logging
 import os
 import sys
 
@@ -33,8 +34,37 @@ def _import_main_window():
     return MainWindow
 
 
+def _configure_logging() -> None:
+    logs_dir = os.path.join(root_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        return
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = logging.FileHandler(
+        os.path.join(logs_dir, "app.log"),
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
+
+
 def main():
     try:
+        _configure_logging()
+        logging.info("Starting H2OMeta UI")
         ensure_qt_webengine_ready()
         _sanitize_qt_platform()
         MainWindow = _import_main_window()
@@ -53,16 +83,16 @@ def main():
         exit_code = app.exec()
         sys.exit(exit_code)
     except Exception:
-        import logging
         import traceback
 
         logs_dir = os.path.join(root_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
-        logging.basicConfig(
-            filename=os.path.join(logs_dir, "startup_error.log"),
-            level=logging.ERROR,
+        startup_handler = logging.FileHandler(
+            os.path.join(logs_dir, "startup_error.log"),
             encoding="utf-8",
         )
+        startup_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logging.getLogger().addHandler(startup_handler)
         logging.error("Startup failed:\n%s", traceback.format_exc())
         traceback.print_exc()
         sys.exit(1)

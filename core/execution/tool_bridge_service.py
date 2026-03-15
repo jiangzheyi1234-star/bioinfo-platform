@@ -519,6 +519,12 @@ class ToolBridgeService:
             if pm is None or pm.current_project is None:
                 return ExecutionResult(status="no_project", message="请先选择或创建项目")
 
+            if hasattr(pm, "backup_current_project"):
+                try:
+                    pm.backup_current_project(reason="before_run")
+                except Exception:
+                    logger.exception("Failed to backup project state before running %s", tool_id)
+
             descriptor = self._plugin_registry.get_descriptor(tool_id)
 
             sample_id = self.ensure_sample_id(pm, params, descriptor)
@@ -675,10 +681,6 @@ class ToolBridgeService:
         if explicit_sample_id:
             return explicit_sample_id
 
-        sample_id = self.get_latest_sample_id(pm)
-        if sample_id:
-            return sample_id
-
         registry = self._get_data_registry()
         if registry is None:
             return ""
@@ -693,7 +695,19 @@ class ToolBridgeService:
         if not sample_name:
             sample_name = f"detection_{time.strftime('%Y%m%d_%H%M%S')}"
 
-        return registry.add_sample(sample_name, source="detection_page")
+        sample_metadata: dict[str, str] = {}
+        for inp in descriptor.get("inputs", []):
+            input_name = str(inp.get("name", "")).strip()
+            path = str(params.get(input_name, "")).strip()
+            if not path:
+                continue
+            sample_metadata[f"input_{input_name}"] = path
+
+        return registry.add_sample(
+            sample_name,
+            source="detection_page",
+            metadata=sample_metadata,
+        )
 
     def import_inputs(self, pm, sample_id: str, descriptor: dict, params: dict) -> list[str]:
         registry = self._get_data_registry()
@@ -768,6 +782,7 @@ class ToolBridgeService:
 
         try:
             db = pm.db
+            superseded_ids = self._get_superseded_running_execution_ids(db)
             cursor = db.cursor()
             cursor.execute(
                 """
@@ -776,27 +791,88 @@ class ToolBridgeService:
                        e.created_at, e.completed_at, e.error
                 FROM executions e
                 LEFT JOIN samples s ON e.sample_id = s.sample_id
+                WHERE e.archived_at IS NULL
                 ORDER BY e.created_at DESC
                 LIMIT 50
                 """
             )
-            return [
-                {
-                    "execution_id": row[0],
-                    "sample_id": row[1],
-                    "sample_name": row[2],
-                    "tool_id": row[3],
-                    "status": row[4],
-                    "parameters": row[5],
-                    "created_at": row[6],
-                    "completed_at": row[7],
-                    "error": row[8],
-                }
-                for row in cursor.fetchall()
-            ]
+            history = []
+            for row in cursor.fetchall():
+                execution_id = row[0]
+                status = row[4]
+                error = row[8]
+                if execution_id in superseded_ids and status == "running":
+                    status = "failed"
+                    error = error or "Superseded by a later completed execution"
+
+                history.append(
+                    {
+                        "execution_id": execution_id,
+                        "sample_id": row[1],
+                        "sample_name": row[2],
+                        "tool_id": row[3],
+                        "status": status,
+                        "parameters": row[5],
+                        "created_at": row[6],
+                        "completed_at": row[7],
+                        "error": error,
+                    }
+                )
+            return history
         except Exception:
             logger.exception("Failed to get execution history")
             return []
+
+    @staticmethod
+    def _get_superseded_running_execution_ids(db) -> set[str]:
+        rows = db.execute(
+            """
+            SELECT older.execution_id
+            FROM executions AS older
+            WHERE older.status = 'running'
+              AND older.archived_at IS NULL
+              AND EXISTS (
+                SELECT 1
+                FROM executions AS newer
+                WHERE newer.tool_id = older.tool_id
+                  AND newer.sample_id = older.sample_id
+                  AND newer.status = 'completed'
+                  AND newer.archived_at IS NULL
+                  AND newer.created_at > older.created_at
+              )
+            """
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def delete_execution_history(self, execution_id: str) -> dict[str, str]:
+        pm = self._get_project_manager()
+        if not pm or not pm.current_project:
+            return {"status": "error", "message": "请先打开项目"}
+
+        try:
+            row = pm.db.execute(
+                "SELECT status, archived_at FROM executions WHERE execution_id = ?",
+                (execution_id,),
+            ).fetchone()
+            if row is None:
+                return {"status": "error", "message": "任务记录不存在"}
+
+            if row["archived_at"] is not None:
+                return {"status": "ok", "message": "任务记录已删除"}
+
+            if row["status"] in {"pending", "running", "retrying"}:
+                return {"status": "error", "message": "运行中的任务不能删除"}
+
+            pm.db.execute(
+                "UPDATE executions SET archived_at = ? WHERE execution_id = ?",
+                (time.time(), execution_id),
+            )
+            pm.db.commit()
+            logger.info("任务历史已归档: %s", execution_id)
+            return {"status": "ok", "message": "任务记录已删除"}
+        except Exception:
+            logger.exception("Failed to delete execution history: %s", execution_id)
+            return {"status": "error", "message": "删除任务记录失败"}
 
     def get_integrated_workbench_config(self) -> dict:
         config = self.base_integrated_workbench_config()

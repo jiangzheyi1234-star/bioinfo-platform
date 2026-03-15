@@ -1137,6 +1137,34 @@ function loadPrimerResultsFromHistory(executionId) {
     });
 }
 
+function deleteHistoryExecution(executionId) {
+    if (!executionId) {
+        return;
+    }
+    if (!bridge || !bridge.delete_execution_history) {
+        showNotice('删除任务接口不可用');
+        return;
+    }
+    if (!window.confirm('确定删除这条任务历史吗？\n仅从历史列表隐藏，不删除结果文件。')) {
+        return;
+    }
+
+    bridge.delete_execution_history(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok') {
+                showNotice(payload.message || '删除任务记录失败');
+                return;
+            }
+            showNotice(payload.message || '任务记录已删除', 'success');
+            loadHistory();
+        } catch (e) {
+            console.error('Failed to parse delete execution result:', e);
+            showNotice('删除任务记录失败');
+        }
+    });
+}
+
 function formatParamsSummary(paramsJson) {
     if (!paramsJson) return '-';
     try {
@@ -1210,6 +1238,27 @@ function renderHistory(history) {
             });
         }
 
+        if (record.status === 'completed' || record.status === 'failed') {
+            const actionCell = row.lastElementChild;
+            if (actionCell) {
+                if (actionCell.innerHTML && actionCell.innerHTML !== '-') {
+                    actionCell.insertAdjacentHTML('beforeend', ' <span style="color:#cbd5e1; margin:0 6px;">|</span> ');
+                }
+                actionCell.insertAdjacentHTML(
+                    'beforeend',
+                    `<a href="#" class="delete-link" data-exec-id="${record.execution_id}">删除</a>`
+                );
+            }
+        }
+
+        const deleteLink = row.querySelector('.delete-link');
+        if (deleteLink) {
+            deleteLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                deleteHistoryExecution(record.execution_id);
+            });
+        }
+
         tbody.appendChild(row);
     });
 }
@@ -1246,4 +1295,3 @@ function formatDuration(seconds) {
         return `${Math.round(seconds / 3600)}小时`;
     }
 }
-

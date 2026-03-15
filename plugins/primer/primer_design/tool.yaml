@@ -1,7 +1,7 @@
 id: primer_design
 name: Primer Design
 version: "0.1.0"
-category: unknown
+category: primer
 description: "多病原体引物设计工具：上传基因组压缩包或单个 FASTA/FNA 文件，在 Linux 端执行 primer_design 流程。"
 conda_env: PCR
 
