@@ -297,26 +297,13 @@ class TestDetectionIntegratedWorkbench:
 
 
 class TestHomePageFlows:
-    def test_add_sample_updates_home_page_state(self, qapp, temp_main_window):
-        from core.data.sample_service import SampleService
-
+    def test_home_page_is_intentionally_blank(self, qapp, temp_main_window):
         home_page = temp_main_window.home_page
-        pm = temp_main_window._pm
-
-        service = SampleService(pm.db)
-        service.add_sample(
-            name="sample_A",
-            source="wastewater",
-            metadata={"r1": "C:/data/sample_A_R1.fastq.gz", "r2": ""},
-        )
-        home_page._load_all()
         _flush_events(qapp)
 
-        count = pm.db.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
-        assert count == 1
-        assert len(home_page._card_widgets) == 1
-        assert home_page._stat_samples.text().endswith("1")
-        assert home_page._add_btn.isEnabled() is True
+        assert len(home_page._card_widgets) == 0
+        assert home_page._proj_name_label.text() == ""
+        assert home_page._stat_samples.text() == ""
 
     def test_continue_analysis_prefills_existing_sample_context(self, qapp, temp_main_window):
         from core.data.sample_service import SampleService
@@ -366,8 +353,8 @@ class TestHomePageFlows:
             window = MainWindow(project_manager=pm)
         _flush_events(qapp)
 
-        assert window.home_page._proj_name_label.text() == "project one"
-        assert len(window.home_page._card_widgets) == 1
+        assert window.home_page._proj_name_label.text() == ""
+        assert len(window.home_page._card_widgets) == 0
 
         window.home_page._on_continue_analysis("smp_alpha")
         _flush_events(qapp)
@@ -377,9 +364,9 @@ class TestHomePageFlows:
         window._on_project_switched(project_two)
         _flush_events(qapp)
 
-        assert window.home_page._proj_name_label.text() == "project two"
+        assert window.home_page._proj_name_label.text() == ""
         assert len(window.home_page._card_widgets) == 0
-        assert window.home_page._stat_samples.text().endswith("0")
+        assert window.home_page._stat_samples.text() == ""
         assert window.analysis_page._selected_sample_id is None
         assert window.analysis_page._sample_name_input.text() == ""
         assert window.analysis_page._r1_path_label.text() != "alpha_R1.fastq.gz"
