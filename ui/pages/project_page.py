@@ -302,6 +302,7 @@ class ProjectPage(BasePage):
             if item.widget():
                 item.widget().deleteLater()
 
+        self._pm.reload_index()
         projects = self._pm.list_projects()
         if not projects:
             empty_label = QLabel("暂无项目，点击上方按钮创建")
