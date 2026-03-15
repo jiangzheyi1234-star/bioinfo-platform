@@ -68,7 +68,7 @@ class RemoteFileDialog(QDialog):
 
         self._btn_up = QPushButton("上级")
         self._btn_up.setStyleSheet(styles.BUTTON_SECONDARY)
-        self._btn_up.setFixedWidth(60)
+        self._btn_up.setFixedWidth(80)
         self._btn_up.clicked.connect(self._go_up)
         nav_row.addWidget(self._btn_up)
 
@@ -79,7 +79,7 @@ class RemoteFileDialog(QDialog):
 
         self._btn_refresh = QPushButton("刷新")
         self._btn_refresh.setStyleSheet(styles.BUTTON_SECONDARY)
-        self._btn_refresh.setFixedWidth(60)
+        self._btn_refresh.setFixedWidth(80)
         self._btn_refresh.clicked.connect(lambda: self._navigate(self._current_path))
         nav_row.addWidget(self._btn_refresh)
 
