@@ -32,7 +32,7 @@ def test_multiplex_primer_panel_descriptor_has_expected_contract() -> None:
     assert desc["category"] == "primer"
     assert desc["conda_env"] == "PCR"
     assert [item["name"] for item in desc["inputs"]] == ["primer_candidates", "genomes_bundle"]
-    assert len(desc["outputs"]) == 5
+    assert len(desc["outputs"]) == 6
     assert len(desc["parameters"]) == 5
     assert desc.get("_yaml_path")
 

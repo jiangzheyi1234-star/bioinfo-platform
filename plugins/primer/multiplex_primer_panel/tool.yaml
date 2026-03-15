@@ -36,6 +36,10 @@ outputs:
     type: txt
     tier: intermediate
     pattern: "{output_dir}/pool_cross_dimer.txt"
+  - name: insilico_pcr_result
+    type: txt
+    tier: intermediate
+    pattern: "{output_dir}/insilico_pcr_result.txt"
   - name: optimization_log
     type: txt
     tier: intermediate
@@ -87,22 +91,61 @@ command_template: |
   python - <<'PY'
   import os
   import shutil
+  import tarfile
+  import zipfile
   from pathlib import Path
 
+  candidates_path = Path(os.environ["MULTIPLEX_INPUT_CANDIDATES"])
+  genomes_path = Path(os.environ["MULTIPLEX_INPUT_GENOMES"])
   workflow_root = Path(os.environ["MULTIPLEX_WORKFLOW_ROOT"])
   output_dir = Path(os.environ["MULTIPLEX_OUTPUT_DIR"])
   work_dir = output_dir / "multiplex_workspace"
+  input_unpack = work_dir / "input_unpack"
+  ref_dir = work_dir / "ref_genome"
+
+  if not candidates_path.exists():
+      raise SystemExit(f"primer_candidates not found: {candidates_path}")
+  if not genomes_path.exists():
+      raise SystemExit(f"genomes_bundle not found: {genomes_path}")
 
   if work_dir.exists():
       shutil.rmtree(work_dir)
   work_dir.mkdir(parents=True, exist_ok=True)
+  input_unpack.mkdir(parents=True, exist_ok=True)
+  ref_dir.mkdir(parents=True, exist_ok=True)
 
-  for name in ("my_code",):
+  for name in ("my_code", "software"):
       src = workflow_root / name
       dst = work_dir / name
       if src.is_dir():
           shutil.copytree(src, dst, dirs_exist_ok=True)
   shutil.copy2(workflow_root / "0_auto_run.sh", work_dir / "0_auto_run.sh")
+  shutil.copy2(candidates_path, work_dir / "primer_candidates.tsv")
+
+  lower_name = genomes_path.name.lower()
+  if lower_name.endswith(".zip"):
+      with zipfile.ZipFile(genomes_path) as zf:
+          zf.extractall(input_unpack)
+  elif lower_name.endswith((".tar.gz", ".tgz", ".tar")):
+      with tarfile.open(genomes_path) as tf:
+          tf.extractall(input_unpack)
+  elif lower_name.endswith((".fasta", ".fna", ".fa")):
+      shutil.copy2(genomes_path, input_unpack / genomes_path.name)
+  else:
+      raise SystemExit("genomes_bundle must be .zip/.tar/.tar.gz/.tgz or a single .fasta/.fna/.fa file")
+
+  found = []
+  for candidate in input_unpack.rglob("*"):
+      if not candidate.is_file():
+          continue
+      if candidate.suffix.lower() not in {".fasta", ".fna", ".fa"}:
+          continue
+      target = ref_dir / candidate.name
+      shutil.copy2(candidate, target)
+      found.append(target)
+
+  if not found:
+      raise SystemExit("No FASTA/FNA/FA files were found inside genomes_bundle")
   PY
 
   cd "{{ output_dir }}/multiplex_workspace"

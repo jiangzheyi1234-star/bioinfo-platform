@@ -109,9 +109,12 @@ BEGIN {
         if (dash_pos > 0) {
             region_id = substr(primer_id, dash_pos + 2);
             if (region_id in seq_map) {
-                print primer_id "\t" forward_seq "\t" reverse_seq "\t" seq_map[region_id] "\t" tm_f "\t" tm_r "\t" gc_f "\t" gc_r;
+                split(seq_map[region_id], seq_fields, "\t");
+                position = seq_fields[1];
+                amplicon_seq = seq_fields[2];
+                print primer_id "\t" forward_seq "\t" reverse_seq "\t" tm_f "\t" tm_r "\t" gc_f "\t" gc_r "\t" position "\t" amplicon_seq;
             } else {
-                print primer_id "\t" forward_seq "\t" reverse_seq "\t\t\t" tm_f "\t" tm_r "\t" gc_f "\t" gc_r;
+                print primer_id "\t" forward_seq "\t" reverse_seq "\t" tm_f "\t" tm_r "\t" gc_f "\t" gc_r "\t\t";
             }
         }
     }

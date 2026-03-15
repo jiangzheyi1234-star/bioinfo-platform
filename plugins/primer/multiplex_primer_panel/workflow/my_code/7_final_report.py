@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
 
@@ -11,23 +12,68 @@ def main() -> None:
     parser.add_argument("--order", required=True)
     args = parser.parse_args()
 
-    panel_rows = []
-    order_rows = ["primer_name\tsequence\tscale\tpurification\tTm\tnotes"]
-    for line in Path(args.input).read_text(encoding="utf-8").splitlines():
-        parts = line.split("\t")
-        if len(parts) < 4:
-            continue
-        pathogen = parts[0]
-        region_id = parts[1]
-        forward = parts[2]
-        reverse = parts[3]
-        amplicon_length = parts[4] if len(parts) > 4 else ""
-        panel_rows.append("\t".join([pathogen, region_id, forward, reverse, amplicon_length, "pass"]))
-        order_rows.append(f"{pathogen}_F\t{forward}\t25nm\tPAGE\t\tpanel")
-        order_rows.append(f"{pathogen}_R\t{reverse}\t25nm\tPAGE\t\tpanel")
+    with Path(args.input).open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
 
-    Path(args.panel).write_text("\n".join(panel_rows) + ("\n" if panel_rows else ""), encoding="utf-8")
-    Path(args.order).write_text("\n".join(order_rows) + "\n", encoding="utf-8")
+    panel_header = [
+        "pathogen",
+        "region_id",
+        "forward_primer",
+        "reverse_primer",
+        "tm_f",
+        "tm_r",
+        "gc_f",
+        "gc_r",
+        "amplicon_length",
+        "pool_score",
+    ]
+    order_header = ["primer_name", "sequence", "scale", "purification", "Tm", "notes"]
+
+    with Path(args.panel).open("w", encoding="utf-8", newline="") as panel_handle:
+        writer = csv.writer(panel_handle, delimiter="\t")
+        writer.writerow(panel_header)
+        for row in rows:
+            writer.writerow(
+                [
+                    row.get("pathogen", ""),
+                    row.get("region_id", ""),
+                    row.get("forward_primer", ""),
+                    row.get("reverse_primer", ""),
+                    row.get("tm_f", ""),
+                    row.get("tm_r", ""),
+                    row.get("gc_f", ""),
+                    row.get("gc_r", ""),
+                    row.get("amplicon_length", ""),
+                    "pass",
+                ]
+            )
+
+    with Path(args.order).open("w", encoding="utf-8", newline="") as order_handle:
+        writer = csv.writer(order_handle, delimiter="\t")
+        writer.writerow(order_header)
+        for row in rows:
+            pathogen = row.get("pathogen", "")
+            region_id = row.get("region_id", "")
+            writer.writerow(
+                [
+                    f"{pathogen}_{region_id}_F",
+                    row.get("forward_primer", ""),
+                    "25nm",
+                    "PAGE",
+                    row.get("tm_f", ""),
+                    "multiplex_panel",
+                ]
+            )
+            writer.writerow(
+                [
+                    f"{pathogen}_{region_id}_R",
+                    row.get("reverse_primer", ""),
+                    "25nm",
+                    "PAGE",
+                    row.get("tm_r", ""),
+                    "multiplex_panel",
+                ]
+            )
 
 
 if __name__ == "__main__":

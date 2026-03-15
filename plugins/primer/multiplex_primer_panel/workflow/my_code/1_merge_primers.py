@@ -1,7 +1,63 @@
 from __future__ import annotations
 
 import argparse
+import csv
+from collections import defaultdict
 from pathlib import Path
+
+
+HEADER = [
+    "pathogen",
+    "region_id",
+    "forward_primer",
+    "reverse_primer",
+    "tm_f",
+    "tm_r",
+    "gc_f",
+    "gc_r",
+    "position",
+    "amplicon_seq",
+    "amplicon_length",
+    "candidate_rank",
+]
+
+
+def parse_candidate(parts: list[str]) -> dict[str, str] | None:
+    if len(parts) >= 10:
+        position = parts[8]
+        amplicon_seq = parts[9]
+        payload = {
+            "pathogen": parts[0],
+            "region_id": parts[1],
+            "forward_primer": parts[2],
+            "reverse_primer": parts[3],
+            "tm_f": parts[4],
+            "tm_r": parts[5],
+            "gc_f": parts[6],
+            "gc_r": parts[7],
+            "position": position,
+            "amplicon_seq": amplicon_seq,
+        }
+    elif len(parts) >= 6:
+        position = parts[4]
+        amplicon_seq = parts[5]
+        payload = {
+            "pathogen": parts[0],
+            "region_id": parts[1],
+            "forward_primer": parts[2],
+            "reverse_primer": parts[3],
+            "tm_f": "",
+            "tm_r": "",
+            "gc_f": "",
+            "gc_r": "",
+            "position": position,
+            "amplicon_seq": amplicon_seq,
+        }
+    else:
+        return None
+
+    payload["amplicon_length"] = str(len(amplicon_seq))
+    return payload
 
 
 def main() -> None:
@@ -12,42 +68,39 @@ def main() -> None:
     args = parser.parse_args()
 
     src = Path(args.input)
-    rows = []
-    for line in src.read_text(encoding="utf-8").splitlines():
-        parts = line.split("\t")
-        if len(parts) < 6:
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for raw in src.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line:
             continue
-        rows.append(parts)
+        candidate = parse_candidate(line.split("\t"))
+        if candidate is None:
+            continue
+        grouped[candidate["pathogen"]].append(candidate)
 
-    out = Path(args.output)
-    out.write_text(
-        "\n".join(
-            "\t".join(
+    rows: list[dict[str, str]] = []
+    fasta_lines: list[str] = []
+    for pathogen in sorted(grouped):
+        for rank, candidate in enumerate(grouped[pathogen], start=1):
+            candidate["candidate_rank"] = str(rank)
+            rows.append(candidate)
+            primer_prefix = f"{pathogen}|{candidate['region_id']}|{rank}"
+            fasta_lines.extend(
                 [
-                    parts[0],
-                    parts[1],
-                    parts[2],
-                    parts[3],
-                    parts[4] if len(parts) > 4 else "",
-                    parts[5] if len(parts) > 5 else "",
-                    parts[6] if len(parts) > 6 else "",
-                    parts[7] if len(parts) > 7 else "",
-                    parts[8] if len(parts) > 8 else "",
-                    parts[9] if len(parts) > 9 else "",
+                    f">{primer_prefix}|F",
+                    candidate["forward_primer"],
+                    f">{primer_prefix}|R",
+                    candidate["reverse_primer"],
                 ]
             )
-            for parts in rows
-        ),
-        encoding="utf-8",
-    )
 
-    fasta_lines = []
-    for idx, parts in enumerate(rows, start=1):
-        fasta_lines.append(f">F_{idx}_{parts[0]}")
-        fasta_lines.append(parts[2])
-        fasta_lines.append(f">R_{idx}_{parts[0]}")
-        fasta_lines.append(parts[3])
-    Path(args.fasta).write_text("\n".join(fasta_lines) + ("\n" if fasta_lines else ""), encoding="utf-8")
+    with Path(args.output).open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=HEADER, delimiter="\t")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    fasta_text = "\n".join(fasta_lines)
+    Path(args.fasta).write_text(f"{fasta_text}\n" if fasta_text else "", encoding="utf-8")
 
 
 if __name__ == "__main__":

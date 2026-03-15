@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRIMER_DESIGN_BIN="$SELF_DIR/../../../primer_design/workflow/software/mfeprimer"
+
+if [ -x "$PRIMER_DESIGN_BIN" ]; then
+  exec "$PRIMER_DESIGN_BIN" "$@"
+fi
+
+exec mfeprimer "$@"
