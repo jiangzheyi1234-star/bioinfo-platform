@@ -81,6 +81,13 @@ class DataImporter(QObject):
             raise FileNotFoundError(f"本地文件不存在: {local_path}")
 
         filename = os.path.basename(local_path)
+        # 展开 ~ 为用户主目录绝对路径
+        if project_remote_base.startswith("~"):
+            rc, expanded, _ = self._ssh.run(
+                f"echo {project_remote_base}", timeout=10,
+            )
+            if rc == 0 and expanded.strip():
+                project_remote_base = expanded.strip()
         remote_dir = f"{project_remote_base}/raw/{sample_id}"
         remote_path = f"{remote_dir}/{filename}"
 

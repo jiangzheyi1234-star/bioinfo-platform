@@ -226,8 +226,64 @@ class TestDetectionIntegratedWorkbench:
         assert payload["status"] == "ok"
         assert payload["view"]["remote_result_dir"] == "/remote/primer_job/my_result"
 
+    def test_tool_bridge_returns_primer_results_for_execution(self, monkeypatch):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        service = ToolBridgeService()
+        monkeypatch.setattr(
+            service,
+            "get_primer_view_for_execution",
+            lambda execution_id: {
+                "title": "history primer",
+                "rows": [{"pathogen": "Virus_H"}],
+                "remote_result_dir": f"/remote/{execution_id}",
+            },
+        )
+
+        payload = service.get_primer_results_for_execution("exec_abc123")
+
+        assert payload["status"] == "ok"
+        assert payload["view"]["remote_result_dir"] == "/remote/exec_abc123"
+
+    def test_tool_bridge_normalizes_legacy_project_remote_base(self):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        class _FakeSSH:
+            is_connected = True
+
+            def run(self, cmd, timeout=10):
+                return 0, "/home/tester", ""
+
+        class _FakeProject:
+            project_id = "proj_demo123456"
+            remote_base = "/h2ometa/projects/proj_demo123456"
+
+        class _FakePM:
+            def __init__(self):
+                self.current_project = _FakeProject()
+                self._index = {
+                    self.current_project.project_id: {
+                        "remote_base": self.current_project.remote_base,
+                    }
+                }
+                self.saved = False
+
+            def _save_index(self):
+                self.saved = True
+
+        service = ToolBridgeService()
+        service._service_locator = type("SL", (), {"ssh_service": _FakeSSH()})()
+        pm = _FakePM()
+
+        service.normalize_project_remote_base(pm)
+
+        assert pm.current_project.remote_base == "/home/tester/.h2ometa/projects/proj_demo123456"
+        assert pm._index["proj_demo123456"]["remote_base"] == "/home/tester/.h2ometa/projects/proj_demo123456"
+        assert pm.saved is True
+
     def test_detection_asset_contains_integrated_console_markup(self):
         html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
+        js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
 
         assert 'id="tab-integrated"' in html
         assert 'id="integrated-feature-list"' in html
@@ -236,6 +292,8 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-input-list"' in html
         assert 'id="integrated-table-body"' in html
         assert 'id="remote-primer-dir"' in html
+        assert "get_primer_results_for_execution" in js
+        assert "loadPrimerResultsFromHistory" in js
 
 
 class TestHomePageFlows:

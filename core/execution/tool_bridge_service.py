@@ -421,6 +421,39 @@ class ToolBridgeService:
         base["remote_result_dir"] = normalized_dir
         return base
 
+    def get_primer_view_for_execution(self, execution_id: str) -> dict | None:
+        normalized_execution_id = str(execution_id or "").strip()
+        if not normalized_execution_id:
+            return None
+
+        final_path = self.find_registered_output(normalized_execution_id, "primer_result_final_2.txt")
+        if final_path:
+            return self.build_primer_view_from_result_dir(str(Path(final_path).parent).replace("\\", "/"))
+
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+
+        try:
+            row = pm.db.execute(
+                """
+                SELECT tool_id, sample_id
+                FROM executions
+                WHERE execution_id = ?
+                LIMIT 1
+                """,
+                (normalized_execution_id,),
+            ).fetchone()
+        except Exception:
+            logger.exception("Failed to query execution %s", normalized_execution_id)
+            return None
+
+        if not row or row["tool_id"] != "primer_design":
+            return None
+
+        remote_dir = f"{pm.current_project.remote_base}/intermediate/{row['sample_id']}/primer_design_{normalized_execution_id}"
+        return self.build_primer_view_from_result_dir(remote_dir)
+
     def get_tools(self) -> list[dict]:
         if not self._plugin_registry:
             logger.warning("PluginRegistry not initialized")
@@ -468,7 +501,15 @@ class ToolBridgeService:
             if pm is not None and pm.current_project is None:
                 self._ensure_default_project(pm)
 
+            # open_project 的信号可能已同步触发了 _rebuild_engine，
+            # 但以防万一（跨线程队列连接），手动确保 engine 就绪
             tool_engine = self._get_tool_engine()
+            if tool_engine is None and pm is not None and pm.current_project is not None:
+                sl = self._service_locator
+                if hasattr(sl, "_rebuild_registry_and_engine"):
+                    sl._rebuild_registry_and_engine()
+                tool_engine = self._get_tool_engine()
+
             if tool_engine is None:
                 return ExecutionResult(status="error", message="ToolEngine 未初始化，请先连接 SSH 或创建项目")
 
@@ -482,6 +523,7 @@ class ToolBridgeService:
             if not sample_id:
                 return ExecutionResult(status="no_sample", message="无法确定样本，请先创建项目样本")
 
+            self.normalize_project_remote_base(pm)
             input_data_ids = self.import_inputs(pm, sample_id, descriptor, params)
 
             run_params = self.extract_run_params(descriptor, params)
@@ -512,6 +554,55 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to start tool %s", tool_id)
             return ExecutionResult(status="error", message="内部错误，请查看日志")
+
+    def normalize_project_remote_base(self, pm) -> None:
+        project = getattr(pm, "current_project", None)
+        if project is None:
+            return
+
+        project_id = str(getattr(project, "project_id", "") or "").strip()
+        current_remote_base = str(getattr(project, "remote_base", "") or "").strip()
+        if not project_id:
+            return
+
+        needs_fix = (
+            not current_remote_base
+            or current_remote_base == "/h2ometa"
+            or current_remote_base.startswith("/h2ometa/")
+            or current_remote_base == "~/h2ometa"
+            or current_remote_base.startswith("~/h2ometa/")
+        )
+        if not needs_fix:
+            return
+
+        ssh = self._get_ssh_service()
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return
+
+        remote_home = ""
+        try:
+            rc, out, _ = ssh.run('printf "%s" "$HOME"', timeout=10)
+            if rc == 0:
+                remote_home = str(out or "").strip()
+        except Exception:
+            logger.exception("Failed to resolve remote HOME for project %s", project_id)
+
+        if not remote_home or remote_home == "/":
+            return
+
+        normalized = f"{remote_home.rstrip('/')}/.h2ometa/projects/{project_id}"
+        project.remote_base = normalized
+
+        try:
+            if hasattr(pm, "update_current_project_remote_base"):
+                pm.update_current_project_remote_base(normalized)
+            elif hasattr(pm, "_index") and project_id in pm._index:
+                pm._index[project_id]["remote_base"] = normalized
+                save_index = getattr(pm, "_save_index", None)
+                if callable(save_index):
+                    save_index()
+        except Exception:
+            logger.exception("Failed to persist normalized remote_base for project %s", project_id)
 
     def get_latest_sample_id(self, pm) -> str:
         try:
@@ -724,5 +815,14 @@ class ToolBridgeService:
             return {
                 "status": "error",
                 "message": "未能从该远程目录读取 primer_result_final_2.txt，请检查 SSH 连接和目录路径。",
+            }
+        return {"status": "ok", "view": view}
+
+    def get_primer_results_for_execution(self, execution_id: str) -> dict:
+        view = self.get_primer_view_for_execution(execution_id)
+        if view is None:
+            return {
+                "status": "error",
+                "message": "未能从该任务读取引物结果，请确认任务已完成且 primer_result_final_2.txt 已生成。",
             }
         return {"status": "ok", "view": view}

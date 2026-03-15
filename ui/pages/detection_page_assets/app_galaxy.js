@@ -1101,6 +1101,41 @@ function loadHistory() {
 }
 
 // 渲染执行历史
+function loadPrimerResultsFromHistory(executionId) {
+    if (!executionId) {
+        return;
+    }
+    if (!bridge || !bridge.get_primer_results_for_execution) {
+        showNotice('任务结果加载接口不可用');
+        return;
+    }
+
+    bridge.get_primer_results_for_execution(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok' || !payload.view) {
+                showNotice(payload.message || '任务结果读取失败');
+                return;
+            }
+
+            if (!integratedWorkbench) {
+                integratedWorkbench = { views: {} };
+            }
+            if (!integratedWorkbench.views) {
+                integratedWorkbench.views = {};
+            }
+
+            integratedWorkbench.views.primer_design = payload.view;
+            switchTab('integrated');
+            selectIntegratedFeature('primer_design');
+            showNotice('已加载该次引物设计结果', 'success');
+        } catch (e) {
+            console.error('Failed to parse execution primer results:', e);
+            showNotice('任务结果解析失败');
+        }
+    });
+}
+
 function renderHistory(history) {
     const tbody = document.getElementById('history-tbody');
     tbody.innerHTML = '';
@@ -1135,6 +1170,14 @@ function renderHistory(history) {
             <td>${formatTime(record.created_at)}</td>
             <td>${duration}</td>
         `;
+
+        if (record.tool_id === 'primer_design' && record.status === 'completed') {
+            row.style.cursor = 'pointer';
+            row.title = '点击加载该次引物设计结果';
+            row.addEventListener('click', function() {
+                loadPrimerResultsFromHistory(record.execution_id);
+            });
+        }
 
         tbody.appendChild(row);
     });
@@ -1172,6 +1215,4 @@ function formatDuration(seconds) {
         return `${Math.round(seconds / 3600)}小时`;
     }
 }
-
-
 

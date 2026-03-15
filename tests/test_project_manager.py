@@ -66,6 +66,10 @@ class TestCreateProject:
         assert project_id.startswith("proj_")
         assert len(project_id) == 17  # "proj_" + 12 hex chars
 
+    def test_create_project_uses_hidden_remote_root(self, pm: ProjectManager) -> None:
+        project_id = pm.create_project("remote base test")
+        assert pm._index[project_id]["remote_base"] == f"~/.h2ometa/projects/{project_id}"
+
     def test_create_project_creates_directory(self, pm: ProjectManager) -> None:
         project_id = pm.create_project("目录测试")
         project_dir = pm._projects_root / project_id
