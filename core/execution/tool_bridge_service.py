@@ -434,6 +434,8 @@ class ToolBridgeService:
         if pm is None or pm.current_project is None:
             return None
 
+        self.normalize_project_remote_base(pm)
+
         try:
             row = pm.db.execute(
                 """
@@ -567,10 +569,9 @@ class ToolBridgeService:
 
         needs_fix = (
             not current_remote_base
+            or current_remote_base.startswith("~")
             or current_remote_base == "/h2ometa"
             or current_remote_base.startswith("/h2ometa/")
-            or current_remote_base == "~/h2ometa"
-            or current_remote_base.startswith("~/h2ometa/")
         )
         if not needs_fix:
             return
