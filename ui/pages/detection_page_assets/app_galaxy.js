@@ -139,6 +139,36 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
         integratedRunBtn.addEventListener('click', openIntegratedRunEntry);
     }
 
+    // placeholder removed
+    const view = { remote_result_dir: '' };
+    const remoteLoaderCard = null;
+    const remoteInput = null;
+    const remoteHint = null;
+
+    if (false) {
+        if (remoteLoaderCard) {
+            remoteLoaderCard.style.display = 'block';
+        }
+        if (remoteInput) {
+            remoteInput.value = view.remote_result_dir || '';
+        }
+        if (remoteHint && !view.remote_result_dir) {
+            remoteHint.textContent = 'ç›´æŽ¥è¯»å–æœåŠ¡å™¨ä¸Šçš„ multiplex ç»“æžœç›®å½•ï¼Œå¹¶ä¼˜å…ˆè½½å…¥ multiplex_panel.txtã€‚';
+        }
+    }
+
+    if (false) {
+        if (remoteLoaderCard) {
+            remoteLoaderCard.style.display = 'block';
+        }
+        if (remoteInput) {
+            remoteInput.value = view.remote_result_dir || '';
+        }
+        if (remoteHint && !view.remote_result_dir) {
+            remoteHint.textContent = 'ç›´æŽ¥è¯»å–æœåŠ¡å™¨ä¸Šçš„ multiplex ç»“æžœç›®å½•ï¼Œå¹¶ä¼˜å…ˆè½½å…¥ multiplex_panel.txtã€‚';
+        }
+    }
+
     initializeIntegratedSectionToggles();
 });
 
@@ -346,6 +376,18 @@ function renderIntegratedFeature(feature, view) {
             : '直接读取服务器上的 primer 结果目录，并优先载入 primer_result_final_2.txt。';
     }
 
+    if (feature.id === 'multiplex_primer_panel') {
+        if (remoteLoaderCard) {
+            remoteLoaderCard.style.display = 'block';
+        }
+        if (remoteInput) {
+            remoteInput.value = view.remote_result_dir || '';
+        }
+        if (remoteHint && !view.remote_result_dir) {
+            remoteHint.textContent = 'ç›´æŽ¥è¯»å–æœåŠ¡å™¨ä¸Šçš„ multiplex ç»“æžœç›®å½•ï¼Œå¹¶ä¼˜å…ˆè½½å…¥ multiplex_panel.txtã€‚';
+        }
+    }
+
     initializeIntegratedSectionToggles();
     setSectionCollapsed('integrated-run-body', true);
     setSectionCollapsed('remote-loader-body', Boolean(view.remote_result_dir));
@@ -422,7 +464,11 @@ function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
     const inputs = descriptor.inputs || [];
     const paramCount = (descriptor.parameters || []).length;
     const dbCount = (descriptor.databases || []).length;
-    hint.textContent = `需要输入文件 ${inputs.length} 项，参数 ${paramCount} 项，数据库 ${dbCount} 项；点击右侧按钮可直接进入插件工作台配置并提交任务。`;
+    if (toolId === 'multiplex_primer_panel') {
+        hint.textContent = `默认优先复用最近一次候选靶点初筛结果；也可以手动指定 primer_result.txt 和 genomes bundle。参数 ${paramCount} 项，数据库 ${dbCount} 项。`;
+    } else {
+        hint.textContent = `需要输入文件 ${inputs.length} 项，参数 ${paramCount} 项，数据库 ${dbCount} 项；点击右侧按钮可直接进入插件工作台配置并提交任务。`;
+    }
     runBtn.textContent = `配置并运行 ${descriptor.name || toolId}`;
 
     if (inputs.length === 0) {
@@ -434,9 +480,13 @@ function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
         <div class="integrated-input-item">
             <div class="integrated-input-label-row">
                 <span class="integrated-input-label">${escapeHtml(input.label || input.name || '输入文件')}</span>
-                ${input.required !== false ? '<span class="integrated-input-required">必填</span>' : ''}
+                ${input.required !== false && toolId !== 'multiplex_primer_panel' ? '<span class="integrated-input-required">必填</span>' : ''}
             </div>
-            <div class="integrated-input-desc">${escapeHtml(input.description || '请在插件工作台中选择文件')}</div>
+            <div class="integrated-input-desc">${escapeHtml(
+                toolId === 'multiplex_primer_panel'
+                    ? (input.description || '可手动指定；留空时自动使用最近一次候选初筛结果')
+                    : (input.description || '请在插件工作台中选择文件')
+            )}</div>
         </div>
     `).join('');
 }
@@ -991,17 +1041,22 @@ function runTool() {
     console.log('Running tool:', selectedToolId);
 
     const params = {};
+    const allowAutoUpstream = selectedToolId === 'multiplex_primer_panel';
 
     const inputs = selectedDescriptor.inputs || [];
     for (const input of inputs) {
         const value = document.getElementById(`input-${input.name}`)?.value?.trim();
-        if (input.required !== false && !value) {
+        if (input.required !== false && !value && !allowAutoUpstream) {
             showNotice(`缺少必填输入: ${input.label || input.name}`, 'warning');
             return;
         }
         if (value) {
             params[input.name] = value;
         }
+    }
+
+    if (allowAutoUpstream && !params.primer_candidates && !params.genomes_bundle) {
+        showNotice('将默认复用最近一次候选靶点初筛结果。若没有可用上游任务，运行时会给出明确提示。', 'warning', 2600);
     }
 
     const parameters = selectedDescriptor.parameters || [];

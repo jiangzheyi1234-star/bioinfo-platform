@@ -179,14 +179,22 @@ class ToolBridgeService:
             parts = line.strip().split("\t")
             if len(parts) < 6:
                 continue
+            if parts[0].lower() == "pathogen":
+                continue
+            if len(parts) >= 10:
+                position = parts[8]
+                amplicon = parts[9]
+            else:
+                position = parts[4]
+                amplicon = parts[5]
             rows.append(
                 {
                     "pathogen": parts[0],
                     "region_id": parts[1],
                     "forward_primer": parts[2],
                     "reverse_primer": parts[3],
-                    "position": parts[4],
-                    "amplicon": parts[5],
+                    "position": position,
+                    "amplicon": amplicon,
                 }
             )
         return rows
@@ -198,14 +206,20 @@ class ToolBridgeService:
             parts = line.strip().split("\t")
             if len(parts) < 4:
                 continue
+            if parts[0].lower() == "pathogen":
+                continue
             rows.append(
                 {
                     "pathogen": parts[0],
                     "region_id": parts[1],
                     "forward_primer": parts[2],
                     "reverse_primer": parts[3],
-                    "amplicon_length": parts[4] if len(parts) > 4 else "",
-                    "pool_score": parts[5] if len(parts) > 5 else "",
+                    "tm_f": parts[4] if len(parts) > 4 else "",
+                    "tm_r": parts[5] if len(parts) > 5 else "",
+                    "gc_f": parts[6] if len(parts) > 6 else "",
+                    "gc_r": parts[7] if len(parts) > 7 else "",
+                    "amplicon_length": parts[8] if len(parts) > 8 else (parts[4] if len(parts) > 4 else ""),
+                    "pool_score": parts[9] if len(parts) > 9 else (parts[5] if len(parts) > 5 else ""),
                 }
             )
         return rows
@@ -265,13 +279,51 @@ class ToolBridgeService:
 
     def find_registered_output(self, execution_id: str, basename: str) -> str:
         registry = self._get_data_registry()
-        if registry is None:
+        if registry is not None:
+            for item in registry.find_by_execution(execution_id):
+                if Path(item.file_path).name == basename:
+                    return item.file_path
+
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
             return ""
 
-        for item in registry.find_by_execution(execution_id):
-            if Path(item.file_path).name == basename:
-                return item.file_path
+        row = pm.db.execute(
+            """
+            SELECT d.file_path
+            FROM execution_io ei
+            JOIN data_items d ON d.data_id = ei.data_id
+            WHERE ei.execution_id = ?
+              AND ei.direction = 'output'
+            ORDER BY d.created_at DESC
+            """,
+            (execution_id,),
+        ).fetchall()
+        for item in row:
+            file_path = str(item["file_path"])
+            if Path(file_path).name == basename:
+                return file_path
         return ""
+
+    def find_execution_input(self, execution_id: str, data_type: str = "") -> str:
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return ""
+
+        query = (
+            "SELECT d.file_path "
+            "FROM execution_io ei "
+            "JOIN data_items d ON d.data_id = ei.data_id "
+            "WHERE ei.execution_id = ? AND ei.direction = 'input' "
+        )
+        params: list[str] = [execution_id]
+        if data_type:
+            query += "AND d.data_type = ? "
+            params.append(data_type)
+        query += "ORDER BY d.created_at ASC LIMIT 1"
+
+        row = pm.db.execute(query, tuple(params)).fetchone()
+        return str(row["file_path"]) if row else ""
 
     def read_remote_file(self, file_path: str) -> str:
         if not file_path:
@@ -537,6 +589,58 @@ class ToolBridgeService:
             "remote_result_dir": normalized_dir,
         }
 
+    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
+        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
+        if not normalized_dir:
+            return None
+
+        panel_path = f"{normalized_dir}/multiplex_panel.txt"
+        rows = self.parse_multiplex_result_text(self.read_remote_file(panel_path))
+        if not rows:
+            return None
+
+        synthesis_count = self.count_remote_lines(f"{normalized_dir}/synthesis_order.txt")
+        optimization_count = self.count_remote_lines(f"{normalized_dir}/optimization_log.txt")
+
+        return {
+            "tool_ids": ["multiplex_primer_panel"],
+            "title": "多重引物池设计",
+            "description": f"查看最终多重引物池结果与相关报告：{normalized_dir}",
+            "status": {
+                "state": "completed",
+                "label": "结果可用",
+                "detail": "已检测到 multiplex_panel.txt，可在此查看最终 panel。",
+            },
+            "parameters": [
+                {"label": "结果目录", "value": normalized_dir},
+                {"label": "主结果", "value": "multiplex_panel.txt"},
+                {"label": "合成订单", "value": "synthesis_order.txt"},
+            ],
+            "summary": [
+                {"label": "入池病原体", "value": str(len(rows)), "tone": "primary"},
+                {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
+                {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
+                {"label": "优化轮次", "value": str(max((optimization_count or 1) - 1, 0)), "tone": "accent"},
+            ],
+            "columns": [
+                {"key": "pathogen", "label": "Pathogen"},
+                {"key": "region_id", "label": "Region ID"},
+                {"key": "forward_primer", "label": "Forward Primer"},
+                {"key": "reverse_primer", "label": "Reverse Primer"},
+                {"key": "amplicon_length", "label": "Amplicon Length"},
+                {"key": "pool_score", "label": "Pool Score"},
+            ],
+            "rows": rows,
+            "artifacts": [
+                f"{normalized_dir}/multiplex_panel.txt",
+                f"{normalized_dir}/synthesis_order.txt",
+                f"{normalized_dir}/pool_cross_dimer.txt",
+                f"{normalized_dir}/insilico_pcr_result.txt",
+                f"{normalized_dir}/optimization_log.txt",
+            ],
+            "remote_result_dir": normalized_dir,
+        }
+
     def get_tools(self) -> list[dict]:
         if not self._plugin_registry:
             logger.warning("PluginRegistry not initialized")
@@ -606,6 +710,18 @@ class ToolBridgeService:
                 except Exception:
                     logger.exception("Failed to backup project state before running %s", tool_id)
 
+            params = self.resolve_default_upstream_inputs(tool_id, params)
+            if tool_id == "multiplex_primer_panel":
+                missing_upstream = [
+                    name
+                    for name in ("primer_candidates", "genomes_bundle")
+                    if not str(params.get(name, "")).strip()
+                ]
+                if missing_upstream:
+                    return ExecutionResult(
+                        status="error",
+                        message="未找到可复用的候选引物结果。请先完成一次候选靶点初筛，或手动提供 primer_result.txt 和 genomes bundle。",
+                    )
             descriptor = self._plugin_registry.get_descriptor(tool_id)
 
             sample_id = self.ensure_sample_id(pm, params, descriptor)
@@ -643,6 +759,36 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to start tool %s", tool_id)
             return ExecutionResult(status="error", message="内部错误，请查看日志")
+
+    def resolve_default_upstream_inputs(self, tool_id: str, params: dict) -> dict:
+        resolved = dict(params or {})
+        if tool_id != "multiplex_primer_panel":
+            return resolved
+
+        primer_candidates = str(resolved.get("primer_candidates", "")).strip()
+        genomes_bundle = str(resolved.get("genomes_bundle", "")).strip()
+        if primer_candidates and genomes_bundle:
+            return resolved
+
+        upstream = self.find_latest_completed_execution(["primer_design"])
+        if not upstream:
+            return resolved
+
+        execution_id = str(upstream.get("execution_id") or "").strip()
+        if not execution_id:
+            return resolved
+
+        if not primer_candidates:
+            candidate_path = self.find_registered_output(execution_id, "primer_result.txt")
+            if candidate_path:
+                resolved["primer_candidates"] = candidate_path
+
+        if not genomes_bundle:
+            input_path = self.find_execution_input(execution_id, "archive")
+            if input_path:
+                resolved["genomes_bundle"] = input_path
+
+        return resolved
 
     def normalize_project_remote_base(self, pm) -> None:
         project = getattr(pm, "current_project", None)
@@ -804,15 +950,26 @@ class ToolBridgeService:
         for inp in descriptor.get("inputs", []):
             name = str(inp.get("name", ""))
             required = bool(inp.get("required", True))
-            local_path = str(params.get(name, "")).strip()
+            input_path = str(params.get(name, "")).strip()
 
-            if not local_path:
+            if not input_path:
                 if required:
                     raise ValueError(f"缺少必需输入: {name}")
                 continue
 
+            if input_path.startswith("/"):
+                data_id = registry.register_input(
+                    file_path=input_path,
+                    sample_id=sample_id,
+                    data_type=str(inp.get("type", "unknown")),
+                    tier="intermediate",
+                    metadata={"source": "remote_upstream", "input_name": name},
+                )
+                input_data_ids.append(data_id)
+                continue
+
             data_id = importer.import_file(
-                local_path=local_path,
+                local_path=input_path,
                 sample_id=sample_id,
                 data_type=str(inp.get("type", "unknown")),
                 project_remote_base=pm.current_project.remote_base,
