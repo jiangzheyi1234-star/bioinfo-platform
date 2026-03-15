@@ -1,0 +1,21 @@
+# 1.进入项目环境
+conda activate PCR
+# 2.进入项目目录
+cd /home/zyserver/project_ssd/lcy_project/project20260108_targeted_seq
+# 3.手动将病原体基因组序列文件复制到ref_genome目录下
+# 4.将ref_genome目录下的基因组序列文件添加下划线并将文件名依次记录到name.txt文件中
+python my_code/1_create_name.py
+# 5.基因分割并比对
+bash my_code/2_split_blast.sh
+# 6.筛选出保守特异性序列
+bash my_code/3_select.sh
+# 7.设计引物并提取扩增子序列
+bash my_code/4_primer.sh
+# 8.提取引物对用于二聚体分析（每个病原体前3个区间，每个区间前3对引物）
+bash my_code/5_1_extract_dimer.sh
+# 9.引物二聚体分析
+bash my_code/5_dimer.sh
+# 10.过滤有问题的引物对，生成最终结果
+bash my_code/5_2_filter_dimer.sh
+# 11.提取每种病原体的第一个引物对
+bash my_code/5_3_extract_first.sh

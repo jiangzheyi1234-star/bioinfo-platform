@@ -65,6 +65,11 @@ except Exception:  # pragma: no cover
     ResultsPanel = None  # type: ignore
 
 try:
+    from .remote_file_dialog import RemoteFileDialog
+except Exception:  # pragma: no cover
+    RemoteFileDialog = None  # type: ignore
+
+try:
     from .environment_status_bar import EnvironmentStatusBar
 except Exception:  # pragma: no cover
     EnvironmentStatusBar = None  # type: ignore
@@ -104,7 +109,7 @@ __all__ = [
     "BlastResourceCard", "BlastSampleCard", "BlastRunCard",
     "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget",
     "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard",
-    "ChartWidget", "ResultsPanel", "EnvironmentStatusBar", "InputDataSelector",
+    "ChartWidget", "ResultsPanel", "RemoteFileDialog", "EnvironmentStatusBar", "InputDataSelector",
     "AddSamplePlaceholder", "PipelineProgress", "SampleAddDialog", "SampleCard", "StageNode",
     "ClickableHeader", "SSHDiagnosticDialog", "StepIndicator",
     "EnvInstallDialog", "ToolEnvBridge", "cleanup_thread_pair",

@@ -119,6 +119,25 @@ class ToolBridge(QObject):
 
         return "仅支持 .zip/.tar/.tar.gz/.tgz 或单个 .fasta/.fna/.fa 文件"
 
+    @pyqtSlot(str, result=str)
+    def browse_remote_file(self, input_id: str) -> str:
+        """打开远程文件浏览器，供数据库路径选择使用。"""
+        from ui.widgets.remote_file_dialog import RemoteFileDialog
+
+        sl = self._get_service_locator()
+        if sl is None:
+            return json.dumps({"path": "", "error": "服务未初始化"})
+
+        ssh = sl.ssh_service
+        if not ssh or not getattr(ssh, "is_connected", False):
+            return json.dumps({"path": "", "error": "SSH 未连接"})
+
+        parent = self.main_window if self.main_window else None
+        dialog = RemoteFileDialog(ssh, parent=parent)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            return json.dumps({"path": dialog.selected_path(), "error": ""})
+        return json.dumps({"path": "", "error": ""})
+
     @pyqtSlot(str, str)
     def run_tool(self, tool_id: str, params_json: str):
         try:

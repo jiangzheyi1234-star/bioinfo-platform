@@ -29,4 +29,6 @@ def test_primer_design_descriptor_has_expected_contract() -> None:
     assert desc["inputs"][0]["name"] == "genomes_bundle"
     assert any(output["name"] == "primer_result_final" for output in desc["outputs"])
     assert any(db["param_name"] == "db" for db in desc["databases"])
-    assert "workflow_root" in {param["name"] for param in desc["parameters"]}
+    assert "workflow_root" not in {param["name"] for param in desc["parameters"]}
+    assert "mode" in {param["name"] for param in desc["parameters"]}
+    assert desc.get("_yaml_path")  # workflow uploader 需要此字段
