@@ -211,6 +211,9 @@ class ProjectManager(QObject):
         # 关闭旧连接
         self._close_db()
 
+        # 清理残留 WAL 锁（上次崩溃可能留下 -shm/-wal）
+        self._try_checkpoint_wal(db_path)
+
         # 建立新连接
         self._db_conn = sqlite3.connect(str(db_path))
         self._db_conn.execute("PRAGMA journal_mode=WAL")
@@ -361,6 +364,26 @@ class ProjectManager(QObject):
                 logger.exception("关闭数据库连接时出错")
             self._db_conn = None
 
+    @staticmethod
+    def _try_checkpoint_wal(db_path: Path) -> None:
+        """尝试 checkpoint 残留 WAL 文件，防止 disk I/O error。"""
+        shm = db_path.with_suffix(".db-shm")
+        wal = db_path.with_suffix(".db-wal")
+        if not shm.exists() and not wal.exists():
+            return
+        try:
+            tmp = sqlite3.connect(str(db_path))
+            tmp.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            tmp.close()
+            logger.info("已 checkpoint 残留 WAL: %s", db_path)
+        except Exception:
+            logger.warning("WAL checkpoint 失败，尝试删除残留文件: %s", db_path)
+            for f in (shm, wal):
+                try:
+                    f.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def _load_index(self) -> dict[str, dict]:
         """从 projects.json 加载项目索引"""
         if not self._index_path.exists():
@@ -371,7 +394,26 @@ class ProjectManager(QObject):
             if not isinstance(data, dict):
                 logger.warning("项目索引格式异常，已重置")
                 return {}
-            return data
+            cleaned: dict[str, dict] = {}
+            removed: list[str] = []
+            for project_id, raw in data.items():
+                if not isinstance(raw, dict):
+                    removed.append(str(project_id))
+                    continue
+                db_path = self._projects_root / str(project_id) / "project.db"
+                if not db_path.exists():
+                    removed.append(str(project_id))
+                    continue
+                cleaned[str(project_id)] = raw
+
+            if removed:
+                logger.warning("项目索引中移除了 %d 个无效条目: %s", len(removed), ", ".join(removed))
+                try:
+                    self._index = cleaned
+                    self._save_index()
+                except OSError:
+                    logger.exception("清理无效项目索引条目后保存失败")
+            return cleaned
         except (json.JSONDecodeError, OSError) as e:
             logger.error("加载项目索引失败: %s", e)
             return {}
