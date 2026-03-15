@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import tarfile
+import zipfile
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
@@ -55,13 +57,67 @@ class ToolBridge(QObject):
 
     @pyqtSlot(str, result=str)
     @pyqtSlot(str, str, result=str)
-    def browse_file(self, input_id: str, file_filter: str = "所有文件 (*.*)") -> str:
+    @pyqtSlot(str, str, str, result=str)
+    def browse_file(
+        self,
+        input_id: str,
+        file_filter: str = "所有文件 (*.*)",
+        validator: str = "",
+    ) -> str:
         from PyQt6.QtWidgets import QFileDialog
 
         parent = self.main_window if self.main_window else None
         selected_filter = file_filter or "所有文件 (*.*)"
         file_path, _ = QFileDialog.getOpenFileName(parent, "选择文件", "", selected_filter)
-        return file_path or ""
+        if not file_path:
+            return json.dumps({"path": "", "error": ""}, ensure_ascii=False)
+
+        error_message = ""
+        if validator == "primer_genomes_bundle":
+            error_message = self._validate_primer_genomes_bundle(file_path)
+
+        return json.dumps({"path": file_path, "error": error_message}, ensure_ascii=False)
+
+    @staticmethod
+    def _validate_primer_genomes_bundle(file_path: str) -> str:
+        path = str(file_path or "")
+        lower_path = path.lower()
+        allowed_fasta_suffixes = (".fasta", ".fna", ".fa")
+
+        if lower_path.endswith(allowed_fasta_suffixes):
+            return ""
+
+        def _is_fasta_name(name: str) -> bool:
+            lower_name = str(name or "").lower()
+            return lower_name.endswith(allowed_fasta_suffixes)
+
+        if lower_path.endswith(".zip"):
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    for member_name in zf.namelist():
+                        if member_name.endswith("/"):
+                            continue
+                        if _is_fasta_name(member_name):
+                            return ""
+                return "压缩包中未找到 .fasta/.fna/.fa 文件"
+            except Exception as exc:
+                logger.warning("读取 ZIP 失败: %s", exc)
+                return "压缩包读取失败，请检查文件是否损坏"
+
+        if lower_path.endswith((".tar.gz", ".tgz", ".tar")):
+            try:
+                with tarfile.open(path) as tf:
+                    for member in tf.getmembers():
+                        if not member.isfile():
+                            continue
+                        if _is_fasta_name(member.name):
+                            return ""
+                return "压缩包中未找到 .fasta/.fna/.fa 文件"
+            except Exception as exc:
+                logger.warning("读取 TAR 失败: %s", exc)
+                return "压缩包读取失败，请检查文件是否损坏"
+
+        return "仅支持 .zip/.tar/.tar.gz/.tgz 或单个 .fasta/.fna/.fa 文件"
 
     @pyqtSlot(str, str)
     def run_tool(self, tool_id: str, params_json: str):

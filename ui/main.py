@@ -3,6 +3,8 @@
 import os
 import sys
 
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --log-level=3")
+
 from PyQt6.QtWidgets import QApplication
 
 current_dir = os.path.dirname(os.path.abspath(__file__))

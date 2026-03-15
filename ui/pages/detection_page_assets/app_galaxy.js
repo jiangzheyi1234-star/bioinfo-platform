@@ -5,8 +5,88 @@ let selectedDescriptor = null;
 let integratedWorkbench = null;
 let selectedIntegratedFeatureId = null;
 const toolDescriptorCache = {};
+let noticeHideTimer = null;
 
 console.log('=== Galaxy Style Detection Page ===');
+
+function ensureNoticeContainer() {
+    let container = document.getElementById('inline-notice-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'inline-notice-container';
+        container.style.position = 'fixed';
+        container.style.top = '18px';
+        container.style.right = '18px';
+        container.style.zIndex = '9999';
+        container.style.pointerEvents = 'none';
+        document.body.appendChild(container);
+    }
+
+    return container;
+}
+
+function showNotice(message, type = 'error', durationMs = 3600) {
+    const text = String(message || '').trim();
+    if (!text) {
+        return;
+    }
+
+    const container = ensureNoticeContainer();
+    const tone = type === 'success'
+        ? { bg: '#ecfdf3', border: '#86efac', color: '#166534', icon: '✓' }
+        : type === 'warning'
+            ? { bg: '#fffbeb', border: '#fcd34d', color: '#92400e', icon: '⚠' }
+            : { bg: '#fef2f2', border: '#fca5a5', color: '#991b1b', icon: 'ⓘ' };
+
+    container.innerHTML = `
+        <div role="alert" style="
+            pointer-events: auto;
+            min-width: 320px;
+            max-width: 520px;
+            border-radius: 10px;
+            border: 1px solid ${tone.border};
+            background: ${tone.bg};
+            color: ${tone.color};
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+            padding: 12px 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            line-height: 1.5;
+            font-size: 13px;
+            white-space: pre-wrap;
+        ">
+            <div style="font-weight: 700; font-size: 15px; line-height: 1; margin-top: 2px;">${tone.icon}</div>
+            <div style="flex:1;">${escapeHtml(text)}</div>
+            <button type="button" style="
+                border: none;
+                background: transparent;
+                color: ${tone.color};
+                font-size: 16px;
+                font-weight: 700;
+                cursor: pointer;
+                line-height: 1;
+                padding: 0 2px;
+            " onclick="dismissNotice()" aria-label="关闭">×</button>
+        </div>
+    `;
+
+    if (noticeHideTimer) {
+        clearTimeout(noticeHideTimer);
+    }
+    noticeHideTimer = setTimeout(dismissNotice, Math.max(1200, Number(durationMs) || 3600));
+}
+
+function dismissNotice() {
+    if (noticeHideTimer) {
+        clearTimeout(noticeHideTimer);
+        noticeHideTimer = null;
+    }
+    const container = document.getElementById('inline-notice-container');
+    if (container) {
+        container.innerHTML = '';
+    }
+}
 
 // 初始化 QWebChannel
 new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -77,7 +157,7 @@ function openIntegratedRunEntry() {
     const view = (integratedWorkbench.views || {})[selectedIntegratedFeatureId];
     const toolId = getIntegratedToolId(feature, view);
     if (!toolId) {
-        alert('当前功能暂未接入执行入口');
+        showNotice('当前功能暂未接入执行入口', 'warning');
         return;
     }
 
@@ -363,7 +443,7 @@ function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
 
 function loadRemotePrimerResults() {
     if (!bridge || !bridge.get_remote_primer_results) {
-        alert('远程结果接口不可用');
+        showNotice('远程结果接口不可用');
         return;
     }
 
@@ -372,7 +452,7 @@ function loadRemotePrimerResults() {
     const loadBtn = document.getElementById('remote-primer-load-btn');
     const remoteDir = input?.value?.trim() || '';
     if (!remoteDir) {
-        alert('请先输入远程结果目录');
+        showNotice('请先输入远程结果目录', 'warning');
         return;
     }
 
@@ -396,7 +476,7 @@ function loadRemotePrimerResults() {
                 if (hint) {
                     hint.textContent = payload.message || '远程结果读取失败';
                 }
-                alert(payload.message || '远程结果读取失败');
+                showNotice(payload.message || '远程结果读取失败');
                 return;
             }
 
@@ -414,7 +494,7 @@ function loadRemotePrimerResults() {
             if (hint) {
                 hint.textContent = '远程结果解析失败';
             }
-            alert('远程结果解析失败');
+            showNotice('远程结果解析失败');
         }
     });
 }
@@ -837,20 +917,42 @@ function isPrimerGenomesBundlePath(filePath) {
 
 function browseFile(inputId, fileFilter = '所有文件 (*.*)', validator = '') {
     console.log('Browse file:', inputId);
-    bridge.browse_file(inputId, fileFilter, function(filePath) {
-        if (filePath) {
-            if (validator === 'primer_genomes_bundle' && !isPrimerGenomesBundlePath(filePath)) {
-                alert('仅支持 .zip/.tar/.tar.gz/.tgz 或单个 .fasta/.fna/.fa 文件');
-                return;
-            }
-            document.getElementById(inputId).value = filePath;
+    bridge.browse_file(inputId, fileFilter, validator, function(rawResult) {
+        if (!rawResult) {
+            return;
         }
+
+        let payload = null;
+        try {
+            payload = JSON.parse(rawResult);
+        } catch (e) {
+            payload = { path: rawResult, error: '' };
+        }
+
+        const filePath = String(payload?.path || '');
+        const errorMessage = String(payload?.error || '');
+
+        if (!filePath) {
+            return;
+        }
+
+        if (errorMessage) {
+            showNotice(errorMessage);
+            return;
+        }
+
+        if (validator === 'primer_genomes_bundle' && !isPrimerGenomesBundlePath(filePath)) {
+            showNotice('仅支持 .zip/.tar/.tar.gz/.tgz 或单个 .fasta/.fna/.fa 文件');
+            return;
+        }
+
+        document.getElementById(inputId).value = filePath;
     });
 }
 
 function runTool() {
     if (!selectedToolId || !selectedDescriptor) {
-        alert('请先选择工具');
+        showNotice('请先选择工具', 'warning');
         return;
     }
 
@@ -862,7 +964,7 @@ function runTool() {
     for (const input of inputs) {
         const value = document.getElementById(`input-${input.name}`)?.value?.trim();
         if (input.required !== false && !value) {
-            alert(`缺少必填输入: ${input.label || input.name}`);
+            showNotice(`缺少必填输入: ${input.label || input.name}`, 'warning');
             return;
         }
         if (value) {
@@ -891,7 +993,7 @@ function runTool() {
         const key = db.param_name || db.name;
         const value = document.getElementById(`db-${key}`)?.value?.trim();
         if (db.required !== false && !value) {
-            alert(`缺少必填数据库路径: ${db.label || key}`);
+            showNotice(`缺少必填数据库路径: ${db.label || key}`, 'warning');
             return;
         }
         if (value) {
@@ -918,28 +1020,28 @@ function onRunResult(result) {
     }
 
     if (!result || !result.status) {
-        alert('运行结果未知');
+        showNotice('运行结果未知');
         return;
     }
 
     if (result.status === 'ok') {
-        alert(result.message || '任务已提交');
+        showNotice(result.message || '任务已提交', 'success');
         loadHistory();
         loadIntegratedWorkbench(true);
         return;
     }
 
     if (result.status === 'no_project') {
-        alert(result.message || '请先选择项目');
+        showNotice(result.message || '请先选择项目', 'warning');
         return;
     }
 
     if (result.status === 'no_sample') {
-        alert(result.message || '样本不存在');
+        showNotice(result.message || '样本不存在', 'warning');
         return;
     }
 
-    alert(result.message || '任务提交失败');
+    showNotice(result.message || '任务提交失败');
 }
 function clearForm() {
     // 清空所有输入
