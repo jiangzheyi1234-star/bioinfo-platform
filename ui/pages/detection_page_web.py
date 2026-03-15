@@ -172,6 +172,11 @@ class ToolBridge(QObject):
         history = self._service.get_execution_history()
         return json.dumps(history, ensure_ascii=False)
 
+    @pyqtSlot(str, result=str)
+    def delete_execution_history(self, execution_id: str) -> str:
+        result = self._service.delete_execution_history(execution_id)
+        return json.dumps(result, ensure_ascii=False)
+
     @pyqtSlot(result=str)
     def get_integrated_workbench_config(self) -> str:
         config = self._service.get_integrated_workbench_config()

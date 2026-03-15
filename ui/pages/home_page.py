@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.data.sample_service import SampleService
+from core.utils import human_time_ago
 from ui.controllers import HomePageController
 from ui.page_base import BasePage
 from ui.widgets import AddSamplePlaceholder, SampleAddDialog, SampleCard, styles

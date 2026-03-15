@@ -41,6 +41,15 @@ from core.utils import sanitize_terminal_line
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_emit(signal, *args) -> bool:
+    try:
+        signal.emit(*args)
+        return True
+    except RuntimeError:
+        logger.debug("Skipped signal emit on deleted Qt object", exc_info=True)
+        return False
+
 # ── Conda 检测 Worker ─────────────────────────────────────────────
 
 
@@ -58,10 +67,10 @@ class CondaDetectWorker(QObject):
     def run(self):
         try:
             result = env_detector.detect(self._ssh_run_fn)
-            self.finished.emit(result)
+            _safe_emit(self.finished, result)
         except Exception as e:
             logger.exception("CondaDetectWorker 出错")
-            self.error.emit(str(e))
+            _safe_emit(self.error, str(e))
 
 
 # ── Miniforge 安装 Worker ─────────────────────────────────────────
@@ -85,23 +94,23 @@ class MiniforgeInstallWorker(QObject):
             original_fn = self._ssh_run_fn
 
             def logging_fn(cmd, timeout=15):
-                self.output_line.emit(f"$ {cmd}\n")
+                _safe_emit(self.output_line, f"$ {cmd}\n")
                 rc, stdout, stderr = original_fn(cmd, timeout)
                 if stdout.strip():
                     clean = sanitize_terminal_line(stdout)
                     if clean:
-                        self.output_line.emit(clean)
+                        _safe_emit(self.output_line, clean)
                 if stderr.strip():
                     clean = sanitize_terminal_line(stderr)
                     if clean:
-                        self.output_line.emit(f"[stderr] {clean}")
+                        _safe_emit(self.output_line, f"[stderr] {clean}")
                 return rc, stdout, stderr
 
             result = env_detector.install_miniforge(logging_fn)
-            self.finished.emit(result)
+            _safe_emit(self.finished, result)
         except Exception as e:
             logger.exception("MiniforgeInstallWorker 出错")
-            self.error.emit(str(e))
+            _safe_emit(self.error, str(e))
 
 
 # ── 批量环境检测 Worker ─────────────────────────────────────────────
@@ -145,13 +154,14 @@ class EnvBatchCheckWorker(QObject):
             )
 
             for r in results:
-                self.tool_checked.emit(r.tool_id, r.env_name, r.ok)
+                if not _safe_emit(self.tool_checked, r.tool_id, r.env_name, r.ok):
+                    return
 
-            self.finished.emit(conda_envs)
+            _safe_emit(self.finished, conda_envs)
 
         except Exception as e:
             logger.exception("EnvBatchCheckWorker 出错")
-            self.error.emit(str(e))
+            _safe_emit(self.error, str(e))
 
 
 # ── 安装状态检查 Worker（对话框初始化时使用）────────────────────────
@@ -985,3 +995,8 @@ class LinuxSettingsCard(QFrame):
         else:
             self._set_form_enabled(False)
             self.modify_btn.setEnabled(True)
+
+    def closeEvent(self, event) -> None:
+        cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=1000)
+        cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
+        super().closeEvent(event)

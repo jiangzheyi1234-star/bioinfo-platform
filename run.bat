@@ -28,6 +28,7 @@ if /I "%~1"=="--check" (
     endlocal & exit /b 0
 )
 
+set "PYTHONUNBUFFERED=1"
 python -m ui.main
 set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
