@@ -1,4 +1,5 @@
 """Tests for core.execution.workflow_uploader."""
+import errno
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, call
@@ -55,7 +56,7 @@ def test_upload_creates_dirs_and_puts_files(tmp_path):
     mock_sftp = MagicMock()
     mock_sftp.stat.side_effect = FileNotFoundError  # 所有目录不存在，需创建
     mock_ssh = MagicMock()
-    mock_ssh.get_sftp.return_value = mock_sftp
+    mock_ssh.sftp.return_value = mock_sftp
 
     remote_dir = "/tmp/test_workflow"
     upload_workflow(mock_ssh, wf, remote_dir)
@@ -85,10 +86,30 @@ def test_upload_binary_without_extension(tmp_path):
     mock_sftp = MagicMock()
     mock_sftp.stat.side_effect = FileNotFoundError
     mock_ssh = MagicMock()
-    mock_ssh.get_sftp.return_value = mock_sftp
+    mock_ssh.sftp.return_value = mock_sftp
 
     upload_workflow(mock_ssh, wf, "/tmp/wf")
 
     chmod_calls = mock_sftp.chmod.call_args_list
     chmod_files = {c.args[0] for c in chmod_calls}
     assert "/tmp/wf/mfeprimer" in chmod_files
+
+
+def test_upload_handles_paramiko_missing_dir_oserror(tmp_path):
+    """远端目录不存在时，Paramiko 风格的 OSError(errno=2) 也应被当作缺失目录处理。"""
+    wf = tmp_path / "workflow"
+    wf.mkdir()
+    (wf / "run.sh").write_text("#!/bin/bash\necho hello")
+
+    missing_dir_error = OSError("No such file")
+    missing_dir_error.errno = errno.ENOENT
+
+    mock_sftp = MagicMock()
+    mock_sftp.stat.side_effect = missing_dir_error
+    mock_ssh = MagicMock()
+    mock_ssh.sftp.return_value = mock_sftp
+
+    upload_workflow(mock_ssh, wf, "/tmp/wf")
+
+    assert mock_sftp.mkdir.called
+    assert mock_sftp.put.called

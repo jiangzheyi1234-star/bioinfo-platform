@@ -182,6 +182,11 @@ class ToolBridge(QObject):
         result = self._service.get_remote_primer_results(remote_result_dir)
         return json.dumps(result, ensure_ascii=False)
 
+    @pyqtSlot(str, result=str)
+    def get_primer_results_for_execution(self, execution_id: str) -> str:
+        result = self._service.get_primer_results_for_execution(execution_id)
+        return json.dumps(result, ensure_ascii=False)
+
 
 class DetectionPageWeb(QFrame):
     """Web-based detection page."""

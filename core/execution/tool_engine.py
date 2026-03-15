@@ -176,6 +176,13 @@ class ToolEngine(QObject):
         if project is None:
             raise ValueError("请先选择或创建项目")
 
+        # 1.5 展开 remote_base 中的 ~ 为绝对路径
+        remote_base = project.remote_base
+        if remote_base.startswith("~"):
+            rc, expanded, _ = self._ssh.run(f"echo {remote_base}", timeout=10)
+            if rc == 0 and expanded.strip():
+                remote_base = expanded.strip()
+
         # 2. 加载工具描述符
         descriptor = self._plugins.get_descriptor(tool_id)
 
@@ -189,7 +196,7 @@ class ToolEngine(QObject):
         input_paths = self._resolve_inputs(descriptor, input_data_ids)
 
         # 6. 构建输出目录（包含 execution_id 以支持多版本）
-        output_dir = f"{project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+        output_dir = f"{remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
 
         # 7. 解析输出路径（模板中可能引用输出变量名如 clean_1、report_html）
         output_paths = CommandBuilder.resolve_output_paths(

@@ -3,6 +3,7 @@
 仅 primer_design 等包含自研脚本的插件需要此功能。
 其余使用 conda 安装的工具不受影响。
 """
+import errno
 import logging
 import os
 import stat
@@ -41,7 +42,7 @@ def upload_workflow(ssh_service, local_dir: Path, remote_dir: str) -> None:
         local_dir: 本地 workflow/ 目录路径。
         remote_dir: 远端目标目录路径。
     """
-    sftp = ssh_service.get_sftp()
+    sftp = ssh_service.sftp()
 
     for dirpath, dirnames, filenames in os.walk(local_dir):
         rel = os.path.relpath(dirpath, local_dir)
@@ -67,6 +68,13 @@ def upload_workflow(ssh_service, local_dir: Path, remote_dir: str) -> None:
     logger.info("workflow 上传完成: %s -> %s", local_dir, remote_dir)
 
 
+def _is_missing_remote_path_error(exc: Exception) -> bool:
+    """兼容 Paramiko 将缺失目录包装为 OSError/IOError(errno=2) 的情况。"""
+    if isinstance(exc, FileNotFoundError):
+        return True
+    return getattr(exc, "errno", None) == errno.ENOENT
+
+
 def _sftp_makedirs(sftp, remote_path: str) -> None:
     """递归创建远端目录（类似 mkdir -p）。"""
     parts = remote_path.split("/")
@@ -78,5 +86,11 @@ def _sftp_makedirs(sftp, remote_path: str) -> None:
         current = f"{current}/{part}" if current != "/" else f"/{part}"
         try:
             sftp.stat(current)
-        except FileNotFoundError:
-            sftp.mkdir(current)
+        except OSError as exc:
+            if not _is_missing_remote_path_error(exc):
+                raise
+            try:
+                sftp.mkdir(current)
+            except OSError as mkdir_exc:
+                if getattr(mkdir_exc, "errno", None) != errno.EEXIST:
+                    raise

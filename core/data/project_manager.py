@@ -78,7 +78,7 @@ class ProjectInfo:
     description: str
     created_at: float
     status: str = "active"  # active / archived
-    remote_base: str = ""   # /h2ometa/projects/{project_id}
+    remote_base: str = ""   # ~/h2ometa/projects/{project_id}
 
     def to_dict(self) -> dict:
         """序列化为字典（用于 JSON 存储）"""
@@ -163,7 +163,7 @@ class ProjectManager(QObject):
             description=description.strip(),
             created_at=time.time(),
             status="active",
-            remote_base=f"/h2ometa/projects/{project_id}",
+            remote_base=f"~/.h2ometa/projects/{project_id}",
         )
 
         # 创建项目目录
