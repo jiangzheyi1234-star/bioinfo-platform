@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.data.project_manager import ProjectManager
+from core.execution.tool_bridge_service import ToolBridgeService
 from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
 from core.remote.storage_manager import StorageManager
@@ -281,6 +282,7 @@ class MainWindow(QMainWindow):
 
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
+        self._reconcile_running_tasks()
         self._notify_pages_context_changed()
 
         logger.info("项目已切换: %s", project_id)
@@ -344,6 +346,8 @@ class MainWindow(QMainWindow):
     def _on_ssh_status_changed(self, connected: bool) -> None:
         """SSH 连接状态变化时更新状态栏"""
         self.status_bar.update_ssh_status(connected)
+        if connected:
+            self._reconcile_running_tasks()
 
     def _on_ssh_changed_for_disk(self, connected: bool) -> None:
         """SSH 连接状态变化时处理磁盘监控"""
@@ -378,6 +382,21 @@ class MainWindow(QMainWindow):
 
         self._locator.ssh_changed.connect(self._on_ssh_changed_for_disk)
 
+    def _reconcile_running_tasks(self) -> None:
+        try:
+            if self._pm.current_project is None:
+                return
+            ssh = self._locator.ssh_service
+            if ssh is None or not getattr(ssh, "is_connected", False):
+                return
+            service = ToolBridgeService(
+                service_locator=self._locator,
+                plugin_registry=self._locator.plugin_registry,
+            )
+            service.get_execution_history()
+        except Exception:
+            logger.exception("任务状态自动校准失败")
+
     def _update_queue_display(self, *_args) -> None:
         status = self._locator.job_queue.get_status()
         self.status_bar.update_queue_status(
@@ -403,6 +422,3 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
-
-
-

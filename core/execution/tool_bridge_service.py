@@ -191,6 +191,25 @@ class ToolBridgeService:
             )
         return rows
 
+    @staticmethod
+    def parse_multiplex_result_text(content: str) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for line in content.splitlines():
+            parts = line.strip().split("\t")
+            if len(parts) < 4:
+                continue
+            rows.append(
+                {
+                    "pathogen": parts[0],
+                    "region_id": parts[1],
+                    "forward_primer": parts[2],
+                    "reverse_primer": parts[3],
+                    "amplicon_length": parts[4] if len(parts) > 4 else "",
+                    "pool_score": parts[5] if len(parts) > 5 else "",
+                }
+            )
+        return rows
+
     def _get_project_manager(self):
         if self._service_locator is None:
             return None
@@ -455,6 +474,68 @@ class ToolBridgeService:
 
         remote_dir = f"{pm.current_project.remote_base}/intermediate/{row['sample_id']}/primer_design_{normalized_execution_id}"
         return self.build_primer_view_from_result_dir(remote_dir)
+
+    def get_live_multiplex_primer_panel_view(self) -> dict | None:
+        execution = self.find_latest_completed_execution(["multiplex_primer_panel"])
+        if not execution:
+            return None
+
+        panel_path = self.find_registered_output(execution["execution_id"], "multiplex_panel.txt")
+        if not panel_path:
+            return None
+
+        return self.build_multiplex_view_from_result_dir(str(Path(panel_path).parent).replace("\\", "/"))
+
+    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
+        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
+        if not normalized_dir:
+            return None
+
+        panel_path = f"{normalized_dir}/multiplex_panel.txt"
+        rows = self.parse_multiplex_result_text(self.read_remote_file(panel_path))
+        if not rows:
+            return None
+
+        synthesis_count = self.count_remote_lines(f"{normalized_dir}/synthesis_order.txt")
+        optimization_count = self.count_remote_lines(f"{normalized_dir}/optimization_log.txt")
+
+        return {
+            "tool_ids": ["multiplex_primer_panel"],
+            "title": "多重引物池设计",
+            "description": f"查看多重引物池结果目录：{normalized_dir}",
+            "status": {
+                "state": "completed",
+                "label": "已完成",
+                "detail": "已读取 multiplex_panel.txt 与相关产物。",
+            },
+            "parameters": [
+                {"label": "结果目录", "value": normalized_dir},
+                {"label": "主结果", "value": "multiplex_panel.txt"},
+                {"label": "订单文件", "value": "synthesis_order.txt"},
+            ],
+            "summary": [
+                {"label": "已入池病原体", "value": str(len(rows)), "tone": "primary"},
+                {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
+                {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
+                {"label": "优化日志", "value": str(optimization_count or 0), "tone": "accent"},
+            ],
+            "columns": [
+                {"key": "pathogen", "label": "Pathogen"},
+                {"key": "region_id", "label": "Region ID"},
+                {"key": "forward_primer", "label": "Forward Primer"},
+                {"key": "reverse_primer", "label": "Reverse Primer"},
+                {"key": "amplicon_length", "label": "Amplicon Length"},
+                {"key": "pool_score", "label": "Pool Score"},
+            ],
+            "rows": rows,
+            "artifacts": [
+                f"{normalized_dir}/multiplex_panel.txt",
+                f"{normalized_dir}/synthesis_order.txt",
+                f"{normalized_dir}/pool_cross_dimer.txt",
+                f"{normalized_dir}/optimization_log.txt",
+            ],
+            "remote_result_dir": normalized_dir,
+        }
 
     def get_tools(self) -> list[dict]:
         if not self._plugin_registry:
@@ -782,6 +863,7 @@ class ToolBridgeService:
 
         try:
             db = pm.db
+            self._reconcile_running_executions(pm)
             superseded_ids = self._get_superseded_running_execution_ids(db)
             cursor = db.cursor()
             cursor.execute(
@@ -822,6 +904,84 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to get execution history")
             return []
+
+    def _reconcile_running_executions(self, pm) -> None:
+        ssh = self._get_ssh_service()
+        tool_engine = self._get_tool_engine()
+        if ssh is None or not getattr(ssh, "is_connected", False) or tool_engine is None:
+            return
+
+        rows = pm.db.execute(
+            """
+            SELECT execution_id, sample_id, tool_id
+            FROM executions
+            WHERE status = 'running' AND archived_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+
+        for row in rows:
+            execution_id = row["execution_id"]
+            sample_id = row["sample_id"]
+            tool_id = row["tool_id"]
+            job_id = f"h2o_{execution_id}"
+
+            try:
+                rc, _, _ = ssh.run(
+                    f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
+                    timeout=10,
+                )
+            except Exception:
+                logger.debug("Failed to check screen session for %s", execution_id, exc_info=True)
+                continue
+
+            if rc == 0:
+                continue
+
+            task_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+
+            exit_code = ""
+            try:
+                rc_exit, out_exit, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/exit_code.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_exit == 0:
+                    exit_code = out_exit.strip()
+            except Exception:
+                logger.debug("Failed to read exit_code for %s", execution_id, exc_info=True)
+
+            if exit_code == "0":
+                try:
+                    descriptor = self.get_tool_descriptor(tool_id)
+                    tool_engine.on_job_completed(
+                        execution_id=execution_id,
+                        descriptor=descriptor,
+                        sample_id=sample_id,
+                        output_dir=task_dir,
+                    )
+                    logger.info("Reconciled stale running execution as completed: %s", execution_id)
+                    continue
+                except Exception:
+                    logger.exception("Failed to reconcile completed execution %s", execution_id)
+
+            error_msg = "任务已结束，但状态未回写"
+            try:
+                rc_status, out_status, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_status == 0 and out_status.strip():
+                    error_msg = f"远端状态: {out_status.strip()}"
+            except Exception:
+                logger.debug("Failed to read status for %s", execution_id, exc_info=True)
+
+            try:
+                tool_engine.on_job_failed(execution_id, error_msg)
+                logger.info("Reconciled stale running execution as failed: %s", execution_id)
+            except Exception:
+                logger.exception("Failed to reconcile failed execution %s", execution_id)
 
     @staticmethod
     def _get_superseded_running_execution_ids(db) -> set[str]:
@@ -876,9 +1036,68 @@ class ToolBridgeService:
 
     def get_integrated_workbench_config(self) -> dict:
         config = self.base_integrated_workbench_config()
+        features = config.setdefault("features", [])
+        views = config.setdefault("views", {})
+
+        for feature in features:
+            if feature.get("id") == "primer_design":
+                feature["name"] = "候选靶点初筛"
+
+        if not any(feature.get("id") == "multiplex_primer_panel" for feature in features):
+            features.insert(
+                1,
+                {
+                    "id": "multiplex_primer_panel",
+                    "name": "多重引物池设计",
+                    "badge": "NEW",
+                    "description": "Optimize candidate primers into a multiplex PCR panel.",
+                    "status": "active",
+                },
+            )
+
+        views.setdefault(
+            "multiplex_primer_panel",
+            {
+                "tool_ids": ["multiplex_primer_panel"],
+                "title": "多重引物池设计",
+                "description": "Optimize candidate primer pairs into a multiplex panel and inspect the pooled result set here.",
+                "status": {
+                    "state": "ready",
+                    "label": "等待运行",
+                    "detail": "先完成候选靶点初筛，再查看 panel 结果与订单文件。",
+                },
+                "parameters": [
+                    {"label": "输入", "value": "primer_result.txt + genomes bundle"},
+                    {"label": "约束", "value": "cross-dimer / Tm / amplicon length"},
+                    {"label": "输出", "value": "multiplex_panel.txt / synthesis_order.txt"},
+                ],
+                "summary": [
+                    {"label": "已入池病原体", "value": "0", "tone": "primary"},
+                    {"label": "扩增子方案", "value": "0", "tone": "info"},
+                    {"label": "订单条目", "value": "0", "tone": "success"},
+                    {"label": "优化状态", "value": "ready", "tone": "accent"},
+                ],
+                "columns": [
+                    {"key": "pathogen", "label": "Pathogen"},
+                    {"key": "region_id", "label": "Region ID"},
+                    {"key": "forward_primer", "label": "Forward Primer"},
+                    {"key": "reverse_primer", "label": "Reverse Primer"},
+                    {"key": "amplicon_length", "label": "Amplicon Length"},
+                    {"key": "pool_score", "label": "Pool Score"},
+                ],
+                "rows": [],
+                "artifacts": [
+                    "multiplex_panel.txt",
+                    "synthesis_order.txt",
+                    "pool_cross_dimer.txt",
+                    "optimization_log.txt",
+                ],
+            },
+        )
+
         live_primer_view = self.get_live_primer_design_view()
         if live_primer_view is not None:
-            config["views"]["primer_design"] = live_primer_view
+            views["primer_design"] = live_primer_view
         else:
             default_remote_view = self.build_primer_view_from_result_dir(self.get_default_primer_result_dir())
             if default_remote_view is not None:
@@ -887,7 +1106,11 @@ class ToolBridgeService:
                     "label": "已加载默认远程结果",
                     "detail": "未找到历史执行记录，已自动读取服务器默认 primer 结果目录。",
                 }
-                config["views"]["primer_design"] = default_remote_view
+                views["primer_design"] = default_remote_view
+
+        live_multiplex_view = self.get_live_multiplex_primer_panel_view()
+        if live_multiplex_view is not None:
+            views["multiplex_primer_panel"] = live_multiplex_view
         return config
 
     def get_remote_primer_results(self, remote_result_dir: str) -> dict:

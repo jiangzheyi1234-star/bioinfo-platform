@@ -146,6 +146,18 @@ class TestDetectionIntegratedWorkbench:
         assert rows[0]["pathogen"] == "Virus_A"
         assert rows[1]["reverse_primer"] == "GGG"
 
+    def test_tool_bridge_parses_multiplex_result_text(self):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        rows = ToolBridgeService.parse_multiplex_result_text(
+            "Virus_A\tregion_1\tAAA\tTTT\t150\tpass\n"
+            "Virus_B\tregion_2\tCCC\tGGG\t172\tpass\n"
+        )
+
+        assert len(rows) == 2
+        assert rows[0]["amplicon_length"] == "150"
+        assert rows[1]["pool_score"] == "pass"
+
     def test_tool_bridge_merges_live_primer_results(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService
 
@@ -200,6 +212,78 @@ class TestDetectionIntegratedWorkbench:
 
         assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_Default"
         assert payload["views"]["primer_design"]["remote_result_dir"] == "/remote/default/primer_design/my_result"
+
+    def test_tool_bridge_exposes_multiplex_feature(self):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        service = ToolBridgeService()
+        payload = service.get_integrated_workbench_config()
+
+        feature_ids = [item["id"] for item in payload["features"]]
+        assert "multiplex_primer_panel" in feature_ids
+        assert payload["views"]["multiplex_primer_panel"]["tool_ids"] == ["multiplex_primer_panel"]
+
+    def test_history_reconciles_stale_running_execution(self, tmp_path: Path):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+        )
+        project_id = pm.create_project("history reconcile")
+        pm.open_project(project_id)
+        pm.db.execute(
+            "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+            ("smp_demo", "demo", "test", "{}"),
+        )
+        pm.db.execute(
+            "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("exec_demo", "smp_demo", "primer_design", "1.0", "{}", "running", "manual", 1.0),
+        )
+        pm.db.commit()
+
+        class _FakeSSH:
+            is_connected = True
+
+            def run(self, cmd, timeout=10):
+                if "screen -ls" in cmd:
+                    return 1, "", ""
+                if "exit_code.txt" in cmd:
+                    return 0, "0\n", ""
+                if "test -f" in cmd:
+                    return 1, "", ""
+                return 0, "", ""
+
+        class _FakeEngine:
+            def __init__(self):
+                self.completed = []
+
+            def on_job_completed(self, execution_id, descriptor, sample_id, output_dir):
+                self.completed.append((execution_id, sample_id, output_dir))
+                pm.db.execute(
+                    "UPDATE executions SET status = 'completed', completed_at = ? WHERE execution_id = ?",
+                    (2.0, execution_id),
+                )
+                pm.db.commit()
+
+            def on_job_failed(self, execution_id, error):
+                raise AssertionError("should not fail")
+
+        class _Locator:
+            project_manager = pm
+            ssh_service = _FakeSSH()
+            tool_engine = _FakeEngine()
+
+        service = ToolBridgeService(service_locator=_Locator())
+        service.get_execution_history()
+
+        row = pm.db.execute(
+            "SELECT status FROM executions WHERE execution_id = ?",
+            ("exec_demo",),
+        ).fetchone()
+        assert row["status"] == "completed"
+        pm.close()
 
     def test_tool_bridge_returns_remote_primer_results_payload(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService
