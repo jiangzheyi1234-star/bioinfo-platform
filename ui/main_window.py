@@ -248,6 +248,7 @@ class MainWindow(QMainWindow):
         self._updating_combo = True
         self.project_combo.clear()
 
+        self._pm.reload_index()
         projects = self._pm.list_projects()
         current = self._pm.current_project
         selected_index = -1

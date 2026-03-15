@@ -129,6 +129,15 @@ class ProjectManager(QObject):
         # 加载项目索引
         self._index: dict[str, dict] = self._load_index()
 
+    def reload_index(self) -> None:
+        """重新从磁盘加载项目索引，同步外部变更。"""
+        self._index = self._load_index()
+        # 如果当前打开的项目已被外部删除，清除引用
+        if self._current_project and self._current_project.project_id not in self._index:
+            logger.warning("当前项目 %s 已被外部删除，自动关闭", self._current_project.project_id)
+            self._close_db()
+            self._current_project = None
+
     # ── 公开 API ──────────────────────────────────────────────
 
     def create_project(self, name: str, description: str = "") -> str:
