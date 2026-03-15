@@ -1137,6 +1137,29 @@ function loadPrimerResultsFromHistory(executionId) {
     });
 }
 
+function formatParamsSummary(paramsJson) {
+    if (!paramsJson) return '-';
+    try {
+        const params = typeof paramsJson === 'string' ? JSON.parse(paramsJson) : paramsJson;
+        const entries = Object.entries(params).filter(([k, v]) => v !== '' && v !== null && v !== undefined);
+        const summary = entries.slice(0, 3).map(([k, v]) => `${k}=${v}`).join(', ');
+        return summary || '-';
+    } catch (e) { return '-'; }
+}
+
+function formatDetailCell(record) {
+    if (record.status === 'completed') {
+        return `<a href="#" class="detail-link" data-exec-id="${record.execution_id}" data-tool-id="${record.tool_id}">查看</a>`;
+    } else if (record.status === 'failed') {
+        const errMsg = record.error || '未知错误';
+        const short = errMsg.length > 30 ? errMsg.substring(0, 30) + '…' : errMsg;
+        return `<span class="error-hint" title="${escapeHtml(errMsg)}">${escapeHtml(short)}</span>`;
+    } else if (record.status === 'running') {
+        return '<span style="color:#0d6efd;">运行中...</span>';
+    }
+    return '-';
+}
+
 function renderHistory(history) {
     const tbody = document.getElementById('history-tbody');
     tbody.innerHTML = '';
@@ -1144,7 +1167,7 @@ function renderHistory(history) {
     if (history.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" style="text-align: center; color: #6c757d; padding: 20px;">
+                <td colspan="7" style="text-align: center; color: #6c757d; padding: 20px;">
                     暂无执行记录
                 </td>
             </tr>
@@ -1154,29 +1177,35 @@ function renderHistory(history) {
 
     history.forEach(record => {
         const row = document.createElement('tr');
-        
+
         // 状态样式
         const statusClass = `status-${record.status}`;
         const statusText = getStatusText(record.status);
-        
+
         // 计算耗时
-        const duration = record.completed_at 
+        const duration = record.completed_at
             ? formatDuration(record.completed_at - record.created_at)
             : '-';
+
+        // 参数摘要（完整参数作tooltip）
+        const paramsSummary = formatParamsSummary(record.parameters);
+        const paramsFullText = record.parameters ? escapeHtml(record.parameters) : '';
 
         row.innerHTML = `
             <td>${(allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id}</td>
             <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-            <td>${record.sample_id || '-'}</td>
+            <td>${escapeHtml(record.sample_name || record.sample_id || '-')}</td>
+            <td title="${paramsFullText}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(paramsSummary)}</td>
             <td>${formatTime(record.created_at)}</td>
             <td>${duration}</td>
+            <td>${formatDetailCell(record)}</td>
         `;
 
-        if (record.tool_id === 'primer_design' && record.status === 'completed') {
-            row.style.cursor = 'pointer';
-            row.title = '点击加载该次引物设计结果';
-            row.classList.add('clickable-row');
-            row.addEventListener('click', function() {
+        // 已完成的 primer_design 行支持点击查看结果
+        const detailLink = row.querySelector('.detail-link');
+        if (detailLink && record.tool_id === 'primer_design') {
+            detailLink.addEventListener('click', function(e) {
+                e.preventDefault();
                 loadPrimerResultsFromHistory(record.execution_id);
             });
         }
