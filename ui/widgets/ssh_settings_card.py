@@ -165,7 +165,9 @@ class SshSettingsCard(QFrame):
         self._validate_inputs()
         self._in_edit_mode = True
 
-        if server_ip and (ssh_pwd or key_file):
+        can_auto_connect_from_saved = bool(server_ip and (ssh_pwd or key_file))
+
+        if can_auto_connect_from_saved:
             self.last_stable_config = {
                 'ip': server_ip, 'port': ssh_port or 22,
                 'user': ssh_user, 'pwd': ssh_pwd,
@@ -567,6 +569,7 @@ class SshSettingsCard(QFrame):
             }
             self.connected = True
             self.connection_state_changed.emit(True)
+            self.request_save.emit()
             self._lock_inputs()
             self.revert_btn.hide()
             QTimer.singleShot(1500, self._auto_fold)

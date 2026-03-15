@@ -69,6 +69,7 @@ class SettingsPage(BasePage):
 
     def _init_cards(self) -> None:
         self.ssh_card = SshSettingsCard()
+        self.ssh_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.ssh_card)
 
         self.linux_card = LinuxSettingsCard()
