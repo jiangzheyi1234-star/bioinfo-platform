@@ -1110,6 +1110,7 @@ function loadPrimerResultsFromHistory(executionId) {
         return;
     }
 
+    showNotice('正在加载引物结果...', 'warning', 10000);
     bridge.get_primer_results_for_execution(executionId, function(json) {
         try {
             const payload = JSON.parse(json);
@@ -1164,7 +1165,7 @@ function renderHistory(history) {
             : '-';
 
         row.innerHTML = `
-            <td>${record.tool_id}</td>
+            <td>${(allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id}</td>
             <td><span class="status-badge ${statusClass}">${statusText}</span></td>
             <td>${record.sample_id || '-'}</td>
             <td>${formatTime(record.created_at)}</td>
@@ -1174,6 +1175,7 @@ function renderHistory(history) {
         if (record.tool_id === 'primer_design' && record.status === 'completed') {
             row.style.cursor = 'pointer';
             row.title = '点击加载该次引物设计结果';
+            row.classList.add('clickable-row');
             row.addEventListener('click', function() {
                 loadPrimerResultsFromHistory(record.execution_id);
             });
