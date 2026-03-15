@@ -374,6 +374,9 @@ class AnalysisPage(QFrame):
                 db_input = QLineEdit()
                 db_input.setPlaceholderText("请输入远端数据库路径")
                 db_input.setStyleSheet(styles.INPUT_LINEEDIT)
+                default_val = db.get("default", "")
+                if default_val:
+                    db_input.setText(str(default_val))
                 db_input.textChanged.connect(self._update_run_button_state)
                 row.addWidget(db_input)
 

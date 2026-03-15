@@ -865,6 +865,7 @@ function renderDatabases(databases) {
         group.className = 'form-group';
 
         const required = db.required !== false ? '<span class="required">*</span>' : '';
+        const defaultVal = db.default || '';
 
         group.innerHTML = `
             <label class="form-label">
@@ -874,7 +875,9 @@ function renderDatabases(databases) {
                 <input type="text"
                        class="form-input"
                        id="db-${db.param_name || db.name}"
-                       placeholder="${db.description || '远端数据库路径...'}">
+                       placeholder="${db.description || '远端数据库路径...'}"
+                       title="${defaultVal}"
+                       value="${defaultVal}">
                 <button class="btn-browse" onclick="browseRemoteFile('db-${db.param_name || db.name}')">Browse...</button>
             </div>
             ${db.description ? `<div class="form-help">${db.description}</div>` : ''}
@@ -937,7 +940,9 @@ function browseRemoteFile(inputId) {
         }
 
         if (filePath) {
-            document.getElementById(inputId).value = filePath;
+            const el = document.getElementById(inputId);
+            el.value = filePath;
+            el.title = filePath;
         }
     });
 }

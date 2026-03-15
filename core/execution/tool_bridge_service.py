@@ -196,6 +196,22 @@ class ToolBridgeService:
             return None
         return getattr(self._service_locator, "project_manager", None)
 
+    def _ensure_default_project(self, pm) -> None:
+        """没有打开项目时，自动创建并打开默认项目。"""
+        try:
+            existing = pm.list_projects()
+            for p in existing:
+                if p.name == "默认项目":
+                    pm.open_project(p.project_id)
+                    logger.info("自动打开已有默认项目: %s", p.project_id)
+                    return
+
+            project_id = pm.create_project("默认项目", description="自动创建的默认项目")
+            pm.open_project(project_id)
+            logger.info("自动创建并打开默认项目: %s", project_id)
+        except Exception:
+            logger.exception("自动创建默认项目失败")
+
     def _get_ssh_service(self):
         if self._service_locator is None:
             return None
@@ -447,9 +463,14 @@ class ToolBridgeService:
             if self._service_locator is None:
                 return ExecutionResult(status="error", message="服务未就绪")
 
+            # 没有项目时自动创建默认项目，触发 ToolEngine 初始化
+            pm = self._get_project_manager()
+            if pm is not None and pm.current_project is None:
+                self._ensure_default_project(pm)
+
             tool_engine = self._get_tool_engine()
             if tool_engine is None:
-                return ExecutionResult(status="error", message="ToolEngine 未初始化")
+                return ExecutionResult(status="error", message="ToolEngine 未初始化，请先连接 SSH 或创建项目")
 
             pm = self._get_project_manager()
             if pm is None or pm.current_project is None:
