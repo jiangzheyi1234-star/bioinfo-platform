@@ -107,8 +107,7 @@ def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
     except (ValueError, TypeError):
         schema["ssh"]["port"] = 22
     schema["ssh"]["user"] = str(data.get("ssh_user") or data.get("user") or schema["ssh"]["user"])
-    # 安全策略：不迁移历史密码到新配置文件
-    schema["ssh"]["password"] = ""
+    schema["ssh"]["password"] = str(data.get("ssh_pwd") or data.get("pwd") or schema["ssh"]["password"])
 
     schema["blast"]["db_path"] = str(data.get("remote_db") or schema["blast"]["db_path"])
     schema["blast"]["bin_path"] = str(data.get("blast_bin") or schema["blast"]["bin_path"])
@@ -143,8 +142,6 @@ def normalize_config(data: Any) -> dict[str, Any]:
             schema[section].update(section_data)
 
     schema["version"] = CONFIG_VERSION
-    # 安全策略：密码不落盘
-    schema["ssh"]["password"] = ""
     schema["runtime"]["local_output_dir"] = ensure_output_dir(
         str(schema["runtime"].get("local_output_dir") or "")
     )
@@ -164,7 +161,6 @@ def save_config(config: dict[str, Any]) -> None:
     """保存 v2 配置。"""
     schema = normalize_config(config)
     schema["version"] = CONFIG_VERSION
-    schema["ssh"]["password"] = ""
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(schema, f, ensure_ascii=False, indent=2)
@@ -236,5 +232,4 @@ DEFAULT_CONFIG = {
 }
 
 sync_default_from_schema(get_config())
-
 
