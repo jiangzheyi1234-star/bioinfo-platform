@@ -101,25 +101,19 @@
                     <h2>任务历史</h2>
                     <button class="btn-refresh" id="btn-refresh">↻ 刷新</button>
                 </div>
-                <div class="history-body">
-                    <table class="history-table">
-                        <thead>
-                            <tr>
-                                <th>工具</th>
-                                <th>状态</th>
-                                <th>样本</th>
-                                <th>参数摘要</th>
-                                <th>开始时间</th>
-                                <th>耗时</th>
-                                <th>详情</th>
-                            </tr>
-                        </thead>
-                        <tbody id="history-tbody">
-                            <tr>
-                                <td colspan="7" class="empty-row">暂无执行记录</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- 伪造表头 -->
+                <div class="task-list-header">
+                    <div class="col-indicator"></div>
+                    <div class="col-status">状态</div>
+                    <div class="col-tool">分析工具</div>
+                    <div class="col-sample">样本名称</div>
+                    <div class="col-params">执行参数</div>
+                    <div class="col-time">开始时间</div>
+                    <div class="col-duration">耗时</div>
+                    <div class="col-actions"></div>
+                </div>
+                <div class="history-body" id="history-container">
+                    <div class="empty-row" style="text-align: center; padding: 40px; color: #6c757d;">暂无执行记录</div>
                 </div>
             </div>
         </div>
