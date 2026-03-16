@@ -566,6 +566,44 @@ class ToolBridgeService:
 
         return self.build_multiplex_view_from_result_dir(str(Path(panel_path).parent).replace("\\", "/"))
 
+    def get_multiplex_view_for_execution(self, execution_id: str) -> dict | None:
+        normalized_execution_id = str(execution_id or "").strip()
+        if not normalized_execution_id:
+            return None
+
+        panel_path = self.find_registered_output(normalized_execution_id, "multiplex_panel.txt")
+        if panel_path:
+            return self.build_multiplex_view_from_result_dir(str(Path(panel_path).parent).replace("\\", "/"))
+
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+
+        self.normalize_project_remote_base(pm)
+
+        try:
+            row = pm.db.execute(
+                """
+                SELECT tool_id, sample_id
+                FROM executions
+                WHERE execution_id = ?
+                LIMIT 1
+                """,
+                (normalized_execution_id,),
+            ).fetchone()
+        except Exception:
+            logger.exception("Failed to query execution %s", normalized_execution_id)
+            return None
+
+        if not row or row["tool_id"] != "multiplex_primer_panel":
+            return None
+
+        remote_dir = (
+            f"{pm.current_project.remote_base}/intermediate/"
+            f"{row['sample_id']}/multiplex_primer_panel_{normalized_execution_id}"
+        )
+        return self.build_multiplex_view_from_result_dir(remote_dir)
+
     def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
         normalized_dir = (remote_result_dir or "").strip().rstrip("/")
         if not normalized_dir:
@@ -1280,5 +1318,14 @@ class ToolBridgeService:
             return {
                 "status": "error",
                 "message": "未能从该任务读取引物结果，请确认任务已完成且 primer_result_final_2.txt 已生成。",
+            }
+        return {"status": "ok", "view": view}
+
+    def get_multiplex_results_for_execution(self, execution_id: str) -> dict:
+        view = self.get_multiplex_view_for_execution(execution_id)
+        if view is None:
+            return {
+                "status": "error",
+                "message": "未能从该任务读取 multiplex 结果，请确认任务已完成且 multiplex_panel.txt 已生成。",
             }
         return {"status": "ok", "view": view}
