@@ -76,13 +76,11 @@ class _LogDelegate(QStyledItemDelegate):
         painter.setRenderHint(painter.RenderHint.Antialiasing)
         rect = option.rect
 
-        # 背景
         painter.fillRect(rect, QColor(styles.COLOR_BG_PAGE))
 
         x = rect.x() + self._PAD_H
         w = rect.width() - self._PAD_H * 2
 
-        # ── 第一行：时间戳 + 级别 ──
         ts_font = QFont(styles.FONT_FAMILY.split(",")[0].strip("' "), 11)
         ts_fm = QFontMetrics(ts_font)
         y1 = rect.y() + self._PAD_V + ts_fm.ascent()
@@ -99,7 +97,6 @@ class _LogDelegate(QStyledItemDelegate):
         painter.setPen(QColor(color))
         painter.drawText(x + ts_w + 12, y1, entry.level)
 
-        # ── 第二行：消息正文 ──
         msg_font = QFont(styles.FONT_FAMILY.split(",")[0].strip("' "), 12)
         msg_fm = QFontMetrics(msg_font)
         y2 = y1 + ts_fm.descent() + self._LINE_GAP + msg_fm.ascent()
@@ -109,7 +106,6 @@ class _LogDelegate(QStyledItemDelegate):
         elided = msg_fm.elidedText(entry.message, Qt.TextElideMode.ElideRight, w)
         painter.drawText(x, y2, elided)
 
-        # ── 底部分割线 ──
         painter.setPen(QPen(QColor(styles.COLOR_BORDER), 1))
         bot = rect.bottom()
         painter.drawLine(rect.x() + self._PAD_H, bot, rect.right() - self._PAD_H, bot)
@@ -290,7 +286,7 @@ class LogPage(BasePage):
             status = row[2]
             created = row[3]
             error = row[4] if len(row) > 5 else ""
-            ts = datetime.fromtimestamp(created).strftime("%m-%d %H:%M:%S") if created else "??:??:??"
+            ts = datetime.fromtimestamp(created).strftime("%H:%M:%S") if created else "??:??:??"
             level, label = _STATUS_MAP.get(status, ("INFO", status))
             msg = f"[历史] {tool} — {label}"
             if status == "failed" and error:
@@ -301,7 +297,7 @@ class LogPage(BasePage):
 
     def append_log(self, level: str, message: str, execution_id: str = "",
                    project_id: str = "") -> None:
-        ts = time.strftime("%m-%d %H:%M:%S")
+        ts = time.strftime("%H:%M:%S")
         pid = project_id or self._current_project_id
         entry = _LogEntry(ts, level.upper(), message, execution_id, pid)
         self._entries.append(entry)
