@@ -190,17 +190,17 @@ class ToolBridgeService:
                     ],
                 },
                 "targeted_sequencing": {
-                    "tool_ids": ["kraken2"],
+                    "tool_ids": ["centrifuge"],
                     "title": "靶向测序分析",
-                    "description": "上传纳米孔靶向测序 FASTQ 文件，运行 Kraken2 进行病原体鉴定，以饼图和物种表呈现结果并生成检测报告。",
+                    "description": "上传纳米孔靶向测序 FASTQ 文件，运行 Centrifuge + HPVC 数据库鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
                     "status": {
                         "state": "ready",
                         "label": "等待运行",
-                        "detail": "配置 Kraken2 数据库并上传 FASTQ 文件后即可开始分析。",
+                        "detail": "使用 HPVC 病原体数据库，上传 FASTQ 文件后即可开始分析。",
                     },
                     "parameters": [
                         {"label": "输入", "value": "纳米孔 FASTQ 文件"},
-                        {"label": "分析引擎", "value": "Kraken2"},
+                        {"label": "分析引擎", "value": "Centrifuge + HPVC"},
                         {"label": "输出", "value": "病原体组成饼图 + 物种表 + 检测报告"},
                     ],
                     "summary": [
@@ -584,6 +584,17 @@ class ToolBridgeService:
         digest = hashlib.sha1(remote_result_dir.encode("utf-8")).hexdigest()[:12]
         return f"{tool_id}_{digest}"
 
+    def _remote_file_exists(self, ssh: Any, remote_path: str) -> bool:
+        quoted_path = shlex.quote(str(remote_path or ""))
+        if not quoted_path:
+            return False
+        try:
+            rc, _, _ = ssh.run(f"test -f {quoted_path}", timeout=10)
+            return rc == 0
+        except Exception:
+            logger.debug("检查远端结果文件是否存在失败: %s", remote_path, exc_info=True)
+            return False
+
     def _cache_remote_artifacts(self, tool_id: str, remote_result_dir: str) -> list[dict]:
         normalized_dir = (remote_result_dir or "").strip().rstrip("/")
         if not normalized_dir:
@@ -608,8 +619,12 @@ class ToolBridgeService:
             available = False
             error = ""
             try:
-                ssh.download(remote_path, str(local_path))
-                available = local_path.exists()
+                if self._remote_file_exists(ssh, remote_path):
+                    ssh.download(remote_path, str(local_path))
+                    available = local_path.exists()
+                else:
+                    error = "remote_file_not_found"
+                    logger.debug("远端结果文件不存在，跳过缓存: %s", remote_path)
             except Exception as exc:
                 error = str(exc)
                 logger.warning("缓存远端结果文件失败: %s (%s)", remote_path, exc)
@@ -1704,11 +1719,12 @@ class ToolBridgeService:
             logger.exception("Failed to query execution %s", normalized_id)
             return None
 
-        if not row or row["tool_id"] != "kraken2":
+        if not row or row["tool_id"] not in ("centrifuge", "kraken2"):
             return None
 
+        tool_id = row["tool_id"]
         sample_id = row["sample_id"]
-        remote_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/kraken2_{normalized_id}"
+        remote_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{normalized_id}"
 
         # 下载 kreport 到本地缓存
         results_dir = self._execution_results_dir(normalized_id)
@@ -1779,10 +1795,10 @@ class ToolBridgeService:
             })
 
         return {
-            "tool_ids": ["kraken2"],
+            "tool_ids": [tool_id],
             "title": "靶向测序分析",
             "table_title": "病原体物种组成",
-            "description": "纳米孔靶向测序 Kraken2 分析结果",
+            "description": f"纳米孔靶向测序 {tool_id.capitalize()} 分析结果",
             "status": {"state": "completed", "label": "分析完成", "detail": "已生成病原体组成饼图和检测报告。"},
             "parameters": [{"label": "执行 ID", "value": normalized_id}],
             "summary": summary,
@@ -1842,3 +1858,4 @@ class ToolBridgeService:
         except Exception:
             logger.exception("生成靶向测序报告失败: %s", report_path)
             return None
+
