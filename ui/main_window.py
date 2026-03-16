@@ -23,7 +23,6 @@ from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
 from core.remote.storage_manager import StorageManager
 from ui.pages import SettingsPage
-from ui.pages.assembly_page import AssemblyPage
 from ui.pages.home_page import HomePage
 from ui.pages.log_page import LogPage
 from ui.pages.project_page import ProjectPage
@@ -166,15 +165,11 @@ class MainWindow(QMainWindow):
         self.log_page = LogPage(main_window=self)
         self.content.addWidget(self.log_page)
 
-        self.assembly_page = AssemblyPage(main_window=self)
-        self.content.addWidget(self.assembly_page)
-
         self.sidebar.addItem(QListWidgetItem("项目管理"))
         self.sidebar.addItem(QListWidgetItem("项目首页"))
         self.sidebar.addItem(QListWidgetItem("病原检测"))
         self.sidebar.addItem(QListWidgetItem("系统设置"))
         self.sidebar.addItem(QListWidgetItem("日志"))
-        self.sidebar.addItem(QListWidgetItem("组装分析"))
 
         for i in range(self.sidebar.count()):
             item = self.sidebar.item(i)
@@ -299,7 +294,7 @@ class MainWindow(QMainWindow):
 
     def _notify_pages_context_changed(self) -> None:
         """Notify pages to refresh UI state when SSH/project context changes."""
-        for page_name in ("home_page", "detection_page", "assembly_page"):
+        for page_name in ("home_page", "detection_page"):
             page = getattr(self, page_name, None)
             callback = getattr(page, "refresh_context", None)
             if callable(callback):

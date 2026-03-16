@@ -757,7 +757,6 @@ function getCategoryName(category) {
         'qc': '质量控制 (QC)',
         'host_removal': '宿主去除',
         'taxonomy': '物种分类',
-        'assembly': '组装',
         'binning': '分箱',
         'quality': '质量评估',
         'annotation': '功能注释',

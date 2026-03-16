@@ -124,10 +124,9 @@ class TestMainWindowStartup:
         assert hasattr(main_window, "detection_page")
         assert hasattr(main_window, "settings_page")
         assert hasattr(main_window, "log_page")
-        assert hasattr(main_window, "assembly_page")
 
     def test_sidebar_count(self, main_window):
-        assert main_window.sidebar.count() == 6
+        assert main_window.sidebar.count() == 5
 
 
 class TestPageStartup:

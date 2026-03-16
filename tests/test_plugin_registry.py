@@ -345,15 +345,14 @@ class TestRealToolYaml:
         return reg
 
     def test_scan_real_plugins(self, real_registry: PluginRegistry) -> None:
-        """项目应包含 30 个真实插件。"""
-        assert real_registry.plugin_count == 31
+        """项目应包含 29 个真实插件。"""
+        assert real_registry.plugin_count == 29
         ids = set(real_registry.list_all_ids())
         # Phase 1 原始 4 个
         assert {"fastp", "kraken2", "hostile", "blastn"}.issubset(ids)
-        # Phase 3 新增 12 个
-        assert {"megahit", "metaspades", "metabat2", "maxbin2", "concoct",
-                "das_tool", "checkm2", "busco", "gtdbtk", "prokka",
-                "bakta", "eggnog"}.issubset(ids)
+        # 组装页面下线后保留的核心扩展工具
+        assert {"metabat2", "maxbin2", "concoct", "das_tool", "checkm2",
+                "busco", "gtdbtk", "prokka", "bakta", "eggnog"}.issubset(ids)
         # Phase 4 宏基因组扩展 8 个
         assert {"bracken", "krona", "quast", "amrfinderplus",
                 "rgi", "genomad", "integron_finder", "isescan"}.issubset(ids)
@@ -361,12 +360,11 @@ class TestRealToolYaml:
         assert {"abricate", "semibin2", "gunc", "prodigal", "metaphlan"}.issubset(ids)
 
     def test_real_categories(self, real_registry: PluginRegistry) -> None:
-        """真实插件应分布在 11 个分类中。"""
+        """真实插件应分布在 10 个分类中。"""
         assert len(real_registry.list_by_category("qc")) == 1
         assert len(real_registry.list_by_category("taxonomy")) == 4    # kraken2 + gtdbtk + bracken + metaphlan
         assert len(real_registry.list_by_category("host_removal")) == 1
         assert len(real_registry.list_by_category("blast")) == 1
-        assert len(real_registry.list_by_category("assembly")) == 2    # megahit + metaspades
         assert len(real_registry.list_by_category("binning")) == 5     # metabat2 + maxbin2 + concoct + das_tool + semibin2
         assert len(real_registry.list_by_category("quality")) == 4     # checkm2 + busco + quast + gunc
         assert len(real_registry.list_by_category("annotation")) == 4  # prokka + prodigal + bakta + eggnog

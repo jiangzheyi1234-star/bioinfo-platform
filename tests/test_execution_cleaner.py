@@ -288,7 +288,7 @@ def test_get_disk_usage_returns_statistics(
 
     # 插入多个工具的执行记录
     db = project_manager.db
-    for tool_id in ["fastp", "kraken2", "megahit"]:
+    for tool_id in ["fastp", "kraken2", "metabat2"]:
         for i in range(3):
             execution_id = f"exec_{tool_id}_{i:03d}"
             archived_at = time.time() if i == 0 else None  # 第一次归档
@@ -320,7 +320,7 @@ def test_get_disk_usage_returns_statistics(
     for stat in usage:
         assert stat.execution_count == 3
         assert stat.archived_count == 1  # 每个工具有一次归档
-        assert stat.tool_id in ["fastp", "kraken2", "megahit"]
+        assert stat.tool_id in ["fastp", "kraken2", "metabat2"]
 
 
 def test_archive_execution_emits_signals(
