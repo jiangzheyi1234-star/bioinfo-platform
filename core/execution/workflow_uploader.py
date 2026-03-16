@@ -6,7 +6,6 @@
 import errno
 import logging
 import os
-import stat
 from pathlib import Path
 from typing import Optional
 
@@ -65,7 +64,38 @@ def upload_workflow(ssh_service, local_dir: Path, remote_dir: str) -> None:
                 # 无后缀文件（如 mfeprimer 二进制）也设为可执行
                 sftp.chmod(remote_file, 0o755)
 
+    _upload_extra_workflow_dependencies(sftp, local_dir, remote_dir)
+
     logger.info("workflow 上传完成: %s -> %s", local_dir, remote_dir)
+
+
+def _upload_extra_workflow_dependencies(sftp, local_dir: Path, remote_dir: str) -> None:
+    """Upload known sibling workflow dependencies required at runtime.
+
+    multiplex_primer_panel reuses the primer_design mfeprimer binary during
+    the dimer-analysis step, but that binary lives outside its own workflow/
+    tree. Upload a colocated copy so the remote task can execute independently.
+    """
+    if local_dir.parent.name != "multiplex_primer_panel":
+        return
+
+    dependency = (
+        local_dir.parent.parent
+        / "primer_design"
+        / "workflow"
+        / "software"
+        / "mfeprimer"
+    )
+    if not dependency.is_file():
+        logger.warning("未找到 multiplex 依赖的 mfeprimer 二进制: %s", dependency)
+        return
+
+    remote_dep_dir = f"{remote_dir}/software"
+    _sftp_makedirs(sftp, remote_dep_dir)
+    remote_dep = f"{remote_dep_dir}/mfeprimer.real"
+    sftp.put(str(dependency), remote_dep)
+    sftp.chmod(remote_dep, 0o755)
+    logger.info("已上传 multiplex 依赖: %s -> %s", dependency, remote_dep)
 
 
 def _is_missing_remote_path_error(exc: Exception) -> bool:
