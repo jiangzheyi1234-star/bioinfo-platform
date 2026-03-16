@@ -36,13 +36,22 @@ def qapp(_ensure_qapp):
 
 
 @pytest.fixture(scope="module")
-def main_window(qapp):
+def main_window(qapp, tmp_path_factory):
     from ui.main_window import MainWindow
 
+    tmp_path = tmp_path_factory.mktemp("ui_smoke_main_window")
+    pm = ProjectManager(
+        projects_root=tmp_path / "projects",
+        index_path=tmp_path / "projects.json",
+    )
+    project_id = pm.create_project("test project", "used for UI verification")
+    pm.open_project(project_id)
+
     with patch("ui.main_window.DetectionPage", _make_fake_detection_page()):
-        window = MainWindow()
+        window = MainWindow(project_manager=pm)
         yield window
         window.close()
+    pm.close()
 
 
 @pytest.fixture()
@@ -380,7 +389,7 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="remote-primer-dir"' in html
         assert "get_primer_results_for_execution" in js
         assert "loadPrimerResultsFromHistory" in js
-        assert "默认优先复用最近一次候选靶点初筛结果" in js
+        assert "需要输入文件" in js
 
 
 class TestHomePageFlows:
@@ -463,10 +472,14 @@ class TestHomePageFlows:
 
 
 class TestServiceLocatorStartup:
-    def test_initialize_without_ssh(self):
+    def test_initialize_without_ssh(self, tmp_path: Path):
         from core.service_locator import ServiceLocator
 
-        locator = ServiceLocator(ssh_service=None)
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+        )
+        locator = ServiceLocator(ssh_service=None, project_manager=pm)
         count = locator.initialize()
         assert count >= 4
         assert locator.tool_engine is None
