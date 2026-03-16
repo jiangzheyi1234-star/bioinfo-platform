@@ -168,10 +168,15 @@
 
                         <div class="integrated-main-layout">
                             <div class="integrated-primary-column">
+                                <div class="detail-card chart-card" id="integrated-chart-card" style="display:none;">
+                                    <div class="card-title-row"><h4 id="chart-card-title">图表</h4></div>
+                                    <div id="integrated-chart-container" style="width:100%;height:360px;"></div>
+                                </div>
+
                                 <div class="detail-card results-card">
                                     <div class="card-title-row">
-                                        <h4>推荐引物结果</h4>
-                                        <span class="card-badge">primer_result_final_2.txt</span>
+                                        <h4 id="results-card-title">分析结果</h4>
+                                        <span class="card-badge" id="results-card-badge">primer_result_final_2.txt</span>
                                     </div>
                                     <div class="results-card-subtitle">优先呈现最终推荐引物，便于快速查看与比对。</div>
                                     <div class="results-table-wrap">
@@ -199,30 +204,6 @@
                                     </div>
                                 </div>
 
-                                <div class="detail-card integrated-loader-card" id="remote-loader-card">
-                                    <div class="card-title-row compact-title-row">
-                                        <h4>远程结果目录</h4>
-                                        <div class="side-card-actions">
-                                            <span class="card-badge">服务器</span>
-                                            <button class="section-toggle-btn" data-target="remote-loader-body" type="button">收起</button>
-                                        </div>
-                                    </div>
-                                    <div class="side-section-body" id="remote-loader-body">
-                                        <div class="integrated-loader-row">
-                                            <input
-                                                type="text"
-                                                class="form-input integrated-loader-input"
-                                                id="remote-primer-dir"
-                                                placeholder="例如 /home/zyserver/project_ssd/primer_design/my_result"
-                                            >
-                                            <button class="btn-primary integrated-loader-btn" id="remote-primer-load-btn">加载</button>
-                                        </div>
-                                        <div class="integrated-loader-hint" id="remote-primer-hint">
-                                            直接读取服务器上的 primer 结果目录，并优先载入 primer_result_final_2.txt。
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <div class="summary-grid integrated-summary-grid" id="summary-grid"></div>
 
                                 <div class="detail-card compact-detail-card">
@@ -239,7 +220,6 @@
                                 </div>
                             </div>
                         </div>
-                        </div>
                     </div>
                 </section>
             </div>
@@ -248,6 +228,7 @@
       
 
     </div>
+    <script src="echarts.min.js"></script>
     <script src="app_galaxy.js"></script>
 </body>
 </html>

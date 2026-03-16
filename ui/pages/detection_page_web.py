@@ -262,6 +262,11 @@ class ToolBridge(QObject):
         return json.dumps(result, ensure_ascii=False)
 
     @pyqtSlot(str, result=str)
+    def get_targeted_seq_results_for_execution(self, execution_id: str) -> str:
+        result = self._service.get_targeted_seq_results_for_execution(execution_id)
+        return json.dumps(result, ensure_ascii=False)
+
+    @pyqtSlot(str, result=str)
     def open_local_file(self, local_path: str) -> str:
         path = Path(str(local_path or "").strip())
         if not path.exists():

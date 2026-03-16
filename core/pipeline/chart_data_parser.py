@@ -126,13 +126,64 @@ class ChartDataParser:
         species.sort(key=lambda x: x["value"], reverse=True)
         top = species[:top_n]
         others_pct = sum(s["value"] for s in species[top_n:])
+        others_reads = sum(s["reads"] for s in species[top_n:])
         if others_pct > 0:
-            top.append({"name": "其他", "value": round(others_pct, 4), "reads": 0})
+            top.append({"name": "其他", "value": round(others_pct, 4), "reads": others_reads})
 
         return {
             "type": "pie",
             "title": "物种组成（Kraken2）",
-            "data": [{"name": s["name"], "value": s["value"]} for s in top],
+            "data": [{"name": s["name"], "value": s["value"], "reads": s["reads"]} for s in top],
+        }
+
+    @staticmethod
+    def parse_kreport_summary(kreport_path: str) -> dict[str, Any]:
+        """解析 kreport 摘要信息：总 reads、分类/未分类、物种数、top species。"""
+        total_reads = 0
+        classified_reads = 0
+        unclassified_reads = 0
+        species_count = 0
+        top_species = ""
+
+        try:
+            lines = Path(kreport_path).read_text(encoding="utf-8").splitlines()
+        except Exception as e:
+            logger.error("读取 kreport 摘要失败: %s — %s", kreport_path, e)
+            return {"total_reads": 0, "classified_reads": 0,
+                    "unclassified_reads": 0, "species_count": 0, "top_species": "N/A"}
+
+        best_pct = -1.0
+        root_reads = 0
+        for line in lines:
+            parts = line.strip().split("\t")
+            if len(parts) < 6:
+                continue
+            pct_str, clade_str, _, rank, _, name = parts[:6]
+            try:
+                pct = float(pct_str.strip())
+                clade = int(clade_str.strip())
+            except ValueError:
+                continue
+            if rank == "U":
+                unclassified_reads = clade
+            elif rank == "R":
+                root_reads = clade
+            if rank in ("S", "S1") and pct > best_pct:
+                best_pct = pct
+                top_species = name.strip()
+            if rank in ("S", "S1") and pct >= 0.01:
+                species_count += 1
+
+        # R line's clade_reads = classified reads; total = classified + unclassified
+        classified_reads = root_reads
+        total_reads = root_reads + unclassified_reads
+
+        return {
+            "total_reads": total_reads,
+            "classified_reads": classified_reads,
+            "unclassified_reads": unclassified_reads,
+            "species_count": species_count,
+            "top_species": top_species or "N/A",
         }
 
     @staticmethod

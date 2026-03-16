@@ -9,6 +9,7 @@ let databaseResources = [];
 let historyRecords = [];
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
+let integratedRunModalContext = null;
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -142,47 +143,10 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // Python 回调：运行结果
     window._onRunResult = onRunResult;
-
-    const remotePrimerLoadBtn = document.getElementById('remote-primer-load-btn');
-    if (remotePrimerLoadBtn) {
-        remotePrimerLoadBtn.addEventListener('click', loadRemotePrimerResults);
-    }
-
     const integratedRunBtn = document.getElementById('integrated-run-btn');
     if (integratedRunBtn) {
         integratedRunBtn.addEventListener('click', openIntegratedRunEntry);
     }
-
-    // placeholder removed
-    const view = { remote_result_dir: '' };
-    const remoteLoaderCard = null;
-    const remoteInput = null;
-    const remoteHint = null;
-
-    if (false) {
-        if (remoteLoaderCard) {
-            remoteLoaderCard.style.display = 'block';
-        }
-        if (remoteInput) {
-            remoteInput.value = view.remote_result_dir || '';
-        }
-        if (remoteHint && !view.remote_result_dir) {
-            remoteHint.textContent = '直接读取服务器上的 multiplex 结果目录，并优先载入 multiplex_panel.txt。';
-        }
-    }
-
-    if (false) {
-        if (remoteLoaderCard) {
-            remoteLoaderCard.style.display = 'block';
-        }
-        if (remoteInput) {
-            remoteInput.value = view.remote_result_dir || '';
-        }
-        if (remoteHint && !view.remote_result_dir) {
-            remoteHint.textContent = '直接读取服务器上的 multiplex 结果目录，并优先载入 multiplex_panel.txt。';
-        }
-    }
-
     initializeIntegratedSectionToggles();
 });
 
@@ -201,9 +165,270 @@ function openIntegratedRunEntry() {
     const view = (integratedWorkbench.views || {})[selectedIntegratedFeatureId];
     const toolId = getIntegratedToolId(feature, view);
     if (!toolId) {
-        showNotice('当前功能暂未接入执行入口', 'warning');
+        showNotice('Current feature has no run entry yet', 'warning');
         return;
     }
+
+    openIntegratedRunModal(feature, toolId);
+}
+
+function ensureIntegratedRunModal() {
+    let modal = document.getElementById('integrated-run-modal');
+    if (modal) {
+        return modal;
+    }
+
+    modal = document.createElement('div');
+    modal.id = 'integrated-run-modal';
+    modal.className = 'integrated-run-modal';
+    modal.innerHTML = `
+        <div class="integrated-run-modal-backdrop" data-close="1"></div>
+        <div class="integrated-run-modal-card" role="dialog" aria-modal="true" aria-labelledby="integrated-run-modal-title">
+            <div class="integrated-run-modal-header">
+                <h3 id="integrated-run-modal-title">Run Entry</h3>
+                <button class="integrated-run-modal-close" type="button" id="integrated-run-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="integrated-run-modal-body">
+                <div class="integrated-run-modal-line"><span>Feature</span><strong id="integrated-run-modal-feature">-</strong></div>
+                <div class="integrated-run-modal-line"><span>Tool</span><strong id="integrated-run-modal-tool">-</strong></div>
+                <div class="integrated-run-modal-hint" id="integrated-run-modal-hint">Fill fields in this popup and submit directly, or open plugin workbench.</div>
+                <div class="integrated-run-modal-form" id="integrated-run-modal-form"></div>
+            </div>
+            <div class="integrated-run-modal-actions">
+                <button class="btn-secondary" type="button" id="integrated-run-modal-cancel">Cancel</button>
+                <button class="btn-secondary" type="button" id="integrated-run-modal-open-tools">Open Tools</button>
+                <button class="btn-primary" type="button" id="integrated-run-modal-confirm">Submit</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', function(event) {
+        if (event.target && event.target.dataset && event.target.dataset.close === '1') {
+            closeIntegratedRunModal();
+        }
+    });
+
+    const closeBtn = document.getElementById('integrated-run-modal-close');
+    const cancelBtn = document.getElementById('integrated-run-modal-cancel');
+    const openToolsBtn = document.getElementById('integrated-run-modal-open-tools');
+    const confirmBtn = document.getElementById('integrated-run-modal-confirm');
+
+    if (closeBtn) closeBtn.addEventListener('click', closeIntegratedRunModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeIntegratedRunModal);
+    if (openToolsBtn) openToolsBtn.addEventListener('click', goToIntegratedRunTool);
+    if (confirmBtn) confirmBtn.addEventListener('click', runIntegratedRunModal);
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closeIntegratedRunModal();
+        }
+    });
+
+    return modal;
+}
+
+function openIntegratedRunModal(feature, toolId) {
+    integratedRunModalContext = {
+        featureId: feature?.id || '',
+        featureName: feature?.name || feature?.id || '',
+        toolId: toolId,
+        descriptor: null,
+    };
+
+    const modal = ensureIntegratedRunModal();
+    const featureEl = document.getElementById('integrated-run-modal-feature');
+    const toolEl = document.getElementById('integrated-run-modal-tool');
+    const hintEl = document.getElementById('integrated-run-modal-hint');
+    const formEl = document.getElementById('integrated-run-modal-form');
+
+    if (featureEl) featureEl.textContent = integratedRunModalContext.featureName || '-';
+    if (toolEl) toolEl.textContent = toolId;
+    if (hintEl) hintEl.textContent = 'Loading input requirements...';
+    if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Loading...</div>';
+
+    const applyDescriptor = function(descriptor) {
+        integratedRunModalContext.descriptor = descriptor || {};
+        const inputCount = (descriptor.inputs || []).length;
+        const paramCount = (descriptor.parameters || []).length;
+        const dbCount = (descriptor.databases || []).length;
+        if (hintEl) {
+            hintEl.textContent = `Inputs ${inputCount}, Params ${paramCount}, Databases ${dbCount}.`; 
+        }
+        renderIntegratedRunModalForm(descriptor || {});
+    };
+
+    const cached = toolDescriptorCache[toolId];
+    if (cached) {
+        applyDescriptor(cached);
+    } else if (bridge && bridge.get_tool_descriptor) {
+        bridge.get_tool_descriptor(toolId, function(json) {
+            try {
+                const descriptor = JSON.parse(json || '{}');
+                toolDescriptorCache[toolId] = descriptor;
+                applyDescriptor(descriptor);
+            } catch (e) {
+                if (hintEl) hintEl.textContent = 'Failed to load requirements. Use Open Tools instead.';
+                if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Parse failed.</div>';
+            }
+        });
+    } else {
+        if (hintEl) hintEl.textContent = 'Tool descriptor API unavailable.';
+        if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">API unavailable.</div>';
+    }
+
+    modal.classList.add('show');
+}
+
+function renderIntegratedRunModalForm(descriptor) {
+    const formEl = document.getElementById('integrated-run-modal-form');
+    if (!formEl) {
+        return;
+    }
+
+    const inputs = descriptor.inputs || [];
+    const parameters = descriptor.parameters || [];
+    const databases = descriptor.databases || [];
+    const parts = [];
+
+    if (inputs.length) {
+        parts.push('<div class="integrated-run-modal-group"><div class="integrated-run-modal-group-title">Inputs</div>');
+        inputs.forEach(input => {
+            const required = input.required !== false ? '<span class="integrated-input-required">Required</span>' : '';
+            const browseFilter = getInputBrowseFilter(input, descriptor || {});
+            const validator = getInputSelectionValidator(input, descriptor || {});
+            const id = `modal-input-${input.name}`;
+            parts.push(`
+                <div class="integrated-input-item">
+                    <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(input.label || input.name || 'Input')}</span>${required}</div>
+                    <div class="input-group">
+                        <input type="text" class="form-input" id="${id}" placeholder="${escapeHtml(input.description || 'Select file')}" readonly>
+                        <button class="btn-browse" type="button" onclick="browseFile('${id}', '${browseFilter}', '${validator}')">Browse...</button>
+                    </div>
+                </div>
+            `);
+        });
+        parts.push('</div>');
+    }
+
+    if (parameters.length) {
+        parts.push('<div class="integrated-run-modal-group"><div class="integrated-run-modal-group-title">Parameters</div>');
+        parameters.forEach(param => {
+            const id = `modal-param-${param.name}`;
+            const label = escapeHtml(param.label || param.name || 'Param');
+            const defaultValue = param.default !== undefined ? param.default : '';
+            let inputHtml = '';
+            if (param.type === 'int' || param.type === 'integer') {
+                inputHtml = `<input type="number" class="form-input" id="${id}" value="${defaultValue}" step="1">`;
+            } else if (param.type === 'float' || param.type === 'number') {
+                inputHtml = `<input type="number" class="form-input" id="${id}" value="${defaultValue}" step="0.01">`;
+            } else if (param.type === 'bool' || param.type === 'boolean') {
+                inputHtml = `<select class="form-input" id="${id}"><option value="true" ${defaultValue === true ? 'selected' : ''}>Yes</option><option value="false" ${defaultValue === false ? 'selected' : ''}>No</option></select>`;
+            } else {
+                inputHtml = `<input type="text" class="form-input" id="${id}" value="${escapeHtml(String(defaultValue))}" placeholder="${escapeHtml(param.description || '')}">`;
+            }
+            parts.push(`<div class="integrated-input-item"><div class="integrated-input-label-row"><span class="integrated-input-label">${label}</span></div>${inputHtml}</div>`);
+        });
+        parts.push('</div>');
+    }
+
+    if (databases.length) {
+        parts.push('<div class="integrated-run-modal-group"><div class="integrated-run-modal-group-title">Databases</div>');
+        databases.forEach(db => {
+            const key = db.param_name || db.name;
+            const id = `modal-db-${key}`;
+            const required = db.required !== false ? '<span class="integrated-input-required">Required</span>' : '';
+            const defaultVal = db.default || '';
+            parts.push(`
+                <div class="integrated-input-item">
+                    <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(db.label || key)}</span>${required}</div>
+                    <div class="input-group">
+                        <input type="text" class="form-input" id="${id}" value="${escapeHtml(String(defaultVal))}" placeholder="${escapeHtml(db.description || 'Remote database path')}" title="${escapeHtml(String(defaultVal))}">
+                        <button class="btn-browse" type="button" onclick="browseRemoteFile('${id}')">Browse...</button>
+                    </div>
+                </div>
+            `);
+        });
+        parts.push('</div>');
+    }
+
+    if (!parts.length) {
+        parts.push('<div class="integrated-input-empty">No declared inputs. You can submit directly.</div>');
+    }
+
+    formEl.innerHTML = parts.join('');
+}
+
+function runIntegratedRunModal() {
+    if (!integratedRunModalContext || !integratedRunModalContext.toolId) {
+        return;
+    }
+
+    const toolId = integratedRunModalContext.toolId;
+    const descriptor = integratedRunModalContext.descriptor || {};
+    const params = {};
+
+    const inputs = descriptor.inputs || [];
+    for (const input of inputs) {
+        const value = document.getElementById(`modal-input-${input.name}`)?.value?.trim();
+        if (input.required !== false && !value) {
+            showNotice(`Missing required input: ${input.label || input.name}`, 'warning');
+            return;
+        }
+        if (value) params[input.name] = value;
+    }
+
+    const parameters = descriptor.parameters || [];
+    parameters.forEach(param => {
+        const element = document.getElementById(`modal-param-${param.name}`);
+        if (!element) return;
+        let value = element.value;
+        if (param.type === 'int' || param.type === 'integer') value = parseInt(value, 10);
+        else if (param.type === 'float' || param.type === 'number') value = parseFloat(value);
+        else if (param.type === 'bool' || param.type === 'boolean') value = value === 'true';
+        params[param.name] = value;
+    });
+
+    const databases = descriptor.databases || [];
+    for (const db of databases) {
+        const key = db.param_name || db.name;
+        const value = document.getElementById(`modal-db-${key}`)?.value?.trim();
+        if (db.required !== false && !value) {
+            showNotice(`Missing required database path: ${db.label || key}`, 'warning');
+            return;
+        }
+        if (value) params[key] = value;
+    }
+
+    const confirmBtn = document.getElementById('integrated-run-modal-confirm');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Submitting...';
+    }
+
+    bridge.run_tool(toolId, JSON.stringify(params));
+    closeIntegratedRunModal();
+}
+
+function closeIntegratedRunModal() {
+    const modal = document.getElementById('integrated-run-modal');
+    if (modal) modal.classList.remove('show');
+    const confirmBtn = document.getElementById('integrated-run-modal-confirm');
+    if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Submit';
+    }
+}
+
+function goToIntegratedRunTool() {
+    if (!integratedRunModalContext || !integratedRunModalContext.toolId) {
+        closeIntegratedRunModal();
+        return;
+    }
+
+    const toolId = integratedRunModalContext.toolId;
+    closeIntegratedRunModal();
 
     switchTab('tools');
     selectTool(toolId);
@@ -268,6 +493,10 @@ function switchTab(tab) {
 
     if (tab === 'integrated') {
         loadIntegratedWorkbench(true);
+        // ECharts resize on tab switch
+        if (_integratedChartInstance) {
+            setTimeout(function() { _integratedChartInstance.resize(); }, 100);
+        }
     }
 }
 
@@ -481,44 +710,21 @@ function renderIntegratedFeature(feature, view) {
     document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
     document.getElementById('feature-description').textContent = view.description || '';
 
-    const remoteLoaderCard = document.getElementById('remote-loader-card');
-    const remoteInput = document.getElementById('remote-primer-dir');
-    const remoteHint = document.getElementById('remote-primer-hint');
-    if (remoteLoaderCard) {
-        remoteLoaderCard.style.display = feature.id === 'primer_design' ? 'block' : 'none';
-    }
-    if (remoteInput && feature.id === 'primer_design') {
-        remoteInput.value = view.remote_result_dir || '';
-    }
-    if (remoteHint && feature.id === 'primer_design') {
-        remoteHint.textContent = view.remote_result_dir
-            ? `当前目录：${view.remote_result_dir}`
-            : '直接读取服务器上的 primer 结果目录，并优先载入 primer_result_final_2.txt。';
-    }
-
-    if (feature.id === 'multiplex_primer_panel') {
-        if (remoteLoaderCard) {
-            remoteLoaderCard.style.display = 'block';
-        }
-        if (remoteInput) {
-            remoteInput.value = view.remote_result_dir || '';
-        }
-        if (remoteHint) {
-            remoteHint.textContent = view.remote_result_dir
-                ? `当前目录：${view.remote_result_dir}`
-                : '直接读取服务器上的 multiplex 结果目录，并优先载入 multiplex_panel.txt。';
-        }
-    }
-
     initializeIntegratedSectionToggles();
     setSectionCollapsed('integrated-run-body', true);
-    setSectionCollapsed('remote-loader-body', Boolean(view.remote_result_dir));
     setSectionCollapsed('artifact-list-wrap', true);
 
     renderIntegratedRunEntry(feature, view);
     renderSummaryGrid(view.summary || []);
     renderArtifactList(view.artifacts || []);
     renderIntegratedTable(view.columns || [], view.rows || []);
+    renderIntegratedChart(view.chart || null);
+
+    // 动态更新表标题和 badge
+    const resultsTitle = document.getElementById('results-card-title');
+    if (resultsTitle) resultsTitle.textContent = view.table_title || '分析结果';
+    const resultsBadge = document.getElementById('results-card-badge');
+    if (resultsBadge) resultsBadge.textContent = view.table_badge || (view.artifacts && view.artifacts[0] ? view.artifacts[0].name : '');
 }
 
 function renderIntegratedRunEntry(feature, view) {
@@ -603,64 +809,6 @@ function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
             )}</div>
         </div>
     `).join('');
-}
-
-function loadRemotePrimerResults() {
-    if (!bridge || !bridge.get_remote_primer_results) {
-        showNotice('远程结果接口不可用');
-        return;
-    }
-
-    const input = document.getElementById('remote-primer-dir');
-    const hint = document.getElementById('remote-primer-hint');
-    const loadBtn = document.getElementById('remote-primer-load-btn');
-    const remoteDir = input?.value?.trim() || '';
-    if (!remoteDir) {
-        showNotice('请先输入远程结果目录', 'warning');
-        return;
-    }
-
-    if (loadBtn) {
-        loadBtn.disabled = true;
-        loadBtn.textContent = '加载中...';
-    }
-    if (hint) {
-        hint.textContent = `正在读取：${remoteDir}`;
-    }
-
-    bridge.get_remote_primer_results(remoteDir, function(json) {
-        if (loadBtn) {
-            loadBtn.disabled = false;
-            loadBtn.textContent = '加载';
-        }
-
-        try {
-            const payload = JSON.parse(json);
-            if (payload.status !== 'ok' || !payload.view) {
-                if (hint) {
-                    hint.textContent = payload.message || '远程结果读取失败';
-                }
-                showNotice(payload.message || '远程结果读取失败');
-                return;
-            }
-
-            if (!integratedWorkbench || !integratedWorkbench.views) {
-                return;
-            }
-
-            integratedWorkbench.views.primer_design = payload.view;
-            if (hint) {
-                hint.textContent = `已加载：${payload.view.remote_result_dir || remoteDir}`;
-            }
-            selectIntegratedFeature('primer_design');
-        } catch (error) {
-            console.error('Failed to parse remote primer results:', error);
-            if (hint) {
-                hint.textContent = '远程结果解析失败';
-            }
-            showNotice('远程结果解析失败');
-        }
-    });
 }
 
 function renderSummaryGrid(summaryItems) {
@@ -781,6 +929,62 @@ function getIntegratedColumnCellClass(columnKey) {
         return 'table-cell-wrap';
     }
     return '';
+}
+
+let _integratedChartInstance = null;
+
+function renderIntegratedChart(chartData) {
+    const card = document.getElementById('integrated-chart-card');
+    const container = document.getElementById('integrated-chart-container');
+    const titleEl = document.getElementById('chart-card-title');
+
+    if (_integratedChartInstance) {
+        _integratedChartInstance.dispose();
+        _integratedChartInstance = null;
+    }
+
+    if (!chartData || !chartData.data || !chartData.data.length) {
+        if (card) card.style.display = 'none';
+        return;
+    }
+
+    if (card) card.style.display = 'block';
+    if (titleEl) titleEl.textContent = chartData.title || '图表';
+
+    if (!container || typeof echarts === 'undefined') {
+        return;
+    }
+
+    _integratedChartInstance = echarts.init(container);
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            formatter: function(params) {
+                const reads = params.data.reads != null ? params.data.reads.toLocaleString() : '-';
+                return `${params.name}<br/>占比: ${params.percent}%<br/>Reads: ${reads}`;
+            }
+        },
+        series: [{
+            type: 'pie',
+            radius: ['30%', '65%'],
+            center: ['50%', '50%'],
+            data: chartData.data.map(function(d) {
+                return { name: d.name, value: d.value, reads: d.reads || 0 };
+            }),
+            label: {
+                formatter: '{b}\n{d}%',
+                fontSize: 11,
+            },
+            emphasis: {
+                itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' }
+            }
+        }]
+    };
+    _integratedChartInstance.setOption(option);
+
+    window.addEventListener('resize', function() {
+        if (_integratedChartInstance) _integratedChartInstance.resize();
+    });
 }
 
 function escapeHtml(value) {
@@ -1384,6 +1588,43 @@ function loadMultiplexResultsFromHistory(executionId) {
     });
 }
 
+function loadTargetedSeqResultsFromHistory(executionId) {
+    if (!executionId) {
+        return;
+    }
+    if (!bridge || !bridge.get_targeted_seq_results_for_execution) {
+        showNotice('靶向测序结果加载接口不可用');
+        return;
+    }
+
+    showNotice('正在加载靶向测序结果...', 'warning', 10000);
+    bridge.get_targeted_seq_results_for_execution(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok' || !payload.view) {
+                showNotice(payload.message || '靶向测序结果读取失败');
+                return;
+            }
+
+            if (!integratedWorkbench) {
+                integratedWorkbench = { views: {} };
+            }
+            if (!integratedWorkbench.views) {
+                integratedWorkbench.views = {};
+            }
+
+            integratedWorkbench.views.targeted_sequencing = payload.view;
+            pendingIntegratedFeatureId = 'targeted_sequencing';
+            switchTab('integrated');
+            selectIntegratedFeature('targeted_sequencing');
+            showNotice('已加载靶向测序分析结果', 'success');
+        } catch (e) {
+            console.error('Failed to parse targeted seq results:', e);
+            showNotice('靶向测序结果解析失败');
+        }
+    });
+}
+
 function deleteHistoryExecution(executionId) {
     if (!executionId) {
         return;
@@ -1537,6 +1778,15 @@ function renderHistory(history) {
                 loadMultiplexResultsFromHistory(record.execution_id);
             };
             actionsContainer.appendChild(viewBtn);
+        } else if (record.status === 'completed' && record.tool_id === 'kraken2') {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'task-action-btn btn-view';
+            viewBtn.textContent = '查看结果';
+            viewBtn.onclick = function(e) {
+                e.preventDefault();
+                loadTargetedSeqResultsFromHistory(record.execution_id);
+            };
+            actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'running') {
             const runningTxt = document.createElement('span');
             runningTxt.className = 'task-running-hint';
@@ -1631,4 +1881,5 @@ function getDurationClass(seconds) {
     }
     return 'duration-long';
 }
+
 
