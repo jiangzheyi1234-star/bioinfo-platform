@@ -4,6 +4,7 @@ let selectedToolId = null;
 let selectedDescriptor = null;
 let integratedWorkbench = null;
 let selectedIntegratedFeatureId = null;
+let pendingIntegratedFeatureId = null;
 let databaseResources = [];
 let historyRecords = [];
 const toolDescriptorCache = {};
@@ -429,10 +430,20 @@ function renderIntegratedWorkbench() {
         container.appendChild(item);
     });
 
-    const preferredFeature = features.find(feature => feature.status === 'active') || features[0];
+    let preferredFeature = null;
+    if (pendingIntegratedFeatureId) {
+        preferredFeature = features.find(feature => feature.id === pendingIntegratedFeatureId) || null;
+    }
+    if (!preferredFeature && selectedIntegratedFeatureId) {
+        preferredFeature = features.find(feature => feature.id === selectedIntegratedFeatureId) || null;
+    }
+    if (!preferredFeature) {
+        preferredFeature = features.find(feature => feature.status === 'active') || features[0];
+    }
     if (preferredFeature) {
         selectIntegratedFeature(preferredFeature.id);
     }
+    pendingIntegratedFeatureId = null;
 }
 
 function selectIntegratedFeature(featureId) {
@@ -1349,6 +1360,7 @@ function loadPrimerResultsFromHistory(executionId) {
             }
 
             integratedWorkbench.views.primer_design = payload.view;
+            pendingIntegratedFeatureId = 'primer_design';
             switchTab('integrated');
             selectIntegratedFeature('primer_design');
             showNotice('已加载该次引物设计结果', 'success');
@@ -1385,6 +1397,7 @@ function loadMultiplexResultsFromHistory(executionId) {
             }
 
             integratedWorkbench.views.multiplex_primer_panel = payload.view;
+            pendingIntegratedFeatureId = 'multiplex_primer_panel';
             switchTab('integrated');
             selectIntegratedFeature('multiplex_primer_panel');
             showNotice('已加载该次 multiplex 结果', 'success');
@@ -1642,3 +1655,4 @@ function getDurationClass(seconds) {
     }
     return 'duration-long';
 }
+
