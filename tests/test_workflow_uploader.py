@@ -113,3 +113,32 @@ def test_upload_handles_paramiko_missing_dir_oserror(tmp_path):
 
     assert mock_sftp.mkdir.called
     assert mock_sftp.put.called
+
+
+def test_upload_multiplex_workflow_bundles_mfeprimer_dependency(tmp_path):
+    """multiplex workflow 上传时应额外带上 primer_design 的 mfeprimer 二进制。"""
+    plugins_root = tmp_path / "plugins" / "primer"
+    multiplex_wf = plugins_root / "multiplex_primer_panel" / "workflow"
+    multiplex_software = multiplex_wf / "software"
+    multiplex_software.mkdir(parents=True)
+    (multiplex_software / "mfeprimer").write_text("#!/bin/bash\n")
+
+    primer_design_software = plugins_root / "primer_design" / "workflow" / "software"
+    primer_design_software.mkdir(parents=True)
+    bundled_binary = primer_design_software / "mfeprimer"
+    bundled_binary.write_bytes(b"\x7fELF")
+
+    mock_sftp = MagicMock()
+    mock_sftp.stat.side_effect = FileNotFoundError
+    mock_ssh = MagicMock()
+    mock_ssh.sftp.return_value = mock_sftp
+
+    upload_workflow(mock_ssh, multiplex_wf, "/tmp/multiplex_workflow")
+
+    put_calls = mock_sftp.put.call_args_list
+    assert any(
+        call.args == (str(bundled_binary), "/tmp/multiplex_workflow/software/mfeprimer.real")
+        for call in put_calls
+    )
+    chmod_files = {c.args[0] for c in mock_sftp.chmod.call_args_list}
+    assert "/tmp/multiplex_workflow/software/mfeprimer.real" in chmod_files
