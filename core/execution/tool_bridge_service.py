@@ -710,18 +710,6 @@ class ToolBridgeService:
                 except Exception:
                     logger.exception("Failed to backup project state before running %s", tool_id)
 
-            params = self.resolve_default_upstream_inputs(tool_id, params)
-            if tool_id == "multiplex_primer_panel":
-                missing_upstream = [
-                    name
-                    for name in ("primer_candidates", "genomes_bundle")
-                    if not str(params.get(name, "")).strip()
-                ]
-                if missing_upstream:
-                    return ExecutionResult(
-                        status="error",
-                        message="未找到可复用的候选引物结果。请先完成一次候选靶点初筛，或手动提供 primer_result.txt 和 genomes bundle。",
-                    )
             descriptor = self._plugin_registry.get_descriptor(tool_id)
 
             sample_id = self.ensure_sample_id(pm, params, descriptor)
@@ -759,36 +747,6 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to start tool %s", tool_id)
             return ExecutionResult(status="error", message="内部错误，请查看日志")
-
-    def resolve_default_upstream_inputs(self, tool_id: str, params: dict) -> dict:
-        resolved = dict(params or {})
-        if tool_id != "multiplex_primer_panel":
-            return resolved
-
-        primer_candidates = str(resolved.get("primer_candidates", "")).strip()
-        genomes_bundle = str(resolved.get("genomes_bundle", "")).strip()
-        if primer_candidates and genomes_bundle:
-            return resolved
-
-        upstream = self.find_latest_completed_execution(["primer_design"])
-        if not upstream:
-            return resolved
-
-        execution_id = str(upstream.get("execution_id") or "").strip()
-        if not execution_id:
-            return resolved
-
-        if not primer_candidates:
-            candidate_path = self.find_registered_output(execution_id, "primer_result.txt")
-            if candidate_path:
-                resolved["primer_candidates"] = candidate_path
-
-        if not genomes_bundle:
-            input_path = self.find_execution_input(execution_id, "archive")
-            if input_path:
-                resolved["genomes_bundle"] = input_path
-
-        return resolved
 
     def normalize_project_remote_base(self, pm) -> None:
         project = getattr(pm, "current_project", None)

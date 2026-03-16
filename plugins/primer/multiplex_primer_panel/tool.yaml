@@ -1,8 +1,8 @@
 id: multiplex_primer_panel
 name: Multiplex Panel Design
-version: "0.1.0"
+version: "0.2.0"
 category: primer
-description: "Optimize pathogen-specific primer candidates into a multiplex PCR panel."
+description: "独立多重引物池设计：上传病原体基因组包，自动完成靶点筛选、引物设计、多重池优化全流程。"
 conda_env: PCR
 
 detection:
@@ -10,18 +10,25 @@ detection:
   version_regex: "GNU bash, version (\\d+\\.\\d+\\.\\d+)"
 
 inputs:
-  - name: primer_candidates
-    type: tsv
-    required: true
-    label: "候选引物结果"
-    description: "来自 primer_design 的 primer_result.txt，全量候选引物对。"
   - name: genomes_bundle
     type: archive
     required: true
     label: "病原体基因组包"
-    description: "用于后续池级验证的病原体基因组文件包。"
+    description: "上传包含 .fasta/.fna 的 .zip/.tar/.tar.gz，或直接上传单个 .fasta/.fna 文件。"
 
 outputs:
+  - name: primer_result_all
+    type: tsv
+    tier: intermediate
+    pattern: "{output_dir}/primer_result.txt"
+  - name: primer_result_filtered
+    type: tsv
+    tier: intermediate
+    pattern: "{output_dir}/primer_result_final.txt"
+  - name: primer_result_final
+    type: tsv
+    tier: intermediate
+    pattern: "{output_dir}/primer_result_final_2.txt"
   - name: multiplex_panel
     type: tsv
     tier: result
@@ -78,10 +85,10 @@ parameters:
 
 command_template: |
   set -euo pipefail
-  export MULTIPLEX_INPUT_CANDIDATES="{{ input_primer_candidates }}"
   export MULTIPLEX_INPUT_GENOMES="{{ input_genomes_bundle }}"
   export MULTIPLEX_WORKFLOW_ROOT="{{ workflow_dir }}"
   export MULTIPLEX_OUTPUT_DIR="{{ output_dir }}"
+  export MULTIPLEX_DB_PATH="{{ db }}"
   export MULTIPLEX_MAX_CROSS_DIMER_SCORE="{{ param_max_cross_dimer_score }}"
   export MULTIPLEX_MAX_CROSS_DIMER_DG="{{ param_max_cross_dimer_dg }}"
   export MULTIPLEX_MIN_AMPLICON_DIFF_BP="{{ param_min_amplicon_diff_bp }}"
@@ -95,16 +102,14 @@ command_template: |
   import zipfile
   from pathlib import Path
 
-  candidates_path = Path(os.environ["MULTIPLEX_INPUT_CANDIDATES"])
   genomes_path = Path(os.environ["MULTIPLEX_INPUT_GENOMES"])
   workflow_root = Path(os.environ["MULTIPLEX_WORKFLOW_ROOT"])
   output_dir = Path(os.environ["MULTIPLEX_OUTPUT_DIR"])
+  db_path = os.environ["MULTIPLEX_DB_PATH"]
   work_dir = output_dir / "multiplex_workspace"
   input_unpack = work_dir / "input_unpack"
   ref_dir = work_dir / "ref_genome"
 
-  if not candidates_path.exists():
-      raise SystemExit(f"primer_candidates not found: {candidates_path}")
   if not genomes_path.exists():
       raise SystemExit(f"genomes_bundle not found: {genomes_path}")
 
@@ -114,13 +119,12 @@ command_template: |
   input_unpack.mkdir(parents=True, exist_ok=True)
   ref_dir.mkdir(parents=True, exist_ok=True)
 
-  for name in ("my_code", "software"):
+  for name in ("primer_scripts", "my_code", "primer", "software"):
       src = workflow_root / name
       dst = work_dir / name
       if src.is_dir():
           shutil.copytree(src, dst, dirs_exist_ok=True)
   shutil.copy2(workflow_root / "0_auto_run.sh", work_dir / "0_auto_run.sh")
-  shutil.copy2(candidates_path, work_dir / "primer_candidates.tsv")
 
   lower_name = genomes_path.name.lower()
   if lower_name.endswith(".zip"):
@@ -146,10 +150,33 @@ command_template: |
 
   if not found:
       raise SystemExit("No FASTA/FNA/FA files were found inside genomes_bundle")
+
+  run_script = work_dir / "0_auto_run.sh"
+  content = run_script.read_text(encoding="utf-8")
+  content = content.replace(
+      '    local db_path="/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"',
+      f'    local db_path="{db_path}"',
+  )
+  content = content.replace('\ncheck_conda_env\n', '\n# check_conda_env skipped by H2OMeta\n')
+  run_script.write_text(content, encoding="utf-8")
+
+  output_dir.mkdir(parents=True, exist_ok=True)
   PY
 
   cd "{{ output_dir }}/multiplex_workspace"
   bash 0_auto_run.sh > "{{ output_dir }}/task.log" 2>&1
+
+  cp -f "{{ output_dir }}/multiplex_workspace/my_result/primer_result.txt" "{{ output_dir }}/primer_result.txt" 2>/dev/null || true
+  cp -f "{{ output_dir }}/multiplex_workspace/my_result/primer_result_final.txt" "{{ output_dir }}/primer_result_final.txt" 2>/dev/null || true
+  cp -f "{{ output_dir }}/multiplex_workspace/my_result/primer_result_final_2.txt" "{{ output_dir }}/primer_result_final_2.txt" 2>/dev/null || true
+
+databases:
+  - id: blast_nt
+    param_name: db
+    required: true
+    label: "core_nt 数据库"
+    description: "服务器上的 core_nt BLAST 数据库前缀路径。"
+    default: "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
 
 result_views:
   - type: table
