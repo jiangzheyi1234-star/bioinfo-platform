@@ -2,7 +2,7 @@ id: multiplex_primer_panel
 name: Multiplex Panel Design
 version: "0.2.0"
 category: primer
-description: "独立多重引物池设计：上传病原体基因组包，自动完成靶点筛选、引物设计、多重池优化全流程。"
+description: "多重引物池设计：上传病原体基因组包，一站式完成靶点筛选、引物设计与池优化，输出合成订单。"
 conda_env: PCR
 
 detection:

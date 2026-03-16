@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import shlex
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,9 +103,9 @@ class ToolBridgeService:
             "features": [
                 {
                     "id": "primer_design",
-                    "name": "引物设计",
+                    "name": "病原体引物设计",
                     "badge": "",
-                    "description": "面向 Linux 命令行引物设计流程的结果查看与执行入口。",
+                    "description": "上传病原体基因组，自动筛选保守特异靶点并设计引物对，输出每病原体的推荐引物。",
                     "status": "active",
                 },
                 {
@@ -125,19 +126,17 @@ class ToolBridgeService:
             "views": {
                 "primer_design": {
                     "tool_ids": ["primer_design"],
-                    "title": "多病原体引物设计",
-                    "description": "上传或选择待分析序列后，在 Linux 端执行引物设计流程，并在此查看推荐结果。",
+                    "title": "病原体引物设计",
+                    "description": "上传病原体基因组序列，系统自动完成保守靶点筛选、特异性过滤和候选引物设计，最终输出每病原体的推荐引物对。",
                     "status": {
                         "state": "ready",
                         "label": "结果已就绪",
                         "detail": "支持查看推荐结果，并可继续接入远程任务执行链路。",
                     },
                     "parameters": [
-                        {"label": "输入序列", "value": "FASTA / FNA 序列集合"},
-                        {"label": "运行模式", "value": "quick / advanced"},
-                        {"label": "候选产物长度", "value": "100-300 bp"},
-                        {"label": "Tm 范围", "value": "57-63 ℃"},
-                        {"label": "GC 范围", "value": "30-70 %"},
+                        {"label": "输入", "value": "病原体基因组 FASTA"},
+                        {"label": "靶点筛选", "value": "保守性 + 特异性"},
+                        {"label": "输出", "value": "每病原体首选引物对"},
                     ],
                     "summary": [
                         {"label": "目标病原体", "value": "5", "tone": "primary"},
@@ -268,6 +267,33 @@ class ToolBridgeService:
                 }
             )
         return rows
+
+    @staticmethod
+    def _build_multiplex_columns(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Hide multiplex columns that are empty across all rows."""
+        base_columns = [
+            {"key": "pathogen", "label": "Pathogen"},
+            {"key": "region_id", "label": "Region ID"},
+            {"key": "forward_primer", "label": "Forward Primer"},
+            {"key": "reverse_primer", "label": "Reverse Primer"},
+            {"key": "amplicon_length", "label": "Amplicon Length"},
+        ]
+        optional_columns = [
+            {"key": "target_sequence", "label": "Target Sequence"},
+            {"key": "conservation_score", "label": "Conservation Score"},
+            {"key": "specificity_score", "label": "Specificity Score"},
+            {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
+        ]
+
+        if not rows:
+            return base_columns + [{"key": "pool_dimer_score", "label": "Pool Dimer Score"}]
+
+        visible_optional: list[dict[str, str]] = []
+        for col in optional_columns:
+            key = col["key"]
+            if any(str(row.get(key, "")).strip() for row in rows):
+                visible_optional.append(col)
+        return base_columns + visible_optional
 
     def _get_project_manager(self):
         if self._service_locator is None:
@@ -588,6 +614,74 @@ class ToolBridgeService:
             return self._normalize_artifacts(manifest.get("artifacts"))
         return []
 
+    def _persist_execution_artifacts(
+        self,
+        execution_id: str,
+        tool_id: str,
+        output_dir: str,
+        artifacts: list[dict],
+    ) -> list[dict]:
+        """Persist downloaded artifacts under results/<execution_id>/ and write manifest."""
+        normalized_execution_id = str(execution_id or "").strip()
+        if not normalized_execution_id:
+            return self._normalize_artifacts(artifacts)
+
+        results_dir = self._execution_results_dir(normalized_execution_id)
+        if results_dir is None:
+            return self._normalize_artifacts(artifacts)
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        persisted: list[dict] = []
+        for item in self._normalize_artifacts(artifacts):
+            name = str(item.get("name") or "").strip()
+            local_path = str(item.get("local_path") or "").strip()
+            available = bool(item.get("available"))
+            copied_path = ""
+            error = str(item.get("error") or "").strip()
+            if name and local_path and available and Path(local_path).exists():
+                src = Path(local_path)
+                dst = results_dir / name
+                try:
+                    if src.resolve() != dst.resolve():
+                        shutil.copy2(src, dst)
+                    copied_path = str(dst)
+                except Exception as exc:
+                    logger.warning("Failed to copy artifact to execution dir: %s -> %s (%s)", src, dst, exc)
+                    error = error or str(exc)
+                    copied_path = local_path
+            else:
+                copied_path = local_path
+
+            persisted_item = {
+                "name": name,
+                "remote_path": str(item.get("remote_path") or "").strip(),
+                "local_path": copied_path,
+                "available": bool(copied_path) and Path(copied_path).exists(),
+            }
+            if error:
+                persisted_item["error"] = error
+            persisted.append(persisted_item)
+
+        manifest_path = results_dir / self._manifest_name
+        try:
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "execution_id": normalized_execution_id,
+                        "tool_id": tool_id,
+                        "output_dir": output_dir,
+                        "artifacts": persisted,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.exception("Failed to write execution artifacts manifest: %s", manifest_path)
+
+        return self._normalize_artifacts(persisted)
+
     def download_execution_artifacts(self, execution_id: str) -> list[dict]:
         return self.list_local_execution_artifacts(execution_id)
 
@@ -635,29 +729,28 @@ class ToolBridgeService:
 
         synthesis_count = self._count_local_artifact_lines(artifacts, "synthesis_order.txt")
         optimization_count = self._count_local_artifact_lines(artifacts, "optimization_log.txt")
+        optimization_rounds = max((optimization_count or 1) - 1, 0)
+        parameter_items = list(parameters)
+        parameter_items.append(
+            {
+                "label": "优化轮次",
+                "value": str(optimization_rounds),
+                "description": "指算法为消解引物冲突并满足约束而进行的迭代次数；轮次越多表示优化过程越复杂，不代表结果更差。",
+            }
+        )
         return {
             "tool_ids": ["multiplex_primer_panel"],
             "title": "多重引物池设计",
             "description": description,
             "status": status,
-            "parameters": parameters,
+            "parameters": parameter_items,
             "summary": [
                 {"label": "入池病原体", "value": str(len(rows)), "tone": "primary"},
                 {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
                 {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
-                {"label": "优化轮次", "value": str(max((optimization_count or 1) - 1, 0)), "tone": "accent"},
+                {"label": "优化轮次", "value": str(optimization_rounds), "tone": "accent"},
             ],
-            "columns": [
-                {"key": "pathogen", "label": "Pathogen"},
-                {"key": "region_id", "label": "Region ID"},
-                {"key": "forward_primer", "label": "Forward Primer"},
-                {"key": "reverse_primer", "label": "Reverse Primer"},
-                {"key": "amplicon_length", "label": "Amplicon Length"},
-                {"key": "target_sequence", "label": "Target Sequence"},
-                {"key": "conservation_score", "label": "Conservation Score"},
-                {"key": "specificity_score", "label": "Specificity Score"},
-                {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
-            ],
+            "columns": self._build_multiplex_columns(rows),
             "rows": rows,
             "artifacts": artifacts,
             "remote_result_dir": remote_result_dir,
@@ -738,22 +831,64 @@ class ToolBridgeService:
         ts = (exec_row["completed_at"] if exec_row else None) or (exec_row["created_at"] if exec_row else None) or time.time()
         return self._build_primer_view_from_artifacts(
             artifacts=artifacts,
-            remote_result_dir=remote_dir,
+                        remote_result_dir=remote_dir,
             description=(
-                f"最新结果来自样本 {exec_row['sample_name'] if exec_row else row['sample_id']}，"
-                f"执行 ID：{normalized_execution_id}。"
+                "用途：将病原体靶向引物集合优化为可同池扩增的多重引物池，输出可交付的池方案与合成清单。"
+                f"\n实现：基于候选引物进行迭代替换优化，并按交叉二聚体、Tm 一致性、扩增子长度差异与覆盖校验综合筛选（结果目录：{remote_dir}）。"
             ),
             status={
                 "state": "completed",
-                "label": "已加载本地结果",
-                "detail": f"完成时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))} · 模式：{mode}",
+                "label": "结果可用",
+                "detail": "流程已完成：已生成 multiplex_panel、synthesis_order、validation_report，可直接查看与交付。",
+            },            parameters=[
+                {
+                    "label": "结果目录",
+                    "value": remote_dir,
+                    "description": "Multiplex 任务在服务器端的结果目录，用于加载该次任务产物。",
+                },
+                {
+                    "label": "主结果",
+                    "value": "multiplex_panel.txt",
+                    "description": "主结果文件，包含入池引物对及相关评分信息。",
+                },
+                {
+                    "label": "合成订单",
+                    "value": "synthesis_order.txt",
+                    "description": "合成下单文件，用于导出引物采购/合成名单。",
+                },
+            ],
+        )
+
+    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
+        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
+        if not normalized_dir:
+            return None
+        artifacts = self._cache_remote_artifacts("multiplex_primer_panel", normalized_dir)
+        return self._build_multiplex_view_from_artifacts(
+            artifacts=artifacts,
+            remote_result_dir=normalized_dir,
+            description=f"查看最终多重引物池结果与相关报告：{normalized_dir}",
+            status={
+                "state": "completed",
+                "label": "结果可用",
+                "detail": "结果文件已同步到当前项目本地，可直接打开本地文件。",
             },
             parameters=[
-                {"label": "样本", "value": (exec_row["sample_name"] if exec_row else None) or row["sample_id"] or "-"},
-                {"label": "工具 ID", "value": "primer_design"},
-                {"label": "运行模式", "value": str(mode)},
-                {"label": "执行 ID", "value": normalized_execution_id},
-                {"label": "输出目录", "value": remote_dir},
+                {
+                    "label": "结果目录",
+                    "value": normalized_dir,
+                    "description": "指定要读取的远程结果目录，用于回显历史 multiplex 结果。",
+                },
+                {
+                    "label": "主结果",
+                    "value": "multiplex_panel.txt",
+                    "description": "主结果文件，展示入池引物与扩增子组合。",
+                },
+                {
+                    "label": "合成订单",
+                    "value": "synthesis_order.txt",
+                    "description": "合成订单文件，可直接用于合成委托。",
+                },
             ],
         )
 
@@ -798,40 +933,25 @@ class ToolBridgeService:
         )
         if not artifacts:
             artifacts = self._cache_remote_artifacts("multiplex_primer_panel", remote_dir)
+            artifacts = self._persist_execution_artifacts(
+                execution_id=normalized_execution_id,
+                tool_id="multiplex_primer_panel",
+                output_dir=remote_dir,
+                artifacts=artifacts,
+            )
+
         return self._build_multiplex_view_from_artifacts(
             artifacts=artifacts,
             remote_result_dir=remote_dir,
-            description=f"查看最终多重引物池结果与相关报告：{remote_dir}",
+            description=f"任务 {normalized_execution_id} 的多重引物池结果",
             status={
                 "state": "completed",
                 "label": "结果可用",
-                "detail": "结果文件已同步到当前项目本地，可直接打开本地文件。",
+                "detail": "从历史任务加载的多重引物池结果。",
             },
             parameters=[
-                {"label": "结果目录", "value": remote_dir},
+                {"label": "任务 ID", "value": normalized_execution_id},
                 {"label": "主结果", "value": "multiplex_panel.txt"},
-                {"label": "合成订单", "value": "synthesis_order.txt"},
-            ],
-        )
-
-    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
-        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
-        if not normalized_dir:
-            return None
-        artifacts = self._cache_remote_artifacts("multiplex_primer_panel", normalized_dir)
-        return self._build_multiplex_view_from_artifacts(
-            artifacts=artifacts,
-            remote_result_dir=normalized_dir,
-            description=f"查看最终多重引物池结果与相关报告：{normalized_dir}",
-            status={
-                "state": "completed",
-                "label": "结果可用",
-                "detail": "结果文件已同步到当前项目本地，可直接打开本地文件。",
-            },
-            parameters=[
-                {"label": "结果目录", "value": normalized_dir},
-                {"label": "主结果", "value": "multiplex_panel.txt"},
-                {"label": "合成订单", "value": "synthesis_order.txt"},
             ],
         )
 
@@ -1350,7 +1470,13 @@ class ToolBridgeService:
 
         for feature in features:
             if feature.get("id") == "primer_design":
-                feature["name"] = "候选靶点初筛"
+                feature["name"] = "病原体引物设计"
+                feature["description"] = "上传病原体基因组，自动筛选保守特异靶点并设计引物对，输出每病原体的推荐引物。"
+
+        primer_view = views.get("primer_design")
+        if isinstance(primer_view, dict):
+            primer_view["title"] = "病原体引物设计"
+            primer_view["description"] = "上传病原体基因组序列，系统自动完成保守靶点筛选、特异性过滤和候选引物设计，最终输出每病原体的推荐引物对。"
 
         if not any(feature.get("id") == "multiplex_primer_panel" for feature in features):
             features.insert(
@@ -1358,8 +1484,8 @@ class ToolBridgeService:
                 {
                     "id": "multiplex_primer_panel",
                     "name": "多重引物池设计",
-                    "badge": "NEW",
-                    "description": "Optimize candidate primers into a multiplex PCR panel.",
+                    "badge": "",
+                    "description": "一体化完成候选引物生成与多重引物池优化，自动消解交叉二聚体冲突并输出池结果与合成订单。",
                     "status": "active",
                 },
             )
@@ -1369,16 +1495,17 @@ class ToolBridgeService:
             {
                 "tool_ids": ["multiplex_primer_panel"],
                 "title": "多重引物池设计",
-                "description": "Optimize candidate primer pairs into a multiplex panel and inspect the pooled result set here.",
+                "description": "用途：用于靶向病原体多重 PCR 方案设计，输出可直接用于实验与交付的池化结果和合成清单。\n实现：流程内自动执行候选引物合并、迭代优化、交叉二聚体评估、扩增子冲突检查、Tm/GC 一致性检查和覆盖验证。",
                 "status": {
                     "state": "ready",
                     "label": "等待运行",
-                    "detail": "先完成候选靶点初筛，再查看 panel 结果与订单文件。",
+                    "detail": "系统按你的流程自动执行 16 个步骤（候选生成→池优化→冲突评估→最终报告），完成后可直接查看 multiplex_panel 与 synthesis_order。",
                 },
                 "parameters": [
-                    {"label": "输入", "value": "primer_result.txt + genomes bundle"},
-                    {"label": "约束", "value": "cross-dimer / Tm / amplicon length"},
-                    {"label": "输出", "value": "multiplex_panel.txt / synthesis_order.txt"},
+                    {"label": "输入", "value": "病原体序列（流程内自动生成候选引物）", "description": "你只需提供病原体序列，系统会在流程内自动完成候选引物设计并进入多重池优化。"},
+                    {"label": "约束", "value": "cross-dimer / Tm / amplicon length", "description": "联合约束引物间互作、退火温度一致性和扩增子长度范围。"},
+                    {"label": "输出", "value": "multiplex_panel.txt / synthesis_order.txt", "description": "输出最终入池方案与可直接使用的合成订单。"},
+                    {"label": "优化轮次", "value": "运行后生成", "description": "表示算法迭代优化的次数，用于消解冲突并满足约束；该值由实际任务日志统计。"},
                 ],
                 "summary": [
                     {"label": "已入池病原体", "value": "0", "tone": "primary"},
@@ -1386,17 +1513,7 @@ class ToolBridgeService:
                     {"label": "订单条目", "value": "0", "tone": "success"},
                     {"label": "优化状态", "value": "ready", "tone": "accent"},
                 ],
-                "columns": [
-                    {"key": "pathogen", "label": "Pathogen"},
-                    {"key": "region_id", "label": "Region ID"},
-                    {"key": "forward_primer", "label": "Forward Primer"},
-                    {"key": "reverse_primer", "label": "Reverse Primer"},
-                    {"key": "amplicon_length", "label": "Amplicon Length"},
-                    {"key": "target_sequence", "label": "Target Sequence"},
-                    {"key": "conservation_score", "label": "Conservation Score"},
-                    {"key": "specificity_score", "label": "Specificity Score"},
-                    {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
-                ],
+                "columns": self._build_multiplex_columns([]),
                 "rows": [],
                 "artifacts": [
                     "multiplex_panel.txt",
@@ -1451,3 +1568,4 @@ class ToolBridgeService:
                 "message": "未能从该任务读取 multiplex 结果，请确认任务已完成且 multiplex_panel.txt 已生成。",
             }
         return {"status": "ok", "view": view}
+
