@@ -171,6 +171,17 @@ print_info "===== 阶段一：引物设计 ====="
 run_step "1/16" "文件名标准化" "primer_scripts/1_create_name.py"
 run_step "2/16" "基因组切割和BLAST比对" "primer_scripts/2_split_blast.sh" "true"
 run_step "3/16" "保守+特异性靶点筛选" "primer_scripts/3_select.py"
+
+# 验证：检查是否有空的 conserved_seq 文件
+EMPTY_COUNT=$(find conserved_seq/ -name "*.fasta" -empty 2>/dev/null | wc -l)
+if [ "$EMPTY_COUNT" -gt 0 ]; then
+    EMPTY_FILES=$(find conserved_seq/ -name "*.fasta" -empty -printf '%f\n' 2>/dev/null | tr '\n' ', ')
+    print_error "$EMPTY_COUNT 个病原体的保守序列为空: ${EMPTY_FILES%, }"
+    print_error "请检查 BLAST 比对结果或参考基因组文件"
+    exit 1
+fi
+print_success "验证通过: conserved_seq/ 下无空文件"
+
 run_step "4/16" "引物设计和扩增子提取" "primer_scripts/4_primer.sh"
 run_step "4b/16" "引物注释（保守/特异）" "primer_scripts/4b_annotate_primers.py"
 run_step "5/16" "提取引物对" "primer_scripts/5_1_extract_dimer.sh"
