@@ -79,7 +79,9 @@ class MainWindow(QMainWindow):
 
         # 初始化日志页面的项目上下文
         if self._pm.current_project:
-            self.log_page.set_project_context(self._pm.current_project.project_id)
+            pid = self._pm.current_project.project_id
+            self.log_page.set_project_context(pid)
+            self.log_page.load_history(self._pm.db, pid)
 
     def init_ui(self) -> None:
         central = QWidget()
@@ -288,8 +290,9 @@ class MainWindow(QMainWindow):
         self._reconcile_running_tasks()
         self._notify_pages_context_changed()
 
-        # 同步日志页面的项目上下文
+        # 同步日志页面的项目上下文 + 加载历史
         self.log_page.set_project_context(project_id)
+        self.log_page.load_history(self._pm.db, project_id)
 
         logger.info("项目已切换: %s", project_id)
 
