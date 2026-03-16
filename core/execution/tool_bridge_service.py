@@ -834,7 +834,7 @@ class ToolBridgeService:
                         remote_result_dir=remote_dir,
             description=(
                 "用途：将病原体靶向引物集合优化为可同池扩增的多重引物池，输出可交付的池方案与合成清单。"
-                f"\n实现：基于候选引物进行迭代替换优化，并按交叉二聚体、Tm 一致性、扩增子长度差异与覆盖校验综合筛选（结果目录：{remote_dir}）。"
+                "\n实现：基于候选引物进行迭代替换优化，并按交叉二聚体、Tm 一致性、扩增子长度差异与覆盖校验综合筛选。"
             ),
             status={
                 "state": "completed",
@@ -943,7 +943,10 @@ class ToolBridgeService:
         return self._build_multiplex_view_from_artifacts(
             artifacts=artifacts,
             remote_result_dir=remote_dir,
-            description=f"任务 {normalized_execution_id} 的多重引物池结果",
+            description=(
+                "用途：用于靶向病原体多重 PCR 方案设计，输出可直接用于实验与交付的池化结果和合成清单。"
+                "\n实现：流程内自动执行候选引物合并、迭代优化、交叉二聚体评估、扩增子冲突检查以及 Tm/GC 一致性校验。"
+            ),
             status={
                 "state": "completed",
                 "label": "结果可用",

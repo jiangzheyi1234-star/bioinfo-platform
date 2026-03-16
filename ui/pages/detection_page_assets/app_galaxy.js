@@ -469,8 +469,6 @@ function renderIntegratedFeature(feature, view) {
 
     document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
     document.getElementById('feature-description').textContent = view.description || '';
-    document.getElementById('feature-state-label').textContent = view.status?.label || '已就绪';
-    document.getElementById('feature-state-detail').textContent = view.status?.detail || '';
 
     const remoteLoaderCard = document.getElementById('remote-loader-card');
     const remoteInput = document.getElementById('remote-primer-dir');
