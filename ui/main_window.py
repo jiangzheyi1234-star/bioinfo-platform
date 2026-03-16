@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 
 import paramiko
-from PyQt6.QtCore import QEvent, QSize, QTimer, Qt
+from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -12,9 +12,12 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
+    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from core.data.project_manager import ProjectManager
@@ -29,7 +32,6 @@ from ui.pages.project_page import ProjectPage, CreateProjectDialog
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
-from ui.widgets.project_switcher import ProjectSwitcher
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +105,63 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
 
-        self.project_switcher = ProjectSwitcher(self._pm)
-        self.project_switcher.project_switched.connect(self._on_switcher_project_changed)
-        self.project_switcher.project_create_requested.connect(self._on_switcher_create_project)
-        sidebar_layout.addWidget(self.project_switcher)
+        # -- 项目选择区：上下两行（项目名 + ▾），点击弹出菜单 --
+        self._project_trigger_btn = QPushButton("\u672a\u9009\u62e9\u9879\u76ee  \u25be")
+        self._project_trigger_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._project_trigger_btn.setMinimumHeight(38)
+        self._project_trigger_btn.setStyleSheet(f"""
+            QPushButton {{
+                margin: 8px 10px 4px 10px;
+                padding: 0 12px;
+                text-align: left;
+                border-radius: 10px;
+                border: 1px solid {styles.COLOR_BORDER};
+                background: {styles.COLOR_BG_CARD};
+                color: {styles.COLOR_TEXT_DEFAULT};
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                border: 1px solid rgba(59, 130, 246, 0.5);
+                background: #F8FBFF;
+            }}
+            QPushButton:pressed {{
+                background: #EFF6FF;
+                border: 1px solid rgba(59, 130, 246, 0.65);
+            }}
+        """)
+
+        self._project_menu = QMenu(self._project_trigger_btn)
+        self._project_menu.setStyleSheet(f"""
+            QMenu {{
+                background: {styles.COLOR_BG_CARD};
+                border: 1px solid {styles.COLOR_BORDER};
+                border-radius: 10px;
+                padding: 5px;
+            }}
+            QMenu::item {{
+                min-height: 28px;
+                padding: 3px 14px;
+                border-radius: 6px;
+                color: {styles.COLOR_TEXT_DEFAULT};
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QMenu::item:selected {{
+                background: {styles.COLOR_SELECTION_BG};
+                color: {styles.COLOR_PRIMARY};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background: {styles.COLOR_BORDER};
+                margin: 6px 8px;
+            }}
+        """)
+
+        # 点击弹出菜单
+        self.project_combo = self._project_trigger_btn  # keep legacy attribute for tests
+        self._project_trigger_btn.clicked.connect(lambda: self._show_project_menu(self._project_trigger_btn))
+        sidebar_layout.addWidget(self._project_trigger_btn)
 
         self.sidebar = QListWidget()
         self.sidebar.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -171,6 +226,8 @@ class MainWindow(QMainWindow):
 
         # 初始化一次 SSH 注入
         self._on_settings_active_client_changed(self.settings_page.get_active_client())
+
+        self._refresh_project_combo()
 
     @staticmethod
     def _make_nav_icon(svg_path_d: str) -> QIcon:
@@ -249,16 +306,60 @@ class MainWindow(QMainWindow):
         self._on_ssh_changed_for_disk(self._ssh_service_wrapper.is_connected)
         self._notify_pages_context_changed()
 
-    def _on_switcher_project_changed(self, project_id: str) -> None:
-        """ProjectSwitcher 选择了另一个项目。"""
+    def _refresh_project_combo(self) -> None:
+        """刷新项目下拉菜单，更新按钮文字。"""
+        self._project_menu.clear()
+        self._pm.reload_index()
+        current = self._pm.current_project
+        current_id = current.project_id if current else ""
+
+        has_projects = False
+        for p in self._pm.list_projects():
+            if p.status != "active":
+                continue
+            has_projects = True
+            label = f"  {p.name}" if p.project_id != current_id else f"\u2713 {p.name}"
+            action = self._project_menu.addAction(label)
+            pid = p.project_id
+            action.triggered.connect(lambda checked, _pid=pid: self._on_menu_project_selected(_pid))
+
+        if not has_projects:
+            empty_action = self._project_menu.addAction("\u6682\u65e0\u9879\u76ee")
+            empty_action.setEnabled(False)
+
+        self._project_menu.addSeparator()
+        create_action = self._project_menu.addAction(f"+ \u65b0\u5efa\u9879\u76ee")
+        create_action.triggered.connect(self._on_create_project_clicked)
+
+        # 更新项目名 label
+        if current:
+            name = current.name if len(current.name) <= 14 else current.name[:13] + "\u2026"
+            self._project_trigger_btn.setText(f"{name}  \u25be")
+            self._project_trigger_btn.setToolTip(current.name)
+        else:
+            self._project_trigger_btn.setText("\u672a\u9009\u62e9\u9879\u76ee  \u25be")
+            self._project_trigger_btn.setToolTip("")
+
+    def _show_project_menu(self, widget) -> None:
+        """在项目区域下方弹出菜单。"""
+        self._refresh_project_combo()
+        self._project_menu.setMinimumWidth(max(widget.width(), 220))
+        pos = widget.mapToGlobal(QPoint(0, widget.height()))
+        self._project_menu.popup(pos)
+
+    def _on_menu_project_selected(self, project_id: str) -> None:
+        """菜单选择了一个项目。"""
+        current = self._pm.current_project
+        if current and current.project_id == project_id:
+            return
         try:
             self._pm.open_project(project_id)
             self._on_project_switched(project_id)
         except Exception as e:
             logger.error("切换项目失败: %s", e)
 
-    def _on_switcher_create_project(self) -> None:
-        """ProjectSwitcher 请求新建项目。"""
+    def _on_create_project_clicked(self) -> None:
+        """菜单中点击新建项目。"""
         dialog = CreateProjectDialog(self)
         if dialog.exec():
             name, desc = dialog.get_values()
@@ -272,7 +373,7 @@ class MainWindow(QMainWindow):
                 logger.error("创建项目失败: %s", e)
 
     def _on_project_switched(self, project_id: str) -> None:
-        self.project_switcher.refresh()
+        self._refresh_project_combo()
 
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
