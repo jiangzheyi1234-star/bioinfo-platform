@@ -158,6 +158,10 @@ command_template: |
 
   run_script = work_dir / "0_auto_run.sh"
   content = run_script.read_text(encoding="utf-8")
+  content = content.replace(
+      'BLAST_DB_PATH="${BLAST_DB_PATH:-${MULTIPLEX_DB_PATH:-}}"',
+      f'BLAST_DB_PATH="{db_path}"',
+  )
   content = content.replace('\ncheck_conda_env\n', '\n# check_conda_env skipped by H2OMeta\n')
   run_script.write_text(content, encoding="utf-8")
 
