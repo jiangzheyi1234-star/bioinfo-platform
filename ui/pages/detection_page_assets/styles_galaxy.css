@@ -830,6 +830,8 @@ header {
 .card-title-row h4 {
     font-size: 14px;
     color: #24292f;
+    margin: 0;
+    line-height: 1.25;
 }
 
 .compact-title-row {
@@ -850,6 +852,12 @@ header {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow: hidden;
+}
+
+.integrated-run-card .compact-title-row {
+    min-height: 26px;
+    padding-top: 1px;
 }
 
 .integrated-run-actions {

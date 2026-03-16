@@ -17,6 +17,42 @@ if root_dir not in sys.path:
 from ui.qt_bootstrap import ensure_qt_webengine_ready
 
 
+class _StderrFilter:
+    """Filter known noisy native warnings while preserving real errors."""
+
+    def __init__(self, target):
+        self._target = target
+        self._buffer = ""
+        self._blocked_substrings = (
+            "libpng warning: iCCP: known incorrect sRGB profile",
+        )
+
+    def write(self, data):
+        if not data:
+            return 0
+        self._buffer += str(data)
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            if not any(token in line for token in self._blocked_substrings):
+                self._target.write(line + "\n")
+        return len(str(data))
+
+    def flush(self):
+        if self._buffer:
+            line = self._buffer
+            self._buffer = ""
+            if not any(token in line for token in self._blocked_substrings):
+                self._target.write(line)
+        self._target.flush()
+
+
+def _install_stderr_filter() -> None:
+    current = sys.stderr
+    if isinstance(current, _StderrFilter):
+        return
+    sys.stderr = _StderrFilter(current)
+
+
 def _sanitize_qt_platform() -> None:
     """Avoid forcing offscreen platform for normal interactive runs."""
     platform = (os.environ.get("QT_QPA_PLATFORM") or "").strip().lower()
@@ -63,6 +99,7 @@ def _configure_logging() -> None:
 
 def main():
     try:
+        _install_stderr_filter()
         _configure_logging()
         logging.info("Starting H2OMeta UI")
         ensure_qt_webengine_ready()
