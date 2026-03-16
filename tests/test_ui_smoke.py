@@ -94,9 +94,9 @@ class TestUIImports:
         assert MainWindow is not None
 
     def test_import_pages(self):
-        from ui.pages import AnalysisPage, DetectionPage, HomePage, SettingsPage
+        from ui.pages import DetectionPage, HomePage, SettingsPage
 
-        assert all([AnalysisPage, DetectionPage, HomePage, SettingsPage])
+        assert all([DetectionPage, HomePage, SettingsPage])
 
     def test_import_widgets(self):
         from ui.widgets import BlastResourceCard, BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget
@@ -117,11 +117,10 @@ class TestMainWindowStartup:
         assert hasattr(main_window, "home_page")
         assert hasattr(main_window, "detection_page")
         assert hasattr(main_window, "settings_page")
-        assert hasattr(main_window, "analysis_page")
         assert hasattr(main_window, "assembly_page")
 
     def test_sidebar_count(self, main_window):
-        assert main_window.sidebar.count() == 6
+        assert main_window.sidebar.count() == 5
 
 
 class TestPageStartup:
@@ -132,15 +131,6 @@ class TestPageStartup:
         assert page is not None
         assert hasattr(page, "execution_history")
         assert page.web_view is None
-
-    def test_analysis_page_starts(self, qapp):
-        from ui.pages.analysis_page import AnalysisPage
-
-        page = AnalysisPage(main_window=None)
-        assert page is not None
-        assert hasattr(page, "_stage_widgets")
-        assert len(page._stage_widgets) >= 1
-
 
 class TestDetectionIntegratedWorkbench:
     def test_tool_bridge_parses_primer_result_text(self):
@@ -415,7 +405,7 @@ class TestHomePageFlows:
         assert home_page._proj_name_label.text() == ""
         assert home_page._stat_samples.text() == ""
 
-    def test_continue_analysis_prefills_existing_sample_context(self, qapp, temp_main_window):
+    def test_continue_analysis_is_ignored_after_workbench_removal(self, qapp, temp_main_window):
         from core.data.sample_service import SampleService
 
         home_page = temp_main_window.home_page
@@ -432,20 +422,14 @@ class TestHomePageFlows:
             ("sample_B",),
         ).fetchone()[0]
 
+        current_row = temp_main_window.sidebar.currentRow()
         home_page._on_continue_analysis(sample_id)
         _flush_events(qapp)
 
-        analysis_page = temp_main_window.analysis_page
-        assert temp_main_window.sidebar.currentRow() == 4
-        assert analysis_page._selected_sample_id == sample_id
-        assert analysis_page._sample_name_input.text() == "sample_B"
-        assert analysis_page._r1_path == "C:/reads/sample_B_R1.fastq.gz"
-        assert analysis_page._r2_path == "C:/reads/sample_B_R2.fastq.gz"
-        assert analysis_page._r1_path_label.text() == "sample_B_R1.fastq.gz"
-        assert analysis_page._r2_path_label.text() == "sample_B_R2.fastq.gz"
+        assert temp_main_window.sidebar.currentRow() == current_row
         assert pm.db.execute("SELECT COUNT(*) FROM samples").fetchone()[0] == 1
 
-    def test_project_switch_refreshes_home_and_clears_analysis_context(self, qapp, tmp_path: Path):
+    def test_project_switch_refreshes_home_without_analysis_page(self, qapp, tmp_path: Path):
         from ui.main_window import MainWindow
 
         pm = ProjectManager(
@@ -466,10 +450,6 @@ class TestHomePageFlows:
         assert window.home_page._proj_name_label.text() == ""
         assert len(window.home_page._card_widgets) == 0
 
-        window.home_page._on_continue_analysis("smp_alpha")
-        _flush_events(qapp)
-        assert window.analysis_page._selected_sample_id == "smp_alpha"
-
         pm.open_project(project_two)
         window._on_project_switched(project_two)
         _flush_events(qapp)
@@ -477,9 +457,6 @@ class TestHomePageFlows:
         assert window.home_page._proj_name_label.text() == ""
         assert len(window.home_page._card_widgets) == 0
         assert window.home_page._stat_samples.text() == ""
-        assert window.analysis_page._selected_sample_id is None
-        assert window.analysis_page._sample_name_input.text() == ""
-        assert window.analysis_page._r1_path_label.text() != "alpha_R1.fastq.gz"
 
         window.close()
         pm.close()
