@@ -102,6 +102,11 @@ except Exception:  # pragma: no cover
     ToolEnvBridge = None  # type: ignore
     cleanup_thread_pair = None  # type: ignore
 
+try:
+    from .project_switcher import ProjectSwitcher
+except Exception:  # pragma: no cover
+    ProjectSwitcher = None  # type: ignore
+
 from . import styles
 
 __all__ = [
@@ -113,5 +118,6 @@ __all__ = [
     "AddSamplePlaceholder", "PipelineProgress", "SampleAddDialog", "SampleCard", "StageNode",
     "ClickableHeader", "SSHDiagnosticDialog", "StepIndicator",
     "EnvInstallDialog", "ToolEnvBridge", "cleanup_thread_pair",
+    "ProjectSwitcher",
     "styles",
 ]

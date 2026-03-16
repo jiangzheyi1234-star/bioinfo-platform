@@ -253,22 +253,11 @@ class ProjectPage(BasePage):
         header_row.addStretch()
 
         self.btn_create = QPushButton("+ 新建项目")
-        self.btn_create.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7DD3FC, stop:1 #38BDF8);
-                color: white;
-                border: none;
-                border-radius: 8px;
+        self.btn_create.setStyleSheet(styles.BUTTON_PRIMARY + """
+            QPushButton {
                 padding: 10px 20px;
                 font-size: 14px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BAE6FD, stop:1 #7DD3FC);
-            }}
-            QPushButton:pressed {{
-                background: #0EA5E9;
-            }}
+            }
         """)
         self.btn_create.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_create.clicked.connect(self._on_create)

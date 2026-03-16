@@ -4,9 +4,9 @@ import logging
 from typing import Optional
 
 import paramiko
-from PyQt6.QtCore import QEvent, QTimer, Qt
+from PyQt6.QtCore import QEvent, QSize, QTimer, Qt
+from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -25,10 +25,11 @@ from core.remote.storage_manager import StorageManager
 from ui.pages import SettingsPage
 from ui.pages.home_page import HomePage
 from ui.pages.log_page import LogPage
-from ui.pages.project_page import ProjectPage
+from ui.pages.project_page import ProjectPage, CreateProjectDialog
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
+from ui.widgets.project_switcher import ProjectSwitcher
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,6 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
 
         self._pm = project_manager or ProjectManager()
-        self._updating_combo = False
         self._ssh_service_wrapper: Optional[SSHService] = None
 
         self._locator = ServiceLocator(project_manager=self._pm)
@@ -73,7 +73,6 @@ class MainWindow(QMainWindow):
         self._prev_activated = True
 
         self.init_ui()
-        self._refresh_project_combo()
         self._connect_service_signals()
 
         # 初始化日志页面的项目上下文
@@ -97,12 +96,17 @@ class MainWindow(QMainWindow):
         sidebar_widget = QWidget()
         sidebar_widget.setFixedWidth(200)
         sidebar_widget.setStyleSheet(
-            "background-color: #F6F8FA;"
+            f"background-color: {styles.COLOR_BG_SIDEBAR};"
             f"border-right: 1px solid {styles.COLOR_BORDER};"
         )
         sidebar_layout = QVBoxLayout(sidebar_widget)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
+
+        self.project_switcher = ProjectSwitcher(self._pm)
+        self.project_switcher.project_switched.connect(self._on_switcher_project_changed)
+        self.project_switcher.project_create_requested.connect(self._on_switcher_create_project)
+        sidebar_layout.addWidget(self.project_switcher)
 
         self.sidebar = QListWidget()
         self.sidebar.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -112,14 +116,6 @@ class MainWindow(QMainWindow):
         middle_layout.addWidget(sidebar_widget)
 
         self.content = _CurrentPageStackedWidget()
-
-        self.project_page = ProjectPage(
-            self._pm,
-            main_window=self,
-            service_locator=self._locator,
-        )
-        self.project_page.project_switched.connect(self._on_project_switched)
-        self.content.addWidget(self.project_page)
 
         self.home_page = HomePage(main_window=self)
         self.content.addWidget(self.home_page)
@@ -142,11 +138,23 @@ class MainWindow(QMainWindow):
         self.log_page = LogPage(main_window=self)
         self.content.addWidget(self.log_page)
 
-        self.sidebar.addItem(QListWidgetItem("项目管理"))
-        self.sidebar.addItem(QListWidgetItem("项目首页"))
-        self.sidebar.addItem(QListWidgetItem("病原检测"))
-        self.sidebar.addItem(QListWidgetItem("系统设置"))
-        self.sidebar.addItem(QListWidgetItem("日志"))
+        _NAV_ICONS = [
+            # (svg_path_d, label) — 简洁线条图标
+            ("M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2v10a1 1 0 01-1 1h-3m-4 0v-6a1 1 0 011-1h2a1 1 0 011 1v6m-6 0h6",
+             "项目首页"),
+            ("M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
+             "病原检测"),
+            ("M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
+             "系统设置"),
+            ("M4 6h16M4 10h16M4 14h16M4 18h16",
+             "日志"),
+        ]
+        for svg_d, label in _NAV_ICONS:
+            icon = self._make_nav_icon(svg_d)
+            item = QListWidgetItem(icon, f"  {label}")
+            self.sidebar.addItem(item)
+
+        self.sidebar.setIconSize(QSize(20, 20))
 
         for i in range(self.sidebar.count()):
             item = self.sidebar.item(i)
@@ -163,6 +171,25 @@ class MainWindow(QMainWindow):
 
         # 初始化一次 SSH 注入
         self._on_settings_active_client_changed(self.settings_page.get_active_client())
+
+    @staticmethod
+    def _make_nav_icon(svg_path_d: str) -> QIcon:
+        """根据 SVG path data 生成单色图标。"""
+        svg_xml = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+            'viewBox="0 0 24 24" fill="none" stroke="#64748B" '
+            'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+            f'<path d="{svg_path_d}"/></svg>'
+        )
+        from PyQt6.QtSvg import QSvgRenderer
+        from PyQt6.QtCore import QByteArray
+        pixmap = QPixmap(20, 20)
+        pixmap.fill(QColor(0, 0, 0, 0))
+        renderer = QSvgRenderer(QByteArray(svg_xml.encode()))
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(pixmap)
 
     def _on_settings_active_client_changed(self, client) -> None:
         """把 Settings 的 SSH 客户端统一注入 ServiceLocator。"""
@@ -222,44 +249,30 @@ class MainWindow(QMainWindow):
         self._on_ssh_changed_for_disk(self._ssh_service_wrapper.is_connected)
         self._notify_pages_context_changed()
 
-    def _refresh_project_combo(self) -> None:
-        if not hasattr(self, "project_combo"):
-            return
-        self._updating_combo = True
-        self.project_combo.clear()
+    def _on_switcher_project_changed(self, project_id: str) -> None:
+        """ProjectSwitcher 选择了另一个项目。"""
+        try:
+            self._pm.open_project(project_id)
+            self._on_project_switched(project_id)
+        except Exception as e:
+            logger.error("切换项目失败: %s", e)
 
-        self._pm.reload_index()
-        projects = self._pm.list_projects()
-        current = self._pm.current_project
-        selected_index = -1
-
-        for project in projects:
-            if project.status == "active":
-                self.project_combo.addItem(project.name, project.project_id)
-                if current and project.project_id == current.project_id:
-                    selected_index = self.project_combo.count() - 1
-
-        if selected_index >= 0:
-            self.project_combo.setCurrentIndex(selected_index)
-
-        self._updating_combo = False
-
-    def _on_project_combo_changed(self, index: int) -> None:
-        if not hasattr(self, "project_combo"):
-            return
-        if self._updating_combo or index < 0:
-            return
-
-        project_id = self.project_combo.currentData()
-        if project_id:
+    def _on_switcher_create_project(self) -> None:
+        """ProjectSwitcher 请求新建项目。"""
+        dialog = CreateProjectDialog(self)
+        if dialog.exec():
+            name, desc = dialog.get_values()
+            if not name:
+                return
             try:
+                project_id = self._pm.create_project(name, desc)
                 self._pm.open_project(project_id)
                 self._on_project_switched(project_id)
             except Exception as e:
-                logger.error("切换项目失败: %s", e)
+                logger.error("创建项目失败: %s", e)
 
     def _on_project_switched(self, project_id: str) -> None:
-        self._refresh_project_combo()
+        self.project_switcher.refresh()
 
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
