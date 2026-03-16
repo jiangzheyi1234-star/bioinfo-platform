@@ -1234,25 +1234,30 @@ function formatDetailCell(record) {
 }
 
 function renderHistory(history) {
-    const tbody = document.getElementById('history-tbody');
-    tbody.innerHTML = '';
+    const container = document.getElementById('history-container');
+    container.innerHTML = '';
 
     if (history.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="7" style="text-align: center; color: #6c757d; padding: 20px;">
-                    暂无执行记录
-                </td>
-            </tr>
+        container.innerHTML = `
+            <div class="empty-row" style="text-align: center; color: #6c757d; padding: 40px;">
+                暂无执行记录
+            </div>
         `;
         return;
     }
 
     history.forEach(record => {
-        const row = document.createElement('tr');
+        const row = document.createElement('div');
+        row.className = 'task-row';
 
         // 状态样式
-        const statusClass = `status-${record.status}`;
+        const statusMap = {
+            'pending': 'dot-pending',
+            'running': 'dot-running',
+            'completed': 'dot-completed',
+            'failed': 'dot-failed'
+        };
+        const dotClass = statusMap[record.status] || 'dot-unknown';
         const statusText = getStatusText(record.status);
 
         // 计算耗时
@@ -1260,51 +1265,89 @@ function renderHistory(history) {
             ? formatDuration(record.completed_at - record.created_at)
             : '-';
 
-        // 参数摘要（完整参数作tooltip）
+        // 参数摘要
         const paramsSummary = formatParamsSummary(record.parameters);
-        const paramsFullText = record.parameters ? escapeHtml(record.parameters) : '';
+        
+        // 尝试格式化 JSON 方便展示
+        let prettyJson = '{}';
+        try {
+            const parsed = typeof record.parameters === 'string' ? JSON.parse(record.parameters) : record.parameters;
+            prettyJson = JSON.stringify(parsed, null, 4);
+        } catch(e) {
+            prettyJson = record.parameters || '';
+        }
+
+        const toolName = (allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id;
+        const sampleName = escapeHtml(record.sample_name || record.sample_id || '-');
+
+        // 构建详情区 (如果是失败任务，额外展示错误信息)
+        let detailsHtml = '';
+        if (record.status === 'failed' && record.error) {
+            detailsHtml += `<div style="color: #ef4444; margin-bottom: 12px; font-weight: 500; font-size: 13px;">错误信息: ${escapeHtml(record.error)}</div>`;
+        }
+        detailsHtml += `<pre class="task-details-pre">${escapeHtml(prettyJson)}</pre>`;
 
         row.innerHTML = `
-            <td>${(allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id}</td>
-            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-            <td>${escapeHtml(record.sample_name || record.sample_id || '-')}</td>
-            <td title="${paramsFullText}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(paramsSummary)}</td>
-            <td>${formatTime(record.created_at)}</td>
-            <td>${duration}</td>
-            <td>${formatDetailCell(record)}</td>
+            <div class="task-summary" onclick="this.parentElement.classList.toggle('expanded')">
+                <div class="col-indicator"><div class="task-status-dot ${dotClass}"></div></div>
+                <div class="col-status val-status">${statusText}</div>
+                <div class="col-tool val-tool" title="${toolName}">${toolName}</div>
+                <div class="col-sample val-sample" title="${sampleName}">${sampleName}</div>
+                <div class="col-params val-params">${escapeHtml(paramsSummary)}</div>
+                <div class="col-time val-time">${formatTime(record.created_at)}</div>
+                <div class="col-duration val-duration">${duration}</div>
+                <div class="col-actions">
+                    <div class="task-actions" onclick="event.stopPropagation()">
+                        <!-- 动态插入按钮 -->
+                    </div>
+                </div>
+            </div>
+            <div class="task-details">
+                ${detailsHtml}
+            </div>
         `;
 
-        // 已完成的 primer_design 行支持点击查看结果
-        const detailLink = row.querySelector('.detail-link');
-        if (detailLink && record.tool_id === 'primer_design') {
-            detailLink.addEventListener('click', function(e) {
+        const actionsContainer = row.querySelector('.task-actions');
+
+        // 按钮逻辑 (与旧版对齐)
+        // 1. 对于 primer_design 已完成任务，显示查看结果
+        if (record.status === 'completed' && record.tool_id === 'primer_design') {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'task-action-btn btn-view';
+            viewBtn.textContent = '查看结果';
+            viewBtn.onclick = function(e) {
                 e.preventDefault();
                 loadPrimerResultsFromHistory(record.execution_id);
-            });
+            };
+            actionsContainer.appendChild(viewBtn);
+        } else if (record.status === 'running') {
+            const runningTxt = document.createElement('span');
+            runningTxt.style.color = '#3b82f6';
+            runningTxt.style.fontSize = '12px';
+            runningTxt.style.padding = '4px 8px';
+            runningTxt.textContent = '运行中...';
+            actionsContainer.appendChild(runningTxt);
         }
 
+        // 2. 完成或失败可删除
         if (record.status === 'completed' || record.status === 'failed') {
-            const actionCell = row.lastElementChild;
-            if (actionCell) {
-                if (actionCell.innerHTML && actionCell.innerHTML !== '-') {
-                    actionCell.insertAdjacentHTML('beforeend', ' <span style="color:#cbd5e1; margin:0 6px;">|</span> ');
-                }
-                actionCell.insertAdjacentHTML(
-                    'beforeend',
-                    `<a href="#" class="delete-link" data-exec-id="${record.execution_id}">删除</a>`
-                );
-            }
-        }
-
-        const deleteLink = row.querySelector('.delete-link');
-        if (deleteLink) {
-            deleteLink.addEventListener('click', function(e) {
+            const delBtn = document.createElement('button');
+            delBtn.className = 'task-action-btn btn-delete';
+            delBtn.textContent = '删除';
+            delBtn.onclick = function(e) {
                 e.preventDefault();
                 deleteHistoryExecution(record.execution_id);
-            });
+            };
+            actionsContainer.appendChild(delBtn);
+            
+            // 补充更多菜单图标模拟 1.py
+            const moreBtn = document.createElement('button');
+            moreBtn.className = 'task-action-btn';
+            moreBtn.textContent = '•••';
+            actionsContainer.appendChild(moreBtn);
         }
 
-        tbody.appendChild(row);
+        container.appendChild(row);
     });
 }
 
