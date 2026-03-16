@@ -6,7 +6,6 @@
 # 页面导入 (从 ui.pages 导出的页面)
 from ui.pages import (
     HomePage,
-    AssemblyPage,
     DetectionPageWeb,
     SettingsPage,
 )
@@ -16,7 +15,6 @@ from ui.pages import (
 __all__ = [
     # Pages
     "HomePage",
-    "AssemblyPage",
     "DetectionPageWeb",
     "SettingsPage",
 ]
