@@ -46,3 +46,39 @@ def sanitize_terminal_line(text: str) -> str:
     if not text.strip():
         return ""
     return text
+
+
+# spinner 行正则（从 env_installer 提取）
+_SPINNER_RE = re.compile(r"^[\s\-\\|/.:]+$")
+_SPINNER_TAIL_RE = re.compile(r"^.+:\s*[\\|/\-]\s*$")
+
+
+def sanitize_log(text: str) -> str:
+    """清理日志输出：去 ANSI 转义码，处理 \\r 覆写，过滤 spinner 行。
+
+    从 env_installer._sanitize_log 提取为公共函数，供 LogPage 等复用。
+    """
+    text = ANSI_RE.sub("", text)
+    lines = []
+    seen: set[str] = set()
+    for line in text.split("\n"):
+        if "\r" in line:
+            parts = line.split("\r")
+            for p in reversed(parts):
+                if p.strip():
+                    line = p
+                    break
+            else:
+                continue
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _SPINNER_RE.match(stripped):
+            continue
+        if _SPINNER_TAIL_RE.match(stripped):
+            continue
+        if stripped in seen:
+            continue
+        seen.add(stripped)
+        lines.append(line)
+    return "\n".join(lines)

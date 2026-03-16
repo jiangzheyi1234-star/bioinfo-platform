@@ -6,9 +6,9 @@
 """
 
 import logging
-import re
 import uuid
 
+from core.utils import sanitize_log
 from core.environment.env_detector import (
     SshRunFn,
     pin_create_env_to_conda_root,
@@ -19,13 +19,6 @@ logger = logging.getLogger(__name__)
 
 INSTALL_BASE = "~/.h2ometa/env_installs"
 
-# ANSI 转义码正则（与 linux_settings_card._ANSI_RE 一致）
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07")
-
-# conda spinner 行正则（防御层，正常情况下 TERM=dumb 已消除 spinner）
-# 匹配：纯 spinner 字符行，或以 spinner 字符结尾的 "状态描述: X" 行
-_SPINNER_RE = re.compile(r"^[\s\-\\|/.:]+$")
-_SPINNER_TAIL_RE = re.compile(r"^.+:\s*[\\|/\-]\s*$")
 
 # 包装脚本模板（比 command_builder._WRAPPER_TEMPLATE 更简单，不需要 JOB_ID 变量）
 #
@@ -192,7 +185,7 @@ class EnvInstaller:
                 timeout,
             )
             if rc == 0:
-                return _sanitize_log(stdout)
+                return sanitize_log(stdout)
         except Exception as e:
             logger.debug("读取 task.log 失败: %s", e)
         return ""
@@ -250,36 +243,3 @@ class EnvInstaller:
             logger.debug("扫描安装状态失败: %s", e)
 
         return results
-
-
-def _sanitize_log(text: str) -> str:
-    """清理日志输出：去 ANSI 转义码，处理 \\r 覆写，过滤 spinner 行。"""
-    text = _ANSI_RE.sub("", text)
-    lines = []
-    seen = set()  # 去重（spinner 重复行）
-    # 用 \n 分割（不用 splitlines，因为它会把 \r 也当分隔符）
-    for line in text.split("\n"):
-        # \r 覆写：保留最后一个 \r 后的内容
-        if "\r" in line:
-            parts = line.split("\r")
-            for p in reversed(parts):
-                if p.strip():
-                    line = p
-                    break
-            else:
-                continue
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # 过滤纯 spinner 字符行：  "- " "\ " "| " "/ "
-        if _SPINNER_RE.match(stripped):
-            continue
-        # 过滤 "Collecting package metadata (repodata.json): \" 之类的 spinner 尾行
-        if _SPINNER_TAIL_RE.match(stripped):
-            continue
-        # 去重：相同内容只保留一次（连续 spinner 残留）
-        if stripped in seen:
-            continue
-        seen.add(stripped)
-        lines.append(line)
-    return "\n".join(lines)

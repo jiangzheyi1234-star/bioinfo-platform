@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
+from datetime import datetime
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, QSize, Qt, QThread, QTimer, pyqtSignal
@@ -261,6 +263,40 @@ class LogPage(BasePage):
         self._current_project_id = project_id
         if self._project_filter:
             self._rebuild_list()
+
+    def load_history(self, db: sqlite3.Connection, project_id: str) -> None:
+        """从项目 DB 加载最近 50 条执行记录作为历史日志。"""
+        try:
+            rows = db.execute(
+                "SELECT execution_id, tool_id, status, created_at, completed_at, error "
+                "FROM executions ORDER BY created_at DESC LIMIT 50"
+            ).fetchall()
+        except Exception:
+            logger.debug("加载执行历史失败", exc_info=True)
+            return
+        if not rows:
+            return
+        _STATUS_MAP = {
+            "completed": ("SUCCESS", "完成"),
+            "failed": ("ERROR", "失败"),
+            "running": ("WARNING", "运行中"),
+            "pending": ("INFO", "等待中"),
+            "retrying": ("WARNING", "重试中"),
+        }
+        for row in reversed(rows):
+            eid = row[0]
+            tool = row[1]
+            status = row[2]
+            created = row[3]
+            error = row[4] if len(row) > 5 else ""
+            ts = datetime.fromtimestamp(created).strftime("%m-%d %H:%M:%S") if created else "??:??:??"
+            level, label = _STATUS_MAP.get(status, ("INFO", status))
+            msg = f"[历史] {tool} — {label}"
+            if status == "failed" and error:
+                msg += f": {error[:80]}"
+            entry = _LogEntry(ts, level, msg, eid, project_id)
+            self._entries.append(entry)
+        self._rebuild_list()
 
     def append_log(self, level: str, message: str, execution_id: str = "",
                    project_id: str = "") -> None:
