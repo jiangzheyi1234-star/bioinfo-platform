@@ -61,8 +61,8 @@ def default_settings_schema() -> dict[str, Any]:
             "kraken2": "",
             "checkm2": "",
             "gtdbtk": "",
-            "blast_nt": "",
-            "centrifuge": "",
+            "blast_nt": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",
+            "centrifuge": "/home/zyserver/project/lcy_project/my_database/hpvc",
         },
         "blast": {
             "db_path": "",
@@ -180,8 +180,15 @@ def get_blast_setting(key: str, default: Any = None) -> Any:
 def get_database_path(key: str, default: str = "") -> str:
     config = get_config()
     databases = config.get("databases", {})
+    if key == "centrifuge":
+        fallback = "/home/zyserver/project/lcy_project/my_database/hpvc"
+        return str(databases.get(key) or fallback)
     if key == "blast_nt":
-        fallback = str(config.get("blast", {}).get("db_path", default) or default)
+        fallback = str(
+            config.get("blast", {}).get("db_path", "")
+            or "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
+            or default
+        )
         return str(databases.get(key) or fallback)
     return str(databases.get(key) or default)
 
@@ -233,4 +240,3 @@ DEFAULT_CONFIG = {
 }
 
 sync_default_from_schema(get_config())
-
