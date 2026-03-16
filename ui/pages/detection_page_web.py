@@ -138,6 +138,69 @@ class ToolBridge(QObject):
             return json.dumps({"path": dialog.selected_path(), "error": ""})
         return json.dumps({"path": "", "error": ""})
 
+    @pyqtSlot(result=str)
+    def browse_directory(self) -> str:
+        from PyQt6.QtWidgets import QFileDialog
+
+        parent = self.main_window if self.main_window else None
+        directory = QFileDialog.getExistingDirectory(parent, "选择文件夹")
+        return json.dumps({"path": directory or "", "error": ""}, ensure_ascii=False)
+
+    @pyqtSlot(str, result=str)
+    def scan_local_database_resources(self, directory: str) -> str:
+        root = Path(str(directory or "").strip())
+        if not root.exists() or not root.is_dir():
+            return json.dumps({"status": "error", "message": "文件夹不存在"}, ensure_ascii=False)
+
+        fasta_suffixes = {".fasta", ".fa", ".fna", ".fas"}
+        blast_suffixes = {".nin", ".nsq", ".nhr", ".ndb", ".njs", ".not", ".ntf", ".nto"}
+        resources = []
+
+        try:
+            for item in sorted(root.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+                if item.name.startswith("."):
+                    continue
+
+                if item.is_dir():
+                    child_files = [p for p in item.iterdir() if p.is_file()]
+                    fasta_count = sum(1 for p in child_files if p.suffix.lower() in fasta_suffixes)
+                    blast_count = sum(1 for p in child_files if p.suffix.lower() in blast_suffixes)
+                    if fasta_count == 0 and blast_count == 0 and not child_files:
+                        continue
+                    resources.append(
+                        {
+                            "name": item.name,
+                            "path": str(item),
+                            "type": "directory",
+                            "description": f"目录，包含 {len(child_files)} 个文件",
+                            "stats": {
+                                "fasta_count": fasta_count,
+                                "blast_index_count": blast_count,
+                            },
+                        }
+                    )
+                    continue
+
+                suffix = item.suffix.lower()
+                if suffix not in fasta_suffixes and suffix not in blast_suffixes:
+                    continue
+                resources.append(
+                    {
+                        "name": item.name,
+                        "path": str(item),
+                        "type": "file",
+                        "description": "FASTA 文件" if suffix in fasta_suffixes else "BLAST 索引文件",
+                        "stats": {
+                            "size_bytes": item.stat().st_size,
+                        },
+                    }
+                )
+        except Exception as exc:
+            logger.exception("Failed to scan local database directory: %s", directory)
+            return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
+
+        return json.dumps({"status": "ok", "directory": str(root), "resources": resources}, ensure_ascii=False)
+
     @pyqtSlot(str, str)
     def run_tool(self, tool_id: str, params_json: str):
         try:
@@ -196,6 +259,7 @@ class ToolBridge(QObject):
     def get_multiplex_results_for_execution(self, execution_id: str) -> str:
         result = self._service.get_multiplex_results_for_execution(execution_id)
         return json.dumps(result, ensure_ascii=False)
+
 
 
 class DetectionPageWeb(QFrame):
