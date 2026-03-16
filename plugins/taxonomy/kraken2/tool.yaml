@@ -26,6 +26,11 @@ outputs:
     type: k2output
     tier: intermediate
     pattern: "{output_dir}/{sample_id}.k2output"
+  - name: unclassified_reads
+    type: fastq
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}_unclassified.fastq"
+    description: "未分类 reads（可用于后续组装+BLAST 补充鉴定）"
 
 parameters:
   - name: confidence
@@ -54,6 +59,7 @@ command_template: |
     --minimum-hit-groups {{ minimum_hit_groups }} \
     --report {{ output_dir }}/{{ sample_id }}.kreport \
     --output {{ output_dir }}/{{ sample_id }}.k2output \
+    --unclassified-out {{ output_dir }}/{{ sample_id }}_unclassified.fastq \
     {{ input_reads }}
 
 databases:

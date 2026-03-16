@@ -62,6 +62,7 @@ def default_settings_schema() -> dict[str, Any]:
             "checkm2": "",
             "gtdbtk": "",
             "blast_nt": "",
+            "centrifuge": "",
         },
         "blast": {
             "db_path": "",

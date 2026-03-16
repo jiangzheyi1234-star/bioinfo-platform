@@ -1162,6 +1162,40 @@ header {
     gap: 4px;
 }
 
+/* PDF 报告醒目按钮 */
+.pdf-report-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+.pdf-report-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35);
+}
+
+.pdf-report-btn:active {
+    transform: translateY(0);
+}
+
+.pdf-report-btn .pdf-icon {
+    font-size: 20px;
+}
+
+.pdf-report-btn .pdf-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.3px;
+}
+
 .artifact-list li.artifact-item.available {
     cursor: pointer;
     transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;

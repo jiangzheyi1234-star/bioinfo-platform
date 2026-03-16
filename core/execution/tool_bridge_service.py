@@ -1772,9 +1772,15 @@ class ToolBridgeService:
             {"label": "Top 物种", "value": summary_data["top_species"], "tone": "accent"},
         ]
 
-        # 生成报告
+        # 生成报告（TXT + PDF）
         report_path = self._generate_targeted_seq_report(
             summary_data, chart_data.get("data", []), results_dir
+        )
+
+        # 尝试生成 PDF 报告（合并 BLAST 结果如果有的话）
+        pdf_path = self._generate_detection_pdf(
+            summary_data, chart_data.get("data", []),
+            results_dir, remote_dir, sample_id, normalized_id,
         )
 
         # 构建 artifacts
@@ -1792,6 +1798,14 @@ class ToolBridgeService:
                 "remote_path": "",
                 "local_path": str(report_path),
                 "available": True,
+            })
+        if pdf_path and pdf_path.exists():
+            artifacts.append({
+                "name": "病原体检测报告.pdf",
+                "remote_path": "",
+                "local_path": str(pdf_path),
+                "available": True,
+                "is_pdf_report": True,
             })
 
         return {
@@ -1858,4 +1872,97 @@ class ToolBridgeService:
         except Exception:
             logger.exception("生成靶向测序报告失败: %s", report_path)
             return None
+
+    def _generate_detection_pdf(
+        self,
+        summary: dict,
+        kreport_species: list[dict],
+        output_dir: Path,
+        remote_dir: str,
+        sample_id: str,
+        execution_id: str,
+    ) -> Path | None:
+        """生成病原体检测 PDF 报告，尝试合并 BLAST 结果。"""
+        from core.pipeline.detection_merger import DetectionMerger
+        from core.pipeline.report_generator import ReportGenerator
+
+        # 尝试查找同样品的 BLAST 结果
+        blast_species = self._try_load_blast_results(sample_id, execution_id)
+
+        # 合并
+        merged = DetectionMerger.merge(kreport_species, blast_species)
+        if not merged:
+            return None
+
+        # 获取项目/样品名
+        pm = self._get_project_manager()
+        project_name = ""
+        sample_name = sample_id
+        if pm and pm.current_project:
+            project_name = pm.current_project.name or ""
+            try:
+                row = pm.db.execute(
+                    "SELECT name FROM samples WHERE sample_id = ? LIMIT 1",
+                    (sample_id,),
+                ).fetchone()
+                if row:
+                    sample_name = row["name"] or sample_id
+            except Exception:
+                pass
+
+        pdf_path = output_dir / "detection_report.pdf"
+        return ReportGenerator.generate_detection_report(
+            species_list=merged,
+            summary=summary,
+            output_path=str(pdf_path),
+            project_name=project_name,
+            sample_name=sample_name,
+        )
+
+    def _try_load_blast_results(
+        self, sample_id: str, current_exec_id: str,
+    ) -> list[dict] | None:
+        """查找同样品最新的 blastn 执行结果，解析并返回。"""
+        from core.pipeline.blast_result_parser import BlastResultParser
+
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+
+        try:
+            row = pm.db.execute(
+                "SELECT execution_id FROM executions "
+                "WHERE sample_id = ? AND tool_id = 'blastn' AND status = 'completed' "
+                "ORDER BY rowid DESC LIMIT 1",
+                (sample_id,),
+            ).fetchone()
+        except Exception:
+            return None
+
+        if not row:
+            return None
+
+        blast_exec_id = row["execution_id"]
+        results_dir = self._execution_results_dir(blast_exec_id)
+        if results_dir is None:
+            return None
+
+        # 查找 blast 结果 TSV
+        blast_tsv = results_dir / f"{sample_id}_blast.tsv"
+        if not blast_tsv.exists():
+            # 尝试从远程下载
+            remote_base = pm.current_project.remote_base
+            remote_blast = f"{remote_base}/intermediate/{sample_id}/blastn_{blast_exec_id}/{sample_id}_blast.tsv"
+            ssh = self._get_ssh_service()
+            if ssh and getattr(ssh, "is_connected", False):
+                try:
+                    results_dir.mkdir(parents=True, exist_ok=True)
+                    ssh.download(remote_blast, str(blast_tsv))
+                except Exception:
+                    pass
+
+        if not blast_tsv.exists():
+            return None
+
+        return BlastResultParser.parse(str(blast_tsv))
 

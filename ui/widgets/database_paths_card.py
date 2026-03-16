@@ -23,17 +23,18 @@ from ui.widgets.styles import (
 
 # (config_key, 显示名称, 默认占位路径)
 _DB_FIELDS: list[tuple[str, str, str]] = [
-    ("kraken2",  "Kraken2 标准库",  "/h2ometa/databases/kraken2_standard"),
-    ("checkm2",  "CheckM2 数据库",  "/h2ometa/databases/checkm2"),
-    ("gtdbtk",   "GTDB-Tk r220",   "/h2ometa/databases/gtdbtk/release220"),
-    ("blast_nt", "BLAST NT 库",     "/h2ometa/databases/blast_nt"),
+    ("kraken2",     "Kraken2 标准库",       "/h2ometa/databases/kraken2_standard"),
+    ("centrifuge",  "Centrifuge HPVC 库",   "/home/zyserver/project/lcy_project/my_database/hpvc"),
+    ("checkm2",    "CheckM2 数据库",        "/h2ometa/databases/checkm2"),
+    ("gtdbtk",     "GTDB-Tk r220",         "/h2ometa/databases/gtdbtk/release220"),
+    ("blast_nt",   "BLAST NT 库",           "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"),
 ]
 
 
 class DatabasePathsCard(QFrame):
     """参考数据库路径管理卡片。
 
-    四条路径（kraken2 / checkm2 / gtdbtk / blast_nt），
+    五条路径（kraken2 / centrifuge / checkm2 / gtdbtk / blast_nt），
     默认只读，点击「修改」后可编辑，点击「保存」发出 request_save 信号。
     """
 
