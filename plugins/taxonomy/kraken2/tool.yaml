@@ -60,7 +60,9 @@ databases:
   - id: kraken2_standard
     param_name: db
     required: true
+    label: "Kraken2 标准数据库"
     description: "Kraken2 标准数据库（含细菌/古菌/病毒/人类）"
+    default: "/home/zyserver/project_ssd/common_data/kraken2_standard"
 
 methods_template: >
   Taxonomic classification was performed using Kraken2 v{version}

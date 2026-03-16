@@ -460,11 +460,12 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-run-btn"' in html
         assert 'id="integrated-input-list"' in html
         assert 'id="integrated-table-body"' in html
-        assert 'id="remote-primer-dir"' in html
         assert "get_primer_results_for_execution" in js
         assert "loadPrimerResultsFromHistory" in js
         assert "get_multiplex_results_for_execution" in js
         assert "loadMultiplexResultsFromHistory" in js
+        assert "get_targeted_seq_results_for_execution" in js
+        assert "loadTargetedSeqResultsFromHistory" in js
         assert "需要输入文件" in js
 
 
