@@ -836,6 +836,22 @@ function renderArtifactList(artifacts) {
     }
 
     container.innerHTML = '';
+
+    // PDF 报告醒目按钮（置顶）
+    const pdfArtifact = artifacts.find(a => a && a.is_pdf_report && a.available && a.local_path);
+    if (pdfArtifact) {
+        const btn = document.createElement('div');
+        btn.className = 'pdf-report-btn';
+        btn.innerHTML = `
+            <span class="pdf-icon">📄</span>
+            <span class="pdf-label">导出 PDF 检测报告</span>
+        `;
+        btn.addEventListener('click', function() {
+            openLocalArtifact(pdfArtifact.local_path);
+        });
+        container.appendChild(btn);
+    }
+
     artifacts.forEach(item => {
         const li = document.createElement('li');
         if (typeof item === 'string') {
@@ -1778,7 +1794,7 @@ function renderHistory(history) {
                 loadMultiplexResultsFromHistory(record.execution_id);
             };
             actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'completed' && record.tool_id === 'kraken2') {
+        } else if (record.status === 'completed' && (record.tool_id === 'centrifuge' || record.tool_id === 'kraken2')) {
             const viewBtn = document.createElement('button');
             viewBtn.className = 'task-action-btn btn-view';
             viewBtn.textContent = '查看结果';

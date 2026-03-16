@@ -7,7 +7,7 @@ databases:
   kraken2_standard:
     name: "Kraken2 Standard Database"
     description: "标准数据库，含细菌/古菌/病毒/人类参考序列"
-    install_path: "/h2ometa/databases/kraken2_standard"
+    install_path: "/home/zyserver/project_ssd/common_data/kraken2_standard"
     size_mb: 50000
     tools: ["kraken2"]
     mirrors:
@@ -37,7 +37,7 @@ databases:
   blast_nt:
     name: "NCBI nt 核苷酸数据库"
     description: "NCBI 全部核苷酸序列数据库"
-    install_path: "/h2ometa/databases/blast_nt"
+    install_path: "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
     size_mb: 350000
     tools: ["blastn"]
     mirrors:
@@ -59,6 +59,17 @@ databases:
     integrity_check:
       status_file: ".install_ok"
       key_files: ["core_nt.nal"]
+
+  centrifuge_hpvc:
+    name: "Centrifuge HPVC 病原体数据库"
+    description: "Human Pathogen & Virus Centrifuge 数据库"
+    install_path: "/home/zyserver/project/lcy_project/my_database/hpvc"
+    size_mb: 5000
+    tools: ["centrifuge"]
+    builtin: true
+    integrity_check:
+      status_file: null
+      key_files: ["hpvc.1.cf", "hpvc.2.cf", "hpvc.3.cf"]
 
   # ── 组装/Binning 数据库 ─────────────────────────────────
 
