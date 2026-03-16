@@ -159,15 +159,29 @@ class TestDetectionIntegratedWorkbench:
         from core.execution.tool_bridge_service import ToolBridgeService
 
         rows = ToolBridgeService.parse_multiplex_result_text(
-            "pathogen\tregion_id\tforward_primer\treverse_primer\ttm_f\ttm_r\tgc_f\tgc_r\tamplicon_length\tpool_score\n"
-            "Virus_A\tregion_1\tAAA\tTTT\t58.1\t58.3\t45\t47\t150\tpass\n"
-            "Virus_B\tregion_2\tCCC\tGGG\t59.0\t59.2\t50\t51\t172\tpass\n"
+            "pathogen\tregion_id\tforward_primer\treverse_primer\tTm_F\tTm_R\tGC_F\tGC_R\tamplicon_length\ttarget_sequence\tconservation_score\tspecificity_score\tamplicon_seq\tpool_id\tpool_dimer_score\n"
+            "Virus_A\tregion_1\tAAA\tTTT\t58.1\t58.3\t45\t47\t150\tATGC\t8\t0.950\tATGC\tpool_1\t0\n"
+            "Virus_B\tregion_2\tCCC\tGGG\t59.0\t59.2\t50\t51\t172\tCGTA\t9\t-1\tCGTA\tpool_1\t2\n"
         )
 
         assert len(rows) == 2
         assert rows[0]["tm_f"] == "58.1"
         assert rows[0]["amplicon_length"] == "150"
-        assert rows[1]["pool_score"] == "pass"
+        assert rows[0]["target_sequence"] == "ATGC"
+        assert rows[1]["specificity_score"] == "-1"
+        assert rows[1]["pool_dimer_score"] == "2"
+
+    def test_tool_bridge_parses_legacy_multiplex_result_text(self):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        rows = ToolBridgeService.parse_multiplex_result_text(
+            "pathogen\tregion_id\tforward_primer\treverse_primer\ttm_f\ttm_r\tgc_f\tgc_r\tamplicon_length\tpool_score\n"
+            "Virus_A\tregion_1\tAAA\tTTT\t58.1\t58.3\t45\t47\t150\tpass\n"
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["pool_dimer_score"] == "pass"
+        assert rows[0]["target_sequence"] == ""
 
     def test_tool_bridge_merges_live_primer_results(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService

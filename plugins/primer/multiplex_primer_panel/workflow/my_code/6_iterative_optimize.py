@@ -132,9 +132,21 @@ def main() -> None:
         log_lines.append(f"iteration\t{args.max_iterations}\tlimit\t{len(current)}\treached max iterations")
 
     current = [grouped[pathogen][selected_index[pathogen]] for pathogen in sorted(grouped)]
+    penalties, _ = score_pool(
+        current,
+        args.max_cross_dimer_score,
+        args.max_cross_dimer_dg,
+        args.min_amplicon_diff,
+        args.max_tm_deviation,
+    )
+    for row in current:
+        row["pool_penalty"] = str(penalties.get(row["pathogen"], 0))
 
     with Path(args.output).open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(candidates[0].keys()), delimiter="\t")
+        fieldnames = list(candidates[0].keys())
+        if "pool_penalty" not in fieldnames:
+            fieldnames.append("pool_penalty")
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
         writer.writerows(current)
 

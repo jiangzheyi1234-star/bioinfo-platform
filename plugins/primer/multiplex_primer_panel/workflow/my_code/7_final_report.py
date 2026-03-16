@@ -20,12 +20,17 @@ def main() -> None:
         "region_id",
         "forward_primer",
         "reverse_primer",
-        "tm_f",
-        "tm_r",
-        "gc_f",
-        "gc_r",
+        "Tm_F",
+        "Tm_R",
+        "GC_F",
+        "GC_R",
         "amplicon_length",
-        "pool_score",
+        "target_sequence",
+        "conservation_score",
+        "specificity_score",
+        "amplicon_seq",
+        "pool_id",
+        "pool_dimer_score",
     ]
     order_header = ["primer_name", "sequence", "scale", "purification", "Tm", "notes"]
 
@@ -44,7 +49,12 @@ def main() -> None:
                     row.get("gc_f", ""),
                     row.get("gc_r", ""),
                     row.get("amplicon_length", ""),
-                    "pass",
+                    row.get("target_sequence", ""),
+                    row.get("conservation_score", ""),
+                    row.get("specificity_score", ""),
+                    row.get("amplicon_seq", ""),
+                    "pool_1",
+                    row.get("pool_penalty", "0"),
                 ]
             )
 
