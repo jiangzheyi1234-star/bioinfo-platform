@@ -1,8 +1,8 @@
 id: primer_design
-name: Primer Design
+name: Pathogen Primer Design
 version: "0.1.0"
 category: primer
-description: "多病原体引物设计工具：上传基因组压缩包或单个 FASTA/FNA 文件，在 Linux 端执行 primer_design 流程。"
+description: "病原体引物设计：上传病原体基因组，自动筛选保守特异靶点并设计引物对。"
 conda_env: PCR
 
 detection:

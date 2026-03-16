@@ -684,9 +684,13 @@ function renderParameterList(parameters) {
     parameters.forEach(param => {
         const row = document.createElement('div');
         row.className = 'parameter-row';
+        const description = String(param.description || '').trim();
         row.innerHTML = `
-            <span class="parameter-label">${escapeHtml(param.label || '')}</span>
-            <span class="parameter-value">${escapeHtml(param.value || '')}</span>
+            <div class="parameter-main">
+                <span class="parameter-label">${escapeHtml(param.label || '')}</span>
+                ${description ? `<div class="parameter-desc">${escapeHtml(description)}</div>` : ''}
+            </div>
+            <span class="parameter-value">${escapeHtml(String(param.value ?? ''))}</span>
         `;
         container.appendChild(row);
     });

@@ -945,6 +945,21 @@ header {
     font-size: 12px;
 }
 
+.parameter-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.parameter-desc {
+    color: #8b949e;
+    font-size: 11px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
 .parameter-value {
     color: #24292f;
     font-size: 12px;
@@ -1874,4 +1889,3 @@ header {
     font-size: 11px;
     color: #666666;
 }
-
