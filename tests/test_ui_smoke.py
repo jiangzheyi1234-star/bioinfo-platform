@@ -350,6 +350,25 @@ class TestDetectionIntegratedWorkbench:
         assert payload["status"] == "ok"
         assert payload["view"]["remote_result_dir"] == "/remote/exec_abc123"
 
+    def test_tool_bridge_returns_multiplex_results_for_execution(self, monkeypatch):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        service = ToolBridgeService()
+        monkeypatch.setattr(
+            service,
+            "get_multiplex_view_for_execution",
+            lambda execution_id: {
+                "title": "history multiplex",
+                "rows": [{"pathogen": "Virus_M"}],
+                "remote_result_dir": f"/remote/{execution_id}",
+            },
+        )
+
+        payload = service.get_multiplex_results_for_execution("exec_mux123")
+
+        assert payload["status"] == "ok"
+        assert payload["view"]["remote_result_dir"] == "/remote/exec_mux123"
+
     def test_tool_bridge_normalizes_legacy_project_remote_base(self):
         from core.execution.tool_bridge_service import ToolBridgeService
 
@@ -399,6 +418,8 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="remote-primer-dir"' in html
         assert "get_primer_results_for_execution" in js
         assert "loadPrimerResultsFromHistory" in js
+        assert "get_multiplex_results_for_execution" in js
+        assert "loadMultiplexResultsFromHistory" in js
         assert "需要输入文件" in js
 
 

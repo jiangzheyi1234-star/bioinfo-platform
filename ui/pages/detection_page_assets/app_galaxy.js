@@ -1182,6 +1182,42 @@ function loadPrimerResultsFromHistory(executionId) {
     });
 }
 
+function loadMultiplexResultsFromHistory(executionId) {
+    if (!executionId) {
+        return;
+    }
+    if (!bridge || !bridge.get_multiplex_results_for_execution) {
+        showNotice('Multiplex 结果加载接口不可用');
+        return;
+    }
+
+    showNotice('正在加载 multiplex 结果...', 'warning', 10000);
+    bridge.get_multiplex_results_for_execution(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok' || !payload.view) {
+                showNotice(payload.message || 'Multiplex 结果读取失败');
+                return;
+            }
+
+            if (!integratedWorkbench) {
+                integratedWorkbench = { views: {} };
+            }
+            if (!integratedWorkbench.views) {
+                integratedWorkbench.views = {};
+            }
+
+            integratedWorkbench.views.multiplex_primer_panel = payload.view;
+            switchTab('integrated');
+            selectIntegratedFeature('multiplex_primer_panel');
+            showNotice('已加载该次 multiplex 结果', 'success');
+        } catch (e) {
+            console.error('Failed to parse execution multiplex results:', e);
+            showNotice('Multiplex 结果解析失败');
+        }
+    });
+}
+
 function deleteHistoryExecution(executionId) {
     if (!executionId) {
         return;
@@ -1289,8 +1325,10 @@ function renderHistory(history) {
 
         row.innerHTML = `
             <div class="task-summary" onclick="this.parentElement.classList.toggle('expanded')">
-                <div class="col-indicator"><div class="task-status-dot ${dotClass}"></div></div>
-                <div class="col-status val-status">${statusText}</div>
+                <div class="col-status-wrap task-status-combo">
+                    <div class="task-status-dot ${dotClass}"></div>
+                    <div class="val-status">${statusText}</div>
+                </div>
                 <div class="col-tool val-tool" title="${toolName}">${toolName}</div>
                 <div class="col-sample val-sample" title="${sampleName}">${sampleName}</div>
                 <div class="col-params val-params">${escapeHtml(paramsSummary)}</div>
@@ -1318,6 +1356,15 @@ function renderHistory(history) {
             viewBtn.onclick = function(e) {
                 e.preventDefault();
                 loadPrimerResultsFromHistory(record.execution_id);
+            };
+            actionsContainer.appendChild(viewBtn);
+        } else if (record.status === 'completed' && record.tool_id === 'multiplex_primer_panel') {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'task-action-btn btn-view';
+            viewBtn.textContent = '查看结果';
+            viewBtn.onclick = function(e) {
+                e.preventDefault();
+                loadMultiplexResultsFromHistory(record.execution_id);
             };
             actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'running') {
