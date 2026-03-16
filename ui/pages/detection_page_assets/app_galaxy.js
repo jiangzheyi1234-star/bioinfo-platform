@@ -513,12 +513,10 @@ function renderIntegratedFeature(feature, view) {
     initializeIntegratedSectionToggles();
     setSectionCollapsed('integrated-run-body', true);
     setSectionCollapsed('remote-loader-body', Boolean(view.remote_result_dir));
-    setSectionCollapsed('parameter-list-wrap', true);
     setSectionCollapsed('artifact-list-wrap', true);
 
     renderIntegratedRunEntry(feature, view);
     renderSummaryGrid(view.summary || []);
-    renderParameterList(view.parameters || []);
     renderArtifactList(view.artifacts || []);
     renderIntegratedTable(view.columns || [], view.rows || []);
 }
@@ -680,28 +678,6 @@ function renderSummaryGrid(summaryItems) {
             <div class="summary-value">${escapeHtml(String(item.value ?? ''))}</div>
         `;
         container.appendChild(card);
-    });
-}
-
-function renderParameterList(parameters) {
-    const container = document.getElementById('parameter-list');
-    if (!container) {
-        return;
-    }
-
-    container.innerHTML = '';
-    parameters.forEach(param => {
-        const row = document.createElement('div');
-        row.className = 'parameter-row';
-        const description = String(param.description || '').trim();
-        row.innerHTML = `
-            <div class="parameter-main">
-                <span class="parameter-label">${escapeHtml(param.label || '')}</span>
-                ${description ? `<div class="parameter-desc">${escapeHtml(description)}</div>` : ''}
-            </div>
-            <span class="parameter-value">${escapeHtml(String(param.value ?? ''))}</span>
-        `;
-        container.appendChild(row);
     });
 }
 
