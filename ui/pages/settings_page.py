@@ -17,7 +17,7 @@ from config import (
     sync_default_from_schema,
 )
 from ui.page_base import BasePage
-from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard, DatabasePathsCard, BlastSettingsCard
+from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard, DatabasePathsCard
 from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP, SCROLL_BAR_ELEGANT
 
 
@@ -79,10 +79,6 @@ class SettingsPage(BasePage):
         self.linux_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.linux_card)
 
-        self.blast_card = BlastSettingsCard(self.get_active_client)
-        self.blast_card.request_save.connect(self.save_config)
-        self.scroll_layout.addWidget(self.blast_card)
-
         self.db_card = DatabasePathsCard()
         self.db_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.db_card)
@@ -108,8 +104,6 @@ class SettingsPage(BasePage):
         self.ssh_card.set_external_lock(locked, reason)
         if hasattr(self.linux_card, "set_external_lock"):
             self.linux_card.set_external_lock(locked)
-        if hasattr(self, "blast_card"):
-            self.blast_card.set_external_lock(locked)
         self.db_card.set_external_lock(locked)
         self.ncbi_card.set_external_lock(locked)
 
@@ -130,6 +124,11 @@ class SettingsPage(BasePage):
         ssh = schema.get("ssh", {})
         linux = schema.get("linux", {})
         databases = schema.get("databases", {})
+        databases = dict(databases) if isinstance(databases, dict) else {}
+        if not str(databases.get("blast_nt", "") or "").strip():
+            databases["blast_nt"] = "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
+        if not str(databases.get("centrifuge", "") or "").strip():
+            databases["centrifuge"] = "/home/zyserver/project/lcy_project/my_database/hpvc"
         blast = schema.get("blast", {})
         ncbi = schema.get("ncbi", {})
 
@@ -150,11 +149,6 @@ class SettingsPage(BasePage):
             conda_executable=str(linux.get("conda_executable", "") or ""),
             auto_installed=bool(linux.get("auto_installed", False)),
         )
-        self.blast_card.set_values(
-            remote_db=str(blast.get("db_path", "") or databases.get("blast_nt", "") or ""),
-            blast_bin=str(blast.get("bin_path", "") or ""),
-            remote_dir=str(blast.get("remote_work_dir", "") or ""),
-        )
         self.db_card.set_values(databases)
         self.ncbi_card.set_values(
             ncbi_api_key=str(ncbi.get("api_key", "") or ""),
@@ -166,7 +160,6 @@ class SettingsPage(BasePage):
 
         ssh_values = self.ssh_card.get_values()
         linux_values = self.linux_card.get_values()
-        blast_values = self.blast_card.get_values()
         db_values = self.db_card.get_values()
         ncbi_values = self.ncbi_card.get_values()
 
@@ -191,9 +184,9 @@ class SettingsPage(BasePage):
             },
             "databases": db_values,
             "blast": {
-                "db_path": str(blast_values.get("remote_db", "") or ""),
-                "bin_path": str(blast_values.get("blast_bin", "") or ""),
-                "remote_work_dir": str(blast_values.get("remote_dir", "") or ""),
+                "db_path": str(current.get("blast", {}).get("db_path", "") or ""),
+                "bin_path": str(current.get("blast", {}).get("bin_path", "") or ""),
+                "remote_work_dir": str(current.get("blast", {}).get("remote_work_dir", "") or ""),
                 "remote_script": str(
                     current.get("blast", default_settings_schema()["blast"]).get("remote_script", "") or ""
                 ),
