@@ -60,22 +60,49 @@ for file in files:
     
     # 去除文件名开头的编号（格式：数字_其他内容 -> 其他内容）
     # 例如：8_Severe_acute_respiratory_syndrome_coronavirus_2 -> Severe_acute_respiratory_syndrome_coronavirus_2
+    original_prefix = None
     if '_' in name_without_ext:
         parts = name_without_ext.split('_', 1)  # 只分割第一个下划线
         # 检查第一部分是否为数字
         if parts[0].isdigit():
+            original_prefix = parts[0]
             name_without_ext = parts[1]  # 去除数字和下划线，保留后面的部分
-    
-    processed_names.append(name_without_ext)
+
+    processed_names.append((name_without_ext, original_prefix, new_name))
+
+# 检测重名并添加前缀后缀区分
+from collections import Counter
+base_names = [item[0] for item in processed_names]
+name_counts = Counter(base_names)
+duplicated_names = {name for name, count in name_counts.items() if count > 1}
+
+if duplicated_names:
+    print(f"\n⚠ 检测到重名病原体: {', '.join(sorted(duplicated_names))}")
+    print("  将保留数字前缀作为后缀以区分")
+
+final_names = []
+for base_name, original_prefix, fasta_filename in processed_names:
+    if base_name in duplicated_names and original_prefix is not None:
+        unique_name = f"{base_name}_{original_prefix}"
+        # 重命名 ref_genome/ 下的文件以匹配新名字
+        old_path = ref_genome_dir / fasta_filename
+        new_fasta = f"{unique_name}.fasta"
+        new_path = ref_genome_dir / new_fasta
+        if old_path.exists() and old_path != new_path:
+            old_path.rename(new_path)
+            print(f"  重名处理: {fasta_filename} -> {new_fasta}")
+        final_names.append(unique_name)
+    else:
+        final_names.append(base_name)
 
 # 将处理后的文件名（不含后缀）写入name.txt文件
 with open(name_txt_file, 'w', encoding='utf-8') as f:
-    for name in processed_names:
+    for name in final_names:
         f.write(name + '\n')
 
-print(f"\n成功处理 {len(processed_names)} 个文件")
+print(f"\n成功处理 {len(final_names)} 个文件")
 print(f"文件名已记录到: {name_txt_file}")
 print("\nname.txt中的文件名列表（不含后缀）:")
-for name in processed_names:
+for name in final_names:
     print(f"  {name}")
 

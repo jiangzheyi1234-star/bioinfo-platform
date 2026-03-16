@@ -5,6 +5,18 @@ import csv
 from pathlib import Path
 
 
+def load_names(path: Path) -> list[str]:
+    """Load unique pathogen names preserving order."""
+    seen: set[str] = set()
+    names: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name = line.strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
@@ -12,8 +24,19 @@ def main() -> None:
     parser.add_argument("--order", required=True)
     args = parser.parse_args()
 
-    with Path(args.input).open("r", encoding="utf-8", newline="") as handle:
+    input_path = Path(args.input)
+
+    with input_path.open("r", encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    # Load name.txt to ensure all pathogens appear in output
+    name_file = input_path.parent / "name.txt"
+    if not name_file.exists():
+        name_file = Path(args.input).resolve().parent / "name.txt"
+    all_pathogens = load_names(name_file) if name_file.exists() else []
+
+    # Track which pathogens have rows in pool
+    covered = {row.get("pathogen", "") for row in rows}
 
     panel_header = [
         "pathogen",
@@ -57,6 +80,15 @@ def main() -> None:
                     row.get("pool_penalty", "0"),
                 ]
             )
+
+        # Append missing pathogens with no_candidate marker
+        missing = [p for p in all_pathogens if p not in covered]
+        for pathogen in missing:
+            writer.writerow(
+                [pathogen, "", "", "", "", "", "", "", "", "", "", "", "", "no_candidate", ""]
+            )
+        if missing:
+            print(f"WARNING: {len(missing)} pathogens had no primer candidates, marked as no_candidate: {', '.join(missing)}")
 
     with Path(args.order).open("w", encoding="utf-8", newline="") as order_handle:
         writer = csv.writer(order_handle, delimiter="\t")

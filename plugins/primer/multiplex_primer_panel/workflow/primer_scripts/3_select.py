@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import csv
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
-MIN_IDENTITY = 100.0
-MIN_LENGTH = 500
 TOP_K = 6
+
+TIERS = [
+    {"identity": 100.0, "length": 500, "specificity": 0.9},
+    {"identity": 99.0,  "length": 300, "specificity": 0.7},
+    {"identity": 0.0,   "length": 200, "specificity": 0.0},
+]
 
 
 @dataclass
 class BlastHit:
     region_id: str
     staxids: tuple[int, ...]
+    pident: float = 100.0
+    length: int = 0
 
 
 @dataclass
@@ -24,6 +30,7 @@ class RegionRecord:
     conservation_score: int
     specificity_score: str
     target_sequence: str
+    tier: int = 1
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -77,17 +84,13 @@ def read_split_sequences(split_file: Path) -> dict[str, str]:
     return records
 
 
-def read_filtered_hits(pathogen: str, project_root: Path) -> list[BlastHit]:
+def read_all_hits(pathogen: str, project_root: Path) -> list[BlastHit]:
+    """Read all BLAST hits without filtering — filtering is done per-tier in score_regions."""
     blast_dir = project_root / "blast"
-    filt_dir = project_root / "blast_filt"
-    filt_dir.mkdir(exist_ok=True)
     blast_file = blast_dir / f"{pathogen}.txt"
-    filt_file = filt_dir / f"{pathogen}.txt"
 
     hits: list[BlastHit] = []
-    out_lines: list[str] = []
     if not blast_file.exists():
-        filt_file.write_text("", encoding="utf-8")
         return hits
 
     for raw in blast_file.read_text(encoding="utf-8").splitlines():
@@ -99,13 +102,42 @@ def read_filtered_hits(pathogen: str, project_root: Path) -> list[BlastHit]:
             length = int(float(parts[3]))
         except ValueError:
             continue
-        if pident != MIN_IDENTITY or length < MIN_LENGTH:
+        hits.append(BlastHit(
+            region_id=parts[0],
+            staxids=parse_staxids(parts[13]),
+            pident=pident,
+            length=length,
+        ))
+
+    return hits
+
+
+def write_filtered_hits(pathogen: str, hits: list[BlastHit], min_identity: float, min_length: int, project_root: Path) -> None:
+    """Write filtered BLAST hits to blast_filt/ for compatibility with downstream steps."""
+    blast_dir = project_root / "blast"
+    filt_dir = project_root / "blast_filt"
+    filt_dir.mkdir(exist_ok=True)
+    blast_file = blast_dir / f"{pathogen}.txt"
+    filt_file = filt_dir / f"{pathogen}.txt"
+
+    if not blast_file.exists():
+        filt_file.write_text("", encoding="utf-8")
+        return
+
+    out_lines: list[str] = []
+    for raw in blast_file.read_text(encoding="utf-8").splitlines():
+        parts = raw.rstrip("\n").split("\t")
+        if len(parts) < 14:
             continue
-        out_lines.append(raw)
-        hits.append(BlastHit(region_id=parts[0], staxids=parse_staxids(parts[13])))
+        try:
+            pident = float(parts[2])
+            length = int(float(parts[3]))
+        except ValueError:
+            continue
+        if pident >= min_identity and length >= min_length:
+            out_lines.append(raw)
 
     filt_file.write_text("\n".join(out_lines) + ("\n" if out_lines else ""), encoding="utf-8")
-    return hits
 
 
 def collect_self_taxids(pathogens: list[str], hits_by_pathogen: dict[str, list[BlastHit]]) -> dict[str, int | None]:
@@ -122,9 +154,16 @@ def score_regions(
     sequences: dict[str, str],
     self_taxid: int | None,
     all_self_taxids: set[int],
+    min_identity: float = 100.0,
+    min_length: int = 500,
+    min_specificity: float = 0.9,
+    tier: int = 1,
 ) -> list[RegionRecord]:
+    # Filter hits by identity and length thresholds
+    filtered = [h for h in hits if h.pident >= min_identity and h.length >= min_length]
+
     grouped: dict[str, list[BlastHit]] = defaultdict(list)
-    for hit in hits:
+    for hit in filtered:
         grouped[hit.region_id].append(hit)
 
     rows: list[RegionRecord] = []
@@ -146,7 +185,7 @@ def score_regions(
             conservation_score = same_taxid_hits
             specificity_value = 1.0 - (non_self_hits / total_hits)
             specificity_score = f"{specificity_value:.3f}"
-            if specificity_value < 0.9 or cross_reactive:
+            if min_specificity > 0 and (specificity_value < min_specificity or cross_reactive):
                 continue
 
         rows.append(
@@ -156,6 +195,7 @@ def score_regions(
                 conservation_score=conservation_score,
                 specificity_score=specificity_score,
                 target_sequence=sequences.get(region_id, ""),
+                tier=tier,
             )
         )
 
@@ -169,6 +209,50 @@ def score_regions(
     return rows[:TOP_K]
 
 
+def fallback_from_genome(pathogen: str, project_root: Path, num_windows: int = 6, window_size: int = 500) -> list[RegionRecord]:
+    """Tier 3 fallback: extract evenly-spaced windows from the reference genome."""
+    ref_file = project_root / "ref_genome" / f"{pathogen}.fasta"
+    if not ref_file.exists():
+        print(f"  WARNING: ref_genome/{pathogen}.fasta not found for Tier 3 fallback")
+        return []
+
+    # Read the full genome sequence (first record)
+    seq_parts: list[str] = []
+    for line in ref_file.read_text(encoding="utf-8").splitlines():
+        if line.startswith(">"):
+            if seq_parts:
+                break  # only use first record
+            continue
+        seq_parts.append(line.strip())
+    full_seq = "".join(seq_parts)
+
+    if len(full_seq) < window_size:
+        return [RegionRecord(
+            pathogen=pathogen,
+            region_id=f"{pathogen}_genome_w1",
+            conservation_score=0,
+            specificity_score="-1",
+            target_sequence=full_seq,
+            tier=3,
+        )]
+
+    rows: list[RegionRecord] = []
+    usable = len(full_seq) - window_size
+    step = max(1, usable // max(1, num_windows - 1))
+    for i in range(num_windows):
+        start = min(i * step, usable)
+        window_seq = full_seq[start:start + window_size]
+        rows.append(RegionRecord(
+            pathogen=pathogen,
+            region_id=f"{pathogen}_genome_w{i+1}",
+            conservation_score=0,
+            specificity_score="-1",
+            target_sequence=window_seq,
+            tier=3,
+        ))
+    return rows
+
+
 def write_conserved_fasta(pathogen: str, rows: list[RegionRecord], output_dir: Path) -> None:
     output_dir.mkdir(exist_ok=True)
     lines: list[str] = []
@@ -180,7 +264,7 @@ def write_conserved_fasta(pathogen: str, rows: list[RegionRecord], output_dir: P
 def write_region_metadata(rows: list[RegionRecord], output_file: Path) -> None:
     with output_file.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["pathogen", "region_id", "conservation_score", "specificity_score", "target_sequence"])
+        writer.writerow(["pathogen", "region_id", "conservation_score", "specificity_score", "target_sequence", "tier"])
         for row in rows:
             writer.writerow(
                 [
@@ -189,14 +273,15 @@ def write_region_metadata(rows: list[RegionRecord], output_file: Path) -> None:
                     row.conservation_score,
                     row.specificity_score,
                     row.target_sequence,
+                    row.tier,
                 ]
             )
 
 
 def main() -> None:
     pathogens = load_pathogens(PROJECT_ROOT / "name.txt")
-    hits_by_pathogen = {pathogen: read_filtered_hits(pathogen, PROJECT_ROOT) for pathogen in pathogens}
-    self_taxids = collect_self_taxids(pathogens, hits_by_pathogen)
+    all_hits_by_pathogen = {pathogen: read_all_hits(pathogen, PROJECT_ROOT) for pathogen in pathogens}
+    self_taxids = collect_self_taxids(pathogens, all_hits_by_pathogen)
     known_self_taxids = {taxid for taxid in self_taxids.values() if taxid is not None}
 
     all_rows: list[RegionRecord] = []
@@ -206,17 +291,55 @@ def main() -> None:
     for pathogen in pathogens:
         split_file = PROJECT_ROOT / "splits" / f"{pathogen}.fasta"
         sequences = read_split_sequences(split_file) if split_file.exists() else {}
-        rows = score_regions(
-            pathogen=pathogen,
-            hits=hits_by_pathogen.get(pathogen, []),
-            sequences=sequences,
-            self_taxid=self_taxids.get(pathogen),
-            all_self_taxids=known_self_taxids,
-        )
+
+        rows: list[RegionRecord] = []
+        used_tier = 0
+
+        for tier_idx, tier_cfg in enumerate(TIERS, start=1):
+            rows = score_regions(
+                pathogen=pathogen,
+                hits=all_hits_by_pathogen.get(pathogen, []),
+                sequences=sequences,
+                self_taxid=self_taxids.get(pathogen),
+                all_self_taxids=known_self_taxids,
+                min_identity=tier_cfg["identity"],
+                min_length=tier_cfg["length"],
+                min_specificity=tier_cfg["specificity"],
+                tier=tier_idx,
+            )
+            if rows:
+                used_tier = tier_idx
+                break
+
+        # Tier 3 ultimate fallback: extract windows from reference genome
+        if not rows:
+            rows = fallback_from_genome(pathogen, PROJECT_ROOT)
+            used_tier = 3
+
+        if used_tier > 1:
+            print(f"  {pathogen}: used Tier {used_tier} fallback ({len(rows)} regions)")
+
+        # Write blast_filt using the tier's thresholds
+        if used_tier in (1, 2):
+            tier_cfg = TIERS[used_tier - 1]
+            write_filtered_hits(pathogen, all_hits_by_pathogen.get(pathogen, []),
+                                tier_cfg["identity"], tier_cfg["length"], PROJECT_ROOT)
+        else:
+            # Tier 3 has no blast filtering
+            filt_dir = PROJECT_ROOT / "blast_filt"
+            filt_dir.mkdir(exist_ok=True)
+            (filt_dir / f"{pathogen}.txt").write_text("", encoding="utf-8")
+
         write_conserved_fasta(pathogen, rows, conserved_dir)
         all_rows.extend(rows)
 
     write_region_metadata(all_rows, PROJECT_ROOT / "region_metadata.tsv")
+
+    # Summary
+    tier_counts = Counter(row.tier for row in all_rows)
+    print(f"\nRegion selection summary: {len(all_rows)} regions for {len(pathogens)} pathogens")
+    for t in sorted(tier_counts):
+        print(f"  Tier {t}: {tier_counts[t]} regions")
 
 
 if __name__ == "__main__":
