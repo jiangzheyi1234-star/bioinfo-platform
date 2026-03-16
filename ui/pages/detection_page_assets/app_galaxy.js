@@ -4,6 +4,7 @@ let selectedToolId = null;
 let selectedDescriptor = null;
 let integratedWorkbench = null;
 let selectedIntegratedFeatureId = null;
+let databaseResources = [];
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
 
@@ -125,6 +126,11 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // 清空按钮
     document.getElementById('clear-btn').addEventListener('click', clearForm);
+
+    const databaseScanBtn = document.getElementById('database-scan-btn');
+    if (databaseScanBtn) {
+        databaseScanBtn.addEventListener('click', scanLocalDatabaseFolder);
+    }
 
     // Python 回调：运行结果
     window._onRunResult = onRunResult;
@@ -255,6 +261,104 @@ function switchTab(tab) {
     if (tab === 'integrated') {
         loadIntegratedWorkbench(true);
     }
+}
+
+function scanLocalDatabaseFolder() {
+    if (!bridge || !bridge.browse_directory || !bridge.scan_local_database_resources) {
+        showNotice('当前版本不支持数据库文件夹扫描', 'warning');
+        return;
+    }
+
+    bridge.browse_directory(function(rawResult) {
+        let payload = null;
+        try {
+            payload = JSON.parse(rawResult);
+        } catch (e) {
+            payload = { path: '' };
+        }
+
+        const dirPath = String(payload?.path || '').trim();
+        if (!dirPath) {
+            return;
+        }
+
+        bridge.scan_local_database_resources(dirPath, function(scanResult) {
+            let scanPayload = null;
+            try {
+                scanPayload = JSON.parse(scanResult);
+            } catch (e) {
+                scanPayload = { status: 'error', message: '扫描结果解析失败' };
+            }
+
+            if (!scanPayload || scanPayload.status !== 'ok') {
+                showNotice(scanPayload?.message || '扫描数据库文件夹失败', 'error');
+                return;
+            }
+
+            databaseResources = Array.isArray(scanPayload.resources) ? scanPayload.resources : [];
+            const currentDir = document.getElementById('database-current-dir');
+            if (currentDir) {
+                currentDir.textContent = `当前目录：${scanPayload.directory || dirPath}`;
+            }
+            renderDatabaseResources(databaseResources);
+            switchTab('database');
+        });
+    });
+}
+
+function renderDatabaseResources(resources) {
+    const grid = document.getElementById('database-grid');
+    const empty = document.getElementById('database-empty-state');
+    if (!grid || !empty) {
+        return;
+    }
+
+    if (!resources.length) {
+        grid.style.display = 'none';
+        grid.innerHTML = '';
+        empty.style.display = 'flex';
+        return;
+    }
+
+    empty.style.display = 'none';
+    grid.style.display = 'grid';
+    grid.innerHTML = resources.map(function(item, index) {
+        const stats = item.stats || {};
+        const summary = item.type === 'directory'
+            ? `FASTA ${stats.fasta_count || 0} · BLAST 索引 ${stats.blast_index_count || 0}`
+            : `大小 ${(Number(stats.size_bytes || 0) / 1024 / 1024).toFixed(2)} MB`;
+        const initial = escapeHtml(String(item.name || '?').slice(0, 1));
+        return `
+            <article class="database-resource-card">
+                <div class="database-resource-badge">${initial}</div>
+                <div class="database-resource-title">${escapeHtml(item.name || '')}</div>
+                <div class="database-resource-desc">${escapeHtml(item.description || '暂无描述')}</div>
+                <div class="database-resource-meta">${escapeHtml(summary)}</div>
+                <button class="btn-secondary database-detail-btn" type="button" onclick="showDatabaseResourceDetail(${index})">查看详情</button>
+            </article>
+        `;
+    }).join('');
+}
+
+function showDatabaseResourceDetail(index) {
+    const item = databaseResources[index];
+    if (!item) {
+        return;
+    }
+    const stats = item.stats || {};
+    const lines = [
+        `名称: ${item.name || ''}`,
+        `类型: ${item.type || ''}`,
+        `路径: ${item.path || ''}`,
+        `说明: ${item.description || ''}`,
+    ];
+    if (item.type === 'directory') {
+        lines.push(`FASTA 文件数: ${stats.fasta_count || 0}`);
+        lines.push(`BLAST 索引数: ${stats.blast_index_count || 0}`);
+    } else if (typeof stats.size_bytes !== 'undefined') {
+        lines.push(`文件大小: ${(Number(stats.size_bytes || 0) / 1024 / 1024).toFixed(2)} MB`);
+    }
+    showNotice(lines.join('\n'), 'success', 6000);
 }
 
 function loadIntegratedWorkbench(forceRefresh = false) {

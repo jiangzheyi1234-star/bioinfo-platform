@@ -17,7 +17,7 @@ from config import (
     sync_default_from_schema,
 )
 from ui.page_base import BasePage
-from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard, DatabasePathsCard
+from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard, DatabasePathsCard, BlastSettingsCard
 from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP, SCROLL_BAR_ELEGANT
 
 
@@ -79,6 +79,10 @@ class SettingsPage(BasePage):
         self.linux_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.linux_card)
 
+        self.blast_card = BlastSettingsCard(self.get_active_client)
+        self.blast_card.request_save.connect(self.save_config)
+        self.scroll_layout.addWidget(self.blast_card)
+
         self.db_card = DatabasePathsCard()
         self.db_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.db_card)
@@ -99,10 +103,13 @@ class SettingsPage(BasePage):
     def get_active_client(self):
         return self.ssh_card.get_active_client()
 
+
     def set_global_lock(self, locked: bool, reason: str = "SSH disconnected; settings are locked") -> None:
         self.ssh_card.set_external_lock(locked, reason)
         if hasattr(self.linux_card, "set_external_lock"):
             self.linux_card.set_external_lock(locked)
+        if hasattr(self, "blast_card"):
+            self.blast_card.set_external_lock(locked)
         self.db_card.set_external_lock(locked)
         self.ncbi_card.set_external_lock(locked)
 
@@ -123,6 +130,7 @@ class SettingsPage(BasePage):
         ssh = schema.get("ssh", {})
         linux = schema.get("linux", {})
         databases = schema.get("databases", {})
+        blast = schema.get("blast", {})
         ncbi = schema.get("ncbi", {})
 
         port = ssh.get("port", 22)
@@ -142,6 +150,11 @@ class SettingsPage(BasePage):
             conda_executable=str(linux.get("conda_executable", "") or ""),
             auto_installed=bool(linux.get("auto_installed", False)),
         )
+        self.blast_card.set_values(
+            remote_db=str(blast.get("db_path", "") or databases.get("blast_nt", "") or ""),
+            blast_bin=str(blast.get("bin_path", "") or ""),
+            remote_dir=str(blast.get("remote_work_dir", "") or ""),
+        )
         self.db_card.set_values(databases)
         self.ncbi_card.set_values(
             ncbi_api_key=str(ncbi.get("api_key", "") or ""),
@@ -153,6 +166,7 @@ class SettingsPage(BasePage):
 
         ssh_values = self.ssh_card.get_values()
         linux_values = self.linux_card.get_values()
+        blast_values = self.blast_card.get_values()
         db_values = self.db_card.get_values()
         ncbi_values = self.ncbi_card.get_values()
 
@@ -176,7 +190,14 @@ class SettingsPage(BasePage):
                 "auto_installed": bool(linux_values.get("auto_installed", False)),
             },
             "databases": db_values,
-            "blast": current.get("blast", default_settings_schema()["blast"]),
+            "blast": {
+                "db_path": str(blast_values.get("remote_db", "") or ""),
+                "bin_path": str(blast_values.get("blast_bin", "") or ""),
+                "remote_work_dir": str(blast_values.get("remote_dir", "") or ""),
+                "remote_script": str(
+                    current.get("blast", default_settings_schema()["blast"]).get("remote_script", "") or ""
+                ),
+            },
             "ncbi": {
                 "api_key": str(ncbi_values.get("ncbi_api_key", "") or ""),
                 "email": str(ncbi_values.get("email", "") or ""),
