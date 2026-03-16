@@ -223,6 +223,8 @@ class MainWindow(QMainWindow):
 
         self.status_bar = EnvironmentStatusBar()
         main_layout.addWidget(self.status_bar)
+        self.log_page.log_status_changed.connect(self.status_bar.update_log_status)
+        self.status_bar.update_log_status("日志: 就绪")
 
         self.sidebar.setCurrentRow(0)
 
