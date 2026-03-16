@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -212,10 +213,10 @@ class LogPage(BasePage):
         self._project_btn.toggled.connect(self._on_project_filter_toggled)
         toolbar.addWidget(self._project_btn)
 
-        self._clear_btn = QPushButton("清除")
+        self._clear_btn = QPushButton("删除")
         self._clear_btn.setFixedHeight(33)
         self._clear_btn.setStyleSheet(styles.BUTTON_DANGER)
-        self._clear_btn.clicked.connect(self.clear_logs)
+        self._clear_btn.clicked.connect(self._on_delete_clicked)
         toolbar.addWidget(self._clear_btn)
 
         self.layout.addLayout(toolbar)
@@ -339,6 +340,35 @@ class LogPage(BasePage):
         self._entries.clear()
         self._list.clear()
         self._update_counts()
+
+    def _on_delete_clicked(self) -> None:
+        only_current_project = bool(self._project_filter and self._current_project_id)
+        if only_current_project:
+            title = "确认删除当前项目日志"
+            text = "将删除当前项目日志，是否继续？"
+        else:
+            title = "确认删除全部日志"
+            text = "将删除全部日志，是否继续？"
+
+        result = QMessageBox.question(
+            self,
+            title,
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+
+        if only_current_project:
+            self._entries = [
+                entry
+                for entry in self._entries
+                if entry.project_id != self._current_project_id
+            ]
+            self._rebuild_list()
+            return
+
+        self.clear_logs()
 
     # ── 远端日志轮询 ─────────────────────────────────────
 

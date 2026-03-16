@@ -8,11 +8,13 @@ from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -314,6 +316,7 @@ class MainWindow(QMainWindow):
         current_id = current.project_id if current else ""
 
         has_projects = False
+        has_deletable = False
         for p in self._pm.list_projects():
             if p.status != "active":
                 continue
@@ -322,6 +325,8 @@ class MainWindow(QMainWindow):
             action = self._project_menu.addAction(label)
             pid = p.project_id
             action.triggered.connect(lambda checked, _pid=pid: self._on_menu_project_selected(_pid))
+            if p.project_id != current_id:
+                has_deletable = True
 
         if not has_projects:
             empty_action = self._project_menu.addAction("\u6682\u65e0\u9879\u76ee")
@@ -330,6 +335,10 @@ class MainWindow(QMainWindow):
         self._project_menu.addSeparator()
         create_action = self._project_menu.addAction(f"+ \u65b0\u5efa\u9879\u76ee")
         create_action.triggered.connect(self._on_create_project_clicked)
+        if has_deletable:
+            self._project_menu.addSeparator()
+            delete_action = self._project_menu.addAction("\u5220\u9664\u9879\u76ee...")
+            delete_action.triggered.connect(self._on_menu_delete_project)
 
         # 更新项目名 label
         if current:
@@ -371,6 +380,51 @@ class MainWindow(QMainWindow):
                 self._on_project_switched(project_id)
             except Exception as e:
                 logger.error("创建项目失败: %s", e)
+
+    def _on_menu_delete_project(self) -> None:
+        current = self._pm.current_project
+        current_id = current.project_id if current else ""
+
+        candidates = [
+            p for p in self._pm.list_projects()
+            if p.status == "active" and p.project_id != current_id
+        ]
+        if not candidates:
+            QMessageBox.information(self, "提示", "没有可删除的项目。请先切换到其他项目。")
+            return
+
+        labels = [p.name for p in candidates]
+        selected_name, ok = QInputDialog.getItem(
+            self,
+            "删除项目",
+            "选择要删除的项目：",
+            labels,
+            0,
+            False,
+        )
+        if not ok or not selected_name:
+            return
+
+        target = next((p for p in candidates if p.name == selected_name), None)
+        if target is None:
+            return
+
+        result = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定删除项目“{target.name}”吗？\n项目文件将被永久删除，无法恢复。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._pm.delete_project(target.project_id)
+            self._refresh_project_combo()
+            QMessageBox.information(self, "成功", f"项目“{target.name}”已删除。")
+        except Exception as e:
+            logger.error("删除项目失败: %s", e)
+            QMessageBox.critical(self, "错误", f"删除项目失败: {e}")
 
     def _on_project_switched(self, project_id: str) -> None:
         self._refresh_project_combo()
