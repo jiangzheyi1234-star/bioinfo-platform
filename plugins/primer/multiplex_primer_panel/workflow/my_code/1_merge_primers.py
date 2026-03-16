@@ -18,6 +18,9 @@ HEADER = [
     "position",
     "amplicon_seq",
     "amplicon_length",
+    "conservation_score",
+    "specificity_score",
+    "target_sequence",
     "candidate_rank",
 ]
 
@@ -37,6 +40,9 @@ def parse_candidate(parts: list[str]) -> dict[str, str] | None:
             "gc_r": parts[7],
             "position": position,
             "amplicon_seq": amplicon_seq,
+            "conservation_score": parts[10] if len(parts) > 10 else "",
+            "specificity_score": parts[11] if len(parts) > 11 else "",
+            "target_sequence": parts[12] if len(parts) > 12 else "",
         }
     elif len(parts) >= 6:
         position = parts[4]
@@ -52,6 +58,9 @@ def parse_candidate(parts: list[str]) -> dict[str, str] | None:
             "gc_r": "",
             "position": position,
             "amplicon_seq": amplicon_seq,
+            "conservation_score": "",
+            "specificity_score": "",
+            "target_sequence": "",
         }
     else:
         return None

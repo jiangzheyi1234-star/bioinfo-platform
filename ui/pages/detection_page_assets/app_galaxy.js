@@ -629,7 +629,7 @@ function renderIntegratedTable(columns, rows) {
 
 function getIntegratedColumnCellClass(columnKey) {
     const truncateColumns = new Set(['region_id', 'position']);
-    const wrapColumns = new Set(['pathogen', 'forward_primer', 'reverse_primer', 'amplicon']);
+    const wrapColumns = new Set(['pathogen', 'forward_primer', 'reverse_primer', 'amplicon', 'target_sequence', 'amplicon_seq']);
 
     if (truncateColumns.has(columnKey)) {
         return 'table-cell-truncate';

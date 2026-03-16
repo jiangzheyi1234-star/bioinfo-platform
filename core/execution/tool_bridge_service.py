@@ -208,6 +208,28 @@ class ToolBridgeService:
                 continue
             if parts[0].lower() == "pathogen":
                 continue
+            if len(parts) <= 10:
+                rows.append(
+                    {
+                        "pathogen": parts[0],
+                        "region_id": parts[1],
+                        "forward_primer": parts[2],
+                        "reverse_primer": parts[3],
+                        "tm_f": parts[4] if len(parts) > 4 else "",
+                        "tm_r": parts[5] if len(parts) > 5 else "",
+                        "gc_f": parts[6] if len(parts) > 6 else "",
+                        "gc_r": parts[7] if len(parts) > 7 else "",
+                        "amplicon_length": parts[8] if len(parts) > 8 else "",
+                        "target_sequence": "",
+                        "conservation_score": "",
+                        "specificity_score": "",
+                        "amplicon_seq": "",
+                        "pool_id": "",
+                        "pool_dimer_score": parts[9] if len(parts) > 9 else (parts[5] if len(parts) > 5 else ""),
+                        "pool_score": parts[9] if len(parts) > 9 else (parts[5] if len(parts) > 5 else ""),
+                    }
+                )
+                continue
             rows.append(
                 {
                     "pathogen": parts[0],
@@ -219,7 +241,13 @@ class ToolBridgeService:
                     "gc_f": parts[6] if len(parts) > 6 else "",
                     "gc_r": parts[7] if len(parts) > 7 else "",
                     "amplicon_length": parts[8] if len(parts) > 8 else (parts[4] if len(parts) > 4 else ""),
-                    "pool_score": parts[9] if len(parts) > 9 else (parts[5] if len(parts) > 5 else ""),
+                    "target_sequence": parts[9] if len(parts) > 9 else "",
+                    "conservation_score": parts[10] if len(parts) > 10 else "",
+                    "specificity_score": parts[11] if len(parts) > 11 else "",
+                    "amplicon_seq": parts[12] if len(parts) > 12 else "",
+                    "pool_id": parts[13] if len(parts) > 13 else "",
+                    "pool_dimer_score": parts[14] if len(parts) > 14 else (parts[9] if len(parts) > 9 else ""),
+                    "pool_score": parts[14] if len(parts) > 14 else (parts[9] if len(parts) > 9 else (parts[5] if len(parts) > 5 else "")),
                 }
             )
         return rows
@@ -577,7 +605,10 @@ class ToolBridgeService:
                 {"key": "forward_primer", "label": "Forward Primer"},
                 {"key": "reverse_primer", "label": "Reverse Primer"},
                 {"key": "amplicon_length", "label": "Amplicon Length"},
-                {"key": "pool_score", "label": "Pool Score"},
+                {"key": "target_sequence", "label": "Target Sequence"},
+                {"key": "conservation_score", "label": "Conservation Score"},
+                {"key": "specificity_score", "label": "Specificity Score"},
+                {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
             ],
             "rows": rows,
             "artifacts": [
@@ -628,7 +659,10 @@ class ToolBridgeService:
                 {"key": "forward_primer", "label": "Forward Primer"},
                 {"key": "reverse_primer", "label": "Reverse Primer"},
                 {"key": "amplicon_length", "label": "Amplicon Length"},
-                {"key": "pool_score", "label": "Pool Score"},
+                {"key": "target_sequence", "label": "Target Sequence"},
+                {"key": "conservation_score", "label": "Conservation Score"},
+                {"key": "specificity_score", "label": "Specificity Score"},
+                {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
             ],
             "rows": rows,
             "artifacts": [
@@ -1198,7 +1232,10 @@ class ToolBridgeService:
                     {"key": "forward_primer", "label": "Forward Primer"},
                     {"key": "reverse_primer", "label": "Reverse Primer"},
                     {"key": "amplicon_length", "label": "Amplicon Length"},
-                    {"key": "pool_score", "label": "Pool Score"},
+                    {"key": "target_sequence", "label": "Target Sequence"},
+                    {"key": "conservation_score", "label": "Conservation Score"},
+                    {"key": "specificity_score", "label": "Specificity Score"},
+                    {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
                 ],
                 "rows": [],
                 "artifacts": [

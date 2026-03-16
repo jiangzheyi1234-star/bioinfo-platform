@@ -34,6 +34,7 @@ def test_multiplex_primer_panel_descriptor_has_expected_contract() -> None:
     assert [item["name"] for item in desc["inputs"]] == ["genomes_bundle"]
     assert any(o["name"] == "multiplex_panel" for o in desc["outputs"])
     assert any(o["name"] == "primer_result_all" for o in desc["outputs"])
+    assert any(o["name"] == "validation_report" for o in desc["outputs"])
     assert len(desc["parameters"]) == 5
     assert desc.get("databases")
     assert desc["databases"][0]["id"] == "blast_nt"

@@ -346,7 +346,7 @@ class TestRealToolYaml:
 
     def test_scan_real_plugins(self, real_registry: PluginRegistry) -> None:
         """项目应包含 30 个真实插件。"""
-        assert real_registry.plugin_count == 30
+        assert real_registry.plugin_count == 31
         ids = set(real_registry.list_all_ids())
         # Phase 1 原始 4 个
         assert {"fastp", "kraken2", "hostile", "blastn"}.issubset(ids)
