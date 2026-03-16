@@ -51,6 +51,9 @@ def main_window(qapp, tmp_path_factory):
         window = MainWindow(project_manager=pm)
         yield window
         window.close()
+        window.deleteLater()
+        qapp.processEvents()
+        qapp.processEvents()
     pm.close()
 
 
@@ -70,6 +73,9 @@ def temp_main_window(qapp, tmp_path: Path):
         qapp.processEvents()
         yield window
         window.close()
+        window.deleteLater()
+        qapp.processEvents()
+        qapp.processEvents()
     pm.close()
 
 
@@ -117,10 +123,11 @@ class TestMainWindowStartup:
         assert hasattr(main_window, "home_page")
         assert hasattr(main_window, "detection_page")
         assert hasattr(main_window, "settings_page")
+        assert hasattr(main_window, "log_page")
         assert hasattr(main_window, "assembly_page")
 
     def test_sidebar_count(self, main_window):
-        assert main_window.sidebar.count() == 5
+        assert main_window.sidebar.count() == 6
 
 
 class TestPageStartup:
@@ -459,6 +466,8 @@ class TestHomePageFlows:
         assert window.home_page._stat_samples.text() == ""
 
         window.close()
+        window.deleteLater()
+        _flush_events(qapp)
         pm.close()
 
 
@@ -512,6 +521,8 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     assert config.get_ncbi_setting("email") == "user@example.com"
 
     window.close()
+    window.deleteLater()
+    _flush_events(qapp)
     pm.close()
 
 

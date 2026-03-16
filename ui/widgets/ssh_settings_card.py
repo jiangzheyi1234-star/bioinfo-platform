@@ -362,6 +362,14 @@ class SshSettingsCard(QFrame):
         if app is not None and hasattr(app, "focusChanged"):
             app.focusChanged.connect(self._on_focus_changed)
 
+    def _disconnect_global_focus_listener(self) -> None:
+        app = QApplication.instance()
+        if app is not None and hasattr(app, "focusChanged"):
+            try:
+                app.focusChanged.disconnect(self._on_focus_changed)
+            except (TypeError, RuntimeError):
+                pass
+
     def _toggle_auth_mode(self, use_key: bool) -> None:
         self.ssh_pwd.setVisible(not use_key)
         self.pwd_label.setVisible(not use_key)
@@ -708,3 +716,25 @@ class SshSettingsCard(QFrame):
             self.connect_btn.setEnabled(False)
         if self.revert_btn.isVisible():
             self.revert_btn.setEnabled(True)
+
+    def closeEvent(self, event) -> None:
+        for timer in (self._auto_fold_timer, self._edit_idle_timer, self._ssh_health_timer):
+            if timer.isActive():
+                timer.stop()
+
+        self._disconnect_global_focus_listener()
+
+        thread = getattr(self, "_temp_thread", None)
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(1000)
+
+        client = self.active_client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+            self.active_client = None
+
+        super().closeEvent(event)

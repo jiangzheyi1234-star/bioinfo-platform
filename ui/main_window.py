@@ -25,6 +25,7 @@ from core.remote.storage_manager import StorageManager
 from ui.pages import SettingsPage
 from ui.pages.assembly_page import AssemblyPage
 from ui.pages.home_page import HomePage
+from ui.pages.log_page import LogPage
 from ui.pages.project_page import ProjectPage
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.widgets import styles
@@ -75,6 +76,10 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self._refresh_project_combo()
         self._connect_service_signals()
+
+        # 初始化日志页面的项目上下文
+        if self._pm.current_project:
+            self.log_page.set_project_context(self._pm.current_project.project_id)
 
     def init_ui(self) -> None:
         central = QWidget()
@@ -156,6 +161,9 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("注入 PluginRegistry 到 LinuxSettingsCard 失败")
 
+        self.log_page = LogPage(main_window=self)
+        self.content.addWidget(self.log_page)
+
         self.assembly_page = AssemblyPage(main_window=self)
         self.content.addWidget(self.assembly_page)
 
@@ -163,6 +171,7 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(QListWidgetItem("项目首页"))
         self.sidebar.addItem(QListWidgetItem("病原检测"))
         self.sidebar.addItem(QListWidgetItem("系统设置"))
+        self.sidebar.addItem(QListWidgetItem("日志"))
         self.sidebar.addItem(QListWidgetItem("组装分析"))
 
         for i in range(self.sidebar.count()):
@@ -279,6 +288,9 @@ class MainWindow(QMainWindow):
         self._reconcile_running_tasks()
         self._notify_pages_context_changed()
 
+        # 同步日志页面的项目上下文
+        self.log_page.set_project_context(project_id)
+
         logger.info("项目已切换: %s", project_id)
 
 
@@ -356,6 +368,36 @@ class MainWindow(QMainWindow):
 
         self._locator.ssh_changed.connect(self._on_ssh_changed_for_disk)
 
+        # 日志页面信号连接
+        self._locator.execution_started.connect(self._on_exec_started_for_log)
+        self._locator.execution_completed.connect(self._on_exec_completed_for_log)
+        self._locator.execution_failed.connect(self._on_exec_failed_for_log)
+
+    def _current_project_id(self) -> str:
+        cp = self._pm.current_project
+        return cp.project_id if cp else ""
+
+    def _on_exec_started_for_log(self, execution_id: str) -> None:
+        task_dir = self._locator.get_task_dir(execution_id)
+        if task_dir:
+            self.log_page.set_execution_context(execution_id, task_dir)
+            if self._ssh_service_wrapper:
+                self.log_page.set_ssh_run_fn(self._ssh_service_wrapper.run)
+
+    def _on_exec_completed_for_log(self, execution_id: str) -> None:
+        pid = self._current_project_id()
+        self.log_page.append_log("SUCCESS", f"任务完成: {execution_id[:16]}",
+                                 execution_id, pid)
+        self.log_page.stop_tailing()
+
+    def _on_exec_failed_for_log(self, execution_id: str, error: str) -> None:
+        msg = f"任务失败: {execution_id[:16]}"
+        if error:
+            msg += f" — {error[:100]}"
+        pid = self._current_project_id()
+        self.log_page.append_log("ERROR", msg, execution_id, pid)
+        self.log_page.stop_tailing()
+
     def _reconcile_running_tasks(self) -> None:
         try:
             if self._pm.current_project is None:
@@ -379,6 +421,40 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event) -> None:
+        try:
+            self._disk_timer.stop()
+        except Exception:
+            logger.debug("停止磁盘监控定时器失败", exc_info=True)
+
+        log_page = getattr(self, "log_page", None)
+        if log_page is not None and hasattr(log_page, "stop_tailing"):
+            try:
+                log_page.stop_tailing()
+            except Exception:
+                logger.debug("停止日志追踪失败", exc_info=True)
+
+        try:
+            self._locator.ssh_changed.disconnect(self._on_ssh_changed_for_disk)
+        except (TypeError, RuntimeError):
+            pass
+
+        for signal, handler in (
+            (self._locator.execution_started, self._on_exec_started_for_log),
+            (self._locator.execution_completed, self._on_exec_completed_for_log),
+            (self._locator.execution_failed, self._on_exec_failed_for_log),
+        ):
+            try:
+                signal.disconnect(handler)
+            except (TypeError, RuntimeError):
+                pass
+
+        if self._ssh_service_wrapper is not None:
+            for handler in (self._on_ssh_status_changed, self._on_ssh_changed_for_disk):
+                try:
+                    self._ssh_service_wrapper.connection_status_changed.disconnect(handler)
+                except (TypeError, RuntimeError):
+                    pass
+
         self._locator.shutdown()
         super().closeEvent(event)
 
