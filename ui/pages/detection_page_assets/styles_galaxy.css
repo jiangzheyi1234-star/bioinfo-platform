@@ -65,8 +65,8 @@ body {
 }
 
 .tab-btn.active {
-    color: #0969da;
-    border-bottom-color: #0969da;
+    color: #3B82F6;
+    border-bottom-color: #3B82F6;
     font-weight: 600;
 }
 
@@ -91,7 +91,7 @@ body {
 }
 
 .status-pending { background: #f6f8fa; color: #57606a; }
-.status-running { background: #ddf4ff; color: #0969da; }
+.status-running { background: #ddf4ff; color: #3B82F6; }
 .status-completed { background: #dafbe1; color: #1a7f37; }
 .status-failed { background: #ffebe9; color: #cf222e; }
 
@@ -148,7 +148,7 @@ header {
 
 #search:focus {
     outline: none;
-    border-color: #0969da;
+    border-color: #3B82F6;
     box-shadow: 0 0 0 3px rgba(9,105,218,0.1);
 }
 
@@ -234,17 +234,17 @@ header {
 }
 
 .tool-item:hover::before {
-    background: #0969da;
+    background: #3B82F6;
 }
 
 .tool-item.selected {
     background: linear-gradient(to right, #ddf4ff 0%, #f0f8ff 100%);
-    border-left: 3px solid #0969da;
+    border-left: 3px solid #3B82F6;
     padding-left: 13px;
 }
 
 .tool-item.selected::before {
-    background: #0969da;
+    background: #3B82F6;
 }
 
 .tool-name {
@@ -255,7 +255,7 @@ header {
 }
 
 .tool-item.selected .tool-name {
-    color: #0969da;
+    color: #3B82F6;
 }
 
 .tool-desc {
@@ -291,7 +291,7 @@ header {
     font-size: 12px;
     font-weight: 800;
     letter-spacing: 0.08em;
-    color: #0969da;
+    color: #3B82F6;
     margin-bottom: 10px;
 }
 
@@ -323,7 +323,7 @@ header {
 
 .database-scan-btn:hover {
     border-color: #7dd3fc;
-    color: #0969da;
+    color: #3B82F6;
 }
 
 .database-empty-state {
@@ -464,7 +464,7 @@ header {
     margin-bottom: 16px;
     color: #24292f;
     padding-bottom: 8px;
-    border-bottom: 2px solid #0969da;
+    border-bottom: 2px solid #3B82F6;
     display: inline-block;
 }
 
@@ -505,7 +505,7 @@ header {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #0969da;
+    color: #3B82F6;
     margin-bottom: 8px;
 }
 
@@ -555,7 +555,7 @@ header {
 }
 
 .integrated-feature-item.active {
-    border-color: #0969da;
+    border-color: #3B82F6;
     background: linear-gradient(180deg, #eff8ff 0%, #ffffff 100%);
     box-shadow: 0 12px 24px rgba(9, 105, 218, 0.12);
 }
@@ -596,7 +596,7 @@ header {
 
 .integrated-feature-badge,
 .card-badge {
-    color: #0969da;
+    color: #3B82F6;
     background: #ddf4ff;
     border: 1px solid #b6e3ff;
 }
@@ -689,7 +689,7 @@ header {
 .feature-state-label {
     font-size: 12px;
     font-weight: 700;
-    color: #0969da;
+    color: #3B82F6;
     margin-bottom: 4px;
 }
 
@@ -715,7 +715,7 @@ header {
     color: #24292f;
 }
 
-.tone-primary .summary-value { color: #0969da; }
+.tone-primary .summary-value { color: #3B82F6; }
 .tone-info .summary-value { color: #1f6feb; }
 .tone-success .summary-value { color: #1a7f37; }
 .tone-accent .summary-value { color: #8250df; }
@@ -787,7 +787,7 @@ header {
 .section-toggle-btn {
     border: none;
     background: transparent;
-    color: #0969da;
+    color: #3B82F6;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
@@ -1009,7 +1009,7 @@ header {
     flex: 0 0 auto;
     font-size: 10px;
     font-weight: 700;
-    color: #0969da;
+    color: #3B82F6;
 }
 
 .artifact-item.unavailable .artifact-state {
@@ -1202,7 +1202,7 @@ header {
 }
 
 .form-group:hover {
-    border-color: #0969da;
+    border-color: #3B82F6;
     box-shadow: 0 2px 8px rgba(9,105,218,0.1);
 }
 
@@ -1287,7 +1287,7 @@ header {
 
 .form-input:focus {
     outline: none;
-    border-color: #0969da;
+    border-color: #3B82F6;
     box-shadow: 0 0 0 3px rgba(9,105,218,0.1);
 }
 
@@ -1329,8 +1329,8 @@ header {
 
 .btn-browse:hover {
     background: linear-gradient(to bottom, #f6f8fa 0%, #eef2f6 100%);
-    border-color: #0969da;
-    color: #0969da;
+    border-color: #3B82F6;
+    color: #3B82F6;
 }
 
 .btn-browse:active {
@@ -1393,8 +1393,8 @@ header {
 
 .btn-secondary:hover {
     background: #f6f8fa;
-    border-color: #0969da;
-    color: #0969da;
+    border-color: #3B82F6;
+    color: #3B82F6;
 }
 
 .btn-secondary:active {

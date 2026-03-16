@@ -13,6 +13,8 @@ from typing import Any
 
 from PyQt6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from ui.widgets import styles
+
 logger = logging.getLogger(__name__)
 
 # 懒导入 matplotlib（避免启动时阻塞）
@@ -36,8 +38,8 @@ _PALETTE = [
     "#ea7ccc", "#48b8af",
 ]
 _BG_COLOR = "#FFFFFF"
-_TEXT_COLOR = "#1D1D1F"
-_GRID_COLOR = "#E5E5EA"
+_TEXT_COLOR = "#0F172A"
+_GRID_COLOR = "#E2E8F0"
 
 
 class ChartWidget(QWidget):
@@ -61,7 +63,7 @@ class ChartWidget(QWidget):
 
         if not _mpl_available:
             lbl = QLabel("图表功能需要安装 matplotlib\n运行: pip install matplotlib")
-            lbl.setStyleSheet("color: #8E8E93; font-size: 13px; padding: 24px;")
+            lbl.setStyleSheet(f"color: {styles.COLOR_TEXT_HINT}; font-size: 13px; padding: 24px;")
             self._layout.addWidget(lbl)
         else:
             self._init_canvas()
@@ -229,7 +231,7 @@ class ChartWidget(QWidget):
         ax.set_facecolor(_BG_COLOR)
         ax.text(
             0.5, 0.5, f"{title}\n（暂无数据）",
-            ha="center", va="center", fontsize=11, color="#8E8E93",
+            ha="center", va="center", fontsize=11, color="#94A3B8",
             transform=ax.transAxes,
         )
         ax.set_axis_off()
@@ -244,12 +246,12 @@ class ResultsPanel(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("ResultsPanel")
-        self.setStyleSheet("""
-            QFrame#ResultsPanel {
-                border: 1px solid rgba(0,0,0,0.08);
+        self.setStyleSheet(f"""
+            QFrame#ResultsPanel {{
+                border: 1px solid {styles.COLOR_BORDER};
                 border-radius: 8px;
-                background: #FFFFFF;
-            }
+                background: {styles.COLOR_BG_CARD};
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -258,13 +260,13 @@ class ResultsPanel(QFrame):
 
         title_lbl = QLabel("分析结果")
         title_lbl.setStyleSheet(
-            "font-size: 14px; font-weight: 600; color: #1D1D1F; background: transparent;"
+            f"font-size: 14px; font-weight: 600; color: {styles.COLOR_TEXT_TITLE}; background: transparent;"
         )
         layout.addWidget(title_lbl)
 
         self._placeholder = QLabel("流水线运行完成后，结果图表将显示在此处。")
         self._placeholder.setStyleSheet(
-            "font-size: 13px; color: #8E8E93; padding: 20px; background: transparent;"
+            f"font-size: 13px; color: {styles.COLOR_TEXT_HINT}; padding: 20px; background: transparent;"
         )
         layout.addWidget(self._placeholder)
 

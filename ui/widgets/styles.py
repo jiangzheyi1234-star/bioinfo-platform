@@ -2,81 +2,90 @@
 # 设计令牌（Design Tokens）系统 — Clash Verge 风格
 #
 # 设计哲学：
-#   - Apple HIG 色彩体系 (#007AFF 主蓝)
+#   - Clash Verge 亮色主题：纯白底 + 蓝色强调
 #   - 零阴影，通过背景层次创造深度
 #   - 极细分割线 (rgba 6% 透明度级别)
 #   - 选中态 = 低透明度主色调底色，而非实心色块
-#   - 全局 8px 圆角
+#   - 全局 8~12px 圆角
 
 # ═══════════════════════════════════════════════════════════
 #  颜色常量 (Tokens)
 # ═══════════════════════════════════════════════════════════
 
-# 主色调 — 柔和的天空蓝 (Soft Sky Blue) - 清新轻盈
-COLOR_PRIMARY = "#7DD3FC"          # Tailwind Sky 300 - 更柔和的天空蓝
-COLOR_PRIMARY_HOVER = "#38BDF8"    # Tailwind Sky 400
-COLOR_PRIMARY_PRESSED = "#0EA5E9"  # Tailwind Sky 500
+# 主色调 — 科技蓝 (Blue 系列，比 Sky 更沉稳)
+COLOR_PRIMARY = "#3B82F6"            # Blue 500
+COLOR_PRIMARY_HOVER = "#2563EB"      # Blue 600
+COLOR_PRIMARY_PRESSED = "#1D4ED8"    # Blue 700
 
-# 成功状态色 — 柔和绿
-COLOR_SUCCESS = "#10B981"          # Tailwind Emerald 500
-COLOR_SUCCESS_HOVER = "#059669"    # Tailwind Emerald 600
-COLOR_SUCCESS_PRESSED = "#047857"  # Tailwind Emerald 700
+# 成功状态色
+COLOR_SUCCESS = "#10B981"            # Emerald 500
+COLOR_SUCCESS_HOVER = "#059669"      # Emerald 600
+COLOR_SUCCESS_PRESSED = "#047857"    # Emerald 700
 
 # 辅助颜色
-COLOR_DANGER = "#EF4444"           # Tailwind Red 500
-COLOR_WARNING = "#F59E0B"          # Tailwind Amber 500
+COLOR_DANGER = "#EF4444"             # Red 500
+COLOR_WARNING = "#F59E0B"            # Amber 500
 
-# 背景色系
-COLOR_BG_APP = "#F8FAFC"              # Tailwind Slate 50
-COLOR_BG_CARD = "#FFFFFF"             # 纯白卡片
-COLOR_BG_PAGE = "#F8FAFC"             # 同 APP 背景
+# 背景色系 — 亮色层级
+COLOR_BG_APP = "#F1F5F9"             # Slate 100 (略带蓝灰)
+COLOR_BG_CARD = "#FFFFFF"            # 纯白卡片
+COLOR_BG_PAGE = "#F1F5F9"            # 同 APP 背景
 COLOR_BG_BLANK = "transparent"
+COLOR_BG_SIDEBAR = "#FFFFFF"         # 白色侧边栏
+COLOR_BG_TERMINAL = "#1E1E2E"        # 终端深色
+COLOR_BG_TERMINAL_TEXT = "#D4D4D4"   # 终端文字
 
 # 边框色系
-COLOR_BORDER = "#E2E8F0"              # Tailwind Slate 200 (更明亮清晰的边框)
-COLOR_BORDER_INPUT = "#CBD5E1"        # Tailwind Slate 300
-COLOR_BORDER_FOCUS = "#7DD3FC"        # 聚焦边框 Sky 300
+COLOR_BORDER = "#E2E8F0"             # Slate 200
+COLOR_BORDER_INPUT = "#CBD5E1"       # Slate 300
+COLOR_BORDER_FOCUS = "#3B82F6"       # Blue 500
 
 # 选中态色系
-COLOR_SELECTION_BG = "#F0F9FF"        # Tailwind Sky 50 - 极淡的天空蓝
-COLOR_SELECTION_HOVER = "#F1F5F9"     # Tailwind Slate 100
+COLOR_SELECTION_BG = "#EFF6FF"       # Blue 50
+COLOR_SELECTION_HOVER = "#F1F5F9"    # Slate 100
 
 # 文字色系 (Slate 体系)
-COLOR_TEXT_TITLE = "#0F172A"           # Tailwind Slate 900
-COLOR_TEXT_DEFAULT = "#334155"         # Tailwind Slate 700
-COLOR_TEXT_SUB = "#475569"             # Tailwind Slate 600
-COLOR_TEXT_HINT = "#94A3B8"            # Tailwind Slate 400
-COLOR_TEXT_MUTED = "#CBD5E1"           # Tailwind Slate 300
+COLOR_TEXT_TITLE = "#0F172A"         # Slate 900
+COLOR_TEXT_DEFAULT = "#334155"       # Slate 700
+COLOR_TEXT_SUB = "#475569"           # Slate 600
+COLOR_TEXT_HINT = "#94A3B8"          # Slate 400
+COLOR_TEXT_MUTED = "#CBD5E1"         # Slate 300
 COLOR_TEXT_WHITE = "#FFFFFF"
 COLOR_TEXT_DISABLED = "#94A3B8"
-COLOR_TEXT_INTERPRET = "#075985"       # Tailwind Sky 800
+COLOR_TEXT_INTERPRET = "#1D4ED8"     # Blue 700
 
 # 侧边栏
-COLOR_BG_SIDEBAR_ITEM = "#F1F5F9"          # hover: Slate 100
-COLOR_BG_SIDEBAR_SELECTED = "#F0F9FF"      # Sky 50
+COLOR_BG_SIDEBAR_ITEM = "#F1F5F9"        # hover: Slate 100
+COLOR_BG_SIDEBAR_SELECTED = "#EFF6FF"    # Blue 50
 
 # 按钮 & 交互
-COLOR_BG_BUTTON_HOVER = "#F8FAFC"          # Slate 50
-COLOR_BG_BUTTON_CHECKED = "#7DD3FC"        # Sky 300
+COLOR_BG_BUTTON_HOVER = "#F8FAFC"        # Slate 50
+COLOR_BG_BUTTON_CHECKED = "#3B82F6"      # Blue 500
 
 # 表格 & 进度条
-COLOR_BG_PROGRESS_BAR = "#F1F5F9"          # Slate 100
+COLOR_BG_PROGRESS_BAR = "#F1F5F9"        # Slate 100
 COLOR_BG_TABLE = "#FFFFFF"
 COLOR_BG_TABLE_CELL = "#FFFFFF"
-COLOR_BG_TABLE_GRIDLINE = "#E2E8F0"        # Slate 200
-COLOR_BG_PROGRESS_CHUNK = "#7DD3FC"
+COLOR_BG_TABLE_GRIDLINE = "#E2E8F0"      # Slate 200
+COLOR_BG_PROGRESS_CHUNK = "#3B82F6"
 
 # 卡片高亮 & 解读区
 COLOR_BG_CARD_HIGHLIGHT = "#F8FAFC"
-COLOR_BG_CARD_INTERPRET = "#F0F9FF"
+COLOR_BG_CARD_INTERPRET = "#EFF6FF"
 COLOR_BG_INPUT_DISABLED = "#F1F5F9"
+
+# 信息/警告区块
+COLOR_BG_INFO = "#EFF6FF"                # Blue 50
+COLOR_BG_INFO_BORDER = "#BFDBFE"         # Blue 200
+COLOR_BG_WARN = "#FFFBEB"               # Amber 50
+COLOR_BG_WARN_TEXT = "#B45309"           # Amber 700
 
 # ═══════════════════════════════════════════════════════════
 #  尺寸常量
 # ═══════════════════════════════════════════════════════════
 
-RADIUS_CARD = "12px"      # 从 8px 增加到 12px
-RADIUS_CTRL = "8px"       # 从 6px 增加到 8px
+RADIUS_CARD = "12px"
+RADIUS_CTRL = "8px"
 PADDING_CTRL = "10px 20px"
 PADDING_INPUT = "10px 14px"
 
@@ -93,7 +102,7 @@ FONT_FAMILY = (
 
 
 def apply_card_shadow(widget) -> None:
-    """给卡片应用全局一致的 Light & Clinical 风格悬浮阴影"""
+    """Clash Verge 风格的轻柔阴影"""
     from PyQt6.QtWidgets import QGraphicsDropShadowEffect
     from PyQt6.QtGui import QColor
     shadow = QGraphicsDropShadowEffect(widget)
@@ -129,7 +138,7 @@ _INPUT_BASE = f"""
         selection-color: {COLOR_TEXT_DEFAULT};
     }}
     QLineEdit:hover {{
-        border: 1px solid rgba(0, 122, 255, 0.25);
+        border: 1px solid rgba(59, 130, 246, 0.4);
     }}
     QLineEdit:focus {{
         border: 1px solid {COLOR_BORDER_FOCUS};
@@ -151,7 +160,7 @@ _COMBOBOX_BASE = f"""
         min-height: 30px;
     }}
     QComboBox:hover {{
-        border: 1px solid rgba(0, 122, 255, 0.25);
+        border: 1px solid rgba(59, 130, 246, 0.4);
     }}
     QComboBox:focus {{
         border: 1px solid {COLOR_BORDER_FOCUS};
@@ -224,14 +233,14 @@ _COMBOBOX_BASE = f"""
 
 BUTTON_PRIMARY = _BTN_BASE + f"""
     QPushButton {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7DD3FC, stop:1 #38BDF8);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B82F6, stop:1 #2563EB);
         color: {COLOR_TEXT_WHITE};
     }}
     QPushButton:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BAE6FD, stop:1 #7DD3FC);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #60A5FA, stop:1 #3B82F6);
     }}
     QPushButton:pressed {{
-        background: #0EA5E9;
+        background: #1D4ED8;
     }}
     QPushButton:disabled {{
         background: #E2E8F0;
@@ -284,20 +293,20 @@ BUTTON_SECONDARY = f"""
 
 BUTTON_PASTEL_PRIMARY = f"""
     QPushButton {{
-        background: #F0F9FF;
-        color: #0369A1;
-        border: 1px solid #BAE6FD;
+        background: #EFF6FF;
+        color: #1D4ED8;
+        border: 1px solid #BFDBFE;
         border-radius: {RADIUS_CTRL};
         padding: 8px 16px;
         font-weight: 600;
         font-size: 13px;
     }}
     QPushButton:hover {{
-        background: #E0F2FE;
-        border-color: #7DD3FC;
+        background: #DBEAFE;
+        border-color: #93C5FD;
     }}
     QPushButton:pressed {{
-        background: #BAE6FD;
+        background: #BFDBFE;
     }}
 """
 
@@ -368,7 +377,7 @@ BUTTON_DANGER = _BTN_BASE + f"""
 # ═══════════════════════════════════════════════════════════
 
 def CARD_FRAME(object_name: str) -> str:
-    """Clash Verge 风格卡片 — 纯白底色，无边框，通过背景对比创造层次"""
+    """Clash Verge 风格卡片 — 纯白底，12px 圆角"""
     return f"""
         QFrame#{object_name} {{
             background-color: {COLOR_BG_CARD};
@@ -490,27 +499,27 @@ SCROLL_BAR_ELEGANT = f"""
 # ═══════════════════════════════════════════════════════════
 #  侧边栏导航 — Clash Verge 核心风格
 #
-#  选中态: 12% 主色调底色 + 主色文字 (非实心色块)
-#  hover: 4% 黑色薄雾
-#  文字: 700 粗体，不随选中态变化
+#  选中态: 蓝色背景 + 白色文字 (圆角胶囊)
+#  hover: 浅灰薄雾
+#  文字: 700 粗体
 # ═══════════════════════════════════════════════════════════
 
 SIDEBAR_NAV_ITEM = f"""
     QListWidget {{
-        background: {COLOR_BG_CARD};
+        background: {COLOR_BG_SIDEBAR};
         border: none;
         padding-top: 8px;
         outline: none;
         font-family: {FONT_FAMILY};
     }}
     QListWidget::item {{
-        height: 40px;
-        padding-left: 18px;
+        height: 44px;
+        padding-left: 16px;
         margin: 2px 10px;
         border-radius: 8px;
         color: {COLOR_TEXT_SUB};
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 600;
     }}
     QListWidget::item:hover {{
         background: {COLOR_BG_SIDEBAR_ITEM};
@@ -518,7 +527,7 @@ SIDEBAR_NAV_ITEM = f"""
     }}
     QListWidget::item:selected {{
         background: {COLOR_BG_SIDEBAR_SELECTED};
-        color: {COLOR_PRIMARY};
+        color: {COLOR_TEXT_DEFAULT};
         font-weight: 700;
     }}
 """

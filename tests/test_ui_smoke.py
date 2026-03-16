@@ -119,7 +119,7 @@ class TestMainWindowStartup:
         assert main_window.service_locator is not None
 
     def test_has_expected_pages(self, main_window):
-        assert hasattr(main_window, "project_page")
+        assert hasattr(main_window, "project_switcher")
         assert hasattr(main_window, "home_page")
         assert hasattr(main_window, "detection_page")
         assert hasattr(main_window, "settings_page")
@@ -129,7 +129,7 @@ class TestMainWindowStartup:
         assert hasattr(main_window.settings_page, "blast_card")
 
     def test_sidebar_count(self, main_window):
-        assert main_window.sidebar.count() == 5
+        assert main_window.sidebar.count() == 4
 
 
 class TestPageStartup:

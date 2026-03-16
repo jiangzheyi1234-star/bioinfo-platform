@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
 from PyQt6.QtWidgets import QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
+from ui.widgets import styles
 from ui.widgets.styles import (
     BUTTON_PRIMARY,
     COLOR_BG_PAGE,
@@ -243,7 +244,9 @@ class EnvInstallDialog(QDialog):
         databases = self.tool_info.get("databases", [])
 
         info_frame = QFrame()
-        info_frame.setStyleSheet("background: #f0f4ff; border: 1px solid #c5d0e8; border-radius: 6px;")
+        info_frame.setStyleSheet(
+            f"background: {styles.COLOR_BG_INFO}; border: 1px solid {styles.COLOR_BG_INFO_BORDER}; border-radius: 6px;"
+        )
         info_layout = QFormLayout(info_frame)
         info_layout.setContentsMargins(14, 12, 14, 12)
         info_layout.setVerticalSpacing(8)
@@ -251,7 +254,7 @@ class EnvInstallDialog(QDialog):
         def _info_lbl(text: str) -> QLabel:
             lbl = QLabel(text)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("font-size: 13px; color: #333;")
+            lbl.setStyleSheet(f"font-size: 13px; color: {styles.COLOR_TEXT_DEFAULT};")
             return lbl
 
         info_layout.addRow("工具:", _info_lbl(f"{tool_name}  ({conda_env})"))
@@ -265,8 +268,8 @@ class EnvInstallDialog(QDialog):
             )
             db_hint.setWordWrap(True)
             db_hint.setStyleSheet(
-                "color: #8a6300; background: #fff8e1;"
-                "border: 1px solid #ffe082; border-radius: 4px;"
+                f"color: {styles.COLOR_BG_WARN_TEXT}; background: {styles.COLOR_BG_WARN};"
+                f"border: 1px solid rgba(251,191,36,0.3); border-radius: 4px;"
                 "padding: 8px; font-size: 12px;"
             )
             info_layout.addRow("", db_hint)
@@ -282,7 +285,7 @@ class EnvInstallDialog(QDialog):
         self.output_edit = QTextEdit()
         self.output_edit.setReadOnly(True)
         self.output_edit.setStyleSheet(
-            "background: #1e1e1e; color: #d4d4d4;"
+            f"background: {styles.COLOR_BG_TERMINAL}; color: {styles.COLOR_BG_TERMINAL_TEXT};"
             "font-family: Consolas, 'Courier New', monospace;"
             "font-size: 12px; border-radius: 4px; border: none;"
         )
@@ -337,7 +340,7 @@ class EnvInstallDialog(QDialog):
             self._installing = True
             self.install_btn.setEnabled(False)
             self.cancel_btn.setText("关闭")
-            self._set_status("检测到正在后台安装，已接续显示进度...", "color: #1565c0; font-size: 12px;")
+            self._set_status("检测到正在后台安装，已接续显示进度...", f"color: {styles.COLOR_PRIMARY}; font-size: 12px;")
             self._start_polling()
 
     def _on_check_install_error(self, msg: str):
@@ -358,7 +361,7 @@ class EnvInstallDialog(QDialog):
         self.cancel_btn.setText("关闭")
         self._set_status(
             "正在启动后台安装……（安装在服务器端运行，关闭窗口不影响）",
-            "color: #1565c0; font-size: 12px;",
+            f"color: {styles.COLOR_PRIMARY}; font-size: 12px;",
         )
         self.output_edit.clear()
 
@@ -373,7 +376,7 @@ class EnvInstallDialog(QDialog):
             self._job_id = result["job_id"]
             self._set_status(
                 "安装中……（conda 安装可能需要 5-30 分钟，可关闭窗口后台继续）",
-                "color: #1565c0; font-size: 12px;",
+                f"color: {styles.COLOR_PRIMARY}; font-size: 12px;",
             )
             self._start_polling()
         except Exception as exc:
@@ -381,7 +384,7 @@ class EnvInstallDialog(QDialog):
             self._installing = False
             self.install_btn.setEnabled(True)
             self.install_btn.setText("重试")
-            self._set_status(f"启动安装失败: {exc}", "color: #c62828; font-size: 12px;")
+            self._set_status(f"启动安装失败: {exc}", f"color: {styles.COLOR_DANGER}; font-size: 12px;")
 
     def _start_polling(self):
         self._stop_polling()
@@ -414,7 +417,7 @@ class EnvInstallDialog(QDialog):
             self._stop_polling()
             self._installing = False
             self.output_edit.append("\n--- 安装成功 ---\n")
-            self._set_status("安装成功！", "color: #2e7d32; font-size: 13px; font-weight: bold;")
+            self._set_status("安装成功！", f"color: {styles.COLOR_SUCCESS}; font-size: 13px; font-weight: bold;")
             self.install_btn.setText("关闭")
             self.install_btn.setEnabled(True)
             self._rebind_install_btn(self.accept)
@@ -429,7 +432,7 @@ class EnvInstallDialog(QDialog):
             self._installing = False
             exit_code = status.get("exit_code", "?")
             self.output_edit.append(f"\n--- 安装失败 (exit_code={exit_code}) ---\n")
-            self._set_status("安装失败，请检查上方输出或网络后重试。", "color: #c62828; font-size: 12px;")
+            self._set_status("安装失败，请检查上方输出或网络后重试。", f"color: {styles.COLOR_DANGER}; font-size: 12px;")
             self.install_btn.setText("重试")
             self.install_btn.setEnabled(True)
             self._rebind_install_btn(self._on_start_install)

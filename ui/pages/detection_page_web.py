@@ -320,12 +320,12 @@ class DetectionPageWeb(QFrame):
             return
 
         self.web_view = QWebEngineView()
-        self.web_view.setStyleSheet("background: #fafbfc; border: none;")
+        self.web_view.setStyleSheet("background: #F1F5F9; border: none;")
 
         settings = self.web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
-        self.web_view.page().setBackgroundColor(QColor("#fafbfc"))
+        self.web_view.page().setBackgroundColor(QColor("#F1F5F9"))
         self.web_view.loadFinished.connect(self._on_load_finished)
 
         render_process_terminated = getattr(self.web_view.page(), "renderProcessTerminated", None)
