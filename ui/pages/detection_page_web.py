@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tarfile
 import zipfile
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
 from core.execution.tool_bridge_service import ToolBridgeService
@@ -259,6 +260,25 @@ class ToolBridge(QObject):
     def get_multiplex_results_for_execution(self, execution_id: str) -> str:
         result = self._service.get_multiplex_results_for_execution(execution_id)
         return json.dumps(result, ensure_ascii=False)
+
+    @pyqtSlot(str, result=str)
+    def open_local_file(self, local_path: str) -> str:
+        path = Path(str(local_path or "").strip())
+        if not path.exists():
+            return json.dumps({"status": "error", "message": "本地结果文件不存在"}, ensure_ascii=False)
+
+        try:
+            if os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                ok = QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+                if not ok:
+                    raise RuntimeError("系统未能打开该文件")
+        except Exception as exc:
+            logger.exception("打开本地结果文件失败: %s", path)
+            return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
+
+        return json.dumps({"status": "ok", "message": "文件已打开"}, ensure_ascii=False)
 
 
 

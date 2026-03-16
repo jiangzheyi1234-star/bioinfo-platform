@@ -30,6 +30,7 @@ class FakeSSHService:
     def __init__(self) -> None:
         self.commands_run: list[str] = []
         self.uploads: list[tuple[str, str]] = []
+        self.downloads: list[tuple[str, str]] = []
 
     def run(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]:
         self.commands_run.append(cmd)
@@ -38,6 +39,11 @@ class FakeSSHService:
 
     def upload(self, local_path: str, remote_path: str) -> None:
         self.uploads.append((local_path, remote_path))
+
+    def download(self, remote_path: str, local_path: str) -> None:
+        self.downloads.append((remote_path, local_path))
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(local_path).write_text(f"downloaded from {remote_path}", encoding="utf-8")
 
 
 class FakeJobQueue:
@@ -64,9 +70,10 @@ class FakeJobQueue:
 class FakeProjectManager:
     """模拟 ProjectManager"""
 
-    def __init__(self, conn: sqlite3.Connection, project: ProjectInfo) -> None:
+    def __init__(self, conn: sqlite3.Connection, project: ProjectInfo, project_dir: Path | None = None) -> None:
         self._conn = conn
         self._project = project
+        self._project_dir = project_dir or Path.cwd() / "tmp_project"
 
     @property
     def current_project(self) -> Optional[ProjectInfo]:
@@ -75,6 +82,10 @@ class FakeProjectManager:
     @property
     def db(self) -> sqlite3.Connection:
         return self._conn
+
+    @property
+    def current_project_dir(self) -> Path:
+        return self._project_dir
 
 
 # ── 示例 tool.yaml descriptor ─────────────────────────────
@@ -180,8 +191,8 @@ def plugin_registry() -> MagicMock:
 
 
 @pytest.fixture()
-def pm(db_conn: sqlite3.Connection, project: ProjectInfo) -> FakeProjectManager:
-    return FakeProjectManager(db_conn, project)
+def pm(db_conn: sqlite3.Connection, project: ProjectInfo, tmp_path: Path) -> FakeProjectManager:
+    return FakeProjectManager(db_conn, project, tmp_path / project.project_id)
 
 
 @pytest.fixture()
@@ -621,6 +632,33 @@ class TestToolEngineOnCompleted:
         engine.on_job_completed(exec_id, FASTP_DESCRIPTOR, sample_id, output_dir)
 
         assert received == [exec_id]
+
+    def test_on_completed_downloads_result_files_to_project_results_dir(
+        self,
+        engine: ToolEngine,
+        registry: DataRegistry,
+        sample_id: str,
+        ssh: FakeSSHService,
+        pm: FakeProjectManager,
+    ) -> None:
+        data_id = registry.register_input("/data/r1.fq", sample_id, "fastq")
+        exec_id = engine.execute(
+            tool_id="fastp",
+            input_data_ids=[data_id],
+            parameters={},
+            sample_id=sample_id,
+        )
+        output_dir = f"/h2ometa/projects/proj_test123456/intermediate/{sample_id}/fastp"
+
+        engine.on_job_completed(exec_id, FASTP_DESCRIPTOR, sample_id, output_dir)
+
+        manifest_path = pm.current_project_dir / "results" / exec_id / "artifacts_manifest.json"
+        assert manifest_path.exists()
+
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        artifact_names = [item["name"] for item in payload["artifacts"]]
+        assert f"{sample_id}.fastp.html" in artifact_names
+        assert ssh.downloads
 
 
 # ── ToolEngine.on_job_failed 测试 ─────────────────────────

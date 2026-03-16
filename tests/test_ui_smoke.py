@@ -353,6 +353,48 @@ class TestDetectionIntegratedWorkbench:
         assert payload["status"] == "ok"
         assert payload["view"]["remote_result_dir"] == "/remote/exec_abc123"
 
+    def test_tool_bridge_lists_local_execution_artifacts(self, tmp_path: Path):
+        from core.data.project_manager import ProjectManager
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+        )
+        project_id = pm.create_project("artifact project")
+        pm.open_project(project_id)
+        results_dir = pm.current_project_dir / "results" / "exec_demo"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = results_dir / "primer_result_final_2.txt"
+        artifact_path.write_text("demo", encoding="utf-8")
+        (results_dir / "artifacts_manifest.json").write_text(
+            json.dumps(
+                {
+                    "execution_id": "exec_demo",
+                    "tool_id": "primer_design",
+                    "artifacts": [
+                        {
+                            "name": "primer_result_final_2.txt",
+                            "remote_path": "/remote/primer_result_final_2.txt",
+                            "local_path": str(artifact_path),
+                            "available": True,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class _Locator:
+            project_manager = pm
+
+        service = ToolBridgeService(service_locator=_Locator())
+        artifacts = service.list_local_execution_artifacts("exec_demo")
+
+        assert artifacts[0]["name"] == "primer_result_final_2.txt"
+        assert artifacts[0]["available"] is True
+
     def test_tool_bridge_returns_multiplex_results_for_execution(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService
 
