@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import shlex
@@ -70,6 +71,22 @@ class ToolBridgeService:
     ):
         self._service_locator = service_locator
         self._plugin_registry = plugin_registry
+        self._manifest_name = "artifacts_manifest.json"
+        self._result_artifact_names = {
+            "primer_design": [
+                "primer_result_final_2.txt",
+                "primer_result_final.txt",
+                "primer_result.txt",
+                "dimer_score.txt",
+            ],
+            "multiplex_primer_panel": [
+                "multiplex_panel.txt",
+                "synthesis_order.txt",
+                "pool_cross_dimer.txt",
+                "insilico_pcr_result.txt",
+                "optimization_log.txt",
+            ],
+        }
 
     def set_service_locator(self, sl: ServiceLocator | None) -> None:
         self._service_locator = sl
@@ -163,10 +180,10 @@ class ToolBridgeService:
                         },
                     ],
                     "artifacts": [
-                        "primer_result_final_2.txt（首选展示）",
-                        "primer_result_final.txt",
-                        "dimer_score.txt",
-                        "运行日志 / 原始结果包",
+                        {"name": "primer_result_final_2.txt", "remote_path": "", "local_path": "", "available": False},
+                        {"name": "primer_result_final.txt", "remote_path": "", "local_path": "", "available": False},
+                        {"name": "dimer_score.txt", "remote_path": "", "local_path": "", "available": False},
+                        {"name": "运行日志 / 原始结果包", "remote_path": "", "local_path": "", "available": False},
                     ],
                 }
             },
@@ -424,44 +441,175 @@ class ToolBridgeService:
             return f"{default_root.rstrip('/')}/my_result"
         return "my_result"
 
-    def get_live_primer_design_view(self) -> dict | None:
+    def _get_current_project_dir(self) -> Path | None:
+        pm = self._get_project_manager()
+        if pm is None:
+            return None
+        project_dir = getattr(pm, "current_project_dir", None)
+        return Path(project_dir) if project_dir else None
+
+    def _execution_results_dir(self, execution_id: str) -> Path | None:
+        project_dir = self._get_current_project_dir()
+        if project_dir is None or not execution_id:
+            return None
+        return project_dir / "results" / execution_id
+
+    def _manifest_path(self, cache_key: str) -> Path | None:
+        project_dir = self._get_current_project_dir()
+        if project_dir is None or not cache_key:
+            return None
+        return project_dir / "results" / cache_key / self._manifest_name
+
+    def _load_manifest(self, cache_key: str) -> dict | None:
+        manifest_path = self._manifest_path(cache_key)
+        if manifest_path is None or not manifest_path.exists():
+            return None
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except Exception:
+            logger.exception("读取结果文件清单失败: %s", manifest_path)
+            return None
+
+    def _normalize_artifacts(self, artifacts: list[dict] | None) -> list[dict]:
+        normalized: list[dict] = []
+        for item in artifacts or []:
+            if not isinstance(item, dict):
+                continue
+            local_path = str(item.get("local_path") or "").strip()
+            available = bool(item.get("available"))
+            if local_path:
+                available = Path(local_path).exists()
+            normalized.append(
+                {
+                    "name": str(item.get("name") or "").strip(),
+                    "remote_path": str(item.get("remote_path") or "").strip(),
+                    "local_path": local_path,
+                    "available": available,
+                    "error": str(item.get("error") or "").strip(),
+                }
+            )
+        return normalized
+
+    def _artifact_by_name(self, artifacts: list[dict], name: str) -> dict | None:
+        for artifact in artifacts:
+            if artifact.get("name") == name:
+                return artifact
+        return None
+
+    def _read_local_artifact_text(self, artifacts: list[dict], name: str) -> str:
+        artifact = self._artifact_by_name(artifacts, name)
+        if artifact is None:
+            return ""
+        local_path = str(artifact.get("local_path") or "").strip()
+        if not local_path:
+            return ""
+        path = Path(local_path)
+        if not path.exists():
+            return ""
+        try:
+            return path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            logger.exception("读取本地结果文件失败: %s", local_path)
+            return ""
+
+    def _count_local_artifact_lines(self, artifacts: list[dict], name: str) -> int | None:
+        content = self._read_local_artifact_text(artifacts, name)
+        if not content:
+            return None
+        return len([line for line in content.splitlines() if line.strip()])
+
+    def _remote_cache_key(self, tool_id: str, remote_result_dir: str) -> str:
+        digest = hashlib.sha1(remote_result_dir.encode("utf-8")).hexdigest()[:12]
+        return f"{tool_id}_{digest}"
+
+    def _cache_remote_artifacts(self, tool_id: str, remote_result_dir: str) -> list[dict]:
+        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
+        if not normalized_dir:
+            return []
+
+        cache_key = self._remote_cache_key(tool_id, normalized_dir)
+        manifest = self._load_manifest(cache_key)
+        if manifest:
+            return self._normalize_artifacts(manifest.get("artifacts"))
+
+        ssh = self._get_ssh_service()
+        manifest_path = self._manifest_path(cache_key)
+        if ssh is None or not getattr(ssh, "is_connected", False) or manifest_path is None:
+            return []
+
+        results_dir = manifest_path.parent
+        results_dir.mkdir(parents=True, exist_ok=True)
+        artifacts: list[dict] = []
+        for name in self._result_artifact_names.get(tool_id, []):
+            remote_path = f"{normalized_dir}/{name}"
+            local_path = results_dir / name
+            available = False
+            error = ""
+            try:
+                ssh.download(remote_path, str(local_path))
+                available = local_path.exists()
+            except Exception as exc:
+                error = str(exc)
+                logger.warning("缓存远端结果文件失败: %s (%s)", remote_path, exc)
+            item = {
+                "name": name,
+                "remote_path": remote_path,
+                "local_path": str(local_path),
+                "available": available,
+            }
+            if error:
+                item["error"] = error
+            artifacts.append(item)
+
+        try:
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "execution_id": cache_key,
+                        "tool_id": tool_id,
+                        "output_dir": normalized_dir,
+                        "artifacts": artifacts,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.exception("写入远端结果缓存清单失败: %s", manifest_path)
+        return self._normalize_artifacts(artifacts)
+
+    def list_local_execution_artifacts(self, execution_id: str) -> list[dict]:
+        manifest = self._load_manifest(str(execution_id or "").strip())
+        if manifest:
+            return self._normalize_artifacts(manifest.get("artifacts"))
+        return []
+
+    def download_execution_artifacts(self, execution_id: str) -> list[dict]:
+        return self.list_local_execution_artifacts(execution_id)
+
+    def _build_primer_view_from_artifacts(
+        self,
+        artifacts: list[dict],
+        remote_result_dir: str,
+        description: str,
+        status: dict,
+        parameters: list[dict],
+    ) -> dict | None:
         base = copy.deepcopy(self.base_integrated_workbench_config()["views"]["primer_design"])
-        execution = self.find_latest_completed_execution(list(base.get("tool_ids", [])))
-        if not execution:
-            return None
-
-        final_path = self.find_registered_output(execution["execution_id"], "primer_result_final_2.txt")
-        if not final_path:
-            return None
-
-        rows = self.parse_primer_result_text(self.read_remote_file(final_path))
+        rows = self.parse_primer_result_text(self._read_local_artifact_text(artifacts, "primer_result_final_2.txt"))
         if not rows:
             return None
 
-        output_dir = str(Path(final_path).parent).replace("\\", "/")
-        all_candidates_count = self.count_remote_lines(f"{output_dir}/primer_result.txt") or len(rows)
-        filtered_count = self.count_remote_lines(f"{output_dir}/primer_result_final.txt") or len(rows)
-        dimer_count = self.count_remote_lines(f"{output_dir}/dimer_score.txt") or len(rows)
-        params = self.safe_json_loads(execution.get("parameters") or "")
-        mode = params.get("mode", "quick")
-        ts = execution.get("completed_at") or execution.get("created_at") or time.time()
-
-        base["description"] = (
-            f"最新结果来自样本 {execution.get('sample_name') or execution.get('sample_id') or '-'}，"
-            f"执行 ID：{execution['execution_id']}。"
-        )
-        base["status"] = {
-            "state": "completed",
-            "label": "已加载最新结果",
-            "detail": f"完成时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))} · 模式：{mode}",
-        }
-        base["parameters"] = [
-            {"label": "样本", "value": execution.get("sample_name") or execution.get("sample_id") or "-"},
-            {"label": "工具 ID", "value": execution.get("tool_id") or "primer_design"},
-            {"label": "运行模式", "value": str(mode)},
-            {"label": "执行 ID", "value": execution["execution_id"]},
-            {"label": "输出目录", "value": output_dir},
-        ]
+        all_candidates_count = self._count_local_artifact_lines(artifacts, "primer_result.txt") or len(rows)
+        filtered_count = self._count_local_artifact_lines(artifacts, "primer_result_final.txt") or len(rows)
+        dimer_count = self._count_local_artifact_lines(artifacts, "dimer_score.txt") or len(rows)
+        base["description"] = description
+        base["status"] = status
+        base["parameters"] = parameters
         base["summary"] = [
             {"label": "目标病原体", "value": str(len(rows)), "tone": "primary"},
             {"label": "候选引物对", "value": str(all_candidates_count), "tone": "info"},
@@ -469,65 +617,84 @@ class ToolBridgeService:
             {"label": "二聚体分析记录", "value": str(dimer_count), "tone": "accent"},
         ]
         base["rows"] = rows
-        base["artifacts"] = [
-            f"{output_dir}/primer_result_final_2.txt",
-            f"{output_dir}/primer_result_final.txt",
-            f"{output_dir}/primer_result.txt",
-            f"{output_dir}/dimer_score.txt",
-        ]
-        base["remote_result_dir"] = output_dir
+        base["artifacts"] = artifacts
+        base["remote_result_dir"] = remote_result_dir
         return base
 
+    def _build_multiplex_view_from_artifacts(
+        self,
+        artifacts: list[dict],
+        remote_result_dir: str,
+        description: str,
+        status: dict,
+        parameters: list[dict],
+    ) -> dict | None:
+        rows = self.parse_multiplex_result_text(self._read_local_artifact_text(artifacts, "multiplex_panel.txt"))
+        if not rows:
+            return None
+
+        synthesis_count = self._count_local_artifact_lines(artifacts, "synthesis_order.txt")
+        optimization_count = self._count_local_artifact_lines(artifacts, "optimization_log.txt")
+        return {
+            "tool_ids": ["multiplex_primer_panel"],
+            "title": "多重引物池设计",
+            "description": description,
+            "status": status,
+            "parameters": parameters,
+            "summary": [
+                {"label": "入池病原体", "value": str(len(rows)), "tone": "primary"},
+                {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
+                {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
+                {"label": "优化轮次", "value": str(max((optimization_count or 1) - 1, 0)), "tone": "accent"},
+            ],
+            "columns": [
+                {"key": "pathogen", "label": "Pathogen"},
+                {"key": "region_id", "label": "Region ID"},
+                {"key": "forward_primer", "label": "Forward Primer"},
+                {"key": "reverse_primer", "label": "Reverse Primer"},
+                {"key": "amplicon_length", "label": "Amplicon Length"},
+                {"key": "target_sequence", "label": "Target Sequence"},
+                {"key": "conservation_score", "label": "Conservation Score"},
+                {"key": "specificity_score", "label": "Specificity Score"},
+                {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
+            ],
+            "rows": rows,
+            "artifacts": artifacts,
+            "remote_result_dir": remote_result_dir,
+        }
+
+    def get_live_primer_design_view(self) -> dict | None:
+        execution = self.find_latest_completed_execution(["primer_design"])
+        if not execution:
+            return None
+        return self.get_primer_view_for_execution(execution["execution_id"])
+
     def build_primer_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
-        base = copy.deepcopy(self.base_integrated_workbench_config()["views"]["primer_design"])
         normalized_dir = (remote_result_dir or "").strip().rstrip("/")
         if not normalized_dir:
             return None
-
-        final_path = f"{normalized_dir}/primer_result_final_2.txt"
-        rows = self.parse_primer_result_text(self.read_remote_file(final_path))
-        if not rows:
-            return None
-
-        all_candidates_count = self.count_remote_lines(f"{normalized_dir}/primer_result.txt") or len(rows)
-        filtered_count = self.count_remote_lines(f"{normalized_dir}/primer_result_final.txt") or len(rows)
-        dimer_count = self.count_remote_lines(f"{normalized_dir}/dimer_score.txt") or len(rows)
-
-        base["description"] = f"当前结果来自远程目录：{normalized_dir}"
-        base["status"] = {
-            "state": "completed",
-            "label": "已加载远程结果",
-            "detail": "直接从服务器结果目录读取，并同步载入主结果文件。",
-        }
-        base["parameters"] = [
-            {"label": "结果目录", "value": normalized_dir},
-            {"label": "结果来源", "value": "远程目录直接读取"},
-            {"label": "主文件", "value": "primer_result_final_2.txt"},
-        ]
-        base["summary"] = [
-            {"label": "目标病原体", "value": str(len(rows)), "tone": "primary"},
-            {"label": "候选引物对", "value": str(all_candidates_count), "tone": "info"},
-            {"label": "通过二聚体过滤", "value": str(filtered_count), "tone": "success"},
-            {"label": "二聚体分析记录", "value": str(dimer_count), "tone": "accent"},
-        ]
-        base["rows"] = rows
-        base["artifacts"] = [
-            f"{normalized_dir}/primer_result_final_2.txt",
-            f"{normalized_dir}/primer_result_final.txt",
-            f"{normalized_dir}/primer_result.txt",
-            f"{normalized_dir}/dimer_score.txt",
-        ]
-        base["remote_result_dir"] = normalized_dir
-        return base
+        artifacts = self._cache_remote_artifacts("primer_design", normalized_dir)
+        return self._build_primer_view_from_artifacts(
+            artifacts=artifacts,
+            remote_result_dir=normalized_dir,
+            description=f"当前结果来自远程目录：{normalized_dir}",
+            status={
+                "state": "completed",
+                "label": "已加载远程结果",
+                "detail": "结果文件已同步到当前项目本地，并从本地结果构建视图。",
+            },
+            parameters=[
+                {"label": "结果目录", "value": normalized_dir},
+                {"label": "结果来源", "value": "远程目录同步到本地"},
+                {"label": "主文件", "value": "primer_result_final_2.txt"},
+            ],
+        )
 
     def get_primer_view_for_execution(self, execution_id: str) -> dict | None:
         normalized_execution_id = str(execution_id or "").strip()
         if not normalized_execution_id:
             return None
-
-        final_path = self.find_registered_output(normalized_execution_id, "primer_result_final_2.txt")
-        if final_path:
-            return self.build_primer_view_from_result_dir(str(Path(final_path).parent).replace("\\", "/"))
+        artifacts = self.list_local_execution_artifacts(normalized_execution_id)
 
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
@@ -553,27 +720,54 @@ class ToolBridgeService:
             return None
 
         remote_dir = f"{pm.current_project.remote_base}/intermediate/{row['sample_id']}/primer_design_{normalized_execution_id}"
-        return self.build_primer_view_from_result_dir(remote_dir)
+        if not artifacts:
+            artifacts = self._cache_remote_artifacts("primer_design", remote_dir)
+
+        exec_row = pm.db.execute(
+            """
+            SELECT e.parameters, e.created_at, e.completed_at, e.tool_id, s.name AS sample_name
+            FROM executions e
+            LEFT JOIN samples s ON s.sample_id = e.sample_id
+            WHERE e.execution_id = ?
+            LIMIT 1
+            """,
+            (normalized_execution_id,),
+        ).fetchone()
+        params = self.safe_json_loads(exec_row["parameters"] if exec_row else "")
+        mode = params.get("mode", "quick")
+        ts = (exec_row["completed_at"] if exec_row else None) or (exec_row["created_at"] if exec_row else None) or time.time()
+        return self._build_primer_view_from_artifacts(
+            artifacts=artifacts,
+            remote_result_dir=remote_dir,
+            description=(
+                f"最新结果来自样本 {exec_row['sample_name'] if exec_row else row['sample_id']}，"
+                f"执行 ID：{normalized_execution_id}。"
+            ),
+            status={
+                "state": "completed",
+                "label": "已加载本地结果",
+                "detail": f"完成时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))} · 模式：{mode}",
+            },
+            parameters=[
+                {"label": "样本", "value": (exec_row["sample_name"] if exec_row else None) or row["sample_id"] or "-"},
+                {"label": "工具 ID", "value": "primer_design"},
+                {"label": "运行模式", "value": str(mode)},
+                {"label": "执行 ID", "value": normalized_execution_id},
+                {"label": "输出目录", "value": remote_dir},
+            ],
+        )
 
     def get_live_multiplex_primer_panel_view(self) -> dict | None:
         execution = self.find_latest_completed_execution(["multiplex_primer_panel"])
         if not execution:
             return None
-
-        panel_path = self.find_registered_output(execution["execution_id"], "multiplex_panel.txt")
-        if not panel_path:
-            return None
-
-        return self.build_multiplex_view_from_result_dir(str(Path(panel_path).parent).replace("\\", "/"))
+        return self.get_multiplex_view_for_execution(execution["execution_id"])
 
     def get_multiplex_view_for_execution(self, execution_id: str) -> dict | None:
         normalized_execution_id = str(execution_id or "").strip()
         if not normalized_execution_id:
             return None
-
-        panel_path = self.find_registered_output(normalized_execution_id, "multiplex_panel.txt")
-        if panel_path:
-            return self.build_multiplex_view_from_result_dir(str(Path(panel_path).parent).replace("\\", "/"))
+        artifacts = self.list_local_execution_artifacts(normalized_execution_id)
 
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
@@ -602,116 +796,44 @@ class ToolBridgeService:
             f"{pm.current_project.remote_base}/intermediate/"
             f"{row['sample_id']}/multiplex_primer_panel_{normalized_execution_id}"
         )
-        return self.build_multiplex_view_from_result_dir(remote_dir)
-
-    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
-        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
-        if not normalized_dir:
-            return None
-
-        panel_path = f"{normalized_dir}/multiplex_panel.txt"
-        rows = self.parse_multiplex_result_text(self.read_remote_file(panel_path))
-        if not rows:
-            return None
-
-        synthesis_count = self.count_remote_lines(f"{normalized_dir}/synthesis_order.txt")
-        optimization_count = self.count_remote_lines(f"{normalized_dir}/optimization_log.txt")
-
-        return {
-            "tool_ids": ["multiplex_primer_panel"],
-            "title": "多重引物池设计",
-            "description": f"查看多重引物池结果目录：{normalized_dir}",
-            "status": {
-                "state": "completed",
-                "label": "已完成",
-                "detail": "已读取 multiplex_panel.txt 与相关产物。",
-            },
-            "parameters": [
-                {"label": "结果目录", "value": normalized_dir},
-                {"label": "主结果", "value": "multiplex_panel.txt"},
-                {"label": "订单文件", "value": "synthesis_order.txt"},
-            ],
-            "summary": [
-                {"label": "已入池病原体", "value": str(len(rows)), "tone": "primary"},
-                {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
-                {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
-                {"label": "优化日志", "value": str(optimization_count or 0), "tone": "accent"},
-            ],
-            "columns": [
-                {"key": "pathogen", "label": "Pathogen"},
-                {"key": "region_id", "label": "Region ID"},
-                {"key": "forward_primer", "label": "Forward Primer"},
-                {"key": "reverse_primer", "label": "Reverse Primer"},
-                {"key": "amplicon_length", "label": "Amplicon Length"},
-                {"key": "target_sequence", "label": "Target Sequence"},
-                {"key": "conservation_score", "label": "Conservation Score"},
-                {"key": "specificity_score", "label": "Specificity Score"},
-                {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
-            ],
-            "rows": rows,
-            "artifacts": [
-                f"{normalized_dir}/multiplex_panel.txt",
-                f"{normalized_dir}/synthesis_order.txt",
-                f"{normalized_dir}/pool_cross_dimer.txt",
-                f"{normalized_dir}/optimization_log.txt",
-            ],
-            "remote_result_dir": normalized_dir,
-        }
-
-    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
-        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
-        if not normalized_dir:
-            return None
-
-        panel_path = f"{normalized_dir}/multiplex_panel.txt"
-        rows = self.parse_multiplex_result_text(self.read_remote_file(panel_path))
-        if not rows:
-            return None
-
-        synthesis_count = self.count_remote_lines(f"{normalized_dir}/synthesis_order.txt")
-        optimization_count = self.count_remote_lines(f"{normalized_dir}/optimization_log.txt")
-
-        return {
-            "tool_ids": ["multiplex_primer_panel"],
-            "title": "多重引物池设计",
-            "description": f"查看最终多重引物池结果与相关报告：{normalized_dir}",
-            "status": {
+        if not artifacts:
+            artifacts = self._cache_remote_artifacts("multiplex_primer_panel", remote_dir)
+        return self._build_multiplex_view_from_artifacts(
+            artifacts=artifacts,
+            remote_result_dir=remote_dir,
+            description=f"查看最终多重引物池结果与相关报告：{remote_dir}",
+            status={
                 "state": "completed",
                 "label": "结果可用",
-                "detail": "已检测到 multiplex_panel.txt，可在此查看最终 panel。",
+                "detail": "结果文件已同步到当前项目本地，可直接打开本地文件。",
             },
-            "parameters": [
+            parameters=[
+                {"label": "结果目录", "value": remote_dir},
+                {"label": "主结果", "value": "multiplex_panel.txt"},
+                {"label": "合成订单", "value": "synthesis_order.txt"},
+            ],
+        )
+
+    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
+        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
+        if not normalized_dir:
+            return None
+        artifacts = self._cache_remote_artifacts("multiplex_primer_panel", normalized_dir)
+        return self._build_multiplex_view_from_artifacts(
+            artifacts=artifacts,
+            remote_result_dir=normalized_dir,
+            description=f"查看最终多重引物池结果与相关报告：{normalized_dir}",
+            status={
+                "state": "completed",
+                "label": "结果可用",
+                "detail": "结果文件已同步到当前项目本地，可直接打开本地文件。",
+            },
+            parameters=[
                 {"label": "结果目录", "value": normalized_dir},
                 {"label": "主结果", "value": "multiplex_panel.txt"},
                 {"label": "合成订单", "value": "synthesis_order.txt"},
             ],
-            "summary": [
-                {"label": "入池病原体", "value": str(len(rows)), "tone": "primary"},
-                {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
-                {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
-                {"label": "优化轮次", "value": str(max((optimization_count or 1) - 1, 0)), "tone": "accent"},
-            ],
-            "columns": [
-                {"key": "pathogen", "label": "Pathogen"},
-                {"key": "region_id", "label": "Region ID"},
-                {"key": "forward_primer", "label": "Forward Primer"},
-                {"key": "reverse_primer", "label": "Reverse Primer"},
-                {"key": "amplicon_length", "label": "Amplicon Length"},
-                {"key": "target_sequence", "label": "Target Sequence"},
-                {"key": "conservation_score", "label": "Conservation Score"},
-                {"key": "specificity_score", "label": "Specificity Score"},
-                {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
-            ],
-            "rows": rows,
-            "artifacts": [
-                f"{normalized_dir}/multiplex_panel.txt",
-                f"{normalized_dir}/synthesis_order.txt",
-                f"{normalized_dir}/pool_cross_dimer.txt",
-                f"{normalized_dir}/insilico_pcr_result.txt",
-                f"{normalized_dir}/optimization_log.txt",
-            ],
-            "remote_result_dir": normalized_dir,
-        }
+        )
 
     def get_tools(self) -> list[dict]:
         if not self._plugin_registry:

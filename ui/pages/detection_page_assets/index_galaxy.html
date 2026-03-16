@@ -122,19 +122,25 @@
                     <h2>任务历史</h2>
                     <button class="btn-refresh" id="btn-refresh">↻ 刷新</button>
                 </div>
-                <!-- 伪造表头 -->
-                <div class="task-list-header">
-                    <div class="col-indicator"></div>
-                    <div class="col-status">状态</div>
-                    <div class="col-tool">分析工具</div>
-                    <div class="col-sample">样本名称</div>
-                    <div class="col-params">执行参数</div>
-                    <div class="col-time">开始时间</div>
-                    <div class="col-duration">耗时</div>
-                    <div class="col-actions"></div>
+                <div class="history-search-wrap">
+                    <input class="history-search-input" id="history-search" type="text" placeholder="搜索任务..." />
                 </div>
-                <div class="history-body" id="history-container">
-                    <div class="empty-row" style="text-align: center; padding: 40px; color: #6c757d;">暂无执行记录</div>
+                <div class="history-table-card">
+                    <div class="history-scroll">
+                        <div class="task-list-header">
+                            <div class="col-indicator"></div>
+                            <div class="col-status">状态</div>
+                            <div class="col-tool">分析工具</div>
+                            <div class="col-sample">样本名称</div>
+                            <div class="col-params">执行参数</div>
+                            <div class="col-time">开始时间</div>
+                            <div class="col-duration">耗时</div>
+                            <div class="col-actions">操作</div>
+                        </div>
+                        <div class="history-body" id="history-container">
+                            <div class="empty-row" style="text-align: center; padding: 40px; color: #6c757d;">暂无执行记录</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

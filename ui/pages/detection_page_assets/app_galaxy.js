@@ -5,6 +5,7 @@ let selectedDescriptor = null;
 let integratedWorkbench = null;
 let selectedIntegratedFeatureId = null;
 let databaseResources = [];
+let historyRecords = [];
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
 
@@ -120,6 +121,12 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // 刷新历史按钮
     document.getElementById('btn-refresh').addEventListener('click', loadHistory);
+    const historySearch = document.getElementById('history-search');
+    if (historySearch) {
+        historySearch.addEventListener('input', function(e) {
+            renderHistory(filterHistoryRecords(String(e.target.value || '')));
+        });
+    }
 
     // 运行按钮
     document.getElementById('run-btn').addEventListener('click', runTool);
@@ -694,8 +701,51 @@ function renderArtifactList(artifacts) {
     container.innerHTML = '';
     artifacts.forEach(item => {
         const li = document.createElement('li');
-        li.textContent = item;
+        if (typeof item === 'string') {
+            li.textContent = item;
+            container.appendChild(li);
+            return;
+        }
+
+        const available = Boolean(item && item.available && item.local_path);
+        li.className = available ? 'artifact-item available' : 'artifact-item unavailable';
+        li.innerHTML = `
+            <div class="artifact-main">
+                <span class="artifact-name">${escapeHtml(item?.name || '未命名文件')}</span>
+                <span class="artifact-state">${available ? '已同步' : '不可用'}</span>
+            </div>
+            <div class="artifact-path">${escapeHtml(item?.local_path || item?.remote_path || '')}</div>
+        `;
+        if (available) {
+            li.addEventListener('click', function() {
+                openLocalArtifact(item.local_path);
+            });
+        }
         container.appendChild(li);
+    });
+}
+
+function openLocalArtifact(localPath) {
+    const path = String(localPath || '').trim();
+    if (!path) {
+        showNotice('本地结果文件路径为空');
+        return;
+    }
+    if (!bridge || !bridge.open_local_file) {
+        showNotice('本地文件打开接口不可用');
+        return;
+    }
+
+    bridge.open_local_file(path, function(json) {
+        try {
+            const payload = JSON.parse(json || '{}');
+            if (payload.status !== 'ok') {
+                showNotice(payload.message || '打开本地结果文件失败');
+            }
+        } catch (error) {
+            console.error('Failed to open local artifact:', error);
+            showNotice('打开本地结果文件失败');
+        }
     });
 }
 
@@ -1240,12 +1290,33 @@ function loadHistory() {
     // 调用 Python 获取执行历史
     bridge.get_execution_history(function(json) {
         try {
-            const history = JSON.parse(json);
-            console.log(`✓ Loaded ${history.length} execution records`);
-            renderHistory(history);
+            historyRecords = JSON.parse(json);
+            console.log(`✓ Loaded ${historyRecords.length} execution records`);
+            const historySearch = document.getElementById('history-search');
+            renderHistory(filterHistoryRecords(String(historySearch?.value || '')));
         } catch (e) {
             console.error('Failed to parse history:', e);
         }
+    });
+}
+
+function filterHistoryRecords(query) {
+    const keyword = String(query || '').trim().toLowerCase();
+    if (!keyword) {
+        return historyRecords;
+    }
+    return historyRecords.filter(record => {
+        const toolName = (allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id;
+        const haystack = [
+            record.execution_id,
+            record.tool_id,
+            toolName,
+            record.sample_name,
+            record.sample_id,
+            record.parameters,
+            record.status
+        ].join(' ').toLowerCase();
+        return haystack.includes(keyword);
     });
 }
 
@@ -1379,8 +1450,10 @@ function renderHistory(history) {
 
     if (history.length === 0) {
         container.innerHTML = `
-            <div class="empty-row" style="text-align: center; color: #6c757d; padding: 40px;">
-                暂无执行记录
+            <div class="history-empty-state">
+                <div class="history-empty-icon">∅</div>
+                <div class="history-empty-title">暂无任务记录</div>
+                <div class="history-empty-desc">新的 Primer Design 或 Multiplex Panel Design 任务会在这里显示。</div>
             </div>
         `;
         return;
@@ -1390,25 +1463,16 @@ function renderHistory(history) {
         const row = document.createElement('div');
         row.className = 'task-row';
 
-        // 状态样式
-        const statusMap = {
-            'pending': 'dot-pending',
-            'running': 'dot-running',
-            'completed': 'dot-completed',
-            'failed': 'dot-failed'
-        };
-        const dotClass = statusMap[record.status] || 'dot-unknown';
         const statusText = getStatusText(record.status);
+        const statusClass = getStatusClass(record.status);
 
-        // 计算耗时
         const duration = record.completed_at
             ? formatDuration(record.completed_at - record.created_at)
             : '-';
+        const durationClass = getDurationClass(record.completed_at ? (record.completed_at - record.created_at) : 0);
 
-        // 参数摘要
         const paramsSummary = formatParamsSummary(record.parameters);
-        
-        // 尝试格式化 JSON 方便展示
+
         let prettyJson = '{}';
         try {
             const parsed = typeof record.parameters === 'string' ? JSON.parse(record.parameters) : record.parameters;
@@ -1418,33 +1482,44 @@ function renderHistory(history) {
         }
 
         const toolName = (allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id;
-        const sampleName = escapeHtml(record.sample_name || record.sample_id || '-');
+        const sampleNameRaw = record.sample_name || record.sample_id || '-';
+        const sampleName = escapeHtml(sampleNameRaw);
+        const createdLabel = formatRelativeTime(record.created_at);
+        const exactTime = formatExactTime(record.created_at);
+        const hasDetails = record.status === 'failed' || prettyJson;
 
-        // 构建详情区 (如果是失败任务，额外展示错误信息)
         let detailsHtml = '';
         if (record.status === 'failed' && record.error) {
-            detailsHtml += `<div style="color: #ef4444; margin-bottom: 12px; font-weight: 500; font-size: 13px;">错误信息: ${escapeHtml(record.error)}</div>`;
+            detailsHtml += `<div class="task-error-banner">错误信息: ${escapeHtml(record.error)}</div>`;
         }
         detailsHtml += `<pre class="task-details-pre">${escapeHtml(prettyJson)}</pre>`;
 
         row.innerHTML = `
             <div class="task-summary" onclick="this.parentElement.classList.toggle('expanded')">
                 <div class="col-status-wrap task-status-combo">
-                    <div class="task-status-dot ${dotClass}"></div>
-                    <div class="val-status">${statusText}</div>
+                    <span class="status-inline ${statusClass}">
+                        <span class="status-dot"></span>
+                        ${record.status === 'running' ? '<span class="status-spinner"></span>' : ''}
+                        <span>${statusText}</span>
+                    </span>
                 </div>
-                <div class="col-tool val-tool" title="${toolName}">${toolName}</div>
+                <div class="col-tool val-tool" title="${toolName}">
+                    <div class="tool-primary">${toolName}</div>
+                    <div class="tool-secondary">${escapeHtml(record.tool_id || '')}</div>
+                </div>
                 <div class="col-sample val-sample" title="${sampleName}">${sampleName}</div>
-                <div class="col-params val-params">${escapeHtml(paramsSummary)}</div>
-                <div class="col-time val-time">${formatTime(record.created_at)}</div>
-                <div class="col-duration val-duration">${duration}</div>
+                <div class="col-params val-params" title="${escapeHtml(prettyJson || paramsSummary)}">${escapeHtml(paramsSummary)}</div>
+                <div class="col-time val-time" title="${escapeHtml(exactTime)}">
+                    <div class="time-primary">${createdLabel}</div>
+                </div>
+                <div class="col-duration val-duration ${durationClass}">${duration}</div>
                 <div class="col-actions">
                     <div class="task-actions" onclick="event.stopPropagation()">
                         <!-- 动态插入按钮 -->
                     </div>
                 </div>
             </div>
-            <div class="task-details">
+            <div class="task-details${hasDetails ? '' : ' empty'}">
                 ${detailsHtml}
             </div>
         `;
@@ -1473,10 +1548,8 @@ function renderHistory(history) {
             actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'running') {
             const runningTxt = document.createElement('span');
-            runningTxt.style.color = '#3b82f6';
-            runningTxt.style.fontSize = '12px';
-            runningTxt.style.padding = '4px 8px';
-            runningTxt.textContent = '运行中...';
+            runningTxt.className = 'task-running-hint';
+            runningTxt.textContent = '查看状态';
             actionsContainer.appendChild(runningTxt);
         }
 
@@ -1484,18 +1557,13 @@ function renderHistory(history) {
         if (record.status === 'completed' || record.status === 'failed') {
             const delBtn = document.createElement('button');
             delBtn.className = 'task-action-btn btn-delete';
-            delBtn.textContent = '删除';
+            delBtn.setAttribute('title', '删除任务记录');
+            delBtn.textContent = '⌫';
             delBtn.onclick = function(e) {
                 e.preventDefault();
                 deleteHistoryExecution(record.execution_id);
             };
             actionsContainer.appendChild(delBtn);
-            
-            // 补充更多菜单图标模拟 1.py
-            const moreBtn = document.createElement('button');
-            moreBtn.className = 'task-action-btn';
-            moreBtn.textContent = '•••';
-            actionsContainer.appendChild(moreBtn);
         }
 
         container.appendChild(row);
@@ -1513,10 +1581,20 @@ function getStatusText(status) {
     return statusMap[status] || status;
 }
 
-// 格式化时间
-function formatTime(timestamp) {
+function getStatusClass(status) {
+    const statusMap = {
+        pending: 'pending',
+        running: 'running',
+        completed: 'completed',
+        failed: 'failed'
+    };
+    return statusMap[status] || 'unknown';
+}
+
+function formatExactTime(timestamp) {
     const date = new Date(timestamp * 1000);
     return date.toLocaleString('zh-CN', {
+        year: 'numeric',
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
@@ -1524,7 +1602,25 @@ function formatTime(timestamp) {
     });
 }
 
-// 格式化时长
+function formatRelativeTime(timestamp) {
+    const nowSeconds = Date.now() / 1000;
+    const diff = Math.max(0, Math.round(nowSeconds - Number(timestamp || 0)));
+    if (diff < 60) {
+        return `${diff}秒前`;
+    }
+    if (diff < 3600) {
+        return `${Math.round(diff / 60)}分钟前`;
+    }
+
+    const date = new Date(timestamp * 1000);
+    const now = new Date();
+    const sameDay = date.toDateString() === now.toDateString();
+    if (sameDay) {
+        return `今天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return `${date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })} ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function formatDuration(seconds) {
     if (seconds < 60) {
         return `${Math.round(seconds)}秒`;
@@ -1533,4 +1629,14 @@ function formatDuration(seconds) {
     } else {
         return `${Math.round(seconds / 3600)}小时`;
     }
+}
+
+function getDurationClass(seconds) {
+    if (!seconds || seconds < 3600) {
+        return 'duration-normal';
+    }
+    if (seconds < 3 * 3600) {
+        return 'duration-warn';
+    }
+    return 'duration-long';
 }

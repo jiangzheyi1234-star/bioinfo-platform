@@ -22,6 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from shlex import quote
 from typing import Any, Optional, Protocol
 
@@ -52,11 +53,16 @@ class ProjectManagerProtocol(Protocol):
     @property
     def db(self) -> Any: ...
 
+    @property
+    def current_project_dir(self) -> Any: ...
+
 
 class SSHServiceProtocol(Protocol):
     """SSHService 的最小接口"""
 
     def run(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]: ...
+
+    def download(self, remote_path: str, local_path: str) -> None: ...
 
 
 class JobQueueProtocol(Protocol):
@@ -120,6 +126,21 @@ class ToolEngine(QObject):
     execution_started = pyqtSignal(str)      # execution_id
     execution_completed = pyqtSignal(str)     # execution_id
     execution_failed = pyqtSignal(str, str)   # execution_id, error
+    _EXTRA_RESULT_ARTIFACTS = {
+        "primer_design": [
+            "primer_result_final_2.txt",
+            "primer_result_final.txt",
+            "primer_result.txt",
+            "dimer_score.txt",
+        ],
+        "multiplex_primer_panel": [
+            "multiplex_panel.txt",
+            "synthesis_order.txt",
+            "pool_cross_dimer.txt",
+            "insilico_pcr_result.txt",
+            "optimization_log.txt",
+        ],
+    }
 
     def __init__(
         self,
@@ -299,6 +320,7 @@ class ToolEngine(QObject):
             resolved_paths = CommandBuilder.resolve_output_paths(
                 descriptor, output_dir, sample_id,
             )
+            registered_outputs: list[dict[str, str]] = []
 
             for output_def in descriptor.get("outputs", []):
                 name = output_def["name"]
@@ -330,13 +352,26 @@ class ToolEngine(QObject):
                         "无法验证输出文件存在性，继续注册: %s", file_path,
                     )
 
-                self._registry.register_output(
+                data_id = self._registry.register_output(
                     execution_id=execution_id,
                     file_path=file_path,
                     data_type=data_type,
                     sample_id=sample_id,
                     tier=tier,
                 )
+                registered_outputs.append(
+                    {
+                        "data_id": data_id,
+                        "remote_path": file_path,
+                    }
+                )
+
+            self._download_execution_artifacts(
+                execution_id=execution_id,
+                descriptor=descriptor,
+                output_dir=output_dir,
+                registered_outputs=registered_outputs,
+            )
 
             # 更新执行状态
             self._update_status(execution_id, "completed")
@@ -361,6 +396,103 @@ class ToolEngine(QObject):
 
         logger.error("执行失败: %s — %s", execution_id, error)
         self.execution_failed.emit(execution_id, error)
+
+    def _download_execution_artifacts(
+        self,
+        execution_id: str,
+        descriptor: dict[str, Any],
+        output_dir: str,
+        registered_outputs: list[dict[str, str]],
+    ) -> None:
+        project_dir = getattr(self._projects, "current_project_dir", None)
+        if project_dir is None:
+            logger.warning("当前项目目录不可用，跳过结果文件回传: %s", execution_id)
+            return
+
+        results_dir = Path(project_dir) / "results" / execution_id
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        tool_id = str(descriptor.get("id", "") or "")
+        remote_by_name = {
+            Path(item["remote_path"]).name: item["remote_path"]
+            for item in registered_outputs
+            if item.get("remote_path")
+        }
+        data_id_by_name = {
+            Path(item["remote_path"]).name: item["data_id"]
+            for item in registered_outputs
+            if item.get("remote_path") and item.get("data_id")
+        }
+        artifact_names = list(remote_by_name.keys())
+        artifact_names.extend(self._EXTRA_RESULT_ARTIFACTS.get(tool_id, []))
+
+        ordered_names: list[str] = []
+        seen: set[str] = set()
+        for name in artifact_names:
+            normalized = str(name or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered_names.append(normalized)
+
+        manifest: list[dict[str, Any]] = []
+        for name in ordered_names:
+            remote_path = remote_by_name.get(name) or f"{output_dir.rstrip('/')}/{name}"
+            local_path = results_dir / name
+            available = False
+            error = ""
+            try:
+                self._ssh.download(remote_path, str(local_path))
+                available = local_path.exists()
+            except Exception as exc:
+                error = str(exc)
+                logger.warning(
+                    "结果文件回传失败: %s -> %s (%s)",
+                    remote_path,
+                    local_path,
+                    exc,
+                )
+
+            artifact = {
+                "name": name,
+                "remote_path": remote_path,
+                "local_path": str(local_path),
+                "available": available,
+            }
+            if error:
+                artifact["error"] = error
+            manifest.append(artifact)
+
+            data_id = data_id_by_name.get(name)
+            if data_id:
+                try:
+                    self._registry.update_item_metadata(
+                        data_id,
+                        {
+                            "local_path": str(local_path),
+                            "artifact_available": available,
+                        },
+                    )
+                except Exception:
+                    logger.exception("更新输出元数据失败: %s", data_id)
+
+        manifest_path = results_dir / "artifacts_manifest.json"
+        try:
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "execution_id": execution_id,
+                        "tool_id": tool_id,
+                        "output_dir": output_dir,
+                        "artifacts": manifest,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.exception("写入结果文件清单失败: %s", manifest_path)
 
     def get_record(self, execution_id: str) -> Optional[ExecutionRecord]:
         """获取执行记录

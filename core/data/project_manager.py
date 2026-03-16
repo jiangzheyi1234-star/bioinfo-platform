@@ -304,6 +304,13 @@ class ProjectManager(QObject):
         return self._current_project
 
     @property
+    def current_project_dir(self) -> Optional[Path]:
+        """当前打开项目的本地目录。"""
+        if self._current_project is None:
+            return None
+        return self._projects_root / self._current_project.project_id
+
+    @property
     def db(self) -> sqlite3.Connection:
         """当前项目的数据库连接
 
@@ -313,6 +320,12 @@ class ProjectManager(QObject):
         if self._db_conn is None:
             raise RuntimeError("没有打开的项目，请先调用 open_project()")
         return self._db_conn
+
+    def get_project_dir(self, project_id: str) -> Path:
+        """返回指定项目的本地目录。"""
+        if not project_id:
+            raise ValueError("project_id 不能为空")
+        return self._projects_root / project_id
 
     def close(self) -> None:
         """关闭管理器，释放资源"""

@@ -337,6 +337,20 @@ SELECT * FROM lineage
         ).fetchall()
         return [self._row_to_data_item(r) for r in rows]
 
+    def update_item_metadata(self, data_id: str, metadata: dict[str, Any]) -> None:
+        """合并更新数据项 metadata。"""
+        item = self.get_item(data_id)
+        if item is None:
+            raise KeyError(f"数据项不存在: {data_id}")
+
+        merged = dict(item.metadata or {})
+        merged.update(metadata or {})
+        self._conn.execute(
+            "UPDATE data_items SET metadata = ? WHERE data_id = ?",
+            (json.dumps(merged, ensure_ascii=False), data_id),
+        )
+        self._conn.commit()
+
     def list_executions(
         self, sample_id: str, tool_id: str, status: Optional[str] = None
     ) -> list[dict]:
