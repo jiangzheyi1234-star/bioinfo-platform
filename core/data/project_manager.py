@@ -174,10 +174,12 @@ class ProjectManager(QObject):
         # 初始化 SQLite 数据库
         db_path = project_dir / "project.db"
         self._init_database(db_path)
+        self._save_project_metadata(project)
 
         # 写入索引
         self._index[project_id] = project.to_dict()
         self._save_index()
+        self._save_project_metadata(ProjectInfo.from_dict(self._index[project_id]))
 
         logger.info("项目已创建: %s (%s)", name, project_id)
         self.project_created.emit(project_id)
@@ -255,6 +257,7 @@ class ProjectManager(QObject):
 
         self._index[project_id]["status"] = "archived"
         self._save_index()
+        self._save_project_metadata(ProjectInfo.from_dict(self._index[project_id]))
 
         # 如果归档的是当前项目，关闭连接
         if self._current_project and self._current_project.project_id == project_id:
@@ -434,13 +437,27 @@ class ProjectManager(QObject):
     def _load_index(self) -> dict[str, dict]:
         """从 projects.json 加载项目索引"""
         if not self._index_path.exists():
-            return {}
+            rebuilt = self._rebuild_index_from_projects({})
+            if rebuilt:
+                try:
+                    self._index = rebuilt
+                    self._save_index()
+                except OSError:
+                    logger.exception("重建缺失的项目索引后保存失败")
+            return rebuilt
         try:
             text = self._index_path.read_text(encoding="utf-8")
             data = json.loads(text)
             if not isinstance(data, dict):
                 logger.warning("项目索引格式异常，已重置")
-                return {}
+                rebuilt = self._rebuild_index_from_projects({})
+                if rebuilt:
+                    try:
+                        self._index = rebuilt
+                        self._save_index()
+                    except OSError:
+                        logger.exception("重建异常格式的项目索引后保存失败")
+                return rebuilt
             cleaned: dict[str, dict] = {}
             removed: list[str] = []
             for project_id, raw in data.items():
@@ -453,17 +470,122 @@ class ProjectManager(QObject):
                     continue
                 cleaned[str(project_id)] = raw
 
-            if removed:
+            rebuilt = self._rebuild_index_from_projects(cleaned)
+            if removed or rebuilt != cleaned:
                 logger.warning("项目索引中移除了 %d 个无效条目: %s", len(removed), ", ".join(removed))
                 try:
-                    self._index = cleaned
+                    self._index = rebuilt
                     self._save_index()
                 except OSError:
                     logger.exception("清理无效项目索引条目后保存失败")
-            return cleaned
+            return rebuilt
         except (json.JSONDecodeError, OSError) as e:
             logger.error("加载项目索引失败: %s", e)
-            return {}
+            rebuilt = self._rebuild_index_from_projects({})
+            if rebuilt:
+                try:
+                    self._index = rebuilt
+                    self._save_index()
+                except OSError:
+                    logger.exception("重建损坏的项目索引后保存失败")
+            return rebuilt
+
+    def _rebuild_index_from_projects(self, index: dict[str, dict]) -> dict[str, dict]:
+        """从现有项目目录重建索引，避免索引丢失后界面空白。"""
+        rebuilt = dict(index)
+        changed = False
+
+        if self._projects_root.exists():
+            for project_dir in self._projects_root.iterdir():
+                if not project_dir.is_dir() or project_dir.name.startswith("_"):
+                    continue
+                db_path = project_dir / "project.db"
+                if not db_path.exists():
+                    continue
+                project_id = project_dir.name
+                if project_id in rebuilt:
+                    continue
+                rebuilt[project_id] = self._restore_project_record(project_id, db_path)
+                changed = True
+
+        if changed:
+            logger.warning("项目索引缺失，已从磁盘恢复 %d 个项目", len(rebuilt) - len(index))
+        return rebuilt
+
+    def _restore_project_record(self, project_id: str, db_path: Path) -> dict:
+        """优先从备份索引恢复项目元数据，失败时退化为最小可用记录。"""
+        metadata_path = db_path.parent / "project.json"
+        if metadata_path.exists():
+            try:
+                payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                logger.warning("读取项目元数据失败: %s", metadata_path, exc_info=True)
+            else:
+                if isinstance(payload, dict):
+                    restored = dict(payload)
+                    restored.setdefault("project_id", project_id)
+                    restored.setdefault("description", "")
+                    restored.setdefault("created_at", db_path.stat().st_mtime)
+                    restored.setdefault("status", "active")
+                    restored.setdefault("remote_base", f"~/.h2ometa/projects/{project_id}")
+                    return restored
+
+        backup_record = self._load_project_record_from_backups(project_id)
+        if backup_record is not None:
+            return backup_record
+
+        created_at = db_path.stat().st_mtime
+        return ProjectInfo(
+            project_id=project_id,
+            name=project_id,
+            description="",
+            created_at=created_at,
+            status="active",
+            remote_base=f"~/.h2ometa/projects/{project_id}",
+        ).to_dict()
+
+    def _load_project_record_from_backups(self, project_id: str) -> Optional[dict]:
+        """读取最近一次备份里的 projects.json，恢复项目名等元数据。"""
+        backup_roots = [
+            self._projects_root / "_backups" / project_id,
+            self._projects_root / project_id / "_backups",
+        ]
+        for backups_root in backup_roots:
+            if not backups_root.exists():
+                continue
+            candidates = sorted(
+                (path / "projects.json" for path in backups_root.iterdir() if path.is_dir()),
+                reverse=True,
+            )
+            for candidate in candidates:
+                if not candidate.exists():
+                    continue
+                try:
+                    payload = json.loads(candidate.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    logger.warning("读取项目备份索引失败: %s", candidate, exc_info=True)
+                    continue
+                raw = payload.get(project_id)
+                if isinstance(raw, dict):
+                    restored = dict(raw)
+                    restored.setdefault("project_id", project_id)
+                    restored.setdefault("description", "")
+                    restored.setdefault("created_at", candidate.stat().st_mtime)
+                    restored.setdefault("status", "active")
+                    restored.setdefault("remote_base", f"~/.h2ometa/projects/{project_id}")
+                    return restored
+        return None
+
+    def _save_project_metadata(self, project: ProjectInfo) -> None:
+        """为每个项目写入独立元数据，避免主索引丢失后项目名丢失。"""
+        metadata_path = self._projects_root / project.project_id / "project.json"
+        try:
+            metadata_path.write_text(
+                json.dumps(project.to_dict(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.exception("保存项目元数据失败: %s", metadata_path)
 
     def _save_index(self) -> None:
         """保存项目索引到 projects.json"""
