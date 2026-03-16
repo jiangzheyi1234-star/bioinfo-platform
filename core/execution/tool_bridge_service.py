@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import copy
+import datetime
 import hashlib
 import json
 import logging
@@ -87,6 +88,9 @@ class ToolBridgeService:
                 "insilico_pcr_result.txt",
                 "optimization_log.txt",
             ],
+            "targeted_sequencing": [
+                "targeted_seq_report.txt",
+            ],
         }
 
     def set_service_locator(self, sl: ServiceLocator | None) -> None:
@@ -109,11 +113,11 @@ class ToolBridgeService:
                     "status": "active",
                 },
                 {
-                    "id": "sequence_alignment",
-                    "name": "靶向分析",
+                    "id": "targeted_sequencing",
+                    "name": "靶向测序分析",
                     "badge": "",
-                    "description": "按同一工作台布局接入靶向分析能力。",
-                    "status": "placeholder",
+                    "description": "上传纳米孔 FASTQ，运行 Kraken2 鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
+                    "status": "active",
                 },
                 {
                     "id": "target_screening",
@@ -184,7 +188,36 @@ class ToolBridgeService:
                         {"name": "dimer_score.txt", "remote_path": "", "local_path": "", "available": False},
                         {"name": "运行日志 / 原始结果包", "remote_path": "", "local_path": "", "available": False},
                     ],
-                }
+                },
+                "targeted_sequencing": {
+                    "tool_ids": ["kraken2"],
+                    "title": "靶向测序分析",
+                    "description": "上传纳米孔靶向测序 FASTQ 文件，运行 Kraken2 进行病原体鉴定，以饼图和物种表呈现结果并生成检测报告。",
+                    "status": {
+                        "state": "ready",
+                        "label": "等待运行",
+                        "detail": "配置 Kraken2 数据库并上传 FASTQ 文件后即可开始分析。",
+                    },
+                    "parameters": [
+                        {"label": "输入", "value": "纳米孔 FASTQ 文件"},
+                        {"label": "分析引擎", "value": "Kraken2"},
+                        {"label": "输出", "value": "病原体组成饼图 + 物种表 + 检测报告"},
+                    ],
+                    "summary": [
+                        {"label": "总 Reads", "value": "—", "tone": "primary"},
+                        {"label": "已分类", "value": "—", "tone": "info"},
+                        {"label": "物种数", "value": "—", "tone": "success"},
+                        {"label": "Top 物种", "value": "—", "tone": "accent"},
+                    ],
+                    "columns": [
+                        {"key": "rank", "label": "序号"},
+                        {"key": "name", "label": "病原体名称"},
+                        {"key": "reads", "label": "Reads 数"},
+                        {"key": "percentage", "label": "占比 (%)"},
+                    ],
+                    "rows": [],
+                    "artifacts": [],
+                },
             },
         }
 
@@ -1295,6 +1328,7 @@ class ToolBridgeService:
 
         try:
             db = pm.db
+            self._reconcile_manual_resumed_executions(pm)
             self._reconcile_running_executions(pm)
             superseded_ids = self._get_superseded_running_execution_ids(db)
             cursor = db.cursor()
@@ -1336,6 +1370,68 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to get execution history")
             return []
+
+    def _reconcile_manual_resumed_executions(self, pm) -> None:
+        """If a failed execution is manually resumed on remote, relink it as running."""
+        ssh = self._get_ssh_service()
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return
+
+        rows = pm.db.execute(
+            """
+            SELECT execution_id, sample_id, tool_id
+            FROM executions
+            WHERE status = 'failed' AND archived_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+
+        for row in rows:
+            execution_id = row["execution_id"]
+            sample_id = row["sample_id"]
+            tool_id = row["tool_id"]
+            task_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+
+            try:
+                rc_status, out_status, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+            except Exception:
+                continue
+
+            if rc_status != 0 or out_status.strip().upper() != "RUNNING":
+                continue
+
+            heartbeat_ts = 0
+            try:
+                rc_hb, out_hb, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/heartbeat.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_hb == 0:
+                    heartbeat_ts = int((out_hb or "0").strip() or "0")
+            except Exception:
+                heartbeat_ts = 0
+
+            now_ts = int(time.time())
+            if heartbeat_ts > 0 and (now_ts - heartbeat_ts) > 900:
+                continue
+
+            try:
+                pm.db.execute(
+                    """
+                    UPDATE executions
+                    SET status = 'running', error = NULL, completed_at = NULL
+                    WHERE execution_id = ?
+                    """,
+                    (execution_id,),
+                )
+                pm.db.commit()
+                logger.info("Re-linked failed execution as running: %s", execution_id)
+            except Exception:
+                logger.exception("Failed to relink execution %s", execution_id)
 
     def _reconcile_running_executions(self, pm) -> None:
         ssh = self._get_ssh_service()
@@ -1398,17 +1494,22 @@ class ToolBridgeService:
                 except Exception:
                     logger.exception("Failed to reconcile completed execution %s", execution_id)
 
-            error_msg = "任务已结束，但状态未回写"
+            error_msg = "Remote execution ended unexpectedly"
+            status_text = ""
             try:
                 rc_status, out_status, _ = ssh.run(
                     f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
                     timeout=10,
                 )
                 if rc_status == 0 and out_status.strip():
-                    error_msg = f"远端状态: {out_status.strip()}"
+                    status_text = out_status.strip().upper()
+                    error_msg = f"remote status: {out_status.strip()}"
             except Exception:
                 logger.debug("Failed to read status for %s", execution_id, exc_info=True)
 
+            if status_text == "RUNNING":
+                # Manual resume may run outside screen; keep running state.
+                continue
             try:
                 tool_engine.on_job_failed(execution_id, error_msg)
                 logger.info("Reconciled stale running execution as failed: %s", execution_id)
@@ -1572,3 +1673,172 @@ class ToolBridgeService:
             }
         return {"status": "ok", "view": view}
 
+    def get_targeted_seq_results_for_execution(self, execution_id: str) -> dict:
+        view = self._build_targeted_seq_view_for_execution(execution_id)
+        if view is None:
+            return {
+                "status": "error",
+                "message": "未能从该任务读取靶向测序结果，请确认任务已完成且 kreport 文件已生成。",
+            }
+        return {"status": "ok", "view": view}
+
+    def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | None:
+        """从 execution 记录构建靶向测序结果 view（含饼图 + 表格 + 报告）。"""
+        from core.pipeline.chart_data_parser import ChartDataParser
+
+        normalized_id = str(execution_id or "").strip()
+        if not normalized_id:
+            return None
+
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+        self.normalize_project_remote_base(pm)
+
+        try:
+            row = pm.db.execute(
+                "SELECT tool_id, sample_id FROM executions WHERE execution_id = ? LIMIT 1",
+                (normalized_id,),
+            ).fetchone()
+        except Exception:
+            logger.exception("Failed to query execution %s", normalized_id)
+            return None
+
+        if not row or row["tool_id"] != "kraken2":
+            return None
+
+        sample_id = row["sample_id"]
+        remote_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/kraken2_{normalized_id}"
+
+        # 下载 kreport 到本地缓存
+        results_dir = self._execution_results_dir(normalized_id)
+        if results_dir is None:
+            return None
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        kreport_name = f"{sample_id}.kreport"
+        local_kreport = results_dir / kreport_name
+        if not local_kreport.exists():
+            ssh = self._get_ssh_service()
+            if ssh is None or not getattr(ssh, "is_connected", False):
+                return None
+            try:
+                ssh.download(f"{remote_dir}/{kreport_name}", str(local_kreport))
+            except Exception as exc:
+                logger.warning("下载 kreport 失败: %s", exc)
+                return None
+
+        if not local_kreport.exists():
+            return None
+
+        # 解析数据
+        chart_data = ChartDataParser.parse_kreport(str(local_kreport))
+        summary_data = ChartDataParser.parse_kreport_summary(str(local_kreport))
+
+        # 构建表格行
+        rows = []
+        for i, item in enumerate(chart_data.get("data", []), 1):
+            rows.append({
+                "rank": str(i),
+                "name": item["name"],
+                "reads": f'{item.get("reads", 0):,}',
+                "percentage": f'{item["value"]:.2f}%',
+            })
+
+        # 摘要卡片
+        total = summary_data["total_reads"]
+        classified = summary_data["classified_reads"]
+        pct = f"{classified / total * 100:.1f}%" if total > 0 else "0%"
+        summary = [
+            {"label": "总 Reads", "value": f"{total:,}", "tone": "primary"},
+            {"label": "已分类", "value": f"{classified:,} ({pct})", "tone": "info"},
+            {"label": "物种数", "value": str(summary_data["species_count"]), "tone": "success"},
+            {"label": "Top 物种", "value": summary_data["top_species"], "tone": "accent"},
+        ]
+
+        # 生成报告
+        report_path = self._generate_targeted_seq_report(
+            summary_data, chart_data.get("data", []), results_dir
+        )
+
+        # 构建 artifacts
+        artifacts = [
+            {
+                "name": kreport_name,
+                "remote_path": f"{remote_dir}/{kreport_name}",
+                "local_path": str(local_kreport),
+                "available": True,
+            },
+        ]
+        if report_path and report_path.exists():
+            artifacts.append({
+                "name": "targeted_seq_report.txt",
+                "remote_path": "",
+                "local_path": str(report_path),
+                "available": True,
+            })
+
+        return {
+            "tool_ids": ["kraken2"],
+            "title": "靶向测序分析",
+            "table_title": "病原体物种组成",
+            "description": "纳米孔靶向测序 Kraken2 分析结果",
+            "status": {"state": "completed", "label": "分析完成", "detail": "已生成病原体组成饼图和检测报告。"},
+            "parameters": [{"label": "执行 ID", "value": normalized_id}],
+            "summary": summary,
+            "columns": [
+                {"key": "rank", "label": "序号"},
+                {"key": "name", "label": "病原体名称"},
+                {"key": "reads", "label": "Reads 数"},
+                {"key": "percentage", "label": "占比 (%)"},
+            ],
+            "rows": rows,
+            "artifacts": artifacts,
+            "chart": {
+                "type": "pie",
+                "title": "病原体组成",
+                "data": chart_data.get("data", []),
+            },
+        }
+
+    def _generate_targeted_seq_report(
+        self,
+        summary: dict,
+        species_list: list[dict],
+        output_dir: Path,
+    ) -> Path | None:
+        """生成靶向测序病原体检测报告 .txt 文件（UTF-8 BOM）。"""
+        total = summary.get("total_reads", 0)
+        classified = summary.get("classified_reads", 0)
+        pct = f"{classified / total * 100:.1f}" if total > 0 else "0.0"
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        lines = [
+            "=" * 48,
+            "        靶向测序病原体检测报告",
+            "=" * 48,
+            f"生成时间：{now}",
+            f"总 Reads：{total:,}",
+            f"已分类：{classified:,} ({pct}%)",
+            f"物种数：{summary.get('species_count', 0)}",
+            "",
+            f"{'序号':<6}{'病原体名称':<30}{'Reads数':<12}{'占比(%)':<10}",
+            "-" * 58,
+        ]
+        for i, item in enumerate(species_list, 1):
+            name = item.get("name", "")
+            reads = item.get("reads", 0)
+            value = item.get("value", 0)
+            lines.append(f"{i:<6}{name:<30}{reads:<12,}{value:<10.2f}")
+
+        lines.append("=" * 48)
+
+        report_path = output_dir / "targeted_seq_report.txt"
+        try:
+            report_path.write_text(
+                "\n".join(lines) + "\n", encoding="utf-8-sig",
+            )
+            return report_path
+        except Exception:
+            logger.exception("生成靶向测序报告失败: %s", report_path)
+            return None
