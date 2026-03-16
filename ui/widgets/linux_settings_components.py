@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 
 def cleanup_thread_pair(owner, thread_attr: str, worker_attr: str, wait_ms: int) -> None:
     """Stop/delete a (thread, worker) pair stored on an object."""
+    worker = getattr(owner, worker_attr, None)
+    if worker is not None:
+        cancel = getattr(worker, "cancel", None)
+        if callable(cancel):
+            try:
+                cancel()
+            except RuntimeError:
+                logger.debug("Worker already deleted during cancellation", exc_info=True)
+
     thread = getattr(owner, thread_attr, None)
     if thread is not None:
         if thread.isRunning():
@@ -123,12 +132,21 @@ class EnvInstallCheckWorker(QObject):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
         self._tool_id = tool_id
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
 
     @pyqtSlot()
     def run(self):
         try:
+            if self._cancelled:
+                return
             task_dir = f"{_INSTALL_BASE}/{self._tool_id}"
             status = EnvInstaller.check_status(self._ssh_run_fn, task_dir)
+            if self._cancelled:
+                return
             if status["status"] == "RUNNING":
                 self.finished.emit(
                     {
@@ -140,6 +158,8 @@ class EnvInstallCheckWorker(QObject):
             else:
                 self.finished.emit({"is_running": False})
         except Exception as exc:
+            if self._cancelled:
+                return
             logger.exception("EnvInstallCheckWorker 出错")
             self.error.emit(str(exc))
 
@@ -155,16 +175,29 @@ class EnvInstallPollWorker(QObject):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
         self._task_dir = task_dir
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
 
     @pyqtSlot()
     def poll(self):
         try:
+            if self._cancelled:
+                return
             status = EnvInstaller.check_status(self._ssh_run_fn, self._task_dir)
+            if self._cancelled:
+                return
             self.status_updated.emit(status)
             log_text = EnvInstaller.read_log(self._ssh_run_fn, self._task_dir)
+            if self._cancelled:
+                return
             if log_text:
                 self.log_updated.emit(log_text)
         except Exception as exc:
+            if self._cancelled:
+                return
             self.poll_error.emit(str(exc))
 
 

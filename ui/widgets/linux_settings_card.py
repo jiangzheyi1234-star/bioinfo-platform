@@ -62,15 +62,32 @@ class CondaDetectWorker(QObject):
     def __init__(self, ssh_run_fn):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _emit(self, signal_name: str, *args) -> bool:
+        if self._cancelled:
+            return False
+        try:
+            signal = getattr(self, signal_name)
+        except RuntimeError:
+            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
+            return False
+        return _safe_emit(signal, *args)
 
     @pyqtSlot()
     def run(self):
         try:
             result = env_detector.detect(self._ssh_run_fn)
-            _safe_emit(self.finished, result)
+            self._emit("finished", result)
         except Exception as e:
+            if self._cancelled:
+                return
             logger.exception("CondaDetectWorker 出错")
-            _safe_emit(self.error, str(e))
+            self._emit("error", str(e))
 
 
 # ── Miniforge 安装 Worker ─────────────────────────────────────────
@@ -86,6 +103,21 @@ class MiniforgeInstallWorker(QObject):
     def __init__(self, ssh_run_fn):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _emit(self, signal_name: str, *args) -> bool:
+        if self._cancelled:
+            return False
+        try:
+            signal = getattr(self, signal_name)
+        except RuntimeError:
+            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
+            return False
+        return _safe_emit(signal, *args)
 
     @pyqtSlot()
     def run(self):
@@ -94,23 +126,25 @@ class MiniforgeInstallWorker(QObject):
             original_fn = self._ssh_run_fn
 
             def logging_fn(cmd, timeout=15):
-                _safe_emit(self.output_line, f"$ {cmd}\n")
+                self._emit("output_line", f"$ {cmd}\n")
                 rc, stdout, stderr = original_fn(cmd, timeout)
                 if stdout.strip():
                     clean = sanitize_terminal_line(stdout)
                     if clean:
-                        _safe_emit(self.output_line, clean)
+                        self._emit("output_line", clean)
                 if stderr.strip():
                     clean = sanitize_terminal_line(stderr)
                     if clean:
-                        _safe_emit(self.output_line, f"[stderr] {clean}")
+                        self._emit("output_line", f"[stderr] {clean}")
                 return rc, stdout, stderr
 
             result = env_detector.install_miniforge(logging_fn)
-            _safe_emit(self.finished, result)
+            self._emit("finished", result)
         except Exception as e:
+            if self._cancelled:
+                return
             logger.exception("MiniforgeInstallWorker 出错")
-            _safe_emit(self.error, str(e))
+            self._emit("error", str(e))
 
 
 # ── 批量环境检测 Worker ─────────────────────────────────────────────
@@ -136,6 +170,21 @@ class EnvBatchCheckWorker(QObject):
         self.client = client
         self.tools = tools
         self._conda_executable = conda_executable or "conda"
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _emit(self, signal_name: str, *args) -> bool:
+        if self._cancelled:
+            return False
+        try:
+            signal = getattr(self, signal_name)
+        except RuntimeError:
+            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
+            return False
+        return _safe_emit(signal, *args)
 
     @pyqtSlot()
     def run(self):
@@ -154,14 +203,16 @@ class EnvBatchCheckWorker(QObject):
             )
 
             for r in results:
-                if not _safe_emit(self.tool_checked, r.tool_id, r.env_name, r.ok):
+                if not self._emit("tool_checked", r.tool_id, r.env_name, r.ok):
                     return
 
-            _safe_emit(self.finished, conda_envs)
+            self._emit("finished", conda_envs)
 
         except Exception as e:
+            if self._cancelled:
+                return
             logger.exception("EnvBatchCheckWorker 出错")
-            _safe_emit(self.error, str(e))
+            self._emit("error", str(e))
 
 
 # ── 安装状态检查 Worker（对话框初始化时使用）────────────────────────
