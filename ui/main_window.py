@@ -22,7 +22,7 @@ from core.execution.tool_bridge_service import ToolBridgeService
 from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
 from core.remote.storage_manager import StorageManager
-from ui.pages import AnalysisPage, SettingsPage
+from ui.pages import SettingsPage
 from ui.pages.assembly_page import AssemblyPage
 from ui.pages.home_page import HomePage
 from ui.pages.project_page import ProjectPage
@@ -31,8 +31,6 @@ from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 
 logger = logging.getLogger(__name__)
-
-_ANALYSIS_PAGE_INDEX = 4
 
 class _CurrentPageStackedWidget(QStackedWidget):
     """Only use the current page minimum/size hint to avoid window shrink lock."""
@@ -158,9 +156,6 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("注入 PluginRegistry 到 LinuxSettingsCard 失败")
 
-        self.analysis_page = AnalysisPage(main_window=self)
-        self.content.addWidget(self.analysis_page)
-
         self.assembly_page = AssemblyPage(main_window=self)
         self.content.addWidget(self.assembly_page)
 
@@ -168,7 +163,6 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(QListWidgetItem("项目首页"))
         self.sidebar.addItem(QListWidgetItem("病原检测"))
         self.sidebar.addItem(QListWidgetItem("系统设置"))
-        self.sidebar.addItem(QListWidgetItem("分析工作台"))
         self.sidebar.addItem(QListWidgetItem("组装分析"))
 
         for i in range(self.sidebar.count()):
@@ -290,7 +284,7 @@ class MainWindow(QMainWindow):
 
     def _notify_pages_context_changed(self) -> None:
         """Notify pages to refresh UI state when SSH/project context changes."""
-        for page_name in ("home_page", "detection_page", "analysis_page", "assembly_page"):
+        for page_name in ("home_page", "detection_page", "assembly_page"):
             page = getattr(self, page_name, None)
             callback = getattr(page, "refresh_context", None)
             if callable(callback):
@@ -321,26 +315,6 @@ class MainWindow(QMainWindow):
         r1_path: str = "",
         r2_path: str = "",
     ) -> bool:
-        if hasattr(self, "sidebar") and self.sidebar is not None:
-            self.sidebar.setCurrentRow(_ANALYSIS_PAGE_INDEX)
-
-        analysis_page = getattr(self, "analysis_page", None)
-        if analysis_page is None:
-            return False
-
-        if hasattr(analysis_page, "set_sample_context"):
-            analysis_page.set_sample_context(
-                sample_id=sample_id,
-                sample_name=sample_name,
-                r1_path=r1_path,
-                r2_path=r2_path,
-            )
-            return True
-
-        if hasattr(analysis_page, "refresh_context"):
-            analysis_page.refresh_context()
-            return True
-
         return False
 
     def _on_ssh_status_changed(self, connected: bool) -> None:

@@ -64,23 +64,5 @@ class HomePageController:
         return service.get_sample_name(sample_id)
 
     def open_analysis_for_sample(self, service: SampleService, sample_id: str) -> bool:
-        info = service.get_sample_metadata(sample_id)
-        if not info.get("name"):
-            return False
-
-        if self._main_window is None or not hasattr(self._main_window, "open_analysis_for_sample"):
-            return False
-
-        try:
-            metadata = info.get("metadata", {})
-            return bool(
-                self._main_window.open_analysis_for_sample(
-                    sample_id=sample_id,
-                    sample_name=info["name"],
-                    r1_path=metadata.get("r1", ""),
-                    r2_path=metadata.get("r2", ""),
-                )
-            )
-        except Exception:
-            logger.debug("预填分析页参数失败（非严重错误）", exc_info=True)
-            return False
+        logger.debug("Analysis workbench removed; ignoring sample redirect: %s", sample_id)
+        return False
