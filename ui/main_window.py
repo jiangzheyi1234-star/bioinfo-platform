@@ -97,35 +97,12 @@ class MainWindow(QMainWindow):
         sidebar_widget = QWidget()
         sidebar_widget.setFixedWidth(200)
         sidebar_widget.setStyleSheet(
-            f"background-color: {styles.COLOR_BG_CARD};"
+            "background-color: #F6F8FA;"
             f"border-right: 1px solid {styles.COLOR_BORDER};"
         )
         sidebar_layout = QVBoxLayout(sidebar_widget)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
-
-        switcher_container = QWidget()
-        switcher_container.setStyleSheet(
-            f"background-color: {styles.COLOR_BG_CARD}; border: none;"
-        )
-        switcher_layout = QVBoxLayout(switcher_container)
-        switcher_layout.setContentsMargins(12, 12, 12, 8)
-        switcher_layout.setSpacing(4)
-
-        switcher_label = QLabel("当前项目")
-        switcher_label.setStyleSheet(
-            f"font-size: 11px; color: {styles.COLOR_TEXT_HINT};"
-            f"background: {styles.COLOR_BG_BLANK};"
-        )
-        switcher_layout.addWidget(switcher_label)
-
-        self.project_combo = QComboBox()
-        self.project_combo.setPlaceholderText("选择项目...")
-        self.project_combo.setStyleSheet(styles.INPUT_COMBOBOX)
-        self.project_combo.currentIndexChanged.connect(self._on_project_combo_changed)
-        switcher_layout.addWidget(self.project_combo)
-
-        sidebar_layout.addWidget(switcher_container)
 
         self.sidebar = QListWidget()
         self.sidebar.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -246,6 +223,8 @@ class MainWindow(QMainWindow):
         self._notify_pages_context_changed()
 
     def _refresh_project_combo(self) -> None:
+        if not hasattr(self, "project_combo"):
+            return
         self._updating_combo = True
         self.project_combo.clear()
 
@@ -266,6 +245,8 @@ class MainWindow(QMainWindow):
         self._updating_combo = False
 
     def _on_project_combo_changed(self, index: int) -> None:
+        if not hasattr(self, "project_combo"):
+            return
         if self._updating_combo or index < 0:
             return
 
