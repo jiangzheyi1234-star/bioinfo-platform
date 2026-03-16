@@ -10,7 +10,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$SCRIPT_DIR}"
-BLAST_DB_PATH="${BLAST_DB_PATH:-${MULTIPLEX_DB_PATH:-}}"
+export BLAST_DB_PATH="${BLAST_DB_PATH:-${MULTIPLEX_DB_PATH:-}}"
 cd "$PROJECT_DIR" || exit 1
 
 print_info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
