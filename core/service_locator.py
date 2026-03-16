@@ -64,6 +64,7 @@ class ServiceLocator(QObject):
         self._data_registry: Optional[DataRegistry] = None
         self._tool_engine: Optional[ToolEngine] = None
         self._execution_ctx: dict[str, dict[str, Any]] = {}
+        self._task_dirs: dict[str, str] = {}
         self._conda_executable: str = ""
 
     def initialize(self) -> int:
@@ -126,6 +127,10 @@ class ServiceLocator(QObject):
             self._rebuild_engine()
         logger.info("conda_executable 已更新: %s", self._conda_executable or "(空)")
 
+    def get_task_dir(self, execution_id: str) -> Optional[str]:
+        """返回执行任务的远端 task_dir，不存在返回 None。"""
+        return self._task_dirs.get(execution_id)
+
     def _connect_signals(self) -> None:
         self._job_queue.job_started.connect(self._on_dispatch)
         # 事件驱动：JobDispatcher 的信号
@@ -167,12 +172,14 @@ class ServiceLocator(QObject):
             )
 
             logger.info("任务已派发: %s → screen %s", execution_id, job_id)
+            self._task_dirs[execution_id] = task_dir
         except Exception as e:
             logger.exception("任务派发失败: %s", execution_id)
             self._on_failed(execution_id, str(e))
 
     def _on_completed(self, execution_id: str) -> None:
         ctx = self._execution_ctx.pop(execution_id, None)
+        self._task_dirs.pop(execution_id, None)
         if not ctx:
             logger.warning("完成回调: 找不到执行上下文 %s", execution_id)
             return
@@ -204,6 +211,7 @@ class ServiceLocator(QObject):
 
         # 自动重试未生效或重试用尽时，标记最终失败并弹出上下文
         self._execution_ctx.pop(execution_id, None)
+        self._task_dirs.pop(execution_id, None)
         if self._tool_engine:
             self._tool_engine.on_job_failed(execution_id, error)
         self.execution_failed.emit(execution_id, error)
@@ -272,7 +280,35 @@ class ServiceLocator(QObject):
         }
 
     def shutdown(self) -> None:
+        try:
+            self._job_queue.job_started.disconnect(self._on_dispatch)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._job_dispatcher.job_completed.disconnect(self._on_completed)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._job_dispatcher.job_failed.disconnect(self._on_failed)
+        except (TypeError, RuntimeError):
+            pass
+        if hasattr(self._project_manager, "project_opened"):
+            try:
+                self._project_manager.project_opened.disconnect(self._on_project_opened)
+            except (TypeError, RuntimeError):
+                pass
+        if self._tool_engine is not None:
+            try:
+                self._tool_engine.execution_started.disconnect(self.execution_started.emit)
+            except (TypeError, RuntimeError):
+                pass
+
         self._job_dispatcher.stop_all()
+        self._execution_ctx.clear()
+        self._task_dirs.clear()
+        self._tool_engine = None
+        self._data_registry = None
+        self._ssh = None
         self._project_manager.close()
         logger.info("ServiceLocator 已关闭")
 

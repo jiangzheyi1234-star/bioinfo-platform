@@ -33,11 +33,14 @@ class SettingsPage(BasePage):
 
         self.config_path = get_config_path()
         self.setStyleSheet(f"background-color: {COLOR_BG_APP};")
+        self._auto_check_timer = QTimer(self)
+        self._auto_check_timer.setSingleShot(True)
 
         self.init_ui()
         self.load_config()
 
-        QTimer.singleShot(1000, self.ssh_card.auto_check_on_start)
+        self._auto_check_timer.timeout.connect(self.ssh_card.auto_check_on_start)
+        self._auto_check_timer.start(1000)
 
     def init_ui(self) -> None:
         self.layout.setContentsMargins(40, 30, 40, 30)
@@ -231,3 +234,8 @@ class SettingsPage(BasePage):
 
         if hasattr(self.ncbi_card, "lock_if_needed"):
             self.ncbi_card.lock_if_needed()
+
+    def closeEvent(self, event) -> None:
+        if self._auto_check_timer.isActive():
+            self._auto_check_timer.stop()
+        super().closeEvent(event)
