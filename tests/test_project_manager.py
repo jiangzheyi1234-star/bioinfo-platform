@@ -267,6 +267,44 @@ class TestIndexPersistence:
         assert pm.list_projects() == []
         pm.close()
 
+    def test_missing_index_rebuilds_from_existing_project_dirs(self, tmp_path: Path) -> None:
+        projects_root = tmp_path / "projects"
+        index_path = tmp_path / "projects.json"
+
+        pm1 = ProjectManager(projects_root=projects_root, index_path=index_path)
+        project_id = pm1.create_project("恢复项目")
+        pm1.close()
+
+        index_path.unlink()
+
+        pm2 = ProjectManager(projects_root=projects_root, index_path=index_path)
+        projects = pm2.list_projects()
+        assert len(projects) == 1
+        assert projects[0].project_id == project_id
+        assert projects[0].name == "恢复项目"
+        assert json.loads(index_path.read_text(encoding="utf-8"))[project_id]["name"] == "恢复项目"
+        pm2.close()
+
+    def test_empty_index_recovers_project_from_backup_metadata(self, tmp_path: Path) -> None:
+        projects_root = tmp_path / "projects"
+        index_path = tmp_path / "projects.json"
+
+        pm1 = ProjectManager(projects_root=projects_root, index_path=index_path)
+        project_id = pm1.create_project("备份恢复项目")
+        pm1.open_project(project_id)
+        backup_dir = pm1.backup_current_project(reason="before_run")
+        pm1.close()
+
+        index_path.write_text("{}", encoding="utf-8")
+
+        pm2 = ProjectManager(projects_root=projects_root, index_path=index_path)
+        projects = pm2.list_projects()
+        assert len(projects) == 1
+        assert projects[0].project_id == project_id
+        assert projects[0].name == "备份恢复项目"
+        assert backup_dir.exists()
+        pm2.close()
+
 
 # ── SQLite Schema 校验 ────────────────────────────────────
 
