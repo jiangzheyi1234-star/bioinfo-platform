@@ -645,19 +645,50 @@ class ProjectManager(QObject):
             logger.warning("清理上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
 
     def _restore_last_opened_project(self) -> None:
+        restored = False
         last_project_id = self._load_last_opened_project()
-        if not last_project_id:
+        if last_project_id:
+            project_raw = self._index.get(last_project_id)
+            if not isinstance(project_raw, dict):
+                self._clear_last_opened_project()
+            elif str(project_raw.get("status", "active")) != "active":
+                self._clear_last_opened_project()
+            else:
+                try:
+                    self.open_project(last_project_id)
+                    logger.info("?????????: %s", last_project_id)
+                    restored = True
+                except Exception:
+                    logger.warning("??????????: %s", last_project_id, exc_info=True)
+
+        if restored or self._current_project is not None:
             return
-        project_raw = self._index.get(last_project_id)
-        if not isinstance(project_raw, dict):
-            self._clear_last_opened_project()
-            return
-        if str(project_raw.get("status", "active")) != "active":
-            self._clear_last_opened_project()
+
+        fallback = self._select_most_recent_active_project_id()
+        if not fallback:
             return
         try:
-            self.open_project(last_project_id)
-            logger.info("已恢复上次打开项目: %s", last_project_id)
+            self.open_project(fallback)
+            logger.info("?????????????: %s", fallback)
         except Exception:
-            logger.warning("恢复上次打开项目失败: %s", last_project_id, exc_info=True)
-            self._clear_last_opened_project()
+            logger.warning("????????: %s", fallback, exc_info=True)
+
+    def _select_most_recent_active_project_id(self) -> str:
+        active: list[tuple[str, float]] = []
+        for project_id, payload in self._index.items():
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("status", "active")) != "active":
+                continue
+            created_at = payload.get("created_at", 0.0)
+            try:
+                ts = float(created_at)
+            except (TypeError, ValueError):
+                ts = 0.0
+            active.append((str(project_id), ts))
+
+        if not active:
+            return ""
+        active.sort(key=lambda item: item[1], reverse=True)
+        return active[0][0]
+

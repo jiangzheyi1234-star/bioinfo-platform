@@ -96,6 +96,32 @@ def main() -> None:
     with Path(args.input).open("r", encoding="utf-8", newline="") as handle:
         candidates = list(csv.DictReader(handle, delimiter="\t"))
 
+    if not candidates:
+        # Keep pipeline alive when upstream produced no primer candidates.
+        fieldnames = [
+            "pathogen",
+            "region_id",
+            "forward_primer",
+            "reverse_primer",
+            "tm_f",
+            "tm_r",
+            "gc_f",
+            "gc_r",
+            "position",
+            "amplicon_seq",
+            "amplicon_length",
+            "conservation_score",
+            "specificity_score",
+            "target_sequence",
+            "candidate_rank",
+            "pool_penalty",
+        ]
+        with Path(args.output).open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+            writer.writeheader()
+        Path(args.log).write_text("iteration\t0\tempty\t0\tno candidates from upstream\n", encoding="utf-8")
+        return
+
     grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in candidates:
         grouped[row["pathogen"]].append(row)

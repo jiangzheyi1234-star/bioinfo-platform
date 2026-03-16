@@ -84,16 +84,17 @@ final_names = []
 for base_name, original_prefix, fasta_filename in processed_names:
     if base_name in duplicated_names and original_prefix is not None:
         unique_name = f"{base_name}_{original_prefix}"
-        # 重命名 ref_genome/ 下的文件以匹配新名字
-        old_path = ref_genome_dir / fasta_filename
-        new_fasta = f"{unique_name}.fasta"
-        new_path = ref_genome_dir / new_fasta
-        if old_path.exists() and old_path != new_path:
-            old_path.rename(new_path)
-            print(f"  重名处理: {fasta_filename} -> {new_fasta}")
-        final_names.append(unique_name)
     else:
-        final_names.append(base_name)
+        unique_name = base_name
+
+    # 确保 ref_genome/ 下的文件名与 name.txt 中的名字一致
+    old_path = ref_genome_dir / fasta_filename
+    new_fasta = f"{unique_name}.fasta"
+    new_path = ref_genome_dir / new_fasta
+    if old_path.exists() and old_path != new_path:
+        old_path.rename(new_path)
+        print(f"  重命名: {fasta_filename} -> {new_fasta}")
+    final_names.append(unique_name)
 
 # 将处理后的文件名（不含后缀）写入name.txt文件
 with open(name_txt_file, 'w', encoding='utf-8') as f:
