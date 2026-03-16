@@ -656,10 +656,10 @@ class ProjectManager(QObject):
             else:
                 try:
                     self.open_project(last_project_id)
-                    logger.info("?????????: %s", last_project_id)
+                    logger.info("Restored last opened project: %s", last_project_id)
                     restored = True
                 except Exception:
-                    logger.warning("??????????: %s", last_project_id, exc_info=True)
+                    logger.warning("Failed to restore last opened project: %s", last_project_id, exc_info=True)
 
         if restored or self._current_project is not None:
             return
@@ -669,9 +669,9 @@ class ProjectManager(QObject):
             return
         try:
             self.open_project(fallback)
-            logger.info("?????????????: %s", fallback)
+            logger.info("Opened fallback most-recent active project: %s", fallback)
         except Exception:
-            logger.warning("????????: %s", fallback, exc_info=True)
+            logger.warning("Failed to open fallback project: %s", fallback, exc_info=True)
 
     def _select_most_recent_active_project_id(self) -> str:
         active: list[tuple[str, float]] = []
