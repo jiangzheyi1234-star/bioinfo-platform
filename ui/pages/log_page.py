@@ -1,8 +1,4 @@
-"""日志页面 — 仿 Clash Verge Rev 风格的实时任务执行日志。
-
-两行布局：第一行 时间戳 + 彩色级别标签，第二行 消息正文。
-1px 分割线分隔条目，自定义 QStyledItemDelegate 绘制。
-"""
+﻿"""日志页面（Clash 风格独立实现）。"""
 
 from __future__ import annotations
 
@@ -18,10 +14,8 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -38,10 +32,10 @@ MAX_LOG_ENTRIES = 5000
 TAIL_INTERVAL_MS = 3000
 
 _LEVEL_COLORS = {
-    "INFO": "#3B82F6",      # Tailwind Blue 500
-    "SUCCESS": "#10B981",   # Tailwind Emerald 500
-    "WARNING": "#F59E0B",   # Tailwind Amber 500
-    "ERROR": "#EF4444",     # Tailwind Red 500
+    "INFO": "#3B82F6",
+    "SUCCESS": "#10B981",
+    "WARNING": "#F59E0B",
+    "ERROR": "#EF4444",
 }
 _ALL_LEVELS = ["ALL", "INFO", "SUCCESS", "WARNING", "ERROR"]
 _ENTRY_ROLE = Qt.ItemDataRole.UserRole
@@ -50,8 +44,7 @@ _ENTRY_ROLE = Qt.ItemDataRole.UserRole
 class _LogEntry:
     __slots__ = ("ts", "level", "message", "execution_id", "project_id")
 
-    def __init__(self, ts: str, level: str, message: str, eid: str = "",
-                 project_id: str = ""):
+    def __init__(self, ts: str, level: str, message: str, eid: str = "", project_id: str = ""):
         self.ts = ts
         self.level = level
         self.message = message
@@ -59,24 +52,22 @@ class _LogEntry:
         self.project_id = project_id
 
 
-# ── Delegate ─────────────────────────────────────────────
-
 class _LogDelegate(QStyledItemDelegate):
-    """Clash Verge 风格两行日志条目绘制。"""
+    """两行日志条目：时间+级别，消息正文。"""
 
-    _PAD_H = 16
+    _PAD_H = 12
     _PAD_V = 8
-    _LINE_GAP = 4
+    _LINE_GAP = 3
 
     def paint(self, painter, option: QStyleOptionViewItem, index):
         entry: Optional[_LogEntry] = index.data(_ENTRY_ROLE)
         if not entry:
             return
+
         painter.save()
-        painter.setRenderHint(painter.RenderHint.Antialiasing)
         rect = option.rect
 
-        painter.fillRect(rect, QColor(styles.COLOR_BG_PAGE))
+        painter.fillRect(rect, QColor("#F5F7FA"))
 
         x = rect.x() + self._PAD_H
         w = rect.width() - self._PAD_H * 2
@@ -86,37 +77,33 @@ class _LogDelegate(QStyledItemDelegate):
         y1 = rect.y() + self._PAD_V + ts_fm.ascent()
 
         painter.setFont(ts_font)
-        painter.setPen(QColor(styles.COLOR_TEXT_HINT))
+        painter.setPen(QColor("#8B98AB"))
         painter.drawText(x, y1, entry.ts)
         ts_w = ts_fm.horizontalAdvance(entry.ts)
 
         lvl_font = QFont(ts_font)
-        lvl_font.setWeight(QFont.Weight.DemiBold)
+        lvl_font.setWeight(QFont.Weight.Bold)
         painter.setFont(lvl_font)
-        color = _LEVEL_COLORS.get(entry.level, _LEVEL_COLORS["INFO"])
-        painter.setPen(QColor(color))
-        painter.drawText(x + ts_w + 12, y1, entry.level)
+        painter.setPen(QColor(_LEVEL_COLORS.get(entry.level, _LEVEL_COLORS["INFO"])))
+        painter.drawText(x + ts_w + 10, y1, entry.level)
 
-        msg_font = QFont(styles.FONT_FAMILY.split(",")[0].strip("' "), 12)
+        msg_font = QFont(styles.FONT_FAMILY.split(",")[0].strip("' "), 11)
         msg_fm = QFontMetrics(msg_font)
         y2 = y1 + ts_fm.descent() + self._LINE_GAP + msg_fm.ascent()
 
         painter.setFont(msg_font)
-        painter.setPen(QColor(styles.COLOR_TEXT_DEFAULT))
+        painter.setPen(QColor("#172B4D"))
         elided = msg_fm.elidedText(entry.message, Qt.TextElideMode.ElideRight, w)
         painter.drawText(x, y2, elided)
 
-        painter.setPen(QPen(QColor(styles.COLOR_BORDER), 1))
-        bot = rect.bottom()
-        painter.drawLine(rect.x() + self._PAD_H, bot, rect.right() - self._PAD_H, bot)
+        painter.setPen(QPen(QColor("#DCE3EC"), 1))
+        painter.drawLine(rect.x() + 6, rect.bottom(), rect.right() - 6, rect.bottom())
 
         painter.restore()
 
     def sizeHint(self, option, index):
-        return QSize(0, 52)
+        return QSize(0, 54)
 
-
-# ── 远端日志轮询 ─────────────────────────────────────────
 
 def _parse_level(line: str) -> tuple[str, str]:
     for lvl in ("INFO", "SUCCESS", "WARNING", "ERROR"):
@@ -156,10 +143,9 @@ class _LogTailWorker(QObject):
         self._stopped = True
 
 
-# ── 日志页面 ─────────────────────────────────────────────
-
 class LogPage(BasePage):
-    """实时日志页面 — Clash Verge Rev 风格。"""
+    """实时日志页面。"""
+    log_status_changed = pyqtSignal(str)
 
     def __init__(self, main_window=None) -> None:
         super().__init__("日志")
@@ -169,10 +155,18 @@ class LogPage(BasePage):
         self._current_exec_id = ""
         self._current_task_dir = ""
         self._current_project_id = ""
-        self._project_filter = True  # 默认开启项目筛选
+
+        # 默认关闭项目筛选，仅保留兼容能力。
+        self._project_filter = False
+
+        self._tail_paused = False
+        self._auto_scroll = True
+        self._paused_buffer: list[tuple[str, str, str]] = []
+
         self._tail_worker: Optional[_LogTailWorker] = None
         self._tail_thread: Optional[QThread] = None
         self._tail_timer: Optional[QTimer] = None
+
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -180,89 +174,106 @@ class LogPage(BasePage):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
 
-        # ── 顶栏工具条 ──
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(16, 12, 16, 8)
-        toolbar.setSpacing(8)
+        page_bg = "#EEF2F7"
+        self.setStyleSheet(f"background:{page_bg};")
 
+        header = QHBoxLayout()
+        header.setContentsMargins(22, 14, 22, 10)
+
+        title = QLabel("日志")
+        title.setStyleSheet("font-size: 18px; font-weight: 700; color: #0F172A;")
+        header.addWidget(title)
+        header.addStretch()
+
+        self._clear_btn = QPushButton("清除")
+        self._clear_btn.setFixedSize(96, 36)
+        self._clear_btn.setStyleSheet(
+            """
+            QPushButton {
+                border: none;
+                border-radius: 10px;
+                background: #2F6FE4;
+                color: #FFFFFF;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background: #2A62CA; }
+            QPushButton:pressed { background: #244FA8; }
+            """
+        )
+        self._clear_btn.clicked.connect(self._on_clear_clicked)
+        header.addWidget(self._clear_btn)
+        self.layout.addLayout(header)
+
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(22, 0, 22, 10)
+        toolbar.setSpacing(10)
+        toolbar.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        control_h = 38
         self._level_combo = QComboBox()
         self._level_combo.addItems(_ALL_LEVELS)
-        self._level_combo.setFixedWidth(110)
-        self._level_combo.setFixedHeight(33)
-        self._level_combo.setStyleSheet(styles.INPUT_COMBOBOX)
+        self._level_combo.setFixedSize(106, control_h)
+        self._level_combo.setStyleSheet(
+            """
+            QComboBox {
+                border: 1px solid #C9D2E0;
+                border-radius: 8px;
+                padding: 0 12px;
+                background: #FFFFFF;
+                color: #1F2D3D;
+                font-size: 12px;
+            }
+            QComboBox::drop-down { border: none; width: 20px; }
+            """
+        )
         self._level_combo.currentTextChanged.connect(self._apply_filter)
         toolbar.addWidget(self._level_combo)
-
-        self._filter_input = QLineEdit()
-        self._filter_input.setPlaceholderText("搜索日志...")
-        self._filter_input.setClearButtonEnabled(True)
-        self._filter_input.setFixedHeight(33)
-        self._filter_input.setStyleSheet(styles.INPUT_LINEEDIT)
-        self._filter_input.textChanged.connect(self._apply_filter)
-        toolbar.addWidget(self._filter_input, stretch=1)
-
-        self._project_btn = QPushButton("仅当前项目")
-        self._project_btn.setCheckable(True)
-        self._project_btn.setChecked(True)
-        self._project_btn.setFixedHeight(33)
-        self._project_btn.setStyleSheet(styles.BUTTON_NAV_TOGGLE)
-        self._project_btn.toggled.connect(self._on_project_filter_toggled)
-        toolbar.addWidget(self._project_btn)
-
-        self._clear_btn = QPushButton("删除")
-        self._clear_btn.setFixedHeight(33)
-        self._clear_btn.setStyleSheet(styles.BUTTON_DANGER)
-        self._clear_btn.clicked.connect(self._on_delete_clicked)
-        toolbar.addWidget(self._clear_btn)
+        toolbar.addStretch()
 
         self.layout.addLayout(toolbar)
 
-        # ── 日志列表 ──
         self._list = QListWidget()
         self._list.setItemDelegate(_LogDelegate(self._list))
         self._list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setStyleSheet(
-            f"QListWidget{{border:none; background:{styles.COLOR_BG_PAGE}; outline:none;}}"
-            f"QListWidget::item{{border:none; padding:0;}}"
+            f"QListWidget{{border:none; background:{page_bg}; outline:none;}}"
+            "QListWidget::item{border:none; padding:0;}"
             f"{styles.SCROLL_BAR_ELEGANT}"
         )
         self.layout.addWidget(self._list, stretch=1)
 
-        # ── 空状态占位 ──
         self._empty_label = QLabel("暂无日志")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(
-            f"color:{styles.COLOR_TEXT_MUTED}; font-size:14px; background:transparent;"
-        )
+        self._empty_label.setStyleSheet("color:#8B98AB; font-size:14px; background:transparent;")
         self._empty_label.setVisible(True)
         self.layout.addWidget(self._empty_label, stretch=1)
 
-        # ── 底栏 ──
         bottom = QHBoxLayout()
-        bottom.setContentsMargins(16, 6, 16, 10)
+        bottom.setContentsMargins(22, 4, 22, 8)
         self._count_label = QLabel("共 0 条日志")
-        self._count_label.setStyleSheet(styles.LABEL_HINT)
+        self._count_label.setStyleSheet("font-size:11px; color:#8B98AB; background:transparent;")
         bottom.addWidget(self._count_label)
         bottom.addStretch()
         self._exec_label = QLabel("")
-        self._exec_label.setStyleSheet(styles.LABEL_HINT)
+        self._exec_label.setStyleSheet("font-size:11px; color:#8B98AB; background:transparent;")
         bottom.addWidget(self._exec_label)
         self.layout.addLayout(bottom)
 
-    # ── 公开 API ─────────────────────────────────────────
+        self._tail_paused = False
+        self._auto_scroll = True
+        self.log_status_changed.emit("日志: 就绪")
 
     def set_ssh_run_fn(self, fn: Callable) -> None:
         self._ssh_run_fn = fn
 
     def set_project_context(self, project_id: str) -> None:
-        """切换当前项目上下文，自动刷新筛选。"""
         self._current_project_id = project_id
         if self._project_filter:
             self._rebuild_list()
 
     def load_history(self, db: sqlite3.Connection, project_id: str) -> None:
-        """从项目 DB 加载最近 50 条执行记录作为历史日志。"""
         try:
             rows = db.execute(
                 "SELECT execution_id, tool_id, status, created_at, completed_at, error "
@@ -271,9 +282,11 @@ class LogPage(BasePage):
         except Exception:
             logger.debug("加载执行历史失败", exc_info=True)
             return
+
         if not rows:
             return
-        _STATUS_MAP = {
+
+        status_map = {
             "completed": ("SUCCESS", "完成"),
             "failed": ("ERROR", "失败"),
             "running": ("WARNING", "运行中"),
@@ -285,24 +298,23 @@ class LogPage(BasePage):
             tool = row[1]
             status = row[2]
             created = row[3]
-            error = row[4] if len(row) > 5 else ""
-            ts = datetime.fromtimestamp(created).strftime("%H:%M:%S") if created else "??:??:??"
-            level, label = _STATUS_MAP.get(status, ("INFO", status))
+            error = row[5] if len(row) > 5 else ""
+            ts = datetime.fromtimestamp(created).strftime("%m-%d %H:%M:%S") if created else "??-?? ??:??:??"
+            level, label = status_map.get(status, ("INFO", status))
             msg = f"[历史] {tool} — {label}"
             if status == "failed" and error:
                 msg += f": {error[:80]}"
-            entry = _LogEntry(ts, level, msg, eid, project_id)
-            self._entries.append(entry)
+            self._entries.append(_LogEntry(ts, level, msg, eid, project_id))
+
         self._rebuild_list()
 
-    def append_log(self, level: str, message: str, execution_id: str = "",
-                   project_id: str = "") -> None:
-        ts = time.strftime("%H:%M:%S")
+    def append_log(self, level: str, message: str, execution_id: str = "", project_id: str = "") -> None:
+        ts = time.strftime("%m-%d %H:%M:%S")
         pid = project_id or self._current_project_id
         entry = _LogEntry(ts, level.upper(), message, execution_id, pid)
         self._entries.append(entry)
         if len(self._entries) > MAX_LOG_ENTRIES:
-            self._entries = self._entries[len(self._entries) - MAX_LOG_ENTRIES:]
+            self._entries = self._entries[len(self._entries) - MAX_LOG_ENTRIES :]
             self._rebuild_list()
             return
         self._maybe_add_item(entry)
@@ -334,39 +346,18 @@ class LogPage(BasePage):
 
     def clear_logs(self) -> None:
         self._entries.clear()
+        self._paused_buffer.clear()
         self._list.clear()
         self._update_counts()
 
-    def _on_delete_clicked(self) -> None:
-        only_current_project = bool(self._project_filter and self._current_project_id)
-        if only_current_project:
-            title = "确认删除当前项目日志"
-            text = "将删除当前项目日志，是否继续？"
-        else:
-            title = "确认删除全部日志"
-            text = "将删除全部日志，是否继续？"
-
-        result = QMessageBox.question(
-            self,
-            title,
-            text,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if result != QMessageBox.StandardButton.Yes:
-            return
-
-        if only_current_project:
-            self._entries = [
-                entry
-                for entry in self._entries
-                if entry.project_id != self._current_project_id
-            ]
+    def _on_clear_clicked(self) -> None:
+        if self._project_filter and self._current_project_id:
+            self._entries = [entry for entry in self._entries if entry.project_id != self._current_project_id]
             self._rebuild_list()
+            self.log_status_changed.emit("日志: 已清除当前项目")
             return
-
         self.clear_logs()
-
-    # ── 远端日志轮询 ─────────────────────────────────────
+        self.log_status_changed.emit("日志: 已清除")
 
     def _start_tailing(self) -> None:
         if not self._ssh_run_fn or not self._current_task_dir:
@@ -390,34 +381,36 @@ class LogPage(BasePage):
         eid = self._current_exec_id
         for raw in lines:
             level, msg = _parse_level(raw)
+            if self._tail_paused:
+                self._paused_buffer.append((level, msg, eid))
+                continue
             self.append_log(level, msg, eid)
 
-    # ── 筛选 / 渲染 ─────────────────────────────────────
-
     def _matches_filter(self, entry: _LogEntry) -> bool:
-        # 项目筛选
         if self._project_filter and self._current_project_id:
             if entry.project_id and entry.project_id != self._current_project_id:
                 return False
         lf = self._level_combo.currentText()
         if lf != "ALL" and entry.level != lf:
             return False
-        tf = self._filter_input.text().strip()
-        if tf and tf.lower() not in entry.message.lower():
-            return False
+        tf = ""
+        if hasattr(self, "_filter_input") and self._filter_input is not None:
+            tf = self._filter_input.text().strip()
+        if tf:
+            query = tf.lower()
+            haystack = f"{entry.ts} {entry.level} {entry.message}".lower()
+            if query not in haystack:
+                return False
         return True
-
-    def _on_project_filter_toggled(self, checked: bool) -> None:
-        self._project_filter = checked
-        self._rebuild_list()
 
     def _maybe_add_item(self, entry: _LogEntry) -> None:
         if not self._matches_filter(entry):
             return
         self._add_item(entry)
-        sb = self._list.verticalScrollBar()
-        if sb and sb.value() >= sb.maximum() - 60:
-            self._list.scrollToBottom()
+        if self._auto_scroll:
+            sb = self._list.verticalScrollBar()
+            if sb and sb.value() >= sb.maximum() - 60:
+                self._list.scrollToBottom()
 
     def _add_item(self, entry: _LogEntry) -> None:
         item = QListWidgetItem()
@@ -433,7 +426,28 @@ class LogPage(BasePage):
             if self._matches_filter(e):
                 self._add_item(e)
         self._update_counts()
-        self._list.scrollToBottom()
+        if self._auto_scroll:
+            self._list.scrollToBottom()
+
+    def _toggle_tail_pause(self, paused: bool) -> None:
+        self._tail_paused = paused
+        if hasattr(self, "_pause_btn") and self._pause_btn is not None:
+            self._pause_btn.setText("▶" if paused else "II")
+            self._pause_btn.setToolTip("继续实时更新" if paused else "暂停实时更新")
+        self.log_status_changed.emit("日志: 暂停中" if paused else "日志: 实时更新")
+        if not paused and self._paused_buffer:
+            for level, msg, eid in self._paused_buffer:
+                self.append_log(level, msg, eid)
+            self._paused_buffer.clear()
+
+    def _toggle_auto_scroll(self, enabled: bool) -> None:
+        self._auto_scroll = enabled
+        if hasattr(self, "_scroll_btn") and self._scroll_btn is not None:
+            self._scroll_btn.setToolTip("自动定位到底部" if enabled else "关闭自动定位")
+        mode = "自动置底" if enabled else "自由滚动"
+        self.log_status_changed.emit(f"日志: {mode}")
+        if enabled and self._list.count() > 0:
+            self._list.scrollToBottom()
 
     def _update_counts(self) -> None:
         n = len(self._entries)

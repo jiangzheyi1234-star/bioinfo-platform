@@ -110,6 +110,19 @@ class EnvironmentStatusBar(QFrame):
         layout.addWidget(self._queue_dot)
         layout.addWidget(self._queue_label)
 
+        # 分隔符
+        sep_log = QLabel("|")
+        sep_log.setStyleSheet(
+            f"color: {styles.COLOR_BORDER}; font-size: 11px; "
+            f"background: {styles.COLOR_BG_BLANK};"
+        )
+        layout.addWidget(sep_log)
+
+        # 日志状态
+        self._log_label = QLabel("日志: 就绪")
+        self._log_label.setStyleSheet(label_style)
+        layout.addWidget(self._log_label)
+
         # 分隔
         sep3 = QLabel("|")
         sep3.setStyleSheet(
@@ -192,3 +205,8 @@ class EnvironmentStatusBar(QFrame):
         else:
             self._queue_dot.set_color("green")
             self._queue_label.setText(f"任务: {running} 运行中")
+
+    def update_log_status(self, status_text: str) -> None:
+        """更新日志面板状态提示。"""
+        text = str(status_text or "").strip() or "日志: 就绪"
+        self._log_label.setText(text)
