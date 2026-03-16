@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # 默认项目根目录
 DEFAULT_PROJECTS_ROOT = Path.home() / ".h2ometa" / "projects"
 DEFAULT_INDEX_PATH = Path.home() / ".h2ometa" / "projects.json"
+DEFAULT_LAST_PROJECT_PATH = Path.home() / ".h2ometa" / "last_project.txt"
 
 # SQLite Schema — 严格按照 CLAUDE.md 定义的四张表
 _SCHEMA_SQL = """\
@@ -115,20 +116,24 @@ class ProjectManager(QObject):
         self,
         projects_root: Optional[Path] = None,
         index_path: Optional[Path] = None,
+        last_project_path: Optional[Path] = None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._projects_root = projects_root or DEFAULT_PROJECTS_ROOT
         self._index_path = index_path or DEFAULT_INDEX_PATH
+        self._last_project_path = last_project_path or DEFAULT_LAST_PROJECT_PATH
         self._current_project: Optional[ProjectInfo] = None
         self._db_conn: Optional[sqlite3.Connection] = None
 
         # 确保根目录存在
         self._projects_root.mkdir(parents=True, exist_ok=True)
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
+        self._last_project_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 加载项目索引
         self._index: dict[str, dict] = self._load_index()
+        self._restore_last_opened_project()
 
     def reload_index(self) -> None:
         """重新从磁盘加载项目索引，同步外部变更。"""
@@ -228,6 +233,7 @@ class ProjectManager(QObject):
             raise
 
         self._current_project = project
+        self._save_last_opened_project(project_id)
 
         logger.info("项目已打开: %s (%s)", project.name, project_id)
         self.project_opened.emit(project_id)
@@ -263,6 +269,8 @@ class ProjectManager(QObject):
         if self._current_project and self._current_project.project_id == project_id:
             self._close_db()
             self._current_project = None
+        if self._load_last_opened_project() == project_id:
+            self._clear_last_opened_project()
 
         logger.info("项目已归档: %s", project_id)
         self.project_archived.emit(project_id)
@@ -294,6 +302,8 @@ class ProjectManager(QObject):
         # 从索引中移除
         del self._index[project_id]
         self._save_index()
+        if self._load_last_opened_project() == project_id:
+            self._clear_last_opened_project()
 
         logger.info("项目已删除: %s", project_id)
         self.project_deleted.emit(project_id)
@@ -608,3 +618,46 @@ class ProjectManager(QObject):
         except OSError as e:
             logger.error("保存项目索引失败: %s", e)
             raise
+
+    def _load_last_opened_project(self) -> str:
+        if not self._last_project_path.exists():
+            return ""
+        try:
+            return self._last_project_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            logger.warning("读取上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
+            return ""
+
+    def _save_last_opened_project(self, project_id: str) -> None:
+        normalized = str(project_id or "").strip()
+        if not normalized:
+            return
+        try:
+            self._last_project_path.write_text(normalized, encoding="utf-8")
+        except OSError:
+            logger.warning("保存上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
+
+    def _clear_last_opened_project(self) -> None:
+        try:
+            if self._last_project_path.exists():
+                self._last_project_path.unlink()
+        except OSError:
+            logger.warning("清理上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
+
+    def _restore_last_opened_project(self) -> None:
+        last_project_id = self._load_last_opened_project()
+        if not last_project_id:
+            return
+        project_raw = self._index.get(last_project_id)
+        if not isinstance(project_raw, dict):
+            self._clear_last_opened_project()
+            return
+        if str(project_raw.get("status", "active")) != "active":
+            self._clear_last_opened_project()
+            return
+        try:
+            self.open_project(last_project_id)
+            logger.info("已恢复上次打开项目: %s", last_project_id)
+        except Exception:
+            logger.warning("恢复上次打开项目失败: %s", last_project_id, exc_info=True)
+            self._clear_last_opened_project()
