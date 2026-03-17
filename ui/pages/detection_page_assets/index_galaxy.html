@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
     <title>病原检测</title>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-    <link rel="stylesheet" href="styles_galaxy.css">
+    <link rel="stylesheet" href="styles_galaxy.css?v=20260317">
     <style>
         html { background: #fafbfc; }
         
@@ -178,7 +180,7 @@
                                         <h4 id="results-card-title">分析结果</h4>
                                         <span class="card-badge" id="results-card-badge">primer_result_final_2.txt</span>
                                     </div>
-                                    <div class="results-card-subtitle">优先呈现最终推荐引物，便于快速查看与比对。</div>
+                                    <div class="results-card-subtitle" id="results-card-subtitle">分析结果将在此处展示。</div>
                                     <div class="results-table-wrap">
                                         <table class="integrated-table">
                                             <thead id="integrated-table-head"></thead>
@@ -229,6 +231,6 @@
 
     </div>
     <script src="echarts.min.js"></script>
-    <script src="app_galaxy.js"></script>
+    <script src="app_galaxy.js?v=20260317"></script>
 </body>
 </html>

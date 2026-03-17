@@ -125,8 +125,8 @@ class TestMainWindowStartup:
         assert hasattr(main_window, "settings_page")
         assert hasattr(main_window, "log_page")
 
-    def test_settings_page_restores_blast_management_card(self, main_window):
-        assert hasattr(main_window.settings_page, "blast_card")
+    def test_settings_page_has_database_paths_card(self, main_window):
+        assert hasattr(main_window.settings_page, "db_card")
 
     def test_sidebar_count(self, main_window):
         assert main_window.sidebar.count() == 4
