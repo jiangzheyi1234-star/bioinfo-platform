@@ -46,3 +46,29 @@ client.close()
 ## Reference
 
 - `docs/SSH_ACCESS_PLAYBOOK.md`
+- `docs/ops/remote-conda-no-sudo.md`
+
+## Remote Conda (No Sudo) Baseline (Must Reuse)
+
+When remote dependency setup is needed, do **not** use `sudo` by default.
+
+1. Resolve conda path in this order:
+   - `%APPDATA%\\H2OMeta\\config.json` -> `linux.conda_executable`
+   - fallback: `/home/zyserver/anaconda3/bin/conda`
+2. Create env with user permissions only:
+   - `<conda> create -y -n <env_name> python=3.10`
+3. Install dependencies into the target env:
+   - `<conda> run -n <env_name> python -m pip install <pkg>`
+   - or `<conda> install -y -n <env_name> -c conda-forge <pkg>`
+4. Verify:
+   - `<conda> run -n <env_name> python -V`
+5. Prefer `conda run -n ...` over `conda activate` in automated scripts.
+6. If a package needs system binaries (e.g. `unrar`) and no sudo is available:
+   - keep pipeline Python fallback path enabled (e.g. `rarfile`),
+   - or switch test input to `.zip` / `.tar.gz`.
+
+### Last Verified
+
+- Date: `2026-03-17`
+- Remote environment creation success: `codex_probe_20260317`
+- Python in env: `3.10.20`
