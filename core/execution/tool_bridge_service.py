@@ -1953,34 +1953,42 @@ class ToolBridgeService:
         return {"status": "ok", "data": data}
 
     def _get_live_unknown_sample_detection_view(self) -> dict | None:
-        """查找标记为 unknown_detection workflow 的最新已完成执行，构建未知样品检测 view。
+        """查找最新的 unknown_sample_detection 已完成执行，构建未知样品检测 view。
 
-        只加载 parameters JSON 中包含 "workflow":"unknown_detection" 的 execution，
-        避免与靶向测序分析混用同一份结果。
+        优先匹配 tool_id='unknown_sample_detection'（一键管线），
+        兼容旧版 centrifuge/kraken2 + workflow=unknown_detection 标记。
         """
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
             return None
         try:
-            row = pm.db.execute(
-                "SELECT execution_id, parameters FROM executions "
-                "WHERE tool_id IN ('unknown_sample_detection', 'centrifuge', 'kraken2') AND status = 'completed' "
+            rows = pm.db.execute(
+                "SELECT execution_id, tool_id, parameters FROM executions "
+                "WHERE tool_id IN ('unknown_sample_detection', 'centrifuge', 'kraken2') "
+                "AND status = 'completed' "
                 "ORDER BY rowid DESC",
             ).fetchall()
         except Exception:
             return None
 
-        # 查找带有 workflow=unknown_detection 标记的 execution
-        import json as _json
+        # 优先找 unknown_sample_detection 工具的执行
         target_eid = None
-        for r in (row or []):
-            try:
-                params = _json.loads(r["parameters"] or "{}")
-            except Exception:
-                continue
-            if params.get("workflow") == "unknown_detection":
+        for r in (rows or []):
+            if r["tool_id"] == "unknown_sample_detection":
                 target_eid = r["execution_id"]
                 break
+
+        # 兼容旧版：查找带 workflow=unknown_detection 标记的 centrifuge/kraken2 执行
+        if target_eid is None:
+            import json as _json
+            for r in (rows or []):
+                try:
+                    params = _json.loads(r["parameters"] or "{}")
+                except Exception:
+                    continue
+                if params.get("workflow") == "unknown_detection":
+                    target_eid = r["execution_id"]
+                    break
 
         if target_eid is None:
             return None
