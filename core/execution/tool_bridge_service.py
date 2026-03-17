@@ -2220,7 +2220,7 @@ class ToolBridgeService:
             logger.exception("Failed to query execution %s", normalized_id)
             return None
 
-        if not row or row["tool_id"] not in ("centrifuge", "kraken2"):
+        if not row or row["tool_id"] not in ("centrifuge", "kraken2", "unknown_sample_detection"):
             return None
 
         tool_id = row["tool_id"]
@@ -2277,7 +2277,7 @@ class ToolBridgeService:
             {"label": "Top 物种", "value": summary_data["top_species"], "tone": "accent"},
         ]
 
-        classifier_label = "Centrifuge" if tool_id == "centrifuge" else "Kraken2"
+        classifier_label = "Centrifuge" if tool_id in ("centrifuge", "unknown_sample_detection") else "Kraken2"
 
         # 生成报告（TXT + PDF）
         report_path = self._generate_targeted_seq_report(
