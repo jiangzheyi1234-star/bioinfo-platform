@@ -228,7 +228,7 @@ class ToolBridgeService:
                     "artifacts": [],
                 },
                 "unknown_sample_detection": {
-                    "tool_ids": ["fastp", "hostile", "centrifuge", "blastn"],
+                    "tool_ids": ["unknown_sample_detection"],
                     "title": "未知样品病原体检测 (mNGS)",
                     "description": "二代宏基因组鸟枪法测序全流程：fastp 质控 → hostile 去宿主 → Centrifuge 分类 → BLAST 补充鉴定 → 合并结果 PDF 报告。",
                     "table_title": "检出微生物列表",
@@ -1964,7 +1964,7 @@ class ToolBridgeService:
         try:
             row = pm.db.execute(
                 "SELECT execution_id, parameters FROM executions "
-                "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
+                "WHERE tool_id IN ('unknown_sample_detection', 'centrifuge', 'kraken2') AND status = 'completed' "
                 "ORDER BY rowid DESC",
             ).fetchall()
         except Exception:
@@ -1994,7 +1994,7 @@ class ToolBridgeService:
         view["description"] = "fastp 质控 → hostile 去宿主 → Centrifuge 分类 → BLAST 补充鉴定 → 合并结果"
         view["table_title"] = "检出微生物列表"
         view["table_subtitle"] = "按 Reads 数降序排列，包含多来源合并结果。"
-        view["tool_ids"] = ["fastp", "hostile", "centrifuge", "blastn"]
+        view["tool_ids"] = ["unknown_sample_detection"]
 
         # 覆盖列定义为 mNGS 标准列
         view["columns"] = [

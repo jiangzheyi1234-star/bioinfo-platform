@@ -144,6 +144,10 @@ class CommandBuilder:
         if conda_env:
             context["conda_env"] = conda_env
 
+        # conda 执行器路径 — 始终注入，供多步管线模板内引用
+        runner = conda_executable or CONDA_RUNNER
+        context["conda_executable"] = runner
+
         # workflow 目录（自研脚本上传后的远端路径）
         if workflow_dir:
             context["workflow_dir"] = workflow_dir
