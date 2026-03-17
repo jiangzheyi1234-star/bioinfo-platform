@@ -267,6 +267,11 @@ class ToolBridge(QObject):
         return json.dumps(result, ensure_ascii=False)
 
     @pyqtSlot(str, result=str)
+    def get_execution_remote_status(self, execution_id: str) -> str:
+        result = self._service.get_execution_remote_status(execution_id)
+        return json.dumps(result, ensure_ascii=False)
+
+    @pyqtSlot(str, result=str)
     def open_local_file(self, local_path: str) -> str:
         path = Path(str(local_path or "").strip())
         if not path.exists():
