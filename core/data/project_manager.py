@@ -7,6 +7,7 @@
 
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import time
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROJECTS_ROOT = Path.home() / ".h2ometa" / "projects"
 DEFAULT_INDEX_PATH = Path.home() / ".h2ometa" / "projects.json"
 DEFAULT_LAST_PROJECT_PATH = Path.home() / ".h2ometa" / "last_project.txt"
+DEFAULT_LAST_PROJECT_PATH_APPDATA = (
+    Path(os.getenv("APPDATA", "")).expanduser() / "H2OMeta" / "last_project.txt"
+    if os.getenv("APPDATA")
+    else None
+)
 
 # SQLite Schema — 严格按照 CLAUDE.md 定义的四张表
 _SCHEMA_SQL = """\
@@ -123,13 +129,20 @@ class ProjectManager(QObject):
         self._projects_root = projects_root or DEFAULT_PROJECTS_ROOT
         self._index_path = index_path or DEFAULT_INDEX_PATH
         self._last_project_path = last_project_path or DEFAULT_LAST_PROJECT_PATH
+        self._last_project_paths = [self._last_project_path]
+        if (
+            DEFAULT_LAST_PROJECT_PATH_APPDATA is not None
+            and DEFAULT_LAST_PROJECT_PATH_APPDATA not in self._last_project_paths
+        ):
+            self._last_project_paths.append(DEFAULT_LAST_PROJECT_PATH_APPDATA)
         self._current_project: Optional[ProjectInfo] = None
         self._db_conn: Optional[sqlite3.Connection] = None
 
         # 确保根目录存在
         self._projects_root.mkdir(parents=True, exist_ok=True)
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
-        self._last_project_path.parent.mkdir(parents=True, exist_ok=True)
+        for path in self._last_project_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
 
         # 加载项目索引
         self._index: dict[str, dict] = self._load_index()
@@ -622,33 +635,39 @@ class ProjectManager(QObject):
             raise
 
     def _load_last_opened_project(self) -> str:
-        if not self._last_project_path.exists():
-            return ""
-        try:
-            return self._last_project_path.read_text(encoding="utf-8").strip()
-        except OSError:
-            logger.warning("读取上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
-            return ""
+        for path in self._last_project_paths:
+            if not path.exists():
+                continue
+            try:
+                value = path.read_text(encoding='utf-8').strip()
+                if value:
+                    return value
+            except OSError:
+                logger.warning("Failed to read last_project marker: %s", path, exc_info=True)
+        return ''
 
     def _save_last_opened_project(self, project_id: str) -> None:
-        normalized = str(project_id or "").strip()
+        normalized = str(project_id or '').strip()
         if not normalized:
             return
-        try:
-            self._last_project_path.write_text(normalized, encoding="utf-8")
-        except OSError:
-            logger.warning("保存上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
+        for path in self._last_project_paths:
+            try:
+                path.write_text(normalized, encoding='utf-8')
+            except OSError:
+                logger.warning("Failed to write last_project marker: %s", path, exc_info=True)
 
     def _clear_last_opened_project(self) -> None:
-        try:
-            if self._last_project_path.exists():
-                self._last_project_path.unlink()
-        except OSError:
-            logger.warning("清理上次打开项目记录失败: %s", self._last_project_path, exc_info=True)
+        for path in self._last_project_paths:
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                logger.warning("Failed to clear last_project marker: %s", path, exc_info=True)
 
     def _restore_last_opened_project(self) -> None:
         restored = False
         last_project_id = self._load_last_opened_project()
+        logger.info("Last project marker loaded: %s", last_project_id or "<empty>")
         if last_project_id:
             project_raw = self._index.get(last_project_id)
             if not isinstance(project_raw, dict):
@@ -662,6 +681,9 @@ class ProjectManager(QObject):
                     restored = True
                 except Exception:
                     logger.warning("Failed to restore last opened project: %s", last_project_id, exc_info=True)
+                    # Do not silently switch to another project when the remembered one fails.
+                    # This avoids the UI appearing to "forget" the last opened project.
+                    return
 
         if restored or self._current_project is not None:
             return
