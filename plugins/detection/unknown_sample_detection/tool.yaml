@@ -1,0 +1,154 @@
+id: unknown_sample_detection
+name: Unknown Sample Pathogen Detection
+version: "1.0.0"
+category: detection
+description: "二代宏基因组一键检测：解压 → fastp 质控 → hostile 去宿主 → Centrifuge 分类 → kreport 生成"
+conda_env: ""
+install_cmd: ""
+
+inputs:
+  - name: compressed_reads
+    type: archive
+    required: true
+    description: "压缩文件（.rar/.zip/.tar.gz），内含双端 FASTQ"
+
+outputs:
+  - name: kreport
+    type: kreport
+    tier: result
+    pattern: "{output_dir}/{sample_id}.kreport"
+    sync_to_local: true
+  - name: fastp_json
+    type: json
+    tier: result
+    pattern: "{output_dir}/{sample_id}.fastp.json"
+    sync_to_local: true
+  - name: cf_output
+    type: tsv
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.cf_output"
+
+parameters:
+  - name: threads
+    type: int
+    default: 8
+    range: [1, 64]
+    label: "线程数"
+    description: "并行线程数"
+  - name: min_hitlen
+    type: int
+    default: 22
+    range: [15, 100]
+    label: "最小命中长度"
+    description: "Centrifuge 比对的最短匹配长度（bp）"
+  - name: qualified_quality_phred
+    type: int
+    default: 15
+    range: [5, 30]
+    label: "质量阈值 (Phred)"
+    description: "fastp 合格碱基的最低 Phred 质量值"
+  - name: length_required
+    type: int
+    default: 50
+    range: [20, 200]
+    label: "最短读长"
+    description: "fastp 过滤后保留 reads 的最短长度（bp）"
+
+databases:
+  - id: centrifuge_db
+    param_name: db
+    required: true
+    label: "Centrifuge 数据库"
+    description: "Centrifuge 数据库前缀路径（不含 .cf 后缀）"
+
+command_template: |
+  #!/bin/bash
+  set -euo pipefail
+
+  CONDA={{ conda_executable }}
+  WORK="{{ output_dir }}/work"
+  OUTDIR="{{ output_dir }}"
+  SAMPLE="{{ sample_id }}"
+  INPUT="{{ compressed_reads }}"
+  THREADS={{ threads }}
+
+  mkdir -p "$WORK" "$OUTDIR"
+
+  # ── Step 1: 解压输入文件 ──
+  echo "[1/5] Extracting input archive: $INPUT"
+  EXT="${INPUT##*.}"
+  case "$INPUT" in
+    *.tar.gz|*.tgz)  tar -xzf "$INPUT" -C "$WORK" ;;
+    *.tar.bz2)       tar -xjf "$INPUT" -C "$WORK" ;;
+    *.zip)           unzip -o "$INPUT" -d "$WORK" ;;
+    *.rar)           unrar x -o+ "$INPUT" "$WORK/" ;;
+    *)               echo "ERROR: unsupported archive format: $INPUT"; exit 1 ;;
+  esac
+
+  # ── Step 2: 自动发现 R1/R2 ──
+  echo "[2/5] Discovering paired-end FASTQ files..."
+  FASTQS=$(find "$WORK" -type f \( -name "*.fastq" -o -name "*.fq" -o -name "*.fastq.gz" -o -name "*.fq.gz" \) | sort)
+  R1=$(echo "$FASTQS" | head -n1)
+  R2=$(echo "$FASTQS" | tail -n1)
+  if [ -z "$R1" ] || [ "$R1" = "$R2" ]; then
+    echo "ERROR: could not find paired-end FASTQ files in archive"; exit 1
+  fi
+  echo "  R1: $R1"
+  echo "  R2: $R2"
+
+  # ── Step 3: fastp 质控 ──
+  echo "[3/5] Running fastp QC..."
+  $CONDA run -n fastp_env fastp \
+    -i "$R1" -I "$R2" \
+    -o "$WORK/${SAMPLE}_clean_R1.fq.gz" \
+    -O "$WORK/${SAMPLE}_clean_R2.fq.gz" \
+    --qualified_quality_phred {{ qualified_quality_phred }} \
+    --length_required {{ length_required }} \
+    --thread "$THREADS" \
+    --json "$OUTDIR/${SAMPLE}.fastp.json" \
+    --html "$OUTDIR/${SAMPLE}.fastp.html"
+  CLEAN_R1="$WORK/${SAMPLE}_clean_R1.fq.gz"
+  CLEAN_R2="$WORK/${SAMPLE}_clean_R2.fq.gz"
+
+  # ── Step 4: hostile 去宿主（失败则跳过） ──
+  echo "[4/5] Running hostile host removal..."
+  if $CONDA run -n hostile_env hostile clean \
+    --fastq1 "$CLEAN_R1" --fastq2 "$CLEAN_R2" \
+    --out-dir "$WORK/hostile_out" \
+    --threads "$THREADS" 2>&1; then
+    HOSTILE_R1=$(find "$WORK/hostile_out" -name "*_1.clean*" -o -name "*clean*R1*" -o -name "*clean*_1*" | head -n1)
+    HOSTILE_R2=$(find "$WORK/hostile_out" -name "*_2.clean*" -o -name "*clean*R2*" -o -name "*clean*_2*" | head -n1)
+    if [ -n "$HOSTILE_R1" ] && [ -n "$HOSTILE_R2" ]; then
+      CLEAN_R1="$HOSTILE_R1"
+      CLEAN_R2="$HOSTILE_R2"
+      echo "  Host removal succeeded, using filtered reads."
+    else
+      echo "  WARNING: hostile output files not found, using fastp output."
+    fi
+  else
+    echo "  WARNING: hostile failed, skipping host removal — using fastp output."
+  fi
+
+  # ── Step 5: Centrifuge 分类 + kreport ──
+  echo "[5/5] Running Centrifuge classification..."
+  $CONDA run -n centrifuge_env centrifuge \
+    -x {{ db }} \
+    -1 "$CLEAN_R1" -2 "$CLEAN_R2" \
+    --min-hitlen {{ min_hitlen }} \
+    -p "$THREADS" \
+    -S "$OUTDIR/${SAMPLE}.cf_output" \
+    --report-file "$OUTDIR/${SAMPLE}.cf_report.tsv"
+  $CONDA run -n centrifuge_env centrifuge-kreport \
+    -x {{ db }} \
+    "$OUTDIR/${SAMPLE}.cf_output" \
+    > "$OUTDIR/${SAMPLE}.kreport"
+
+  # ── 清理临时文件 ──
+  rm -rf "$WORK"
+  echo "Pipeline complete. Results in $OUTDIR"
+
+methods_template: >
+  Unknown sample pathogen detection was performed using a multi-step pipeline:
+  fastp v0.23 (Q>={qualified_quality_phred}, length>={length_required}),
+  hostile for host read removal, and Centrifuge v{version}
+  with {db_name} database (min-hitlen={min_hitlen}).
