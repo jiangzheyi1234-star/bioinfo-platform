@@ -127,6 +127,7 @@ def main() -> None:
         grouped[row["pathogen"]].append(row)
 
     selected_index = {pathogen: 0 for pathogen in grouped}
+    locked: set[str] = set()  # pathogens that exhausted all candidates, locked at best
     log_lines = []
 
     for iteration in range(1, args.max_iterations + 1):
@@ -142,11 +143,26 @@ def main() -> None:
             log_lines.append(f"iteration\t{iteration}\tpass\t{len(current)}\tpool accepted")
             break
 
-        target = max(penalties, key=penalties.get)
+        # Only consider unlocked pathogens for replacement
+        unlocked = {k: v for k, v in penalties.items() if k not in locked}
+        if not unlocked:
+            log_lines.append(
+                f"iteration\t{iteration}\tall_locked\t{len(locked)}\t"
+                "all conflicting pathogens exhausted candidates, keeping best"
+            )
+            break
+
+        target = max(unlocked, key=unlocked.get)
         next_index = selected_index[target] + 1
         if next_index >= len(grouped[target]):
-            log_lines.append(f"iteration\t{iteration}\tstalled\t{target}\tno more candidates")
-            break
+            # Lock this pathogen at its current (best available) candidate
+            # and continue optimizing the rest — never remove a pathogen
+            locked.add(target)
+            log_lines.append(
+                f"iteration\t{iteration}\tlocked\t{target}\t"
+                f"exhausted {len(grouped[target])} candidates, keeping rank {selected_index[target] + 1}"
+            )
+            continue
 
         log_lines.append(
             f"iteration\t{iteration}\treplace\t{target}\t{selected_index[target] + 1}->{next_index + 1}\t"
@@ -166,12 +182,22 @@ def main() -> None:
         args.max_tm_deviation,
     )
     for row in current:
-        row["pool_penalty"] = str(penalties.get(row["pathogen"], 0))
+        p = row["pathogen"]
+        row["pool_penalty"] = str(penalties.get(p, 0))
+        # pool_status: biological quality grade
+        #   optimal       — passed all checks, no conflicts
+        #   suboptimal    — kept despite conflicts (exhausted alternatives);
+        #                   may need bench validation (adjust annealing T / primer conc)
+        if p in locked and penalties.get(p, 0) > 0:
+            row["pool_status"] = "suboptimal"
+        else:
+            row["pool_status"] = "optimal"
 
     with Path(args.output).open("w", encoding="utf-8", newline="") as handle:
         fieldnames = list(candidates[0].keys())
-        if "pool_penalty" not in fieldnames:
-            fieldnames.append("pool_penalty")
+        for extra in ("pool_penalty", "pool_status"):
+            if extra not in fieldnames:
+                fieldnames.append(extra)
         writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
         writer.writerows(current)

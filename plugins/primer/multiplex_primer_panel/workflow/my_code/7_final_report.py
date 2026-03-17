@@ -54,6 +54,7 @@ def main() -> None:
         "amplicon_seq",
         "pool_id",
         "pool_dimer_score",
+        "pool_status",
     ]
     order_header = ["primer_name", "sequence", "scale", "purification", "Tm", "notes"]
 
@@ -78,6 +79,7 @@ def main() -> None:
                     row.get("amplicon_seq", ""),
                     "pool_1",
                     row.get("pool_penalty", "0"),
+                    row.get("pool_status", "optimal"),
                 ]
             )
 
@@ -85,7 +87,7 @@ def main() -> None:
         missing = [p for p in all_pathogens if p not in covered]
         for pathogen in missing:
             writer.writerow(
-                [pathogen, "", "", "", "", "", "", "", "", "", "", "", "", "no_candidate", ""]
+                [pathogen, "", "", "", "", "", "", "", "", "", "", "", "", "no_candidate", "", "no_candidate"]
             )
         if missing:
             print(f"WARNING: {len(missing)} pathogens had no primer candidates, marked as no_candidate: {', '.join(missing)}")

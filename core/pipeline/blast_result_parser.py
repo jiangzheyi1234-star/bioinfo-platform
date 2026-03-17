@@ -31,14 +31,17 @@ class BlastResultParser:
         *,
         identity_threshold: float = 80.0,
         evalue_threshold: float = 1e-5,
+        min_alignment_length: int = 100,
         top_n: int = 50,
     ) -> list[dict[str, Any]]:
         """解析 BLAST TSV 输出，返回按 contigs 数降序的物种列表。
 
         Args:
             blast_tsv_path: BLAST outfmt 6/7 TSV 文件路径
-            identity_threshold: 最低 identity% 过滤
+            identity_threshold: 最低 identity% 过滤（默认 80%，
+                物种级鉴定建议 ≥90%，属级 ≥80%）
             evalue_threshold: 最大 e-value 过滤
+            min_alignment_length: 最短比对长度（bp），过滤短片段假阳性
             top_n: 返回前 N 个物种
 
         Returns:
@@ -78,6 +81,8 @@ class BlastResultParser:
                 continue
 
             if pident < identity_threshold or evalue > evalue_threshold:
+                continue
+            if length < min_alignment_length:
                 continue
 
             # 提取物种名

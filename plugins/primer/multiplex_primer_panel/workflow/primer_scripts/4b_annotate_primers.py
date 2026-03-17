@@ -15,8 +15,21 @@ def load_region_metadata(path: Path) -> dict[tuple[str, str], dict[str, str]]:
         return {(row["pathogen"], row["region_id"]): row for row in reader}
 
 
+def load_primer_tier(path: Path) -> dict[str, str]:
+    """Load primer3 constraint tier used per pathogen from tier_used.tsv."""
+    if not path.exists():
+        return {}
+    result = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) >= 2:
+            result[parts[0]] = parts[1]
+    return result
+
+
 def main() -> None:
     metadata = load_region_metadata(PROJECT_ROOT / "region_metadata.tsv")
+    primer_tier = load_primer_tier(PROJECT_ROOT / "primer_tier_log" / "tier_used.tsv")
     primer_file = PROJECT_ROOT / "my_result" / "primer_result.txt"
     if not primer_file.exists():
         raise SystemExit(f"primer result not found: {primer_file}")

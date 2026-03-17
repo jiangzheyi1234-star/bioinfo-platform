@@ -71,7 +71,12 @@ def main() -> None:
             missing.append(pathogen)
             continue
 
-        if any(row.get("specificity_score", "") == "-1" for row in matched):
+        # Check pool_status from iterative optimization
+        pool_status = matched[0].get("pool_status", "optimal")
+        if pool_status == "suboptimal":
+            output_rows.append([pathogen, "pass_suboptimal",
+                                "kept despite pool conflicts; recommend bench validation", str(tier) if tier else ""])
+        elif any(row.get("specificity_score", "") == "-1" for row in matched):
             output_rows.append([pathogen, "pass_no_taxid", "taxid not available in core_nt; specificity unverified", str(tier) if tier else ""])
         else:
             output_rows.append([pathogen, "pass", "ok", str(tier) if tier else ""])
