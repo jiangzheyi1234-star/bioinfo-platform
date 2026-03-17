@@ -367,7 +367,7 @@ class ReportGenerator:
         y = 0.85
         for line in lines:
             ax.text(0.05, y, line, fontsize=10, color="#334155",
-                    verticalalignment="top", family="monospace" if line.startswith("  ") else "sans-serif")
+                    verticalalignment="top")
             y -= 0.035
 
         pdf.savefig(fig)

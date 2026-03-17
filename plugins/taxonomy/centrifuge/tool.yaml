@@ -65,7 +65,7 @@ databases:
     required: true
     label: "Centrifuge HPVC 病原体数据库"
     description: "Human Pathogen & Virus Centrifuge 数据库（填写前缀路径，不要加 .cf 后缀）"
-    default: "/home/zyserver/project/lcy_project/my_database/hpvc"
+    default: "/home/zyserver/project/lcy_project/my_database/hpvc/hpvc"
 
 methods_template: >
   Taxonomic classification was performed using Centrifuge v{version}
