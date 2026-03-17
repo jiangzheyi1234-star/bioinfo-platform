@@ -276,6 +276,21 @@ class ToolBridge(QObject):
         result = self._service.get_execution_remote_status(execution_id)
         return json.dumps(result, ensure_ascii=False)
 
+    @pyqtSlot(result=str)
+    def get_configured_databases(self) -> str:
+        """返回设置中已配置的数据库路径，供 modal 下拉选择。"""
+        try:
+            from config import get_config
+            cfg_dbs = get_config().get("databases", {})
+            # {key: path} → [{key, path, label}]
+            result = []
+            for key, path in cfg_dbs.items():
+                if path:
+                    result.append({"key": key, "path": path, "label": f"{key}: {path}"})
+            return json.dumps(result, ensure_ascii=False)
+        except Exception:
+            return "[]"
+
     @pyqtSlot(str, result=str)
     def open_local_file(self, local_path: str) -> str:
         path = Path(str(local_path or "").strip())
