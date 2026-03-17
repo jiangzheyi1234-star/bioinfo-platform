@@ -368,6 +368,11 @@ class MainWindow(QMainWindow):
             self._on_project_switched(project_id)
         except Exception as e:
             logger.error("切换项目失败: %s", e)
+            QMessageBox.warning(
+                self,
+                "切换项目失败",
+                f"无法打开该项目：{e}",
+            )
 
     def _on_create_project_clicked(self) -> None:
         """菜单中点击新建项目。"""
@@ -439,6 +444,14 @@ class MainWindow(QMainWindow):
         # 同步日志页面的项目上下文 + 加载历史
         self.log_page.set_project_context(project_id)
         self.log_page.load_history(self._pm.db, project_id)
+
+        if getattr(self._pm, "db_read_only", False):
+            QMessageBox.warning(
+                self,
+                "项目只读模式",
+                "当前项目数据库被其他进程占用，已以只读模式打开。\n"
+                "请关闭占用该数据库的程序后重试，以恢复可写模式。",
+            )
 
         logger.info("项目已切换: %s", project_id)
 
