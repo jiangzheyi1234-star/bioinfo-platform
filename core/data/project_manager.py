@@ -635,16 +635,33 @@ class ProjectManager(QObject):
             raise
 
     def _load_last_opened_project(self) -> str:
+        candidates = self._load_last_opened_project_candidates()
+        if candidates:
+            return candidates[0][0]
+        return ''
+
+    def _load_last_opened_project_candidates(self) -> list[tuple[str, Path, float]]:
+        """Load all non-empty last_project markers, newest first.
+
+        Returns tuples of (project_id, marker_path, mtime).
+        """
+        candidates: list[tuple[str, Path, float]] = []
         for path in self._last_project_paths:
             if not path.exists():
                 continue
             try:
                 value = path.read_text(encoding='utf-8').strip()
-                if value:
-                    return value
+                if not value:
+                    continue
+                try:
+                    mtime = float(path.stat().st_mtime)
+                except OSError:
+                    mtime = 0.0
+                candidates.append((value, path, mtime))
             except OSError:
                 logger.warning("Failed to read last_project marker: %s", path, exc_info=True)
-        return ''
+        candidates.sort(key=lambda item: item[2], reverse=True)
+        return candidates
 
     def _save_last_opened_project(self, project_id: str) -> None:
         normalized = str(project_id or '').strip()
@@ -664,26 +681,38 @@ class ProjectManager(QObject):
             except OSError:
                 logger.warning("Failed to clear last_project marker: %s", path, exc_info=True)
 
+    def _clear_last_opened_project_path(self, path: Path) -> None:
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            logger.warning("Failed to clear last_project marker: %s", path, exc_info=True)
+
     def _restore_last_opened_project(self) -> None:
         restored = False
-        last_project_id = self._load_last_opened_project()
-        logger.info("Last project marker loaded: %s", last_project_id or "<empty>")
-        if last_project_id:
-            project_raw = self._index.get(last_project_id)
+        candidates = self._load_last_opened_project_candidates()
+        logger.info(
+            "Last project marker loaded: %s",
+            candidates[0][0] if candidates else "<empty>",
+        )
+        for project_id, marker_path, _mtime in candidates:
+            project_raw = self._index.get(project_id)
             if not isinstance(project_raw, dict):
-                self._clear_last_opened_project()
-            elif str(project_raw.get("status", "active")) != "active":
-                self._clear_last_opened_project()
-            else:
-                try:
-                    self.open_project(last_project_id)
-                    logger.info("Restored last opened project: %s", last_project_id)
-                    restored = True
-                except Exception:
-                    logger.warning("Failed to restore last opened project: %s", last_project_id, exc_info=True)
-                    # Do not silently switch to another project when the remembered one fails.
-                    # This avoids the UI appearing to "forget" the last opened project.
-                    return
+                self._clear_last_opened_project_path(marker_path)
+                continue
+            if str(project_raw.get("status", "active")) != "active":
+                self._clear_last_opened_project_path(marker_path)
+                continue
+            try:
+                self.open_project(project_id)
+                logger.info("Restored last opened project: %s", project_id)
+                restored = True
+                break
+            except Exception:
+                logger.warning("Failed to restore last opened project: %s", project_id, exc_info=True)
+                # Clear broken marker and try older marker before falling back.
+                self._clear_last_opened_project_path(marker_path)
+                continue
 
         if restored or self._current_project is not None:
             return

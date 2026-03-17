@@ -1849,6 +1849,16 @@ class ToolBridgeService:
             }
         return {"status": "ok", "view": view}
 
+    def get_fastp_results_for_execution(self, execution_id: str) -> dict:
+        """从 fastp 已完成的 execution 构建 QC 结果 view。"""
+        view = self._build_fastp_view_for_execution(execution_id)
+        if view is None:
+            return {
+                "status": "error",
+                "message": "未能从该任务读取 fastp 质控结果，请确认任务已完成且 fastp.json 已生成。",
+            }
+        return {"status": "ok", "view": view}
+
     def get_execution_remote_status(self, execution_id: str) -> dict:
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
@@ -2058,6 +2068,127 @@ class ToolBridgeService:
         if target_eid is None:
             return None
         return self._build_targeted_seq_view_for_execution(target_eid)
+
+    def _build_fastp_view_for_execution(self, execution_id: str) -> dict | None:
+        """从 fastp 已完成的 execution 构建 QC 结果 view，展示在未知样品检测卡片中。"""
+        import json as _json
+
+        normalized_id = str(execution_id or "").strip()
+        if not normalized_id:
+            return None
+
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+        self.normalize_project_remote_base(pm)
+
+        try:
+            row = pm.db.execute(
+                "SELECT tool_id, sample_id FROM executions WHERE execution_id = ? LIMIT 1",
+                (normalized_id,),
+            ).fetchone()
+        except Exception:
+            return None
+        if not row or row["tool_id"] != "fastp":
+            return None
+
+        sample_id = row["sample_id"]
+        remote_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/fastp_{normalized_id}"
+
+        results_dir = self._execution_results_dir(normalized_id)
+        if results_dir is None:
+            return None
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        local_json = results_dir / "fastp.json"
+        if not local_json.exists():
+            ssh = self._get_ssh_service()
+            if ssh is None or not getattr(ssh, "is_connected", False):
+                return None
+            try:
+                ssh.download(f"{remote_dir}/fastp.json", str(local_json))
+            except Exception as exc:
+                logger.warning("下载 fastp.json 失败: %s", exc)
+                return None
+
+        if not local_json.exists():
+            return None
+
+        try:
+            with open(local_json, encoding="utf-8") as f:
+                fastp_data = _json.load(f)
+        except Exception:
+            return None
+
+        summary = fastp_data.get("summary", {})
+        before = summary.get("before_filtering", {})
+        after = summary.get("after_filtering", {})
+        filtering = fastp_data.get("filtering_result", {})
+
+        total_before = before.get("total_reads", 0)
+        total_after = after.get("total_reads", 0)
+        q30_before = before.get("q30_rate", 0)
+        q30_after = after.get("q30_rate", 0)
+        gc_after = after.get("gc_content", 0)
+        passed = filtering.get("passed_filter_reads", 0)
+        low_quality = filtering.get("low_quality_reads", 0)
+        too_short = filtering.get("too_short_reads", 0)
+        too_many_n = filtering.get("too_many_N_reads", 0)
+
+        pct_pass = f"{passed / total_before * 100:.1f}%" if total_before > 0 else "—"
+
+        view = {
+            "tool_ids": ["fastp"],
+            "title": "fastp 质控报告",
+            "description": f"样品 {sample_id} 的 QC 质控统计。",
+            "table_title": "质控过滤统计",
+            "table_subtitle": "fastp 接头去除 + 低质量过滤详情。",
+            "status": {
+                "state": "completed",
+                "label": "QC 完成",
+                "detail": f"通过率 {pct_pass}，Q30 {q30_after:.1%}",
+            },
+            "parameters": [
+                {"label": "输入", "value": f"双端 FASTQ ({total_before:,} reads)"},
+                {"label": "输出", "value": f"清洁 reads ({total_after:,} reads)"},
+                {"label": "工具", "value": "fastp"},
+            ],
+            "summary": [
+                {"label": "原始 Reads", "value": f"{total_before:,}", "tone": "primary"},
+                {"label": "通过 QC", "value": f"{total_after:,} ({pct_pass})", "tone": "success"},
+                {"label": "Q30 (过滤后)", "value": f"{q30_after:.2%}", "tone": "info"},
+                {"label": "GC 含量", "value": f"{gc_after:.2%}", "tone": "info"},
+            ],
+            "columns": [
+                {"key": "metric", "label": "指标"},
+                {"key": "before", "label": "过滤前"},
+                {"key": "after", "label": "过滤后"},
+            ],
+            "rows": [
+                {"metric": "总 Reads", "before": f"{total_before:,}", "after": f"{total_after:,}"},
+                {"metric": "Q30", "before": f"{q30_before:.2%}", "after": f"{q30_after:.2%}"},
+                {"metric": "GC 含量", "before": f"{before.get('gc_content', 0):.2%}", "after": f"{gc_after:.2%}"},
+                {"metric": "低质量 Reads", "before": "—", "after": f"{low_quality:,}"},
+                {"metric": "过短 Reads", "before": "—", "after": f"{too_short:,}"},
+                {"metric": "高 N Reads", "before": "—", "after": f"{too_many_n:,}"},
+                {"metric": "通过率", "before": "—", "after": pct_pass},
+            ],
+            "artifacts": [
+                {
+                    "name": "fastp.json",
+                    "remote_path": f"{remote_dir}/fastp.json",
+                    "local_path": str(local_json),
+                    "available": True,
+                },
+                {
+                    "name": "fastp.html",
+                    "remote_path": f"{remote_dir}/fastp.html",
+                    "local_path": "",
+                    "available": False,
+                },
+            ],
+        }
+        return view
 
     def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | None:
         """从 execution 记录构建靶向测序结果 view（含饼图 + 表格 + 报告）。"""

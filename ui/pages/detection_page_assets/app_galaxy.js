@@ -113,8 +113,17 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     // 加载工具列表
     loadTools();
 
-    // 加载集成分析工作台
-    loadIntegratedWorkbench();
+    // 启动阶段避免重型同步请求阻塞 UI；仅在当前标签是 integrated 时延迟加载
+    const activeTabBtn = document.querySelector('.tab-btn.active');
+    if (activeTabBtn && activeTabBtn.dataset.tab === 'integrated') {
+        setTimeout(function() {
+            try {
+                loadIntegratedWorkbench();
+            } catch (e) {
+                console.error('Deferred loadIntegratedWorkbench failed:', e);
+            }
+        }, 0);
+    }
 
     // 搜索功能
     document.getElementById('search').addEventListener('input', function(e) {
@@ -1716,6 +1725,80 @@ function loadTargetedSeqResultsFromHistory(executionId) {
     });
 }
 
+function loadDetectionResultsFromHistory(executionId) {
+    if (!executionId) {
+        return;
+    }
+    if (!bridge || !bridge.get_targeted_seq_results_for_execution) {
+        showNotice('未知样品检测结果加载接口不可用');
+        return;
+    }
+
+    showNotice('正在加载未知样品检测结果...', 'warning', 10000);
+    bridge.get_targeted_seq_results_for_execution(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok' || !payload.view) {
+                showNotice(payload.message || '检测结果读取失败');
+                return;
+            }
+
+            if (!integratedWorkbench) {
+                integratedWorkbench = { views: {} };
+            }
+            if (!integratedWorkbench.views) {
+                integratedWorkbench.views = {};
+            }
+
+            integratedWorkbench.views.unknown_sample_detection = payload.view;
+            pendingIntegratedFeatureId = 'unknown_sample_detection';
+            switchTab('integrated');
+            selectIntegratedFeature('unknown_sample_detection');
+            showNotice('已加载未知样品检测结果', 'success');
+        } catch (e) {
+            console.error('Failed to parse detection results:', e);
+            showNotice('检测结果解析失败');
+        }
+    });
+}
+
+function loadFastpResultsFromHistory(executionId) {
+    if (!executionId) {
+        return;
+    }
+    if (!bridge || !bridge.get_fastp_results_for_execution) {
+        showNotice('fastp 结果加载接口不可用');
+        return;
+    }
+
+    showNotice('正在加载 fastp QC 结果...', 'warning', 10000);
+    bridge.get_fastp_results_for_execution(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json);
+            if (payload.status !== 'ok' || !payload.view) {
+                showNotice(payload.message || 'fastp 结果读取失败');
+                return;
+            }
+
+            if (!integratedWorkbench) {
+                integratedWorkbench = { views: {} };
+            }
+            if (!integratedWorkbench.views) {
+                integratedWorkbench.views = {};
+            }
+
+            integratedWorkbench.views.unknown_sample_detection = payload.view;
+            pendingIntegratedFeatureId = 'unknown_sample_detection';
+            switchTab('integrated');
+            selectIntegratedFeature('unknown_sample_detection');
+            showNotice('已加载 fastp 质控结果', 'success');
+        } catch (e) {
+            console.error('Failed to parse fastp results:', e);
+            showNotice('fastp 结果解析失败');
+        }
+    });
+}
+
 function buildExecutionRemoteStatusHtml(data) {
     const remoteStatusRaw = String(data.remote_status || '').toUpperCase();
     const localStatusRaw = String(data.local_status || '').toLowerCase();
@@ -1971,7 +2054,26 @@ function renderHistory(history) {
             viewBtn.textContent = '查看结果';
             viewBtn.onclick = function(e) {
                 e.preventDefault();
-                loadTargetedSeqResultsFromHistory(record.execution_id);
+                // 根据 workflow 标记区分跳转到靶向测序 or 未知样品检测
+                let workflow = '';
+                try {
+                    const params = JSON.parse(record.parameters || '{}');
+                    workflow = params.workflow || '';
+                } catch (_) { /* ignore */ }
+                if (workflow === 'unknown_detection') {
+                    loadDetectionResultsFromHistory(record.execution_id);
+                } else {
+                    loadTargetedSeqResultsFromHistory(record.execution_id);
+                }
+            };
+            actionsContainer.appendChild(viewBtn);
+        } else if (record.status === 'completed' && record.tool_id === 'fastp') {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'task-action-btn btn-view';
+            viewBtn.textContent = '查看结果';
+            viewBtn.onclick = function(e) {
+                e.preventDefault();
+                loadFastpResultsFromHistory(record.execution_id);
             };
             actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'running') {
