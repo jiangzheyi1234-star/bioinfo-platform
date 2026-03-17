@@ -106,12 +106,12 @@ class ChartDataParser:
             parts = line.strip().split("\t")
             if len(parts) < 6:
                 continue
-            pct_str, _, direct_str, rank, _, name = parts[:6]
+            pct_str, clade_str, direct_str, rank, _, name = parts[:6]
             if rank not in ("S", "S1"):   # 只取 species 级别
                 continue
             try:
                 pct = float(pct_str.strip())
-                direct = int(direct_str.strip())
+                clade = int(clade_str.strip())
             except ValueError:
                 continue
             if pct < 0.01:  # 忽略极低丰度
@@ -119,7 +119,7 @@ class ChartDataParser:
             species.append({
                 "name": name.strip().lstrip(),
                 "value": round(pct, 4),
-                "reads": direct,
+                "reads": clade,
             })
 
         # 取 top_n，其余归入「其他」
@@ -158,7 +158,7 @@ class ChartDataParser:
             parts = line.strip().split("\t")
             if len(parts) < 6:
                 continue
-            pct_str, clade_str, _, rank, _, name = parts[:6]
+            pct_str, clade_str, _, rank, taxid, name = parts[:6]
             try:
                 pct = float(pct_str.strip())
                 clade = int(clade_str.strip())
@@ -166,7 +166,7 @@ class ChartDataParser:
                 continue
             if rank == "U":
                 unclassified_reads = clade
-            elif rank == "R":
+            elif rank == "R" or (taxid.strip() == "1" and "root" in name.lower()):
                 root_reads = clade
             if rank in ("S", "S1") and pct > best_pct:
                 best_pct = pct
