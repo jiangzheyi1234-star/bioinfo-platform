@@ -339,6 +339,8 @@ class ProjectManager(QObject):
 
     def close(self) -> None:
         """关闭管理器，释放资源"""
+        if self._current_project is not None:
+            self._save_last_opened_project(self._current_project.project_id)
         self._close_db()
         self._current_project = None
 
