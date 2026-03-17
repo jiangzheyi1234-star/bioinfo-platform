@@ -137,6 +137,7 @@ class ProjectManager(QObject):
             self._last_project_paths.append(DEFAULT_LAST_PROJECT_PATH_APPDATA)
         self._current_project: Optional[ProjectInfo] = None
         self._db_conn: Optional[sqlite3.Connection] = None
+        self._db_read_only: bool = False
 
         # 确保根目录存在
         self._projects_root.mkdir(parents=True, exist_ok=True)
@@ -234,12 +235,57 @@ class ProjectManager(QObject):
 
         # 建立新连接
         try:
-            self._db_conn = sqlite3.connect(str(db_path))
-            self._db_conn.execute("PRAGMA foreign_keys=ON")
-            self._db_conn.row_factory = sqlite3.Row
-
-            # 运行数据库迁移
-            self._migrate_database(self._db_conn)
+            self._try_checkpoint_wal(db_path)
+            self._db_conn = self._open_project_db(db_path)
+            self._db_read_only = False
+        except sqlite3.OperationalError as exc:
+            # Auto-heal for transient/stale sqlite sidecar files.
+            if self._is_sqlite_disk_io_error(exc):
+                logger.warning(
+                    "Open project DB hit disk I/O error, retrying after sidecar cleanup: %s",
+                    db_path,
+                )
+                self._close_db()
+                self._cleanup_sqlite_sidecars(db_path)
+                try:
+                    self._db_conn = self._open_project_db(db_path)
+                    self._db_read_only = False
+                except sqlite3.OperationalError as exc_retry:
+                    if self._is_sqlite_disk_io_error(exc_retry):
+                        logger.warning(
+                            "Retry still hit disk I/O error, attempting backup restore: %s",
+                            db_path,
+                        )
+                        self._close_db()
+                        if self._restore_project_db_from_latest_backup(project_id, db_path):
+                            self._cleanup_sqlite_sidecars(db_path)
+                            try:
+                                self._db_conn = self._open_project_db(db_path)
+                                self._db_read_only = False
+                            except Exception:
+                                logger.exception("Failed to open restored project database: %s", db_path)
+                                self._close_db()
+                                # Final fallback: open project in readonly immutable mode.
+                                self._db_conn = self._open_project_db_readonly(db_path)
+                                self._db_read_only = True
+                        else:
+                            logger.exception("Failed to open project database: %s", db_path)
+                            self._close_db()
+                            # Final fallback: open project in readonly immutable mode.
+                            self._db_conn = self._open_project_db_readonly(db_path)
+                            self._db_read_only = True
+                    else:
+                        logger.exception("Failed to open project database: %s", db_path)
+                        self._close_db()
+                        raise
+                except Exception:
+                    logger.exception("Failed to open project database: %s", db_path)
+                    self._close_db()
+                    raise
+            else:
+                logger.exception("Failed to open project database: %s", db_path)
+                self._close_db()
+                raise
         except Exception:
             logger.exception("Failed to open project database: %s", db_path)
             self._close_db()
@@ -248,9 +294,87 @@ class ProjectManager(QObject):
         self._current_project = project
         self._save_last_opened_project(project_id)
 
-        logger.info("项目已打开: %s (%s)", project.name, project_id)
+        if self._db_read_only:
+            logger.warning("项目以只读模式打开: %s (%s)", project.name, project_id)
+        else:
+            logger.info("项目已打开: %s (%s)", project.name, project_id)
         self.project_opened.emit(project_id)
         return project
+
+    def _open_project_db(self, db_path: Path) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.row_factory = sqlite3.Row
+            self._migrate_database(conn)
+        except Exception:
+            conn.close()
+            raise
+        return conn
+
+    def _open_project_db_readonly(self, db_path: Path) -> sqlite3.Connection:
+        # immutable=1 avoids locking side effects when wal/shm are held by another process.
+        uri = f"file:{db_path.as_posix()}?mode=ro&immutable=1"
+        conn = sqlite3.connect(uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _cleanup_sqlite_sidecars(self, db_path: Path) -> None:
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(f"{db_path}{suffix}")
+            try:
+                if sidecar.exists():
+                    sidecar.unlink()
+            except PermissionError:
+                logger.warning("SQLite sidecar is in use and cannot be removed now: %s", sidecar)
+            except OSError:
+                logger.warning("Failed to cleanup sqlite sidecar: %s", sidecar, exc_info=True)
+
+    def _find_latest_backup_db(self, project_id: str) -> Optional[Path]:
+        backup_roots = [
+            self._projects_root / "_backups" / project_id,
+            self._projects_root / project_id / "_backups",
+        ]
+        candidates: list[tuple[float, Path]] = []
+        for root in backup_roots:
+            if not root.exists():
+                continue
+            try:
+                for d in root.iterdir():
+                    if not d.is_dir():
+                        continue
+                    db = d / "project.db"
+                    if not db.exists():
+                        continue
+                    try:
+                        ts = float(d.stat().st_mtime)
+                    except OSError:
+                        ts = 0.0
+                    candidates.append((ts, db))
+            except OSError:
+                logger.warning("Failed to scan backup root: %s", root, exc_info=True)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
+
+    def _restore_project_db_from_latest_backup(self, project_id: str, db_path: Path) -> bool:
+        backup_db = self._find_latest_backup_db(project_id)
+        if backup_db is None:
+            logger.warning("No backup DB found for project restore: %s", project_id)
+            return False
+        try:
+            if db_path.exists():
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                broken_copy = db_path.with_name(f"project.db.ioerror.{ts}.bak")
+                shutil.copy2(db_path, broken_copy)
+                logger.warning("Current project DB copied before restore: %s", broken_copy)
+            shutil.copy2(backup_db, db_path)
+            logger.info("Project DB restored from backup: %s -> %s", backup_db, db_path)
+            return True
+        except OSError:
+            logger.exception("Failed restoring project DB from backup: %s", backup_db)
+            return False
 
     def list_projects(self) -> list[ProjectInfo]:
         """列出所有项目
@@ -343,6 +467,10 @@ class ProjectManager(QObject):
         if self._db_conn is None:
             raise RuntimeError("没有打开的项目，请先调用 open_project()")
         return self._db_conn
+
+    @property
+    def db_read_only(self) -> bool:
+        return bool(self._db_read_only)
 
     def get_project_dir(self, project_id: str) -> Path:
         """返回指定项目的本地目录。"""
@@ -451,6 +579,7 @@ class ProjectManager(QObject):
             except Exception:
                 logger.exception("关闭数据库连接时出错")
             self._db_conn = None
+        self._db_read_only = False
 
     @staticmethod
     def _try_checkpoint_wal(db_path: Path) -> None:
@@ -459,13 +588,21 @@ class ProjectManager(QObject):
         wal = db_path.with_suffix(".db-wal")
         if not shm.exists() and not wal.exists():
             return
+        tmp = None
         try:
             tmp = sqlite3.connect(str(db_path))
             tmp.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            tmp.close()
             logger.info("已 checkpoint 残留 WAL: %s", db_path)
         except Exception:
             logger.warning("WAL checkpoint 失败，尝试删除残留文件: %s", db_path)
+        finally:
+            if tmp is not None:
+                try:
+                    tmp.close()
+                except Exception:
+                    pass
+        # Delete sidecars AFTER connection is closed
+        if shm.exists() or wal.exists():
             for f in (shm, wal):
                 try:
                     f.unlink(missing_ok=True)
@@ -688,6 +825,13 @@ class ProjectManager(QObject):
         except OSError:
             logger.warning("Failed to clear last_project marker: %s", path, exc_info=True)
 
+    @staticmethod
+    def _is_sqlite_disk_io_error(exc: Exception) -> bool:
+        try:
+            return isinstance(exc, sqlite3.OperationalError) and "disk i/o error" in str(exc).lower()
+        except Exception:
+            return False
+
     def _restore_last_opened_project(self) -> None:
         restored = False
         candidates = self._load_last_opened_project_candidates()
@@ -695,7 +839,12 @@ class ProjectManager(QObject):
             "Last project marker loaded: %s",
             candidates[0][0] if candidates else "<empty>",
         )
+        tried_project_ids: set[str] = set()
         for project_id, marker_path, _mtime in candidates:
+            normalized_id = str(project_id or "").strip()
+            if not normalized_id or normalized_id in tried_project_ids:
+                continue
+            tried_project_ids.add(normalized_id)
             project_raw = self._index.get(project_id)
             if not isinstance(project_raw, dict):
                 self._clear_last_opened_project_path(marker_path)
@@ -708,9 +857,14 @@ class ProjectManager(QObject):
                 logger.info("Restored last opened project: %s", project_id)
                 restored = True
                 break
-            except Exception:
+            except Exception as exc:
                 logger.warning("Failed to restore last opened project: %s", project_id, exc_info=True)
-                # Clear broken marker and try older marker before falling back.
+                # Disk I/O error usually means transient storage/locking issue.
+                # Keep marker and do not fallback to another project, otherwise
+                # user may observe "closed on A but reopened on B".
+                if self._is_sqlite_disk_io_error(exc):
+                    return
+                # For non-I/O errors, clear broken marker and try older markers.
                 self._clear_last_opened_project_path(marker_path)
                 continue
 
