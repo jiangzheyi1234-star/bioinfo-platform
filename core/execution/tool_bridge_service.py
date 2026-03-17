@@ -115,15 +115,15 @@ class ToolBridgeService:
                 {
                     "id": "targeted_sequencing",
                     "name": "靶向测序分析",
-                    "badge": "",
-                    "description": "上传纳米孔 FASTQ，运行 Centrifuge + HPVC 数据库鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
+                    "badge": "tNGS",
+                    "description": "纳米孔靶向扩增测序 → Centrifuge + HPVC 快速鉴定，输出病原体物种组成表与检测报告。",
                     "status": "active",
                 },
                 {
                     "id": "unknown_sample_detection",
                     "name": "未知样品检测",
-                    "badge": "",
-                    "description": "二代宏基因组测序未知样品，经 fastp 质控 → hostile 去宿主 → Centrifuge 快速分类 → 未分类 reads 组装 + BLAST 补充鉴定，生成 PDF 检测报告。",
+                    "badge": "mNGS",
+                    "description": "二代宏基因组鸟枪法测序 → fastp 质控 → hostile 去宿主 → Centrifuge 分类 + BLAST 补充鉴定 → PDF 检测报告。",
                     "status": "active",
                 },
                 {
@@ -198,19 +198,19 @@ class ToolBridgeService:
                 },
                 "targeted_sequencing": {
                     "tool_ids": ["centrifuge"],
-                    "title": "靶向测序分析",
-                    "description": "上传纳米孔靶向测序 FASTQ 文件，运行 Centrifuge + HPVC 数据库鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
+                    "title": "靶向测序分析 (tNGS)",
+                    "description": "上传纳米孔靶向扩增测序 FASTQ，Centrifuge + HPVC 数据库快速鉴定病原体组成。",
                     "table_title": "病原体物种组成",
-                    "table_subtitle": "运行 Centrifuge 分析后，物种组成表和饼图将在此呈现。",
+                    "table_subtitle": "运行 Centrifuge 分析后，物种组成表将在此呈现。",
                     "status": {
                         "state": "ready",
                         "label": "等待运行",
                         "detail": "使用 HPVC 病原体数据库，上传 FASTQ 文件后即可开始分析。",
                     },
                     "parameters": [
-                        {"label": "输入", "value": "纳米孔 FASTQ 文件"},
+                        {"label": "输入", "value": "纳米孔靶向扩增 FASTQ"},
                         {"label": "分析引擎", "value": "Centrifuge + HPVC"},
-                        {"label": "输出", "value": "病原体组成饼图 + 物种表 + 检测报告"},
+                        {"label": "输出", "value": "病原体物种表 + 饼图 + TXT 报告"},
                     ],
                     "summary": [
                         {"label": "总 Reads", "value": "—", "tone": "primary"},
@@ -219,41 +219,50 @@ class ToolBridgeService:
                         {"label": "Top 物种", "value": "—", "tone": "accent"},
                     ],
                     "columns": [
-                        {"key": "rank", "label": "序号"},
-                        {"key": "name", "label": "病原体名称"},
-                        {"key": "reads", "label": "Reads 数"},
+                        {"key": "rank", "label": "#"},
+                        {"key": "name", "label": "物种名称"},
+                        {"key": "reads", "label": "Reads"},
                         {"key": "percentage", "label": "占比 (%)"},
                     ],
                     "rows": [],
                     "artifacts": [],
                 },
                 "unknown_sample_detection": {
-                    "tool_ids": ["centrifuge"],
-                    "title": "未知样品病原体检测",
-                    "description": "二代宏基因组测序样品全流程分析：fastp 质控 → hostile 去宿主 → Centrifuge 分类 → 未分类 reads 组装 + BLAST 补充鉴定，合并结果生成 PDF 报告。",
+                    "tool_ids": ["fastp", "hostile", "centrifuge", "blastn"],
+                    "title": "未知样品病原体检测 (mNGS)",
+                    "description": "二代宏基因组鸟枪法测序全流程：fastp 质控 → hostile 去宿主 → Centrifuge 分类 → BLAST 补充鉴定 → 合并结果 PDF 报告。",
+                    "table_title": "检出微生物列表",
+                    "table_subtitle": "按 Reads 数降序排列，包含细菌、病毒、真菌、寄生虫等各类微生物。",
                     "status": {
                         "state": "ready",
                         "label": "等待运行",
-                        "detail": "选择 Centrifuge 工具并提交任务，完成后自动生成检测报告和 PDF。",
+                        "detail": "提交二代宏基因组双端 FASTQ 后，系统自动执行 QC → 去宿主 → 分类 → 报告全流程。",
                     },
                     "parameters": [
-                        {"label": "输入", "value": "二代宏基因组双端 FASTQ"},
-                        {"label": "质控", "value": "fastp → hostile 去宿主"},
+                        {"label": "输入", "value": "二代宏基因组双端 FASTQ (PE150)"},
+                        {"label": "质控", "value": "fastp 接头去除 + 低质量过滤"},
+                        {"label": "去宿主", "value": "hostile (human-t2t-hla)"},
                         {"label": "分类引擎", "value": "Centrifuge + HPVC 数据库"},
-                        {"label": "输出", "value": "物种组成表 + 饼图 + PDF 检测报告"},
+                        {"label": "补充鉴定", "value": "BLAST + core_nt (未分类 reads)"},
+                        {"label": "输出", "value": "物种表 + 饼图 + PDF 检测报告"},
                     ],
                     "summary": [
-                        {"label": "总 Reads", "value": "—", "tone": "primary"},
-                        {"label": "已分类", "value": "—", "tone": "info"},
+                        {"label": "原始 Reads", "value": "—", "tone": "primary"},
+                        {"label": "QC 后", "value": "—", "tone": "info"},
+                        {"label": "去宿主后", "value": "—", "tone": "info"},
+                        {"label": "宿主占比", "value": "—", "tone": "warning"},
+                        {"label": "已分类", "value": "—", "tone": "success"},
                         {"label": "物种数", "value": "—", "tone": "success"},
                         {"label": "Top 物种", "value": "—", "tone": "accent"},
                     ],
                     "columns": [
-                        {"key": "rank", "label": "序号"},
-                        {"key": "name", "label": "病原体名称"},
-                        {"key": "reads", "label": "Reads 数"},
-                        {"key": "percentage", "label": "占比 (%)"},
-                        {"key": "source", "label": "来源"},
+                        {"key": "rank", "label": "#"},
+                        {"key": "name", "label": "微生物名称"},
+                        {"key": "category", "label": "类型"},
+                        {"key": "reads", "label": "Reads"},
+                        {"key": "rpm", "label": "RPM"},
+                        {"key": "percentage", "label": "相对丰度 (%)"},
+                        {"key": "source", "label": "检出来源"},
                     ],
                     "rows": [],
                     "artifacts": [],
@@ -1840,57 +1849,215 @@ class ToolBridgeService:
             }
         return {"status": "ok", "view": view}
 
+    def get_execution_remote_status(self, execution_id: str) -> dict:
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return {"status": "error", "message": "未打开项目"}
+
+        row = pm.db.execute(
+            """
+            SELECT execution_id, sample_id, tool_id, status, created_at, completed_at, error
+            FROM executions
+            WHERE execution_id = ? AND archived_at IS NULL
+            LIMIT 1
+            """,
+            (execution_id,),
+        ).fetchone()
+        if row is None:
+            return {"status": "error", "message": "未找到该任务记录"}
+
+        sample_id = row["sample_id"]
+        tool_id = row["tool_id"]
+        remote_base = str(pm.current_project.remote_base or "").strip()
+        if not remote_base:
+            remote_base = f"~/.h2ometa/projects/{pm.current_project.project_id}"
+        task_dir = f"{remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+        job_id = f"h2o_{execution_id}"
+
+        data = {
+            "execution_id": execution_id,
+            "tool_id": tool_id,
+            "sample_id": sample_id,
+            "local_status": row["status"],
+            "created_at": row["created_at"],
+            "completed_at": row["completed_at"],
+            "local_error": row["error"] or "",
+            "task_dir": task_dir,
+            "ssh_connected": False,
+            "screen_running": None,
+            "remote_status": "",
+            "exit_code": "",
+            "heartbeat": "",
+            "heartbeat_age_sec": None,
+            "log_tail": "",
+        }
+
+        ssh = self._get_ssh_service()
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return {"status": "ok", "data": data, "message": "SSH 未连接，仅显示本地状态"}
+
+        data["ssh_connected"] = True
+
+        def _read_remote_file(name: str) -> str:
+            try:
+                rc, out, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/{name}')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc == 0:
+                    return out.strip()
+            except Exception:
+                logger.debug("Failed reading remote file %s for %s", name, execution_id, exc_info=True)
+            return ""
+
+        data["remote_status"] = _read_remote_file("status.txt")
+        data["exit_code"] = _read_remote_file("exit_code.txt")
+        data["heartbeat"] = _read_remote_file("heartbeat.txt")
+
+        if data["heartbeat"]:
+            try:
+                hb = int(data["heartbeat"])
+                data["heartbeat_age_sec"] = max(0, int(time.time()) - hb)
+            except Exception:
+                data["heartbeat_age_sec"] = None
+
+        try:
+            rc, _, _ = ssh.run(
+                f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
+                timeout=10,
+            )
+            data["screen_running"] = rc == 0
+        except Exception:
+            logger.debug("Failed checking screen status for %s", execution_id, exc_info=True)
+
+        try:
+            rc, out, _ = ssh.run(
+                f"tail -n 20 {shlex.quote(f'{task_dir}/task.log')} 2>/dev/null",
+                timeout=10,
+            )
+            if rc == 0:
+                data["log_tail"] = out
+        except Exception:
+            logger.debug("Failed reading task.log tail for %s", execution_id, exc_info=True)
+
+        return {"status": "ok", "data": data}
+
     def _get_live_unknown_sample_detection_view(self) -> dict | None:
-        """查找最新的 centrifuge/kraken2 已完成执行，构建未知样品检测 view。"""
+        """查找标记为 unknown_detection workflow 的最新已完成执行，构建未知样品检测 view。
+
+        只加载 parameters JSON 中包含 "workflow":"unknown_detection" 的 execution，
+        避免与靶向测序分析混用同一份结果。
+        """
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
             return None
         try:
             row = pm.db.execute(
-                "SELECT execution_id FROM executions "
+                "SELECT execution_id, parameters FROM executions "
                 "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
-                "ORDER BY rowid DESC LIMIT 1",
-            ).fetchone()
+                "ORDER BY rowid DESC",
+            ).fetchall()
         except Exception:
             return None
-        if not row:
+
+        # 查找带有 workflow=unknown_detection 标记的 execution
+        import json as _json
+        target_eid = None
+        for r in (row or []):
+            try:
+                params = _json.loads(r["parameters"] or "{}")
+            except Exception:
+                continue
+            if params.get("workflow") == "unknown_detection":
+                target_eid = r["execution_id"]
+                break
+
+        if target_eid is None:
             return None
 
-        view = self._build_targeted_seq_view_for_execution(row["execution_id"])
+        view = self._build_targeted_seq_view_for_execution(target_eid)
         if view is None:
             return None
 
-        # 覆盖标题和描述以适应"未知样品检测"卡片
-        view["title"] = "未知样品病原体检测"
-        view["description"] = "二代宏基因组 FASTQ → fastp 质控 → hostile 去宿主 → Centrifuge 分类 → PDF 检测报告"
-        view["table_title"] = "病原体物种组成（合并结果）"
+        # 覆盖标题和描述，适配 mNGS 未知样品检测
+        view["title"] = "未知样品病原体检测 (mNGS)"
+        view["description"] = "fastp 质控 → hostile 去宿主 → Centrifuge 分类 → BLAST 补充鉴定 → 合并结果"
+        view["table_title"] = "检出微生物列表"
+        view["table_subtitle"] = "按 Reads 数降序排列，包含多来源合并结果。"
+        view["tool_ids"] = ["fastp", "hostile", "centrifuge", "blastn"]
 
-        # 添加来源列（如果不存在）
-        cols = view.get("columns", [])
-        if not any(c.get("key") == "source" for c in cols):
-            cols.append({"key": "source", "label": "来源"})
+        # 覆盖列定义为 mNGS 标准列
+        view["columns"] = [
+            {"key": "rank", "label": "#"},
+            {"key": "name", "label": "微生物名称"},
+            {"key": "category", "label": "类型"},
+            {"key": "reads", "label": "Reads"},
+            {"key": "rpm", "label": "RPM"},
+            {"key": "percentage", "label": "相对丰度 (%)"},
+            {"key": "source", "label": "检出来源"},
+        ]
+
+        # 为每行补充 mNGS 特有字段
+        total_reads = 0
+        try:
+            for s in view.get("summary", []):
+                if "Reads" in s.get("label", "") and s["value"] != "—":
+                    total_reads = int(str(s["value"]).replace(",", "").split("(")[0].strip())
+                    break
+        except (ValueError, KeyError):
+            pass
+
+        classifier_name = "Centrifuge"
         for row_data in view.get("rows", []):
+            if "rpm" not in row_data and total_reads > 0:
+                try:
+                    raw_reads = int(str(row_data.get("reads", "0")).replace(",", ""))
+                    rpm = raw_reads / total_reads * 1_000_000
+                    row_data["rpm"] = f"{rpm:,.1f}"
+                except (ValueError, TypeError):
+                    row_data["rpm"] = "—"
+            elif "rpm" not in row_data:
+                row_data["rpm"] = "—"
+            if "category" not in row_data:
+                row_data["category"] = "—"
             if "source" not in row_data:
-                row_data["source"] = view.get("tool_ids", [""])[0].capitalize()
+                row_data["source"] = classifier_name
 
         return view
 
     def _get_live_targeted_seq_view(self) -> dict | None:
-        """查找最新的 centrifuge/kraken2 已完成执行，构建靶向测序 view。"""
+        """查找最新的 centrifuge/kraken2 已完成执行，构建靶向测序 view。
+
+        排除标记为 unknown_detection workflow 的 execution，
+        只加载靶向测序（无 workflow 标记 或 workflow=targeted）的结果。
+        """
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
             return None
         try:
-            row = pm.db.execute(
-                "SELECT execution_id FROM executions "
+            rows = pm.db.execute(
+                "SELECT execution_id, parameters FROM executions "
                 "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
-                "ORDER BY rowid DESC LIMIT 1",
-            ).fetchone()
+                "ORDER BY rowid DESC",
+            ).fetchall()
         except Exception:
             return None
-        if not row:
+
+        import json as _json
+        target_eid = None
+        for r in (rows or []):
+            try:
+                params = _json.loads(r["parameters"] or "{}")
+            except Exception:
+                params = {}
+            wf = params.get("workflow", "")
+            if wf != "unknown_detection":
+                target_eid = r["execution_id"]
+                break
+
+        if target_eid is None:
             return None
-        return self._build_targeted_seq_view_for_execution(row["execution_id"])
+        return self._build_targeted_seq_view_for_execution(target_eid)
 
     def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | None:
         """从 execution 记录构建靶向测序结果 view（含饼图 + 表格 + 报告）。"""

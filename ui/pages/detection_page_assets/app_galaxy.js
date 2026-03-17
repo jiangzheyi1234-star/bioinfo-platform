@@ -1716,6 +1716,102 @@ function loadTargetedSeqResultsFromHistory(executionId) {
     });
 }
 
+function buildExecutionRemoteStatusHtml(data) {
+    const remoteStatusRaw = String(data.remote_status || '').toUpperCase();
+    const localStatusRaw = String(data.local_status || '').toLowerCase();
+    const heartbeatAgeValue = Number(data.heartbeat_age_sec);
+    const heartbeatAge = Number.isFinite(heartbeatAgeValue) ? `${heartbeatAgeValue} s` : '-';
+    const hasRecentHeartbeat = Number.isFinite(heartbeatAgeValue) && heartbeatAgeValue <= 180;
+
+    let serverRuntimeStatus = '状态未知';
+    if (data.screen_running === true) {
+        if (hasRecentHeartbeat) {
+            serverRuntimeStatus = '服务器活跃';
+        } else if (Number.isFinite(heartbeatAgeValue)) {
+            serverRuntimeStatus = `疑似挂起（心跳超时 ${heartbeatAgeValue}s）`;
+        } else {
+            serverRuntimeStatus = '进程在跑（未检测到心跳）';
+        }
+    } else if (data.screen_running === false) {
+        if (remoteStatusRaw === 'COMPLETED' || remoteStatusRaw === 'SUCCESS' || localStatusRaw === 'completed') {
+            serverRuntimeStatus = '已结束（完成）';
+        } else if (remoteStatusRaw === 'FAILED' || remoteStatusRaw === 'ERROR' || localStatusRaw === 'failed') {
+            serverRuntimeStatus = '已结束（失败）';
+        } else {
+            serverRuntimeStatus = '未检测到进程';
+        }
+    } else if (remoteStatusRaw === 'RUNNING' && hasRecentHeartbeat) {
+        serverRuntimeStatus = '服务器活跃';
+    }
+
+    const screenText = data.screen_running == null ? '-' : (data.screen_running ? 'running' : 'not found');
+    const logTail = escapeHtml(String(data.log_tail || '').trim());
+    const logBlock = logTail ? `<pre class="task-details-pre" style="margin-top:8px;max-height:180px;overflow:auto;">${logTail}</pre>` : '';
+    return `
+        <div class="task-error-banner" style="background:#eef6ff;border-color:#bfdbfe;color:#1e3a8a;">
+            服务器状态: ${escapeHtml(serverRuntimeStatus)} ｜ 远端状态: ${escapeHtml(String(data.remote_status || '-'))} ｜ screen: ${escapeHtml(screenText)} ｜ 心跳: ${escapeHtml(heartbeatAge)} ｜ exit_code: ${escapeHtml(String(data.exit_code || '-'))}
+        </div>
+        <pre class="task-details-pre" style="margin-top:8px;">${escapeHtml(JSON.stringify({
+            execution_id: data.execution_id,
+            tool_id: data.tool_id,
+            sample_id: data.sample_id,
+            local_status: data.local_status,
+            task_dir: data.task_dir,
+            ssh_connected: data.ssh_connected,
+            remote_status: data.remote_status || '',
+            screen_running: data.screen_running,
+            exit_code: data.exit_code || '',
+            heartbeat: data.heartbeat || '',
+            heartbeat_age_sec: heartbeatAge,
+            local_error: data.local_error || ''
+        }, null, 2))}</pre>
+        ${logBlock}
+    `;
+}
+
+function toggleExecutionRemoteStatus(executionId, rowEl) {
+    if (!executionId || !rowEl) {
+        return;
+    }
+    if (!bridge || !bridge.get_execution_remote_status) {
+        showNotice('远端状态接口不可用');
+        return;
+    }
+
+    const detailsEl = rowEl.querySelector('.task-details');
+    if (!detailsEl) {
+        return;
+    }
+
+    const existing = detailsEl.querySelector('.remote-status-block');
+    if (existing) {
+        existing.remove();
+        rowEl.classList.remove('expanded');
+        return;
+    }
+
+    showNotice('正在查询远端执行状态...', 'warning', 6000);
+    bridge.get_execution_remote_status(executionId, function(json) {
+        try {
+            const payload = JSON.parse(json || '{}');
+            if (payload.status !== 'ok' || !payload.data) {
+                showNotice(payload.message || '读取远端状态失败');
+                return;
+            }
+
+            const block = document.createElement('div');
+            block.className = 'remote-status-block';
+            block.innerHTML = buildExecutionRemoteStatusHtml(payload.data);
+            detailsEl.prepend(block);
+            rowEl.classList.add('expanded');
+            showNotice('远端状态已更新', 'success', 2500);
+        } catch (e) {
+            console.error('Failed to parse remote status:', e);
+            showNotice('远端状态解析失败');
+        }
+    });
+}
+
 function deleteHistoryExecution(executionId) {
     if (!executionId) {
         return;
@@ -1879,10 +1975,15 @@ function renderHistory(history) {
             };
             actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'running') {
-            const runningTxt = document.createElement('span');
-            runningTxt.className = 'task-running-hint';
-            runningTxt.textContent = '查看状态';
-            actionsContainer.appendChild(runningTxt);
+            const statusBtn = document.createElement('button');
+            statusBtn.className = 'task-action-btn btn-view';
+            statusBtn.textContent = '查看状态';
+            statusBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleExecutionRemoteStatus(record.execution_id, row);
+            };
+            actionsContainer.appendChild(statusBtn);
         }
 
         // 2. 完成或失败可删除
@@ -1972,5 +2073,4 @@ function getDurationClass(seconds) {
     }
     return 'duration-long';
 }
-
 
