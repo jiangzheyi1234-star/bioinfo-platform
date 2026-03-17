@@ -4,7 +4,12 @@ Core 层（允许 QtCore，禁止 QtWidgets）。
 
 支持格式:
   - fastp JSON report → QC 统计柱状图数据
-  - Kraken2 kreport → 分类学组成饼图/树图数据
+  - Kraken2/Centrifuge kreport → 分类学组成饼图/树图数据
+
+kreport 格式说明（Kraken2 / Centrifuge 共用）:
+  列：percentage | clade_reads | direct_reads | rank_code | taxid | scientific_name
+  rank_code: U=未分类, R=根(Kraken2), -=无级(Centrifuge root, taxid=1),
+             D=域, P=门, C=纲, O=目, F=科, G=属, S=种, S1/S2=亚种/株
 """
 import json
 import logging
@@ -74,50 +79,67 @@ class ChartDataParser:
             ],
         }
 
-    # ── Kraken2 kreport ────────────────────────────────────────
+    # ── Kraken2/Centrifuge kreport ─────────────────────────────
+
+    # 物种及亚种级别的 rank code（S=species, S1=subspecies, S2=strain …）
+    _SPECIES_RANKS = {"S", "S1", "S2", "S3"}
 
     @staticmethod
     def parse_kreport(kreport_path: str, top_n: int = 20) -> dict[str, Any]:
-        """解析 Kraken2 kreport，返回 ECharts 饼图数据。
+        """解析 Kraken2/Centrifuge kreport，返回 ECharts 饼图数据。
 
         kreport 格式（tab 分隔）:
-          % | clade_reads | direct_reads | rank | taxid | name
+          percentage | clade_reads | direct_reads | rank_code | taxid | scientific_name
+
+        物种级别取 S（species）、S1（subspecies）、S2（strain）；
+        亚种/株级 reads 已包含在父级 S 的 clade_reads 中，因此仅在
+        父级 S 缺失时才计入亚种条目，避免重复计数。
 
         Args:
             kreport_path: kreport 文件路径
             top_n: 取前 N 个物种（其余归入「其他」）
 
         Returns:
-            {
-              "type": "pie",
-              "title": "物种组成（Kraken2）",
-              "data": [{"name": ..., "value": ...}, ...]
-            }
+            {"type": "pie", "title": "物种组成", "data": [...]}
         """
         species: list[dict[str, Any]] = []
+        seen_species_names: set[str] = set()
 
         try:
             lines = Path(kreport_path).read_text(encoding="utf-8").splitlines()
         except Exception as e:
             logger.error("读取 kreport 失败: %s — %s", kreport_path, e)
-            return ChartDataParser._empty_chart("物种组成（Kraken2）")
+            return ChartDataParser._empty_chart("物种组成")
 
         for line in lines:
             parts = line.strip().split("\t")
             if len(parts) < 6:
                 continue
             pct_str, clade_str, direct_str, rank, _, name = parts[:6]
-            if rank not in ("S", "S1"):   # 只取 species 级别
+            if rank not in ChartDataParser._SPECIES_RANKS:
                 continue
             try:
                 pct = float(pct_str.strip())
                 clade = int(clade_str.strip())
             except ValueError:
                 continue
-            if pct < 0.01:  # 忽略极低丰度
+            if pct < 0.01:
                 continue
+
+            clean_name = name.strip().lstrip()
+
+            # 对于亚种/株 (S1/S2/S3)，检查其父级种是否已存在
+            # 父级种的 clade_reads 已包含亚种 reads，跳过避免重复
+            if rank != "S":
+                parent_genus_species = " ".join(clean_name.split()[:2])
+                if parent_genus_species in seen_species_names:
+                    continue
+
+            if rank == "S":
+                seen_species_names.add(clean_name)
+
             species.append({
-                "name": name.strip().lstrip(),
+                "name": clean_name,
                 "value": round(pct, 4),
                 "reads": clade,
             })
@@ -132,25 +154,38 @@ class ChartDataParser:
 
         return {
             "type": "pie",
-            "title": "物种组成（Kraken2）",
+            "title": "物种组成",
             "data": [{"name": s["name"], "value": s["value"], "reads": s["reads"]} for s in top],
         }
 
     @staticmethod
     def parse_kreport_summary(kreport_path: str) -> dict[str, Any]:
-        """解析 kreport 摘要信息：总 reads、分类/未分类、物种数、top species。"""
+        """解析 kreport 摘要信息。
+
+        Returns:
+            {
+              "total_reads": int,
+              "classified_reads": int,
+              "unclassified_reads": int,
+              "species_count": int,
+              "top_species": str,
+              "domain_breakdown": [{"name": str, "reads": int, "percentage": float}, ...]
+            }
+        """
         total_reads = 0
         classified_reads = 0
         unclassified_reads = 0
         species_count = 0
         top_species = ""
+        domains: list[dict[str, Any]] = []
 
         try:
             lines = Path(kreport_path).read_text(encoding="utf-8").splitlines()
         except Exception as e:
             logger.error("读取 kreport 摘要失败: %s — %s", kreport_path, e)
             return {"total_reads": 0, "classified_reads": 0,
-                    "unclassified_reads": 0, "species_count": 0, "top_species": "N/A"}
+                    "unclassified_reads": 0, "species_count": 0,
+                    "top_species": "N/A", "domain_breakdown": []}
 
         best_pct = -1.0
         root_reads = 0
@@ -168,15 +203,22 @@ class ChartDataParser:
                 unclassified_reads = clade
             elif rank == "R" or (taxid.strip() == "1" and "root" in name.lower()):
                 root_reads = clade
-            if rank in ("S", "S1") and pct > best_pct:
+            # 域级别统计（Bacteria, Viruses, Eukaryota, Archaea）
+            if rank == "D" and pct >= 0.01:
+                domains.append({
+                    "name": name.strip().lstrip(),
+                    "reads": clade,
+                    "percentage": round(pct, 2),
+                })
+            if rank in ChartDataParser._SPECIES_RANKS and pct > best_pct:
                 best_pct = pct
                 top_species = name.strip()
-            if rank in ("S", "S1") and pct >= 0.01:
+            if rank in ChartDataParser._SPECIES_RANKS and pct >= 0.01:
                 species_count += 1
 
-        # R line's clade_reads = classified reads; total = classified + unclassified
         classified_reads = root_reads
         total_reads = root_reads + unclassified_reads
+        domains.sort(key=lambda x: x["reads"], reverse=True)
 
         return {
             "total_reads": total_reads,
@@ -184,6 +226,7 @@ class ChartDataParser:
             "unclassified_reads": unclassified_reads,
             "species_count": species_count,
             "top_species": top_species or "N/A",
+            "domain_breakdown": domains,
         }
 
     @staticmethod

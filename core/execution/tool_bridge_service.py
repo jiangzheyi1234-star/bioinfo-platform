@@ -116,7 +116,14 @@ class ToolBridgeService:
                     "id": "targeted_sequencing",
                     "name": "靶向测序分析",
                     "badge": "",
-                    "description": "上传纳米孔 FASTQ，运行 Kraken2 鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
+                    "description": "上传纳米孔 FASTQ，运行 Centrifuge + HPVC 数据库鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
+                    "status": "active",
+                },
+                {
+                    "id": "unknown_sample_detection",
+                    "name": "未知样品检测",
+                    "badge": "",
+                    "description": "二代宏基因组测序未知样品，经 fastp 质控 → hostile 去宿主 → Centrifuge 快速分类 → 未分类 reads 组装 + BLAST 补充鉴定，生成 PDF 检测报告。",
                     "status": "active",
                 },
                 {
@@ -193,6 +200,8 @@ class ToolBridgeService:
                     "tool_ids": ["centrifuge"],
                     "title": "靶向测序分析",
                     "description": "上传纳米孔靶向测序 FASTQ 文件，运行 Centrifuge + HPVC 数据库鉴定病原体组成，以饼图和物种表呈现结果并生成检测报告。",
+                    "table_title": "病原体物种组成",
+                    "table_subtitle": "运行 Centrifuge 分析后，物种组成表和饼图将在此呈现。",
                     "status": {
                         "state": "ready",
                         "label": "等待运行",
@@ -214,6 +223,37 @@ class ToolBridgeService:
                         {"key": "name", "label": "病原体名称"},
                         {"key": "reads", "label": "Reads 数"},
                         {"key": "percentage", "label": "占比 (%)"},
+                    ],
+                    "rows": [],
+                    "artifacts": [],
+                },
+                "unknown_sample_detection": {
+                    "tool_ids": ["centrifuge"],
+                    "title": "未知样品病原体检测",
+                    "description": "二代宏基因组测序样品全流程分析：fastp 质控 → hostile 去宿主 → Centrifuge 分类 → 未分类 reads 组装 + BLAST 补充鉴定，合并结果生成 PDF 报告。",
+                    "status": {
+                        "state": "ready",
+                        "label": "等待运行",
+                        "detail": "选择 Centrifuge 工具并提交任务，完成后自动生成检测报告和 PDF。",
+                    },
+                    "parameters": [
+                        {"label": "输入", "value": "二代宏基因组双端 FASTQ"},
+                        {"label": "质控", "value": "fastp → hostile 去宿主"},
+                        {"label": "分类引擎", "value": "Centrifuge + HPVC 数据库"},
+                        {"label": "输出", "value": "物种组成表 + 饼图 + PDF 检测报告"},
+                    ],
+                    "summary": [
+                        {"label": "总 Reads", "value": "—", "tone": "primary"},
+                        {"label": "已分类", "value": "—", "tone": "info"},
+                        {"label": "物种数", "value": "—", "tone": "success"},
+                        {"label": "Top 物种", "value": "—", "tone": "accent"},
+                    ],
+                    "columns": [
+                        {"key": "rank", "label": "序号"},
+                        {"key": "name", "label": "病原体名称"},
+                        {"key": "reads", "label": "Reads 数"},
+                        {"key": "percentage", "label": "占比 (%)"},
+                        {"key": "source", "label": "来源"},
                     ],
                     "rows": [],
                     "artifacts": [],
@@ -297,6 +337,7 @@ class ToolBridgeService:
                     "pool_id": parts[13] if len(parts) > 13 else "",
                     "pool_dimer_score": parts[14] if len(parts) > 14 else (parts[9] if len(parts) > 9 else ""),
                     "pool_score": parts[14] if len(parts) > 14 else (parts[9] if len(parts) > 9 else (parts[5] if len(parts) > 5 else "")),
+                    "pool_status": parts[15] if len(parts) > 15 else "",
                 }
             )
         return rows
@@ -316,6 +357,7 @@ class ToolBridgeService:
             {"key": "conservation_score", "label": "Conservation Score"},
             {"key": "specificity_score", "label": "Specificity Score"},
             {"key": "pool_dimer_score", "label": "Pool Dimer Score"},
+            {"key": "pool_status", "label": "Pool Status"},
         ]
 
         if not rows:
@@ -775,6 +817,12 @@ class ToolBridgeService:
         if not rows:
             return None
 
+        # Separate valid primers from no_candidate / suboptimal entries
+        valid_rows = [r for r in rows if r.get("pool_id") != "no_candidate" and r.get("forward_primer", "").strip()]
+        no_candidate_rows = [r for r in rows if r.get("pool_id") == "no_candidate" or not r.get("forward_primer", "").strip()]
+        suboptimal_rows = [r for r in valid_rows if r.get("pool_status") == "suboptimal"]
+        optimal_rows = [r for r in valid_rows if r.get("pool_status") != "suboptimal"]
+
         synthesis_count = self._count_local_artifact_lines(artifacts, "synthesis_order.txt")
         optimization_count = self._count_local_artifact_lines(artifacts, "optimization_log.txt")
         optimization_rounds = max((optimization_count or 1) - 1, 0)
@@ -786,20 +834,105 @@ class ToolBridgeService:
                 "description": "指算法为消解引物冲突并满足约束而进行的迭代次数；轮次越多表示优化过程越复杂，不代表结果更差。",
             }
         )
+
+        # Summary: 4 cards showing actionable info
+        total_pathogens = len(rows)
+        coverage_str = f"{len(valid_rows)}/{total_pathogens}"
+        # tone for coverage: success if full, warning if partial
+        coverage_tone = "success" if len(valid_rows) == total_pathogens else "warning"
+
+        # Compute Tm range and recommended annealing temperature from valid primers
+        all_tms: list[float] = []
+        all_amplicon_lengths: list[int] = []
+        for r in valid_rows:
+            for k in ("tm_f", "tm_r"):
+                try:
+                    all_tms.append(float(r.get(k) or 0))
+                except ValueError:
+                    pass
+            try:
+                al = int(r.get("amplicon_length") or 0)
+                if al > 0:
+                    all_amplicon_lengths.append(al)
+            except ValueError:
+                pass
+
+        summary = [
+            {"label": "入池病原体", "value": coverage_str, "tone": coverage_tone},
+            {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "primary"},
+        ]
+        if suboptimal_rows:
+            summary.append({"label": "需验证", "value": str(len(suboptimal_rows)), "tone": "warning"})
+        else:
+            summary.append({"label": "质量", "value": "全部 optimal", "tone": "success"})
+
+        # 4th card: Tm range — directly tells researcher what annealing T to use
+        if all_tms:
+            tm_min = min(all_tms)
+            tm_max = max(all_tms)
+            tm_mean = sum(all_tms) / len(all_tms)
+            summary.append({"label": "Tm 范围", "value": f"{tm_min:.1f}-{tm_max:.1f}℃", "tone": "accent"})
+        else:
+            summary.append({"label": "优化轮次", "value": str(optimization_rounds), "tone": "accent"})
+
+        # Extra metrics appended to parameters (visible in expanded detail)
+        if all_tms:
+            parameter_items.append({
+                "label": "推荐退火温度",
+                "value": f"{tm_mean - 5:.1f}℃",
+                "description": f"基于池内引物平均 Tm ({tm_mean:.1f}℃) 减 5℃ 计算。实际需根据聚合酶和缓冲体系微调。",
+            })
+        if all_amplicon_lengths:
+            parameter_items.append({
+                "label": "扩增子范围",
+                "value": f"{min(all_amplicon_lengths)}-{max(all_amplicon_lengths)} bp",
+                "description": "池内扩增子长度的最小-最大范围。差异越大越利于凝胶电泳区分。",
+            })
+        if suboptimal_rows:
+            subopt_names = ", ".join(r.get("pathogen", "") for r in suboptimal_rows[:5])
+            suffix = f" 等 {len(suboptimal_rows)} 个" if len(suboptimal_rows) > 5 else ""
+            parameter_items.append({
+                "label": "需实验验证",
+                "value": subopt_names + suffix,
+                "description": "这些病原体的引物在池优化中存在轻微冲突（二聚体/Tm偏差/长度重叠），建议通过调整退火温度或引物浓度在实验端验证。",
+            })
+
+        # Build amplicon length bar chart for visual assessment
+        chart_data = None
+        if valid_rows:
+            chart_items = []
+            for r in rows:
+                pathogen = r.get("pathogen", "")
+                try:
+                    amp_len = int(r.get("amplicon_length") or 0)
+                except ValueError:
+                    amp_len = 0
+                row_status = r.get("pool_status", "optimal")
+                if r.get("pool_id") == "no_candidate" or not r.get("forward_primer", "").strip():
+                    row_status = "no_candidate"
+                    amp_len = 0
+                chart_items.append({
+                    "name": pathogen,
+                    "value": amp_len,
+                    "status": row_status,
+                    "region_id": r.get("region_id", ""),
+                })
+            chart_data = {
+                "type": "bar",
+                "title": "扩增子长度分布",
+                "data": chart_items,
+            }
+
         return {
             "tool_ids": ["multiplex_primer_panel"],
             "title": "多重引物池设计",
             "description": description,
             "status": status,
             "parameters": parameter_items,
-            "summary": [
-                {"label": "入池病原体", "value": str(len(rows)), "tone": "primary"},
-                {"label": "扩增子方案", "value": str(len(rows)), "tone": "info"},
-                {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "success"},
-                {"label": "优化轮次", "value": str(optimization_rounds), "tone": "accent"},
-            ],
+            "summary": summary,
             "columns": self._build_multiplex_columns(rows),
             "rows": rows,
+            "chart": chart_data,
             "artifacts": artifacts,
             "remote_result_dir": remote_result_dir,
         }
@@ -1469,20 +1602,18 @@ class ToolBridgeService:
             sample_id = row["sample_id"]
             tool_id = row["tool_id"]
             job_id = f"h2o_{execution_id}"
+            task_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
 
+            status_text = ""
             try:
-                rc, _, _ = ssh.run(
-                    f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
+                rc_status, out_status, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
                     timeout=10,
                 )
+                if rc_status == 0 and out_status.strip():
+                    status_text = out_status.strip().upper()
             except Exception:
-                logger.debug("Failed to check screen session for %s", execution_id, exc_info=True)
-                continue
-
-            if rc == 0:
-                continue
-
-            task_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+                logger.debug("Failed to read status for %s", execution_id, exc_info=True)
 
             exit_code = ""
             try:
@@ -1495,7 +1626,8 @@ class ToolBridgeService:
             except Exception:
                 logger.debug("Failed to read exit_code for %s", execution_id, exc_info=True)
 
-            if exit_code == "0":
+            # DONE/exit_code=0 takes precedence over lingering detached screen sessions.
+            if exit_code == "0" or status_text == "DONE":
                 try:
                     descriptor = self.get_tool_descriptor(tool_id)
                     tool_engine.on_job_completed(
@@ -1505,22 +1637,22 @@ class ToolBridgeService:
                         output_dir=task_dir,
                     )
                     logger.info("Reconciled stale running execution as completed: %s", execution_id)
-                    continue
                 except Exception:
                     logger.exception("Failed to reconcile completed execution %s", execution_id)
+                continue
 
-            error_msg = "Remote execution ended unexpectedly"
-            status_text = ""
             try:
-                rc_status, out_status, _ = ssh.run(
-                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
+                rc, _, _ = ssh.run(
+                    f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
                     timeout=10,
                 )
-                if rc_status == 0 and out_status.strip():
-                    status_text = out_status.strip().upper()
-                    error_msg = f"remote status: {out_status.strip()}"
             except Exception:
-                logger.debug("Failed to read status for %s", execution_id, exc_info=True)
+                logger.debug("Failed to check screen session for %s", execution_id, exc_info=True)
+                continue
+
+            if rc == 0:
+                continue
+            error_msg = f"remote status: {status_text}" if status_text else "Remote execution ended unexpectedly"
 
             if status_text == "RUNNING":
                 # Manual resume may run outside screen; keep running state.
@@ -1627,10 +1759,10 @@ class ToolBridgeService:
                     {"label": "优化轮次", "value": "运行后生成", "description": "表示算法迭代优化的次数，用于消解冲突并满足约束；该值由实际任务日志统计。"},
                 ],
                 "summary": [
-                    {"label": "已入池病原体", "value": "0", "tone": "primary"},
-                    {"label": "扩增子方案", "value": "0", "tone": "info"},
-                    {"label": "订单条目", "value": "0", "tone": "success"},
-                    {"label": "优化状态", "value": "ready", "tone": "accent"},
+                    {"label": "入池病原体", "value": "0/0", "tone": "primary"},
+                    {"label": "订单条目", "value": "0", "tone": "primary"},
+                    {"label": "质量", "value": "-", "tone": "accent"},
+                    {"label": "优化轮次", "value": "ready", "tone": "accent"},
                 ],
                 "columns": self._build_multiplex_columns([]),
                 "rows": [],
@@ -1659,6 +1791,17 @@ class ToolBridgeService:
         live_multiplex_view = self.get_live_multiplex_primer_panel_view()
         if live_multiplex_view is not None:
             views["multiplex_primer_panel"] = live_multiplex_view
+
+        # 未知样品检测 — 复用靶向测序的结果加载逻辑
+        live_detection_view = self._get_live_unknown_sample_detection_view()
+        if live_detection_view is not None:
+            views["unknown_sample_detection"] = live_detection_view
+
+        # 靶向测序分析 — 自动加载最新完成的 centrifuge/kraken2 结果
+        live_targeted_view = self._get_live_targeted_seq_view()
+        if live_targeted_view is not None:
+            views["targeted_sequencing"] = live_targeted_view
+
         return config
 
     def get_remote_primer_results(self, remote_result_dir: str) -> dict:
@@ -1696,6 +1839,58 @@ class ToolBridgeService:
                 "message": "未能从该任务读取靶向测序结果，请确认任务已完成且 kreport 文件已生成。",
             }
         return {"status": "ok", "view": view}
+
+    def _get_live_unknown_sample_detection_view(self) -> dict | None:
+        """查找最新的 centrifuge/kraken2 已完成执行，构建未知样品检测 view。"""
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+        try:
+            row = pm.db.execute(
+                "SELECT execution_id FROM executions "
+                "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
+                "ORDER BY rowid DESC LIMIT 1",
+            ).fetchone()
+        except Exception:
+            return None
+        if not row:
+            return None
+
+        view = self._build_targeted_seq_view_for_execution(row["execution_id"])
+        if view is None:
+            return None
+
+        # 覆盖标题和描述以适应"未知样品检测"卡片
+        view["title"] = "未知样品病原体检测"
+        view["description"] = "二代宏基因组 FASTQ → fastp 质控 → hostile 去宿主 → Centrifuge 分类 → PDF 检测报告"
+        view["table_title"] = "病原体物种组成（合并结果）"
+
+        # 添加来源列（如果不存在）
+        cols = view.get("columns", [])
+        if not any(c.get("key") == "source" for c in cols):
+            cols.append({"key": "source", "label": "来源"})
+        for row_data in view.get("rows", []):
+            if "source" not in row_data:
+                row_data["source"] = view.get("tool_ids", [""])[0].capitalize()
+
+        return view
+
+    def _get_live_targeted_seq_view(self) -> dict | None:
+        """查找最新的 centrifuge/kraken2 已完成执行，构建靶向测序 view。"""
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+        try:
+            row = pm.db.execute(
+                "SELECT execution_id FROM executions "
+                "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
+                "ORDER BY rowid DESC LIMIT 1",
+            ).fetchone()
+        except Exception:
+            return None
+        if not row:
+            return None
+        return self._build_targeted_seq_view_for_execution(row["execution_id"])
 
     def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | None:
         """从 execution 记录构建靶向测序结果 view（含饼图 + 表格 + 报告）。"""
@@ -1764,7 +1959,11 @@ class ToolBridgeService:
         # 摘要卡片
         total = summary_data["total_reads"]
         classified = summary_data["classified_reads"]
+        unclassified = summary_data["unclassified_reads"]
         pct = f"{classified / total * 100:.1f}%" if total > 0 else "0%"
+        domains = summary_data.get("domain_breakdown", [])
+        domain_text = " / ".join(f"{d['name']} {d['percentage']}%" for d in domains[:3]) if domains else "N/A"
+
         summary = [
             {"label": "总 Reads", "value": f"{total:,}", "tone": "primary"},
             {"label": "已分类", "value": f"{classified:,} ({pct})", "tone": "info"},
@@ -1772,15 +1971,19 @@ class ToolBridgeService:
             {"label": "Top 物种", "value": summary_data["top_species"], "tone": "accent"},
         ]
 
+        classifier_label = "Centrifuge" if tool_id == "centrifuge" else "Kraken2"
+
         # 生成报告（TXT + PDF）
         report_path = self._generate_targeted_seq_report(
-            summary_data, chart_data.get("data", []), results_dir
+            summary_data, chart_data.get("data", []), results_dir,
+            classifier_name=classifier_label,
         )
 
         # 尝试生成 PDF 报告（合并 BLAST 结果如果有的话）
         pdf_path = self._generate_detection_pdf(
             summary_data, chart_data.get("data", []),
             results_dir, remote_dir, sample_id, normalized_id,
+            classifier_name=classifier_label,
         )
 
         # 构建 artifacts
@@ -1812,7 +2015,8 @@ class ToolBridgeService:
             "tool_ids": [tool_id],
             "title": "靶向测序分析",
             "table_title": "病原体物种组成",
-            "description": f"纳米孔靶向测序 {tool_id.capitalize()} 分析结果",
+            "table_subtitle": "基于 kreport 解析的物种组成，按丰度降序排列。",
+            "description": f"纳米孔靶向测序 {classifier_label} 分析结果",
             "status": {"state": "completed", "label": "分析完成", "detail": "已生成病原体组成饼图和检测报告。"},
             "parameters": [{"label": "执行 ID", "value": normalized_id}],
             "summary": summary,
@@ -1836,32 +2040,57 @@ class ToolBridgeService:
         summary: dict,
         species_list: list[dict],
         output_dir: Path,
+        *,
+        classifier_name: str = "Classifier",
     ) -> Path | None:
         """生成靶向测序病原体检测报告 .txt 文件（UTF-8 BOM）。"""
         total = summary.get("total_reads", 0)
         classified = summary.get("classified_reads", 0)
+        unclassified = summary.get("unclassified_reads", 0)
         pct = f"{classified / total * 100:.1f}" if total > 0 else "0.0"
+        unpct = f"{unclassified / total * 100:.1f}" if total > 0 else "0.0"
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
         lines = [
-            "=" * 48,
+            "=" * 52,
             "        靶向测序病原体检测报告",
-            "=" * 48,
+            "=" * 52,
             f"生成时间：{now}",
+            f"分类工具：{classifier_name}",
             f"总 Reads：{total:,}",
             f"已分类：{classified:,} ({pct}%)",
-            f"物种数：{summary.get('species_count', 0)}",
+            f"未分类：{unclassified:,} ({unpct}%)",
+            f"检出物种数：{summary.get('species_count', 0)}",
+        ]
+
+        # 域级别分布
+        domains = summary.get("domain_breakdown", [])
+        if domains:
+            lines.append("")
+            lines.append("域级别分布：")
+            for d in domains:
+                lines.append(f"  {d['name']:<20}{d['reads']:>10,}  ({d['percentage']:.2f}%)")
+
+        lines.extend([
             "",
             f"{'序号':<6}{'病原体名称':<30}{'Reads数':<12}{'占比(%)':<10}",
             "-" * 58,
-        ]
+        ])
         for i, item in enumerate(species_list, 1):
             name = item.get("name", "")
             reads = item.get("reads", 0)
             value = item.get("value", 0)
             lines.append(f"{i:<6}{name:<30}{reads:<12,}{value:<10.2f}")
 
-        lines.append("=" * 48)
+        lines.extend([
+            "=" * 52,
+            "",
+            "注意事项：",
+            "  1. 本报告由 H2OMeta 平台自动生成，仅供科研参考。",
+            "  2. 低丰度物种（<1%）可能为环境或试剂污染，需结合阴性对照判断。",
+            "  3. 临床诊断需结合患者症状、流行病学史及其他实验室检测结果。",
+            "  4. 物种名称遵循 NCBI Taxonomy 命名体系。",
+        ])
 
         report_path = output_dir / "targeted_seq_report.txt"
         try:
@@ -1881,6 +2110,8 @@ class ToolBridgeService:
         remote_dir: str,
         sample_id: str,
         execution_id: str,
+        *,
+        classifier_name: str = "Classifier",
     ) -> Path | None:
         """生成病原体检测 PDF 报告，尝试合并 BLAST 结果。"""
         from core.pipeline.detection_merger import DetectionMerger
@@ -1890,7 +2121,9 @@ class ToolBridgeService:
         blast_species = self._try_load_blast_results(sample_id, execution_id)
 
         # 合并
-        merged = DetectionMerger.merge(kreport_species, blast_species)
+        merged = DetectionMerger.merge(
+            kreport_species, blast_species, classifier_name=classifier_name,
+        )
         if not merged:
             return None
 
@@ -1910,6 +2143,7 @@ class ToolBridgeService:
             except Exception:
                 pass
 
+        analysis_method = f"{classifier_name} + BLASTn" if blast_species else classifier_name
         pdf_path = output_dir / "detection_report.pdf"
         return ReportGenerator.generate_detection_report(
             species_list=merged,
@@ -1917,6 +2151,7 @@ class ToolBridgeService:
             output_path=str(pdf_path),
             project_name=project_name,
             sample_name=sample_name,
+            analysis_method=analysis_method,
         )
 
     def _try_load_blast_results(
@@ -1965,4 +2200,3 @@ class ToolBridgeService:
             return None
 
         return BlastResultParser.parse(str(blast_tsv))
-

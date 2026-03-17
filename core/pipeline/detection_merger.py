@@ -16,6 +16,8 @@ class DetectionMerger:
     def merge(
         kreport_species: list[dict[str, Any]],
         blast_species: list[dict[str, Any]] | None = None,
+        *,
+        classifier_name: str = "Classifier",
     ) -> list[dict[str, Any]]:
         """合并两个来源的物种列表，按 reads 降序。
 
@@ -24,10 +26,12 @@ class DetectionMerger:
                 [{"name": str, "value": float, "reads": int}, ...]
             blast_species: BlastResultParser.parse() 输出
                 [{"name": str, "contigs": int, "reads": int, ...}, ...]
+            classifier_name: 分类器名称（"Centrifuge" 或 "Kraken2"），
+                用于 source 标记
 
         Returns:
             [{"name": str, "reads": int, "percentage": float,
-              "source": "Kraken2"|"BLAST"|"Both",
+              "source": "<classifier>"|"BLAST"|"Both",
               "contigs": int|None, "avg_identity": float|None,
               "best_evalue": float|None}, ...]
         """
@@ -42,7 +46,7 @@ class DetectionMerger:
                 "name": name,
                 "reads": item.get("reads", 0),
                 "percentage": item.get("value", 0.0),
-                "source": "Kraken2",
+                "source": classifier_name,
                 "contigs": None,
                 "avg_identity": None,
                 "best_evalue": None,
