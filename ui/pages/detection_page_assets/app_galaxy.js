@@ -348,14 +348,11 @@ function renderIntegratedRunModalForm(descriptor) {
             const key = db.param_name || db.name;
             const id = `modal-db-${key}`;
             const required = db.required !== false ? '<span class="integrated-input-required">Required</span>' : '';
-            const defaultVal = db.default || '';
+            // 数据库路径由后端 build_database_paths 自动解析，此处仅展示提示
             parts.push(`
                 <div class="integrated-input-item">
                     <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(db.label || key)}</span>${required}</div>
-                    <div class="input-group">
-                        <input type="text" class="form-input" id="${id}" value="${escapeHtml(String(defaultVal))}" placeholder="${escapeHtml(db.description || 'Remote database path')}" title="${escapeHtml(String(defaultVal))}">
-                        <button class="btn-browse" type="button" onclick="browseRemoteFile('${id}')">Browse...</button>
-                    </div>
+                    <input type="text" class="form-input" id="${id}" value="" readonly placeholder="自动使用设置中配置的数据库路径" style="color:#6c757d;background:#f8f9fa;cursor:default">
                 </div>
             `);
         });
@@ -402,7 +399,10 @@ function runIntegratedRunModal() {
     const databases = descriptor.databases || [];
     for (const db of databases) {
         const key = db.param_name || db.name;
-        const value = document.getElementById(`modal-db-${key}`)?.value?.trim();
+        const el = document.getElementById(`modal-db-${key}`);
+        const value = el?.value?.trim();
+        // readonly 空值 = 后端 build_database_paths 自动解析，跳过前端校验
+        if (el && el.readOnly && !value) continue;
         if (db.required !== false && !value) {
             showNotice(`Missing required database path: ${db.label || key}`, 'warning');
             return;
@@ -1385,7 +1385,7 @@ function getInputBrowseFilter(input, descriptor) {
     }
 
     if (input?.type === 'archive') {
-        return '压缩包 (*.zip *.tar *.tar.gz *.tgz)';
+        return '压缩包 (*.rar *.zip *.tar.gz *.tgz *.tar.bz2)';
     }
 
     return '所有文件 (*.*)';
@@ -2046,6 +2046,15 @@ function renderHistory(history) {
             viewBtn.onclick = function(e) {
                 e.preventDefault();
                 loadMultiplexResultsFromHistory(record.execution_id);
+            };
+            actionsContainer.appendChild(viewBtn);
+        } else if (record.status === 'completed' && record.tool_id === 'unknown_sample_detection') {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'task-action-btn btn-view';
+            viewBtn.textContent = '查看结果';
+            viewBtn.onclick = function(e) {
+                e.preventDefault();
+                loadDetectionResultsFromHistory(record.execution_id);
             };
             actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'completed' && (record.tool_id === 'centrifuge' || record.tool_id === 'kraken2')) {
