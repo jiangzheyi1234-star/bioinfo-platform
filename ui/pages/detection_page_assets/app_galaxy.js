@@ -725,6 +725,9 @@ function renderIntegratedFeature(feature, view) {
     if (resultsTitle) resultsTitle.textContent = view.table_title || '分析结果';
     const resultsBadge = document.getElementById('results-card-badge');
     if (resultsBadge) resultsBadge.textContent = view.table_badge || (view.artifacts && view.artifacts[0] ? view.artifacts[0].name : '');
+
+    const subtitleEl = document.getElementById('results-card-subtitle');
+    if (subtitleEl) subtitleEl.textContent = view.table_subtitle || '分析结果将在此处展示。';
 }
 
 function renderIntegratedRunEntry(feature, view) {
@@ -915,8 +918,11 @@ function renderIntegratedTable(columns, rows) {
     }).join('')}</tr>`;
     body.innerHTML = '';
 
+    const table = head.closest('table');
+    if (table) table.classList.toggle('wide-table', columns.length > 6);
+
     if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">暂无结果</td></tr>`;
+        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">暂无结果 — 请通过右侧「执行入口」上传 FASTQ 文件并运行分析</td></tr>`;
         return;
     }
 
@@ -936,7 +942,7 @@ function renderIntegratedTable(columns, rows) {
 
 function getIntegratedColumnCellClass(columnKey) {
     const truncateColumns = new Set(['region_id', 'position']);
-    const wrapColumns = new Set(['pathogen', 'forward_primer', 'reverse_primer', 'amplicon', 'target_sequence', 'amplicon_seq']);
+    const wrapColumns = new Set(['pathogen', 'forward_primer', 'reverse_primer', 'amplicon', 'target_sequence', 'amplicon_seq', 'name']);
 
     if (truncateColumns.has(columnKey)) {
         return 'table-cell-truncate';
@@ -971,32 +977,101 @@ function renderIntegratedChart(chartData) {
         return;
     }
 
-    _integratedChartInstance = echarts.init(container);
-    const option = {
-        tooltip: {
-            trigger: 'item',
-            formatter: function(params) {
-                const reads = params.data.reads != null ? params.data.reads.toLocaleString() : '-';
-                return `${params.name}<br/>占比: ${params.percent}%<br/>Reads: ${reads}`;
-            }
-        },
-        series: [{
-            type: 'pie',
-            radius: ['30%', '65%'],
-            center: ['50%', '50%'],
-            data: chartData.data.map(function(d) {
-                return { name: d.name, value: d.value, reads: d.reads || 0 };
-            }),
-            label: {
-                formatter: '{b}\n{d}%',
-                fontSize: 11,
+    const chartType = chartData.type || 'pie';
+
+    if (chartType === 'bar') {
+        // Bar chart — e.g. amplicon length distribution
+        const h = Math.max(300, chartData.data.length * 24 + 80);
+        container.style.height = Math.min(h, 600) + 'px';
+
+        _integratedChartInstance = echarts.init(container);
+        const names = chartData.data.map(function(d) { return d.name; });
+        const values = chartData.data.map(function(d) { return d.value; });
+        // Color by status: suboptimal → amber, no_candidate → red, optimal → blue
+        const colors = chartData.data.map(function(d) {
+            if (d.status === 'suboptimal') return '#f59e0b';
+            if (d.status === 'no_candidate') return '#ef4444';
+            return '#3b82f6';
+        });
+
+        const option = {
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                formatter: function(params) {
+                    const p = params[0];
+                    const d = chartData.data[p.dataIndex];
+                    let tip = p.name + '<br/>Amplicon: ' + p.value + ' bp';
+                    if (d.status && d.status !== 'optimal') tip += '<br/>Status: ' + d.status;
+                    if (d.region_id) tip += '<br/>Region: ' + d.region_id;
+                    return tip;
+                }
             },
-            emphasis: {
-                itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' }
-            }
-        }]
-    };
-    _integratedChartInstance.setOption(option);
+            grid: { left: '22%', right: '8%', top: 20, bottom: 30 },
+            xAxis: {
+                type: 'value',
+                name: 'bp',
+                nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+                axisLabel: { fontSize: 10 },
+            },
+            yAxis: {
+                type: 'category',
+                data: names,
+                inverse: true,
+                axisLabel: {
+                    fontSize: 10,
+                    width: 140,
+                    overflow: 'truncate',
+                },
+            },
+            series: [{
+                type: 'bar',
+                data: values.map(function(v, i) {
+                    return { value: v, itemStyle: { color: colors[i] } };
+                }),
+                barMaxWidth: 18,
+                label: {
+                    show: true,
+                    position: 'right',
+                    formatter: '{c} bp',
+                    fontSize: 10,
+                    color: '#64748b',
+                },
+            }]
+        };
+        _integratedChartInstance.setOption(option);
+    } else {
+        // Pie chart (default) — species composition etc.
+        const h = chartData.data.length <= 5 ? 300 : chartData.data.length <= 15 ? 360 : 420;
+        container.style.height = h + 'px';
+
+        _integratedChartInstance = echarts.init(container);
+        const option = {
+            tooltip: {
+                trigger: 'item',
+                formatter: function(params) {
+                    const reads = params.data.reads != null ? params.data.reads.toLocaleString() : '-';
+                    return `${params.name}<br/>占比: ${params.percent}%<br/>Reads: ${reads}`;
+                }
+            },
+            series: [{
+                type: 'pie',
+                radius: ['30%', '65%'],
+                center: ['50%', '50%'],
+                data: chartData.data.map(function(d) {
+                    return { name: d.name, value: d.value, reads: d.reads || 0 };
+                }),
+                label: {
+                    formatter: '{b}\n{d}%',
+                    fontSize: 11,
+                },
+                emphasis: {
+                    itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' }
+                }
+            }]
+        };
+        _integratedChartInstance.setOption(option);
+    }
 
     window.addEventListener('resize', function() {
         if (_integratedChartInstance) _integratedChartInstance.resize();

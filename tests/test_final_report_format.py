@@ -92,6 +92,7 @@ def test_final_report_writes_expected_columns(tmp_path):
         "amplicon_seq",
         "pool_id",
         "pool_dimer_score",
+        "pool_status",
     ]
     assert rows[1][11] == "-1"
     assert rows[1][13] == "pool_1"

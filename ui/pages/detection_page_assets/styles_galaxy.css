@@ -719,6 +719,7 @@ header {
 .tone-info .summary-value { color: #1f6feb; }
 .tone-success .summary-value { color: #1a7f37; }
 .tone-accent .summary-value { color: #8250df; }
+.tone-warning .summary-value { color: #bf8700; }
 
 .integrated-main-layout {
     display: grid;
@@ -1253,12 +1254,14 @@ header {
 .chart-card {
     margin-bottom: 8px;
 }
+.chart-card .card-title-row { border-bottom: 1px solid #f0f3f6; }
 #integrated-chart-container {
     border-radius: 8px;
     background: #fafbfc;
 }
 /* 靶向测序表列宽 */
 .integrated-table .col-rank { width: 6%; text-align: center; }
+.integrated-table .col-name { min-width: 200px; }
 .integrated-table .col-reads { width: 12%; text-align: right; font-variant-numeric: tabular-nums; }
 .integrated-table .col-percentage { width: 10%; text-align: right; }
 
@@ -1276,12 +1279,13 @@ header {
 
 .integrated-table {
     width: 100%;
-    min-width: 1120px;
+    min-width: 600px;
     border-collapse: collapse;
     background: #ffffff;
     font-size: 11px;
     table-layout: fixed;
 }
+.integrated-table.wide-table { min-width: 1120px; }
 
 .integrated-table th,
 .integrated-table td {
@@ -1386,10 +1390,6 @@ header {
     .results-table-wrap {
         height: clamp(320px, 56vh, 680px);
     }
-
-    .integrated-table {
-        min-width: 1040px;
-    }
 }
 
 @media (max-width: 1280px) {
@@ -1417,15 +1417,16 @@ header {
         min-height: 82px;
     }
 
+    /* 侧栏水平化后主内容区拥有全宽，保持双列布局 */
     .integrated-main-layout {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) 280px;
         min-height: 0;
     }
 
     .integrated-side-column {
         position: static;
         top: auto;
-        align-self: stretch;
+        align-self: start;
     }
 
     .integrated-loader-row {
@@ -1434,7 +1435,7 @@ header {
     }
 
     .results-table-wrap {
-        height: 360px;
+        height: clamp(300px, 50vh, 600px);
     }
 }
 
@@ -1461,6 +1462,15 @@ header {
         grid-template-columns: 1fr;
     }
 
+    /* 窄屏才折叠为单列 */
+    .integrated-main-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .integrated-side-column {
+        order: -1;
+    }
+
     .integrated-loader-btn {
         width: 100%;
     }
@@ -1473,10 +1483,6 @@ header {
     .integrated-run-actions {
         width: 100%;
         justify-content: space-between;
-    }
-
-    .integrated-table {
-        min-width: 960px;
     }
 }
 
