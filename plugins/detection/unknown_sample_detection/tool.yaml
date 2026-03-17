@@ -76,13 +76,19 @@ command_template: |
 
   # ── Step 1: 解压输入文件 ──
   echo "[1/5] Extracting input archive: $INPUT"
-  EXT="${INPUT##*.}"
+  export PATH="$HOME/bin:$PATH"
   case "$INPUT" in
     *.tar.gz|*.tgz)  tar -xzf "$INPUT" -C "$WORK" ;;
     *.tar.bz2)       tar -xjf "$INPUT" -C "$WORK" ;;
     *.zip)           unzip -o "$INPUT" -d "$WORK" ;;
-    *.rar)           unrar x -o+ "$INPUT" "$WORK/" ;;
-    *)               echo "ERROR: unsupported archive format: $INPUT"; exit 1 ;;
+    *.rar)
+      if command -v unrar &>/dev/null; then
+        unrar x -o+ "$INPUT" "$WORK/"
+      else
+        echo "ERROR: RAR 解压不可用（缺少 unrar）。请上传 .zip 或 .tar.gz 格式文件。"; exit 1
+      fi
+      ;;
+    *)  echo "ERROR: unsupported archive format: $INPUT"; exit 1 ;;
   esac
 
   # ── Step 2: 自动发现 R1/R2 ──
@@ -114,10 +120,15 @@ command_template: |
   echo "[4/5] Running hostile host removal..."
   if $CONDA run -n hostile_env hostile clean \
     --fastq1 "$CLEAN_R1" --fastq2 "$CLEAN_R2" \
-    --out-dir "$WORK/hostile_out" \
-    --threads "$THREADS" 2>&1; then
-    HOSTILE_R1=$(find "$WORK/hostile_out" -name "*_1.clean*" -o -name "*clean*R1*" -o -name "*clean*_1*" | head -n1)
-    HOSTILE_R2=$(find "$WORK/hostile_out" -name "*_2.clean*" -o -name "*clean*R2*" -o -name "*clean*_2*" | head -n1)
+    -o "$WORK/hostile_out" \
+    -t "$THREADS" --force 2>&1; then
+    HOSTILE_R1=$(find "$WORK/hostile_out" -name "*.clean*_1*" -o -name "*.clean*R1*" -o -name "*_1.clean*" | head -n1)
+    HOSTILE_R2=$(find "$WORK/hostile_out" -name "*.clean*_2*" -o -name "*.clean*R2*" -o -name "*_2.clean*" | head -n1)
+    if [ -z "$HOSTILE_R1" ] || [ -z "$HOSTILE_R2" ]; then
+      # fallback: 按文件名排序取前两个
+      HOSTILE_R1=$(find "$WORK/hostile_out" -name "*.fastq.gz" -o -name "*.fq.gz" | sort | head -n1)
+      HOSTILE_R2=$(find "$WORK/hostile_out" -name "*.fastq.gz" -o -name "*.fq.gz" | sort | tail -n1)
+    fi
     if [ -n "$HOSTILE_R1" ] && [ -n "$HOSTILE_R2" ]; then
       CLEAN_R1="$HOSTILE_R1"
       CLEAN_R2="$HOSTILE_R2"
