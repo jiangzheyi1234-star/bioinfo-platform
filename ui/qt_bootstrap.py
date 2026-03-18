@@ -39,7 +39,7 @@ def _configure_windows_webengine_fallback() -> None:
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseOpenGLES, False)
 
 
-def ensure_qt_webengine_ready() -> bool:
+def ensure_qt_webengine_ready(*, eager_import: bool = True) -> bool:
     """Prepare QtWebEngine as early as possible.
 
     Returns ``True`` when QtWebEngine import succeeds, ``False`` otherwise.
@@ -51,6 +51,9 @@ def ensure_qt_webengine_ready() -> bool:
         _configure_windows_webengine_fallback()
     else:
         _configure_windows_webengine_fallback()
+
+    if not eager_import:
+        return True
 
     try:
         from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401

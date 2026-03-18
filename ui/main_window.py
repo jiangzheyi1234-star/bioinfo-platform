@@ -90,7 +90,8 @@ class MainWindow(QMainWindow):
         self._ssh_service_wrapper: Optional[SSHService] = None
 
         self._locator = ServiceLocator(project_manager=self._pm)
-        self._locator.initialize()
+        self._services_initialized = False
+        self._reconcile_scheduled = False
 
         self._disk_timer = QTimer(self)
         self._disk_timer.setInterval(300_000)
@@ -102,12 +103,8 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self._connect_service_signals()
-
-        # 初始化日志页面的项目上下文
-        if self._pm.current_project:
-            pid = self._pm.current_project.project_id
-            self.log_page.set_project_context(pid)
-            self.log_page.load_history(self._pm.db, pid)
+        QTimer.singleShot(0, self._initialize_services_deferred)
+        QTimer.singleShot(0, self._initialize_log_context_deferred)
 
     def init_ui(self) -> None:
         central = QWidget()
@@ -191,7 +188,10 @@ class MainWindow(QMainWindow):
         self.home_page = HomePage(main_window=self)
         self.content.addWidget(self.home_page)
 
-        self.detection_page = DetectionPage(main_window=self)
+        self._detection_loaded = False
+        self._detection_placeholder = QWidget()
+        self._detection_placeholder.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE};")
+        self.detection_page = self._detection_placeholder
         self.content.addWidget(self.detection_page)
 
         self.settings_page = SettingsPage()
@@ -231,7 +231,7 @@ class MainWindow(QMainWindow):
             item = self.sidebar.item(i)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
-        self.sidebar.currentRowChanged.connect(self.content.setCurrentIndex)
+        self.sidebar.currentRowChanged.connect(self._on_nav_row_changed)
         middle_layout.addWidget(self.content)
         main_layout.addWidget(middle, stretch=1)
 
@@ -265,6 +265,54 @@ class MainWindow(QMainWindow):
         renderer.render(painter)
         painter.end()
         return QIcon(pixmap)
+
+
+    def _initialize_services_deferred(self) -> None:
+        if self._services_initialized:
+            return
+        try:
+            self._locator.initialize()
+            self._services_initialized = True
+            self._apply_plugin_registry_to_settings()
+        except Exception:
+            logger.exception("ServiceLocator deferred initialization failed")
+
+    def _initialize_log_context_deferred(self) -> None:
+        if self._pm.current_project:
+            pid = self._pm.current_project.project_id
+            self.log_page.set_project_context(pid)
+            self.log_page.load_history(self._pm.db, pid)
+
+    def _apply_plugin_registry_to_settings(self) -> None:
+        try:
+            pr = self._locator.plugin_registry
+            if pr and hasattr(self.settings_page, "linux_card"):
+                self.settings_page.linux_card.set_plugin_registry(pr)
+        except Exception:
+            logger.exception("Injecting PluginRegistry into LinuxSettingsCard failed")
+
+    def _ensure_detection_page_loaded(self) -> None:
+        if self._detection_loaded:
+            return
+        try:
+            page = DetectionPage(main_window=self)
+            idx = self.content.indexOf(self._detection_placeholder)
+            if idx >= 0:
+                self.content.removeWidget(self._detection_placeholder)
+                self._detection_placeholder.deleteLater()
+                self.content.insertWidget(idx, page)
+            self.detection_page = page
+            self._detection_loaded = True
+            callback = getattr(self.detection_page, "refresh_context", None)
+            if callable(callback):
+                callback()
+        except Exception:
+            logger.exception("Lazy-loading detection page failed")
+
+    def _on_nav_row_changed(self, row: int) -> None:
+        if row == 1:
+            self._ensure_detection_page_loaded()
+        self.content.setCurrentIndex(row)
 
     def _on_settings_active_client_changed(self, client) -> None:
         """把 Settings 的 SSH 客户端统一注入 ServiceLocator。"""
@@ -555,7 +603,7 @@ class MainWindow(QMainWindow):
 
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
-        self._reconcile_running_tasks()
+        self._schedule_reconcile_running_tasks()
         self._notify_pages_context_changed()
 
         # 同步日志页面的项目上下文 + 加载历史
@@ -612,7 +660,7 @@ class MainWindow(QMainWindow):
         """SSH 连接状态变化时更新状态栏"""
         self.status_bar.update_ssh_status(connected)
         if connected:
-            self._reconcile_running_tasks()
+            self._schedule_reconcile_running_tasks()
     def _on_ssh_changed_for_disk(self, connected: bool) -> None:
         """SSH connection changed: start/stop disk monitor."""
         if connected:
@@ -701,8 +749,22 @@ class MainWindow(QMainWindow):
         self.log_page.append_log("ERROR", msg, execution_id, pid)
         self.log_page.stop_tailing()
 
+
+    def _schedule_reconcile_running_tasks(self, delay_ms: int = 150) -> None:
+        if self._reconcile_scheduled:
+            return
+        self._reconcile_scheduled = True
+
+        def _run():
+            self._reconcile_scheduled = False
+            self._reconcile_running_tasks()
+
+        QTimer.singleShot(delay_ms, _run)
+
     def _reconcile_running_tasks(self) -> None:
         try:
+            if not self._services_initialized:
+                return
             if self._pm.current_project is None:
                 return
             ssh = self._locator.ssh_service
