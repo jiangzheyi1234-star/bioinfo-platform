@@ -5,8 +5,8 @@ import os
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
-# 项目根目录
-project_root = os.path.abspath(os.path.dirname(__file__))
+# 项目根目录（在某些 PyInstaller 运行上下文下 __file__ 不存在）
+project_root = os.path.abspath(os.path.dirname(globals().get("__file__", os.path.join(os.getcwd(), "bio_ui.spec"))))
 
 # 收集 PyQt6 相关数据文件
 pyqt6_datas = collect_data_files('PyQt6', include_py_files=False)
