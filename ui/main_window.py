@@ -1,10 +1,10 @@
-"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
+﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
 from typing import Optional
 
 import paramiko
-from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
+from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -39,6 +39,25 @@ from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 
 logger = logging.getLogger(__name__)
+
+
+class _DiskUsageWorker(QObject):
+    """Run remote disk usage query off the UI thread."""
+
+    finished = pyqtSignal(float, float, float)
+    failed = pyqtSignal(str)
+
+    def __init__(self, ssh_service):
+        super().__init__()
+        self._ssh_service = ssh_service
+
+    def run(self) -> None:
+        try:
+            mgr = StorageManager(self._ssh_service)
+            usage = mgr.get_disk_usage("/h2ometa")
+            self.finished.emit(usage.used_gb, usage.total_gb, usage.percent)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 class _CurrentPageStackedWidget(QStackedWidget):
     """Only use the current page minimum/size hint to avoid window shrink lock."""
@@ -76,6 +95,8 @@ class MainWindow(QMainWindow):
         self._disk_timer = QTimer(self)
         self._disk_timer.setInterval(300_000)
         self._disk_timer.timeout.connect(self._refresh_disk_usage)
+        self._disk_thread: Optional[QThread] = None
+        self._disk_worker: Optional[_DiskUsageWorker] = None
 
         self._prev_activated = True
 
@@ -592,33 +613,57 @@ class MainWindow(QMainWindow):
         self.status_bar.update_ssh_status(connected)
         if connected:
             self._reconcile_running_tasks()
-
     def _on_ssh_changed_for_disk(self, connected: bool) -> None:
-        """SSH 连接状态变化时处理磁盘监控"""
+        """SSH connection changed: start/stop disk monitor."""
         if connected:
             self._disk_timer.start()
-            self._refresh_disk_usage()  # 立即刷新一次
+            QTimer.singleShot(100, self._refresh_disk_usage)
         else:
             self._disk_timer.stop()
-            self.status_bar.update_disk_usage(0, 0, 0)  # 清空显示
+            self._cleanup_disk_usage_worker()
+            self.status_bar.update_disk_usage(0, 0, 0)
 
     def _refresh_disk_usage(self) -> None:
         ssh = self._locator.ssh_service
         if ssh is None or not getattr(ssh, "is_connected", False):
             return
 
-        try:
-            mgr = StorageManager(ssh)
-            usage = mgr.get_disk_usage("/h2ometa")
-            self.status_bar.update_disk_usage(usage.used_gb, usage.total_gb, usage.percent)
-        except Exception as e:
-            logger.warning("刷新磁盘用量失败: %s", e)
-            # 调试：尝试获取原始输出
+        if self._disk_thread is not None and self._disk_thread.isRunning():
+            return
+
+        self._cleanup_disk_usage_worker()
+
+        thread = QThread(self)
+        worker = _DiskUsageWorker(ssh)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_disk_usage_ready)
+        worker.failed.connect(self._on_disk_usage_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(self._cleanup_disk_usage_worker)
+
+        self._disk_thread = thread
+        self._disk_worker = worker
+        thread.start()
+
+    def _on_disk_usage_ready(self, used_gb: float, total_gb: float, percent: float) -> None:
+        self.status_bar.update_disk_usage(used_gb, total_gb, percent)
+
+    def _on_disk_usage_failed(self, err: str) -> None:
+        logger.warning("Failed to refresh disk usage: %s", err)
+
+    def _cleanup_disk_usage_worker(self) -> None:
+        if self._disk_thread is not None:
             try:
-                rc, stdout, stderr = ssh.run("df -B1 /h2ometa 2>&1", timeout=15)
-                logger.debug("df 命令返回: rc=%s, stdout=%r, stderr=%r", rc, stdout, stderr)
-            except Exception as debug_e:
-                logger.debug("调试命令失败: %s", debug_e)
+                if self._disk_thread.isRunning():
+                    self._disk_thread.quit()
+                    self._disk_thread.wait(1000)
+            except Exception:
+                logger.debug("Failed to cleanup disk usage worker", exc_info=True)
+        self._disk_worker = None
+        self._disk_thread = None
 
     def _connect_service_signals(self) -> None:
         queue = self._locator.job_queue
@@ -684,6 +729,8 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.debug("停止磁盘监控定时器失败", exc_info=True)
 
+        self._cleanup_disk_usage_worker()
+
         log_page = getattr(self, "log_page", None)
         if log_page is not None and hasattr(log_page, "stop_tailing"):
             try:
@@ -730,3 +777,6 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
+
+
+

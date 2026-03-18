@@ -502,6 +502,10 @@ class SshSettingsCard(QFrame):
     def _on_connect_ssh(self) -> None:
         if self._connecting or self._external_lock:
             return
+        if self._ssh_thread is not None and self._ssh_thread.isRunning():
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
+            self.status_label.setText("连接仍在进行，请稍候...")
+            return
 
         if self.active_client is not None:
             try:
@@ -523,7 +527,6 @@ class SshSettingsCard(QFrame):
         if self._edit_idle_timer.isActive():
             self._edit_idle_timer.stop()
 
-        ssh_thread = QThread(self)
         port = int(self.ssh_port.text() or 22)
         use_key = self.use_key_cb.isChecked()
         key_file = self.key_file_input.text().strip() if use_key else ""
@@ -532,20 +535,40 @@ class SshSettingsCard(QFrame):
             self.server_ip.text(), port, self.ssh_user.text(), pwd,
             key_file=key_file,
         )
-        ssh_worker.moveToThread(ssh_thread)
+        self._start_ssh_worker(ssh_worker)
 
+    def _start_ssh_worker(self, ssh_worker: SSHWorker) -> None:
+        self._cleanup_ssh_worker(wait_ms=0)
+        ssh_thread = QThread(self)
+        self._ssh_thread = ssh_thread
+        self._ssh_worker = ssh_worker
+        ssh_worker.moveToThread(ssh_thread)
         ssh_thread.started.connect(ssh_worker.run)
         ssh_worker.finished.connect(self._on_connect_finished)
         ssh_worker.step_updated.connect(self._on_step_updated)
         ssh_worker.error_detail.connect(self._on_error_detail)
-
         ssh_worker.finished.connect(ssh_thread.quit)
         ssh_thread.finished.connect(ssh_worker.deleteLater)
+        ssh_thread.finished.connect(self._on_ssh_thread_finished)
         ssh_thread.finished.connect(ssh_thread.deleteLater)
         ssh_thread.start()
 
-        self._temp_thread = ssh_thread
-        self._temp_worker = ssh_worker
+    def _on_ssh_thread_finished(self) -> None:
+        self._ssh_worker = None
+        self._ssh_thread = None
+
+    def _cleanup_ssh_worker(self, wait_ms: int = 1000) -> None:
+        thread = self._ssh_thread
+        if thread is not None and thread.isRunning():
+            try:
+                thread.quit()
+                thread.wait(wait_ms)
+            except Exception:
+                pass
+        # If thread already finished, release references immediately.
+        if thread is None or not thread.isRunning():
+            self._ssh_worker = None
+            self._ssh_thread = None
 
     def _on_step_updated(self, index: int, status: str) -> None:
         self.step_indicator.set_step(index, status)
@@ -557,11 +580,6 @@ class SshSettingsCard(QFrame):
     def _on_connect_finished(self, success: bool, msg: str, client: object) -> None:
         self._connecting = False
         self.status_label.setText(msg)
-
-        if hasattr(self, '_temp_thread'):
-            delattr(self, '_temp_thread')
-        if hasattr(self, '_temp_worker'):
-            delattr(self, '_temp_worker')
 
         if success:
             self.active_client = client
@@ -659,6 +677,8 @@ class SshSettingsCard(QFrame):
     def _reconnect_from_stable_config(self) -> None:
         if self._connecting or not self.last_stable_config:
             return
+        if self._ssh_thread is not None and self._ssh_thread.isRunning():
+            return
 
         cfg = self.last_stable_config
         self._connecting = True
@@ -670,7 +690,6 @@ class SshSettingsCard(QFrame):
         if self._edit_idle_timer.isActive():
             self._edit_idle_timer.stop()
 
-        ssh_thread = QThread(self)
         use_key = cfg.get('use_key', False)
         key_file = cfg.get('key_file', '') if use_key else ''
         pwd = '' if use_key else cfg.get('pwd', '')
@@ -678,19 +697,7 @@ class SshSettingsCard(QFrame):
             cfg.get('ip', ''), cfg.get('port', 22),
             cfg.get('user', ''), pwd, key_file=key_file,
         )
-        ssh_worker.moveToThread(ssh_thread)
-
-        ssh_thread.started.connect(ssh_worker.run)
-        ssh_worker.finished.connect(self._on_connect_finished)
-        ssh_worker.step_updated.connect(self._on_step_updated)
-        ssh_worker.error_detail.connect(self._on_error_detail)
-        ssh_worker.finished.connect(ssh_thread.quit)
-        ssh_thread.finished.connect(ssh_worker.deleteLater)
-        ssh_thread.finished.connect(ssh_thread.deleteLater)
-        ssh_thread.start()
-
-        self._temp_thread = ssh_thread
-        self._temp_worker = ssh_worker
+        self._start_ssh_worker(ssh_worker)
 
     def _refresh_interaction_state(self) -> None:
         if self._external_lock:
@@ -723,11 +730,7 @@ class SshSettingsCard(QFrame):
                 timer.stop()
 
         self._disconnect_global_focus_listener()
-
-        thread = getattr(self, "_temp_thread", None)
-        if thread is not None and thread.isRunning():
-            thread.quit()
-            thread.wait(1000)
+        self._cleanup_ssh_worker(wait_ms=3000)
 
         client = self.active_client
         if client is not None:
