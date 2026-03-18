@@ -73,6 +73,7 @@ class SSHDiagnosticDialog(QDialog):
         self.setWindowTitle("SSH 连接诊断")
         self.setMinimumSize(520, 400)
         self.resize(560, 440)
+        self._close_requested = False
         self.setStyleSheet(
             """
             QDialog {
@@ -131,7 +132,7 @@ class SSHDiagnosticDialog(QDialog):
         self.close_btn = QPushButton("关闭")
         self.close_btn.setStyleSheet(BUTTON_SECONDARY)
         self.close_btn.setMinimumWidth(80)
-        self.close_btn.clicked.connect(self.accept)
+        self.close_btn.clicked.connect(self._on_close_requested)
         self.close_btn.setEnabled(False)
         button_row.addWidget(self.close_btn)
         layout.addLayout(button_row)
@@ -156,6 +157,26 @@ class SSHDiagnosticDialog(QDialog):
 
     def _on_done(self) -> None:
         self.close_btn.setEnabled(True)
+        self.close_btn.setText("Close")
+        if self._close_requested:
+            self.accept()
+
+    def _on_close_requested(self) -> None:
+        if self._thread is not None and self._thread.isRunning():
+            self._close_requested = True
+            self.close_btn.setEnabled(False)
+            self.close_btn.setText("Running...")
+            return
+        self.accept()
+
+    def closeEvent(self, event) -> None:
+        if self._thread is not None and self._thread.isRunning():
+            self._close_requested = True
+            self.close_btn.setEnabled(False)
+            self.close_btn.setText("Running...")
+            event.ignore()
+            return
+        super().closeEvent(event)
 
 
 class ClickableHeader(QFrame):
