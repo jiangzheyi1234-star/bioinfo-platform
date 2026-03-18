@@ -78,7 +78,8 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
+    # Keep modules as loose files in the bundle to reduce startup unpack/decompress overhead.
+    noarchive=True,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
@@ -90,7 +91,8 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    exclude_binaries=False,
+    # Onedir mode: binaries collected separately (faster startup than onefile extraction).
+    exclude_binaries=True,
     name='H2OMeta',
     debug=False,
     bootloader_ignore_signals=False,
@@ -103,4 +105,15 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=os.path.join(PROJECT_ROOT, 'logo.ico'),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='H2OMeta',
 )

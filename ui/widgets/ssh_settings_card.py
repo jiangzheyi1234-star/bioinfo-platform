@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import time
 from typing import Protocol, Callable, Optional
 
 import paramiko
@@ -128,9 +129,12 @@ class SshSettingsCard(QFrame):
         self.last_stable_config = None
         self.connected = False
         self._connecting = False
+        self._diagnose_active = False
         self._in_edit_mode = False
         self._external_lock = False
         self._status_cache: Optional[tuple[str, str]] = None
+        self._auto_connect_armed = False
+        self._last_connect_started_at = 0.0
 
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
@@ -174,9 +178,22 @@ class SshSettingsCard(QFrame):
                 'use_key': use_key, 'key_file': key_file,
             }
             self._lock_inputs()
-            QTimer.singleShot(1000, self.try_auto_connect)
+            self._auto_connect_armed = True
+            QTimer.singleShot(1000, self._consume_auto_connect)
         else:
+            self._auto_connect_armed = False
             self._enable_editing()
+
+    def _consume_auto_connect(self) -> None:
+        """Consume a single startup auto-connect trigger.
+
+        Both SettingsPage and this card may schedule startup checks; this gate
+        guarantees only one connect attempt is started.
+        """
+        if not self._auto_connect_armed:
+            return
+        self._auto_connect_armed = False
+        self.try_auto_connect()
 
     def get_values(self) -> dict:
         return {
@@ -197,6 +214,9 @@ class SshSettingsCard(QFrame):
         self._on_connect_ssh()
 
     def auto_check_on_start(self) -> None:
+        if self._auto_connect_armed:
+            self._consume_auto_connect()
+            return
         if self._connecting:
             return
         self._validate_inputs()
@@ -502,6 +522,11 @@ class SshSettingsCard(QFrame):
     def _on_connect_ssh(self) -> None:
         if self._connecting or self._external_lock:
             return
+        now = time.monotonic()
+        if now - self._last_connect_started_at < 1.0:
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
+            self.status_label.setText("检测到重复连接触发，已忽略")
+            return
         if self._ssh_thread is not None and self._ssh_thread.isRunning():
             self.status_label.setStyleSheet(STATUS_NEUTRAL)
             self.status_label.setText("连接仍在进行，请稍候...")
@@ -515,6 +540,7 @@ class SshSettingsCard(QFrame):
             self.active_client = None
 
         self._connecting = True
+        self._last_connect_started_at = now
         self.connect_btn.setEnabled(False)
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
         self.status_label.setText("正在连接...")
@@ -620,6 +646,12 @@ class SshSettingsCard(QFrame):
         self.revert_btn.hide()
 
     def _on_diagnose(self) -> None:
+        if self._connecting or self._diagnose_active:
+            self.status_label.setStyleSheet(STATUS_NEUTRAL)
+            self.status_label.setText("诊断进行中或连接处理中，请稍后")
+            return
+
+        self._diagnose_active = True
         ip = self.server_ip.text().strip()
         port_str = self.ssh_port.text().strip()
         user = self.ssh_user.text().strip()
@@ -632,14 +664,17 @@ class SshSettingsCard(QFrame):
         except (ValueError, TypeError):
             port = 22
 
-        dlg = SSHDiagnosticDialog(
-            ip or "0.0.0.0", port, user or "unknown", pwd,
-            key_file=key_file, parent=self
-        )
-        dlg.exec()
+        try:
+            dlg = SSHDiagnosticDialog(
+                ip or "0.0.0.0", port, user or "unknown", pwd,
+                key_file=key_file, existing_client=self.active_client, parent=self
+            )
+            dlg.exec()
+        finally:
+            self._diagnose_active = False
 
     def _check_ssh_health(self) -> None:
-        if self._connecting:
+        if self._connecting or self._diagnose_active:
             return
 
         client = self.active_client
@@ -675,7 +710,7 @@ class SshSettingsCard(QFrame):
                 self._refresh_interaction_state()
 
     def _reconnect_from_stable_config(self) -> None:
-        if self._connecting or not self.last_stable_config:
+        if self._connecting or self._diagnose_active or not self.last_stable_config:
             return
         if self._ssh_thread is not None and self._ssh_thread.isRunning():
             return
