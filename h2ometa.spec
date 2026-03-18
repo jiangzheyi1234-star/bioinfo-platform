@@ -4,7 +4,9 @@
 import os
 
 block_cipher = None
-PROJECT_ROOT = os.path.abspath('.')
+PROJECT_ROOT = os.path.abspath(
+    os.path.dirname(globals().get("__file__", os.path.join(os.getcwd(), "h2ometa.spec")))
+)
 
 a = Analysis(
     [os.path.join(PROJECT_ROOT, 'ui', 'main.py')],

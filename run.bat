@@ -18,7 +18,7 @@ if not exist "%CONDA_BAT%" (
 call "%CONDA_BAT%" activate bio_ui
 if errorlevel 1 (
     echo [ERROR] Cannot activate conda env "bio_ui".
-    echo Run: conda create -n bio_ui python=3.11
+    echo Run: conda create -n bio_ui python=3.12
     pause
     exit /b 1
 )

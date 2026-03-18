@@ -1,79 +1,79 @@
 @echo off
 chcp 65001 >nul
 echo ==========================================
-echo H2OMeta 打包工具 (修复版)
+echo H2OMeta Packager (Fixed)
 echo ==========================================
 echo.
 
-REM 检查 Python
+REM Check Python
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到 Python，请先安装 Python 3.8+
+    echo [ERROR] Python not found. Please install Python 3.8+ first.
     pause
     exit /b 1
 )
 
-echo [步骤 1/5] 清理旧的构建文件...
+echo [Step 1/5] Cleaning previous build artifacts...
 if exist "build" rd /s /q "build"
 if exist "dist" rd /s /q "dist"
-echo ✓ 清理完成
+echo [OK] Clean completed.
 
 echo.
-echo [步骤 2/5] 安装/更新 PyInstaller...
+echo [Step 2/5] Installing/updating PyInstaller...
 pip install --upgrade pyinstaller
-echo ✓ PyInstaller 准备完成
+echo [OK] PyInstaller is ready.
 
 echo.
-echo [步骤 3/5] 确保所有依赖已安装...
+echo [Step 3/5] Ensuring dependencies are installed...
 pip install -r requirements.txt
-echo ✓ 依赖检查完成
+echo [OK] Dependency check completed.
 
 echo.
-echo [步骤 4/5] 执行打包...
-echo 注意: 这可能需要几分钟时间...
+echo [Step 4/5] Building executable...
+echo Note: This may take several minutes.
 echo.
 
-REM 执行打包 (使用修复后的 spec 文件)
-pyinstaller bio_ui.spec --clean --noconfirm --log-level=WARN
+REM Use canonical spec file. bio_ui.spec remains as compatibility shim.
+pyinstaller h2ometa.spec --clean --noconfirm --log-level=WARN
 
 if errorlevel 1 (
     echo.
-    echo [错误] 打包失败！
-    echo 请检查上方的错误信息
+    echo [ERROR] Build failed.
+    echo Please review the error output above.
     pause
     exit /b 1
 )
 
 echo.
-echo [步骤 5/5] 复制额外资源...
+echo [Step 5/5] Copying extra resources...
 
-REM 确保资源文件正确复制
+REM Ensure UI assets exist in dist folder.
 if exist "dist\H2OMeta\ui" (
-    echo ✓ UI 资源已包含
+    echo [OK] UI assets included.
 ) else (
-    echo → 复制 UI 资源...
+    echo [INFO] Copying UI assets...
     xcopy /E /I /Y "ui" "dist\H2OMeta\ui" >nul 2>&1
 )
 
-REM 复制 plugins 目录
+REM Copy plugins folder if present.
 if exist "plugins" (
-    echo → 复制插件目录...
+    echo [INFO] Copying plugins...
     xcopy /E /I /Y "plugins" "dist\H2OMeta\plugins" >nul 2>&1
 )
 
 echo.
 echo ==========================================
-echo [成功] 打包完成！
+echo [SUCCESS] Packaging completed.
 echo ==========================================
 echo.
-echo 可执行文件位置:
+echo Executable path:
 echo   dist\H2OMeta\H2OMeta.exe
 echo.
-echo 使用说明:
-echo   1. 将整个 dist\H2OMeta 文件夹复制到目标位置
-echo   2. 运行 H2OMeta.exe 启动应用
+echo Usage:
+echo   1. Copy the whole dist\H2OMeta folder to the target machine.
+echo   2. Run H2OMeta.exe to start the app.
 echo.
-echo 调试模式:
-echo   如果遇到问题，先尝试在命令行运行查看错误信息
+echo Debug tip:
+echo   If startup fails, run from cmd to inspect error output.
 echo.
 pause
