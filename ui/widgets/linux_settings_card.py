@@ -402,7 +402,7 @@ class LinuxSettingsCard(QFrame):
         self._web_view.setMaximumHeight(400)  # 最大高度
         self._web_view.setFixedHeight(45)  # 初始高度设为折叠状态
         self._web_view.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
         self._web_view.setStyleSheet("background: transparent; border: none;")
 

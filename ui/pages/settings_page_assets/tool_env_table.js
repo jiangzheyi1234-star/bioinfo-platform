@@ -97,12 +97,11 @@ function toggleExpand() {
 // 更新WebView高度
 function updateHeight() {
     const card = document.querySelector('.tool-env-card');
-    if (card) {
-        const height = card.offsetHeight;
-        // 通过bridge通知Python更新高度
-        if (bridge) {
-            bridge.setHeight(height);
-        }
+    const body = document.getElementById('card-body');
+    if (card && bridge) {
+        // 只在展开状态时才使用内容高度，折叠状态使用标题行高度(约45px)
+        const height = body.classList.contains('expanded') ? card.offsetHeight : 45;
+        bridge.setHeight(height);
     }
 }
 

@@ -72,3 +72,15 @@ When remote dependency setup is needed, do **not** use `sudo` by default.
 - Date: `2026-03-17`
 - Remote environment creation success: `codex_probe_20260317`
 - Python in env: `3.10.20`
+
+## User Preference: Commit Output (Must Reuse)
+
+When user asks `提交`:
+
+1. Always provide:
+   - commit hash
+   - commit title (subject)
+   - detailed summary of what was added/changed/fixed
+   - changed file list
+2. The summary should be explicit enough for quick rollback decisions.
+3. Never return only the title.
