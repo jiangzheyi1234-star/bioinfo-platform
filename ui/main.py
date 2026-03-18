@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+import time
 
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --log-level=3")
 
@@ -109,13 +110,20 @@ def _configure_logging() -> None:
 
 def main():
     try:
+        app_start = time.perf_counter()
         _install_stderr_filter()
         _configure_logging()
         logging.info("Starting H2OMeta UI")
-        ensure_qt_webengine_ready()
+        t0 = time.perf_counter()
+        ensure_qt_webengine_ready(eager_import=False)
+        logging.info("Startup timing: qt_bootstrap=%.1fms", (time.perf_counter() - t0) * 1000)
         _sanitize_qt_platform()
+        t0 = time.perf_counter()
         MainWindow = _import_main_window()
+        logging.info("Startup timing: import_main_window=%.1fms", (time.perf_counter() - t0) * 1000)
+        t0 = time.perf_counter()
         app = QApplication(sys.argv)
+        logging.info("Startup timing: create_qapp=%.1fms", (time.perf_counter() - t0) * 1000)
 
         font = app.font()
         if os.name == "nt":
@@ -124,8 +132,11 @@ def main():
             font.setFamilies(["Arial", "Segoe UI Emoji"])
         app.setFont(font)
 
+        t0 = time.perf_counter()
         window = MainWindow()
+        logging.info("Startup timing: construct_main_window=%.1fms", (time.perf_counter() - t0) * 1000)
         window.show()
+        logging.info("Startup timing: to_first_show=%.1fms", (time.perf_counter() - app_start) * 1000)
 
         exit_code = app.exec()
         sys.exit(exit_code)
