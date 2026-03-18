@@ -8,11 +8,21 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --log-level=3
 
 from PyQt6.QtWidgets import QApplication
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.dirname(current_dir)
+from core.utils import get_app_root
 
-if root_dir not in sys.path:
-    sys.path.append(root_dir)
+_app_root = get_app_root()
+
+if not getattr(sys, "frozen", False):
+    _root_str = str(_app_root)
+    if _root_str not in sys.path:
+        sys.path.append(_root_str)
+
+
+def _get_logs_dir() -> str:
+    """冻结时日志放在 exe 同级目录，开发时放在仓库根目录。"""
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), "logs")
+    return os.path.join(str(_app_root), "logs")
 
 from ui.qt_bootstrap import ensure_qt_webengine_ready
 
@@ -48,7 +58,7 @@ class _StderrFilter:
 
 def _install_stderr_filter() -> None:
     current = sys.stderr
-    if isinstance(current, _StderrFilter):
+    if current is None or isinstance(current, _StderrFilter):
         return
     sys.stderr = _StderrFilter(current)
 
@@ -62,16 +72,15 @@ def _sanitize_qt_platform() -> None:
 
 def _import_main_window():
     try:
-        # Prefer package import when launched as `python -m ui.main`.
-        from .main_window import MainWindow
+        from ui.main_window import MainWindow
     except ImportError:
         # Fallback for direct script execution: `python ui/main.py`.
-        from main_window import MainWindow
+        from .main_window import MainWindow
     return MainWindow
 
 
 def _configure_logging() -> None:
-    logs_dir = os.path.join(root_dir, "logs")
+    logs_dir = _get_logs_dir()
     os.makedirs(logs_dir, exist_ok=True)
 
     root_logger = logging.getLogger()
@@ -89,12 +98,13 @@ def _configure_logging() -> None:
     )
     file_handler.setFormatter(formatter)
 
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(formatter)
-
     root_logger.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
-    root_logger.addHandler(stream_handler)
+
+    if sys.stdout is not None:
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(formatter)
+        root_logger.addHandler(stream_handler)
 
 
 def main():
@@ -122,7 +132,7 @@ def main():
     except Exception:
         import traceback
 
-        logs_dir = os.path.join(root_dir, "logs")
+        logs_dir = _get_logs_dir()
         os.makedirs(logs_dir, exist_ok=True)
         startup_handler = logging.FileHandler(
             os.path.join(logs_dir, "startup_error.log"),

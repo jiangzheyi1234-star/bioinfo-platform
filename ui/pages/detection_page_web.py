@@ -369,7 +369,8 @@ class DetectionPageWeb(QFrame):
         self.channel.registerObject("bridge", self.bridge)
         self.web_view.page().setWebChannel(self.channel)
 
-        assets_dir = Path(__file__).parent / "detection_page_assets"
+        from core.utils import get_app_root
+        assets_dir = get_app_root() / "ui" / "pages" / "detection_page_assets"
         html_path = assets_dir / "index_galaxy.html"
 
         if html_path.exists():

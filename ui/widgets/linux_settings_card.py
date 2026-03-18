@@ -412,7 +412,8 @@ class LinuxSettingsCard(QFrame):
         self._web_view.page().setWebChannel(self._channel)
 
         # 加载 HTML
-        assets_dir = Path(__file__).parent.parent / "pages" / "settings_page_assets"
+        from core.utils import get_app_root
+        assets_dir = get_app_root() / "ui" / "pages" / "settings_page_assets"
         html_path = assets_dir / "tool_env_table.html"
 
         if html_path.exists():

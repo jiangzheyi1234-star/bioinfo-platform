@@ -32,9 +32,11 @@ from core.execution.retry_manager import RetryManager
 from core.remote.ssh_service import SSHService
 from core.execution.tool_engine import ToolEngine
 
+from core.utils import get_app_root
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PLUGINS_DIR = Path(__file__).parent.parent / "plugins"
+_DEFAULT_PLUGINS_DIR = get_app_root() / "plugins"
 
 
 class ServiceLocator(QObject):
