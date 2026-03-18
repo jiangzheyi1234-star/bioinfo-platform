@@ -1,5 +1,6 @@
-import json
+﻿import json
 import os
+import threading
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,6 @@ CONFIG_VERSION = 2
 
 
 def _resolve_config_path() -> Path:
-    """统一配置文件路径。"""
     if os.name == "nt":
         appdata = os.getenv("APPDATA")
         if appdata:
@@ -17,10 +17,21 @@ def _resolve_config_path() -> Path:
 
 
 _CONFIG_PATH = _resolve_config_path()
+_CONFIG_CACHE_LOCK = threading.RLock()
+_CONFIG_CACHE: dict[str, Any] | None = None
+_CONFIG_CACHE_FINGERPRINT: tuple[int, int] | None = None
 
 
 def get_config_path() -> Path:
     return _CONFIG_PATH
+
+
+def _get_config_fingerprint() -> tuple[int, int] | None:
+    try:
+        stat = _CONFIG_PATH.stat()
+        return stat.st_mtime_ns, stat.st_size
+    except FileNotFoundError:
+        return None
 
 
 def load_raw_config() -> Any:
@@ -31,7 +42,6 @@ def load_raw_config() -> Any:
 
 
 def ensure_output_dir(path: str) -> str:
-    """确保输出目录存在。"""
     if not os.path.exists(path):
         try:
             os.makedirs(path, exist_ok=True)
@@ -42,7 +52,6 @@ def ensure_output_dir(path: str) -> str:
 
 
 def default_settings_schema() -> dict[str, Any]:
-    """v2 统一配置模型。"""
     return {
         "version": CONFIG_VERSION,
         "ssh": {
@@ -54,8 +63,8 @@ def default_settings_schema() -> dict[str, Any]:
             "key_file": "",
         },
         "linux": {
-            "conda_executable": "",      # 检测到的 conda 绝对路径
-            "auto_installed": False,     # 是否 H2OMeta 自动安装的 Miniforge
+            "conda_executable": "",
+            "auto_installed": False,
         },
         "databases": {
             "kraken2": "/home/zyserver/project_ssd/common_data/kraken2_standard",
@@ -98,7 +107,6 @@ def _is_v2_schema(data: Any) -> bool:
 
 
 def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
-    """将旧扁平配置迁移到 v2 模型。仅供一次性迁移入口调用。"""
     schema = default_settings_schema()
 
     schema["ssh"]["host"] = str(data.get("server_ip") or data.get("ip") or schema["ssh"]["host"])
@@ -131,7 +139,6 @@ def migrate_legacy_config(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_config(data: Any) -> dict[str, Any]:
-    """规范化为 v2 配置模型。非 v2 输入会回退默认值。"""
     if not _is_v2_schema(data):
         return default_settings_schema()
 
@@ -143,28 +150,41 @@ def normalize_config(data: Any) -> dict[str, Any]:
             schema[section].update(section_data)
 
     schema["version"] = CONFIG_VERSION
-    schema["runtime"]["local_output_dir"] = ensure_output_dir(
-        str(schema["runtime"].get("local_output_dir") or "")
-    )
+    schema["runtime"]["local_output_dir"] = ensure_output_dir(str(schema["runtime"].get("local_output_dir") or ""))
     return schema
 
 
 def get_config() -> dict[str, Any]:
-    """读取并返回 v2 配置模型。旧 schema 不在运行期读取。"""
+    global _CONFIG_CACHE, _CONFIG_CACHE_FINGERPRINT
     try:
+        fingerprint = _get_config_fingerprint()
+        with _CONFIG_CACHE_LOCK:
+            if _CONFIG_CACHE is not None and _CONFIG_CACHE_FINGERPRINT == fingerprint:
+                return deepcopy(_CONFIG_CACHE)
+
         raw = load_raw_config()
-        return normalize_config(raw)
+        normalized = normalize_config(raw)
+
+        with _CONFIG_CACHE_LOCK:
+            _CONFIG_CACHE = normalized
+            _CONFIG_CACHE_FINGERPRINT = fingerprint
+
+        return deepcopy(normalized)
     except Exception:
         return default_settings_schema()
 
 
 def save_config(config: dict[str, Any]) -> None:
-    """保存 v2 配置。"""
+    global _CONFIG_CACHE, _CONFIG_CACHE_FINGERPRINT
     schema = normalize_config(config)
     schema["version"] = CONFIG_VERSION
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(schema, f, ensure_ascii=False, indent=2)
+
+    with _CONFIG_CACHE_LOCK:
+        _CONFIG_CACHE = deepcopy(schema)
+        _CONFIG_CACHE_FINGERPRINT = _get_config_fingerprint()
 
 
 def get_runtime_setting(key: str, default: Any = None) -> Any:
@@ -198,7 +218,6 @@ def get_ncbi_setting(key: str, default: Any = None) -> Any:
 
 
 def sync_default_from_schema(schema: dict[str, Any]) -> None:
-    """将 v2 模型同步到旧模块依赖的扁平 DEFAULT_CONFIG。"""
     normalized = normalize_config(schema)
     databases = normalized["databases"]
     runtime = normalized["runtime"]
