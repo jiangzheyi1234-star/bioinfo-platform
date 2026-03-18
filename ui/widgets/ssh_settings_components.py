@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtSlot
 from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from core.remote.ssh_connector import run_diagnostics
@@ -26,10 +26,20 @@ class SSHDiagnosticWorker(QObject):
     log = pyqtSignal(str)
     done = pyqtSignal()
 
-    def __init__(self, ip: str, port: int, user: str, pwd: str, key_file: str = "", parent=None):
+    def __init__(
+        self,
+        ip: str,
+        port: int,
+        user: str,
+        pwd: str,
+        key_file: str = "",
+        existing_client=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.ip, self.port, self.user, self.pwd = ip, port, user, pwd
         self.key_file = key_file
+        self.existing_client = existing_client
 
     @pyqtSlot()
     def run(self):
@@ -43,6 +53,7 @@ class SSHDiagnosticWorker(QObject):
             user=self.user,
             password=self.pwd,
             key_file=self.key_file,
+            existing_client=self.existing_client,
         )
 
         step_names = ["① 检查主机地址格式", "② TCP 连接", "③ SSH 协议握手", "④ 身份验证"]
@@ -68,12 +79,14 @@ class SSHDiagnosticWorker(QObject):
 class SSHDiagnosticDialog(QDialog):
     """SSH diagnostics dialog."""
 
-    def __init__(self, ip: str, port: int, user: str, pwd: str, key_file: str = "", parent=None):
+    def __init__(self, ip: str, port: int, user: str, pwd: str, key_file: str = "", existing_client=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("SSH 连接诊断")
         self.setMinimumSize(520, 400)
         self.resize(560, 440)
         self._close_requested = False
+        self._diagnostics_running = False
+        self._diagnostics_done = False
         self.setStyleSheet(
             """
             QDialog {
@@ -137,16 +150,17 @@ class SSHDiagnosticDialog(QDialog):
         button_row.addWidget(self.close_btn)
         layout.addLayout(button_row)
 
-        self._thread = QThread(self)
-        self._worker = SSHDiagnosticWorker(ip, port, user, pwd, key_file)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
+        self._worker = SSHDiagnosticWorker(ip, port, user, pwd, key_file, existing_client=existing_client)
         self._worker.log.connect(self._append_log)
         self._worker.done.connect(self._on_done)
-        self._worker.done.connect(self._thread.quit)
-        self._worker.done.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.start()
+        QTimer.singleShot(0, self._run_diagnostics_sync)
+
+    def _run_diagnostics_sync(self) -> None:
+        self._diagnostics_running = True
+        try:
+            self._worker.run()
+        finally:
+            self._diagnostics_running = False
 
     def _append_log(self, text: str) -> None:
         html = text.replace("✓", '<span style="color: #A6E3A1;">✓</span>')
@@ -156,13 +170,14 @@ class SSHDiagnosticDialog(QDialog):
         self.output.append(html)
 
     def _on_done(self) -> None:
+        self._diagnostics_done = True
         self.close_btn.setEnabled(True)
         self.close_btn.setText("Close")
-        if self._close_requested:
+        if self._close_requested and not self._diagnostics_running:
             self.accept()
 
     def _on_close_requested(self) -> None:
-        if self._thread is not None and self._thread.isRunning():
+        if self._diagnostics_running:
             self._close_requested = True
             self.close_btn.setEnabled(False)
             self.close_btn.setText("Running...")
@@ -170,7 +185,7 @@ class SSHDiagnosticDialog(QDialog):
         self.accept()
 
     def closeEvent(self, event) -> None:
-        if self._thread is not None and self._thread.isRunning():
+        if self._diagnostics_running:
             self._close_requested = True
             self.close_btn.setEnabled(False)
             self.close_btn.setText("Running...")
