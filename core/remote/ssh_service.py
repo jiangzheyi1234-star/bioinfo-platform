@@ -4,6 +4,7 @@
 集成 SSHReconnector 实现连接丢失时的自动重连。
 """
 import logging
+from threading import RLock
 from typing import Optional, Tuple, Callable, List
 
 import paramiko
@@ -45,6 +46,7 @@ class SSHService(QObject):
         self._client_provider = client_provider
         self._connect_fn = connect_fn
         self._reconnected_client: Optional[paramiko.SSHClient] = None
+        self._io_lock = RLock()
 
         # 初始化重连器（仅在提供 connect_fn 时）
         self._reconnector: Optional[SSHReconnector] = None
@@ -129,22 +131,25 @@ class SSHService(QObject):
         Returns:
             (exit_code, stdout, stderr) 元组
         """
-        client = self._ensure_connection()
-        stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-        rc = stdout.channel.recv_exit_status()
-        out = stdout.read().decode("utf-8", errors="ignore")
-        err = stderr.read().decode("utf-8", errors="ignore")
-        return rc, out, err
+        with self._io_lock:
+            client = self._ensure_connection()
+            stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
+            rc = stdout.channel.recv_exit_status()
+            out = stdout.read().decode("utf-8", errors="ignore")
+            err = stderr.read().decode("utf-8", errors="ignore")
+            return rc, out, err
 
     def run_async(self, cmd: str) -> None:
         """执行远程命令但不等待结果（用于启动后台任务）"""
-        client = self._ensure_connection()
-        client.exec_command(cmd, timeout=5)
+        with self._io_lock:
+            client = self._ensure_connection()
+            client.exec_command(cmd, timeout=5)
 
     def sftp(self) -> paramiko.SFTPClient:
         """获取 SFTP 客户端"""
-        client = self._ensure_connection()
-        return client.open_sftp()
+        with self._io_lock:
+            client = self._ensure_connection()
+            return client.open_sftp()
 
     def upload(self, local_path: str, remote_path: str) -> None:
         """上传本地文件到远端
