@@ -22,7 +22,7 @@ a = Analysis(
         # paramiko + cryptography
         'paramiko', 'paramiko.transport', 'paramiko.sftp_client',
         'paramiko.rsakey', 'paramiko.ecdsakey', 'paramiko.ed25519key',
-        'paramiko.dsskey', 'paramiko.ssh_exception',
+        'paramiko.ssh_exception',
         'cryptography.hazmat.primitives.ciphers',
         'cryptography.hazmat.primitives.kdf',
         'cryptography.hazmat.primitives.asymmetric.ed25519',
@@ -56,6 +56,8 @@ a = Analysis(
         'core.environment.env_detector', 'core.environment.env_installer',
         'core.environment.env_batch_checker', 'core.environment.container_detector',
         'core.pipeline.pipeline_runner', 'core.pipeline.report_generator',
+        'core.pipeline.detection_merger', 'core.pipeline.blast_result_parser',
+        'core.pipeline.chart_data_parser',
         'ui.main_window',
         'ui.pages.detection_page_web', 'ui.pages.settings_page',
         'ui.pages.home_page', 'ui.pages.log_page', 'ui.pages.project_page',
@@ -70,7 +72,7 @@ a = Analysis(
     runtime_hooks=[os.path.join(PROJECT_ROOT, 'hooks', 'rthook_qtwebengine.py')],
     excludes=[
         'pytest', 'pytest_cache', '_pytest', 'pluggy', 'iniconfig',
-        'conftest', 'tkinter', '_tkinter', 'unittest', 'doctest',
+        'conftest', 'tkinter', '_tkinter', 'doctest',
         'pdb', 'pydoc', 'pyqtdarktheme',
     ],
     win_no_prefer_redirects=False,
@@ -84,8 +86,11 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name='H2OMeta',
     debug=False,
     bootloader_ignore_signals=False,
@@ -98,15 +103,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=os.path.join(PROJECT_ROOT, 'logo.ico'),
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='H2OMeta',
 )
