@@ -58,7 +58,7 @@ def default_settings_schema() -> dict[str, Any]:
             "auto_installed": False,     # 是否 H2OMeta 自动安装的 Miniforge
         },
         "databases": {
-            "kraken2": "",
+            "kraken2": "/home/zyserver/project_ssd/common_data/kraken2_standard",
             "checkm2": "",
             "gtdbtk": "",
             "blast_nt": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",

@@ -5,8 +5,21 @@
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 import time
+from pathlib import Path
+
+
+def get_app_root() -> Path:
+    """返回应用根目录。
+
+    PyInstaller 冻结时返回 sys._MEIPASS，开发时返回仓库根目录。
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07")
 

@@ -23,7 +23,7 @@ from ui.widgets.styles import (
 
 # (config_key, 显示名称, 默认占位路径)
 _DB_FIELDS: list[tuple[str, str, str]] = [
-    ("kraken2", "Kraken2 标准库", "/h2ometa/databases/kraken2_standard"),
+    ("kraken2", "Kraken2 标准库", "/home/zyserver/project_ssd/common_data/kraken2_standard"),
     ("centrifuge", "Centrifuge HPVC 库", "/home/zyserver/project/lcy_project/my_database/hpvc"),
     ("checkm2", "CheckM2 数据库", "/h2ometa/databases/checkm2"),
     ("gtdbtk", "GTDB-Tk r220", "/h2ometa/databases/gtdbtk/release220"),

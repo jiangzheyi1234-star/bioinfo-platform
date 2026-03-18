@@ -125,6 +125,8 @@ class SettingsPage(BasePage):
         linux = schema.get("linux", {})
         databases = schema.get("databases", {})
         databases = dict(databases) if isinstance(databases, dict) else {}
+        if not str(databases.get("kraken2", "") or "").strip():
+            databases["kraken2"] = "/home/zyserver/project_ssd/common_data/kraken2_standard"
         if not str(databases.get("blast_nt", "") or "").strip():
             databases["blast_nt"] = "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
         if not str(databases.get("centrifuge", "") or "").strip():
