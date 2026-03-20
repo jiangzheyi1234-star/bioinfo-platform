@@ -326,6 +326,8 @@ function openIntegratedRunModal(feature, toolId) {
     if (toolSelectRowEl && toolSelectEl) {
         if (toolIds.length > 1) {
             toolSelectRowEl.style.display = '';
+            toolSelectEl.multiple = false;
+            toolSelectEl.size = 1;
             toolSelectEl.innerHTML = toolIds.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
             toolSelectEl.value = activeToolId;
             toolSelectEl.onchange = function() {
