@@ -84,3 +84,13 @@ When user asks `提交`:
    - changed file list
 2. The summary should be explicit enough for quick rollback decisions.
 3. Never return only the title.
+
+## Windows Codex UTF-8 Baseline (Must Reuse)
+
+When running local shell commands on Windows (especially `bash`/WSL), always align encoding first:
+
+1. Prefer UTF-8 code page and stream encoding in current session.
+2. Ensure `WSL_UTF8=1` for Codex -> WSL command path.
+3. Also set `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to avoid mixed decoding.
+4. If `wsl --status` or `wsl -e ...` returns `E_ACCESSDENIED`, treat it as WSL permission/service issue first; do not misdiagnose as pure encoding.
+5. Use `scripts/codex_wsl_utf8_doctor.ps1` for repeatable diagnosis and session-level fix.
