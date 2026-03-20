@@ -32,6 +32,7 @@ from ui.widgets.styles import (
     SCROLL_BAR_ELEGANT,
 )
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
+from ui.widgets.report_view import create_report_web_view
 
 from core.environment import env_detector
 from core.environment.env_detector import CondaStatus
@@ -385,7 +386,6 @@ class LinuxSettingsCard(QFrame):
 
         try:
             from PyQt6.QtWebChannel import QWebChannel
-            from PyQt6.QtWebEngineWidgets import QWebEngineView
         except ImportError as exc:
             logger.warning("QtWebEngine 不可用: %s", exc)
             fallback = QLabel("工具环境检测需要 QtWebEngine 支持")
@@ -397,14 +397,18 @@ class LinuxSettingsCard(QFrame):
         self._bridge = ToolEnvBridge(parent=self)
 
         # 创建 WebView
-        self._web_view = QWebEngineView()
+        self._web_view = create_report_web_view(
+            parent=self,
+            background="#FFFFFF",
+            disable_context_menu=True,
+        )
         self._web_view.setMinimumHeight(45)  # 最小高度（折叠时只显示标题行）
         self._web_view.setMaximumHeight(400)  # 最大高度
         self._web_view.setFixedHeight(45)  # 初始高度设为折叠状态
         self._web_view.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
-        self._web_view.setStyleSheet("background: transparent; border: none;")
+        self._web_view.setStyleSheet("background: #FFFFFF; border: none;")
 
         # 设置 WebChannel
         self._channel = QWebChannel()

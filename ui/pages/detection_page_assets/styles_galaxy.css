@@ -967,10 +967,40 @@ header {
     white-space: nowrap;
 }
 
-#integrated-run-modal-tool-select {
+.integrated-tool-switch {
+    display: inline-flex;
     width: 100%;
     min-width: 0;
-    max-width: 100%;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.integrated-tool-switch-btn {
+    flex: 1;
+    border: none;
+    border-right: 1px solid #e6edf3;
+    background: #ffffff;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1;
+    padding: 9px 10px;
+    cursor: pointer;
+}
+
+.integrated-tool-switch-btn:last-child {
+    border-right: none;
+}
+
+.integrated-tool-switch-btn:hover {
+    background: #f8fafc;
+}
+
+.integrated-tool-switch-btn.is-active {
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-weight: 600;
 }
 
 .integrated-run-modal-hint {

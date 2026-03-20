@@ -202,7 +202,7 @@ function ensureIntegratedRunModal() {
                 <div class="integrated-run-modal-line"><span>Tool</span><strong id="integrated-run-modal-tool">-</strong></div>
                 <div class="integrated-run-modal-line" id="integrated-run-modal-tool-select-row" style="display:none">
                     <span>分类工具</span>
-                    <select id="integrated-run-modal-tool-select" class="form-input"></select>
+                    <div id="integrated-run-modal-tool-switch" class="integrated-tool-switch" role="group" aria-label="分类工具选择"></div>
                 </div>
                 <div class="integrated-run-modal-hint" id="integrated-run-modal-hint">Fill fields in this popup and submit directly, or open plugin workbench.</div>
                 <div class="integrated-run-modal-form" id="integrated-run-modal-form"></div>
@@ -263,7 +263,7 @@ function openIntegratedRunModal(feature, toolId) {
     const featureEl = document.getElementById('integrated-run-modal-feature');
     const toolEl = document.getElementById('integrated-run-modal-tool');
     const toolSelectRowEl = document.getElementById('integrated-run-modal-tool-select-row');
-    const toolSelectEl = document.getElementById('integrated-run-modal-tool-select');
+    const toolSwitchEl = document.getElementById('integrated-run-modal-tool-switch');
     const hintEl = document.getElementById('integrated-run-modal-hint');
     const formEl = document.getElementById('integrated-run-modal-form');
 
@@ -323,20 +323,27 @@ function openIntegratedRunModal(feature, toolId) {
         });
     };
 
-    if (toolSelectRowEl && toolSelectEl) {
+    if (toolSelectRowEl && toolSwitchEl) {
         if (toolIds.length > 1) {
             toolSelectRowEl.style.display = '';
-            toolSelectEl.multiple = false;
-            toolSelectEl.size = 1;
-            toolSelectEl.innerHTML = toolIds.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
-            toolSelectEl.value = activeToolId;
-            toolSelectEl.onchange = function() {
-                fetchDescriptorForTool(toolSelectEl.value);
-            };
+            toolSwitchEl.innerHTML = toolIds.map(id => {
+                const activeClass = id === activeToolId ? 'is-active' : '';
+                return `<button type="button" class="integrated-tool-switch-btn ${activeClass}" data-tool-id="${escapeHtml(id)}">${escapeHtml(id)}</button>`;
+            }).join('');
+            toolSwitchEl.querySelectorAll('.integrated-tool-switch-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const nextToolId = btn.getAttribute('data-tool-id') || '';
+                    if (!nextToolId || nextToolId === (integratedRunModalContext && integratedRunModalContext.toolId)) {
+                        return;
+                    }
+                    toolSwitchEl.querySelectorAll('.integrated-tool-switch-btn').forEach(item => item.classList.remove('is-active'));
+                    btn.classList.add('is-active');
+                    fetchDescriptorForTool(nextToolId);
+                });
+            });
         } else {
             toolSelectRowEl.style.display = 'none';
-            toolSelectEl.innerHTML = '';
-            toolSelectEl.onchange = null;
+            toolSwitchEl.innerHTML = '';
         }
     }
 
