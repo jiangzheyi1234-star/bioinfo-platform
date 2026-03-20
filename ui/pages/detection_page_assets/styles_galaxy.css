@@ -1259,6 +1259,36 @@ header {
     border-radius: 8px;
     background: #fafbfc;
 }
+
+.integrated-chart-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eef2f7;
+}
+
+.integrated-chart-item:last-child {
+    border-bottom: none;
+}
+
+.integrated-chart-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.integrated-chart-item-canvas {
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.integrated-db-scope {
+    font-size: 0.78rem;
+    color: #6b7280;
+    margin-top: 4px;
+    padding-left: 8px;
+    border-left: 2px solid #60a5fa;
+    line-height: 1.4;
+}
 /* 靶向测序表列宽 */
 .integrated-table .col-rank { width: 6%; text-align: center; }
 .integrated-table .col-name { min-width: 200px; }

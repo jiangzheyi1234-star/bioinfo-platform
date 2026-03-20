@@ -200,6 +200,10 @@ function ensureIntegratedRunModal() {
             <div class="integrated-run-modal-body">
                 <div class="integrated-run-modal-line"><span>Feature</span><strong id="integrated-run-modal-feature">-</strong></div>
                 <div class="integrated-run-modal-line"><span>Tool</span><strong id="integrated-run-modal-tool">-</strong></div>
+                <div class="integrated-run-modal-line" id="integrated-run-modal-tool-select-row" style="display:none">
+                    <span>分类工具</span>
+                    <select id="integrated-run-modal-tool-select" class="form-input"></select>
+                </div>
                 <div class="integrated-run-modal-hint" id="integrated-run-modal-hint">Fill fields in this popup and submit directly, or open plugin workbench.</div>
                 <div class="integrated-run-modal-form" id="integrated-run-modal-form"></div>
             </div>
@@ -239,25 +243,39 @@ function ensureIntegratedRunModal() {
 }
 
 function openIntegratedRunModal(feature, toolId) {
+    const view = (integratedWorkbench && integratedWorkbench.views)
+        ? integratedWorkbench.views[feature?.id]
+        : null;
+    const toolIds = Array.isArray(view?.tool_ids) && view.tool_ids.length
+        ? view.tool_ids.slice()
+        : [toolId].filter(Boolean);
+    const activeToolId = toolIds.includes(toolId) ? toolId : (toolIds[0] || toolId);
+
     integratedRunModalContext = {
         featureId: feature?.id || '',
         featureName: feature?.name || feature?.id || '',
-        toolId: toolId,
+        toolId: activeToolId,
         descriptor: null,
+        _descriptorSeq: 0,
     };
 
     const modal = ensureIntegratedRunModal();
     const featureEl = document.getElementById('integrated-run-modal-feature');
     const toolEl = document.getElementById('integrated-run-modal-tool');
+    const toolSelectRowEl = document.getElementById('integrated-run-modal-tool-select-row');
+    const toolSelectEl = document.getElementById('integrated-run-modal-tool-select');
     const hintEl = document.getElementById('integrated-run-modal-hint');
     const formEl = document.getElementById('integrated-run-modal-form');
 
     if (featureEl) featureEl.textContent = integratedRunModalContext.featureName || '-';
-    if (toolEl) toolEl.textContent = toolId;
+    if (toolEl) toolEl.textContent = activeToolId || '-';
     if (hintEl) hintEl.textContent = 'Loading input requirements...';
     if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Loading...</div>';
 
-    const applyDescriptor = function(descriptor) {
+    const applyDescriptor = function(descriptor, requestSeq) {
+        if (!integratedRunModalContext || requestSeq !== integratedRunModalContext._descriptorSeq) {
+            return;
+        }
         integratedRunModalContext.descriptor = descriptor || {};
         const inputCount = (descriptor.inputs || []).length;
         const paramCount = (descriptor.parameters || []).length;
@@ -268,24 +286,59 @@ function openIntegratedRunModal(feature, toolId) {
         renderIntegratedRunModalForm(descriptor || {});
     };
 
-    const cached = toolDescriptorCache[toolId];
-    if (cached) {
-        applyDescriptor(cached);
-    } else if (bridge && bridge.get_tool_descriptor) {
-        bridge.get_tool_descriptor(toolId, function(json) {
+    const fetchDescriptorForTool = function(nextToolId) {
+        if (!integratedRunModalContext) {
+            return;
+        }
+        integratedRunModalContext.toolId = nextToolId;
+        if (toolEl) toolEl.textContent = nextToolId || '-';
+        if (hintEl) hintEl.textContent = 'Loading input requirements...';
+        if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Loading...</div>';
+
+        integratedRunModalContext._descriptorSeq += 1;
+        const requestSeq = integratedRunModalContext._descriptorSeq;
+        const cached = toolDescriptorCache[nextToolId];
+        if (cached) {
+            applyDescriptor(cached, requestSeq);
+            return;
+        }
+        if (!(bridge && bridge.get_tool_descriptor)) {
+            if (requestSeq === integratedRunModalContext._descriptorSeq) {
+                if (hintEl) hintEl.textContent = 'Tool descriptor API unavailable.';
+                if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">API unavailable.</div>';
+            }
+            return;
+        }
+        bridge.get_tool_descriptor(nextToolId, function(json) {
             try {
                 const descriptor = JSON.parse(json || '{}');
-                toolDescriptorCache[toolId] = descriptor;
-                applyDescriptor(descriptor);
+                toolDescriptorCache[nextToolId] = descriptor;
+                applyDescriptor(descriptor, requestSeq);
             } catch (e) {
-                if (hintEl) hintEl.textContent = 'Failed to load requirements. Use Open Tools instead.';
-                if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Parse failed.</div>';
+                if (requestSeq === integratedRunModalContext._descriptorSeq) {
+                    if (hintEl) hintEl.textContent = 'Failed to load requirements. Use Open Tools instead.';
+                    if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Parse failed.</div>';
+                }
             }
         });
-    } else {
-        if (hintEl) hintEl.textContent = 'Tool descriptor API unavailable.';
-        if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">API unavailable.</div>';
+    };
+
+    if (toolSelectRowEl && toolSelectEl) {
+        if (toolIds.length > 1) {
+            toolSelectRowEl.style.display = '';
+            toolSelectEl.innerHTML = toolIds.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
+            toolSelectEl.value = activeToolId;
+            toolSelectEl.onchange = function() {
+                fetchDescriptorForTool(toolSelectEl.value);
+            };
+        } else {
+            toolSelectRowEl.style.display = 'none';
+            toolSelectEl.innerHTML = '';
+            toolSelectEl.onchange = null;
+        }
     }
+
+    fetchDescriptorForTool(activeToolId);
 
     modal.classList.add('show');
 }
@@ -348,6 +401,9 @@ function renderIntegratedRunModalForm(descriptor) {
             const key = db.param_name || db.name;
             const id = `modal-db-${key}`;
             const required = db.required !== false ? '<span class="integrated-input-required">Required</span>' : '';
+            const scopeHtml = db.scope
+                ? `<div class="integrated-db-scope">${escapeHtml(db.scope)}</div>`
+                : '';
             // 数据库路径由后端 build_database_paths 自动解析，此处仅展示提示
             parts.push(`
                 <div class="integrated-input-item">
@@ -364,6 +420,19 @@ function renderIntegratedRunModalForm(descriptor) {
     }
 
     formEl.innerHTML = parts.join('');
+    if (databases.length) {
+        databases.forEach(db => {
+            if (!db || !db.scope) return;
+            const key = db.param_name || db.name;
+            const id = `modal-db-${key}`;
+            const inputEl = document.getElementById(id);
+            if (!inputEl || !inputEl.parentElement) return;
+            const scopeDiv = document.createElement('div');
+            scopeDiv.className = 'integrated-db-scope';
+            scopeDiv.textContent = String(db.scope);
+            inputEl.parentElement.appendChild(scopeDiv);
+        });
+    }
 }
 
 function runIntegratedRunModal() {
@@ -503,8 +572,16 @@ function switchTab(tab) {
     if (tab === 'integrated') {
         loadIntegratedWorkbench(true);
         // ECharts resize on tab switch
-        if (_integratedChartInstance) {
-            setTimeout(function() { _integratedChartInstance.resize(); }, 100);
+        if (_integratedChartInstances && _integratedChartInstances.length) {
+            setTimeout(function() {
+                _integratedChartInstances.forEach(instance => {
+                    try {
+                        instance.resize();
+                    } catch (_) {
+                        // ignore
+                    }
+                });
+            }, 100);
         }
     }
 }
@@ -727,7 +804,7 @@ function renderIntegratedFeature(feature, view) {
     renderSummaryGrid(view.summary || []);
     renderArtifactList(view.artifacts || []);
     renderIntegratedTable(view.columns || [], view.rows || []);
-    renderIntegratedChart(view.chart || null);
+    renderIntegratedChart(view.charts || view.chart || null);
 
     // 动态更新表标题和 badge
     const resultsTitle = document.getElementById('results-card-title');
@@ -757,8 +834,12 @@ function renderIntegratedRunEntry(feature, view) {
     }
 
     card.style.display = 'flex';
+    const supportedTools = Array.isArray(view?.tool_ids) ? view.tool_ids.filter(Boolean) : [];
     badge.textContent = toolId;
     hint.textContent = '在这里查看输入要求，点击右侧按钮可直接进入插件工作台配置输入文件并提交任务。';
+    if (supportedTools.length > 1) {
+        hint.textContent = '支持多分类工具（Centrifuge / Kraken2），可在运行弹窗切换并自动刷新参数。';
+    }
     runBtn.disabled = false;
     list.innerHTML = '<div class="integrated-input-empty">正在读取输入要求…</div>';
 
@@ -962,129 +1043,228 @@ function getIntegratedColumnCellClass(columnKey) {
     return '';
 }
 
-let _integratedChartInstance = null;
+let _integratedChartInstances = [];
+let _integratedChartResizeBound = false;
 
-function renderIntegratedChart(chartData) {
+function disposeIntegratedCharts() {
+    _integratedChartInstances.forEach(instance => {
+        try {
+            instance.dispose();
+        } catch (_) {
+            // ignore
+        }
+    });
+    _integratedChartInstances = [];
+}
+
+function getDomainColor(name) {
+    const text = String(name || '').toLowerCase();
+    if (text.includes('virus') || text.includes('viruses')) return '#ef4444';
+    if (text.includes('fungi') || text.includes('fungus')) return '#22c55e';
+    if (text.includes('bacteria')) return '#3b82f6';
+    if (text.includes('archaea')) return '#f59e0b';
+    return '#64748b';
+}
+
+function getChartDomain(item) {
+    const text = String(item?.name || '').toLowerCase();
+    if (text.includes('virus')) return 'Viruses';
+    if (text.includes('fung')) return 'Fungi';
+    if (text.includes('archaea')) return 'Archaea';
+    return 'Bacteria';
+}
+
+function renderIntegratedChart(chartInput) {
     const card = document.getElementById('integrated-chart-card');
     const container = document.getElementById('integrated-chart-container');
     const titleEl = document.getElementById('chart-card-title');
 
-    if (_integratedChartInstance) {
-        _integratedChartInstance.dispose();
-        _integratedChartInstance = null;
-    }
+    disposeIntegratedCharts();
 
-    if (!chartData || !chartData.data || !chartData.data.length) {
+    const charts = Array.isArray(chartInput) ? chartInput : (chartInput ? [chartInput] : []);
+    const validCharts = charts.filter(c => c && Array.isArray(c.data) && c.data.length > 0);
+    if (!validCharts.length) {
         if (card) card.style.display = 'none';
         return;
     }
 
     if (card) card.style.display = 'block';
-    if (titleEl) titleEl.textContent = chartData.title || '图表';
-
+    if (titleEl) titleEl.textContent = validCharts.length > 1 ? '图表视图' : (validCharts[0].title || '图表');
     if (!container || typeof echarts === 'undefined') {
         return;
     }
 
-    const chartType = chartData.type || 'pie';
+    container.innerHTML = '';
 
-    if (chartType === 'bar') {
-        // Bar chart — e.g. amplicon length distribution
-        const h = Math.max(300, chartData.data.length * 24 + 80);
-        container.style.height = Math.min(h, 600) + 'px';
+    validCharts.forEach((chartData, index) => {
+        const chartWrap = document.createElement('div');
+        chartWrap.className = 'integrated-chart-item';
+        const localTitle = document.createElement('div');
+        localTitle.className = 'integrated-chart-item-title';
+        localTitle.textContent = chartData.title || `图表 ${index + 1}`;
+        const chartDiv = document.createElement('div');
+        chartDiv.className = 'integrated-chart-item-canvas';
+        chartDiv.style.width = '100%';
+        const dynamicHeight = (chartData.type === 'abundance_bar' || chartData.type === 'amplicon_performance')
+            ? `${Math.min(Math.max(300, chartData.data.length * 22 + 90), 680)}px`
+            : '360px';
+        chartDiv.style.height = dynamicHeight;
+        chartWrap.appendChild(localTitle);
+        chartWrap.appendChild(chartDiv);
+        container.appendChild(chartWrap);
 
-        _integratedChartInstance = echarts.init(container);
-        const names = chartData.data.map(function(d) { return d.name; });
-        const values = chartData.data.map(function(d) { return d.value; });
-        // Color by status: suboptimal → amber, no_candidate → red, optimal → blue
-        const colors = chartData.data.map(function(d) {
-            if (d.status === 'suboptimal') return '#f59e0b';
-            if (d.status === 'no_candidate') return '#ef4444';
-            return '#3b82f6';
-        });
+        const instance = echarts.init(chartDiv);
+        const chartType = chartData.type || 'pie';
+        let option = {};
 
-        const option = {
-            tooltip: {
-                trigger: 'axis',
-                axisPointer: { type: 'shadow' },
-                formatter: function(params) {
-                    const p = params[0];
-                    const d = chartData.data[p.dataIndex];
-                    let tip = p.name + '<br/>Amplicon: ' + p.value + ' bp';
-                    if (d.status && d.status !== 'optimal') tip += '<br/>Status: ' + d.status;
-                    if (d.region_id) tip += '<br/>Region: ' + d.region_id;
-                    return tip;
-                }
-            },
-            grid: { left: '22%', right: '8%', top: 20, bottom: 30 },
-            xAxis: {
-                type: 'value',
-                name: 'bp',
-                nameTextStyle: { fontSize: 11, color: '#94a3b8' },
-                axisLabel: { fontSize: 10 },
-            },
-            yAxis: {
-                type: 'category',
-                data: names,
-                inverse: true,
-                axisLabel: {
-                    fontSize: 10,
-                    width: 140,
-                    overflow: 'truncate',
+        if (chartType === 'abundance_bar') {
+            const sorted = chartData.data.slice().sort((a, b) => (b.reads || 0) - (a.reads || 0));
+            const names = sorted.map(d => d.name);
+            const reads = sorted.map(d => d.reads || 0);
+            const colors = sorted.map(d => getDomainColor(getChartDomain(d)));
+            option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    formatter: function(params) {
+                        const p = params && params[0] ? params[0] : null;
+                        if (!p) return '';
+                        const row = sorted[p.dataIndex] || {};
+                        const domain = getChartDomain(row);
+                        return `${row.name || '-'}<br/>Reads: ${(row.reads || 0).toLocaleString()}<br/>Domain: ${domain}`;
+                    }
                 },
-            },
-            series: [{
-                type: 'bar',
-                data: values.map(function(v, i) {
-                    return { value: v, itemStyle: { color: colors[i] } };
-                }),
-                barMaxWidth: 18,
-                label: {
-                    show: true,
-                    position: 'right',
-                    formatter: '{c} bp',
-                    fontSize: 10,
-                    color: '#64748b',
+                grid: { left: '28%', right: '8%', top: 20, bottom: 30 },
+                xAxis: { type: 'value', axisLabel: { fontSize: 10 } },
+                yAxis: {
+                    type: 'category',
+                    data: names,
+                    inverse: true,
+                    axisLabel: { fontSize: 10, width: 220, overflow: 'truncate' }
                 },
-            }]
-        };
-        _integratedChartInstance.setOption(option);
-    } else {
-        // Pie chart (default) — species composition etc.
-        const h = chartData.data.length <= 5 ? 300 : chartData.data.length <= 15 ? 360 : 420;
-        container.style.height = h + 'px';
-
-        _integratedChartInstance = echarts.init(container);
-        const option = {
-            tooltip: {
-                trigger: 'item',
-                formatter: function(params) {
-                    const reads = params.data.reads != null ? params.data.reads.toLocaleString() : '-';
-                    return `${params.name}<br/>占比: ${params.percent}%<br/>Reads: ${reads}`;
-                }
-            },
-            series: [{
-                type: 'pie',
-                radius: ['30%', '65%'],
-                center: ['50%', '50%'],
-                data: chartData.data.map(function(d) {
-                    return { name: d.name, value: d.value, reads: d.reads || 0 };
-                }),
-                label: {
-                    formatter: '{b}\n{d}%',
-                    fontSize: 11,
+                series: [{
+                    type: 'bar',
+                    data: reads.map((value, i) => ({ value, itemStyle: { color: colors[i] } })),
+                    barMaxWidth: 18,
+                }]
+            };
+        } else if (chartType === 'coverage_depth') {
+            const seriesData = chartData.data.map(d => [d.position, d.depth]);
+            option = {
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: function(params) {
+                        const p = params && params[0] ? params[0] : null;
+                        if (!p) return '';
+                        return `Position: ${p.value[0]}<br/>Depth: ${Number(p.value[1]).toFixed(2)}`;
+                    }
                 },
-                emphasis: {
-                    itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' }
-                }
-            }]
-        };
-        _integratedChartInstance.setOption(option);
-    }
+                grid: { left: '8%', right: '5%', top: 20, bottom: 40 },
+                xAxis: { type: 'value', name: 'Position', axisLabel: { fontSize: 10 } },
+                yAxis: { type: 'value', name: 'Depth', axisLabel: { fontSize: 10 } },
+                series: [{
+                    type: 'line',
+                    showSymbol: false,
+                    smooth: true,
+                    lineStyle: { width: 1.5, color: '#2563eb' },
+                    areaStyle: { color: 'rgba(37,99,235,0.15)' },
+                    data: seriesData,
+                }]
+            };
+        } else if (chartType === 'amplicon_performance') {
+            const names = chartData.data.map(d => d.name);
+            const reads = chartData.data.map(d => d.reads || 0);
+            const breadth = chartData.data.map(d => d.breadth || 0);
+            option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    formatter: function(params) {
+                        const p1 = params.find(p => p.seriesName === 'Mean Depth');
+                        const p2 = params.find(p => p.seriesName === 'Breadth (%)');
+                        return `${params[0].axisValue}<br/>Mean Depth: ${p1 ? Number(p1.value).toFixed(2) : '-'}<br/>Breadth: ${p2 ? Number(p2.value).toFixed(2) : '-'}%`;
+                    }
+                },
+                legend: { top: 0, textStyle: { fontSize: 10 } },
+                grid: { left: '22%', right: '8%', top: 35, bottom: 30 },
+                xAxis: { type: 'value', axisLabel: { fontSize: 10 } },
+                yAxis: { type: 'category', data: names, inverse: true, axisLabel: { fontSize: 10, width: 200, overflow: 'truncate' } },
+                series: [
+                    {
+                        name: 'Mean Depth',
+                        type: 'bar',
+                        data: reads,
+                        barMaxWidth: 16,
+                        itemStyle: { color: '#0ea5e9' }
+                    },
+                    {
+                        name: 'Breadth (%)',
+                        type: 'line',
+                        xAxisIndex: 0,
+                        yAxisIndex: 0,
+                        data: breadth,
+                        symbolSize: 4,
+                        lineStyle: { color: '#f59e0b', width: 1.5 },
+                        itemStyle: { color: '#f59e0b' }
+                    }
+                ]
+            };
+        } else if (chartType === 'bar') {
+            const names = chartData.data.map(d => d.name);
+            const values = chartData.data.map(d => d.value);
+            const colors = chartData.data.map(d => {
+                if (d.status === 'suboptimal') return '#f59e0b';
+                if (d.status === 'no_candidate') return '#ef4444';
+                return '#3b82f6';
+            });
+            option = {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: '22%', right: '8%', top: 20, bottom: 30 },
+                xAxis: { type: 'value', name: 'bp', axisLabel: { fontSize: 10 } },
+                yAxis: { type: 'category', data: names, inverse: true, axisLabel: { fontSize: 10, width: 140, overflow: 'truncate' } },
+                series: [{
+                    type: 'bar',
+                    data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
+                    barMaxWidth: 18,
+                    label: { show: true, position: 'right', formatter: '{c} bp', fontSize: 10, color: '#64748b' },
+                }]
+            };
+        } else {
+            option = {
+                tooltip: {
+                    trigger: 'item',
+                    formatter: function(params) {
+                        const reads = params.data.reads != null ? params.data.reads.toLocaleString() : '-';
+                        return `${params.name}<br/>占比: ${params.percent}%<br/>Reads: ${reads}`;
+                    }
+                },
+                series: [{
+                    type: 'pie',
+                    radius: ['30%', '65%'],
+                    center: ['50%', '50%'],
+                    data: chartData.data.map(d => ({ name: d.name, value: d.value, reads: d.reads || 0 })),
+                    label: { formatter: '{b}\\n{d}%', fontSize: 11 },
+                    emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' } }
+                }]
+            };
+        }
 
-    window.addEventListener('resize', function() {
-        if (_integratedChartInstance) _integratedChartInstance.resize();
+        instance.setOption(option);
+        _integratedChartInstances.push(instance);
     });
+
+    if (!_integratedChartResizeBound) {
+        _integratedChartResizeBound = true;
+        window.addEventListener('resize', function() {
+            _integratedChartInstances.forEach(instance => {
+                try {
+                    instance.resize();
+                } catch (_) {
+                    // ignore
+                }
+            });
+        });
+    }
 }
 
 function escapeHtml(value) {
