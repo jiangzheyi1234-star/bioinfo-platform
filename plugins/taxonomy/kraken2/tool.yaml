@@ -16,6 +16,15 @@ inputs:
     required: true
     description: "质控后的 FASTQ 文件（单端或交错双端）"
 
+  - name: reference_fasta
+    type: fasta
+    required: false
+    description: "Reference genome for optional Step-2 coverage depth analysis."
+  - name: amplicon_bed
+    type: bed
+    required: false
+    description: "Amplicon BED for optional Step-2 amplicon performance analysis."
+
 outputs:
   - name: k2_report
     type: kreport
@@ -31,6 +40,17 @@ outputs:
     tier: intermediate
     pattern: "{output_dir}/{sample_id}_unclassified.fastq"
     description: "未分类 reads（可用于后续组装+BLAST 补充鉴定）"
+
+  - name: coverage_depth
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.coverage_depth.tsv"
+    sync_to_local: true
+  - name: amplicon_performance
+    type: tsv
+    tier: result
+    pattern: "{output_dir}/{sample_id}.amplicon_performance.tsv"
+    sync_to_local: true
 
 parameters:
   - name: confidence
@@ -61,6 +81,22 @@ command_template: |
     --output {{ output_dir }}/{{ sample_id }}.k2output \
     --unclassified-out {{ output_dir }}/{{ sample_id }}_unclassified.fastq \
     {{ input_reads }}
+  {% if reference_fasta %}
+  && (
+    if command -v minimap2 >/dev/null 2>&1 && command -v samtools >/dev/null 2>&1; then
+      minimap2 -ax map-ont {{ reference_fasta }} {{ input_reads }} \
+        | samtools view -bS - \
+        | samtools sort -o {{ output_dir }}/{{ sample_id }}.mapped.sorted.bam -
+      samtools index {{ output_dir }}/{{ sample_id }}.mapped.sorted.bam
+      samtools depth -a {{ output_dir }}/{{ sample_id }}.mapped.sorted.bam > {{ output_dir }}/{{ sample_id }}.coverage_depth.tsv
+      {% if amplicon_bed %}
+      awk 'BEGIN{FS=OFS="\t"} FNR==NR {d[$1 FS $2]=$3; next} {name=($4!=""?$4:("amplicon_" NR)); start=$2+1; end=$3; len=end-start+1; if(len<=0) next; sum=0; cov=0; for(i=start;i<=end;i++){k=$1 FS i; dep=(k in d)?d[k]:0; sum+=dep; if(dep>0) cov++} mean=sum/len; breadth=100.0*cov/len; print name, sprintf("%.4f", mean), sprintf("%.2f", breadth), len; }' {{ output_dir }}/{{ sample_id }}.coverage_depth.tsv {{ amplicon_bed }} > {{ output_dir }}/{{ sample_id }}.amplicon_performance.tsv
+      {% endif %}
+    else
+      echo "[WARN] minimap2/samtools not found, skip Step-2 coverage analysis" >&2
+    fi
+  )
+  {% endif %}
 
 databases:
   - id: kraken2_standard
@@ -68,6 +104,7 @@ databases:
     required: true
     label: "Kraken2 标准数据库"
     description: "Kraken2 标准数据库（含细菌/古菌/病毒/人类）"
+    scope: "覆盖 RefSeq 完整细菌、古菌、病毒和人类基因组，适用于广谱微生物鉴定。不含真菌和寄生虫（需 PlusPF 库）。"
     default: "/home/zyserver/project_ssd/common_data/kraken2_standard"
 
 methods_template: >

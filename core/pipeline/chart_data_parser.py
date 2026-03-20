@@ -142,6 +142,7 @@ class ChartDataParser:
                 "name": clean_name,
                 "value": round(pct, 4),
                 "reads": clade,
+                "rank_code": rank,
             })
 
         # 取 top_n，其余归入「其他」
@@ -155,7 +156,7 @@ class ChartDataParser:
         return {
             "type": "pie",
             "title": "物种组成",
-            "data": [{"name": s["name"], "value": s["value"], "reads": s["reads"]} for s in top],
+            "data": [{"name": s["name"], "value": s["value"], "reads": s["reads"], "rank_code": s.get("rank_code")} for s in top],
         }
 
     @staticmethod
@@ -283,6 +284,82 @@ class ChartDataParser:
     @staticmethod
     def _empty_chart(title: str) -> dict[str, Any]:
         return {"type": "empty", "title": title, "data": [], "series": []}
+
+    @staticmethod
+    def parse_coverage_depth(depth_path: str, max_points: int = 2000) -> dict[str, Any]:
+        points: list[dict[str, Any]] = []
+        try:
+            lines = Path(depth_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+        except Exception as e:
+            logger.error("Failed to read coverage depth file: %s, error=%s", depth_path, e)
+            return {"type": "coverage_depth", "title": "Coverage Depth", "data": []}
+
+        for line in lines:
+            parts = line.strip().split("\t")
+            if len(parts) < 3:
+                continue
+            try:
+                pos = int(parts[1])
+                depth = float(parts[2])
+            except ValueError:
+                continue
+            points.append({"position": pos, "depth": depth})
+
+        if len(points) > max_points and max_points > 0:
+            stride = max(1, len(points) // max_points)
+            points = points[::stride]
+
+        return {"type": "coverage_depth", "title": "Coverage Depth", "data": points}
+
+    @staticmethod
+    def parse_amplicon_performance(tsv_path: str, top_n: int = 40) -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
+        try:
+            lines = Path(tsv_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+        except Exception as e:
+            logger.error("Failed to read amplicon performance file: %s, error=%s", tsv_path, e)
+            return {"type": "amplicon_performance", "title": "Amplicon Performance", "data": []}
+
+        if not lines:
+            return {"type": "amplicon_performance", "title": "Amplicon Performance", "data": []}
+
+        header = [h.strip().lower() for h in lines[0].split("\t")]
+        idx = {name: i for i, name in enumerate(header)}
+        has_header = any(name in idx for name in ("amplicon", "amplicon_id", "region", "name", "reads", "mean_depth", "breadth"))
+
+        def pick(parts: list[str], names: list[str], default: str = "") -> str:
+            for name in names:
+                if name in idx and idx[name] < len(parts):
+                    return parts[idx[name]].strip()
+            return default
+
+        data_lines = lines[1:] if has_header else lines
+        for line in data_lines:
+            parts = line.split("\t")
+            if has_header:
+                name = pick(parts, ["amplicon", "amplicon_id", "region", "region_id", "name"], "")
+                reads_text = pick(parts, ["reads", "mean_depth", "avg_depth", "depth"], "0")
+                breadth_text = pick(parts, ["breadth", "coverage", "breadth_pct", "coverage_pct"], "0")
+            else:
+                if len(parts) < 3:
+                    continue
+                name = parts[0].strip()
+                reads_text = parts[1].strip()
+                breadth_text = parts[2].strip()
+            if not name:
+                continue
+            try:
+                reads = float(reads_text)
+            except ValueError:
+                reads = 0.0
+            try:
+                breadth = float(breadth_text)
+            except ValueError:
+                breadth = 0.0
+            rows.append({"name": name, "reads": reads, "breadth": breadth})
+
+        rows.sort(key=lambda x: x["reads"], reverse=True)
+        return {"type": "amplicon_performance", "title": "Amplicon Performance", "data": rows[:top_n]}
 
 
 # ── 辅助函数 ─────────────────────────────────────────────────────

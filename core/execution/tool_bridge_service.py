@@ -197,7 +197,7 @@ class ToolBridgeService:
                     ],
                 },
                 "targeted_sequencing": {
-                    "tool_ids": ["centrifuge"],
+                    "tool_ids": ["centrifuge", "kraken2"],
                     "title": "靶向测序分析 (tNGS)",
                     "description": "上传纳米孔靶向扩增测序 FASTQ，Centrifuge + HPVC 数据库快速鉴定病原体组成。",
                     "table_title": "病原体物种组成",
@@ -2234,7 +2234,11 @@ class ToolBridgeService:
         results_dir.mkdir(parents=True, exist_ok=True)
 
         kreport_name = f"{sample_id}.kreport"
+        coverage_depth_name = f"{sample_id}.coverage_depth.tsv"
+        amplicon_perf_name = f"{sample_id}.amplicon_performance.tsv"
         local_kreport = results_dir / kreport_name
+        local_coverage_depth = results_dir / coverage_depth_name
+        local_amplicon_perf = results_dir / amplicon_perf_name
         if not local_kreport.exists():
             ssh = self._get_ssh_service()
             if ssh is None or not getattr(ssh, "is_connected", False):
@@ -2249,8 +2253,53 @@ class ToolBridgeService:
             return None
 
         # 解析数据
+        if (not local_coverage_depth.exists()) or (not local_amplicon_perf.exists()):
+            ssh = self._get_ssh_service()
+            if ssh is not None and getattr(ssh, "is_connected", False):
+                if not local_coverage_depth.exists():
+                    try:
+                        ssh.download(f"{remote_dir}/{coverage_depth_name}", str(local_coverage_depth))
+                    except Exception:
+                        pass
+                if not local_amplicon_perf.exists():
+                    try:
+                        ssh.download(f"{remote_dir}/{amplicon_perf_name}", str(local_amplicon_perf))
+                    except Exception:
+                        pass
+
         chart_data = ChartDataParser.parse_kreport(str(local_kreport))
         summary_data = ChartDataParser.parse_kreport_summary(str(local_kreport))
+        coverage_chart = {"type": "coverage_depth", "title": "Coverage Depth", "data": []}
+        amplicon_chart = {"type": "amplicon_performance", "title": "Amplicon Performance", "data": []}
+        if local_coverage_depth.exists():
+            coverage_chart = ChartDataParser.parse_coverage_depth(str(local_coverage_depth))
+        if local_amplicon_perf.exists():
+            amplicon_chart = ChartDataParser.parse_amplicon_performance(str(local_amplicon_perf))
+
+        charts = [
+            {
+                "type": "pie",
+                "title": "病原体组成",
+                "data": chart_data.get("data", []),
+            },
+            {
+                "type": "abundance_bar",
+                "title": "物种丰度 (Top 20)",
+                "data": chart_data.get("data", [])[:20],
+            },
+        ]
+        if coverage_chart.get("data"):
+            charts.append({
+                "type": "coverage_depth",
+                "title": "Coverage Depth",
+                "data": coverage_chart.get("data", []),
+            })
+        if amplicon_chart.get("data"):
+            charts.append({
+                "type": "amplicon_performance",
+                "title": "Amplicon Performance",
+                "data": amplicon_chart.get("data", []),
+            })
 
         # 构建表格行
         rows = []
@@ -2301,6 +2350,20 @@ class ToolBridgeService:
                 "available": True,
             },
         ]
+        if local_coverage_depth.exists():
+            artifacts.append({
+                "name": coverage_depth_name,
+                "remote_path": f"{remote_dir}/{coverage_depth_name}",
+                "local_path": str(local_coverage_depth),
+                "available": True,
+            })
+        if local_amplicon_perf.exists():
+            artifacts.append({
+                "name": amplicon_perf_name,
+                "remote_path": f"{remote_dir}/{amplicon_perf_name}",
+                "local_path": str(local_amplicon_perf),
+                "available": True,
+            })
         if report_path and report_path.exists():
             artifacts.append({
                 "name": "targeted_seq_report.txt",
@@ -2334,6 +2397,7 @@ class ToolBridgeService:
             ],
             "rows": rows,
             "artifacts": artifacts,
+            "charts": charts,
             "chart": {
                 "type": "pie",
                 "title": "病原体组成",
