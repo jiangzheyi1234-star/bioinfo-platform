@@ -955,6 +955,24 @@ header {
     word-break: break-all;
 }
 
+#integrated-run-modal-tool-select-row {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: center;
+    justify-content: initial;
+    gap: 8px;
+}
+
+#integrated-run-modal-tool-select-row > span {
+    white-space: nowrap;
+}
+
+#integrated-run-modal-tool-select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
 .integrated-run-modal-hint {
     font-size: 12px;
     color: #475467;
