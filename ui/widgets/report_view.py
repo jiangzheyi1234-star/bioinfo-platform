@@ -63,9 +63,11 @@ def create_report_web_view(
         view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
     settings = view.settings()
+    settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
     settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
     settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
     settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
     settings.setAttribute(
         QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
         bool(allow_remote_resources),

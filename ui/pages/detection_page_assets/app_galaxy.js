@@ -1100,6 +1100,9 @@ function renderIntegratedChart(chartInput) {
     if (card) card.style.display = 'block';
     if (titleEl) titleEl.textContent = validCharts.length > 1 ? '图表视图' : (validCharts[0].title || '图表');
     if (!container || typeof echarts === 'undefined') {
+        if (container && typeof echarts === 'undefined') {
+            container.innerHTML = '<div class="integrated-input-empty">Chart engine unavailable (echarts not loaded).</div>';
+        }
         return;
     }
 
@@ -1252,7 +1255,7 @@ function renderIntegratedChart(chartInput) {
                     radius: ['30%', '65%'],
                     center: ['50%', '50%'],
                     data: chartData.data.map(d => ({ name: d.name, value: d.value, reads: d.reads || 0 })),
-                    label: { formatter: '{b}\\n{d}%', fontSize: 11 },
+                    label: { formatter: '{b}\n{d}%', fontSize: 11 },
                     emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' } }
                 }]
             };
