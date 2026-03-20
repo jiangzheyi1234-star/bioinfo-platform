@@ -2380,8 +2380,14 @@ class ToolBridgeService:
                 "is_pdf_report": True,
             })
 
+        available_tool_ids = ["centrifuge", "kraken2"] if tool_id in ("centrifuge", "kraken2") else [tool_id]
+        if tool_id in available_tool_ids:
+            ordered_tool_ids = [tool_id] + [tid for tid in available_tool_ids if tid != tool_id]
+        else:
+            ordered_tool_ids = available_tool_ids
+
         return {
-            "tool_ids": [tool_id],
+            "tool_ids": ordered_tool_ids,
             "title": "靶向测序分析",
             "table_title": "病原体物种组成",
             "table_subtitle": "基于 kreport 解析的物种组成，按丰度降序排列。",
