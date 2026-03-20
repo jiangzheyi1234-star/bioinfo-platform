@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
 from core.execution.tool_bridge_service import ToolBridgeService
 from ui.qt_bootstrap import ensure_qt_webengine_ready
+from ui.widgets.report_view import create_report_web_view
 from ui.widgets import styles
 
 logger = logging.getLogger(__name__)
@@ -337,8 +338,6 @@ class DetectionPageWeb(QFrame):
         ensure_qt_webengine_ready()
         try:
             from PyQt6.QtWebChannel import QWebChannel
-            from PyQt6.QtWebEngineCore import QWebEngineSettings
-            from PyQt6.QtWebEngineWidgets import QWebEngineView
         except ImportError as exc:
             logger.warning("QtWebEngine unavailable: %s", exc)
             placeholder = QLabel("检测页 WebEngine 不可用，请通过 ui.main 启动应用或先初始化 QtWebEngine。")
@@ -349,12 +348,12 @@ class DetectionPageWeb(QFrame):
             self.channel = None
             return
 
-        self.web_view = QWebEngineView()
+        self.web_view = create_report_web_view(
+            parent=self,
+            background="#F1F5F9",
+            disable_context_menu=True,
+        )
         self.web_view.setStyleSheet("background: #F1F5F9; border: none;")
-
-        settings = self.web_view.settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
         self.web_view.page().setBackgroundColor(QColor("#F1F5F9"))
         self.web_view.loadFinished.connect(self._on_load_finished)
 
