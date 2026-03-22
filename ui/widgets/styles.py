@@ -615,3 +615,140 @@ TABLE_WIDGET = f"""
         background: transparent;
     }}
 """
+
+# ═══════════════════════════════════════════════════════════
+#  项目选择器样式
+# ═══════════════════════════════════════════════════════════
+
+PROJECT_SELECTOR_BUTTON = f"""
+    QPushButton {{
+        background-color: transparent;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 12px;
+        text-align: left;
+        color: {COLOR_TEXT_DEFAULT};
+        font-size: 13px;
+        font-weight: 500;
+        margin: 4px 8px 8px 8px;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_BG_SIDEBAR_ITEM};
+    }}
+    QPushButton:pressed {{
+        background-color: {COLOR_SELECTION_BG};
+    }}
+"""
+
+PROJECT_SELECTOR_BUTTON_EMPTY = f"""
+    QPushButton {{
+        background-color: transparent;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 12px;
+        text-align: left;
+        color: {COLOR_PRIMARY};
+        font-size: 13px;
+        font-weight: 500;
+        margin: 4px 8px 8px 8px;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_BG_SIDEBAR_ITEM};
+    }}
+"""
+
+PROJECT_SELECTOR_MENU = f"""
+    QFrame {{
+        background-color: {COLOR_BG_CARD};
+        border: 1px solid #CBD5E1;
+        border-radius: 10px;
+    }}
+"""
+
+PROJECT_MENU_SEARCH = f"""
+    QLineEdit {{
+        border: none;
+        border-bottom: 1px solid #E2E8F0;
+        padding: 10px 10px;
+        font-size: 13px;
+        color: {COLOR_TEXT_DEFAULT};
+        background: transparent;
+    }}
+    QLineEdit::placeholder {{
+        color: {COLOR_TEXT_HINT};
+    }}
+"""
+
+PROJECT_MENU_LIST = f"""
+    QListWidget {{
+        border: none;
+        background: transparent;
+        outline: none;
+    }}
+    QListWidget::item {{
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin: 1px 4px;
+        color: {COLOR_TEXT_DEFAULT};
+        font-size: 13px;
+    }}
+    QListWidget::item:hover {{
+        background-color: {COLOR_SELECTION_HOVER};
+    }}
+    QListWidget::item:selected {{
+        background-color: {COLOR_SELECTION_BG};
+        color: {COLOR_PRIMARY};
+    }}
+    QScrollBar:vertical {{
+        width: 5px;
+        background: transparent;
+        margin: 6px 4px 6px 2px;
+    }}
+    QScrollBar::handle:vertical {{
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 2px;
+        min-height: 20px;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background: rgba(0, 0, 0, 0.25);
+    }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0;
+        background: transparent;
+    }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
+"""
+
+PROJECT_MENU_BUTTON = f"""
+    QPushButton {{
+        background: transparent;
+        border: none;
+        border-top: 1px solid #E2E8F0;
+        border-radius: 0;
+        padding: 10px 10px;
+        text-align: left;
+        color: {COLOR_TEXT_DEFAULT};
+        font-size: 13px;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_SELECTION_HOVER};
+    }}
+"""
+
+PROJECT_MENU_BUTTON_DANGER = f"""
+    QPushButton {{
+        background: transparent;
+        border: none;
+        border-top: 1px solid #E2E8F0;
+        border-radius: 0;
+        padding: 10px 10px;
+        text-align: left;
+        color: {COLOR_DANGER};
+        font-size: 13px;
+    }}
+    QPushButton:hover {{
+        background-color: rgba(239, 68, 68, 0.08);
+    }}
+"""
