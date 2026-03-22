@@ -163,3 +163,50 @@ bio_ui/
 - `plugins/` — YAML static declarations only.
 
 **Size limits**: UI page ≤ 400 lines, complex card ≤ 500 lines, must split before adding features if > 600 lines. Evaluate splitting any function > 40 lines.
+
+---
+
+## Execution Pipeline Update (2026-03)
+
+### Current runtime flow
+
+1. `ToolEngine.execute()` now does only lightweight main-thread work:
+   - load descriptor
+   - resolve input records
+   - create `execution_id`
+   - write execution record with `status=pending`
+   - record `execution_io` inputs
+   - schedule remote preparation
+2. `ExecutionPreparer` performs remote preparation off the UI thread:
+   - expand `remote_base` when it starts with `~`
+   - create `output_dir`
+   - upload plugin `workflow/` when present
+   - build the final command with `CommandBuilder`
+3. `ServiceLocator._on_preparation_succeeded()` receives the prepared payload on the main thread:
+   - registers execution context
+   - submits to `JobQueue`
+   - marks the execution `running`
+4. `ServiceLocator._on_dispatch()` then schedules the screen dispatch on `TaskRunner`:
+   - `CommandBuilder.wrap()`
+   - `JobDispatcher.submit()`
+   - return to main thread and call `start_waiting()`
+5. `JobDispatcher._WaiterThread` watches `status.txt`, `heartbeat.txt`, `exit_code.txt`, and `screen -ls`, then routes to completion or failure.
+
+### Why this matters
+
+- Phase 1 removed the `screen` dispatch SSH chain from the main thread.
+- Phase 2 removed the remaining `ToolEngine.execute()` SSH preparation calls from the main thread.
+- The user-visible result should be that clicking "运行工具" returns immediately, with remote preparation and dispatch both happening in background workers.
+
+### Compatibility rule
+
+- SQLite execution status remains `pending -> running -> completed/failed/retrying`.
+- We intentionally did **not** add a new persisted `preparing` status, to avoid schema migration requirements for existing project databases.
+- `ToolEngine` still supports synchronous fallback preparation when no `schedule_preparation_fn` is injected, so standalone/unit-test usage does not silently break.
+
+### Key modules added or repurposed
+
+- `core/execution/task_runner.py`: shared `QThreadPool` wrapper for one-off background work
+- `core/execution/execution_preparer.py`: remote preparation stage before queue submission
+- `core/execution/tool_engine.py`: now records and schedules; no longer does remote preparation directly in the default UI path
+- `core/service_locator.py`: now owns both preparation completion and dispatch completion handoff
