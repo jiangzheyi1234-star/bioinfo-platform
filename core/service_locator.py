@@ -1,20 +1,6 @@
-﻿"""服务总线 — 连接所有 Phase 1 模块为可运行的整体。
+"""Service locator wiring the execution pipeline together."""
 
-职责:
-  1. 持有 SSHService 引用（从 SettingsPage 注入，可 hot-swap）
-  2. 创建和管理 PluginRegistry、ProjectManager、JobQueue、JobDispatcher 等
-  3. 信号链路:
-     JobQueue.job_started → _on_dispatch → CommandBuilder.wrap() → JobDispatcher.submit()
-       → JobDispatcher.start_waiting() (事件驱动)
-       → JobDispatcher.job_completed → _on_completed → ToolEngine.on_job_completed()
-       → JobQueue.on_job_finished()
-     JobDispatcher.job_failed → _on_failed → RetryManager.on_task_failed()
-  4. 监听 ProjectManager.project_opened → 重建 DataRegistry
-
-事件驱动模式:
-  - JobDispatcher 在后台线程中同步等待 screen 会话结束
-  - 任务完成后通过信号通知，不依赖固定轮询
-"""
+from __future__ import annotations
 
 import logging
 from pathlib import Path
@@ -22,16 +8,17 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.execution.command_builder import CommandBuilder
 from core.data.data_registry import DataRegistry
+from core.data.project_manager import ProjectManager
+from core.execution.command_builder import CommandBuilder
+from core.execution.execution_preparer import ExecutionPreparer, PreparationRequest, PreparationResult
 from core.execution.job_dispatcher import JobDispatcher
 from core.execution.job_queue import JobQueue
-from core.plugins.plugin_registry import PluginRegistry
-from core.data.project_manager import ProjectManager
 from core.execution.retry_manager import RetryManager
-from core.remote.ssh_service import SSHService
+from core.execution.task_runner import TaskRunner
 from core.execution.tool_engine import ToolEngine
-
+from core.plugins.plugin_registry import PluginRegistry
+from core.remote.ssh_service import SSHService
 from core.utils import get_app_root
 
 logger = logging.getLogger(__name__)
@@ -40,7 +27,7 @@ _DEFAULT_PLUGINS_DIR = get_app_root() / "plugins"
 
 
 class ServiceLocator(QObject):
-    """服务总线 — 将所有核心模块连接成可运行的整体。"""
+    """Connect core services into a runnable application graph."""
 
     execution_started = pyqtSignal(str)
     execution_completed = pyqtSignal(str)
@@ -62,16 +49,19 @@ class ServiceLocator(QObject):
         self._project_manager = project_manager or ProjectManager()
         self._job_queue = JobQueue()
         self._job_dispatcher = JobDispatcher()
+        self._execution_preparer = ExecutionPreparer(self._ssh or _NullSSH(), parent=self)
+        self._task_runner = TaskRunner(max_threads=3, parent=self)
         self._retry_manager = RetryManager(retry_callback=self._retry_execution)
         self._data_registry: Optional[DataRegistry] = None
         self._tool_engine: Optional[ToolEngine] = None
         self._execution_ctx: dict[str, dict[str, Any]] = {}
         self._task_dirs: dict[str, str] = {}
         self._conda_executable: str = ""
+        self._shutting_down = False
 
     def initialize(self) -> int:
         count = self._plugin_registry.scan()
-        logger.info("ServiceLocator 初始化: 扫描到 %d 个插件", count)
+        logger.info("ServiceLocator initialized: scanned %d plugins", count)
         self._connect_signals()
 
         if hasattr(self._project_manager, "project_opened"):
@@ -89,10 +79,11 @@ class ServiceLocator(QObject):
     @ssh_service.setter
     def ssh_service(self, ssh: SSHService) -> None:
         self._ssh = ssh
+        self._execution_preparer.set_ssh_service(ssh)
         if self._data_registry is not None:
             self._rebuild_engine()
         self.ssh_changed.emit(ssh is not None)
-        logger.info("SSH 服务已更新")
+        logger.info("SSH service updated")
 
     @property
     def plugin_registry(self) -> PluginRegistry:
@@ -127,63 +118,152 @@ class ServiceLocator(QObject):
         self._conda_executable = path or ""
         if self._data_registry is not None:
             self._rebuild_engine()
-        logger.info("conda_executable 已更新: %s", self._conda_executable or "(空)")
+        logger.info(
+            "conda_executable updated: %s",
+            self._conda_executable or "(empty)",
+        )
 
     def get_task_dir(self, execution_id: str) -> Optional[str]:
-        """返回执行任务的远端 task_dir，不存在返回 None。"""
+        """Return the remote task dir for an execution."""
         return self._task_dirs.get(execution_id)
 
     def _connect_signals(self) -> None:
         self._job_queue.job_started.connect(self._on_dispatch)
-        # 事件驱动：JobDispatcher 的信号
+        self._execution_preparer.preparation_succeeded.connect(self._on_preparation_succeeded)
+        self._execution_preparer.preparation_failed.connect(self._on_preparation_failed)
+        self._task_runner.task_succeeded.connect(self._on_dispatch_submitted)
+        self._task_runner.task_failed.connect(self._on_dispatch_failed)
         self._job_dispatcher.job_completed.connect(self._on_completed)
         self._job_dispatcher.job_failed.connect(self._on_failed)
         self._retry_manager.retry_exhausted.connect(
-            lambda eid, err: logger.warning("任务重试用尽: %s — %s", eid, err)
+            lambda eid, err: logger.warning("Task retries exhausted: %s - %s", eid, err)
         )
 
     def _on_dispatch(self, execution_id: str) -> None:
         if not self._ssh:
-            logger.error("无法派发任务 %s: SSH 未连接", execution_id)
+            logger.error("Cannot dispatch task %s: SSH disconnected", execution_id)
             return
 
         ctx = self._execution_ctx.get(execution_id)
         if not ctx:
-            logger.error("无法派发任务 %s: 找不到执行上下文", execution_id)
+            logger.error("Cannot dispatch task %s: missing execution context", execution_id)
             return
 
-        try:
-            command = ctx["command"]
-            task_dir = ctx["task_dir"]
-            job_id = f"h2o_{execution_id}"
-            wrapped = CommandBuilder.wrap(command, job_id, task_dir)
+        ssh = self._ssh
+        self._task_runner.submit(
+            self._dispatch_job,
+            execution_id,
+            ssh,
+            task_id=execution_id,
+        )
 
-            JobDispatcher.submit(
-                ssh_service=self._ssh,
-                wrapped_script=wrapped,
-                execution_id=execution_id,
-                task_dir=task_dir,
-            )
+    def _schedule_preparation(self, request: PreparationRequest) -> None:
+        self._execution_preparer.prepare(request)
 
-            # 事件驱动：启动后台等待线程
-            self._job_dispatcher.start_waiting(
-                ssh_service=self._ssh,
-                execution_id=execution_id,
-                job_id=job_id,
-                task_dir=task_dir,
-            )
+    def _on_preparation_succeeded(self, execution_id: str, payload: object) -> None:
+        if self._shutting_down:
+            logger.warning("Ignoring preparation completion during shutdown: %s", execution_id)
+            return
 
-            logger.info("任务已派发: %s → screen %s", execution_id, job_id)
-            self._task_dirs[execution_id] = task_dir
-        except Exception as e:
-            logger.exception("任务派发失败: %s", execution_id)
-            self._on_failed(execution_id, str(e))
+        if self._tool_engine is None:
+            logger.warning("Preparation completed after ToolEngine teardown: %s", execution_id)
+            return
+
+        if not isinstance(payload, PreparationResult):
+            logger.error("Invalid preparation payload for %s", execution_id)
+            self._on_preparation_failed(execution_id, "Preparation result is invalid")
+            return
+
+        self.register_execution_context(
+            execution_id=execution_id,
+            command=payload.command,
+            descriptor=payload.descriptor,
+            sample_id=payload.sample_id,
+            output_dir=payload.output_dir,
+            task_dir=payload.task_dir,
+        )
+        self._job_queue.submit(
+            execution_id=execution_id,
+            command=payload.command,
+            metadata={
+                "tool_id": payload.descriptor.get("id", ""),
+                "sample_id": payload.sample_id,
+            },
+        )
+        self._tool_engine.mark_execution_running(execution_id)
+
+    def _on_preparation_failed(self, execution_id: str, error: str) -> None:
+        if self._shutting_down:
+            logger.warning("Ignoring preparation failure during shutdown: %s - %s", execution_id, error)
+            return
+
+        if self._tool_engine is not None:
+            self._tool_engine.on_job_failed(execution_id, error)
+        self.execution_failed.emit(execution_id, error)
+
+    def _dispatch_job(self, execution_id: str, ssh: SSHService) -> dict[str, str]:
+        """Run the SSH-heavy dispatch sequence in the thread pool."""
+        ctx = self._execution_ctx.get(execution_id)
+        if not ctx:
+            raise RuntimeError(f"执行上下文丢失: {execution_id}")
+
+        command = ctx["command"]
+        task_dir = ctx["task_dir"]
+        job_id = f"h2o_{execution_id}"
+        wrapped = CommandBuilder.wrap(command, job_id, task_dir)
+
+        JobDispatcher.submit(
+            ssh_service=ssh,
+            wrapped_script=wrapped,
+            execution_id=execution_id,
+            task_dir=task_dir,
+        )
+        return {
+            "execution_id": execution_id,
+            "job_id": job_id,
+            "task_dir": task_dir,
+        }
+
+    def _on_dispatch_submitted(self, execution_id: str, payload: object) -> None:
+        """Finish dispatch bookkeeping on the main thread."""
+        if self._shutting_down:
+            logger.warning("Ignoring dispatch completion during shutdown: %s", execution_id)
+            return
+
+        ctx = self._execution_ctx.get(execution_id)
+        ssh = self._ssh
+        if ctx is None or ssh is None:
+            logger.warning("Dispatch completed after context/SSH was cleared: %s", execution_id)
+            return
+
+        if not isinstance(payload, dict):
+            logger.error("Invalid dispatch payload for %s", execution_id)
+            self._on_failed(execution_id, "任务派发结果无效")
+            return
+
+        job_id = payload["job_id"]
+        task_dir = payload["task_dir"]
+        self._job_dispatcher.start_waiting(
+            ssh_service=ssh,
+            execution_id=execution_id,
+            job_id=job_id,
+            task_dir=task_dir,
+        )
+        self._task_dirs[execution_id] = task_dir
+        logger.info("Task dispatched: %s -> screen %s", execution_id, job_id)
+
+    def _on_dispatch_failed(self, execution_id: str, error: str) -> None:
+        if self._shutting_down:
+            logger.warning("Ignoring dispatch failure during shutdown: %s - %s", execution_id, error)
+            return
+        logger.error("Task dispatch failed: %s - %s", execution_id, error)
+        self._on_failed(execution_id, error)
 
     def _on_completed(self, execution_id: str) -> None:
         ctx = self._execution_ctx.pop(execution_id, None)
         self._task_dirs.pop(execution_id, None)
         if not ctx:
-            logger.warning("完成回调: 找不到执行上下文 %s", execution_id)
+            logger.warning("Completion callback missing execution context: %s", execution_id)
             return
 
         if self._tool_engine:
@@ -198,20 +278,17 @@ class ServiceLocator(QObject):
         self.execution_completed.emit(execution_id)
 
     def _on_failed(self, execution_id: str, error: str) -> None:
-        # 幂等保护：防止重复处理（事件驱动和 JobMonitor fallback 同时触发）
-        # 如果上下文已被弹出，说明已处理过，跳过
         ctx = self._execution_ctx.get(execution_id)
         if ctx is None:
-            logger.debug("失败回调: 上下文已处理 %s", execution_id)
+            logger.debug("Failure callback ignored for already-handled execution: %s", execution_id)
             return
 
         self._job_queue.on_job_finished(execution_id)
         retry_decision = self._retry_manager.on_task_failed(execution_id, error)
         if retry_decision == "auto_retry":
-            logger.info("任务进入自动重试: %s", execution_id)
+            logger.info("Task entering auto retry: %s", execution_id)
             return
 
-        # 自动重试未生效或重试用尽时，标记最终失败并弹出上下文
         self._execution_ctx.pop(execution_id, None)
         self._task_dirs.pop(execution_id, None)
         if self._tool_engine:
@@ -219,7 +296,7 @@ class ServiceLocator(QObject):
         self.execution_failed.emit(execution_id, error)
 
     def _retry_execution(self, execution_id: str) -> None:
-        """RetryManager 回调：使用原执行上下文重提同一 execution_id 任务。"""
+        """RetryManager callback using the original execution context."""
         ctx = self._execution_ctx.get(execution_id)
         if ctx is None:
             raise RuntimeError(f"重试失败：找不到执行上下文 {execution_id}")
@@ -235,10 +312,10 @@ class ServiceLocator(QObject):
                 "retry": True,
             },
         )
-        logger.info("已重新提交任务: %s", execution_id)
+        logger.info("Task resubmitted: %s", execution_id)
 
     def _on_project_opened(self, project_id: str) -> None:
-        logger.info("项目切换: %s, 重建 DataRegistry", project_id)
+        logger.info("Project switched: %s, rebuilding DataRegistry", project_id)
         self._rebuild_registry_and_engine()
 
     def _rebuild_registry_and_engine(self) -> None:
@@ -247,7 +324,7 @@ class ServiceLocator(QObject):
             self._data_registry = DataRegistry(db)
             self._rebuild_engine()
         except Exception:
-            logger.exception("重建 DataRegistry 失败")
+            logger.exception("Failed to rebuild DataRegistry")
 
     def _rebuild_engine(self) -> None:
         if self._data_registry is None:
@@ -259,7 +336,7 @@ class ServiceLocator(QObject):
             project_manager=self._project_manager,
             data_registry=self._data_registry,
             job_queue=self._job_queue,
-            context_register_fn=self.register_execution_context,
+            schedule_preparation_fn=self._schedule_preparation,
             conda_executable=self._conda_executable,
         )
         self._tool_engine.execution_started.connect(self.execution_started.emit)
@@ -282,8 +359,26 @@ class ServiceLocator(QObject):
         }
 
     def shutdown(self) -> None:
+        self._shutting_down = True
+
         try:
             self._job_queue.job_started.disconnect(self._on_dispatch)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._execution_preparer.preparation_succeeded.disconnect(self._on_preparation_succeeded)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._execution_preparer.preparation_failed.disconnect(self._on_preparation_failed)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._task_runner.task_succeeded.disconnect(self._on_dispatch_submitted)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._task_runner.task_failed.disconnect(self._on_dispatch_failed)
         except (TypeError, RuntimeError):
             pass
         try:
@@ -305,6 +400,10 @@ class ServiceLocator(QObject):
             except (TypeError, RuntimeError):
                 pass
 
+        if not self._execution_preparer.wait_for_done(timeout_ms=30000):
+            logger.warning("ExecutionPreparer shutdown wait timed out")
+        if not self._task_runner.wait_for_done(timeout_ms=30000):
+            logger.warning("TaskRunner shutdown wait timed out")
         self._job_dispatcher.stop_all()
         self._execution_ctx.clear()
         self._task_dirs.clear()
@@ -312,11 +411,11 @@ class ServiceLocator(QObject):
         self._data_registry = None
         self._ssh = None
         self._project_manager.close()
-        logger.info("ServiceLocator 已关闭")
+        logger.info("ServiceLocator closed")
 
 
 class _NullSSH:
-    """空 SSH 实现。"""
+    """Empty SSH implementation."""
 
     def run(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]:
         raise RuntimeError("SSH 未连接")

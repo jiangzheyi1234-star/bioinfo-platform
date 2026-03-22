@@ -1,52 +1,30 @@
-"""工具执行引擎 — Phase 1/2 核心模块。
+"""Tool execution orchestration and persistence."""
 
-统一执行入口：UI 直接点击、向导引导、未来 Agent 调用，
-都通过同一个 execute() 方法提交分析任务。
-
-Phase 2 变更:
-  - 统一使用外部 Jinja2 CommandBuilder（替换内部 str.format 版本）
-  - execute() 新增 database_paths 参数
-  - on_job_completed() 添加远程文件存在性验证（Risk 1 缓解）
-
-依赖关系:
-  - PluginRegistry: 获取工具描述符
-  - DataRegistry: 数据血缘注册和查询
-  - ProjectManager: 当前项目信息
-  - SSHService: 远端命令执行
-  - JobQueue: 并发控制
-  - CommandBuilder: Jinja2 命令渲染 + 包装脚本
-"""
+from __future__ import annotations
 
 import json
 import logging
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from shlex import quote
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.execution.command_builder import CommandBuilder, CommandBuildError
-from core.execution.workflow_uploader import get_local_workflow_dir, upload_workflow
 from core.data.data_registry import DataRegistry
+from core.execution.command_builder import CommandBuilder, CommandBuildError
+from core.execution.execution_preparer import PreparationRequest, prepare_execution
 
 logger = logging.getLogger(__name__)
 
 
-# ── 协议定义（用于解耦和测试） ─────────────────────────────
-
-
 class PluginRegistryProtocol(Protocol):
-    """PluginRegistry 的最小接口"""
-
     def get_descriptor(self, tool_id: str) -> dict[str, Any]: ...
 
 
 class ProjectManagerProtocol(Protocol):
-    """ProjectManager 的最小接口"""
-
     @property
     def current_project(self) -> Any: ...
 
@@ -58,16 +36,12 @@ class ProjectManagerProtocol(Protocol):
 
 
 class SSHServiceProtocol(Protocol):
-    """SSHService 的最小接口"""
-
     def run(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]: ...
 
     def download(self, remote_path: str, local_path: str) -> None: ...
 
 
 class JobQueueProtocol(Protocol):
-    """JobQueue 的最小接口"""
-
     def submit(
         self,
         execution_id: str,
@@ -77,55 +51,32 @@ class JobQueueProtocol(Protocol):
     ) -> str: ...
 
 
-# ── 数据类 ────────────────────────────────────────────────
-
-
 @dataclass
 class ExecutionRecord:
-    """执行记录数据类"""
-
     execution_id: str
     sample_id: str
     tool_id: str
     tool_version: str
     parameters: dict[str, Any]
-    status: str              # pending / running / completed / failed / retrying
-    triggered_by: str        # manual / wizard / pipeline / agent
+    status: str
+    triggered_by: str
     created_at: float
     completed_at: Optional[float] = None
     error: Optional[str] = None
     retry_count: int = 0
     retry_of: Optional[str] = None
     remote_job_id: Optional[str] = None
-    is_final_version: int = 0  # 标记为最终版本（用于导出和论文）
-    archived_at: Optional[float] = None  # 文件已清理的时间戳
-
-
-# ── 工具引擎 ──────────────────────────────────────────────
+    is_final_version: int = 0
+    archived_at: Optional[float] = None
 
 
 class ToolEngine(QObject):
-    """统一工具执行引擎
+    """Unified entrypoint for tool execution lifecycle."""
 
-    完整执行流程:
-    1. 加载工具描述符 (PluginRegistry)
-    2. 获取输入数据路径 (DataRegistry)
-    3. 合并参数（用户参数 + 默认值）
-    4. 构建命令 (CommandBuilder)
-    5. 创建 ExecutionRecord 并写入 SQLite
-    6. 记录 execution_io 输入关系
-    7. 创建远端输出目录
-    8. 提交到 JobQueue 排队执行
+    execution_started = pyqtSignal(str)
+    execution_completed = pyqtSignal(str)
+    execution_failed = pyqtSignal(str, str)
 
-    Signals:
-        execution_started(str): 执行已提交，参数为 execution_id
-        execution_completed(str): 执行完成，参数为 execution_id
-        execution_failed(str, str): 执行失败，参数为 execution_id 和错误信息
-    """
-
-    execution_started = pyqtSignal(str)      # execution_id
-    execution_completed = pyqtSignal(str)     # execution_id
-    execution_failed = pyqtSignal(str, str)   # execution_id, error
     _EXTRA_RESULT_ARTIFACTS = {
         "primer_design": [
             "primer_result_final_2.txt",
@@ -149,7 +100,7 @@ class ToolEngine(QObject):
         project_manager: ProjectManagerProtocol,
         data_registry: DataRegistry,
         job_queue: JobQueueProtocol,
-        context_register_fn=None,
+        schedule_preparation_fn: Optional[Callable[[PreparationRequest], None]] = None,
         conda_executable: str = "",
         parent: Optional[QObject] = None,
     ) -> None:
@@ -159,12 +110,8 @@ class ToolEngine(QObject):
         self._projects = project_manager
         self._registry = data_registry
         self._queue = job_queue
-        # 可选回调：fn(execution_id, command, descriptor, sample_id, output_dir, task_dir)
-        # 由 ServiceLocator 注入，用于在 job_queue.job_started 触发前注册执行上下文
-        self._context_register_fn = context_register_fn
+        self._schedule_preparation_fn = schedule_preparation_fn
         self._conda_executable = conda_executable
-
-    # ── 公开 API ──────────────────────────────────────────
 
     def execute(
         self,
@@ -175,77 +122,15 @@ class ToolEngine(QObject):
         triggered_by: str = "manual",
         database_paths: Optional[dict[str, str]] = None,
     ) -> str:
-        """提交工具执行
-
-        Args:
-            tool_id: 工具标识 (如 "fastp", "kraken2")
-            input_data_ids: 输入数据项 ID 列表
-            parameters: 用户设置的参数
-            sample_id: 关联的样本 ID
-            triggered_by: 触发来源 (manual / wizard / pipeline / agent)
-            database_paths: 数据库路径映射，如 {"db": "/path/to/kraken2_db"}
-
-        Returns:
-            新创建的 execution_id
-
-        Raises:
-            ValueError: 没有打开的项目或参数校验失败
-            CommandBuildError: 命令模板渲染失败
-        """
-        # 1. 检查当前项目
         project = self._projects.current_project
         if project is None:
             raise ValueError("请先选择或创建项目")
 
-        # 1.5 展开 remote_base 中的 ~ 为绝对路径
-        remote_base = project.remote_base
-        if remote_base.startswith("~"):
-            rc, expanded, _ = self._ssh.run(f"echo {remote_base}", timeout=10)
-            if rc == 0 and expanded.strip():
-                remote_base = expanded.strip()
-
-        # 2. 加载工具描述符
         descriptor = self._plugins.get_descriptor(tool_id)
-
-        # 3. 合并参数（用户参数覆盖默认值）
         merged_params = self._merge_defaults(descriptor, parameters)
-
-        # 4. 生成 execution_id（需要在构建输出目录前生成）
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
-
-        # 5. 获取输入文件路径
         input_paths = self._resolve_inputs(descriptor, input_data_ids)
 
-        # 6. 构建输出目录（包含 execution_id 以支持多版本）
-        output_dir = f"{remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
-
-        # 7. 解析输出路径（模板中可能引用输出变量名如 clean_1、report_html）
-        output_paths = CommandBuilder.resolve_output_paths(
-            descriptor, output_dir, sample_id,
-        )
-        all_paths = {**input_paths, **output_paths}
-
-        # 7.5 上传本地 workflow 脚本（仅 primer_design 等含自研脚本的插件）
-        workflow_dir = ""
-        yaml_path = descriptor.get("_yaml_path", "")
-        local_wf = get_local_workflow_dir(yaml_path) if yaml_path else None
-        if local_wf is not None:
-            workflow_dir = f"{output_dir}/workflow"
-            upload_workflow(self._ssh, local_wf, workflow_dir)
-
-        # 8. 构建命令（使用 Jinja2 模板）
-        command = CommandBuilder.build(
-            descriptor=descriptor,
-            parameters=merged_params,
-            input_paths=all_paths,
-            output_dir=output_dir,
-            sample_id=sample_id,
-            database_paths=database_paths,
-            conda_executable=self._conda_executable,
-            workflow_dir=workflow_dir,
-        )
-
-        # 9. 创建 ExecutionRecord
         record = ExecutionRecord(
             execution_id=execution_id,
             sample_id=sample_id,
@@ -256,46 +141,45 @@ class ToolEngine(QObject):
             triggered_by=triggered_by,
             created_at=time.time(),
         )
-
-        # 9. 写入数据库
         self._save_record(record)
 
-        # 10. 记录输入关系 (execution_io)
         for data_id in input_data_ids:
             self._registry.add_execution_io(execution_id, data_id, "input")
 
-        # 11. 创建远端输出目录
-        self._ssh.run(f"mkdir -p {quote(output_dir)}", timeout=15)
-
-        # 11.5 注册执行上下文（供 ServiceLocator._on_dispatch 取用）
-        # task_dir 即 output_dir，用于存放 run.sh / status.txt / heartbeat.txt
-        task_dir = output_dir
-        if self._context_register_fn is not None:
-            self._context_register_fn(
-                execution_id=execution_id,
-                command=command,
-                descriptor=descriptor,
-                sample_id=sample_id,
-                output_dir=output_dir,
-                task_dir=task_dir,
-            )
-
-        # 12. 提交到 JobQueue
-        self._queue.submit(
+        request = PreparationRequest(
             execution_id=execution_id,
-            command=command,
-            metadata={"tool_id": tool_id, "sample_id": sample_id},
+            tool_id=tool_id,
+            sample_id=sample_id,
+            remote_base=project.remote_base,
+            descriptor=descriptor,
+            merged_params=merged_params,
+            input_paths=input_paths,
+            database_paths=database_paths,
+            conda_executable=self._conda_executable,
         )
+        if self._schedule_preparation_fn is not None:
+            self._schedule_preparation_fn(request)
+        else:
+            result = prepare_execution(self._ssh, request)
+            self._queue.submit(
+                execution_id=execution_id,
+                command=result.command,
+                metadata={"tool_id": tool_id, "sample_id": sample_id},
+            )
+            self.mark_execution_running(execution_id)
 
-        # 13. 更新状态为 running 并发信号
-        self._update_status(execution_id, "running")
         self.execution_started.emit(execution_id)
-
         logger.info(
-            "执行已提交: %s (tool=%s, sample=%s, triggered_by=%s)",
-            execution_id, tool_id, sample_id, triggered_by,
+            "Execution submitted for preparation: %s (tool=%s, sample=%s, triggered_by=%s)",
+            execution_id,
+            tool_id,
+            sample_id,
+            triggered_by,
         )
         return execution_id
+
+    def mark_execution_running(self, execution_id: str) -> None:
+        self._update_status(execution_id, "running")
 
     def on_job_completed(
         self,
@@ -304,21 +188,11 @@ class ToolEngine(QObject):
         sample_id: str,
         output_dir: str,
     ) -> None:
-        """任务完成回调 — 注册输出到 DataRegistry 并更新状态
-
-        Risk 1 缓解: 注册输出前通过 SSH 检查远程文件是否存在，
-        避免 hostile 等工具实际输出文件名与 pattern 不一致的问题。
-
-        Args:
-            execution_id: 执行 ID
-            descriptor: 工具描述符
-            sample_id: 样本 ID
-            output_dir: 远端输出目录
-        """
         try:
-            # 使用 resolve_output_paths 统一解析输出路径
             resolved_paths = CommandBuilder.resolve_output_paths(
-                descriptor, output_dir, sample_id,
+                descriptor,
+                output_dir,
+                sample_id,
             )
             registered_outputs: list[dict[str, str]] = []
 
@@ -329,28 +203,16 @@ class ToolEngine(QObject):
                 tier = output_def.get("tier", "result")
 
                 if not file_path:
-                    logger.warning(
-                        "输出 %s 无法解析路径，跳过注册 (execution=%s)",
-                        name, execution_id,
-                    )
+                    logger.warning("Output path could not be resolved: %s (%s)", name, execution_id)
                     continue
 
-                # Risk 1 缓解: 验证远程文件是否存在
                 try:
-                    rc, _, _ = self._ssh.run(
-                        f"test -f {quote(file_path)}", timeout=10,
-                    )
+                    rc, _, _ = self._ssh.run(f"test -f {quote(file_path)}", timeout=10)
                     if rc != 0:
-                        logger.warning(
-                            "输出文件不存在，跳过注册: %s (execution=%s)",
-                            file_path, execution_id,
-                        )
+                        logger.warning("Output file missing, skipping registration: %s", file_path)
                         continue
                 except Exception:
-                    # SSH 检查失败时仍然注册（保守策略）
-                    logger.debug(
-                        "无法验证输出文件存在性，继续注册: %s", file_path,
-                    )
+                    logger.debug("Could not verify output file existence, continuing: %s", file_path)
 
                 data_id = self._registry.register_output(
                     execution_id=execution_id,
@@ -360,10 +222,7 @@ class ToolEngine(QObject):
                     tier=tier,
                 )
                 registered_outputs.append(
-                    {
-                        "data_id": data_id,
-                        "remote_path": file_path,
-                    }
+                    {"data_id": data_id, "remote_path": file_path}
                 )
 
             self._download_execution_artifacts(
@@ -372,29 +231,20 @@ class ToolEngine(QObject):
                 output_dir=output_dir,
                 registered_outputs=registered_outputs,
             )
-
-            # 更新执行状态
             self._update_status(execution_id, "completed")
             self._update_completed_at(execution_id)
 
-            logger.info("执行完成: %s", execution_id)
+            logger.info("Execution completed: %s", execution_id)
             self.execution_completed.emit(execution_id)
-
-        except Exception as e:
-            logger.exception("处理完成回调时出错: %s", execution_id)
-            self.on_job_failed(execution_id, str(e))
+        except Exception as exc:
+            logger.exception("Error while handling completion: %s", execution_id)
+            self.on_job_failed(execution_id, str(exc))
 
     def on_job_failed(self, execution_id: str, error: str) -> None:
-        """任务失败回调 — 更新状态和错误信息
-
-        Args:
-            execution_id: 执行 ID
-            error: 错误描述
-        """
         self._update_status(execution_id, "failed")
         self._update_error(execution_id, error)
 
-        logger.error("执行失败: %s — %s", execution_id, error)
+        logger.error("Execution failed: %s - %s", execution_id, error)
         self.execution_failed.emit(execution_id, error)
 
     def _download_execution_artifacts(
@@ -406,7 +256,7 @@ class ToolEngine(QObject):
     ) -> None:
         project_dir = getattr(self._projects, "current_project_dir", None)
         if project_dir is None:
-            logger.warning("当前项目目录不可用，跳过结果文件回传: %s", execution_id)
+            logger.warning("Current project dir unavailable, skipping artifact download: %s", execution_id)
             return
 
         results_dir = Path(project_dir) / "results" / execution_id
@@ -447,7 +297,7 @@ class ToolEngine(QObject):
             except Exception as exc:
                 error = str(exc)
                 logger.warning(
-                    "结果文件回传失败: %s -> %s (%s)",
+                    "Artifact download failed: %s -> %s (%s)",
                     remote_path,
                     local_path,
                     exc,
@@ -474,7 +324,7 @@ class ToolEngine(QObject):
                         },
                     )
                 except Exception:
-                    logger.exception("更新输出元数据失败: %s", data_id)
+                    logger.exception("Failed to update output metadata: %s", data_id)
 
         manifest_path = results_dir / "artifacts_manifest.json"
         try:
@@ -492,17 +342,9 @@ class ToolEngine(QObject):
                 encoding="utf-8",
             )
         except OSError:
-            logger.exception("写入结果文件清单失败: %s", manifest_path)
+            logger.exception("Failed to write artifact manifest: %s", manifest_path)
 
     def get_record(self, execution_id: str) -> Optional[ExecutionRecord]:
-        """获取执行记录
-
-        Args:
-            execution_id: 执行 ID
-
-        Returns:
-            执行记录，不存在时返回 None
-        """
         db = self._projects.db
         row = db.execute(
             "SELECT * FROM executions WHERE execution_id = ?",
@@ -512,18 +354,11 @@ class ToolEngine(QObject):
             return None
         return self._row_to_record(row)
 
-    # ── 内部方法 ──────────────────────────────────────────
-
     @staticmethod
     def _merge_defaults(
         descriptor: dict[str, Any],
         user_params: dict[str, Any],
     ) -> dict[str, Any]:
-        """合并用户参数和默认值
-
-        默认值来自 descriptor['parameters'] 中各参数的 default 字段。
-        用户参数优先级更高。
-        """
         merged: dict[str, Any] = {}
         for param_def in descriptor.get("parameters", []):
             name = param_def["name"]
@@ -531,10 +366,9 @@ class ToolEngine(QObject):
                 merged[name] = user_params[name]
             elif "default" in param_def:
                 merged[name] = param_def["default"]
-        # 保留用户传入的、descriptor 中未声明的额外参数
-        for k, v in user_params.items():
-            if k not in merged:
-                merged[k] = v
+        for key, value in user_params.items():
+            if key not in merged:
+                merged[key] = value
         return merged
 
     def _resolve_inputs(
@@ -542,24 +376,17 @@ class ToolEngine(QObject):
         descriptor: dict[str, Any],
         input_data_ids: list[str],
     ) -> dict[str, str]:
-        """将 input_data_ids 映射为 {输入名称: 文件路径}
-
-        按 descriptor['inputs'] 的顺序，依次对应 input_data_ids。
-
-        Raises:
-            ValueError: 必需的输入数据缺失
-        """
         inputs_def = descriptor.get("inputs", [])
         paths: dict[str, str] = {}
 
-        for i, inp_def in enumerate(inputs_def):
+        for index, inp_def in enumerate(inputs_def):
             inp_name = inp_def["name"]
             required = inp_def.get("required", True)
 
-            if i < len(input_data_ids):
-                item = self._registry.get_item(input_data_ids[i])
+            if index < len(input_data_ids):
+                item = self._registry.get_item(input_data_ids[index])
                 if item is None:
-                    raise ValueError(f"输入数据不存在: {input_data_ids[i]}")
+                    raise ValueError(f"输入数据不存在: {input_data_ids[index]}")
                 paths[inp_name] = item.file_path
             elif required:
                 raise ValueError(f"缺少必需的输入: {inp_name}")
@@ -567,7 +394,6 @@ class ToolEngine(QObject):
         return paths
 
     def _save_record(self, record: ExecutionRecord) -> None:
-        """将执行记录写入 SQLite"""
         db = self._projects.db
         db.execute(
             "INSERT INTO executions "
@@ -596,7 +422,6 @@ class ToolEngine(QObject):
         db.commit()
 
     def _update_status(self, execution_id: str, status: str) -> None:
-        """更新执行状态"""
         db = self._projects.db
         db.execute(
             "UPDATE executions SET status = ? WHERE execution_id = ?",
@@ -605,7 +430,6 @@ class ToolEngine(QObject):
         db.commit()
 
     def _update_completed_at(self, execution_id: str) -> None:
-        """更新完成时间"""
         db = self._projects.db
         db.execute(
             "UPDATE executions SET completed_at = ? WHERE execution_id = ?",
@@ -614,7 +438,6 @@ class ToolEngine(QObject):
         db.commit()
 
     def _update_error(self, execution_id: str, error: str) -> None:
-        """更新错误信息"""
         db = self._projects.db
         db.execute(
             "UPDATE executions SET error = ? WHERE execution_id = ?",
@@ -623,12 +446,10 @@ class ToolEngine(QObject):
         db.commit()
 
     @staticmethod
-    def _row_to_record(row) -> ExecutionRecord:
-        """将数据库行转换为 ExecutionRecord"""
+    def _row_to_record(row: Any) -> ExecutionRecord:
         params_str = row["parameters"]
         parameters = json.loads(params_str) if params_str else {}
 
-        # 处理新字段（向后兼容）
         try:
             is_final_version = row["is_final_version"]
         except (KeyError, IndexError):

@@ -94,3 +94,29 @@ When running local shell commands on Windows (especially `bash`/WSL), always ali
 3. Also set `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to avoid mixed decoding.
 4. If `wsl --status` or `wsl -e ...` returns `E_ACCESSDENIED`, treat it as WSL permission/service issue first; do not misdiagnose as pure encoding.
 5. Use `scripts/codex_wsl_utf8_doctor.ps1` for repeatable diagnosis and session-level fix.
+
+## Execution Pipeline Baseline (Must Reuse)
+
+When changing the tool execution path, preserve the current two-stage async model:
+
+1. `ToolEngine.execute()` must stay lightweight on the main thread.
+2. Remote preparation belongs in `core/execution/execution_preparer.py`, not directly in `ToolEngine.execute()`.
+3. Preparation includes:
+   - expanding `remote_base` when it starts with `~`
+   - creating `output_dir`
+   - optional plugin `workflow/` upload
+   - building the final command
+4. Queue submission should happen only after preparation succeeds.
+5. `ServiceLocator` owns the handoff from:
+   - preparation success -> `JobQueue.submit()`
+   - queue start -> async screen dispatch
+6. Screen dispatch SSH work belongs in `TaskRunner`, not in the main Qt slot.
+7. `JobDispatcher.start_waiting()` must remain on the main thread; do not move waiter registration into a worker thread.
+8. For compatibility with existing SQLite project DBs, keep persisted execution status within the current schema set:
+   - `pending`
+   - `running`
+   - `completed`
+   - `failed`
+   - `retrying`
+   Do not introduce a new persisted `preparing` status without an explicit migration plan.
+9. If `ToolEngine` is used without a preparation scheduler, keep the synchronous fallback path working instead of silently dropping execution.

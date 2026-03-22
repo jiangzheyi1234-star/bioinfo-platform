@@ -1,23 +1,19 @@
-"""ServiceLocator 单元测试 — 验证信号链路完整性和模块连接。"""
+"""ServiceLocator unit tests."""
+
+from __future__ import annotations
 
 import sqlite3
 import time
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt6.QtCore import QObject
 
-from core.data.data_registry import DataRegistry
-from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
+from core.data.project_manager import ProjectInfo, _SCHEMA_SQL
 from core.service_locator import ServiceLocator
 
 
-# ── Fake / Mock ──────────────────────────────────────────
-
-
 class FakeSSHService:
-    """模拟 SSH 服务"""
+    """Minimal SSH test double."""
 
     def __init__(self) -> None:
         self.commands_run: list[str] = []
@@ -32,12 +28,11 @@ class FakeSSHService:
 
 
 class FakeProjectManager:
-    """模拟 ProjectManager，支持 project_opened 信号"""
+    """Minimal ProjectManager test double."""
 
     def __init__(self, conn: sqlite3.Connection, project: ProjectInfo) -> None:
         self._conn = conn
         self._project = project
-        self._callbacks: list = []
 
     @property
     def current_project(self) -> Optional[ProjectInfo]:
@@ -51,7 +46,37 @@ class FakeProjectManager:
         pass
 
 
-# ── Fixtures ──────────────────────────────────────────────
+class ImmediateTaskRunner:
+    """TaskRunner stand-in that records submitted work without threading."""
+
+    def __init__(self) -> None:
+        self.submissions: list[tuple[Any, tuple[Any, ...], str]] = []
+        self.wait_timeout: int | None = None
+        self.task_succeeded = _FakeSignal()
+        self.task_failed = _FakeSignal()
+
+    def submit(self, fn, *args, task_id: str) -> None:
+        self.submissions.append((fn, args, task_id))
+
+    def wait_for_done(self, timeout_ms: int = 30000) -> bool:
+        self.wait_timeout = timeout_ms
+        return True
+
+
+class _FakeSignal:
+    def disconnect(self, callback: Any) -> None:
+        return None
+
+
+class Recorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
+        if kwargs:
+            self.calls.append((args, kwargs))
+        else:
+            self.calls.append(args)
 
 
 @pytest.fixture()
@@ -67,7 +92,7 @@ def db_conn() -> sqlite3.Connection:
 def project() -> ProjectInfo:
     return ProjectInfo(
         project_id="proj_svc_test01",
-        name="ServiceLocator 测试",
+        name="ServiceLocator test",
         description="",
         created_at=time.time(),
         status="active",
@@ -80,46 +105,37 @@ def ssh() -> FakeSSHService:
     return FakeSSHService()
 
 
-# ── 测试 ─────────────────────────────────────────────────
-
-
 class TestServiceLocatorInitialization:
-    """初始化测试"""
-
     def test_initialize_scans_plugins(self, tmp_path) -> None:
-        """initialize() 应扫描 plugins 目录"""
-        # 创建空 plugins 目录
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
         locator = ServiceLocator(plugins_dir=plugins_dir)
         count = locator.initialize()
-        assert count == 0  # 空目录
+
+        assert count == 0
 
     def test_plugin_registry_accessible(self, tmp_path) -> None:
-        """初始化后 plugin_registry 应可访问"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
         locator = ServiceLocator(plugins_dir=plugins_dir)
         locator.initialize()
+
         assert locator.plugin_registry is not None
 
     def test_job_queue_accessible(self, tmp_path) -> None:
-        """job_queue 应可访问"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
         locator = ServiceLocator(plugins_dir=plugins_dir)
         locator.initialize()
+
         assert locator.job_queue is not None
 
 
 class TestServiceLocatorSSH:
-    """SSH 相关测试"""
-
     def test_ssh_service_hot_swap(self, ssh: FakeSSHService, tmp_path) -> None:
-        """应支持 SSH 服务热切换"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -132,12 +148,7 @@ class TestServiceLocatorSSH:
 
 
 class TestServiceLocatorProjectSwitch:
-    """项目切换测试"""
-
-    def test_data_registry_rebuilt_on_project(
-        self, db_conn, project, tmp_path,
-    ) -> None:
-        """项目打开后 data_registry 应被重建"""
+    def test_data_registry_rebuilt_on_project(self, db_conn, project, tmp_path) -> None:
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -148,16 +159,12 @@ class TestServiceLocatorProjectSwitch:
         )
         locator.initialize()
 
-        # 有项目打开，所以 data_registry 应已创建
         assert locator.data_registry is not None
         assert locator.tool_engine is not None
 
 
 class TestServiceLocatorSignalChain:
-    """信号链路测试"""
-
     def test_execution_context_registration(self, tmp_path) -> None:
-        """执行上下文应正确存储"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -175,10 +182,130 @@ class TestServiceLocatorSignalChain:
 
         assert "exec_test001" in locator._execution_ctx
 
-    def test_on_completed_emits_signal(
-        self, db_conn, project, ssh, tmp_path,
-    ) -> None:
-        """_on_completed 应发射 execution_completed 信号"""
+    def test_on_dispatch_submits_to_task_runner(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(
+            ssh_service=FakeSSHService(),  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+        )
+        locator.initialize()
+        runner = ImmediateTaskRunner()
+        locator._task_runner = runner  # type: ignore[assignment]
+
+        locator.register_execution_context(
+            execution_id="exec_dispatch001",
+            command="echo hello",
+            descriptor={"id": "test", "outputs": []},
+            sample_id="smp_001",
+            output_dir="/output",
+            task_dir="/tmp/task",
+        )
+
+        locator._on_dispatch("exec_dispatch001")
+
+        assert len(runner.submissions) == 1
+        fn, args, task_id = runner.submissions[0]
+        assert fn == locator._dispatch_job
+        assert args[0] == "exec_dispatch001"
+        assert task_id == "exec_dispatch001"
+
+    def test_on_dispatch_without_ssh_is_ignored(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+
+        locator.register_execution_context(
+            execution_id="exec_dispatch_missing_ssh",
+            command="echo hello",
+            descriptor={"id": "test", "outputs": []},
+            sample_id="smp_001",
+            output_dir="/output",
+            task_dir="/tmp/task",
+        )
+
+        locator._on_dispatch("exec_dispatch_missing_ssh")
+
+        assert locator.get_task_dir("exec_dispatch_missing_ssh") is None
+
+    def test_on_dispatch_submitted_starts_waiting(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        ssh = FakeSSHService()
+        locator = ServiceLocator(
+            ssh_service=ssh,  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+        )
+        locator.initialize()
+        locator.register_execution_context(
+            execution_id="exec_dispatch002",
+            command="echo hello",
+            descriptor={"id": "test", "outputs": []},
+            sample_id="smp_001",
+            output_dir="/output",
+            task_dir="/tmp/task",
+        )
+        recorder = Recorder()
+        locator._job_dispatcher.start_waiting = recorder  # type: ignore[assignment]
+
+        locator._on_dispatch_submitted(
+            "exec_dispatch002",
+            {
+                "execution_id": "exec_dispatch002",
+                "job_id": "h2o_exec_dispatch002",
+                "task_dir": "/tmp/task",
+            },
+        )
+
+        assert recorder.calls == [(
+            (),
+            {
+                "ssh_service": ssh,
+                "execution_id": "exec_dispatch002",
+                "job_id": "h2o_exec_dispatch002",
+                "task_dir": "/tmp/task",
+            },
+        )]
+        assert locator.get_task_dir("exec_dispatch002") == "/tmp/task"
+
+    def test_on_dispatch_failed_routes_to_on_failed(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(
+            ssh_service=FakeSSHService(),  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+        )
+        locator.initialize()
+        recorder = Recorder()
+        locator._on_failed = recorder  # type: ignore[assignment]
+
+        locator._on_dispatch_failed("exec_dispatch003", "boom")
+
+        assert recorder.calls == [("exec_dispatch003", "boom")]
+
+    def test_on_dispatch_failed_ignored_during_shutdown(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(
+            ssh_service=FakeSSHService(),  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+        )
+        locator.initialize()
+        recorder = Recorder()
+        locator._on_failed = recorder  # type: ignore[assignment]
+        locator._shutting_down = True
+
+        locator._on_dispatch_failed("exec_dispatch004", "boom")
+
+        assert recorder.calls == []
+
+    def test_on_completed_emits_signal(self, db_conn, project, ssh, tmp_path) -> None:
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -189,8 +316,6 @@ class TestServiceLocatorSignalChain:
             project_manager=pm,  # type: ignore[arg-type]
         )
         locator.initialize()
-
-        # 注册上下文
         locator.register_execution_context(
             execution_id="exec_test002",
             command="echo done",
@@ -200,10 +325,9 @@ class TestServiceLocatorSignalChain:
             task_dir="/tmp/task",
         )
 
-        # 在 executions 表中插入记录（on_job_completed 需要更新状态）
         db_conn.execute(
             "INSERT INTO samples (sample_id, name) VALUES (?, ?)",
-            ("smp_001", "测试"),
+            ("smp_001", "test"),
         )
         db_conn.execute(
             "INSERT INTO executions "
@@ -217,12 +341,10 @@ class TestServiceLocatorSignalChain:
         locator.execution_completed.connect(received.append)
 
         locator._on_completed("exec_test002")
+
         assert received == ["exec_test002"]
 
-    def test_on_failed_emits_signal(
-        self, db_conn, project, ssh, tmp_path,
-    ) -> None:
-        """_on_failed 应发射 execution_failed 信号"""
+    def test_on_failed_emits_signal(self, db_conn, project, ssh, tmp_path) -> None:
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -234,10 +356,9 @@ class TestServiceLocatorSignalChain:
         )
         locator.initialize()
 
-        # 插入测试数据
         db_conn.execute(
             "INSERT INTO samples (sample_id, name) VALUES (?, ?)",
-            ("smp_002", "测试2"),
+            ("smp_002", "test2"),
         )
         db_conn.execute(
             "INSERT INTO executions "
@@ -248,11 +369,8 @@ class TestServiceLocatorSignalChain:
         db_conn.commit()
 
         received: list[tuple[str, str]] = []
-        locator.execution_failed.connect(
-            lambda eid, err: received.append((eid, err))
-        )
+        locator.execution_failed.connect(lambda eid, err: received.append((eid, err)))
 
-        # 先注册执行上下文（模拟实际派发流程）
         locator.register_execution_context(
             execution_id="exec_fail001",
             command="test cmd",
@@ -263,15 +381,12 @@ class TestServiceLocatorSignalChain:
         )
 
         locator._on_failed("exec_fail001", "内存不足")
-        assert len(received) == 1
-        assert received[0] == ("exec_fail001", "内存不足")
+
+        assert received == [("exec_fail001", "内存不足")]
 
 
 class TestServiceLocatorShutdown:
-    """关闭测试"""
-
     def test_shutdown_does_not_error(self, tmp_path) -> None:
-        """shutdown() 应安全执行"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -279,21 +394,31 @@ class TestServiceLocatorShutdown:
         locator.initialize()
         locator.shutdown()
 
-
-class TestServiceLocatorCondaExecutable:
-    """conda_executable 传播测试"""
-
-    def test_conda_executable_default_empty(self, tmp_path) -> None:
-        """conda_executable 默认为空字符串"""
+    def test_shutdown_waits_for_task_runner(self, tmp_path) -> None:
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
         locator = ServiceLocator(plugins_dir=plugins_dir)
         locator.initialize()
+        runner = ImmediateTaskRunner()
+        locator._task_runner = runner  # type: ignore[assignment]
+
+        locator.shutdown()
+
+        assert runner.wait_timeout == 30000
+
+
+class TestServiceLocatorCondaExecutable:
+    def test_conda_executable_default_empty(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+
         assert locator.conda_executable == ""
 
     def test_conda_executable_setter_updates(self, tmp_path) -> None:
-        """设置 conda_executable 后应可读取"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -301,12 +426,10 @@ class TestServiceLocatorCondaExecutable:
         locator.initialize()
 
         locator.conda_executable = "/home/user/miniconda3/bin/conda"
+
         assert locator.conda_executable == "/home/user/miniconda3/bin/conda"
 
-    def test_conda_executable_propagates_to_engine(
-        self, db_conn, project, ssh, tmp_path,
-    ) -> None:
-        """设置 conda_executable 后应触发 engine 重建并传播"""
+    def test_conda_executable_propagates_to_engine(self, db_conn, project, ssh, tmp_path) -> None:
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -317,14 +440,14 @@ class TestServiceLocatorCondaExecutable:
             project_manager=pm,  # type: ignore[arg-type]
         )
         locator.initialize()
+
         assert locator.tool_engine is not None
 
-        # 设置 conda_executable 触发 engine 重建
         locator.conda_executable = "/opt/conda/bin/conda"
+
         assert locator.tool_engine._conda_executable == "/opt/conda/bin/conda"
 
     def test_conda_executable_none_converts_to_empty(self, tmp_path) -> None:
-        """设置 None 应转为空字符串"""
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
 
@@ -332,4 +455,5 @@ class TestServiceLocatorCondaExecutable:
         locator.initialize()
 
         locator.conda_executable = None  # type: ignore[assignment]
+
         assert locator.conda_executable == ""
