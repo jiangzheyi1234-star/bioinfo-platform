@@ -120,3 +120,11 @@ When changing the tool execution path, preserve the current two-stage async mode
    - `retrying`
    Do not introduce a new persisted `preparing` status without an explicit migration plan.
 9. If `ToolEngine` is used without a preparation scheduler, keep the synchronous fallback path working instead of silently dropping execution.
+
+## Qt Popup 圆角浮层 (Must Reuse)
+
+实现带圆角的下拉菜单/浮层时：
+- **必须加 `NoDropShadowWindowHint`** 关闭系统原生阴影
+- **顶层透明** (`WA_TranslucentBackground = True`)，**内层panel负责视觉**
+- **外层留 margin** 给自定义阴影留空间
+- 参考：`ui/widgets/project_selector.py`

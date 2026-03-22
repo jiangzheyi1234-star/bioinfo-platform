@@ -87,6 +87,7 @@ class ProjectInfo:
     created_at: float
     status: str = "active"  # active / archived
     remote_base: str = ""   # ~/h2ometa/projects/{project_id}
+    last_opened_at: float = 0.0  # 最后打开时间戳
 
     def to_dict(self) -> dict:
         """序列化为字典（用于 JSON 存储）"""
@@ -102,6 +103,7 @@ class ProjectInfo:
             created_at=data.get("created_at", 0.0),
             status=data.get("status", "active"),
             remote_base=data.get("remote_base", ""),
+            last_opened_at=data.get("last_opened_at", 0.0),
         )
 
 
@@ -292,6 +294,8 @@ class ProjectManager(QObject):
             raise
 
         self._current_project = project
+        self._index[project_id]["last_opened_at"] = time.time()
+        self._save_index()
         self._save_last_opened_project(project_id)
 
         if self._db_read_only:
@@ -376,14 +380,20 @@ class ProjectManager(QObject):
             logger.exception("Failed restoring project DB from backup: %s", backup_db)
             return False
 
-    def list_projects(self) -> list[ProjectInfo]:
+    def list_projects(self, sort_by: str = "created_at") -> list[ProjectInfo]:
         """列出所有项目
 
+        Args:
+            sort_by: 排序方式，"created_at" 或 "last_opened"
+
         Returns:
-            项目信息列表，按创建时间倒序排列
+            项目信息列表，按指定方式倒序排列
         """
         projects = [ProjectInfo.from_dict(data) for data in self._index.values()]
-        projects.sort(key=lambda p: p.created_at, reverse=True)
+        if sort_by == "last_opened":
+            projects.sort(key=lambda p: p.last_opened_at, reverse=True)
+        else:
+            projects.sort(key=lambda p: p.created_at, reverse=True)
         return projects
 
     def archive_project(self, project_id: str) -> None:
