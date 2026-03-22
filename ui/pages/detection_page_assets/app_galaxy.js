@@ -10,6 +10,8 @@ let historyRecords = [];
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
 let integratedRunModalContext = null;
+let _integratedChartRetryTimer = null;
+let _echartsLoadRequested = false;
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -1083,10 +1085,37 @@ function getChartDomain(item) {
     return 'Bacteria';
 }
 
-function renderIntegratedChart(chartInput) {
+function ensureEchartsLoaded() {
+    if (typeof echarts !== 'undefined') {
+        return;
+    }
+    if (_echartsLoadRequested) {
+        return;
+    }
+    _echartsLoadRequested = true;
+
+    const script = document.createElement('script');
+    script.src = 'echarts.min.js';
+    script.async = false;
+    script.onload = function() {
+        console.log('echarts dynamically loaded');
+    };
+    script.onerror = function() {
+        console.error('Failed to load echarts.min.js');
+        showNotice('Failed to load local chart engine: echarts.min.js', 'error', 5000);
+    };
+    document.head.appendChild(script);
+}
+
+function renderIntegratedChart(chartInput, retryCount = 0) {
     const card = document.getElementById('integrated-chart-card');
     const container = document.getElementById('integrated-chart-container');
     const titleEl = document.getElementById('chart-card-title');
+
+    if (_integratedChartRetryTimer) {
+        clearTimeout(_integratedChartRetryTimer);
+        _integratedChartRetryTimer = null;
+    }
 
     disposeIntegratedCharts();
 
@@ -1101,7 +1130,15 @@ function renderIntegratedChart(chartInput) {
     if (titleEl) titleEl.textContent = validCharts.length > 1 ? '图表视图' : (validCharts[0].title || '图表');
     if (!container || typeof echarts === 'undefined') {
         if (container && typeof echarts === 'undefined') {
-            container.innerHTML = '<div class="integrated-input-empty">Chart engine unavailable (echarts not loaded).</div>';
+            ensureEchartsLoaded();
+            if (retryCount < 20) {
+                container.innerHTML = '<div class="integrated-input-empty">Loading chart engine...</div>';
+                _integratedChartRetryTimer = window.setTimeout(function() {
+                    renderIntegratedChart(chartInput, retryCount + 1);
+                }, 250);
+            } else {
+                container.innerHTML = '<div class="integrated-input-empty">Chart engine unavailable (echarts not loaded).</div>';
+            }
         }
         return;
     }
