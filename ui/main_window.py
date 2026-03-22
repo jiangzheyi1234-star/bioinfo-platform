@@ -37,6 +37,7 @@ from ui.pages.project_page import ProjectPage, CreateProjectDialog
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
+from ui.widgets.project_selector import ProjectSelectorButton, ProjectSelectorMenu
 
 logger = logging.getLogger(__name__)
 
@@ -134,52 +135,11 @@ class MainWindow(QMainWindow):
         self.sidebar.setStyleSheet(styles.SIDEBAR_NAV_ITEM)
         sidebar_layout.addWidget(self.sidebar, stretch=1)
 
-        # -- 分隔线 --
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet(f"background-color: {styles.COLOR_BORDER}; max-height: 1px;")
-        sidebar_layout.addWidget(separator)
-
-        # -- "项目" 标题栏 --
-        project_label = QLabel("项目")
-        project_label.setStyleSheet(f"""
-            color: {styles.COLOR_TEXT_HINT};
-            font-size: 11px;
-            font-weight: 600;
-            padding: 8px 16px 4px 16px;
-        """)
-        sidebar_layout.addWidget(project_label)
-
-        # -- 项目列表区 --
-        self._project_list = QListWidget()
-        self._project_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._project_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._project_list.setMaximumHeight(140)  # 限制最大高度
-        self._project_list.setStyleSheet(f"""
-            QListWidget {{
-                background: {styles.COLOR_BG_SIDEBAR};
-                border: none;
-                padding: 0 10px 8px 10px;
-            }}
-            QListWidget::item {{
-                min-height: 28px;
-                padding: 4px 10px;
-                border-radius: 6px;
-                color: {styles.COLOR_TEXT_DEFAULT};
-                font-size: 13px;
-                font-weight: 500;
-            }}
-            QListWidget::item:selected {{
-                background: {styles.COLOR_SELECTION_BG};
-                color: {styles.COLOR_PRIMARY};
-            }}
-            QListWidget::item:hover {{
-                background: {styles.COLOR_BG_SIDEBAR_ITEM};
-            }}
-        """)
-        self._project_list.itemClicked.connect(self._on_project_list_item_clicked)
-        sidebar_layout.addWidget(self._project_list)
-        self.project_combo = self._project_list  # keep legacy attribute for tests
+        # -- 底部项目选择器 --
+        self._project_selector_btn = ProjectSelectorButton()
+        self._project_selector_btn.clicked.connect(self._show_project_menu)
+        sidebar_layout.addWidget(self._project_selector_btn)
+        self._project_menu: Optional[ProjectSelectorMenu] = None
 
         middle_layout.addWidget(sidebar_widget)
 
@@ -245,7 +205,7 @@ class MainWindow(QMainWindow):
         # 初始化一次 SSH 注入
         self._on_settings_active_client_changed(self.settings_page.get_active_client())
 
-        self._refresh_project_combo()
+        self._update_project_selector()
 
     @staticmethod
     def _make_nav_icon(svg_path_d: str) -> QIcon:
@@ -372,156 +332,24 @@ class MainWindow(QMainWindow):
         self._on_ssh_changed_for_disk(self._ssh_service_wrapper.is_connected)
         self._notify_pages_context_changed()
 
-    def _refresh_project_combo(self) -> None:
-        """刷新项目列表，显示最多3个活跃项目 + 新建项目。"""
-        self._project_list.clear()
-        self._pm.reload_index()
+    def _show_project_menu(self) -> None:
+        """显示项目选择菜单。"""
+        if self._project_menu is None:
+            self._project_menu = ProjectSelectorMenu(self)
+            self._project_menu.project_selected.connect(self._on_menu_project_selected)
+            self._project_menu.create_project_requested.connect(self._on_create_project_clicked)
+            self._project_menu.delete_project_requested.connect(self._on_menu_delete_project)
+        
+        self._project_menu.refresh_projects(self._pm)
+        self._project_menu.show_at(self._project_selector_btn)
+
+    def _update_project_selector(self) -> None:
+        """更新底部按钮显示的项目名。"""
         current = self._pm.current_project
-        current_id = current.project_id if current else ""
-
-        # 获取活跃项目（最多显示3个）
-        active_projects = [
-            p for p in self._pm.list_projects()
-            if p.status == "active"
-        ]
-
-        # 当前项目置顶，其他按名称排序
-        sorted_projects = sorted(
-            active_projects,
-            key=lambda p: (p.project_id != current_id, p.name)
-        )
-
-        # 最多显示3个项目，如果有更多则显示"更多..."
-        total_projects = len(sorted_projects)
-        display_projects = sorted_projects[:3]
-        has_more = total_projects > 3
-
-        has_deletable = len(active_projects) > 1
-
-        # 添加项目项
-        for p in display_projects:
-            prefix = "✓ " if p.project_id == current_id else "  "
-            item = QListWidgetItem(f"{prefix}{p.name}")
-            item.setData(Qt.ItemDataRole.UserRole, p.project_id)
-            self._project_list.addItem(item)
-
-        # 如果有更多项目，添加"更多..."
-        if has_more:
-            more_item = QListWidgetItem(f"  ··· 还有 {total_projects - 3} 个项目")
-            more_item.setData(Qt.ItemDataRole.UserRole, "__MORE__")
-            more_item.setForeground(QColor(styles.COLOR_TEXT_HINT))
-            self._project_list.addItem(more_item)
-
-        if not display_projects:
-            item = QListWidgetItem("  暂无项目")
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            self._project_list.addItem(item)
-
-        # 分隔线
-        separator = QListWidgetItem("")
-        separator.setFlags(Qt.ItemFlag.NoItemFlags)
-        separator.setBackground(QColor(styles.COLOR_BORDER))
-        separator.setSizeHint(QSize(0, 1))
-        self._project_list.addItem(separator)
-
-        # 新建项目
-        create_item = QListWidgetItem("+ 新建项目")
-        create_item.setData(Qt.ItemDataRole.UserRole, "__CREATE__")
-        self._project_list.addItem(create_item)
-
-        # 删除项目（如果有可删除的）
-        if has_deletable:
-            delete_item = QListWidgetItem("🗑 删除项目...")
-            delete_item.setData(Qt.ItemDataRole.UserRole, "__DELETE__")
-            self._project_list.addItem(delete_item)
-
-    def _on_project_list_item_clicked(self, item: QListWidgetItem) -> None:
-        """处理项目列表点击。"""
-        data = item.data(Qt.ItemDataRole.UserRole)
-        if data is None:
-            return
-
-        if data == "__CREATE__":
-            self._on_create_project_clicked()
-        elif data == "__DELETE__":
-            self._on_menu_delete_project()
-        elif data == "__MORE__":
-            self._show_all_projects_dialog()
+        if current:
+            self._project_selector_btn.set_project_name(current.name)
         else:
-            self._on_menu_project_selected(data)
-
-    def _show_all_projects_dialog(self) -> None:
-        """显示全部项目对话框。"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("选择项目")
-        dialog.setMinimumWidth(300)
-        dialog.setMinimumHeight(400)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # 搜索框
-        search_box = QLineEdit()
-        search_box.setPlaceholderText("搜索项目...")
-        layout.addWidget(search_box)
-        
-        # 项目列表
-        list_widget = QListWidget()
-        list_widget.setStyleSheet(f"""
-            QListWidget {{
-                border: none;
-            }}
-            QListWidget::item {{
-                padding: 8px 12px;
-                border-radius: 6px;
-            }}
-            QListWidget::item:selected {{
-                background: {styles.COLOR_SELECTION_BG};
-                color: {styles.COLOR_PRIMARY};
-            }}
-        """)
-        
-        current = self._pm.current_project
-        current_id = current.project_id if current else ""
-        
-        # 加载所有项目
-        for p in sorted(self._pm.list_projects(), key=lambda x: x.name):
-            if p.status != "active":
-                continue
-            prefix = "✓ " if p.project_id == current_id else "  "
-            item = QListWidgetItem(f"{prefix}{p.name}")
-            item.setData(Qt.ItemDataRole.UserRole, p.project_id)
-            list_widget.addItem(item)
-        
-        layout.addWidget(list_widget)
-        
-        # 搜索过滤
-        def filter_items(text: str):
-            for i in range(list_widget.count()):
-                item = list_widget.item(i)
-                item.setHidden(text.lower() not in item.text().lower())
-        
-        search_box.textChanged.connect(filter_items)
-        
-        # 双击选择
-        list_widget.itemDoubleClicked.connect(lambda item: dialog.accept())
-        
-        # 按钮
-        btn_layout = QHBoxLayout()
-        cancel_btn = QPushButton("取消")
-        cancel_btn.clicked.connect(dialog.reject)
-        btn_layout.addWidget(cancel_btn)
-        btn_layout.addStretch()
-        ok_btn = QPushButton("打开")
-        ok_btn.clicked.connect(dialog.accept)
-        btn_layout.addWidget(ok_btn)
-        layout.addLayout(btn_layout)
-        
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            selected = list_widget.currentItem()
-            if selected:
-                project_id = selected.data(Qt.ItemDataRole.UserRole)
-                if project_id != current_id:
-                    self._on_menu_project_selected(project_id)
+            self._project_selector_btn.set_empty_state()
 
     def _on_menu_project_selected(self, project_id: str) -> None:
         """菜单选择了一个项目。"""
@@ -592,14 +420,14 @@ class MainWindow(QMainWindow):
 
         try:
             self._pm.delete_project(target.project_id)
-            self._refresh_project_combo()
+            self._update_project_selector()
             QMessageBox.information(self, "成功", f"项目“{target.name}”已删除。")
         except Exception as e:
             logger.error("删除项目失败: %s", e)
             QMessageBox.critical(self, "错误", f"删除项目失败: {e}")
 
     def _on_project_switched(self, project_id: str) -> None:
-        self._refresh_project_combo()
+        self._update_project_selector()
 
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
