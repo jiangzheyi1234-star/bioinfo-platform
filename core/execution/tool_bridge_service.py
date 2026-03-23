@@ -1517,150 +1517,6 @@ class ToolBridgeService:
             logger.exception("Failed to get execution history")
             return []
 
-    def _reconcile_manual_resumed_executions(self, pm) -> None:
-        """If a failed execution is manually resumed on remote, relink it as running."""
-        ssh = self._get_ssh_service()
-        if ssh is None or not getattr(ssh, "is_connected", False):
-            return
-
-        rows = pm.db.execute(
-            """
-            SELECT execution_id, sample_id, tool_id
-            FROM executions
-            WHERE status = 'failed' AND archived_at IS NULL
-            ORDER BY created_at DESC
-            LIMIT 20
-            """
-        ).fetchall()
-
-        for row in rows:
-            execution_id = row["execution_id"]
-            sample_id = row["sample_id"]
-            tool_id = row["tool_id"]
-            task_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
-
-            try:
-                rc_status, out_status, _ = ssh.run(
-                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
-                    timeout=10,
-                )
-            except Exception:
-                continue
-
-            if rc_status != 0 or out_status.strip().upper() != "RUNNING":
-                continue
-
-            heartbeat_ts = 0
-            try:
-                rc_hb, out_hb, _ = ssh.run(
-                    f"cat {shlex.quote(f'{task_dir}/heartbeat.txt')} 2>/dev/null",
-                    timeout=10,
-                )
-                if rc_hb == 0:
-                    heartbeat_ts = int((out_hb or "0").strip() or "0")
-            except Exception:
-                heartbeat_ts = 0
-
-            now_ts = int(time.time())
-            if heartbeat_ts > 0 and (now_ts - heartbeat_ts) > 900:
-                continue
-
-            try:
-                pm.db.execute(
-                    """
-                    UPDATE executions
-                    SET status = 'running', error = NULL, completed_at = NULL
-                    WHERE execution_id = ?
-                    """,
-                    (execution_id,),
-                )
-                pm.db.commit()
-                logger.info("Re-linked failed execution as running: %s", execution_id)
-            except Exception:
-                logger.exception("Failed to relink execution %s", execution_id)
-
-    def _reconcile_running_executions(self, pm) -> None:
-        ssh = self._get_ssh_service()
-        tool_engine = self._get_tool_engine()
-        if ssh is None or not getattr(ssh, "is_connected", False) or tool_engine is None:
-            return
-
-        rows = pm.db.execute(
-            """
-            SELECT execution_id, sample_id, tool_id
-            FROM executions
-            WHERE status = 'running' AND archived_at IS NULL
-            ORDER BY created_at DESC
-            LIMIT 20
-            """
-        ).fetchall()
-
-        for row in rows:
-            execution_id = row["execution_id"]
-            sample_id = row["sample_id"]
-            tool_id = row["tool_id"]
-            job_id = f"h2o_{execution_id}"
-            task_dir = f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
-
-            status_text = ""
-            try:
-                rc_status, out_status, _ = ssh.run(
-                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
-                    timeout=10,
-                )
-                if rc_status == 0 and out_status.strip():
-                    status_text = out_status.strip().upper()
-            except Exception:
-                logger.debug("Failed to read status for %s", execution_id, exc_info=True)
-
-            exit_code = ""
-            try:
-                rc_exit, out_exit, _ = ssh.run(
-                    f"cat {shlex.quote(f'{task_dir}/exit_code.txt')} 2>/dev/null",
-                    timeout=10,
-                )
-                if rc_exit == 0:
-                    exit_code = out_exit.strip()
-            except Exception:
-                logger.debug("Failed to read exit_code for %s", execution_id, exc_info=True)
-
-            # DONE/exit_code=0 takes precedence over lingering detached screen sessions.
-            if exit_code == "0" or status_text == "DONE":
-                try:
-                    descriptor = self.get_tool_descriptor(tool_id)
-                    tool_engine.on_job_completed(
-                        execution_id=execution_id,
-                        descriptor=descriptor,
-                        sample_id=sample_id,
-                        output_dir=task_dir,
-                    )
-                    logger.info("Reconciled stale running execution as completed: %s", execution_id)
-                except Exception:
-                    logger.exception("Failed to reconcile completed execution %s", execution_id)
-                continue
-
-            try:
-                rc, _, _ = ssh.run(
-                    f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
-                    timeout=10,
-                )
-            except Exception:
-                logger.debug("Failed to check screen session for %s", execution_id, exc_info=True)
-                continue
-
-            if rc == 0:
-                continue
-            error_msg = f"remote status: {status_text}" if status_text else "Remote execution ended unexpectedly"
-
-            if status_text == "RUNNING":
-                # Manual resume may run outside screen; keep running state.
-                continue
-            try:
-                tool_engine.on_job_failed(execution_id, error_msg)
-                logger.info("Reconciled stale running execution as failed: %s", execution_id)
-            except Exception:
-                logger.exception("Failed to reconcile failed execution %s", execution_id)
-
     @staticmethod
     def _get_superseded_running_execution_ids(db) -> set[str]:
         rows = db.execute(
@@ -1881,22 +1737,22 @@ class ToolBridgeService:
             return {"status": "ok", "data": data, "message": "SSH 未连接，仅显示本地状态"}
 
         data["ssh_connected"] = True
-
-        def _read_remote_file(name: str) -> str:
-            try:
-                rc, out, _ = ssh.run(
-                    f"cat {shlex.quote(f'{task_dir}/{name}')} 2>/dev/null",
-                    timeout=10,
-                )
-                if rc == 0:
-                    return out.strip()
-            except Exception:
-                logger.debug("Failed reading remote file %s for %s", name, execution_id, exc_info=True)
-            return ""
-
-        data["remote_status"] = _read_remote_file("status.txt")
-        data["exit_code"] = _read_remote_file("exit_code.txt")
-        data["heartbeat"] = _read_remote_file("heartbeat.txt")
+        status_cmd = (
+            "{ "
+            "echo __STATUS__; cat " + shlex.quote(f"{task_dir}/status.txt") + " 2>/dev/null || true; "
+            "echo __EXIT__; cat " + shlex.quote(f"{task_dir}/exit_code.txt") + " 2>/dev/null || true; "
+            "echo __HEARTBEAT__; cat " + shlex.quote(f"{task_dir}/heartbeat.txt") + " 2>/dev/null || true; "
+            "}"
+        )
+        try:
+            rc, out, _ = ssh.run(status_cmd, timeout=10)
+            if rc == 0:
+                parsed = self._parse_remote_status_block(out)
+                data["remote_status"] = parsed.get("status", "")
+                data["exit_code"] = parsed.get("exit", "")
+                data["heartbeat"] = parsed.get("heartbeat", "")
+        except Exception:
+            logger.debug("Failed reading status block for %s", execution_id, exc_info=True)
 
         if data["heartbeat"]:
             try:
@@ -1925,6 +1781,30 @@ class ToolBridgeService:
             logger.debug("Failed reading task.log tail for %s", execution_id, exc_info=True)
 
         return {"status": "ok", "data": data}
+
+    @staticmethod
+    def _parse_remote_status_block(output: str) -> dict[str, str]:
+        result = {"status": "", "exit": "", "heartbeat": ""}
+        current = ""
+        bucket: dict[str, list[str]] = {"status": [], "exit": [], "heartbeat": []}
+        marker_map = {
+            "__STATUS__": "status",
+            "__EXIT__": "exit",
+            "__HEARTBEAT__": "heartbeat",
+        }
+        for raw in (output or "").splitlines():
+            line = raw.strip("\r\n")
+            marker = marker_map.get(line.strip())
+            if marker is not None:
+                current = marker
+                continue
+            if current:
+                bucket[current].append(line)
+        for key in ("status", "exit", "heartbeat"):
+            text = "\n".join(bucket[key]).strip()
+            if text:
+                result[key] = text.splitlines()[0].strip()
+        return result
 
     def _get_live_unknown_sample_detection_view(self) -> dict | None:
         """查找最新的 unknown_sample_detection 已完成执行，构建未知样品检测 view。
