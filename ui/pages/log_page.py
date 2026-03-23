@@ -146,6 +146,7 @@ class _LogTailWorker(QObject):
 class LogPage(BasePage):
     """实时日志页面。"""
     log_status_changed = pyqtSignal(str)
+    request_tail_poll = pyqtSignal()
 
     def __init__(self, main_window=None) -> None:
         super().__init__("日志")
@@ -282,8 +283,27 @@ class LogPage(BasePage):
         except Exception:
             logger.debug("加载执行历史失败", exc_info=True)
             return
+        payload = [
+            {
+                "execution_id": row[0],
+                "tool_id": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "completed_at": row[4] if len(row) > 4 else None,
+                "error": row[5] if len(row) > 5 else "",
+            }
+            for row in rows
+        ]
+        self.load_history_rows(payload, project_id)
 
-        if not rows:
+    def load_history_rows(self, rows: list[dict], project_id: str) -> None:
+        try:
+            parsed_rows = list(rows or [])
+        except Exception:
+            logger.debug("日志历史数据格式异常", exc_info=True)
+            return
+
+        if not parsed_rows:
             return
 
         status_map = {
@@ -293,12 +313,12 @@ class LogPage(BasePage):
             "pending": ("INFO", "等待中"),
             "retrying": ("WARNING", "重试中"),
         }
-        for row in reversed(rows):
-            eid = row[0]
-            tool = row[1]
-            status = row[2]
-            created = row[3]
-            error = row[5] if len(row) > 5 else ""
+        for row in reversed(parsed_rows):
+            eid = row.get("execution_id", "")
+            tool = row.get("tool_id", "")
+            status = row.get("status", "")
+            created = row.get("created_at")
+            error = row.get("error", "")
             ts = datetime.fromtimestamp(created).strftime("%m-%d %H:%M:%S") if created else "??-?? ??:??:??"
             level, label = status_map.get(status, ("INFO", status))
             msg = f"[历史] {tool} — {label}"
@@ -333,6 +353,10 @@ class LogPage(BasePage):
             self._tail_timer.stop()
             self._tail_timer = None
         if self._tail_worker:
+            try:
+                self.request_tail_poll.disconnect(self._tail_worker.poll)
+            except (TypeError, RuntimeError):
+                pass
             self._tail_worker.stop()
             self._tail_worker = None
         if self._tail_thread and self._tail_thread.isRunning():
@@ -366,6 +390,10 @@ class LogPage(BasePage):
         self._tail_worker = _LogTailWorker(self._ssh_run_fn, self._current_task_dir)
         self._tail_worker.moveToThread(self._tail_thread)
         self._tail_worker.new_lines.connect(self._on_new_remote_lines)
+        self.request_tail_poll.connect(
+            self._tail_worker.poll,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._tail_thread.start()
         self._tail_timer = QTimer()
         self._tail_timer.setInterval(TAIL_INTERVAL_MS)
@@ -375,7 +403,7 @@ class LogPage(BasePage):
 
     def _do_poll(self) -> None:
         if self._tail_worker:
-            self._tail_worker.poll()
+            self.request_tail_poll.emit()
 
     def _on_new_remote_lines(self, lines: list[str]) -> None:
         eid = self._current_exec_id

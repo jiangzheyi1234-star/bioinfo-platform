@@ -141,10 +141,15 @@ class ToolEngine(QObject):
             triggered_by=triggered_by,
             created_at=time.time(),
         )
-        self._save_record(record)
-
-        for data_id in input_data_ids:
-            self._registry.add_execution_io(execution_id, data_id, "input")
+        db = self._projects.db
+        try:
+            self._save_record(record, commit=False)
+            for data_id in input_data_ids:
+                self._registry.add_execution_io(execution_id, data_id, "input", commit=False)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
         request = PreparationRequest(
             execution_id=execution_id,
@@ -179,7 +184,7 @@ class ToolEngine(QObject):
         return execution_id
 
     def mark_execution_running(self, execution_id: str) -> None:
-        self._update_status(execution_id, "running")
+        self._update_execution_fields(execution_id, status="running")
 
     def on_job_completed(
         self,
@@ -220,6 +225,7 @@ class ToolEngine(QObject):
                     data_type=data_type,
                     sample_id=sample_id,
                     tier=tier,
+                    commit=False,
                 )
                 registered_outputs.append(
                     {"data_id": data_id, "remote_path": file_path}
@@ -231,18 +237,31 @@ class ToolEngine(QObject):
                 output_dir=output_dir,
                 registered_outputs=registered_outputs,
             )
-            self._update_status(execution_id, "completed")
-            self._update_completed_at(execution_id)
+            self._update_execution_fields(
+                execution_id=execution_id,
+                status="completed",
+                completed_at=time.time(),
+                error=None,
+                commit=False,
+            )
+            self._projects.db.commit()
 
             logger.info("Execution completed: %s", execution_id)
             self.execution_completed.emit(execution_id)
         except Exception as exc:
+            try:
+                self._projects.db.rollback()
+            except Exception:
+                logger.debug("Rollback after completion failure failed", exc_info=True)
             logger.exception("Error while handling completion: %s", execution_id)
             self.on_job_failed(execution_id, str(exc))
 
     def on_job_failed(self, execution_id: str, error: str) -> None:
-        self._update_status(execution_id, "failed")
-        self._update_error(execution_id, error)
+        self._update_execution_fields(
+            execution_id=execution_id,
+            status="failed",
+            error=error,
+        )
 
         logger.error("Execution failed: %s - %s", execution_id, error)
         self.execution_failed.emit(execution_id, error)
@@ -286,6 +305,7 @@ class ToolEngine(QObject):
             ordered_names.append(normalized)
 
         manifest: list[dict[str, Any]] = []
+        metadata_updates: list[tuple[str, dict[str, Any]]] = []
         for name in ordered_names:
             remote_path = remote_by_name.get(name) or f"{output_dir.rstrip('/')}/{name}"
             local_path = results_dir / name
@@ -315,16 +335,22 @@ class ToolEngine(QObject):
 
             data_id = data_id_by_name.get(name)
             if data_id:
-                try:
-                    self._registry.update_item_metadata(
+                metadata_updates.append(
+                    (
                         data_id,
                         {
                             "local_path": str(local_path),
                             "artifact_available": available,
                         },
                     )
-                except Exception:
-                    logger.exception("Failed to update output metadata: %s", data_id)
+                )
+
+        for data_id, metadata in metadata_updates:
+            self._registry.update_item_metadata(
+                data_id,
+                metadata,
+                commit=False,
+            )
 
         manifest_path = results_dir / "artifacts_manifest.json"
         try:
@@ -393,7 +419,7 @@ class ToolEngine(QObject):
 
         return paths
 
-    def _save_record(self, record: ExecutionRecord) -> None:
+    def _save_record(self, record: ExecutionRecord, *, commit: bool = True) -> None:
         db = self._projects.db
         db.execute(
             "INSERT INTO executions "
@@ -419,31 +445,43 @@ class ToolEngine(QObject):
                 record.archived_at,
             ),
         )
-        db.commit()
+        if commit:
+            db.commit()
 
-    def _update_status(self, execution_id: str, status: str) -> None:
+    def _update_execution_fields(
+        self,
+        execution_id: str,
+        *,
+        status: Optional[str] = None,
+        completed_at: Optional[float] = None,
+        error: Optional[str] = None,
+        commit: bool = True,
+    ) -> None:
+        updates: list[str] = []
+        values: list[Any] = []
+
+        if status is not None:
+            updates.append("status = ?")
+            values.append(status)
+        if completed_at is not None:
+            updates.append("completed_at = ?")
+            values.append(completed_at)
+        # Completed execution should clear previous error.
+        if error is not None or status == "completed":
+            updates.append("error = ?")
+            values.append(error)
+
+        if not updates:
+            return
+
+        values.append(execution_id)
         db = self._projects.db
         db.execute(
-            "UPDATE executions SET status = ? WHERE execution_id = ?",
-            (status, execution_id),
+            f"UPDATE executions SET {', '.join(updates)} WHERE execution_id = ?",
+            tuple(values),
         )
-        db.commit()
-
-    def _update_completed_at(self, execution_id: str) -> None:
-        db = self._projects.db
-        db.execute(
-            "UPDATE executions SET completed_at = ? WHERE execution_id = ?",
-            (time.time(), execution_id),
-        )
-        db.commit()
-
-    def _update_error(self, execution_id: str, error: str) -> None:
-        db = self._projects.db
-        db.execute(
-            "UPDATE executions SET error = ? WHERE execution_id = ?",
-            (error, execution_id),
-        )
-        db.commit()
+        if commit:
+            db.commit()
 
     @staticmethod
     def _row_to_record(row: Any) -> ExecutionRecord:

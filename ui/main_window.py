@@ -1,6 +1,8 @@
 ﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
+import shlex
+import time
 from typing import Optional
 
 import paramiko
@@ -26,7 +28,8 @@ from PyQt6.QtWidgets import (
 )
 
 from core.data.project_manager import ProjectManager
-from core.execution.tool_bridge_service import ToolBridgeService
+from core.data.execution_query_service import ExecutionQueryService
+from core.execution.task_runner import TaskRunner
 from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
 from core.remote.storage_manager import StorageManager
@@ -93,6 +96,8 @@ class MainWindow(QMainWindow):
         self._locator = ServiceLocator(project_manager=self._pm)
         self._services_initialized = False
         self._reconcile_scheduled = False
+        self._reconcile_runner = TaskRunner(max_threads=1, parent=self)
+        self._reconcile_task_id = ""
 
         self._disk_timer = QTimer(self)
         self._disk_timer.setInterval(300_000)
@@ -241,7 +246,7 @@ class MainWindow(QMainWindow):
         if self._pm.current_project:
             pid = self._pm.current_project.project_id
             self.log_page.set_project_context(pid)
-            self.log_page.load_history(self._pm.db, pid)
+            self._load_log_history_for_project(pid)
 
     def _apply_plugin_registry_to_settings(self) -> None:
         try:
@@ -436,7 +441,7 @@ class MainWindow(QMainWindow):
 
         # 同步日志页面的项目上下文 + 加载历史
         self.log_page.set_project_context(project_id)
-        self.log_page.load_history(self._pm.db, project_id)
+        self._load_log_history_for_project(project_id)
 
         if getattr(self._pm, "db_read_only", False):
             QMessageBox.warning(
@@ -447,6 +452,14 @@ class MainWindow(QMainWindow):
             )
 
         logger.info("项目已切换: %s", project_id)
+
+    def _load_log_history_for_project(self, project_id: str) -> None:
+        try:
+            query_service = ExecutionQueryService(self._pm.db)
+            rows = query_service.list_recent_executions(limit=50, archived=False)
+            self.log_page.load_history_rows(rows, project_id)
+        except Exception:
+            logger.exception("加载日志历史失败")
 
 
     def _notify_pages_context_changed(self) -> None:
@@ -546,6 +559,8 @@ class MainWindow(QMainWindow):
         queue.job_started.connect(self._update_queue_display)
 
         self._locator.ssh_changed.connect(self._on_ssh_changed_for_disk)
+        self._reconcile_runner.task_succeeded.connect(self._on_reconcile_task_succeeded)
+        self._reconcile_runner.task_failed.connect(self._on_reconcile_task_failed)
 
         # 日志页面信号连接
         self._locator.execution_started.connect(self._on_exec_started_for_log)
@@ -598,13 +613,184 @@ class MainWindow(QMainWindow):
             ssh = self._locator.ssh_service
             if ssh is None or not getattr(ssh, "is_connected", False):
                 return
-            service = ToolBridgeService(
-                service_locator=self._locator,
-                plugin_registry=self._locator.plugin_registry,
+            if self._reconcile_task_id:
+                return
+
+            running_rows = self._pm.db.execute(
+                """
+                SELECT execution_id, sample_id, tool_id
+                FROM executions
+                WHERE status = 'running' AND archived_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            ).fetchall()
+            failed_rows = self._pm.db.execute(
+                """
+                SELECT execution_id, sample_id, tool_id
+                FROM executions
+                WHERE status = 'failed' AND archived_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            ).fetchall()
+            if not running_rows and not failed_rows:
+                return
+
+            running = [(r["execution_id"], r["sample_id"], r["tool_id"]) for r in running_rows]
+            failed = [(r["execution_id"], r["sample_id"], r["tool_id"]) for r in failed_rows]
+            task_id = f"ui_reconcile_{int(time.time() * 1000)}"
+            self._reconcile_task_id = task_id
+            self._reconcile_runner.submit(
+                self._collect_reconcile_actions,
+                ssh,
+                self._pm.current_project.remote_base,
+                running,
+                failed,
+                task_id=task_id,
             )
-            service.get_execution_history()
         except Exception:
+            self._reconcile_task_id = ""
             logger.exception("任务状态自动校准失败")
+
+    @staticmethod
+    def _collect_reconcile_actions(
+        ssh,
+        remote_base: str,
+        running_rows: list[tuple[str, str, str]],
+        failed_rows: list[tuple[str, str, str]],
+    ) -> dict[str, list[dict[str, str]]]:
+        actions: dict[str, list[dict[str, str]]] = {
+            "relink_running": [],
+            "mark_completed": [],
+            "mark_failed": [],
+        }
+        now_ts = int(time.time())
+
+        for execution_id, sample_id, tool_id in failed_rows:
+            task_dir = f"{remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+            try:
+                rc_status, out_status, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+            except Exception:
+                continue
+            if rc_status != 0 or out_status.strip().upper() != "RUNNING":
+                continue
+
+            heartbeat_ts = 0
+            try:
+                rc_hb, out_hb, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/heartbeat.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_hb == 0:
+                    heartbeat_ts = int((out_hb or "0").strip() or "0")
+            except Exception:
+                heartbeat_ts = 0
+
+            if heartbeat_ts > 0 and (now_ts - heartbeat_ts) > 900:
+                continue
+            actions["relink_running"].append({"execution_id": execution_id})
+
+        for execution_id, sample_id, tool_id in running_rows:
+            task_dir = f"{remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+            job_id = f"h2o_{execution_id}"
+            status_text = ""
+            exit_code = ""
+
+            try:
+                rc_status, out_status, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/status.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_status == 0 and out_status.strip():
+                    status_text = out_status.strip().upper()
+            except Exception:
+                pass
+
+            try:
+                rc_exit, out_exit, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/exit_code.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_exit == 0:
+                    exit_code = out_exit.strip()
+            except Exception:
+                pass
+
+            if exit_code == "0" or status_text == "DONE":
+                actions["mark_completed"].append(
+                    {
+                        "execution_id": execution_id,
+                        "sample_id": sample_id,
+                        "tool_id": tool_id,
+                        "output_dir": task_dir,
+                    }
+                )
+                continue
+
+            try:
+                rc_screen, _, _ = ssh.run(
+                    f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
+                    timeout=10,
+                )
+            except Exception:
+                continue
+
+            if rc_screen == 0 or status_text == "RUNNING":
+                continue
+            actions["mark_failed"].append(
+                {
+                    "execution_id": execution_id,
+                    "error": f"remote status: {status_text}" if status_text else "Remote execution ended unexpectedly",
+                }
+            )
+        return actions
+
+    def _on_reconcile_task_succeeded(self, task_id: str, payload: object) -> None:
+        if task_id != self._reconcile_task_id:
+            return
+        self._reconcile_task_id = ""
+        try:
+            if not isinstance(payload, dict):
+                return
+            actions = payload
+            for item in actions.get("relink_running", []):
+                self._pm.db.execute(
+                    """
+                    UPDATE executions
+                    SET status = 'running', error = NULL, completed_at = NULL
+                    WHERE execution_id = ?
+                    """,
+                    (item["execution_id"],),
+                )
+            if actions.get("relink_running"):
+                self._pm.db.commit()
+
+            tool_engine = self._locator.tool_engine
+            if tool_engine is None:
+                return
+
+            for item in actions.get("mark_completed", []):
+                descriptor = self._locator.plugin_registry.get_descriptor(item["tool_id"])
+                tool_engine.on_job_completed(
+                    execution_id=item["execution_id"],
+                    descriptor=descriptor,
+                    sample_id=item["sample_id"],
+                    output_dir=item["output_dir"],
+                )
+            for item in actions.get("mark_failed", []):
+                tool_engine.on_job_failed(item["execution_id"], item["error"])
+        except Exception:
+            logger.exception("应用任务状态校准结果失败")
+
+    def _on_reconcile_task_failed(self, task_id: str, error: str) -> None:
+        if task_id != self._reconcile_task_id:
+            return
+        self._reconcile_task_id = ""
+        logger.warning("任务状态后台校准失败: %s", error)
 
     def _update_queue_display(self, *_args) -> None:
         status = self._locator.job_queue.get_status()
@@ -642,6 +828,16 @@ class MainWindow(QMainWindow):
                 signal.disconnect(handler)
             except (TypeError, RuntimeError):
                 pass
+        for signal, handler in (
+            (self._reconcile_runner.task_succeeded, self._on_reconcile_task_succeeded),
+            (self._reconcile_runner.task_failed, self._on_reconcile_task_failed),
+        ):
+            try:
+                signal.disconnect(handler)
+            except (TypeError, RuntimeError):
+                pass
+        if not self._reconcile_runner.wait_for_done(timeout_ms=5000):
+            logger.warning("Reconcile TaskRunner shutdown wait timed out")
 
         if self._ssh_service_wrapper is not None:
             for handler in (self._on_ssh_status_changed, self._on_ssh_changed_for_disk):

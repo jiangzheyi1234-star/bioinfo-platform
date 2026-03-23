@@ -85,6 +85,14 @@ When user asks `提交`:
 2. The summary should be explicit enough for quick rollback decisions.
 3. Never return only the title.
 
+## User Preference: Local Permission Errors (Must Reuse)
+
+When local command/test failures are caused by permission-denied temp/cache paths:
+
+1. Do not spend extra rounds on repeated local cleanup attempts.
+2. Escalate immediately and continue with elevated command execution.
+3. Treat this as preferred default unless user explicitly asks otherwise.
+
 ## Windows Codex UTF-8 Baseline (Must Reuse)
 
 When running local shell commands on Windows (especially `bash`/WSL), always align encoding first:

@@ -256,6 +256,28 @@ class TestAddExecutionIo:
         registry.add_execution_io(exec_id, data_id, "input")
         registry.add_execution_io(exec_id, data_id, "input")  # 不报错
 
+    def test_add_execution_io_without_commit(
+        self, registry: DataRegistry, sample_id: str, db_conn: sqlite3.Connection
+    ) -> None:
+        exec_id = "exec_no_commit_io"
+        db_conn.execute(
+            "INSERT INTO executions "
+            "(execution_id, sample_id, tool_id, parameters, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (exec_id, sample_id, "fastp", "{}", "running", time.time()),
+        )
+        db_conn.commit()
+        data_id = registry.register_input("/data/test.fq", sample_id, "fastq")
+
+        registry.add_execution_io(exec_id, data_id, "input", commit=False)
+        db_conn.rollback()
+
+        row = db_conn.execute(
+            "SELECT * FROM execution_io WHERE execution_id = ? AND data_id = ?",
+            (exec_id, data_id),
+        ).fetchone()
+        assert row is None
+
 
 # ── DataRegistry.find_compatible ──────────────────────────
 

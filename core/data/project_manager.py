@@ -29,6 +29,9 @@ DEFAULT_LAST_PROJECT_PATH_APPDATA = (
     if os.getenv("APPDATA")
     else None
 )
+DEFAULT_DB_CONNECT_TIMEOUT_SEC = 20.0
+DEFAULT_DB_BUSY_TIMEOUT_MS = 20_000
+DEFAULT_DB_JOURNAL_MODE = "delete"
 
 # SQLite Schema — 严格按照 CLAUDE.md 定义的四张表
 _SCHEMA_SQL = """\
@@ -237,7 +240,9 @@ class ProjectManager(QObject):
 
         # 建立新连接
         try:
-            self._try_checkpoint_wal(db_path)
+            runtime = self._resolve_db_runtime_options()
+            aggressive_checkpoint = runtime["journal_mode"] == "delete"
+            self._try_checkpoint_wal(db_path, aggressive_cleanup=aggressive_checkpoint)
             self._db_conn = self._open_project_db(db_path)
             self._db_read_only = False
         except sqlite3.OperationalError as exc:
@@ -306,9 +311,13 @@ class ProjectManager(QObject):
         return project
 
     def _open_project_db(self, db_path: Path) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(db_path))
+        runtime = self._resolve_db_runtime_options()
+        conn = sqlite3.connect(
+            str(db_path),
+            timeout=runtime["connect_timeout_sec"],
+        )
         try:
-            conn.execute("PRAGMA foreign_keys=ON")
+            self._apply_sqlite_runtime(conn, runtime)
             conn.row_factory = sqlite3.Row
             self._migrate_database(conn)
         except Exception:
@@ -319,7 +328,13 @@ class ProjectManager(QObject):
     def _open_project_db_readonly(self, db_path: Path) -> sqlite3.Connection:
         # immutable=1 avoids locking side effects when wal/shm are held by another process.
         uri = f"file:{db_path.as_posix()}?mode=ro&immutable=1"
-        conn = sqlite3.connect(uri, uri=True)
+        runtime = self._resolve_db_runtime_options()
+        conn = sqlite3.connect(
+            uri,
+            uri=True,
+            timeout=runtime["connect_timeout_sec"],
+        )
+        conn.execute(f"PRAGMA busy_timeout={runtime['busy_timeout_ms']}")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -542,12 +557,91 @@ class ProjectManager(QObject):
 
     # ── 内部方法 ──────────────────────────────────────────────
 
+    def _resolve_db_runtime_options(self) -> dict[str, float | int | str]:
+        runtime_cfg: dict[str, object] = {}
+        try:
+            from config import get_config
+
+            cfg = get_config()
+            runtime = cfg.get("runtime", {}) if isinstance(cfg, dict) else {}
+            if isinstance(runtime, dict):
+                runtime_cfg = runtime
+        except Exception:
+            logger.debug("加载数据库运行时配置失败，使用默认值", exc_info=True)
+
+        connect_timeout = self._safe_float(
+            runtime_cfg.get("db_connect_timeout_sec"),
+            DEFAULT_DB_CONNECT_TIMEOUT_SEC,
+            min_value=1.0,
+            max_value=120.0,
+        )
+        busy_timeout = self._safe_int(
+            runtime_cfg.get("db_busy_timeout_ms"),
+            DEFAULT_DB_BUSY_TIMEOUT_MS,
+            min_value=1000,
+            max_value=120000,
+        )
+        journal_mode = self._normalize_journal_mode(
+            runtime_cfg.get("db_journal_mode"),
+            DEFAULT_DB_JOURNAL_MODE,
+        )
+        return {
+            "connect_timeout_sec": connect_timeout,
+            "busy_timeout_ms": busy_timeout,
+            "journal_mode": journal_mode,
+        }
+
+    @staticmethod
+    def _safe_float(value: object, default: float, *, min_value: float, max_value: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        return max(min_value, min(max_value, parsed))
+
+    @staticmethod
+    def _safe_int(value: object, default: int, *, min_value: int, max_value: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(min_value, min(max_value, parsed))
+
+    @staticmethod
+    def _normalize_journal_mode(value: object, default: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"delete", "wal", "auto"}:
+            return default
+        return normalized
+
+    def _apply_sqlite_runtime(self, conn: sqlite3.Connection, runtime: dict[str, float | int | str]) -> None:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute(f"PRAGMA busy_timeout={int(runtime['busy_timeout_ms'])}")
+        self._apply_journal_mode(conn, str(runtime["journal_mode"]))
+
+    @staticmethod
+    def _apply_journal_mode(conn: sqlite3.Connection, mode: str) -> None:
+        normalized = str(mode or "delete").lower()
+        if normalized == "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        if normalized == "auto":
+            row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+            result = str(row[0]).lower() if row else ""
+            if result != "wal":
+                conn.execute("PRAGMA journal_mode=DELETE")
+            return
+        conn.execute("PRAGMA journal_mode=DELETE")
+
     def _init_database(self, db_path: Path) -> None:
         """初始化项目数据库，创建所有表"""
-        conn = sqlite3.connect(str(db_path))
+        runtime = self._resolve_db_runtime_options()
+        conn = sqlite3.connect(
+            str(db_path),
+            timeout=runtime["connect_timeout_sec"],
+        )
         try:
-            conn.execute("PRAGMA journal_mode=DELETE")
-            conn.execute("PRAGMA foreign_keys=ON")
+            self._apply_sqlite_runtime(conn, runtime)
             conn.executescript(_SCHEMA_SQL)
             conn.commit()
             logger.debug("数据库已初始化: %s", db_path)
@@ -579,6 +673,38 @@ class ProjectManager(QObject):
                 "ALTER TABLE executions ADD COLUMN archived_at REAL"
             )
 
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_exec_active_created
+            ON executions(created_at)
+            WHERE archived_at IS NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_exec_sample_tool_created
+            ON executions(sample_id, tool_id, created_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_exec_status_tool_completed
+            ON executions(status, tool_id, completed_at, created_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_data_sample_type_tier_created
+            ON data_items(sample_id, data_type, tier, created_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_eio_exec_dir
+            ON execution_io(execution_id, direction)
+            """
+        )
+
         conn.commit()
 
     def _close_db(self) -> None:
@@ -592,7 +718,7 @@ class ProjectManager(QObject):
         self._db_read_only = False
 
     @staticmethod
-    def _try_checkpoint_wal(db_path: Path) -> None:
+    def _try_checkpoint_wal(db_path: Path, *, aggressive_cleanup: bool = True) -> None:
         """尝试 checkpoint 残留 WAL 文件，防止 disk I/O error。"""
         shm = db_path.with_suffix(".db-shm")
         wal = db_path.with_suffix(".db-wal")
@@ -611,8 +737,8 @@ class ProjectManager(QObject):
                     tmp.close()
                 except Exception:
                     pass
-        # Delete sidecars AFTER connection is closed
-        if shm.exists() or wal.exists():
+        # Delete sidecars AFTER connection is closed (DELETE mode compatibility).
+        if aggressive_cleanup and (shm.exists() or wal.exists()):
             for f in (shm, wal):
                 try:
                     f.unlink(missing_ok=True)
@@ -794,9 +920,9 @@ class ProjectManager(QObject):
         """
         candidates: list[tuple[str, Path, float]] = []
         for path in self._last_project_paths:
-            if not path.exists():
-                continue
             try:
+                if not path.exists():
+                    continue
                 value = path.read_text(encoding='utf-8').strip()
                 if not value:
                     continue

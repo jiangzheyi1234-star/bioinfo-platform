@@ -63,6 +63,8 @@ class DataRegistry:
         name: str,
         source: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
+        *,
+        commit: bool = True,
     ) -> str:
         """添加样本
 
@@ -87,7 +89,8 @@ class DataRegistry:
             "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
             (sample_id, name.strip(), source, metadata_json),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
         logger.info("样本已添加: %s (%s)", name, sample_id)
         return sample_id
@@ -122,6 +125,8 @@ class DataRegistry:
         data_type: str,
         tier: str = "raw",
         metadata: Optional[dict[str, Any]] = None,
+        *,
+        commit: bool = True,
     ) -> str:
         """注册原始上传文件
 
@@ -149,7 +154,8 @@ class DataRegistry:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (data_id, sample_id, file_path, data_type, tier, None, time.time(), metadata_json),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
         logger.info("输入数据已注册: %s (%s, %s)", file_path, data_type, data_id)
         return data_id
@@ -162,6 +168,8 @@ class DataRegistry:
         sample_id: str,
         tier: str = "result",
         metadata: Optional[dict[str, Any]] = None,
+        *,
+        commit: bool = True,
     ) -> str:
         """注册工具输出文件
 
@@ -195,13 +203,19 @@ class DataRegistry:
             "INSERT INTO execution_io (execution_id, data_id, direction) VALUES (?, ?, ?)",
             (execution_id, data_id, "output"),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
         logger.info("输出数据已注册: %s (%s, %s)", file_path, data_type, data_id)
         return data_id
 
     def add_execution_io(
-        self, execution_id: str, data_id: str, direction: str
+        self,
+        execution_id: str,
+        data_id: str,
+        direction: str,
+        *,
+        commit: bool = True,
     ) -> None:
         """记录执行的输入/输出关系
 
@@ -221,7 +235,8 @@ class DataRegistry:
             "VALUES (?, ?, ?)",
             (execution_id, data_id, direction),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     # ── 查询 ──────────────────────────────────────────────────
 
@@ -337,7 +352,13 @@ SELECT * FROM lineage
         ).fetchall()
         return [self._row_to_data_item(r) for r in rows]
 
-    def update_item_metadata(self, data_id: str, metadata: dict[str, Any]) -> None:
+    def update_item_metadata(
+        self,
+        data_id: str,
+        metadata: dict[str, Any],
+        *,
+        commit: bool = True,
+    ) -> None:
         """合并更新数据项 metadata。"""
         item = self.get_item(data_id)
         if item is None:
@@ -349,7 +370,8 @@ SELECT * FROM lineage
             "UPDATE data_items SET metadata = ? WHERE data_id = ?",
             (json.dumps(merged, ensure_ascii=False), data_id),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     def list_executions(
         self, sample_id: str, tool_id: str, status: Optional[str] = None

@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from core.data.execution_query_service import ExecutionQueryService
+
 if TYPE_CHECKING:
     from core.plugins.plugin_registry import PluginRegistry
     from core.service_locator import ServiceLocator
@@ -1488,24 +1490,13 @@ class ToolBridgeService:
             self._reconcile_manual_resumed_executions(pm)
             self._reconcile_running_executions(pm)
             superseded_ids = self._get_superseded_running_execution_ids(db)
-            cursor = db.cursor()
-            cursor.execute(
-                """
-                SELECT e.execution_id, e.sample_id, s.name AS sample_name,
-                       e.tool_id, e.status, e.parameters,
-                       e.created_at, e.completed_at, e.error
-                FROM executions e
-                LEFT JOIN samples s ON e.sample_id = s.sample_id
-                WHERE e.archived_at IS NULL
-                ORDER BY e.created_at DESC
-                LIMIT 50
-                """
-            )
+            query_service = ExecutionQueryService(db)
+            rows = query_service.get_execution_history_for_ui(limit=50)
             history = []
-            for row in cursor.fetchall():
-                execution_id = row[0]
-                status = row[4]
-                error = row[8]
+            for row in rows:
+                execution_id = row["execution_id"]
+                status = row["status"]
+                error = row["error"]
                 if execution_id in superseded_ids and status == "running":
                     status = "failed"
                     error = error or "Superseded by a later completed execution"
@@ -1513,13 +1504,13 @@ class ToolBridgeService:
                 history.append(
                     {
                         "execution_id": execution_id,
-                        "sample_id": row[1],
-                        "sample_name": row[2],
-                        "tool_id": row[3],
+                        "sample_id": row["sample_id"],
+                        "sample_name": row["sample_name"],
+                        "tool_id": row["tool_id"],
                         "status": status,
-                        "parameters": row[5],
-                        "created_at": row[6],
-                        "completed_at": row[7],
+                        "parameters": row["parameters"],
+                        "created_at": row["created_at"],
+                        "completed_at": row["completed_at"],
                         "error": error,
                     }
                 )
@@ -1699,26 +1690,11 @@ class ToolBridgeService:
             return {"status": "error", "message": "请先打开项目"}
 
         try:
-            row = pm.db.execute(
-                "SELECT status, archived_at FROM executions WHERE execution_id = ?",
-                (execution_id,),
-            ).fetchone()
-            if row is None:
-                return {"status": "error", "message": "任务记录不存在"}
-
-            if row["archived_at"] is not None:
-                return {"status": "ok", "message": "任务记录已删除"}
-
-            if row["status"] in {"pending", "running", "retrying"}:
-                return {"status": "error", "message": "运行中的任务不能删除"}
-
-            pm.db.execute(
-                "UPDATE executions SET archived_at = ? WHERE execution_id = ?",
-                (time.time(), execution_id),
-            )
-            pm.db.commit()
-            logger.info("任务历史已归档: %s", execution_id)
-            return {"status": "ok", "message": "任务记录已删除"}
+            query_service = ExecutionQueryService(pm.db)
+            result = query_service.archive_execution(execution_id, now=time.time())
+            if result.get("status") == "ok":
+                logger.info("任务历史已归档: %s", execution_id)
+            return result
         except Exception:
             logger.exception("Failed to delete execution history: %s", execution_id)
             return {"status": "error", "message": "删除任务记录失败"}

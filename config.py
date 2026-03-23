@@ -89,6 +89,9 @@ def default_settings_schema() -> dict[str, Any]:
             "max_poll_retries": 3,
             "screen_check_timeout": 10,
             "primer_result_root": "",
+            "db_connect_timeout_sec": 20,
+            "db_busy_timeout_ms": 20000,
+            "db_journal_mode": "delete",
         },
     }
 
