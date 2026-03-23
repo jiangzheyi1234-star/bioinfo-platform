@@ -377,15 +377,6 @@ class MainWindow(QMainWindow):
                 self._disk_monitor.on_ssh_changed(False)
             if self._reconcile_controller is not None:
                 self._reconcile_controller.on_ssh_changed(False)
-            self.status_bar.update_disk_usage(0, 0, 0)
-
-    def _refresh_disk_usage(self) -> None:
-        if self._disk_monitor is not None:
-            self._disk_monitor.refresh()
-
-    def _cleanup_disk_usage_worker(self) -> None:
-        if self._disk_monitor is not None:
-            self._disk_monitor.cleanup()
 
     def _connect_service_signals(self) -> None:
         queue = self._locator.job_queue
@@ -451,20 +442,10 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event) -> None:
-        try:
-            if self._disk_monitor is not None:
-                self._disk_monitor.timer.stop()
-        except Exception:
-            logger.debug("停止磁盘监控定时器失败", exc_info=True)
-
-        self._cleanup_disk_usage_worker()
-
-        log_page = getattr(self, "log_page", None)
-        if log_page is not None and hasattr(log_page, "stop_tailing"):
-            try:
-                log_page.stop_tailing()
-            except Exception:
-                logger.debug("停止日志追踪失败", exc_info=True)
+        if self._disk_monitor is not None:
+            self._disk_monitor.shutdown()
+        if self._log_controller is not None:
+            self._log_controller.shutdown(logger)
 
         try:
             self._locator.ssh_changed.disconnect(self._on_ssh_changed_for_disk)
@@ -483,12 +464,8 @@ class MainWindow(QMainWindow):
         if self._reconcile_controller is not None:
             self._reconcile_controller.shutdown()
 
-        if self._ssh_service_wrapper is not None:
-            for handler in (self._on_ssh_status_changed, self._on_ssh_changed_for_disk):
-                try:
-                    self._ssh_service_wrapper.connection_status_changed.disconnect(handler)
-                except (TypeError, RuntimeError):
-                    pass
+        if self._ssh_controller is not None:
+            self._ssh_controller.shutdown()
 
         self._locator.shutdown()
         super().closeEvent(event)

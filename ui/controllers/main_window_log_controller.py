@@ -47,3 +47,9 @@ class MainWindowLogController:
         self._log_page.append_log("ERROR", msg, execution_id, pid)
         self._log_page.stop_tailing()
 
+    def shutdown(self, logger: Any) -> None:
+        if hasattr(self._log_page, "stop_tailing"):
+            try:
+                self._log_page.stop_tailing()
+            except Exception:
+                logger.debug("停止日志追踪失败", exc_info=True)
