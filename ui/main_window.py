@@ -623,24 +623,9 @@ class MainWindow(QMainWindow):
             if self._reconcile_task_id:
                 return
 
-            running_rows = self._pm.db.execute(
-                """
-                SELECT execution_id, sample_id, tool_id
-                FROM executions
-                WHERE status = 'running' AND archived_at IS NULL
-                ORDER BY created_at DESC
-                LIMIT 20
-                """
-            ).fetchall()
-            failed_rows = self._pm.db.execute(
-                """
-                SELECT execution_id, sample_id, tool_id
-                FROM executions
-                WHERE status = 'failed' AND archived_at IS NULL
-                ORDER BY created_at DESC
-                LIMIT 20
-                """
-            ).fetchall()
+            query_service = ExecutionQueryService(self._pm.db)
+            running_rows = query_service.list_running_executions(limit=20)
+            failed_rows = query_service.list_failed_executions(limit=20)
             if not running_rows and not failed_rows:
                 return
 
@@ -783,17 +768,10 @@ class MainWindow(QMainWindow):
             if not isinstance(payload, dict):
                 return
             actions = payload
-            for item in actions.get("relink_running", []):
-                self._pm.db.execute(
-                    """
-                    UPDATE executions
-                    SET status = 'running', error = NULL, completed_at = NULL
-                    WHERE execution_id = ?
-                    """,
-                    (item["execution_id"],),
-                )
-            if actions.get("relink_running"):
-                self._pm.db.commit()
+            relink_ids = [item["execution_id"] for item in actions.get("relink_running", [])]
+            if relink_ids:
+                query_service = ExecutionQueryService(self._pm.db)
+                query_service.relink_failed_to_running(relink_ids)
 
             tool_engine = self._locator.tool_engine
             if tool_engine is None:
