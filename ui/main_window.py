@@ -4,7 +4,6 @@ import logging
 import time
 from typing import Optional
 
-import paramiko
 from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
@@ -40,6 +39,7 @@ from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
 from ui.controllers.main_window_log_controller import MainWindowLogController
 from ui.controllers.main_window_project_controller import MainWindowProjectController
+from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 from ui.widgets.project_selector import ProjectSelectorButton, ProjectSelectorMenu
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self._disk_monitor: Optional[MainWindowDiskMonitor] = None
         self._log_controller: Optional[MainWindowLogController] = None
         self._project_controller: Optional[MainWindowProjectController] = None
+        self._ssh_controller: Optional[MainWindowSSHController] = None
 
         self._prev_activated = True
 
@@ -216,6 +217,14 @@ class MainWindow(QMainWindow):
             schedule_reconcile_fn=self._schedule_reconcile_running_tasks,
             notify_context_fn=self._notify_pages_context_changed,
         )
+        self._ssh_controller = MainWindowSSHController(
+            locator=self._locator,
+            settings_page=self.settings_page,
+            status_bar=self.status_bar,
+            on_ssh_status_changed=self._on_ssh_status_changed,
+            on_ssh_changed_for_disk=self._on_ssh_changed_for_disk,
+            notify_pages_context_changed=self._notify_pages_context_changed,
+        )
 
     @staticmethod
     def _make_nav_icon(svg_path_d: str) -> QIcon:
@@ -287,61 +296,9 @@ class MainWindow(QMainWindow):
 
     def _on_settings_active_client_changed(self, client) -> None:
         """把 Settings 的 SSH 客户端统一注入 ServiceLocator。"""
-        # 断开旧 wrapper 的信号，防止悬空引用
-        if self._ssh_service_wrapper is not None:
-            try:
-                self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_status_changed)
-            except (TypeError, RuntimeError):
-                pass
-            try:
-                self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_changed_for_disk)
-            except (TypeError, RuntimeError):
-                pass
-
-        if client is None:
-            self._ssh_service_wrapper = None
-            self._locator.ssh_service = None  # type: ignore[assignment]
-            self.status_bar.update_ssh_status(False)
-            self._on_ssh_changed_for_disk(False)
-            self._notify_pages_context_changed()
+        if self._ssh_controller is None:
             return
-
-        # 构造重连函数：捕获当前连接参数，用于 SSHService 自动重连
-        ssh_cfg = self.settings_page.ssh_card.last_stable_config
-        connect_fn = None
-        if ssh_cfg:
-            def _make_connect_fn(cfg: dict):
-                def _connect() -> paramiko.SSHClient:
-                    c = paramiko.SSHClient()
-                    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    kwargs: dict = {
-                        "hostname": cfg.get("ip", ""),
-                        "port": cfg.get("port", 22),
-                        "username": cfg.get("user", ""),
-                        "timeout": 5,
-                        "allow_agent": False,
-                        "look_for_keys": False,
-                    }
-                    if cfg.get("use_key") and cfg.get("key_file"):
-                        kwargs["key_filename"] = cfg["key_file"]
-                    else:
-                        kwargs["password"] = cfg.get("pwd", "")
-                    c.connect(**kwargs)
-                    c.get_transport().set_keepalive(30)
-                    return c
-                return _connect
-            connect_fn = _make_connect_fn(ssh_cfg)
-
-        self._ssh_service_wrapper = SSHService(
-            lambda c=client: c,
-            connect_fn=connect_fn,
-        )
-        self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_status_changed)
-        self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_changed_for_disk)
-        self._locator.ssh_service = self._ssh_service_wrapper
-        self.status_bar.update_ssh_status(self._ssh_service_wrapper.is_connected)
-        self._on_ssh_changed_for_disk(self._ssh_service_wrapper.is_connected)
-        self._notify_pages_context_changed()
+        self._ssh_service_wrapper = self._ssh_controller.apply_active_client(client)
 
     def _show_project_menu(self) -> None:
         """显示项目选择菜单。"""
