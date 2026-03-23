@@ -624,14 +624,19 @@ class ProjectManager(QObject):
         normalized = str(mode or "delete").lower()
         if normalized == "wal":
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
             return
         if normalized == "auto":
             row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
             result = str(row[0]).lower() if row else ""
             if result != "wal":
                 conn.execute("PRAGMA journal_mode=DELETE")
+                conn.execute("PRAGMA synchronous=FULL")
+            else:
+                conn.execute("PRAGMA synchronous=NORMAL")
             return
         conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("PRAGMA synchronous=FULL")
 
     def _init_database(self, db_path: Path) -> None:
         """初始化项目数据库，创建所有表"""
