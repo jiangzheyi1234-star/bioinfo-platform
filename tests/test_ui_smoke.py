@@ -247,7 +247,7 @@ class TestDetectionIntegratedWorkbench:
         assert "multiplex_primer_panel" in feature_ids
         assert payload["views"]["multiplex_primer_panel"]["tool_ids"] == ["multiplex_primer_panel"]
 
-    def test_history_reconciles_stale_running_execution(self, tmp_path: Path):
+    def test_history_query_does_not_reconcile_running_execution(self, tmp_path: Path):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         pm = ProjectManager(
@@ -300,13 +300,14 @@ class TestDetectionIntegratedWorkbench:
             tool_engine = _FakeEngine()
 
         service = ToolBridgeService(service_locator=_Locator())
-        service.get_execution_history()
+        history = service.get_execution_history()
+        assert history and history[0]["execution_id"] == "exec_demo"
 
         row = pm.db.execute(
             "SELECT status FROM executions WHERE execution_id = ?",
             ("exec_demo",),
         ).fetchone()
-        assert row["status"] == "completed"
+        assert row["status"] == "running"
         pm.close()
 
     def test_tool_bridge_returns_remote_primer_results_payload(self, monkeypatch):
