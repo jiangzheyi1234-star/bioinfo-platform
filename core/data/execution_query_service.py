@@ -73,6 +73,47 @@ class ExecutionQueryService:
         ).fetchall()
         return {str(row["execution_id"]): str(row["tool_id"] or "") for row in rows}
 
+    def list_running_executions(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT execution_id, sample_id, tool_id
+            FROM executions
+            WHERE status = 'running' AND archived_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_failed_executions(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT execution_id, sample_id, tool_id
+            FROM executions
+            WHERE status = 'failed' AND archived_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def relink_failed_to_running(self, execution_ids: list[str]) -> int:
+        if not execution_ids:
+            return 0
+        rows = [(execution_id,) for execution_id in execution_ids]
+        self._conn.executemany(
+            """
+            UPDATE executions
+            SET status = 'running', error = NULL, completed_at = NULL
+            WHERE execution_id = ?
+            """,
+            rows,
+        )
+        self._conn.commit()
+        return len(rows)
+
     def archive_execution(self, execution_id: str, *, now: float | None = None) -> dict[str, str]:
         if now is None:
             now = time.time()
