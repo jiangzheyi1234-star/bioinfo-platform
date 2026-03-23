@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from PyQt6.QtCore import QObject
 
+import config
 from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 
 
@@ -172,6 +173,16 @@ class TestOpenProject:
         row = pm.db.execute("PRAGMA busy_timeout").fetchone()
         assert row is not None
         assert int(row[0]) >= 1000
+
+    def test_open_project_applies_wal_mode_when_configured(self, pm: ProjectManager, monkeypatch) -> None:
+        cfg = config.default_settings_schema()
+        cfg["runtime"]["db_journal_mode"] = "wal"
+        monkeypatch.setattr("config.get_config", lambda: cfg)
+
+        project_id = pm.create_project("wal mode")
+        pm.open_project(project_id)
+        mode = pm.db.execute("PRAGMA journal_mode").fetchone()[0]
+        assert str(mode).lower() == "wal"
 
 
 # ── ProjectManager.list_projects ──────────────────────────
