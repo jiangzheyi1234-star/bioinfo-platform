@@ -36,15 +36,7 @@ class MainWindowSSHController:
 
     def apply_active_client(self, client: Any) -> Optional[SSHService]:
         # Disconnect old wrapper signals to avoid dangling references.
-        if self._ssh_service_wrapper is not None:
-            try:
-                self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_status_changed)
-            except (TypeError, RuntimeError):
-                pass
-            try:
-                self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_changed_for_disk)
-            except (TypeError, RuntimeError):
-                pass
+        self._disconnect_wrapper_signals()
 
         if client is None:
             self._ssh_service_wrapper = None
@@ -68,6 +60,21 @@ class MainWindowSSHController:
         self._notify_pages_context_changed()
         return self._ssh_service_wrapper
 
+    def shutdown(self) -> None:
+        self._disconnect_wrapper_signals()
+
+    def _disconnect_wrapper_signals(self) -> None:
+        if self._ssh_service_wrapper is None:
+            return
+        try:
+            self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_status_changed)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self._ssh_service_wrapper.connection_status_changed.disconnect(self._on_ssh_changed_for_disk)
+        except (TypeError, RuntimeError):
+            pass
+
     @staticmethod
     def _build_connect_fn(cfg: dict) -> Callable[[], paramiko.SSHClient]:
         def _connect() -> paramiko.SSHClient:
@@ -90,4 +97,3 @@ class MainWindowSSHController:
             return c
 
         return _connect
-

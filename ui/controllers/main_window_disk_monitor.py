@@ -96,3 +96,9 @@ class MainWindowDiskMonitor:
         self._disk_worker = None
         self._disk_thread = None
 
+    def shutdown(self) -> None:
+        try:
+            self._timer.stop()
+        except Exception:
+            self._logger.debug("停止磁盘监控定时器失败", exc_info=True)
+        self.cleanup()
