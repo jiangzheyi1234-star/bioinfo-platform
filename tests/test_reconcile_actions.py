@@ -69,3 +69,11 @@ def test_collect_reconcile_actions_relinks_failed_when_resumed() -> None:
     assert len(actions["relink_running"]) == 1
     assert actions["relink_running"][0]["execution_id"] == "exec_3"
 
+
+def test_parse_status_bundle_extracts_values() -> None:
+    parsed = MainWindow._parse_status_bundle(
+        "__STATUS__\nRUNNING\n__EXIT__\n0\n__HEARTBEAT__\n12345\n"
+    )
+    assert parsed["status"] == "RUNNING"
+    assert parsed["exit"] == "0"
+    assert parsed["heartbeat"] == "12345"
