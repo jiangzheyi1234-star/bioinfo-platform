@@ -1,12 +1,12 @@
 ﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
-import time
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
-from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PyQt6.QtCore import QEvent, QSize, QTimer, Qt
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
+    QHBoxLayout,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -16,9 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.data.project_manager import ProjectManager
-from core.data.execution_query_service import ExecutionQueryService
 from core.execution.execution_reconcile_service import ExecutionReconcileService
-from core.execution.task_runner import TaskRunner
 from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
 from ui.pages import SettingsPage
@@ -28,6 +26,7 @@ from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
 from ui.controllers.main_window_log_controller import MainWindowLogController
 from ui.controllers.main_window_project_controller import MainWindowProjectController
+from ui.controllers.main_window_reconcile_controller import MainWindowReconcileController
 from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
@@ -68,15 +67,10 @@ class MainWindow(QMainWindow):
 
         self._locator = ServiceLocator(project_manager=self._pm)
         self._services_initialized = False
-        self._reconcile_scheduled = False
-        self._reconcile_runner = TaskRunner(max_threads=1, parent=self)
-        self._reconcile_task_id = ""
-        self._reconcile_timer = QTimer(self)
-        self._reconcile_timer.setInterval(20_000)
-        self._reconcile_timer.timeout.connect(self._schedule_reconcile_running_tasks)
         self._disk_monitor: Optional[MainWindowDiskMonitor] = None
         self._log_controller: Optional[MainWindowLogController] = None
         self._project_controller: Optional[MainWindowProjectController] = None
+        self._reconcile_controller: Optional[MainWindowReconcileController] = None
         self._ssh_controller: Optional[MainWindowSSHController] = None
 
         self._prev_activated = True
@@ -195,6 +189,13 @@ class MainWindow(QMainWindow):
             pm=self._pm,
             locator=self._locator,
             log_page=self.log_page,
+        )
+        self._reconcile_controller = MainWindowReconcileController(
+            pm=self._pm,
+            locator=self._locator,
+            parent=self,
+            is_services_initialized=lambda: self._services_initialized,
+            logger=logger,
         )
         self._project_controller = MainWindowProjectController(
             pm=self._pm,
@@ -361,20 +362,21 @@ class MainWindow(QMainWindow):
     def _on_ssh_status_changed(self, connected: bool) -> None:
         """SSH 连接状态变化时更新状态栏"""
         self.status_bar.update_ssh_status(connected)
-        if connected:
-            self._schedule_reconcile_running_tasks()
+        if self._reconcile_controller is not None:
+            self._reconcile_controller.on_ssh_status_changed(connected)
+
     def _on_ssh_changed_for_disk(self, connected: bool) -> None:
         """SSH connection changed: start/stop disk monitor."""
         if connected:
             if self._disk_monitor is not None:
                 self._disk_monitor.on_ssh_changed(True)
-            if not self._reconcile_timer.isActive():
-                self._reconcile_timer.start()
-            self._schedule_reconcile_running_tasks(delay_ms=200)
+            if self._reconcile_controller is not None:
+                self._reconcile_controller.on_ssh_changed(True)
         else:
             if self._disk_monitor is not None:
                 self._disk_monitor.on_ssh_changed(False)
-            self._reconcile_timer.stop()
+            if self._reconcile_controller is not None:
+                self._reconcile_controller.on_ssh_changed(False)
             self.status_bar.update_disk_usage(0, 0, 0)
 
     def _refresh_disk_usage(self) -> None:
@@ -390,8 +392,6 @@ class MainWindow(QMainWindow):
         queue.job_started.connect(self._update_queue_display)
 
         self._locator.ssh_changed.connect(self._on_ssh_changed_for_disk)
-        self._reconcile_runner.task_succeeded.connect(self._on_reconcile_task_succeeded)
-        self._reconcile_runner.task_failed.connect(self._on_reconcile_task_failed)
 
         # 日志页面信号连接
         self._locator.execution_started.connect(self._on_exec_started_for_log)
@@ -418,49 +418,8 @@ class MainWindow(QMainWindow):
 
 
     def _schedule_reconcile_running_tasks(self, delay_ms: int = 150) -> None:
-        if self._reconcile_scheduled:
-            return
-        self._reconcile_scheduled = True
-
-        def _run():
-            self._reconcile_scheduled = False
-            self._reconcile_running_tasks()
-
-        QTimer.singleShot(delay_ms, _run)
-
-    def _reconcile_running_tasks(self) -> None:
-        try:
-            if not self._services_initialized:
-                return
-            if self._pm.current_project is None:
-                return
-            ssh = self._locator.ssh_service
-            if ssh is None or not getattr(ssh, "is_connected", False):
-                return
-            if self._reconcile_task_id:
-                return
-
-            query_service = ExecutionQueryService(self._pm.db)
-            running_rows = query_service.list_running_executions(limit=20)
-            failed_rows = query_service.list_failed_executions(limit=20)
-            if not running_rows and not failed_rows:
-                return
-
-            running = [(r["execution_id"], r["sample_id"], r["tool_id"]) for r in running_rows]
-            failed = [(r["execution_id"], r["sample_id"], r["tool_id"]) for r in failed_rows]
-            task_id = f"ui_reconcile_{int(time.time() * 1000)}"
-            self._reconcile_task_id = task_id
-            self._reconcile_runner.submit(
-                self._collect_reconcile_actions,
-                ssh,
-                self._pm.current_project.remote_base,
-                running,
-                failed,
-                task_id=task_id,
-            )
-        except Exception:
-            self._reconcile_task_id = ""
-            logger.exception("任务状态自动校准失败")
+        if self._reconcile_controller is not None:
+            self._reconcile_controller.schedule(delay_ms=delay_ms)
 
     @staticmethod
     def _collect_reconcile_actions(
@@ -484,42 +443,6 @@ class MainWindow(QMainWindow):
     def _parse_status_bundle(output: str) -> dict[str, str]:
         return ExecutionReconcileService.parse_status_bundle(output)
 
-    def _on_reconcile_task_succeeded(self, task_id: str, payload: object) -> None:
-        if task_id != self._reconcile_task_id:
-            return
-        self._reconcile_task_id = ""
-        try:
-            if not isinstance(payload, dict):
-                return
-            actions = payload
-            relink_ids = [item["execution_id"] for item in actions.get("relink_running", [])]
-            if relink_ids:
-                query_service = ExecutionQueryService(self._pm.db)
-                query_service.relink_failed_to_running(relink_ids)
-
-            tool_engine = self._locator.tool_engine
-            if tool_engine is None:
-                return
-
-            for item in actions.get("mark_completed", []):
-                descriptor = self._locator.plugin_registry.get_descriptor(item["tool_id"])
-                tool_engine.on_job_completed(
-                    execution_id=item["execution_id"],
-                    descriptor=descriptor,
-                    sample_id=item["sample_id"],
-                    output_dir=item["output_dir"],
-                )
-            for item in actions.get("mark_failed", []):
-                tool_engine.on_job_failed(item["execution_id"], item["error"])
-        except Exception:
-            logger.exception("应用任务状态校准结果失败")
-
-    def _on_reconcile_task_failed(self, task_id: str, error: str) -> None:
-        if task_id != self._reconcile_task_id:
-            return
-        self._reconcile_task_id = ""
-        logger.warning("任务状态后台校准失败: %s", error)
-
     def _update_queue_display(self, *_args) -> None:
         status = self._locator.job_queue.get_status()
         self.status_bar.update_queue_status(
@@ -533,10 +456,6 @@ class MainWindow(QMainWindow):
                 self._disk_monitor.timer.stop()
         except Exception:
             logger.debug("停止磁盘监控定时器失败", exc_info=True)
-        try:
-            self._reconcile_timer.stop()
-        except Exception:
-            logger.debug("停止任务校准定时器失败", exc_info=True)
 
         self._cleanup_disk_usage_worker()
 
@@ -561,16 +480,8 @@ class MainWindow(QMainWindow):
                 signal.disconnect(handler)
             except (TypeError, RuntimeError):
                 pass
-        for signal, handler in (
-            (self._reconcile_runner.task_succeeded, self._on_reconcile_task_succeeded),
-            (self._reconcile_runner.task_failed, self._on_reconcile_task_failed),
-        ):
-            try:
-                signal.disconnect(handler)
-            except (TypeError, RuntimeError):
-                pass
-        if not self._reconcile_runner.wait_for_done(timeout_ms=5000):
-            logger.warning("Reconcile TaskRunner shutdown wait timed out")
+        if self._reconcile_controller is not None:
+            self._reconcile_controller.shutdown()
 
         if self._ssh_service_wrapper is not None:
             for handler in (self._on_ssh_status_changed, self._on_ssh_changed_for_disk):
