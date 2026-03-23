@@ -12,6 +12,7 @@ let noticeHideTimer = null;
 let integratedRunModalContext = null;
 let _integratedChartRetryTimer = null;
 let _echartsLoadRequested = false;
+const remoteStatusLoading = new Set();
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -2089,6 +2090,10 @@ function toggleExecutionRemoteStatus(executionId, rowEl) {
         showNotice('远端状态接口不可用');
         return;
     }
+    if (remoteStatusLoading.has(executionId)) {
+        showNotice('远端状态查询进行中...', 'warning', 2000);
+        return;
+    }
 
     const detailsEl = rowEl.querySelector('.task-details');
     if (!detailsEl) {
@@ -2103,6 +2108,7 @@ function toggleExecutionRemoteStatus(executionId, rowEl) {
     }
 
     showNotice('正在查询远端执行状态...', 'warning', 6000);
+    remoteStatusLoading.add(executionId);
     bridge.get_execution_remote_status(executionId, function(json) {
         try {
             const payload = JSON.parse(json || '{}');
@@ -2120,6 +2126,8 @@ function toggleExecutionRemoteStatus(executionId, rowEl) {
         } catch (e) {
             console.error('Failed to parse remote status:', e);
             showNotice('远端状态解析失败');
+        } finally {
+            remoteStatusLoading.delete(executionId);
         }
     });
 }
