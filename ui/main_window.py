@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 import paramiko
-from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -32,36 +32,20 @@ from core.execution.execution_reconcile_service import ExecutionReconcileService
 from core.execution.task_runner import TaskRunner
 from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
-from core.remote.storage_manager import StorageManager
 from ui.pages import SettingsPage
 from ui.pages.home_page import HomePage
 from ui.pages.log_page import LogPage
 from ui.pages.project_page import ProjectPage, CreateProjectDialog
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
+from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
+from ui.controllers.main_window_log_controller import MainWindowLogController
+from ui.controllers.main_window_project_controller import MainWindowProjectController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 from ui.widgets.project_selector import ProjectSelectorButton, ProjectSelectorMenu
 
 logger = logging.getLogger(__name__)
 
-
-class _DiskUsageWorker(QObject):
-    """Run remote disk usage query off the UI thread."""
-
-    finished = pyqtSignal(float, float, float)
-    failed = pyqtSignal(str)
-
-    def __init__(self, ssh_service):
-        super().__init__()
-        self._ssh_service = ssh_service
-
-    def run(self) -> None:
-        try:
-            mgr = StorageManager(self._ssh_service)
-            usage = mgr.get_disk_usage("/h2ometa")
-            self.finished.emit(usage.used_gb, usage.total_gb, usage.percent)
-        except Exception as exc:
-            self.failed.emit(str(exc))
 
 class _CurrentPageStackedWidget(QStackedWidget):
     """Only use the current page minimum/size hint to avoid window shrink lock."""
@@ -101,17 +85,16 @@ class MainWindow(QMainWindow):
         self._reconcile_timer = QTimer(self)
         self._reconcile_timer.setInterval(20_000)
         self._reconcile_timer.timeout.connect(self._schedule_reconcile_running_tasks)
-
-        self._disk_timer = QTimer(self)
-        self._disk_timer.setInterval(300_000)
-        self._disk_timer.timeout.connect(self._refresh_disk_usage)
-        self._disk_thread: Optional[QThread] = None
-        self._disk_worker: Optional[_DiskUsageWorker] = None
+        self._disk_monitor: Optional[MainWindowDiskMonitor] = None
+        self._log_controller: Optional[MainWindowLogController] = None
+        self._project_controller: Optional[MainWindowProjectController] = None
 
         self._prev_activated = True
 
         self.init_ui()
+        self._initialize_controllers()
         self._connect_service_signals()
+        self._on_settings_active_client_changed(self.settings_page.get_active_client())
         QTimer.singleShot(0, self._initialize_services_deferred)
         QTimer.singleShot(0, self._initialize_log_context_deferred)
 
@@ -210,10 +193,29 @@ class MainWindow(QMainWindow):
 
         self.sidebar.setCurrentRow(0)
 
-        # 初始化一次 SSH 注入
-        self._on_settings_active_client_changed(self.settings_page.get_active_client())
-
         self._update_project_selector()
+
+    def _initialize_controllers(self) -> None:
+        self._disk_monitor = MainWindowDiskMonitor(
+            parent=self,
+            status_bar=self.status_bar,
+            locator=self._locator,
+            logger=logger,
+        )
+        self._log_controller = MainWindowLogController(
+            pm=self._pm,
+            locator=self._locator,
+            log_page=self.log_page,
+        )
+        self._project_controller = MainWindowProjectController(
+            pm=self._pm,
+            status_bar=self.status_bar,
+            log_page=self.log_page,
+            log_controller=self._log_controller,
+            update_project_selector_fn=self._update_project_selector,
+            schedule_reconcile_fn=self._schedule_reconcile_running_tasks,
+            notify_context_fn=self._notify_pages_context_changed,
+        )
 
     @staticmethod
     def _make_nav_icon(svg_path_d: str) -> QIcon:
@@ -249,7 +251,8 @@ class MainWindow(QMainWindow):
         if self._pm.current_project:
             pid = self._pm.current_project.project_id
             self.log_page.set_project_context(pid)
-            self._load_log_history_for_project(pid)
+            if self._log_controller is not None:
+                self._log_controller.load_log_history_for_project(pid, logger)
 
     def _apply_plugin_registry_to_settings(self) -> None:
         try:
@@ -435,34 +438,16 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", f"删除项目失败: {e}")
 
     def _on_project_switched(self, project_id: str) -> None:
-        self._update_project_selector()
-
-        current = self._pm.current_project
-        self.status_bar.update_project(current.name if current else None)
-        self._schedule_reconcile_running_tasks()
-        self._notify_pages_context_changed()
-
-        # 同步日志页面的项目上下文 + 加载历史
-        self.log_page.set_project_context(project_id)
-        self._load_log_history_for_project(project_id)
-
-        if getattr(self._pm, "db_read_only", False):
-            QMessageBox.warning(
-                self,
-                "项目只读模式",
-                "当前项目数据库被其他进程占用，已以只读模式打开。\n"
-                "请关闭占用该数据库的程序后重试，以恢复可写模式。",
+        if self._project_controller is not None:
+            self._project_controller.on_project_switched(
+                project_id,
+                logger=logger,
+                parent_widget=self,
             )
 
-        logger.info("项目已切换: %s", project_id)
-
     def _load_log_history_for_project(self, project_id: str) -> None:
-        try:
-            query_service = ExecutionQueryService(self._pm.db)
-            rows = query_service.list_recent_executions(limit=50, archived=False)
-            self.log_page.load_history_rows(rows, project_id)
-        except Exception:
-            logger.exception("加载日志历史失败")
+        if self._log_controller is not None:
+            self._log_controller.load_log_history_for_project(project_id, logger)
 
 
     def _notify_pages_context_changed(self) -> None:
@@ -508,58 +493,24 @@ class MainWindow(QMainWindow):
     def _on_ssh_changed_for_disk(self, connected: bool) -> None:
         """SSH connection changed: start/stop disk monitor."""
         if connected:
-            self._disk_timer.start()
-            QTimer.singleShot(100, self._refresh_disk_usage)
+            if self._disk_monitor is not None:
+                self._disk_monitor.on_ssh_changed(True)
             if not self._reconcile_timer.isActive():
                 self._reconcile_timer.start()
             self._schedule_reconcile_running_tasks(delay_ms=200)
         else:
-            self._disk_timer.stop()
+            if self._disk_monitor is not None:
+                self._disk_monitor.on_ssh_changed(False)
             self._reconcile_timer.stop()
-            self._cleanup_disk_usage_worker()
             self.status_bar.update_disk_usage(0, 0, 0)
 
     def _refresh_disk_usage(self) -> None:
-        ssh = self._locator.ssh_service
-        if ssh is None or not getattr(ssh, "is_connected", False):
-            return
-
-        if self._disk_thread is not None and self._disk_thread.isRunning():
-            return
-
-        self._cleanup_disk_usage_worker()
-
-        thread = QThread(self)
-        worker = _DiskUsageWorker(ssh)
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._on_disk_usage_ready)
-        worker.failed.connect(self._on_disk_usage_failed)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(self._cleanup_disk_usage_worker)
-
-        self._disk_thread = thread
-        self._disk_worker = worker
-        thread.start()
-
-    def _on_disk_usage_ready(self, used_gb: float, total_gb: float, percent: float) -> None:
-        self.status_bar.update_disk_usage(used_gb, total_gb, percent)
-
-    def _on_disk_usage_failed(self, err: str) -> None:
-        logger.warning("Failed to refresh disk usage: %s", err)
+        if self._disk_monitor is not None:
+            self._disk_monitor.refresh()
 
     def _cleanup_disk_usage_worker(self) -> None:
-        if self._disk_thread is not None:
-            try:
-                if self._disk_thread.isRunning():
-                    self._disk_thread.quit()
-                    self._disk_thread.wait(1000)
-            except Exception:
-                logger.debug("Failed to cleanup disk usage worker", exc_info=True)
-        self._disk_worker = None
-        self._disk_thread = None
+        if self._disk_monitor is not None:
+            self._disk_monitor.cleanup()
 
     def _connect_service_signals(self) -> None:
         queue = self._locator.job_queue
@@ -575,29 +526,22 @@ class MainWindow(QMainWindow):
         self._locator.execution_failed.connect(self._on_exec_failed_for_log)
 
     def _current_project_id(self) -> str:
+        if self._log_controller is not None:
+            return self._log_controller.current_project_id()
         cp = self._pm.current_project
         return cp.project_id if cp else ""
 
     def _on_exec_started_for_log(self, execution_id: str) -> None:
-        task_dir = self._locator.get_task_dir(execution_id)
-        if task_dir:
-            self.log_page.set_execution_context(execution_id, task_dir)
-            if self._ssh_service_wrapper:
-                self.log_page.set_ssh_run_fn(self._ssh_service_wrapper.run)
+        if self._log_controller is not None:
+            self._log_controller.on_exec_started(execution_id, self._ssh_service_wrapper)
 
     def _on_exec_completed_for_log(self, execution_id: str) -> None:
-        pid = self._current_project_id()
-        self.log_page.append_log("SUCCESS", f"任务完成: {execution_id[:16]}",
-                                 execution_id, pid)
-        self.log_page.stop_tailing()
+        if self._log_controller is not None:
+            self._log_controller.on_exec_completed(execution_id)
 
     def _on_exec_failed_for_log(self, execution_id: str, error: str) -> None:
-        msg = f"任务失败: {execution_id[:16]}"
-        if error:
-            msg += f" — {error[:100]}"
-        pid = self._current_project_id()
-        self.log_page.append_log("ERROR", msg, execution_id, pid)
-        self.log_page.stop_tailing()
+        if self._log_controller is not None:
+            self._log_controller.on_exec_failed(execution_id, error)
 
 
     def _schedule_reconcile_running_tasks(self, delay_ms: int = 150) -> None:
@@ -712,7 +656,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         try:
-            self._disk_timer.stop()
+            if self._disk_monitor is not None:
+                self._disk_monitor.timer.stop()
         except Exception:
             logger.debug("停止磁盘监控定时器失败", exc_info=True)
         try:
