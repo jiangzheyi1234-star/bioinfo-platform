@@ -7,22 +7,12 @@ from typing import Optional
 from PyQt6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QHBoxLayout,
-    QInputDialog,
-    QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
-    QMenu,
-    QMessageBox,
-    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
 
 from core.data.project_manager import ProjectManager
@@ -34,7 +24,6 @@ from core.remote.ssh_service import SSHService
 from ui.pages import SettingsPage
 from ui.pages.home_page import HomePage
 from ui.pages.log_page import LogPage
-from ui.pages.project_page import ProjectPage, CreateProjectDialog
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
 from ui.controllers.main_window_log_controller import MainWindowLogController
@@ -42,7 +31,7 @@ from ui.controllers.main_window_project_controller import MainWindowProjectContr
 from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
-from ui.widgets.project_selector import ProjectSelectorButton, ProjectSelectorMenu
+from ui.widgets.project_selector import ProjectSelectorButton
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +120,6 @@ class MainWindow(QMainWindow):
         self._project_selector_btn = ProjectSelectorButton()
         self._project_selector_btn.clicked.connect(self._show_project_menu)
         sidebar_layout.addWidget(self._project_selector_btn)
-        self._project_menu: Optional[ProjectSelectorMenu] = None
 
         middle_layout.addWidget(sidebar_widget)
 
@@ -210,12 +198,14 @@ class MainWindow(QMainWindow):
         )
         self._project_controller = MainWindowProjectController(
             pm=self._pm,
+            project_selector_btn=self._project_selector_btn,
             status_bar=self.status_bar,
             log_page=self.log_page,
             log_controller=self._log_controller,
-            update_project_selector_fn=self._update_project_selector,
             schedule_reconcile_fn=self._schedule_reconcile_running_tasks,
             notify_context_fn=self._notify_pages_context_changed,
+            logger=logger,
+            parent_widget=self,
         )
         self._ssh_controller = MainWindowSSHController(
             locator=self._locator,
@@ -301,98 +291,24 @@ class MainWindow(QMainWindow):
         self._ssh_service_wrapper = self._ssh_controller.apply_active_client(client)
 
     def _show_project_menu(self) -> None:
-        """显示项目选择菜单。"""
-        if self._project_menu is None:
-            self._project_menu = ProjectSelectorMenu(self)
-            self._project_menu.project_selected.connect(self._on_menu_project_selected)
-            self._project_menu.create_project_requested.connect(self._on_create_project_clicked)
-            self._project_menu.delete_project_requested.connect(self._on_menu_delete_project)
-        
-        self._project_menu.refresh_projects(self._pm)
-        self._project_menu.show_at(self._project_selector_btn)
+        if self._project_controller is not None:
+            self._project_controller.show_project_menu()
 
     def _update_project_selector(self) -> None:
-        """更新底部按钮显示的项目名。"""
-        current = self._pm.current_project
-        if current:
-            self._project_selector_btn.set_project_name(current.name)
-        else:
-            self._project_selector_btn.set_empty_state()
+        if self._project_controller is not None:
+            self._project_controller.update_project_selector()
 
     def _on_menu_project_selected(self, project_id: str) -> None:
-        """菜单选择了一个项目。"""
-        current = self._pm.current_project
-        if current and current.project_id == project_id:
-            return
-        try:
-            self._pm.open_project(project_id)
-            self._on_project_switched(project_id)
-        except Exception as e:
-            logger.error("切换项目失败: %s", e)
-            QMessageBox.warning(
-                self,
-                "切换项目失败",
-                f"无法打开该项目：{e}",
-            )
+        if self._project_controller is not None:
+            self._project_controller.on_menu_project_selected(project_id)
 
     def _on_create_project_clicked(self) -> None:
-        """菜单中点击新建项目。"""
-        dialog = CreateProjectDialog(self)
-        if dialog.exec():
-            name, desc = dialog.get_values()
-            if not name:
-                return
-            try:
-                project_id = self._pm.create_project(name, desc)
-                self._pm.open_project(project_id)
-                self._on_project_switched(project_id)
-            except Exception as e:
-                logger.error("创建项目失败: %s", e)
+        if self._project_controller is not None:
+            self._project_controller.on_create_project_clicked()
 
     def _on_menu_delete_project(self) -> None:
-        current = self._pm.current_project
-        current_id = current.project_id if current else ""
-
-        candidates = [
-            p for p in self._pm.list_projects()
-            if p.status == "active" and p.project_id != current_id
-        ]
-        if not candidates:
-            QMessageBox.information(self, "提示", "没有可删除的项目。请先切换到其他项目。")
-            return
-
-        labels = [p.name for p in candidates]
-        selected_name, ok = QInputDialog.getItem(
-            self,
-            "删除项目",
-            "选择要删除的项目：",
-            labels,
-            0,
-            False,
-        )
-        if not ok or not selected_name:
-            return
-
-        target = next((p for p in candidates if p.name == selected_name), None)
-        if target is None:
-            return
-
-        result = QMessageBox.question(
-            self,
-            "确认删除",
-            f"确定删除项目“{target.name}”吗？\n项目文件将被永久删除，无法恢复。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if result != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            self._pm.delete_project(target.project_id)
-            self._update_project_selector()
-            QMessageBox.information(self, "成功", f"项目“{target.name}”已删除。")
-        except Exception as e:
-            logger.error("删除项目失败: %s", e)
-            QMessageBox.critical(self, "错误", f"删除项目失败: {e}")
+        if self._project_controller is not None:
+            self._project_controller.on_menu_delete_project()
 
     def _on_project_switched(self, project_id: str) -> None:
         if self._project_controller is not None:
