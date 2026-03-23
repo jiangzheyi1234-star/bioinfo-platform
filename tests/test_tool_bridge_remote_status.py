@@ -104,3 +104,41 @@ def test_get_execution_remote_status_uses_cache_within_ttl(tmp_path: Path) -> No
     assert first_calls > 0
     assert ssh.calls == first_calls
     pm.close()
+
+
+def test_get_execution_remote_status_refreshes_after_ttl(tmp_path: Path) -> None:
+    pm = ProjectManager(
+        projects_root=tmp_path / "projects",
+        index_path=tmp_path / "projects.json",
+        last_project_path=tmp_path / "last_project.txt",
+    )
+    project_id = pm.create_project("status ttl project")
+    pm.open_project(project_id)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_ttl", "ttl", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, parameters, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("exec_ttl", "smp_ttl", "fastp", "{}", "running", time.time()),
+    )
+    pm.db.commit()
+
+    ssh = _FakeSSH()
+
+    class _Locator:
+        project_manager = pm
+        ssh_service = ssh
+
+    service = ToolBridgeService(service_locator=_Locator())
+    first = service.get_execution_remote_status("exec_ttl")
+    first_calls = ssh.calls
+    # Force cache expiry for running status (TTL = 5s)
+    service._remote_status_cache["exec_ttl"]["_cached_at"] = time.time() - 6
+    second = service.get_execution_remote_status("exec_ttl")
+
+    assert first["status"] == "ok"
+    assert second["status"] == "ok"
+    assert ssh.calls > first_calls
+    pm.close()
