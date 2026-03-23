@@ -94,6 +94,7 @@ class ToolBridgeService:
                 "targeted_seq_report.txt",
             ],
         }
+        self._remote_status_cache: dict[str, dict[str, Any]] = {}
 
     def set_service_locator(self, sl: ServiceLocator | None) -> None:
         self._service_locator = sl
@@ -1731,6 +1732,10 @@ class ToolBridgeService:
             "heartbeat_age_sec": None,
             "log_tail": "",
         }
+        cache_key = str(execution_id or "").strip()
+        cached = self._get_cached_remote_status(cache_key, data["local_status"])
+        if cached is not None:
+            return {"status": "ok", "data": cached, "message": "使用最近缓存状态"}
 
         ssh = self._get_ssh_service()
         if ssh is None or not getattr(ssh, "is_connected", False):
@@ -1780,7 +1785,31 @@ class ToolBridgeService:
         except Exception:
             logger.debug("Failed reading task.log tail for %s", execution_id, exc_info=True)
 
+        self._set_cached_remote_status(cache_key, data)
         return {"status": "ok", "data": data}
+
+    def _get_cached_remote_status(self, execution_id: str, local_status: str) -> dict[str, Any] | None:
+        if not execution_id:
+            return None
+        cached = self._remote_status_cache.get(execution_id)
+        if not cached:
+            return None
+        ts = float(cached.get("_cached_at", 0.0) or 0.0)
+        if ts <= 0:
+            return None
+        ttl_sec = 5.0 if local_status in {"pending", "running", "retrying"} else 30.0
+        if (time.time() - ts) > ttl_sec:
+            return None
+        data = dict(cached.get("data") or {})
+        return data if data else None
+
+    def _set_cached_remote_status(self, execution_id: str, data: dict[str, Any]) -> None:
+        if not execution_id:
+            return
+        self._remote_status_cache[execution_id] = {
+            "_cached_at": time.time(),
+            "data": dict(data),
+        }
 
     @staticmethod
     def _parse_remote_status_block(output: str) -> dict[str, str]:
