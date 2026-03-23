@@ -1487,8 +1487,6 @@ class ToolBridgeService:
 
         try:
             db = pm.db
-            self._reconcile_manual_resumed_executions(pm)
-            self._reconcile_running_executions(pm)
             superseded_ids = self._get_superseded_running_execution_ids(db)
             query_service = ExecutionQueryService(db)
             rows = query_service.get_execution_history_for_ui(limit=50)

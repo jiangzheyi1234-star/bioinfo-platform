@@ -98,6 +98,9 @@ class MainWindow(QMainWindow):
         self._reconcile_scheduled = False
         self._reconcile_runner = TaskRunner(max_threads=1, parent=self)
         self._reconcile_task_id = ""
+        self._reconcile_timer = QTimer(self)
+        self._reconcile_timer.setInterval(20_000)
+        self._reconcile_timer.timeout.connect(self._schedule_reconcile_running_tasks)
 
         self._disk_timer = QTimer(self)
         self._disk_timer.setInterval(300_000)
@@ -507,8 +510,12 @@ class MainWindow(QMainWindow):
         if connected:
             self._disk_timer.start()
             QTimer.singleShot(100, self._refresh_disk_usage)
+            if not self._reconcile_timer.isActive():
+                self._reconcile_timer.start()
+            self._schedule_reconcile_running_tasks(delay_ms=200)
         else:
             self._disk_timer.stop()
+            self._reconcile_timer.stop()
             self._cleanup_disk_usage_worker()
             self.status_bar.update_disk_usage(0, 0, 0)
 
@@ -699,6 +706,7 @@ class MainWindow(QMainWindow):
             job_id = f"h2o_{execution_id}"
             status_text = ""
             exit_code = ""
+            heartbeat_ts = 0
 
             try:
                 rc_status, out_status, _ = ssh.run(
@@ -719,6 +727,15 @@ class MainWindow(QMainWindow):
                     exit_code = out_exit.strip()
             except Exception:
                 pass
+            try:
+                rc_hb, out_hb, _ = ssh.run(
+                    f"cat {shlex.quote(f'{task_dir}/heartbeat.txt')} 2>/dev/null",
+                    timeout=10,
+                )
+                if rc_hb == 0:
+                    heartbeat_ts = int((out_hb or "0").strip() or "0")
+            except Exception:
+                heartbeat_ts = 0
 
             if exit_code == "0" or status_text == "DONE":
                 actions["mark_completed"].append(
@@ -727,6 +744,15 @@ class MainWindow(QMainWindow):
                         "sample_id": sample_id,
                         "tool_id": tool_id,
                         "output_dir": task_dir,
+                    }
+                )
+                continue
+            heartbeat_stale = heartbeat_ts > 0 and (now_ts - heartbeat_ts) > 900
+            if heartbeat_stale:
+                actions["mark_failed"].append(
+                    {
+                        "execution_id": execution_id,
+                        "error": "Heartbeat stale for over 15 minutes",
                     }
                 )
                 continue
@@ -804,6 +830,10 @@ class MainWindow(QMainWindow):
             self._disk_timer.stop()
         except Exception:
             logger.debug("停止磁盘监控定时器失败", exc_info=True)
+        try:
+            self._reconcile_timer.stop()
+        except Exception:
+            logger.debug("停止任务校准定时器失败", exc_info=True)
 
         self._cleanup_disk_usage_worker()
 
