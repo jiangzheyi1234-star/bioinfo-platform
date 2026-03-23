@@ -166,6 +166,13 @@ class TestOpenProject:
         # 切换后 current_project 应更新
         assert pm.current_project.project_id == id2
 
+    def test_open_project_applies_busy_timeout(self, pm: ProjectManager) -> None:
+        project_id = pm.create_project("busy timeout")
+        pm.open_project(project_id)
+        row = pm.db.execute("PRAGMA busy_timeout").fetchone()
+        assert row is not None
+        assert int(row[0]) >= 1000
+
 
 # ── ProjectManager.list_projects ──────────────────────────
 
@@ -413,3 +420,16 @@ class TestSchema:
         conn.executescript(_SCHEMA_SQL)
         conn.executescript(_SCHEMA_SQL)  # 再次执行不应报错
         conn.close()
+
+    def test_schema_migration_creates_history_indexes(self, pm: ProjectManager) -> None:
+        project_id = pm.create_project("索引迁移")
+        pm.open_project(project_id)
+        indexes = pm.db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()
+        names = {row[0] for row in indexes}
+        assert "idx_exec_active_created" in names
+        assert "idx_exec_sample_tool_created" in names
+        assert "idx_exec_status_tool_completed" in names
+        assert "idx_data_sample_type_tier_created" in names
+        assert "idx_eio_exec_dir" in names
