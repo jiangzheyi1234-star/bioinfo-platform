@@ -50,6 +50,29 @@ class ExecutionQueryService:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_recent_execution_rows(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT execution_id, tool_id, status, triggered_by,
+                   created_at, completed_at, error
+            FROM executions
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_execution_tool_map(self, execution_ids: list[str]) -> dict[str, str]:
+        if not execution_ids:
+            return {}
+        placeholders = ",".join(["?"] * len(execution_ids))
+        rows = self._conn.execute(
+            f"SELECT execution_id, tool_id FROM executions WHERE execution_id IN ({placeholders})",
+            tuple(execution_ids),
+        ).fetchall()
+        return {str(row["execution_id"]): str(row["tool_id"] or "") for row in rows}
+
     def archive_execution(self, execution_id: str, *, now: float | None = None) -> dict[str, str]:
         if now is None:
             now = time.time()
@@ -70,4 +93,3 @@ class ExecutionQueryService:
         )
         self._conn.commit()
         return {"status": "ok", "message": "任务记录已删除"}
-

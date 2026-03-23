@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.data.execution_query_service import ExecutionQueryService
 from ui.widgets import styles
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class ExecutionHistoryCard(QFrame):
         self.setObjectName("ExecutionHistoryCard")
         self.setStyleSheet(styles.CARD_FRAME("ExecutionHistoryCard"))
         self._db_conn = None
+        self._query_service: Optional[ExecutionQueryService] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -105,22 +107,25 @@ class ExecutionHistoryCard(QFrame):
             conn: SQLite 连接 (sqlite3.Connection)
         """
         self._db_conn = conn
+        self._query_service = ExecutionQueryService(conn) if conn is not None else None
+        self.refresh()
+
+    def set_query_service(self, query_service: ExecutionQueryService | None) -> None:
+        """设置查询服务并刷新。"""
+        self._query_service = query_service
+        self._db_conn = None
         self.refresh()
 
     def refresh(self) -> None:
         """从 executions 表刷新列表"""
         self._table.setRowCount(0)
 
-        if self._db_conn is None:
-            self._count_label.setText("未连接数据库")
+        if self._query_service is None:
+            self._count_label.setText("未连接查询服务")
             return
 
         try:
-            rows = self._db_conn.execute(
-                "SELECT execution_id, tool_id, status, triggered_by, "
-                "created_at, completed_at, error "
-                "FROM executions ORDER BY created_at DESC LIMIT 100"
-            ).fetchall()
+            rows = self._query_service.list_recent_execution_rows(limit=100)
         except Exception as e:
             logger.error("查询执行历史失败: %s", e)
             self._count_label.setText("查询失败")
@@ -131,12 +136,12 @@ class ExecutionHistoryCard(QFrame):
 
         for i, row in enumerate(rows):
             # 工具
-            tool_item = QTableWidgetItem(row["tool_id"])
-            tool_item.setData(Qt.ItemDataRole.UserRole, row["execution_id"])
+            tool_item = QTableWidgetItem(str(row.get("tool_id", "")))
+            tool_item.setData(Qt.ItemDataRole.UserRole, str(row.get("execution_id", "")))
             self._table.setItem(i, 0, tool_item)
 
             # 状态
-            status = row["status"]
+            status = str(row.get("status", ""))
             display_text, color = _STATUS_DISPLAY.get(status, (status, styles.COLOR_TEXT_DEFAULT))
             status_item = QTableWidgetItem(display_text)
             status_item.setForeground(
@@ -145,11 +150,11 @@ class ExecutionHistoryCard(QFrame):
             self._table.setItem(i, 1, status_item)
 
             # 触发来源
-            triggered = row["triggered_by"] or "unknown"
+            triggered = row.get("triggered_by") or "unknown"
             self._table.setItem(i, 2, QTableWidgetItem(triggered))
 
             # 开始时间
-            created = row["created_at"]
+            created = row.get("created_at")
             if created:
                 time_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(created))
             else:
@@ -157,7 +162,7 @@ class ExecutionHistoryCard(QFrame):
             self._table.setItem(i, 3, QTableWidgetItem(time_str))
 
             # 耗时
-            completed = row["completed_at"]
+            completed = row.get("completed_at")
             if created and completed:
                 elapsed = completed - created
                 if elapsed < 60:
@@ -173,7 +178,7 @@ class ExecutionHistoryCard(QFrame):
             self._table.setItem(i, 4, QTableWidgetItem(elapsed_str))
 
             # 错误信息
-            error = row["error"] or ""
+            error = row.get("error") or ""
             error_item = QTableWidgetItem(error[:80])
             if error:
                 error_item.setToolTip(error)

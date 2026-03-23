@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.data.data_registry import DataItem, DataRegistry
+from core.data.execution_query_service import ExecutionQueryService
 from ui.widgets import styles
 
 logger = logging.getLogger(__name__)
@@ -200,12 +201,9 @@ class InputDataSelector(QFrame):
         if conn is None:
             return {}
 
-        placeholders = ",".join(["?"] * len(execution_ids))
-        sql = f"SELECT execution_id, tool_id FROM executions WHERE execution_id IN ({placeholders})"
-
         try:
-            rows = conn.execute(sql, execution_ids).fetchall()
-            return {str(row["execution_id"]): str(row["tool_id"] or "") for row in rows}
+            query_service = ExecutionQueryService(conn)
+            return query_service.get_execution_tool_map(execution_ids)
         except Exception:
             logger.exception("读取 execution -> tool_id 映射失败")
             return {}
