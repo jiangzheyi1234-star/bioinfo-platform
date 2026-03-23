@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from core.data.execution_query_service import ExecutionQueryService
 from core.utils import sanitize_log
 from ui.page_base import BasePage
 from ui.widgets import styles
@@ -276,25 +277,12 @@ class LogPage(BasePage):
 
     def load_history(self, db: sqlite3.Connection, project_id: str) -> None:
         try:
-            rows = db.execute(
-                "SELECT execution_id, tool_id, status, created_at, completed_at, error "
-                "FROM executions ORDER BY created_at DESC LIMIT 50"
-            ).fetchall()
+            query_service = ExecutionQueryService(db)
+            rows = query_service.list_recent_executions(limit=50, archived=False)
         except Exception:
             logger.debug("加载执行历史失败", exc_info=True)
             return
-        payload = [
-            {
-                "execution_id": row[0],
-                "tool_id": row[1],
-                "status": row[2],
-                "created_at": row[3],
-                "completed_at": row[4] if len(row) > 4 else None,
-                "error": row[5] if len(row) > 5 else "",
-            }
-            for row in rows
-        ]
-        self.load_history_rows(payload, project_id)
+        self.load_history_rows(rows, project_id)
 
     def load_history_rows(self, rows: list[dict], project_id: str) -> None:
         try:
