@@ -77,3 +77,18 @@ def test_parse_status_bundle_extracts_values() -> None:
     assert parsed["status"] == "RUNNING"
     assert parsed["exit"] == "0"
     assert parsed["heartbeat"] == "12345"
+
+
+def test_read_status_bundle_falls_back_to_single_file_reads() -> None:
+    ssh = _FakeSSH(
+        {
+            "__STATUS__": (1, "", ""),
+            "status.txt": (0, "RUNNING\n", ""),
+            "exit_code.txt": (0, "0\n", ""),
+            "heartbeat.txt": (0, "12345\n", ""),
+        }
+    )
+    status_text, exit_code, heartbeat = MainWindow._read_status_bundle(ssh, "/remote/base/task")
+    assert status_text == "RUNNING"
+    assert exit_code == "0"
+    assert heartbeat == "12345"
