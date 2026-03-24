@@ -61,7 +61,7 @@ databases:
     param_name: db
     required: true
     description: "NCBI nt 核苷酸数据库"
-    default: "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
+    default: ""
 
 methods_template: >
   Nucleotide similarity searches were performed using BLASTn v{version}

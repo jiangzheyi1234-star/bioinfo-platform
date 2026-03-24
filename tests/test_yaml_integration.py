@@ -99,7 +99,7 @@ class TestFastpIntegration:
         )
         assert "fastp" in cmd
         assert "-i /data/s1.R1.fq.gz" in cmd
-        assert "-q 15" in cmd  # 默认值
+        assert "-q 20" in cmd  # 默认值
         assert "-l 50" in cmd  # 默认值
         assert "-w 4" in cmd   # 默认值
         assert "conda run -n fastp_env" in cmd
@@ -205,7 +205,7 @@ class TestKraken2Integration:
         assert "kraken2" in cmd
         assert "--db /h2ometa/databases/kraken2_standard" in cmd
         assert "--threads 8" in cmd   # 默认值
-        assert "--confidence 0.0" in cmd  # 默认值
+        assert "--confidence 0.1" in cmd  # 默认值
         assert "--minimum-hit-groups 2" in cmd  # 默认值
         assert "conda run -n kraken2_env" in cmd
 
@@ -301,7 +301,7 @@ class TestHostileIntegration:
         assert "--fastq1 /data/s1.clean.R1.fq.gz" in cmd
         assert "--aligner bowtie2" in cmd     # 默认值
         assert "--index human-t2t-hla" in cmd  # 默认值
-        assert "--threads 4" in cmd            # 默认值
+        assert "--threads 8" in cmd            # 默认值
         assert "conda run -n hostile_env" in cmd
         assert "--fastq2" not in cmd
 

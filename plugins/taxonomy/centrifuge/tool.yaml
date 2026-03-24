@@ -102,7 +102,7 @@ databases:
     label: "Centrifuge HPVC 病原体数据库"
     description: "Human Pathogen & Virus Centrifuge 数据库（填写前缀路径，不要加 .cf 后缀）"
     scope: "覆盖人类病原细菌、病毒，适用于临床感染快速检测。不含环境微生物和真菌。"
-    default: "/home/zyserver/project/lcy_project/my_database/hpvc/hpvc"
+    default: ""
 
 methods_template: >
   Taxonomic classification was performed using Centrifuge v{version}
