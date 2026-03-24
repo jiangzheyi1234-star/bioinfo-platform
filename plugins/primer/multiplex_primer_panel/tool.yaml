@@ -181,7 +181,7 @@ databases:
     required: true
     label: "core_nt 数据库"
     description: "服务器上的 core_nt BLAST 数据库前缀路径。"
-    default: "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
+    default: ""
 
 result_views:
   - type: table

@@ -143,7 +143,7 @@ databases:
     label: "Kraken2 标准数据库"
     description: "Kraken2 标准数据库（含细菌/古菌/病毒/人类）"
     scope: "覆盖 RefSeq 完整细菌、古菌、病毒和人类基因组，适用于广谱微生物鉴定。不含真菌和寄生虫（需 PlusPF 库）。"
-    default: "/home/zyserver/project_ssd/common_data/kraken2_standard"
+    default: ""
 
 methods_template: >
   Taxonomic classification was performed using Kraken2 v{version}
