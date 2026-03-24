@@ -125,11 +125,11 @@ class TestMainWindowStartup:
         assert hasattr(main_window, "settings_page")
         assert hasattr(main_window, "log_page")
 
-    def test_settings_page_has_database_paths_card(self, main_window):
-        assert hasattr(main_window.settings_page, "db_card")
+    def test_has_database_page(self, main_window):
+        assert hasattr(main_window, "database_page")
 
     def test_sidebar_count(self, main_window):
-        assert main_window.sidebar.count() == 4
+        assert main_window.sidebar.count() == 5
 
 
 class TestPageStartup:
@@ -561,6 +561,10 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     monkeypatch.setattr(config, "_CONFIG_PATH", tmp_config)
 
     schema = config.default_settings_schema()
+    schema["databases"] = {
+        "db_root": "/data/databases",
+        "overrides": {"blast_nt": "/remote/blast_nt"},
+    }
     config.save_config(schema)
 
     pm = ProjectManager(
@@ -577,13 +581,14 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     assert "execution" not in config.get_config()
 
     settings_page = window.settings_page
-    settings_page.db_card.set_values({"blast_nt": "/remote/blast_nt"})
     settings_page.ncbi_card.set_values(email="user@example.com")
     settings_page.save_config()
     _flush_events(qapp)
 
     saved = config.get_config()
     assert "execution" not in saved
+    assert saved["databases"]["db_root"] == "/data/databases"
+    assert saved["databases"]["overrides"]["blast_nt"] == "/remote/blast_nt"
     assert config.get_database_path("blast_nt") == "/remote/blast_nt"
     assert config.get_ncbi_setting("email") == "user@example.com"
 
