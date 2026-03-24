@@ -4,7 +4,7 @@ version: "2.1.12"
 category: annotation
 description: "基于 eggNOG 数据库的功能注释工具"
 conda_env: eggnog_env
-install_cmd: "conda create -n eggnog_env -c bioconda -c conda-forge eggnog-mapper -y"
+install_cmd: "conda create -n eggnog_env -c bioconda -c conda-forge eggnog-mapper=2.1.12 -y"
 
 detection:
   command: "emapper.py --version"

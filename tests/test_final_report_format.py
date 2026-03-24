@@ -6,7 +6,9 @@ import sys
 from pathlib import Path
 
 
-MODULE_PATH = Path("E:/代码/bio_ui/plugins/primer/multiplex_primer_panel/workflow/my_code/7_final_report.py")
+MODULE_PATH = Path(__file__).resolve().parent.parent / (
+    "plugins/primer/multiplex_primer_panel/workflow/my_code/7_final_report.py"
+)
 
 
 def load_module():

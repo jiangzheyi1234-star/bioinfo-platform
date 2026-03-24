@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 
 from jinja2 import BaseLoader, Environment, TemplateSyntaxError, UndefinedError
 
+from core.environment.env_detector import expected_env_path
+
 logger = logging.getLogger(__name__)
 
 # Jinja2 环境配置: trim_blocks + lstrip_blocks 处理模板缩进
@@ -167,7 +169,17 @@ class CommandBuilder:
         # conda/mamba 激活包装（优先使用传入的 conda_executable，回退到模块级常量）
         if conda_env:
             runner = conda_executable or CONDA_RUNNER
-            command = f"{runner} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
+            env_prefix = expected_env_path(conda_executable, conda_env) if conda_executable else ""
+            if env_prefix:
+                # 使用绝对路径（-p），与 env_installer 安装路径完全一致，避免找错 env
+                command = f"{runner} run -p {env_prefix} bash -c '{_escape_single_quotes(command)}'"
+            else:
+                # fallback：conda_executable 未知时按名字查找（记录警告）
+                logger.warning(
+                    "conda_executable 未知，回退到 conda run -n %s（可能找到错误的环境）",
+                    conda_env,
+                )
+                command = f"{runner} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
 
         logger.debug("已构建命令 (插件: %s): %s", descriptor.get("id"), command[:200])
         return command

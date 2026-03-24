@@ -4,7 +4,7 @@ version: "1.14.6"
 category: annotation
 description: "快速原核基因组注释工具"
 conda_env: prokka_env
-install_cmd: "conda create -n prokka_env -c bioconda -c conda-forge prokka -y"
+install_cmd: "conda create -n prokka_env -c bioconda -c conda-forge prokka=1.14.6 -y"
 
 detection:
   command: "prokka --version 2>&1"

@@ -13,11 +13,18 @@ if str(project_root) not in sys.path:
 
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_qapp():
-    """Session-wide QApplication — 所有需要 Qt 信号的测试共享同一个实例。"""
+    """Session-wide QApplication — 所有需要 Qt 信号的测试共享同一个实例。
+
+    在创建 QApplication 前设置 AA_ShareOpenGLContexts，确保 QWebEngineView
+    可以在 QApplication 存在后正常导入（否则 offscreen 环境下会报
+    "QtWebEngineWidgets must be imported before QCoreApplication" 错误）。
+    """
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication
 
     app = QApplication.instance()
     if app is None:
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
         app = QApplication(sys.argv)
     yield app
 

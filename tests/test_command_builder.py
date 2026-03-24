@@ -361,8 +361,8 @@ class TestCondaExecutable:
             sample_id="s1",
             conda_executable="/home/user/miniconda3/bin/conda",
         )
-        assert "/home/user/miniconda3/bin/conda run -n fastp_env" in cmd
-        assert "conda run -n fastp_env" in cmd
+        assert "/home/user/miniconda3/bin/conda run -p /home/user/miniconda3/envs/fastp_env" in cmd
+        assert "conda run -p" in cmd
 
     def test_empty_conda_executable_uses_default(self, fastp_descriptor: dict) -> None:
         """空 conda_executable 应回退到 CONDA_RUNNER 默认值。"""
