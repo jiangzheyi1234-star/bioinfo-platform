@@ -163,3 +163,26 @@ methods_template: >
   fastp v0.23 (Q>={qualified_quality_phred}, length>={length_required}),
   hostile for host read removal, and Centrifuge v{version}
   with {db_name} database (min-hitlen={min_hitlen}).
+
+usage:
+  when_to_use: 用于 Unknown Sample Pathogen Detection 的常规分析，建议优先使用 Recommended 预设。
+  parameter_guide:
+  - name: threads
+    recommendation: '推荐值: 8（当前默认）；建议范围: 1 ~ 64'
+  - name: min_hitlen
+    recommendation: '推荐值: 22（当前默认）；建议范围: 15 ~ 100'
+  - name: qualified_quality_phred
+    recommendation: '推荐值: 15（当前默认）；建议范围: 5 ~ 30'
+  - name: length_required
+    recommendation: '推荐值: 50（当前默认）；建议范围: 20 ~ 200'
+  presets:
+  - id: standard
+    label: 常规分析(Recommended)
+    params:
+      threads: 8
+      min_hitlen: 22
+      qualified_quality_phred: 15
+      length_required: 50
+    notes: 推荐默认档，参数与当前工具默认值一致。
+  required_inputs:
+  - 'compressed_reads: 必填，类型 archive。'

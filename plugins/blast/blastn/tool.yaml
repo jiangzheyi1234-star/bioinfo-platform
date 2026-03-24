@@ -74,3 +74,28 @@ result_views:
     config:
       columns: [qseqid, sseqid, pident, length, evalue, bitscore]
       sortable: true
+
+usage:
+  when_to_use: 用于 BLASTn 的常规分析，建议优先使用 Recommended 预设。
+  parameter_guide:
+  - name: evalue
+    recommendation: '推荐值: 1e-05（当前默认）'
+  - name: max_target_seqs
+    recommendation: '推荐值: 10（当前默认）；建议范围: 1 ~ 500'
+  - name: outfmt
+    recommendation: '推荐值: 6 qseqid sseqid pident length mismatch gapopen qstart qend
+      sstart send evalue bitscore（当前默认）'
+  - name: threads
+    recommendation: '推荐值: 4（当前默认）；建议范围: 1 ~ 64'
+  presets:
+  - id: standard
+    label: 常规分析(Recommended)
+    params:
+      evalue: 1.0e-05
+      max_target_seqs: 10
+      outfmt: 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send
+        evalue bitscore
+      threads: 4
+    notes: 推荐默认档，参数与当前工具默认值一致。
+  required_inputs:
+  - 'query: 必填，类型 fasta。'
