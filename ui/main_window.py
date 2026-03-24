@@ -20,6 +20,7 @@ from core.execution.execution_reconcile_service import ExecutionReconcileService
 from core.service_locator import ServiceLocator
 from core.remote.ssh_service import SSHService
 from ui.pages import SettingsPage
+from ui.pages.database_page import DatabasePage
 from ui.pages.home_page import HomePage
 from ui.pages.log_page import LogPage
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
@@ -130,6 +131,8 @@ class MainWindow(QMainWindow):
 
         self.settings_page = SettingsPage()
         self.settings_page.active_client_changed.connect(self._on_settings_active_client_changed)
+        self.database_page = DatabasePage()
+        self.content.addWidget(self.database_page)
         self.content.addWidget(self.settings_page)
 
         # 将 PluginRegistry 注入 LinuxSettingsCard，支持动态工具环境检测
@@ -149,6 +152,8 @@ class MainWindow(QMainWindow):
              "项目首页"),
             ("M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
              "病原检测"),
+            ("M5 4h14a2 2 0 012 2v3a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zm0 9h14a2 2 0 012 2v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3a2 2 0 012-2z",
+             "数据库"),
             ("M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
              "系统设置"),
             ("M4 6h16M4 10h16M4 14h16M4 18h16",
@@ -290,6 +295,8 @@ class MainWindow(QMainWindow):
         if self._ssh_controller is None:
             return
         self._ssh_service_wrapper = self._ssh_controller.apply_active_client(client)
+        if hasattr(self, "database_page") and self.database_page is not None:
+            self.database_page.set_active_client(client)
 
     def _show_project_menu(self) -> None:
         if self._project_controller is not None:
@@ -326,7 +333,7 @@ class MainWindow(QMainWindow):
 
     def _notify_pages_context_changed(self) -> None:
         """Notify pages to refresh UI state when SSH/project context changes."""
-        for page_name in ("home_page", "detection_page"):
+        for page_name in ("home_page", "detection_page", "database_page"):
             page = getattr(self, page_name, None)
             callback = getattr(page, "refresh_context", None)
             if callable(callback):

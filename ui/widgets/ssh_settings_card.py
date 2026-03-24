@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import socket
+import sys
 import time
 from typing import Protocol, Callable, Optional
 
@@ -30,6 +32,9 @@ from ui.widgets.styles import (
     STATUS_SUCCESS,
     STATUS_ERROR,
 )
+
+def _is_test_mode() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
 
 
 class _FinishedSignal(Protocol):
@@ -178,8 +183,9 @@ class SshSettingsCard(QFrame):
                 'use_key': use_key, 'key_file': key_file,
             }
             self._lock_inputs()
-            self._auto_connect_armed = True
-            QTimer.singleShot(1000, self._consume_auto_connect)
+            self._auto_connect_armed = not _is_test_mode()
+            if self._auto_connect_armed:
+                QTimer.singleShot(1000, self._consume_auto_connect)
         else:
             self._auto_connect_armed = False
             self._enable_editing()
@@ -191,6 +197,9 @@ class SshSettingsCard(QFrame):
         guarantees only one connect attempt is started.
         """
         if not self._auto_connect_armed:
+            return
+        if _is_test_mode():
+            self._auto_connect_armed = False
             return
         self._auto_connect_armed = False
         self.try_auto_connect()
@@ -214,6 +223,9 @@ class SshSettingsCard(QFrame):
         self._on_connect_ssh()
 
     def auto_check_on_start(self) -> None:
+        if _is_test_mode():
+            self._auto_connect_armed = False
+            return
         if self._auto_connect_armed:
             self._consume_auto_connect()
             return

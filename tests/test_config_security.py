@@ -50,3 +50,33 @@ def test_normalize_config_keeps_password_field():
     normalized = config.normalize_config(data)
 
     assert normalized["ssh"]["password"] == "should-survive"
+
+
+def test_normalize_config_migrates_legacy_databases_flat():
+    data = config.default_settings_schema()
+    data["databases"] = {
+        "kraken2": "/db/kraken2",
+        "checkm2": "",
+        "blast_nt": "/db/blast_nt",
+    }
+
+    normalized = config.normalize_config(data)
+
+    assert normalized["databases"]["db_root"] == ""
+    assert normalized["databases"]["overrides"] == {
+        "kraken2": "/db/kraken2",
+        "blast_nt": "/db/blast_nt",
+    }
+
+
+def test_normalize_config_keeps_structured_databases():
+    data = config.default_settings_schema()
+    data["databases"] = {
+        "db_root": "/data/databases",
+        "overrides": {"kraken2": "/custom/kraken2"},
+    }
+
+    normalized = config.normalize_config(data)
+
+    assert normalized["databases"]["db_root"] == "/data/databases"
+    assert normalized["databases"]["overrides"]["kraken2"] == "/custom/kraken2"

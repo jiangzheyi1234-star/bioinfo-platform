@@ -7,7 +7,8 @@ databases:
   kraken2_standard:
     name: "Kraken2 Standard Database"
     description: "标准数据库，含细菌/古菌/病毒/人类参考序列"
-    install_path: "/home/zyserver/project_ssd/common_data/kraken2_standard"
+    category: "reads"
+    install_path: "kraken2_standard"
     size_mb: 50000
     tools: ["kraken2"]
     mirrors:
@@ -23,7 +24,8 @@ databases:
   kraken2_plusPFP:
     name: "Kraken2 PlusPFP Database"
     description: "扩展数据库，包含原核+真菌+原生生物+植物"
-    install_path: "/h2ometa/databases/kraken2_plusPFP"
+    category: "reads"
+    install_path: "kraken2_plusPFP"
     size_mb: 150000
     tools: ["kraken2"]
     mirrors:
@@ -37,7 +39,8 @@ databases:
   blast_nt:
     name: "NCBI nt 核苷酸数据库"
     description: "NCBI 全部核苷酸序列数据库"
-    install_path: "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
+    category: "reads"
+    install_path: "blast_nt"
     size_mb: 350000
     tools: ["blastn"]
     mirrors:
@@ -53,7 +56,8 @@ databases:
   core_nt:
     name: "Core NT 数据库"
     description: "精选核心核苷酸数据库（较小）"
-    install_path: "/home/zyserver/project_ssd/common_data/core_nt_database"
+    category: "reads"
+    install_path: "core_nt"
     size_mb: 80000
     tools: ["blastn"]
     integrity_check:
@@ -63,7 +67,8 @@ databases:
   centrifuge_hpvc:
     name: "Centrifuge HPVC 病原体数据库"
     description: "Human Pathogen & Virus Centrifuge 数据库"
-    install_path: "/home/zyserver/project/lcy_project/my_database/hpvc"
+    category: "reads"
+    install_path: ""
     size_mb: 5000
     tools: ["centrifuge"]
     builtin: true
@@ -76,7 +81,8 @@ databases:
   checkm2_db:
     name: "CheckM2 参考数据库"
     description: "CheckM2 DIAMOND 模型数据库"
-    install_path: "/h2ometa/databases/checkm2"
+    category: "mag"
+    install_path: "checkm2"
     size_mb: 3500
     tools: ["checkm2"]
     mirrors:
@@ -90,7 +96,8 @@ databases:
   gtdb_r220:
     name: "GTDB Release 220"
     description: "GTDB-Tk 参考数据库，基因组分类注释"
-    install_path: "/h2ometa/databases/gtdbtk/release220"
+    category: "mag"
+    install_path: "gtdbtk/release220"
     size_mb: 110000
     tools: ["gtdbtk"]
     mirrors:
@@ -105,7 +112,8 @@ databases:
   busco_bacteria:
     name: "BUSCO Bacteria ODB10"
     description: "BUSCO 细菌谱系数据库"
-    install_path: "/h2ometa/databases/busco/bacteria_odb10"
+    category: "mag"
+    install_path: "busco/bacteria_odb10"
     size_mb: 200
     tools: ["busco"]
     mirrors:
@@ -120,7 +128,8 @@ databases:
   bakta_db:
     name: "Bakta 注释数据库 (Full)"
     description: "Bakta 完整注释数据库"
-    install_path: "/h2ometa/databases/bakta/db"
+    category: "annotation"
+    install_path: "bakta/db"
     size_mb: 35000
     tools: ["bakta"]
     mirrors:
@@ -134,7 +143,8 @@ databases:
   bakta_db_light:
     name: "Bakta 注释数据库 (Light)"
     description: "Bakta 轻量版注释数据库"
-    install_path: "/h2ometa/databases/bakta/db-light"
+    category: "annotation"
+    install_path: "bakta/db-light"
     size_mb: 3000
     tools: ["bakta"]
     mirrors:
@@ -148,7 +158,8 @@ databases:
   eggnog_db:
     name: "eggNOG v5 数据库"
     description: "eggNOG-mapper DIAMOND 数据库"
-    install_path: "/h2ometa/databases/eggnog"
+    category: "annotation"
+    install_path: "eggnog"
     size_mb: 45000
     tools: ["eggnog"]
     mirrors:
@@ -164,7 +175,8 @@ databases:
   card_db:
     name: "CARD 耐药基因数据库"
     description: "Comprehensive Antibiotic Resistance Database，RGI 依赖"
-    install_path: "/h2ometa/databases/card"
+    category: "amr"
+    install_path: "card"
     size_mb: 500
     tools: ["rgi"]
     mirrors:
@@ -174,12 +186,13 @@ databases:
       status_file: ".install_ok"
       key_files: ["card.json"]
       min_size_mb: 200
-    install_cmd: "rgi load --card_json /h2ometa/databases/card/card.json --local"
+    install_cmd: "rgi load --card_json {{ db_path }}/card.json --local"
 
   amrfinder_db:
     name: "NCBI AMR 参考数据库"
     description: "AMRFinderPlus 参考数据库（含耐药/毒力/应激基因）"
-    install_path: "/h2ometa/databases/amrfinder"
+    category: "amr"
+    install_path: "amrfinder"
     size_mb: 1000
     tools: ["amrfinderplus"]
     mirrors:
@@ -189,14 +202,15 @@ databases:
       status_file: ".install_ok"
       key_files: ["AMR_CDS", "AMRProt"]
       min_size_mb: 500
-    install_cmd: "amrfinder_update --force_update --database /h2ometa/databases/amrfinder"
+    install_cmd: "amrfinder_update --force_update --database {{ db_path }}"
 
   # ── 质控/嵌合检测数据库 ────────────────────────────────
 
   gunc_db:
     name: "GUNC proGenomes 数据库"
     description: "GUNC MAG 嵌合体检测参考数据库"
-    install_path: "/h2ometa/databases/gunc"
+    category: "mag"
+    install_path: "gunc"
     size_mb: 15000
     tools: ["gunc"]
     mirrors:
@@ -212,7 +226,8 @@ databases:
   metaphlan_db:
     name: "MetaPhlAn ChocoPhlAn 数据库"
     description: "MetaPhlAn 标记基因分类数据库"
-    install_path: "/h2ometa/databases/metaphlan"
+    category: "reads"
+    install_path: "metaphlan"
     size_mb: 15000
     tools: ["metaphlan"]
     mirrors:
@@ -228,7 +243,8 @@ databases:
   genomad_db:
     name: "geNomad 参考数据库"
     description: "geNomad 病毒/质粒参考数据库"
-    install_path: "/h2ometa/databases/genomad"
+    category: "other"
+    install_path: "genomad"
     size_mb: 3000
     tools: ["genomad"]
     mirrors:
@@ -238,13 +254,14 @@ databases:
       status_file: ".install_ok"
       key_files: ["genomad_db/"]
       min_size_mb: 2000
-    install_cmd: "genomad download-database /h2ometa/databases/genomad"
+    install_cmd: "genomad download-database {{ db_path }}"
 
   # ── 其他 ───────────────────────────────────────────────
 
   hostile_human_t2t:
     name: "Human T2T-HLA 参考索引"
     description: "Hostile 宿主去除参考基因组（内置，无需手动安装）"
+    category: "other"
     install_path: ""
     size_mb: 0
     tools: ["hostile"]

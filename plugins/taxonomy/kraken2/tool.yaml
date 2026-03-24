@@ -55,7 +55,7 @@ outputs:
 parameters:
   - name: confidence
     type: float
-    default: 0.0
+    default: 0.1
     range: [0.0, 1.0]
     label: "置信度阈值"
     description: "分类结果的最低置信度，越高越严格"
@@ -70,6 +70,44 @@ parameters:
     default: 8
     range: [1, 64]
     label: "线程数"
+
+usage:
+  when_to_use: "用于质控/去宿主后的 reads 物种分类，输出 kreport 和分类明细。"
+  required_inputs:
+    - "reads: 必填，FASTQ/FASTQ.GZ（单端或交错双端）。"
+    - "db: 必填，Kraken2 数据库路径（通常由系统数据库配置自动注入）。"
+  optional_inputs:
+    - "reference_fasta: 可选；提供后可启用 Step-2 覆盖深度分析。"
+    - "amplicon_bed: 可选；与 reference_fasta 配合生成扩增子性能表。"
+  parameter_guide:
+    - name: confidence
+      recommendation: "常规推荐 0.1；快速筛查可用 0.05；高严格度可用 0.2。"
+    - name: minimum_hit_groups
+      recommendation: "常规推荐 2；更宽松可设 1；更严格可设 3。"
+    - name: threads
+      recommendation: "常规建议 8；CPU 充足可提高到 16 或更高。"
+  presets:
+    - id: fast
+      label: "快速筛查"
+      params:
+        confidence: 0.05
+        minimum_hit_groups: 1
+        threads: 8
+      notes: "提高召回，适合初筛阶段。"
+    - id: standard
+      label: "常规分析(Recommended)"
+      params:
+        confidence: 0.1
+        minimum_hit_groups: 2
+        threads: 8
+      notes: "推荐默认档，平衡灵敏度与准确性。"
+    - id: strict
+      label: "高严格度"
+      params:
+        confidence: 0.2
+        minimum_hit_groups: 3
+        threads: 8
+      notes: "降低误报，适合确认性分析。"
 
 command_template: |
   kraken2 \
@@ -105,7 +143,7 @@ databases:
     label: "Kraken2 标准数据库"
     description: "Kraken2 标准数据库（含细菌/古菌/病毒/人类）"
     scope: "覆盖 RefSeq 完整细菌、古菌、病毒和人类基因组，适用于广谱微生物鉴定。不含真菌和寄生虫（需 PlusPF 库）。"
-    default: "/home/zyserver/project_ssd/common_data/kraken2_standard"
+    default: ""
 
 methods_template: >
   Taxonomic classification was performed using Kraken2 v{version}
