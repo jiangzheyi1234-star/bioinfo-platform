@@ -152,3 +152,17 @@ result_views:
     config:
       columns: [pathogen, region_id, forward_primer, reverse_primer, position, amplicon]
       sortable: true
+
+usage:
+  when_to_use: 用于 Pathogen Primer Design 的常规分析，建议优先使用 Recommended 预设。
+  parameter_guide:
+  - name: mode
+    recommendation: '推荐值: quick（当前默认）；可选值: quick'
+  presets:
+  - id: standard
+    label: 常规分析(Recommended)
+    params:
+      mode: quick
+    notes: 推荐默认档，参数与当前工具默认值一致。
+  required_inputs:
+  - 'genomes_bundle: 必填，类型 archive。'

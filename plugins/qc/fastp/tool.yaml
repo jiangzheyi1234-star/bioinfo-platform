@@ -41,7 +41,7 @@ outputs:
 parameters:
   - name: qualified_quality_phred
     type: int
-    default: 15
+    default: 20
     label: "最低质量值"
     description: "低于此质量值的碱基将被过滤"
   - name: length_required
@@ -54,6 +54,41 @@ parameters:
     default: 4
     label: "线程数"
     range: [1, 16]
+
+usage:
+  when_to_use: "用于原始 FASTQ 的标准质控（去低质量、短序列过滤、生成 HTML/JSON 质控报告）。"
+  required_inputs:
+    - "reads_1: 必填，FASTQ/FASTQ.GZ。"
+    - "reads_2: 双端样本时填写；单端样本留空。"
+  parameter_guide:
+    - name: qualified_quality_phred
+      recommendation: "常规项目建议 20；快速筛查可用 15；高严格度可用 25。"
+    - name: length_required
+      recommendation: "常规项目建议 50；短片段数据可降到 30；高严格度可升到 75。"
+    - name: thread
+      recommendation: "按机器 CPU 核数设置，常规推荐 4~16。"
+  presets:
+    - id: fast
+      label: "快速筛查"
+      params:
+        qualified_quality_phred: 15
+        length_required: 30
+        thread: 4
+      notes: "保留更多 reads，适合初筛或探索性分析。"
+    - id: standard
+      label: "常规分析(Recommended)"
+      params:
+        qualified_quality_phred: 20
+        length_required: 50
+        thread: 4
+      notes: "推荐默认档，平衡敏感性与特异性。"
+    - id: strict
+      label: "高严格度"
+      params:
+        qualified_quality_phred: 25
+        length_required: 75
+        thread: 4
+      notes: "降低低质量噪音，适合对假阳性控制更严格的场景。"
 
 command_template: |
   fastp \

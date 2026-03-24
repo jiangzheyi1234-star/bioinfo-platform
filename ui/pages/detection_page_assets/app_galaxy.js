@@ -391,7 +391,14 @@ function renderIntegratedRunModalForm(descriptor) {
         parameters.forEach(param => {
             const id = `modal-param-${param.name}`;
             const label = escapeHtml(param.label || param.name || 'Param');
-            const defaultValue = param.default !== undefined ? param.default : '';
+            const recommendedValue = getRecommendedValueFromUsage(descriptor, param.name);
+            const defaultValue = recommendedValue !== undefined
+                ? recommendedValue
+                : (param.default !== undefined ? param.default : '');
+            const tooltipText = buildParamTooltipText(param, descriptor);
+            const tooltipHtml = tooltipText
+                ? `<button type="button" class="help-icon-btn" aria-label="参数说明" title="${escapeHtml(tooltipText)}">?</button>`
+                : '';
             let inputHtml = '';
             if (param.type === 'int' || param.type === 'integer') {
                 inputHtml = `<input type="number" class="form-input" id="${id}" value="${defaultValue}" step="1">`;
@@ -402,8 +409,23 @@ function renderIntegratedRunModalForm(descriptor) {
             } else {
                 inputHtml = `<input type="text" class="form-input" id="${id}" value="${escapeHtml(String(defaultValue))}" placeholder="${escapeHtml(param.description || '')}">`;
             }
-            parts.push(`<div class="integrated-input-item"><div class="integrated-input-label-row"><span class="integrated-input-label">${label}</span></div>${inputHtml}</div>`);
+            const guide = getUsageGuideForParam(descriptor, param.name);
+            const helper = guide?.recommendation || param.description || '';
+            const helperHtml = helper
+                ? `<div class="integrated-param-help">${escapeHtml(String(helper))}</div>`
+                : '';
+            parts.push(`
+                <div class="integrated-input-item">
+                    <div class="integrated-input-label-row">
+                        <span class="integrated-input-label">${label}</span>
+                        ${tooltipHtml}
+                    </div>
+                    ${inputHtml}
+                    ${helperHtml}
+                </div>
+            `);
         });
+        parts.push(buildUsagePresetsPanel(descriptor, 'integrated-modal'));
         parts.push('</div>');
     }
 
@@ -559,6 +581,103 @@ function setSectionCollapsed(targetId, collapsed) {
         btn.textContent = collapsed ? '展开' : '收起';
         btn.setAttribute('aria-expanded', String(!collapsed));
     }
+}
+
+function normalizePresetLabel(label) {
+    return String(label || '').toLowerCase();
+}
+
+function getRecommendedPreset(descriptor) {
+    const usage = descriptor?.usage || {};
+    const presets = Array.isArray(usage.presets) ? usage.presets : [];
+    if (!presets.length) {
+        return null;
+    }
+    const byId = presets.find(p => String(p?.id || '').toLowerCase() === 'standard');
+    if (byId) {
+        return byId;
+    }
+    const byLabel = presets.find(p => normalizePresetLabel(p?.label).includes('recommended'));
+    if (byLabel) {
+        return byLabel;
+    }
+    return presets[0];
+}
+
+function getUsageGuideForParam(descriptor, paramName) {
+    const guides = descriptor?.usage?.parameter_guide;
+    if (!Array.isArray(guides)) {
+        return null;
+    }
+    return guides.find(item => String(item?.name || '') === String(paramName || '')) || null;
+}
+
+function getRecommendedValueFromUsage(descriptor, paramName) {
+    const preset = getRecommendedPreset(descriptor);
+    if (!preset || !preset.params || typeof preset.params !== 'object') {
+        return undefined;
+    }
+    if (!Object.prototype.hasOwnProperty.call(preset.params, paramName)) {
+        return undefined;
+    }
+    return preset.params[paramName];
+}
+
+function buildParamTooltipText(param, descriptor) {
+    const parts = [];
+    if (param?.description) {
+        parts.push(String(param.description).trim());
+    }
+    if (Array.isArray(param?.range) && param.range.length === 2) {
+        parts.push(`范围: ${param.range[0]} ~ ${param.range[1]}`);
+    }
+    if (Array.isArray(param?.choices) && param.choices.length) {
+        parts.push(`可选: ${param.choices.join(', ')}`);
+    }
+    const guide = getUsageGuideForParam(descriptor, param?.name || '');
+    if (guide?.recommendation) {
+        parts.push(String(guide.recommendation).trim());
+    }
+    return parts.filter(Boolean).join('；');
+}
+
+function buildUsagePresetsPanel(descriptor, panelIdPrefix) {
+    const usage = descriptor?.usage || {};
+    const presets = Array.isArray(usage.presets) ? usage.presets : [];
+    if (!presets.length) {
+        return '';
+    }
+    const preferred = getRecommendedPreset(descriptor);
+    const listHtml = presets.map(preset => {
+        const params = (preset && typeof preset.params === 'object') ? preset.params : {};
+        const paramPairs = Object.keys(params).map(key => `${key}=${params[key]}`);
+        const presetLine = paramPairs.length ? paramPairs.join(', ') : '无显式参数';
+        const isRecommended = preferred && preset === preferred;
+        const badge = isRecommended ? '<span class="usage-preset-recommended">Recommended</span>' : '';
+        const notes = preset?.notes ? `<div class="usage-preset-notes">${escapeHtml(String(preset.notes))}</div>` : '';
+        return `
+            <div class="usage-preset-row">
+                <div class="usage-preset-head">
+                    <span class="usage-preset-label">${escapeHtml(String(preset?.label || preset?.id || 'preset'))}</span>
+                    ${badge}
+                </div>
+                <div class="usage-preset-params">${escapeHtml(presetLine)}</div>
+                ${notes}
+            </div>
+        `;
+    }).join('');
+
+    const hint = usage.when_to_use
+        ? `<div class="usage-presets-hint">${escapeHtml(String(usage.when_to_use))}</div>`
+        : '';
+
+    return `
+        <details class="usage-presets-panel" id="${escapeHtml(panelIdPrefix)}-usage-presets">
+            <summary>推荐预设与填写说明</summary>
+            ${hint}
+            <div class="usage-presets-list">${listHtml}</div>
+        </details>
+    `;
 }
 
 function switchTab(tab) {
@@ -1548,7 +1667,14 @@ function renderParams(params) {
         group.className = 'form-group';
 
         const required = param.required !== false ? '<span class="required">*</span>' : '';
-        const defaultValue = param.default !== undefined ? param.default : '';
+        const recommendedValue = getRecommendedValueFromUsage(selectedDescriptor, param.name);
+        const defaultValue = recommendedValue !== undefined
+            ? recommendedValue
+            : (param.default !== undefined ? param.default : '');
+        const tooltipText = buildParamTooltipText(param, selectedDescriptor);
+        const tooltipHtml = tooltipText
+            ? `<button type="button" class="help-icon-btn" aria-label="参数说明" title="${escapeHtml(tooltipText)}">?</button>`
+            : '';
 
         let inputHtml = '';
         if (param.type === 'int' || param.type === 'integer') {
@@ -1566,16 +1692,28 @@ function renderParams(params) {
             inputHtml = `<input type="text" class="form-input" id="param-${param.name}" value="${defaultValue}" placeholder="${param.description || ''}">`;
         }
 
+        const guide = getUsageGuideForParam(selectedDescriptor, param.name);
+        const helper = guide?.recommendation || param.description || '';
+        const helperHtml = helper ? `<div class="form-help">${escapeHtml(String(helper))}</div>` : '';
+
         group.innerHTML = `
             <label class="form-label">
-                ${param.label || param.name}${required}
+                ${param.label || param.name}${required} ${tooltipHtml}
             </label>
             ${inputHtml}
-            ${param.description ? `<div class="form-help">${param.description}</div>` : ''}
+            ${helperHtml}
         `;
 
         container.appendChild(group);
     });
+
+    const usagePanelHtml = buildUsagePresetsPanel(selectedDescriptor || {}, 'tool-panel');
+    if (usagePanelHtml) {
+        const usageWrap = document.createElement('div');
+        usageWrap.className = 'form-group';
+        usageWrap.innerHTML = usagePanelHtml;
+        container.appendChild(usageWrap);
+    }
 }
 
 function renderDatabases(databases) {
