@@ -13,6 +13,8 @@ let integratedRunModalContext = null;
 let _integratedChartRetryTimer = null;
 let _echartsLoadRequested = false;
 const remoteStatusLoading = new Set();
+let _helpTooltipBound = false;
+let _activeHelpTooltip = null;
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -95,6 +97,89 @@ function dismissNotice() {
     }
 }
 
+function closeHelpTooltip() {
+    if (!_activeHelpTooltip) {
+        return;
+    }
+    const trigger = _activeHelpTooltip.trigger;
+    if (trigger) {
+        trigger.setAttribute('aria-expanded', 'false');
+    }
+    try {
+        _activeHelpTooltip.node?.remove();
+    } catch (_) {
+        // ignore
+    }
+    _activeHelpTooltip = null;
+}
+
+function openHelpTooltip(triggerEl, text) {
+    closeHelpTooltip();
+    if (!triggerEl || !text) {
+        return;
+    }
+
+    const tip = document.createElement('div');
+    tip.className = 'help-tooltip-popover';
+    tip.setAttribute('role', 'tooltip');
+    tip.textContent = String(text);
+    document.body.appendChild(tip);
+
+    const rect = triggerEl.getBoundingClientRect();
+    const margin = 8;
+    const maxLeft = Math.max(8, window.innerWidth - tip.offsetWidth - 8);
+    const left = Math.min(Math.max(8, rect.left), maxLeft);
+    let top = rect.bottom + margin;
+    if (top + tip.offsetHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - tip.offsetHeight - margin);
+    }
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+
+    triggerEl.setAttribute('aria-expanded', 'true');
+    _activeHelpTooltip = { trigger: triggerEl, node: tip };
+}
+
+function bindHelpTooltipInteractions() {
+    if (_helpTooltipBound) {
+        return;
+    }
+    _helpTooltipBound = true;
+
+    document.addEventListener('click', function(event) {
+        const target = event.target;
+        const trigger = target && target.closest ? target.closest('.help-icon-btn[data-help-text]') : null;
+        if (trigger) {
+            event.preventDefault();
+            event.stopPropagation();
+            const text = String(trigger.getAttribute('data-help-text') || '').trim();
+            if (!text) {
+                return;
+            }
+            if (_activeHelpTooltip && _activeHelpTooltip.trigger === trigger) {
+                closeHelpTooltip();
+                return;
+            }
+            openHelpTooltip(trigger, text);
+            return;
+        }
+
+        if (_activeHelpTooltip && _activeHelpTooltip.node && target && _activeHelpTooltip.node.contains(target)) {
+            return;
+        }
+        closeHelpTooltip();
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closeHelpTooltip();
+        }
+    });
+
+    window.addEventListener('resize', closeHelpTooltip);
+    window.addEventListener('scroll', closeHelpTooltip, true);
+}
+
 // 初始化 QWebChannel
 new QWebChannel(qt.webChannelTransport, function(channel) {
     console.log('✓ QWebChannel connected');
@@ -160,6 +245,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
         integratedRunBtn.addEventListener('click', openIntegratedRunEntry);
     }
     initializeIntegratedSectionToggles();
+    bindHelpTooltipInteractions();
 });
 
 function getIntegratedToolId(feature, view) {
@@ -397,7 +483,7 @@ function renderIntegratedRunModalForm(descriptor) {
                 : (param.default !== undefined ? param.default : '');
             const tooltipText = buildParamTooltipText(param, descriptor);
             const tooltipHtml = tooltipText
-                ? `<button type="button" class="help-icon-btn" aria-label="参数说明" title="${escapeHtml(tooltipText)}">?</button>`
+                ? `<button type="button" class="help-icon-btn" aria-label="参数说明" aria-expanded="false" data-help-text="${escapeHtml(tooltipText)}" title="${escapeHtml(tooltipText)}">?</button>`
                 : '';
             let inputHtml = '';
             if (param.type === 'int' || param.type === 'integer') {
@@ -1673,7 +1759,7 @@ function renderParams(params) {
             : (param.default !== undefined ? param.default : '');
         const tooltipText = buildParamTooltipText(param, selectedDescriptor);
         const tooltipHtml = tooltipText
-            ? `<button type="button" class="help-icon-btn" aria-label="参数说明" title="${escapeHtml(tooltipText)}">?</button>`
+            ? `<button type="button" class="help-icon-btn" aria-label="参数说明" aria-expanded="false" data-help-text="${escapeHtml(tooltipText)}" title="${escapeHtml(tooltipText)}">?</button>`
             : '';
 
         let inputHtml = '';
@@ -1697,9 +1783,12 @@ function renderParams(params) {
         const helperHtml = helper ? `<div class="form-help">${escapeHtml(String(helper))}</div>` : '';
 
         group.innerHTML = `
-            <label class="form-label">
-                ${param.label || param.name}${required} ${tooltipHtml}
-            </label>
+            <div class="form-label-row">
+                <label class="form-label" for="param-${param.name}">
+                    ${param.label || param.name}${required}
+                </label>
+                ${tooltipHtml}
+            </div>
             ${inputHtml}
             ${helperHtml}
         `;

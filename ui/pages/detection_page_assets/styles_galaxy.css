@@ -1135,6 +1135,35 @@ header {
     background: #eff6ff;
 }
 
+.help-icon-btn:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 1px;
+}
+
+.help-tooltip-popover {
+    position: fixed;
+    z-index: 12000;
+    max-width: min(420px, calc(100vw - 16px));
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    box-shadow: 0 18px 38px rgba(2, 6, 23, 0.42);
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-word;
+    white-space: pre-wrap;
+    pointer-events: none;
+}
+
+.form-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
 .integrated-param-help {
     margin-top: 6px;
     font-size: 11px;
