@@ -4,7 +4,7 @@ version: "2.15"
 category: binning
 description: "基于组成和覆盖度的自适应宏基因组 binning 工具"
 conda_env: metabat2_env
-install_cmd: "conda create -n metabat2_env -c bioconda -c conda-forge metabat2 -y"
+install_cmd: "conda create -n metabat2_env -c bioconda -c conda-forge metabat2=2.15 -y"
 
 detection:
   command: "metabat2 --help 2>&1 | head -1"

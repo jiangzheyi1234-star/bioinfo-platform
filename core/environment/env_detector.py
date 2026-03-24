@@ -4,6 +4,7 @@
 逻辑：有 conda → 用它；没有 → 装一个。
 """
 
+import base64
 import logging
 import re
 import shlex
@@ -257,6 +258,7 @@ def install_miniforge(
     result = _validate_conda(ssh_run_fn, conda_exe, 15)
     if result.status == CondaStatus.OK:
         logger.info("Miniforge 安装成功: %s", result.executable)
+        write_h2ometa_condarc(ssh_run_fn, timeout=30)
     return result
 
 
@@ -307,7 +309,65 @@ def expected_env_path(conda_executable: str, env_name: str) -> str:
     return f"{root}/envs/{env_name}"
 
 
-def pin_create_env_to_conda_root(install_cmd: str, conda_executable: str) -> str:
+def extract_env_name(install_cmd: str) -> str:
+    """从 install_cmd 中提取 -n/--name 后的环境名。找不到返回空字符串。"""
+    if any(op in install_cmd for op in ("&&", "||", "|", ";", ">", "<")):
+        return ""
+    try:
+        tokens = shlex.split(install_cmd, posix=True)
+    except Exception:
+        return ""
+    for i, tok in enumerate(tokens):
+        if tok in ("-n", "--name") and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok.startswith("--name="):
+            return tok.split("=", 1)[1]
+    return ""
+
+
+# 受控 condarc 内容：channels + strict priority + 网络重试参数
+_CONDARC_TEMPLATE = """\
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+remote_connect_timeout_secs: 30
+remote_read_timeout_secs: 60
+remote_max_retries: 5
+"""
+
+
+def write_h2ometa_condarc(
+    ssh_run_fn: SshRunFn,
+    timeout: int = 15,
+) -> None:
+    """将受控 condarc 写到 ~/.h2ometa/runtime/condarc。
+
+    env_installer 在包装脚本中设置 CONDARC 指向此文件，确保：
+    - channel 配置固定（conda-forge + bioconda, strict priority）
+    - 网络重试参数生效
+    - 不受用户系统 ~/.condarc 干扰
+    """
+    try:
+        ssh_run_fn("mkdir -p ~/.h2ometa/runtime", timeout)
+        encoded = base64.b64encode(_CONDARC_TEMPLATE.encode()).decode()
+        rc, _, stderr = ssh_run_fn(
+            f"echo '{encoded}' | base64 -d > ~/.h2ometa/runtime/condarc",
+            timeout,
+        )
+        if rc != 0:
+            logger.warning("写入 condarc 失败: %s", stderr[:100])
+        else:
+            logger.info("已写入受控 condarc: ~/.h2ometa/runtime/condarc")
+    except Exception as e:
+        logger.warning("write_h2ometa_condarc 出错: %s", e)
+
+
+def pin_create_env_to_conda_root(
+    install_cmd: str,
+    conda_executable: str,
+    override_prefix: str = "",
+) -> str:
     """将 `conda create -n/--name` 命令绑定到指定 conda 根目录下的 envs 目录。
 
     例如:
@@ -351,7 +411,7 @@ def pin_create_env_to_conda_root(install_cmd: str, conda_executable: str) -> str
     if not env_name:
         return install_cmd
 
-    env_path = f"{root}/envs/{env_name}"
+    env_path = override_prefix if override_prefix else f"{root}/envs/{env_name}"
     if tokens[name_idx] in ("-n", "--name"):
         tokens[name_idx:name_idx + 2] = ["-p", env_path]
     else:

@@ -5,12 +5,14 @@
 确保 SSH 断线或软件关闭后安装不中断。
 """
 
+import base64
 import logging
-import uuid
 
 from core.utils import sanitize_log
 from core.environment.env_detector import (
     SshRunFn,
+    expected_env_path,
+    extract_env_name,
     pin_create_env_to_conda_root,
     rewrite_install_cmd,
 )
@@ -20,26 +22,34 @@ logger = logging.getLogger(__name__)
 INSTALL_BASE = "~/.h2ometa/env_installs"
 
 
-# 包装脚本模板（比 command_builder._WRAPPER_TEMPLATE 更简单，不需要 JOB_ID 变量）
+# 包装脚本模板（原子安装：tmp_prefix → verify → rename 到 final_prefix）
 #
 # 关键环境变量：
-#   TERM=dumb          — 禁止所有终端特性（光标移动、颜色），所有程序生效
-#   CONDA_QUIET=1      — conda 不显示 spinner / 进度条，仍输出包列表和解析信息
+#   TERM=dumb            — 禁止终端控制字符
+#   CONDA_QUIET=1        — conda 不显示 spinner / 进度条
 #   PIP_PROGRESS_BAR=off — pip 不显示进度条
+#   CONDARC              — 指向受控 condarc，隔离用户系统配置
 #
-# 不用 tee（screen 后台无人看终端），直接写 LOG_FILE 避免 pipe 导致 \r 丢失。
+# 原子安装逻辑：
+#   1. 安装到 TMP_PREFIX（临时目录）
+#   2. 验证工具可用（可选）
+#   3. mv TMP_PREFIX → FINAL_PREFIX（只有验证通过才出现正式目录）
+#   中途失败：只有 TMP_PREFIX 残留，FINAL_PREFIX 不受影响；下次运行先清理残留
 _INSTALL_WRAPPER = r"""#!/bin/bash
 set -euo pipefail
 
 export TERM=dumb
 export CONDA_QUIET=1
 export PIP_PROGRESS_BAR=off
+export CONDARC="$HOME/.h2ometa/runtime/condarc"
 
 TASK_DIR="{task_dir}"
 STATUS_FILE="$TASK_DIR/status.txt"
 HEARTBEAT_FILE="$TASK_DIR/heartbeat.txt"
 EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
 LOG_FILE="$TASK_DIR/task.log"
+TMP_PREFIX="{tmp_prefix}"
+FINAL_PREFIX="{final_prefix}"
 
 echo "RUNNING" > "$STATUS_FILE"
 
@@ -59,6 +69,8 @@ _cleanup() {{
     if [ "$ec" -eq 0 ]; then
         echo "DONE" > "$STATUS_FILE"
     else
+        # 清理临时目录（安装失败或验证失败时）
+        rm -rf "$TMP_PREFIX" 2>/dev/null || true
         echo "FAILED" > "$STATUS_FILE"
     fi
 }}
@@ -66,10 +78,29 @@ trap _cleanup EXIT
 
 exec > "$LOG_FILE" 2>&1
 
-# ===== install command =====
+# 清理上次中断的残留临时目录
+rm -rf "$TMP_PREFIX" 2>/dev/null || true
+
+# ===== 安装到临时路径 =====
 {command}
-# ===== install end =====
+# ===== 安装结束 =====
+
+{verify_block}
+
+# 原子提交：验��通过后替换正式目录
+rm -rf "$FINAL_PREFIX" 2>/dev/null || true
+mv "$TMP_PREFIX" "$FINAL_PREFIX"
+echo "环境已就绪: $FINAL_PREFIX"
 """
+
+# verify_block 模板（有 verify_cmd 时使用）
+_VERIFY_BLOCK = r"""# ===== 安装后验证 =====
+if ! {conda_run_p} -- {verify_cmd} 2>&1 | grep -qE '{version_regex}'; then
+    echo "ERROR: 工具验证失败 — {verify_cmd} 输出不匹配 '{version_regex}'" >&2
+    exit 1
+fi
+echo "验证通过: {verify_cmd}"
+# ===== 验证结束 ====="""
 
 
 def _expand_path(path: str) -> str:
@@ -86,20 +117,49 @@ class EnvInstaller:
         tool_id: str,
         install_cmd: str,
         conda_executable: str = "",
+        verify_cmd: str = "",
+        version_regex: str = "",
         timeout: int = 15,
     ) -> dict:
-        """启动后台安装。
+        """启动后台安装（原子模式：tmp_prefix → verify → rename）。
 
         1. rewrite_install_cmd() 替换 conda 路径
-        2. 生成包装脚本（status.txt + heartbeat + task.log + trap）
-        3. 写到远端 ~/.h2ometa/env_installs/{tool_id}/install.sh
-        4. screen -dmS h2o_install_{tool_id} bash install.sh
+        2. 计算 final_prefix / tmp_prefix
+        3. 生成包装脚本（status.txt + heartbeat + task.log + trap + verify）
+        4. 写到远端 ~/.h2ometa/env_installs/{tool_id}/install.sh
+        5. screen -dmS h2o_install_{tool_id} bash install.sh
+
+        Args:
+            verify_cmd:     安装后验证命令（来自 tool.yaml detection.command），如 "fastp --version"
+            version_regex:  版本正则（来自 tool.yaml detection.version_regex），如 r"\\d+\\.\\d+"
 
         Returns:
-            {"job_id": str, "task_dir": str}
+            {"job_id": str, "task_dir": str, "final_prefix": str}
         """
         resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable)
-        resolved_cmd = pin_create_env_to_conda_root(resolved_cmd, conda_executable)
+
+        # 计算安装路径
+        env_name = extract_env_name(resolved_cmd) or tool_id
+        final_prefix = expected_env_path(conda_executable, env_name)
+        tmp_prefix = (final_prefix + ".installing") if final_prefix else ""
+
+        # 安装到临时路径（原子安装的关键）
+        if tmp_prefix:
+            resolved_cmd = pin_create_env_to_conda_root(
+                resolved_cmd, conda_executable, override_prefix=tmp_prefix
+            )
+        else:
+            resolved_cmd = pin_create_env_to_conda_root(resolved_cmd, conda_executable)
+
+        # 构建 verify_block
+        verify_block = ""
+        if verify_cmd and version_regex and tmp_prefix and conda_executable:
+            conda_run_p = f"{conda_executable} run -p \"$TMP_PREFIX\""
+            verify_block = _VERIFY_BLOCK.format(
+                conda_run_p=conda_run_p,
+                verify_cmd=verify_cmd,
+                version_regex=version_regex,
+            )
 
         task_dir_raw = f"{INSTALL_BASE}/{tool_id}"
         task_dir_expanded = f'"$(eval echo {_expand_path(task_dir_raw)})"'
@@ -107,19 +167,23 @@ class EnvInstaller:
         # 创建任务目录
         ssh_run_fn(f"mkdir -p {task_dir_expanded}", timeout)
 
+        # tmp_prefix / final_prefix 在脚本内部展开 $HOME
+        def _to_shell(p: str) -> str:
+            return p.replace("~", "$HOME") if p else ""
+
         # 生成包装脚本
-        # task_dir 在脚本内部用 eval echo 展开
         script = _INSTALL_WRAPPER.format(
             task_dir=f"$(eval echo {_expand_path(task_dir_raw)})",
+            tmp_prefix=_to_shell(tmp_prefix) if tmp_prefix else _to_shell(final_prefix),
+            final_prefix=_to_shell(final_prefix) if final_prefix else "",
             command=resolved_cmd,
+            verify_block=verify_block,
         )
 
-        # 写脚本到远端（用 heredoc 避免转义问题）
+        # 写脚本���远端（base64 编码避免特殊字符问题）
         script_path = f"{task_dir_raw}/install.sh"
         script_path_expanded = f'"$(eval echo {_expand_path(script_path)})"'
 
-        # 使用 base64 编码避免 heredoc 中的特殊字符问题
-        import base64
         encoded = base64.b64encode(script.encode()).decode()
         write_cmd = f"echo '{encoded}' | base64 -d > {script_path_expanded}"
         rc, _, stderr = ssh_run_fn(write_cmd, timeout)
@@ -128,15 +192,17 @@ class EnvInstaller:
 
         # 启动 screen 会话
         job_id = f"h2o_install_{tool_id}"
-        # 先杀掉可能存在的旧会话
         ssh_run_fn(f"screen -S {job_id} -X quit 2>/dev/null || true", timeout)
         screen_cmd = f"screen -dmS {job_id} bash {script_path_expanded}"
         rc, _, stderr = ssh_run_fn(screen_cmd, timeout)
         if rc != 0:
             raise RuntimeError(f"启动 screen 会话失败: {stderr[:200]}")
 
-        logger.info("后台安装已启动: job_id=%s, task_dir=%s", job_id, task_dir_raw)
-        return {"job_id": job_id, "task_dir": task_dir_raw}
+        logger.info(
+            "后台安装已启动: job_id=%s, task_dir=%s, final_prefix=%s",
+            job_id, task_dir_raw, final_prefix,
+        )
+        return {"job_id": job_id, "task_dir": task_dir_raw, "final_prefix": final_prefix}
 
     @staticmethod
     def check_status(ssh_run_fn: SshRunFn, task_dir: str, timeout: int = 10) -> dict:

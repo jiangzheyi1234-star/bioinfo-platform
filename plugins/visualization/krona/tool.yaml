@@ -4,7 +4,7 @@ version: "2.8.1"
 category: visualization
 description: "交互式层级可视化工具，可将分类结果渲染为 HTML 太阳图"
 conda_env: krona_env
-install_cmd: "conda create -n krona_env -c bioconda -c conda-forge krona -y"
+install_cmd: "conda create -n krona_env -c bioconda -c conda-forge krona=2.8.1 -y"
 
 detection:
   command: "ktImportTaxonomy -h"

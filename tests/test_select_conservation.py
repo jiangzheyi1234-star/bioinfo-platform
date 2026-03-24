@@ -5,7 +5,9 @@ import sys
 from pathlib import Path
 
 
-MODULE_PATH = Path("E:/代码/bio_ui/plugins/primer/multiplex_primer_panel/workflow/primer_scripts/3_select.py")
+MODULE_PATH = Path(__file__).resolve().parent.parent / (
+    "plugins/primer/multiplex_primer_panel/workflow/primer_scripts/3_select.py"
+)
 
 
 def load_module():
@@ -42,6 +44,8 @@ def test_score_regions_filters_cross_reactive_hits():
         sequences={"region_a": "A" * 500, "region_b": "C" * 500},
         self_taxid=111,
         all_self_taxids={111, 222},
+        min_length=0,
+        min_identity=0.0,
     )
     assert [row.region_id for row in rows] == ["region_b"]
     assert rows[0].conservation_score == 2
@@ -61,6 +65,8 @@ def test_score_regions_uses_taxid_unknown_fallback():
         sequences={"region_a": "A" * 500, "region_b": "C" * 500},
         self_taxid=None,
         all_self_taxids=set(),
+        min_length=0,
+        min_identity=0.0,
     )
     assert [row.region_id for row in rows] == ["region_a", "region_b"]
     assert rows[0].conservation_score == 2

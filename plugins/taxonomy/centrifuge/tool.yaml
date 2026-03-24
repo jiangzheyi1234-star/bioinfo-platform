@@ -4,7 +4,7 @@ version: "1.0.4"
 category: taxonomy
 description: "超快速 BWT 物种分类工具，适用于靶向测序病原体鉴定"
 conda_env: centrifuge_env
-install_cmd: "conda create -n centrifuge_env -c bioconda -c conda-forge centrifuge -y"
+install_cmd: "conda create -n centrifuge_env -c bioconda -c conda-forge centrifuge=1.0.4 -y"
 
 detection:
   command: "centrifuge --version"
