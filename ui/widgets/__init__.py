@@ -108,6 +108,19 @@ except Exception:  # pragma: no cover
     ProjectSelectorButton = None  # type: ignore
     ProjectSelectorMenu = None  # type: ignore
 
+try:
+    from .database_management_components import (
+        DatabaseItemCard,
+        DatabaseInstallDialog,
+        DatabaseStatusWorker,
+        DatabaseInstallMonitor,
+    )
+except Exception:  # pragma: no cover
+    DatabaseItemCard = None  # type: ignore
+    DatabaseInstallDialog = None  # type: ignore
+    DatabaseStatusWorker = None  # type: ignore
+    DatabaseInstallMonitor = None  # type: ignore
+
 from . import styles
 
 __all__ = [
@@ -120,5 +133,6 @@ __all__ = [
     "ClickableHeader", "SSHDiagnosticDialog", "StepIndicator",
     "EnvInstallDialog", "ToolEnvBridge", "cleanup_thread_pair",
     "ProjectSelectorButton", "ProjectSelectorMenu",
+    "DatabaseItemCard", "DatabaseInstallDialog", "DatabaseStatusWorker", "DatabaseInstallMonitor",
     "styles",
 ]

@@ -1,4 +1,6 @@
-﻿import json
+import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,8 +19,11 @@ from config import (
     sync_default_from_schema,
 )
 from ui.page_base import BasePage
-from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard, DatabasePathsCard
+from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard
 from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP, SCROLL_BAR_ELEGANT
+
+def _is_test_mode() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
 
 
 class SettingsPage(BasePage):
@@ -40,7 +45,8 @@ class SettingsPage(BasePage):
         self.load_config()
 
         self._auto_check_timer.timeout.connect(self.ssh_card.auto_check_on_start)
-        self._auto_check_timer.start(1000)
+        if not _is_test_mode():
+            self._auto_check_timer.start(1000)
 
     def init_ui(self) -> None:
         self.layout.setContentsMargins(40, 30, 40, 30)
@@ -79,10 +85,6 @@ class SettingsPage(BasePage):
         self.linux_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.linux_card)
 
-        self.db_card = DatabasePathsCard()
-        self.db_card.request_save.connect(self.save_config)
-        self.scroll_layout.addWidget(self.db_card)
-
         self.ncbi_card = NcbiSettingsCard()
         self.ncbi_card.request_save.connect(self.save_config)
         self.scroll_layout.addWidget(self.ncbi_card)
@@ -104,7 +106,6 @@ class SettingsPage(BasePage):
         self.ssh_card.set_external_lock(locked, reason)
         if hasattr(self.linux_card, "set_external_lock"):
             self.linux_card.set_external_lock(locked)
-        self.db_card.set_external_lock(locked)
         self.ncbi_card.set_external_lock(locked)
 
     def _is_legacy_raw_config(self, raw: Any) -> bool:
@@ -123,15 +124,6 @@ class SettingsPage(BasePage):
     def _apply_schema_to_components(self, schema: dict[str, Any]) -> None:
         ssh = schema.get("ssh", {})
         linux = schema.get("linux", {})
-        databases = schema.get("databases", {})
-        databases = dict(databases) if isinstance(databases, dict) else {}
-        if not str(databases.get("kraken2", "") or "").strip():
-            databases["kraken2"] = "/home/zyserver/project_ssd/common_data/kraken2_standard"
-        if not str(databases.get("blast_nt", "") or "").strip():
-            databases["blast_nt"] = "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
-        if not str(databases.get("centrifuge", "") or "").strip():
-            databases["centrifuge"] = "/home/zyserver/project/lcy_project/my_database/hpvc"
-        blast = schema.get("blast", {})
         ncbi = schema.get("ncbi", {})
 
         port = ssh.get("port", 22)
@@ -151,7 +143,6 @@ class SettingsPage(BasePage):
             conda_executable=str(linux.get("conda_executable", "") or ""),
             auto_installed=bool(linux.get("auto_installed", False)),
         )
-        self.db_card.set_values(databases)
         self.ncbi_card.set_values(
             ncbi_api_key=str(ncbi.get("api_key", "") or ""),
             email=str(ncbi.get("email", "") or ""),
@@ -162,7 +153,6 @@ class SettingsPage(BasePage):
 
         ssh_values = self.ssh_card.get_values()
         linux_values = self.linux_card.get_values()
-        db_values = self.db_card.get_values()
         ncbi_values = self.ncbi_card.get_values()
 
         port_val = ssh_values.get("ssh_port", 22)
@@ -184,7 +174,7 @@ class SettingsPage(BasePage):
                 "conda_executable": str(linux_values.get("conda_executable", "") or ""),
                 "auto_installed": bool(linux_values.get("auto_installed", False)),
             },
-            "databases": db_values,
+            "databases": current.get("databases", {"db_root": "", "overrides": {}}),
             "blast": {
                 "db_path": str(current.get("blast", {}).get("db_path", "") or ""),
                 "bin_path": str(current.get("blast", {}).get("bin_path", "") or ""),
@@ -255,3 +245,5 @@ class SettingsPage(BasePage):
         if self._auto_check_timer.isActive():
             self._auto_check_timer.stop()
         super().closeEvent(event)
+
+

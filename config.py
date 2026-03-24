@@ -67,11 +67,8 @@ def default_settings_schema() -> dict[str, Any]:
             "auto_installed": False,
         },
         "databases": {
-            "kraken2": "/home/zyserver/project_ssd/common_data/kraken2_standard",
-            "checkm2": "",
-            "gtdbtk": "",
-            "blast_nt": "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt",
-            "centrifuge": "/home/zyserver/project/lcy_project/my_database/hpvc",
+            "db_root": "",
+            "overrides": {},
         },
         "blast": {
             "db_path": "",
@@ -150,7 +147,29 @@ def normalize_config(data: Any) -> dict[str, Any]:
     for section in ("ssh", "linux", "databases", "blast", "ncbi", "runtime"):
         section_data = data.get(section)
         if isinstance(section_data, dict):
-            schema[section].update(section_data)
+            if section == "databases":
+                old_keys = {k for k in section_data if k not in ("db_root", "overrides")}
+                if old_keys:
+                    overrides = {
+                        str(k): str(v)
+                        for k, v in section_data.items()
+                        if k not in ("db_root", "overrides") and str(v or "").strip()
+                    }
+                    schema["databases"] = {
+                        "db_root": str(section_data.get("db_root", "") or ""),
+                        "overrides": overrides,
+                    }
+                else:
+                    schema["databases"]["db_root"] = str(section_data.get("db_root", "") or "")
+                    overrides = section_data.get("overrides", {})
+                    if isinstance(overrides, dict):
+                        schema["databases"]["overrides"] = {
+                            str(k): str(v)
+                            for k, v in overrides.items()
+                            if str(v or "").strip()
+                        }
+            else:
+                schema[section].update(section_data)
 
     schema["version"] = CONFIG_VERSION
     schema["runtime"]["local_output_dir"] = ensure_output_dir(str(schema["runtime"].get("local_output_dir") or ""))
@@ -203,17 +222,15 @@ def get_blast_setting(key: str, default: Any = None) -> Any:
 def get_database_path(key: str, default: str = "") -> str:
     config = get_config()
     databases = config.get("databases", {})
-    if key == "centrifuge":
-        fallback = "/home/zyserver/project/lcy_project/my_database/hpvc"
-        return str(databases.get(key) or fallback)
-    if key == "blast_nt":
-        fallback = str(
-            config.get("blast", {}).get("db_path", "")
-            or "/home/zyserver/project_ssd/common_data/core_nt_database/core_nt"
-            or default
-        )
-        return str(databases.get(key) or fallback)
-    return str(databases.get(key) or default)
+    overrides = databases.get("overrides", {})
+    if isinstance(overrides, dict):
+        override_value = str(overrides.get(key, "") or "").strip()
+        if override_value:
+            return override_value
+    db_root = str(databases.get("db_root", "") or "").strip()
+    if db_root:
+        return db_root
+    return str(default or "")
 
 
 def get_ncbi_setting(key: str, default: Any = None) -> Any:
@@ -223,6 +240,7 @@ def get_ncbi_setting(key: str, default: Any = None) -> Any:
 def sync_default_from_schema(schema: dict[str, Any]) -> None:
     normalized = normalize_config(schema)
     databases = normalized["databases"]
+    overrides = databases.get("overrides", {}) if isinstance(databases, dict) else {}
     runtime = normalized["runtime"]
     blast = normalized["blast"]
     DEFAULT_CONFIG.update(
@@ -234,7 +252,7 @@ def sync_default_from_schema(schema: dict[str, Any]) -> None:
             "ncbi_api_key": normalized["ncbi"]["api_key"],
             "ncbi_email": normalized["ncbi"]["email"],
             "remote_dir": blast["remote_work_dir"],
-            "remote_db": str(databases.get("blast_nt") or blast["db_path"]),
+            "remote_db": str((overrides.get("blast_nt") if isinstance(overrides, dict) else "") or blast["db_path"]),
             "blast_bin": blast["bin_path"],
             "remote_script": blast["remote_script"],
             "local_file": runtime["local_file"],

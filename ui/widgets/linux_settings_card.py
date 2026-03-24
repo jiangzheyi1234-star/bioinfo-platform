@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
+import sys
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl
@@ -41,6 +43,10 @@ from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, 
 from core.utils import sanitize_terminal_line
 
 logger = logging.getLogger(__name__)
+
+
+def _is_test_mode() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
 
 
 def _safe_emit(signal, *args) -> bool:
@@ -282,7 +288,8 @@ class LinuxSettingsCard(QFrame):
         if client is not None:
             self._set_status("SSH 已就绪")
             # SSH 连接成功后延迟 1s 自动触发 conda 检测
-            QTimer.singleShot(1000, self._ensure_conda_ready)
+            if not _is_test_mode():
+                QTimer.singleShot(1000, self._ensure_conda_ready)
         else:
             self._set_status("等待 SSH 连接")
 
@@ -380,6 +387,15 @@ class LinuxSettingsCard(QFrame):
 
     def _build_tool_env_web_view(self, parent_layout) -> None:
         """创建工具环境检测的 Web UI（QWebEngineView）。"""
+        if _is_test_mode():
+            fallback = QLabel("测试模式：已禁用 QtWebEngine 工具环境视图")
+            fallback.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
+            parent_layout.addWidget(fallback)
+            self._web_view = None
+            self._bridge = None
+            self._channel = None
+            return
+
         # 延迟导入 WebEngine（必须在 QApplication 创建后）
         from ui.qt_bootstrap import ensure_qt_webengine_ready
         ensure_qt_webengine_ready()
@@ -481,6 +497,8 @@ class LinuxSettingsCard(QFrame):
         成功后缓存路径、保存配置、更新 ServiceLocator，然后继续 batch check。
         未找到时弹窗提示安装 Miniforge。
         """
+        if _is_test_mode():
+            return
         if not self.active_client or self._checking or self._external_lock:
             return
 

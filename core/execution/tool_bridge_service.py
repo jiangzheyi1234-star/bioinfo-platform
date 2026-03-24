@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from core.data.database_service import DatabaseService
 from core.data.execution_query_service import ExecutionQueryService
 from core.execution.execution_status_service import ExecutionStatusService
 from core.execution.result_parsers import (
@@ -106,6 +107,7 @@ class ToolBridgeService:
         }
         self._execution_status_service = ExecutionStatusService()
         self._remote_status_cache = self._execution_status_service.cache
+        self._database_service = DatabaseService()
 
     def set_service_locator(self, sl: ServiceLocator | None) -> None:
         self._service_locator = sl
@@ -1236,7 +1238,12 @@ class ToolBridgeService:
         try:
             from config import get_config
 
-            cfg_databases = get_config().get("databases", {})
+            cfg = get_config()
+            db_cfg = cfg.get("databases", {}) if isinstance(cfg.get("databases", {}), dict) else {}
+            db_root = str(db_cfg.get("db_root", "") or "").strip()
+            overrides = db_cfg.get("overrides", {})
+            if not isinstance(overrides, dict):
+                overrides = {}
 
             if not self._plugin_registry:
                 return {}
@@ -1246,39 +1253,33 @@ class ToolBridgeService:
 
             paths: dict = {}
             for decl in db_decls:
-                var_name = decl.get("param_name", decl.get("name", ""))
-                db_id = decl.get("id", "")
-
-                if not var_name:
+                param_name = str(decl.get("param_name", decl.get("name", ""))).strip()
+                db_id = str(decl.get("id", "")).strip()
+                if not param_name:
                     continue
 
-                resolved_path = ""
-                for cfg_key, cfg_path in cfg_databases.items():
-                    if not cfg_path:
+                # 优先级 1: overrides
+                override_path = str(overrides.get(db_id, "") or "").strip()
+                if override_path:
+                    paths[param_name] = override_path
+                    logger.debug("数据库路径已匹配(override): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, override_path)
+                    continue
+
+                # 优先级 2: db_root + databases.yaml install_path
+                if db_root and db_id:
+                    resolved = self._database_service.get_resolved_path(db_id, db_root)
+                    if resolved:
+                        paths[param_name] = resolved
+                        logger.debug("数据库路径已匹配(db_root): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, resolved)
                         continue
-                    if db_id == cfg_key or db_id.startswith(cfg_key):
-                        resolved_path = cfg_path
+
+                # 优先级 3: 旧格式兜底
+                for legacy_key in (db_id, param_name):
+                    legacy_value = str(db_cfg.get(legacy_key, "") or "").strip()
+                    if legacy_value:
+                        paths[param_name] = legacy_value
+                        logger.debug("数据库路径已匹配(legacy): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, legacy_value)
                         break
-
-                if not resolved_path:
-                    for cfg_key, cfg_path in cfg_databases.items():
-                        if not cfg_path:
-                            continue
-                        if tool_id == cfg_key or tool_id.startswith(cfg_key):
-                            resolved_path = cfg_path
-                            break
-
-                if resolved_path:
-                    paths[var_name] = resolved_path
-                    logger.debug(
-                        "数据库路径已匹配: tool=%s, id=%s → %s=%s",
-                        tool_id,
-                        db_id,
-                        var_name,
-                        resolved_path,
-                    )
-                else:
-                    logger.debug("数据库路径未配置: tool=%s, id=%s, var=%s", tool_id, db_id, var_name)
 
             return paths
         except Exception:
