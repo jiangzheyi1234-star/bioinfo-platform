@@ -79,3 +79,23 @@ result_views:
     config:
       columns: [clade_name, relative_abundance]
       sortable: true
+
+usage:
+  when_to_use: 用于 MetaPhlAn 的常规分析，建议优先使用 Recommended 预设。
+  parameter_guide:
+  - name: tax_lev
+    recommendation: '推荐值: a（当前默认）；可选值: a, k, p, c, o, f, g, s, t'
+  - name: min_cu_len
+    recommendation: '推荐值: 2000（当前默认）；建议范围: 100 ~ 10000'
+  - name: threads
+    recommendation: '推荐值: 8（当前默认）；建议范围: 1 ~ 64'
+  presets:
+  - id: standard
+    label: 常规分析(Recommended)
+    params:
+      tax_lev: a
+      min_cu_len: 2000
+      threads: 8
+    notes: 推荐默认档，参数与当前工具默认值一致。
+  required_inputs:
+  - 'reads: 必填，类型 fastq。'

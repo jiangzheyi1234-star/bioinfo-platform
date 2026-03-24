@@ -44,9 +44,44 @@ parameters:
     description: "内置索引名称或自定义索引路径"
   - name: threads
     type: int
-    default: 4
+    default: 8
     range: [1, 64]
     label: "线程数"
+
+usage:
+  when_to_use: "用于宏基因组/病原检测流程中的宿主去除步骤，减少人源或宿主背景干扰。"
+  required_inputs:
+    - "reads_1: 必填，FASTQ/FASTQ.GZ。"
+    - "reads_2: 双端样本时填写；单端样本留空。"
+  parameter_guide:
+    - name: aligner
+      recommendation: "常规推荐 bowtie2（更稳健）；速度优先可切 minimap2。"
+    - name: index
+      recommendation: "人样本优先用 human-t2t-hla；其他宿主替换为对应索引。"
+    - name: threads
+      recommendation: "常规建议 8；CPU 充足可提高到 16 或更高。"
+  presets:
+    - id: fast
+      label: "快速筛查"
+      params:
+        aligner: minimap2
+        index: human-t2t-hla
+        threads: 8
+      notes: "速度更快，适合大批量初筛。"
+    - id: standard
+      label: "常规分析(Recommended)"
+      params:
+        aligner: bowtie2
+        index: human-t2t-hla
+        threads: 8
+      notes: "推荐默认档，兼顾准确性与速度。"
+    - id: strict
+      label: "高严格度"
+      params:
+        aligner: bowtie2
+        index: human-t2t-hla
+        threads: 16
+      notes: "适合对宿主残留控制更严格、且计算资源充足的场景。"
 
 command_template: |
   hostile clean \

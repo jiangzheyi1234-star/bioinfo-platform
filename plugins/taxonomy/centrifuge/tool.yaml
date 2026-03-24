@@ -102,7 +102,7 @@ databases:
     label: "Centrifuge HPVC 病原体数据库"
     description: "Human Pathogen & Virus Centrifuge 数据库（填写前缀路径，不要加 .cf 后缀）"
     scope: "覆盖人类病原细菌、病毒，适用于临床感染快速检测。不含环境微生物和真菌。"
-    default: "/home/zyserver/project/lcy_project/my_database/hpvc/hpvc"
+    default: ""
 
 methods_template: >
   Taxonomic classification was performed using Centrifuge v{version}
@@ -120,3 +120,20 @@ result_views:
     config:
       columns: [taxon_id, rank, name, fraction, reads]
       sortable: true
+
+usage:
+  when_to_use: 用于 Centrifuge 的常规分析，建议优先使用 Recommended 预设。
+  parameter_guide:
+  - name: min_hitlen
+    recommendation: '推荐值: 22（当前默认）；建议范围: 15 ~ 100'
+  - name: threads
+    recommendation: '推荐值: 8（当前默认）；建议范围: 1 ~ 64'
+  presets:
+  - id: standard
+    label: 常规分析(Recommended)
+    params:
+      min_hitlen: 22
+      threads: 8
+    notes: 推荐默认档，参数与当前工具默认值一致。
+  required_inputs:
+  - 'reads: 必填，类型 fastq。'

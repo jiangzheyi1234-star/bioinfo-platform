@@ -136,3 +136,18 @@ When changing the tool execution path, preserve the current two-stage async mode
 - **顶层透明** (`WA_TranslucentBackground = True`)，**内层panel负责视觉**
 - **外层留 margin** 给自定义阴影留空间
 - 参考：`ui/widgets/project_selector.py`
+
+## Current Task State（Codex 每次完成后更新）
+
+Last completed: 数据库管理系统 3 日计划（Task 1-7） ✅
+  - 新增数据库服务与独立数据库页面（含安装/状态/进度逻辑）
+  - 配置结构升级为 `databases: { db_root, overrides }`，并完成兼容迁移
+  - 路径解析优先级落地：`overrides > db_root+registry > legacy`
+  - 清理插件 `tool.yaml` 中数据库绝对路径 `default`
+  - Gate 与全量测试通过（`472 passed, 7 skipped`）
+  - 修复 Windows `offscreen` UI 测试退出期崩溃：测试模式禁用 SSH/Conda 自动线程与 QtWebEngine 初始化
+
+Now working on: 等待下一任务
+  - 如需可继续执行提交（commit）或拆分 PR 说明文档
+
+Blocked tasks: 无

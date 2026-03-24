@@ -300,8 +300,16 @@ class ProjectManager(QObject):
 
         self._current_project = project
         self._index[project_id]["last_opened_at"] = time.time()
-        self._save_index()
-        self._save_last_opened_project(project_id)
+        try:
+            self._save_index()
+        except OSError:
+            # 打开项目的主路径是“可读 DB + 建立连接”；
+            # 索引落盘失败不应阻断项目打开（常见于权限/只读目录）。
+            logger.warning("保存项目索引失败，但项目已打开: %s", project_id, exc_info=True)
+        try:
+            self._save_last_opened_project(project_id)
+        except OSError:
+            logger.warning("写入 last_project 失败，但项目已打开: %s", project_id, exc_info=True)
 
         if self._db_read_only:
             logger.warning("项目以只读模式打开: %s (%s)", project.name, project_id)

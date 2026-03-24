@@ -66,3 +66,23 @@ result_views:
     config:
       columns: [Gene symbol, Sequence name, Element type, Element subtype, Class, Subclass]
       sortable: true
+
+usage:
+  when_to_use: 用于 AMRFinderPlus 的常规分析，建议优先使用 Recommended 预设。
+  parameter_guide:
+  - name: threads
+    recommendation: '推荐值: 8（当前默认）；建议范围: 1 ~ 64'
+  - name: plus
+    recommendation: '推荐值: True（当前默认）'
+  - name: ident_min
+    recommendation: '推荐值: -1（当前默认）；建议范围: -1 ~ 1.0'
+  presets:
+  - id: standard
+    label: 常规分析(Recommended)
+    params:
+      threads: 8
+      plus: true
+      ident_min: -1
+    notes: 推荐默认档，参数与当前工具默认值一致。
+  required_inputs:
+  - 'genome: 必填，类型 fasta。'
