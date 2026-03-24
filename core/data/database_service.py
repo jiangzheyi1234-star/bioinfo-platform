@@ -1,0 +1,290 @@
+"""数据库管理核心服务。
+
+提供数据库 registry 加载、状态检测、安装命令生成、后台安装与日志/进度读取能力。
+本模块属于 Core 层，不依赖 Qt。
+"""
+
+from __future__ import annotations
+
+import base64
+import re
+import shlex
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+import yaml
+from jinja2 import Template
+
+from core.environment.env_detector import SshRunFn
+
+
+class DatabaseStatus(Enum):
+    NOT_INSTALLED = "not_installed"
+    INCOMPLETE = "incomplete"
+    READY = "ready"
+    INSTALLING = "installing"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class DatabaseInfo:
+    db_id: str
+    name: str
+    description: str
+    category: str
+    install_path: str
+    size_mb: int
+    tools: list[str] = field(default_factory=list)
+    mirrors: list[dict[str, str]] = field(default_factory=list)
+    integrity_check: dict[str, Any] = field(default_factory=dict)
+    install_cmd: str = ""
+    env_var: str = ""
+    builtin: bool = False
+
+
+@dataclass
+class DatabaseCheckResult:
+    db_id: str
+    status: DatabaseStatus
+    message: str = ""
+
+
+def _expand_path(path: str) -> str:
+    return path.replace("~", "$HOME", 1) if path.startswith("~") else path
+
+
+def _quote(path: str) -> str:
+    return shlex.quote(path)
+
+
+class DatabaseService:
+    INSTALL_BASE = "~/.h2ometa/db_installs"
+
+    def __init__(self, databases_yaml_path: str = ""):
+        if databases_yaml_path:
+            self._yaml_path = Path(databases_yaml_path)
+        else:
+            self._yaml_path = Path(__file__).resolve().parents[2] / "plugins" / "databases.yaml"
+        self._registry: dict[str, DatabaseInfo] = {}
+        self._load_registry()
+
+    def _load_registry(self) -> None:
+        with open(self._yaml_path, "r", encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh) or {}
+        databases = raw.get("databases", {})
+        if not isinstance(databases, dict):
+            return
+        for db_id, node in databases.items():
+            if not isinstance(node, dict):
+                continue
+            self._registry[db_id] = DatabaseInfo(
+                db_id=str(db_id),
+                name=str(node.get("name", db_id)),
+                description=str(node.get("description", "")),
+                category=str(node.get("category", "other")),
+                install_path=str(node.get("install_path", "")),
+                size_mb=int(node.get("size_mb", 0) or 0),
+                tools=[str(v) for v in node.get("tools", []) if str(v).strip()],
+                mirrors=[v for v in node.get("mirrors", []) if isinstance(v, dict)],
+                integrity_check=node.get("integrity_check", {}) if isinstance(node.get("integrity_check", {}), dict) else {},
+                install_cmd=str(node.get("install_cmd", "")),
+                env_var=str(node.get("env_var", "")),
+                builtin=bool(node.get("builtin", False)),
+            )
+
+    def list_all(self) -> list[DatabaseInfo]:
+        return [db for db in self._registry.values() if not db.builtin]
+
+    def list_by_category(self) -> dict[str, list[DatabaseInfo]]:
+        grouped: dict[str, list[DatabaseInfo]] = {}
+        for info in self.list_all():
+            grouped.setdefault(info.category, []).append(info)
+        return grouped
+
+    def get_info(self, db_id: str) -> DatabaseInfo | None:
+        return self._registry.get(db_id)
+
+    def get_resolved_path(self, db_id: str, db_root: str) -> str:
+        info = self.get_info(db_id)
+        if info is None or info.builtin:
+            return ""
+        root = str(db_root or "").strip().rstrip("/")
+        rel = str(info.install_path or "").strip().lstrip("/")
+        if not root or not rel:
+            return ""
+        return f"{root}/{rel}"
+
+    def check_status(self, ssh_run_fn: SshRunFn, db_id: str, db_root: str) -> DatabaseCheckResult:
+        info = self.get_info(db_id)
+        if info is None:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="数据库未注册")
+        if info.builtin:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="builtin 数据库")
+
+        db_path = self.get_resolved_path(db_id, db_root)
+        if not db_path:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message="db_root 未设置")
+
+        qdb = _quote(db_path)
+        status_file = info.integrity_check.get("status_file", ".install_ok")
+        if status_file:
+            rc, _, _ = ssh_run_fn(f"test -f {qdb}/{_quote(str(status_file))}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED)
+
+        for kf in info.integrity_check.get("key_files", []):
+            key = str(kf).strip()
+            if not key:
+                continue
+            rc, _, _ = ssh_run_fn(f"test -e {qdb}/{_quote(key)}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.INCOMPLETE, message=f"缺少: {key}")
+
+        return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.READY)
+
+    def check_all(self, ssh_run_fn: SshRunFn, db_root: str) -> list[DatabaseCheckResult]:
+        return [self.check_status(ssh_run_fn, info.db_id, db_root) for info in self.list_all()]
+
+    def generate_install_commands(self, db_id: str, db_root: str, mirror_index: int = 0) -> list[str]:
+        info = self.get_info(db_id)
+        if info is None:
+            raise ValueError(f"未知数据库: {db_id}")
+        if info.builtin:
+            raise ValueError(f"builtin 数据库不支持安装: {db_id}")
+        db_path = self.get_resolved_path(db_id, db_root)
+        if not db_path:
+            raise ValueError("db_root 未设置")
+
+        commands = [f"mkdir -p {_quote(db_path)}"]
+
+        if info.install_cmd:
+            rendered = Template(info.install_cmd).render(db_path=db_path)
+            commands.append(rendered)
+        elif info.mirrors:
+            idx = mirror_index if 0 <= mirror_index < len(info.mirrors) else 0
+            url = str(info.mirrors[idx].get("url", "")).strip()
+            if not url:
+                raise ValueError(f"数据库 {db_id} 缺少可用镜像 URL")
+            commands.append(f"cd {_quote(db_path)}")
+            commands.append(f"wget -c --progress=dot:giga {_quote(url)} -O archive.tar.gz")
+            commands.append("tar xzf archive.tar.gz")
+            commands.append("rm -f archive.tar.gz")
+        else:
+            raise ValueError(f"数据库 {db_id} 缺少 install_cmd 和镜像配置")
+
+        commands.append(f"touch {_quote(db_path)}/.install_ok")
+        return commands
+
+    def submit_install(
+        self,
+        ssh_run_fn: SshRunFn,
+        db_id: str,
+        db_root: str,
+        conda_exe: str = "",
+        mirror_index: int = 0,
+    ) -> dict[str, str]:
+        del conda_exe  # 预留兼容参数
+        commands = self.generate_install_commands(db_id, db_root, mirror_index=mirror_index)
+        task_dir = f"{self.INSTALL_BASE}/{db_id}"
+        job_id = f"h2o_dbinstall_{db_id}"
+
+        expanded_task_dir = f'"$(eval echo {_quote(_expand_path(task_dir))})"'
+        rc, _, stderr = ssh_run_fn(f"mkdir -p {expanded_task_dir}", 15)
+        if rc != 0:
+            raise RuntimeError(f"创建安装目录失败: {stderr[:200]}")
+
+        commands_block = "\n".join(commands)
+        wrapper = f"""#!/bin/bash
+set -euo pipefail
+TASK_DIR="$(eval echo {_quote(_expand_path(task_dir))})"
+STATUS_FILE="$TASK_DIR/status.txt"
+LOG_FILE="$TASK_DIR/task.log"
+EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
+HEARTBEAT_FILE="$TASK_DIR/heartbeat.txt"
+
+echo "RUNNING" > "$STATUS_FILE"
+_heartbeat() {{ while true; do date +%s > "$HEARTBEAT_FILE"; sleep 30; done; }}
+_heartbeat &
+HB_PID=$!
+
+_cleanup() {{
+    local ec=$?
+    kill $HB_PID 2>/dev/null || true
+    echo "$ec" > "$EXIT_CODE_FILE"
+    if [ "$ec" -eq 0 ]; then
+        echo "DONE" > "$STATUS_FILE"
+    else
+        echo "FAILED" > "$STATUS_FILE"
+    fi
+}}
+trap _cleanup EXIT
+
+exec > "$LOG_FILE" 2>&1
+
+{commands_block}
+"""
+
+        script_path = f"{task_dir}/install.sh"
+        expanded_script_path = f'"$(eval echo {_quote(_expand_path(script_path))})"'
+        encoded = base64.b64encode(wrapper.encode("utf-8")).decode("ascii")
+        rc, _, stderr = ssh_run_fn(f"echo {_quote(encoded)} | base64 -d > {expanded_script_path}", 15)
+        if rc != 0:
+            raise RuntimeError(f"写入安装脚本失败: {stderr[:200]}")
+
+        ssh_run_fn(f"screen -S {_quote(job_id)} -X quit 2>/dev/null || true", 10)
+        rc, _, stderr = ssh_run_fn(f"screen -dmS {_quote(job_id)} bash {expanded_script_path}", 15)
+        if rc != 0:
+            raise RuntimeError(f"启动安装任务失败: {stderr[:200]}")
+
+        return {"job_id": job_id, "task_dir": task_dir}
+
+    def check_install_status(self, ssh_run_fn: SshRunFn, task_dir: str) -> dict[str, str]:
+        expanded_task_dir = f'"$(eval echo {_quote(_expand_path(task_dir))})"'
+        rc, status_out, _ = ssh_run_fn(f"cat {expanded_task_dir}/status.txt 2>/dev/null", 10)
+        status = status_out.strip() if rc == 0 else ""
+
+        rc, exit_out, _ = ssh_run_fn(f"cat {expanded_task_dir}/exit_code.txt 2>/dev/null", 10)
+        exit_code = exit_out.strip() if rc == 0 else ""
+
+        rc, heartbeat_out, _ = ssh_run_fn(f"cat {expanded_task_dir}/heartbeat.txt 2>/dev/null", 10)
+        heartbeat = heartbeat_out.strip() if rc == 0 else ""
+
+        if status == "DONE" or exit_code == "0":
+            return {"status": "DONE", "exit_code": exit_code or "0", "heartbeat": heartbeat}
+        if status == "FAILED":
+            return {"status": "FAILED", "exit_code": exit_code, "heartbeat": heartbeat}
+        if status == "RUNNING":
+            return {"status": "RUNNING", "exit_code": exit_code, "heartbeat": heartbeat}
+
+        job_id = f"h2o_dbinstall_{Path(task_dir).name}"
+        rc, _, _ = ssh_run_fn(f"screen -ls | grep -q {_quote(job_id)}", 10)
+        if rc == 0:
+            return {"status": "RUNNING", "exit_code": exit_code, "heartbeat": heartbeat}
+        if exit_code and exit_code != "0":
+            return {"status": "FAILED", "exit_code": exit_code, "heartbeat": heartbeat}
+        return {"status": "", "exit_code": exit_code, "heartbeat": heartbeat}
+
+    def read_install_log(self, ssh_run_fn: SshRunFn, task_dir: str, tail: int = 50) -> str:
+        expanded_task_dir = f'"$(eval echo {_quote(_expand_path(task_dir))})"'
+        rc, stdout, _ = ssh_run_fn(f"tail -n {int(tail)} {expanded_task_dir}/task.log 2>/dev/null", 10)
+        return stdout if rc == 0 else ""
+
+    def parse_progress(self, log_text: str) -> dict[str, Any]:
+        matches = re.findall(r"(\d+)%\s+([\d.]+[KMG]?(?:/s)?)?\s*([\dhms]+)?", log_text or "")
+        if not matches:
+            return {}
+        last = matches[-1]
+        result: dict[str, Any] = {"percent": int(last[0])}
+        if last[1]:
+            speed = str(last[1]).strip()
+            if speed and not speed.endswith("/s"):
+                speed = f"{speed}/s"
+            result["speed"] = speed
+        if last[2]:
+            result["eta"] = last[2]
+        return result
+
+    def verify_integrity(self, ssh_run_fn: SshRunFn, db_id: str, db_root: str) -> DatabaseCheckResult:
+        return self.check_status(ssh_run_fn, db_id, db_root)
