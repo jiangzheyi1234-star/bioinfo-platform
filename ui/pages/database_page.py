@@ -86,9 +86,30 @@ class DatabasePage(BasePage):
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #E2E8F0; border-radius: 8px; background: #FFFFFF; }"
-            "QTabBar::tab { padding: 8px 14px; color: #334155; }"
-            "QTabBar::tab:selected { color: #1D4ED8; font-weight: 700; }"
+            """
+            QTabWidget::pane {
+                border: none;
+                background: transparent;
+            }
+            QTabBar::tab {
+                padding: 8px 16px;
+                margin-right: 4px;
+                color: #64748B;
+                font-size: 13px;
+                font-weight: 500;
+                border: none;
+                border-bottom: 2px solid transparent;
+                background: transparent;
+            }
+            QTabBar::tab:selected {
+                color: #3B82F6;
+                font-weight: 700;
+                border-bottom: 2px solid #3B82F6;
+            }
+            QTabBar::tab:hover {
+                color: #334155;
+            }
+            """
         )
         self.layout.addWidget(self.tabs, stretch=1)
 
