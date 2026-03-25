@@ -48,6 +48,7 @@ CATEGORY_LABELS = {
 
 _ICON_COLOR = "#64748B"
 _ICON_COLOR_HOVER = "#0EA5E9"
+_SETTINGS_ICON_COLOR = "#64748B"
 
 _GHOST_BTN_STYLE = """
     QPushButton {
@@ -71,13 +72,13 @@ _ICON_BTN_STYLE = """
     QPushButton {
         background: transparent;
         border: none;
-        border-radius: 16px;
+        border-radius: 14px;
     }
     QPushButton:hover {
-        background: #DBEAFE;
+        background: #E2E8F0;
     }
     QPushButton:pressed {
-        background: #BFDBFE;
+        background: #CBD5E1;
     }
 """
 
@@ -242,9 +243,17 @@ class DatabaseSettingsDialog(QDialog):
         hint.setStyleSheet("font-size: 12px; color: #4A7A90;")
         root.addWidget(hint)
 
-        self.info_line = QLabel("📍 --")
+        info_row = QHBoxLayout()
+        info_row.setContentsMargins(0, 0, 0, 0)
+        info_row.setSpacing(6)
+        self.info_icon = QLabel()
+        self.info_icon.setPixmap(qta.icon("ph.map-pin", color="#0EA5E9").pixmap(QSize(14, 14)))
+        self.info_icon.setFixedSize(14, 14)
+        self.info_line = QLabel("--")
         self.info_line.setStyleSheet("font-size: 12px; color: #0369A1;")
-        root.addWidget(self.info_line)
+        info_row.addWidget(self.info_icon)
+        info_row.addWidget(self.info_line, stretch=1)
+        root.addLayout(info_row)
 
         actions = QHBoxLayout()
         actions.addStretch()
@@ -263,7 +272,7 @@ class DatabaseSettingsDialog(QDialog):
 
     def _refresh_info(self) -> None:
         info = self._info_fn(self.path_edit.text().strip())
-        self.info_line.setText(f"📍 {info.get('resolved', '--')}")
+        self.info_line.setText(str(info.get("resolved", "--") or "--"))
 
     def _on_browse(self) -> None:
         selected = self._browse_fn(self.path_edit.text().strip())
@@ -304,8 +313,8 @@ class DatabasePage(BasePage):
 
         # 设置按钮（圆形图标）
         self.settings_btn = QPushButton()
-        self.settings_btn.setIcon(qta.icon("ph.gear-six", color=_ICON_COLOR))
-        self.settings_btn.setIconSize(QSize(16, 16))
+        self.settings_btn.setIcon(qta.icon("ph.gear-six", color=_SETTINGS_ICON_COLOR))
+        self.settings_btn.setIconSize(QSize(18, 18))
         self.settings_btn.setFixedSize(32, 32)
         self.settings_btn.setToolTip("数据库设置")
         self.settings_btn.setStyleSheet(_ICON_BTN_STYLE)
@@ -318,10 +327,15 @@ class DatabasePage(BasePage):
         self.refresh_btn.setStyleSheet(_GHOST_BTN_STYLE)
         self.refresh_btn.clicked.connect(self._refresh_all_status)
 
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("color: #E2E8F0; max-height: 20px;")
+
         title_row.addWidget(title)
-        title_row.addWidget(self.settings_btn)
         title_row.addStretch()
         title_row.addWidget(self.refresh_btn)
+        title_row.addWidget(sep)
+        title_row.addWidget(self.settings_btn)
         self.layout.addLayout(title_row)
 
         # ── Tab ────────────────────────────────────────────
