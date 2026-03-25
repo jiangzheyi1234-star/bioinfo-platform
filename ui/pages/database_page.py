@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import html
 import logging
 import posixpath
 import shlex
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QThread, QTimer
+from PyQt6.QtCore import QSize, Qt, QThread, QTimer
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -26,7 +27,6 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.data.database_service import DatabaseCheckResult, DatabaseInfo, DatabaseService, DatabaseStatus
-from core.remote.storage_manager import StorageManager
 from ui.page_base import BasePage
 from ui.widgets.database_management_components import (
     DatabaseInstallDialog,
@@ -35,6 +35,11 @@ from ui.widgets.database_management_components import (
     DatabaseStatusWorker,
 )
 from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY, INPUT_LINEEDIT, PAGE_HEADER_TITLE, SCROLL_BAR_ELEGANT
+
+try:
+    import qtawesome as qta
+except Exception:  # pragma: no cover - fallback when optional dep is missing
+    qta = None
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +60,26 @@ ICON_BTN = """
         color: #4A7A90;
         padding: 4px;
         min-width: 32px;
+        min-height: 32px;
+    }
+    QPushButton:hover {
+        background: #DBEAFE;
+        color: #0EA5E9;
+    }
+    QPushButton:pressed {
+        background: #BAE6FD;
+    }
+"""
+
+REFRESH_GHOST_BTN = """
+    QPushButton {
+        background: transparent;
+        border: none;
+        border-radius: 16px;
+        color: #4A7A90;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 12px;
         min-height: 32px;
     }
     QPushButton:hover {
@@ -163,7 +188,7 @@ class DatabaseSettingsDialog(QDialog):
     def __init__(self, initial_path: str, info_fn, browse_fn, save_fn, parent=None):
         super().__init__(parent)
         self.setWindowTitle("数据库设置")
-        self.setFixedWidth(480)
+        self.setFixedWidth(520)
         self._info_fn = info_fn
         self._browse_fn = browse_fn
         self._save_fn = save_fn
@@ -177,7 +202,7 @@ class DatabaseSettingsDialog(QDialog):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(20, 20, 20, 20)
         root.setSpacing(10)
 
         title = QLabel("⚙️ 数据库设置")
@@ -194,6 +219,7 @@ class DatabaseSettingsDialog(QDialog):
         self.path_edit.setPlaceholderText("~/databases")
         self.browse_btn = QPushButton("📁 浏览")
         self.browse_btn.setStyleSheet(BUTTON_SECONDARY)
+        self.browse_btn.setMinimumWidth(96)
         self.browse_btn.clicked.connect(self._on_browse)
         row.addWidget(self.path_edit, stretch=1)
         row.addWidget(self.browse_btn)
@@ -203,44 +229,37 @@ class DatabaseSettingsDialog(QDialog):
         hint.setStyleSheet("font-size: 12px; color: #4A7A90;")
         root.addWidget(hint)
 
-        section2 = QLabel("服务器信息")
-        section2.setStyleSheet("font-size: 11px; color: #7EB8D0; font-weight: 600;")
-        root.addWidget(section2)
-
-        info_panel = QFrame()
-        info_panel.setStyleSheet("QFrame { background: #F5FBFF; border-radius: 8px; border: 1px solid #D6EAF8; }")
-        info_layout = QVBoxLayout(info_panel)
-        info_layout.setContentsMargins(10, 10, 10, 10)
-        info_layout.setSpacing(6)
-        self.user_label = QLabel("👤 用户: --")
-        self.disk_label = QLabel("💾 磁盘剩余: --")
-        self.expanded_label = QLabel("📍 展开路径: --")
-        self.expanded_label.setStyleSheet("font-family: Consolas, 'Courier New', monospace; color: #0369A1;")
-        info_layout.addWidget(self.user_label)
-        info_layout.addWidget(self.disk_label)
-        info_layout.addWidget(self.expanded_label)
-        root.addWidget(info_panel)
+        self.info_line = QLabel("📍 -- · 💾 --")
+        self.info_line.setTextFormat(Qt.TextFormat.RichText)
+        self.info_line.setStyleSheet("font-size: 12px;")
+        self.info_line.setWordWrap(True)
+        root.addWidget(self.info_line)
 
         actions = QHBoxLayout()
         actions.addStretch()
         self.cancel_btn = QPushButton("取消")
         self.cancel_btn.setStyleSheet(BUTTON_SECONDARY)
+        self.cancel_btn.setMinimumWidth(88)
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn = QPushButton("✓ 保存")
         self.save_btn.setStyleSheet(BUTTON_PRIMARY)
+        self.save_btn.setMinimumWidth(110)
         self.save_btn.clicked.connect(self._on_save)
         actions.addWidget(self.cancel_btn)
         actions.addWidget(self.save_btn)
         root.addLayout(actions)
+
+        self.adjustSize()
 
     def _schedule_refresh_info(self) -> None:
         self._info_timer.start(250)
 
     def _refresh_info(self) -> None:
         info = self._info_fn(self.path_edit.text().strip())
-        self.user_label.setText(f"👤 用户: {info.get('user', '--')}")
-        self.disk_label.setText(f"💾 磁盘剩余: {info.get('disk', '--')}")
-        self.expanded_label.setText(f"📍 展开路径: {info.get('resolved', '--')}")
+        resolved = html.escape(str(info.get("resolved", "--") or "--"))
+        self.info_line.setText(
+            f"📍 <span style=\"color:#0369A1;font-family:Consolas,'Courier New',monospace\">{resolved}</span>"
+        )
 
     def _on_browse(self) -> None:
         selected = self._browse_fn(self.path_edit.text().strip())
@@ -276,15 +295,26 @@ class DatabasePage(BasePage):
         title_row = QHBoxLayout()
         title = QLabel("数据库管理")
         title.setStyleSheet(PAGE_HEADER_TITLE)
-        self.db_settings_btn = QPushButton("⚙️")
+        self.db_settings_btn = QPushButton()
+        self.db_settings_btn.setToolTip("数据库设置")
         self.db_settings_btn.setStyleSheet(ICON_BTN)
+        if qta is not None:
+            self.db_settings_btn.setIcon(qta.icon("ph.gear-six", color="#94A3B8"))
+            self.db_settings_btn.setIconSize(QSize(16, 16))
+        else:
+            self.db_settings_btn.setText("⚙️")
         self.db_settings_btn.clicked.connect(self._open_db_settings_dialog)
-        self.refresh_btn = QPushButton("全部刷新")
-        self.refresh_btn.setStyleSheet(BUTTON_SECONDARY)
+        self.refresh_btn = QPushButton("  刷新")
+        if qta is not None:
+            self.refresh_btn.setIcon(qta.icon("ph.arrows-clockwise", color="#64748B"))
+            self.refresh_btn.setIconSize(QSize(15, 15))
+        else:
+            self.refresh_btn.setText("🔄 刷新")
+        self.refresh_btn.setStyleSheet(REFRESH_GHOST_BTN)
         self.refresh_btn.clicked.connect(self._refresh_all_status)
         title_row.addWidget(title)
-        title_row.addStretch()
         title_row.addWidget(self.db_settings_btn)
+        title_row.addStretch()
         title_row.addWidget(self.refresh_btn)
         self.layout.addLayout(title_row)
 
@@ -295,23 +325,27 @@ class DatabasePage(BasePage):
                 border: none;
                 background: transparent;
             }
+            QTabBar {
+                background: transparent;
+            }
             QTabBar::tab {
-                padding: 8px 16px;
-                margin-right: 4px;
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                padding: 7px 18px;
+                min-width: 72px;
                 color: #64748B;
                 font-size: 13px;
                 font-weight: 500;
-                border: none;
-                border-bottom: 2px solid transparent;
-                background: transparent;
+                margin-right: 8px;
             }
             QTabBar::tab:selected {
-                color: #3B82F6;
-                font-weight: 700;
-                border-bottom: 2px solid #3B82F6;
+                background: #E5E7EB;
+                color: #0EA5E9;
+                font-weight: 600;
             }
-            QTabBar::tab:hover {
-                color: #334155;
+            QTabBar::tab:hover:!selected {
+                color: #0284C7;
             }
             """
         )
@@ -369,7 +403,25 @@ class DatabasePage(BasePage):
             if not candidate:
                 return False
 
-        ok, resolved_root, message, created = self._validate_db_root_remote(candidate, allow_create=True)
+        allow_create = False
+        expanded = self._expand_remote_path(candidate)
+        if expanded and expanded.startswith("/"):
+            normalized = self._normalize_remote_path(expanded)
+            qroot = shlex.quote(normalized)
+            rc_exists, _, _ = self._run_ssh(f"test -d {qroot}", 10)
+            if rc_exists != 0:
+                answer = QMessageBox.question(
+                    self,
+                    "目录不存在",
+                    f"目录不存在：{normalized}\n是否现在创建该目录并继续保存？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return False
+                allow_create = True
+
+        ok, resolved_root, message, created = self._validate_db_root_remote(candidate, allow_create=allow_create)
         if not ok:
             QMessageBox.warning(self, "数据库配置", message)
             return False
@@ -411,7 +463,7 @@ class DatabasePage(BasePage):
 
     def _open_db_settings_dialog(self) -> None:
         dialog = DatabaseSettingsDialog(
-            initial_path=self._get_db_root() or "~",
+            initial_path=self._get_db_root(),
             info_fn=self._collect_db_root_info,
             browse_fn=self._pick_remote_db_root,
             save_fn=self._save_db_root,
@@ -445,33 +497,11 @@ class DatabasePage(BasePage):
     def _collect_db_root_info(self, raw_path: str) -> dict[str, str]:
         if self._ssh_client is None:
             return {"user": "--", "resolved": "--", "disk": "--"}
-        user = "--"
-        rc_user, out_user, _ = self._run_ssh("whoami", 10)
-        if rc_user == 0 and out_user.strip():
-            user = out_user.strip()
 
         candidate = str(raw_path or "").strip() or "~"
         resolved = self._expand_remote_path(candidate)
         resolved_show = resolved or "--"
-
-        disk_text = "--"
-        if resolved and resolved.startswith("/"):
-            try:
-                class _Runner:
-                    def __init__(self, outer):
-                        self._outer = outer
-
-                    def run(self, cmd: str, timeout: int = 10):
-                        return self._outer._run_ssh(cmd, timeout)
-
-                usage = StorageManager(_Runner(self)).get_disk_usage(resolved)
-                disk_text = (
-                    f"{usage.available_gb:.1f} GB / {usage.total_gb:.1f} GB "
-                    f"({usage.percent * 100:.0f}% 已用)"
-                )
-            except Exception:
-                disk_text = "--"
-        return {"user": user, "resolved": resolved_show, "disk": disk_text}
+        return {"user": "--", "resolved": resolved_show, "disk": "--"}
 
     def _expand_remote_path(self, raw_path: str) -> str:
         path = str(raw_path or "").strip()
@@ -485,7 +515,20 @@ class DatabasePage(BasePage):
             'else printf "%s\\n" "$p"; fi'
         )
         rc, stdout, _ = self._run_ssh(cmd, 10)
-        return stdout.strip() if rc == 0 else ""
+        expanded = stdout.strip() if rc == 0 else ""
+        if expanded.startswith("~"):
+            home = self._get_remote_home()
+            if home:
+                if expanded == "~":
+                    expanded = home
+                elif expanded.startswith("~/"):
+                    expanded = f"{home}/{expanded[2:]}"
+        return expanded
+
+    def _get_remote_home(self) -> str:
+        rc, out, _ = self._run_ssh("printf '%s\\n' \"$HOME\"", 10)
+        home = out.strip() if rc == 0 else ""
+        return home if home.startswith("/") else ""
 
     def _normalize_remote_path(self, resolved: str) -> str:
         normalized = posixpath.normpath(str(resolved or "").strip())

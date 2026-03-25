@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QSize, QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -23,6 +23,11 @@ from core.data.database_service import (
     DatabaseStatus,
 )
 from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY
+
+try:
+    import qtawesome as qta
+except Exception:  # pragma: no cover - fallback when optional dep is missing
+    qta = None
 
 
 class DatabaseItemCard(QFrame):
@@ -114,6 +119,11 @@ class DatabaseItemCard(QFrame):
         self.path_btn = QPushButton("选择已有路径")
         self.path_btn.setStyleSheet(BUTTON_SECONDARY)
         self.path_btn.clicked.connect(lambda: self.path_override_requested.emit(self.db_info.db_id))
+        if qta is not None:
+            self.install_btn.setIcon(qta.icon("ph.download-simple", color="#FFFFFF"))
+            self.install_btn.setIconSize(QSize(14, 14))
+            self.path_btn.setIcon(qta.icon("ph.folder-open", color="#475569"))
+            self.path_btn.setIconSize(QSize(14, 14))
         self.cancel_btn = QPushButton("取消")
         self.cancel_btn.setStyleSheet(BUTTON_SECONDARY)
         self.cancel_btn.clicked.connect(lambda: self.cancel_requested.emit(self.db_info.db_id))

@@ -37,6 +37,7 @@ def test_save_db_root_empty_uses_home_choice_and_auto_creates(qapp, monkeypatch)
     warns: list[str] = []
     monkeypatch.setattr(QMessageBox, "information", lambda *args: infos.append(str(args[2])))
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: warns.append(str(args[2])))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
 
     def fake_run(cmd: str, timeout: int = 10):
         del timeout
@@ -64,6 +65,40 @@ def test_save_db_root_empty_uses_home_choice_and_auto_creates(qapp, monkeypatch)
     assert page._get_db_root() == "/home/tester/databases"
     assert any("已自动创建并保存目录" in m for m in infos)
 
+    page.close()
+
+
+def test_save_db_root_missing_path_cancel_create_stops_save(qapp, monkeypatch):
+    page = DatabasePage()
+    page._ssh_client = object()
+
+    save_calls: list[dict] = []
+    monkeypatch.setattr(
+        "ui.pages.database_page.get_config",
+        lambda: {"databases": {"db_root": "", "overrides": {}}, "runtime": {}},
+    )
+    monkeypatch.setattr("ui.pages.database_page.save_config", lambda cfg: save_calls.append(cfg))
+    monkeypatch.setattr(page, "_refresh_all_status", lambda: None)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.No)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: None)
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
+
+    def fake_run(cmd: str, timeout: int = 10):
+        del timeout
+        if "p='~/databases';" in cmd:
+            return 0, "/home/tester/databases\n", ""
+        if cmd.startswith("test -d /home/tester/databases"):
+            return 1, "", ""
+        if cmd.startswith("mkdir -p /home/tester/databases"):
+            return 1, "", "should not create"
+        return 1, "", f"unexpected cmd: {cmd}"
+
+    monkeypatch.setattr(page, "_run_ssh", fake_run)
+
+    ok = page._save_db_root("~/databases")
+
+    assert ok is False
+    assert save_calls == []
     page.close()
 
 
@@ -229,6 +264,28 @@ def test_open_settings_dialog_passes_current_db_root(qapp, monkeypatch):
     page.close()
 
 
+def test_open_settings_dialog_keeps_empty_initial_path(qapp, monkeypatch):
+    page = DatabasePage()
+    page._ssh_client = object()
+    page._db_root_value = ""
+
+    captured_initial: list[str] = []
+
+    class _FakeDialog:
+        def __init__(self, initial_path, info_fn, browse_fn, save_fn, parent=None):
+            del info_fn, browse_fn, save_fn, parent
+            captured_initial.append(initial_path)
+
+        def exec(self):
+            return 1
+
+    monkeypatch.setattr("ui.pages.database_page.DatabaseSettingsDialog", _FakeDialog)
+    page._open_db_settings_dialog()
+
+    assert captured_initial == [""]
+    page.close()
+
+
 def test_collect_db_root_info_degrades_without_ssh(qapp):
     page = DatabasePage()
     page._ssh_client = None
@@ -282,6 +339,38 @@ def test_list_remote_directories_not_exists(qapp, monkeypatch):
     assert ok is False
     assert "目录不存在" in message
 
+    page.close()
+
+
+def test_validate_db_root_expands_tilde_with_home_fallback(qapp, monkeypatch):
+    page = DatabasePage()
+    page._ssh_client = object()
+
+    def fake_run(cmd: str, timeout: int = 10):
+        del timeout
+        if "p='~/databases';" in cmd:
+            # 模拟部分远端 shell 回传未展开的 ~
+            return 0, "~/databases\n", ""
+        if cmd == "printf '%s\\n' \"$HOME\"":
+            return 0, "/home/tester\n", ""
+        if cmd.startswith("test -d /home/tester/databases"):
+            return 0, "", ""
+        if cmd.startswith("test -x /home/tester/databases"):
+            return 0, "", ""
+        if cmd.startswith("test -w /home/tester/databases"):
+            return 0, "", ""
+        if cmd.startswith("touch /home/tester/databases/.h2ometa_write_probe"):
+            return 0, "", ""
+        return 1, "", f"unexpected cmd: {cmd}"
+
+    monkeypatch.setattr(page, "_run_ssh", fake_run)
+
+    ok, resolved, message, created = page._validate_db_root_remote("~/databases", allow_create=False)
+
+    assert ok is True
+    assert resolved == "/home/tester/databases"
+    assert message == ""
+    assert created is False
     page.close()
 
 

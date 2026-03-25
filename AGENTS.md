@@ -137,6 +137,22 @@ When changing the tool execution path, preserve the current two-stage async mode
 - **外层留 margin** 给自定义阴影留空间
 - 参考：`ui/widgets/project_selector.py`
 
+## UI Icon/Emoji Baseline (Must Reuse)
+
+当页面需要“emoji/图标按钮”时，优先使用 `qtawesome`（Phosphor），不要直接硬编码 emoji 文本：
+
+1. 依赖基线：`qtawesome>=1.3.0`。
+2. 图标来源：优先在 [phosphoricons.com](https://phosphoricons.com) 选型，对应 key 以 `ph.` 前缀使用。
+3. 推荐映射（数据库页）：
+   - 刷新：`ph.arrows-clockwise`
+   - 设置：`ph.gear-six`
+   - 下载安装：`ph.download-simple`
+   - 选择已有路径：`ph.folder-open`
+   - 已安装状态：`ph.check-circle`
+   - 未安装状态：`ph.warning-circle`
+   - 浏览：`ph.magnifying-glass`
+4. 兼容策略：若 `qtawesome` 不可用，允许短期 fallback 到 emoji/纯文本，但应保持功能可用并在后续补齐依赖。
+
 ## Current Task State（Codex 每次完成后更新）
 
 Last completed: 启动升级提示 + 数据库路径缺失错误文案增强 ✅
