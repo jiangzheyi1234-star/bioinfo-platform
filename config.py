@@ -20,6 +20,7 @@ _CONFIG_PATH = _resolve_config_path()
 _CONFIG_CACHE_LOCK = threading.RLock()
 _CONFIG_CACHE: dict[str, Any] | None = None
 _CONFIG_CACHE_FINGERPRINT: tuple[int, int] | None = None
+_DEFAULT_CONFIG_LOCK = threading.RLock()
 
 
 def get_config_path() -> Path:
@@ -190,9 +191,8 @@ def get_config() -> dict[str, Any]:
         with _CONFIG_CACHE_LOCK:
             _CONFIG_CACHE = normalized
             _CONFIG_CACHE_FINGERPRINT = fingerprint
-
-        return deepcopy(normalized)
-    except Exception:
+            return deepcopy(_CONFIG_CACHE)
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError, ValueError, TypeError):
         return default_settings_schema()
 
 
@@ -243,24 +243,25 @@ def sync_default_from_schema(schema: dict[str, Any]) -> None:
     overrides = databases.get("overrides", {}) if isinstance(databases, dict) else {}
     runtime = normalized["runtime"]
     blast = normalized["blast"]
-    DEFAULT_CONFIG.update(
-        {
-            "ip": normalized["ssh"]["host"],
-            "port": normalized["ssh"]["port"],
-            "user": normalized["ssh"]["user"],
-            "pwd": normalized["ssh"]["password"],
-            "ncbi_api_key": normalized["ncbi"]["api_key"],
-            "ncbi_email": normalized["ncbi"]["email"],
-            "remote_dir": blast["remote_work_dir"],
-            "remote_db": str((overrides.get("blast_nt") if isinstance(overrides, dict) else "") or blast["db_path"]),
-            "blast_bin": blast["bin_path"],
-            "remote_script": blast["remote_script"],
-            "local_file": runtime["local_file"],
-            "local_output_dir": runtime["local_output_dir"],
-            "max_poll_retries": runtime["max_poll_retries"],
-            "screen_check_timeout": runtime["screen_check_timeout"],
-        }
-    )
+    with _DEFAULT_CONFIG_LOCK:
+        DEFAULT_CONFIG.update(
+            {
+                "ip": normalized["ssh"]["host"],
+                "port": normalized["ssh"]["port"],
+                "user": normalized["ssh"]["user"],
+                "pwd": normalized["ssh"]["password"],
+                "ncbi_api_key": normalized["ncbi"]["api_key"],
+                "ncbi_email": normalized["ncbi"]["email"],
+                "remote_dir": blast["remote_work_dir"],
+                "remote_db": str((overrides.get("blast_nt") if isinstance(overrides, dict) else "") or blast["db_path"]),
+                "blast_bin": blast["bin_path"],
+                "remote_script": blast["remote_script"],
+                "local_file": runtime["local_file"],
+                "local_output_dir": runtime["local_output_dir"],
+                "max_poll_retries": runtime["max_poll_retries"],
+                "screen_check_timeout": runtime["screen_check_timeout"],
+            }
+        )
 
 
 DEFAULT_CONFIG = {
