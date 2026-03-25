@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self._pm = project_manager or ProjectManager()
         self._ssh_service_wrapper: Optional[SSHService] = None
+        self._ensure_initial_project_opened()
 
         self._locator = ServiceLocator(project_manager=self._pm)
         self._services_initialized = False
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self._initialize_controllers()
+        self._update_project_selector()
         self._connect_service_signals()
         self._on_settings_active_client_changed(self.settings_page.get_active_client())
         QTimer.singleShot(0, self._initialize_services_deferred)
@@ -178,10 +180,25 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.status_bar)
         self.log_page.log_status_changed.connect(self.status_bar.update_log_status)
         self.status_bar.update_log_status("日志: 就绪")
+        current = self._pm.current_project
+        self.status_bar.update_project(current.name if current else None)
 
         self.sidebar.setCurrentRow(0)
 
         self._update_project_selector()
+
+    def _ensure_initial_project_opened(self) -> None:
+        """Open a recent active project at startup if restore did not happen."""
+        if self._pm.current_project is not None:
+            return
+        try:
+            projects = [p for p in self._pm.list_projects(sort_by="last_opened") if p.status == "active"]
+            if not projects:
+                return
+            self._pm.open_project(projects[0].project_id)
+            logger.info("Startup auto-opened project: %s", projects[0].project_id)
+        except Exception:
+            logger.warning("Startup auto-open project failed", exc_info=True)
 
     def _initialize_controllers(self) -> None:
         self._disk_monitor = MainWindowDiskMonitor(
@@ -491,6 +508,4 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
-
-
 
