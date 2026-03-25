@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+import qtawesome as qta
+from PyQt6.QtCore import QObject, QSize, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -23,6 +24,36 @@ from core.data.database_service import (
     DatabaseStatus,
 )
 from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY
+
+_ICON_SIZE = QSize(14, 14)
+
+# 状态对应的图标和颜色
+_STATUS_META = {
+    DatabaseStatus.READY: ("ph.check-circle", "#10B981"),
+    DatabaseStatus.NOT_INSTALLED: ("ph.warning-circle", "#EF4444"),
+    DatabaseStatus.INCOMPLETE: ("ph.warning-circle", "#EF4444"),
+    DatabaseStatus.INSTALLING: ("ph.circle-notch", "#3B82F6"),
+    DatabaseStatus.UNKNOWN: ("ph.question", "#94A3B8"),
+}
+
+_SECONDARY_ICON_STYLE = """
+    QPushButton {
+        background: #F8FAFC;
+        color: #475569;
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-size: 12px;
+    }
+    QPushButton:hover {
+        background: #EFF6FF;
+        color: #0EA5E9;
+        border-color: #BFDBFE;
+    }
+    QPushButton:pressed {
+        background: #DBEAFE;
+    }
+"""
 
 
 class DatabaseItemCard(QFrame):
@@ -56,22 +87,31 @@ class DatabaseItemCard(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # ── 顶部：图标 + 名称 + 大小 ───────────────────────
         top = QFrame()
         top.setStyleSheet("QFrame { border: none; border-radius: 0; }")
         top_layout = QHBoxLayout(top)
         top_layout.setContentsMargins(12, 10, 12, 8)
+        top_layout.setSpacing(6)
 
-        self.dot_label = QLabel("●")
-        self.dot_label.setStyleSheet("font-size: 11px; color: #94A3B8;")
+        self.status_icon = QLabel()
+        self.status_icon.setFixedSize(16, 16)
+        self._update_status_icon(DatabaseStatus.UNKNOWN)
+
         self.name_label = QLabel(self.db_info.name)
         self.name_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #0F172A;")
-        self.size_label = QLabel(f"{self.db_info.size_mb / 1024:.1f} GB" if self.db_info.size_mb >= 1024 else f"{self.db_info.size_mb} MB")
-        self.size_label.setStyleSheet("font-size: 12px; color: #64748B;")
-        top_layout.addWidget(self.dot_label)
+        self.size_label = QLabel(
+            f"{self.db_info.size_mb / 1024:.1f} GB"
+            if self.db_info.size_mb >= 1024
+            else f"{self.db_info.size_mb} MB"
+        )
+        self.size_label.setStyleSheet("font-size: 12px; color: #94A3B8;")
+        top_layout.addWidget(self.status_icon)
         top_layout.addWidget(self.name_label)
         top_layout.addStretch()
         top_layout.addWidget(self.size_label)
 
+        # ── 中部：meta 文字 ────────────────────────────────
         mid = QFrame()
         mid.setStyleSheet("QFrame { border: none; border-radius: 0; }")
         mid_layout = QHBoxLayout(mid)
@@ -81,6 +121,7 @@ class DatabaseItemCard(QFrame):
         self.meta_label.setStyleSheet("font-size: 12px; color: #64748B;")
         mid_layout.addWidget(self.meta_label)
 
+        # ── 进度条（安装中才显示）─────────────────────────
         self.progress_wrap = QFrame()
         self.progress_wrap.setStyleSheet("QFrame { border: none; border-radius: 0; }")
         p_layout = QVBoxLayout(self.progress_wrap)
@@ -100,23 +141,37 @@ class DatabaseItemCard(QFrame):
         p_layout.addWidget(self.progress_meta)
         self.progress_wrap.hide()
 
+        # ── 底部：操作按钮 ─────────────────────────────────
         bottom = QFrame()
         bottom.setStyleSheet("QFrame { border: none; border-radius: 0; }")
         b_layout = QHBoxLayout(bottom)
         b_layout.setContentsMargins(12, 0, 12, 10)
         b_layout.addStretch()
-        self.install_btn = QPushButton("下载安装")
+
+        self.install_btn = QPushButton("  下载安装")
+        self.install_btn.setIcon(qta.icon("ph.download-simple", color="#FFFFFF"))
+        self.install_btn.setIconSize(_ICON_SIZE)
         self.install_btn.setStyleSheet(BUTTON_PRIMARY)
         self.install_btn.clicked.connect(lambda: self.install_requested.emit(self.db_info.db_id))
-        self.reinstall_btn = QPushButton("重新安装")
-        self.reinstall_btn.setStyleSheet(BUTTON_SECONDARY)
+
+        self.reinstall_btn = QPushButton("  重新安装")
+        self.reinstall_btn.setIcon(qta.icon("ph.arrows-clockwise", color="#475569"))
+        self.reinstall_btn.setIconSize(_ICON_SIZE)
+        self.reinstall_btn.setStyleSheet(_SECONDARY_ICON_STYLE)
         self.reinstall_btn.clicked.connect(lambda: self.install_requested.emit(self.db_info.db_id))
-        self.path_btn = QPushButton("选择已有路径")
-        self.path_btn.setStyleSheet(BUTTON_SECONDARY)
+
+        self.path_btn = QPushButton("  选择已有路径")
+        self.path_btn.setIcon(qta.icon("ph.folder-open", color="#475569"))
+        self.path_btn.setIconSize(_ICON_SIZE)
+        self.path_btn.setStyleSheet(_SECONDARY_ICON_STYLE)
         self.path_btn.clicked.connect(lambda: self.path_override_requested.emit(self.db_info.db_id))
-        self.cancel_btn = QPushButton("取消")
-        self.cancel_btn.setStyleSheet(BUTTON_SECONDARY)
+
+        self.cancel_btn = QPushButton("  取消")
+        self.cancel_btn.setIcon(qta.icon("ph.x-circle", color="#475569"))
+        self.cancel_btn.setIconSize(_ICON_SIZE)
+        self.cancel_btn.setStyleSheet(_SECONDARY_ICON_STYLE)
         self.cancel_btn.clicked.connect(lambda: self.cancel_requested.emit(self.db_info.db_id))
+
         for btn in (self.install_btn, self.reinstall_btn, self.path_btn, self.cancel_btn):
             b_layout.addWidget(btn)
 
@@ -125,39 +180,42 @@ class DatabaseItemCard(QFrame):
         root.addWidget(self.progress_wrap)
         root.addWidget(bottom)
 
+    def _update_status_icon(self, status: DatabaseStatus) -> None:
+        icon_name, color = _STATUS_META.get(status, ("ph.question", "#94A3B8"))
+        pixmap = qta.icon(icon_name, color=color).pixmap(QSize(16, 16))
+        self.status_icon.setPixmap(pixmap)
+
     def _set_status_style(self, color: str) -> None:
-        self.dot_label.setStyleSheet(f"font-size: 11px; color: {color};")
+        # 保留兼容，实际用 _update_status_icon
+        pass
 
     def update_status(self, result: DatabaseCheckResult) -> None:
         self._status = result.status
+        self._update_status_icon(result.status)
         tools = ",".join(self.db_info.tools) if self.db_info.tools else "-"
         msg = result.message or ""
         if result.status == DatabaseStatus.READY:
-            self._set_status_style("#10B981")
-            self.meta_label.setText(f"工具: {tools} · 状态: 已就绪")
+            self.meta_label.setText(f"工具: {tools} · 已就绪")
             self.install_btn.hide()
             self.path_btn.hide()
             self.cancel_btn.hide()
             self.reinstall_btn.show()
         elif result.status in (DatabaseStatus.NOT_INSTALLED, DatabaseStatus.INCOMPLETE):
-            self._set_status_style("#EF4444")
             suffix = f" · {msg}" if msg else ""
-            self.meta_label.setText(f"工具: {tools} · 状态: 未安装/不完整{suffix}")
+            self.meta_label.setText(f"工具: {tools} · 未安装/不完整{suffix}")
             self.reinstall_btn.hide()
             self.cancel_btn.hide()
             self.install_btn.show()
             self.path_btn.show()
         elif result.status == DatabaseStatus.INSTALLING:
-            self._set_status_style("#3B82F6")
-            self.meta_label.setText(f"工具: {tools} · 状态: 安装中")
+            self.meta_label.setText(f"工具: {tools} · 安装中")
             self.install_btn.hide()
             self.reinstall_btn.hide()
             self.path_btn.hide()
             self.cancel_btn.show()
             self.progress_wrap.show()
         else:
-            self._set_status_style("#94A3B8")
-            self.meta_label.setText(f"工具: {tools} · 状态: 未知")
+            self.meta_label.setText(f"工具: {tools} · 未知")
             self.install_btn.show()
             self.path_btn.show()
             self.reinstall_btn.hide()
@@ -241,16 +299,26 @@ class DatabaseInstallDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self.cancel_btn = QPushButton("取消")
+
+        self.cancel_btn = QPushButton("  取消")
+        self.cancel_btn.setIcon(qta.icon("ph.x", color="#475569"))
+        self.cancel_btn.setIconSize(_ICON_SIZE)
         self.cancel_btn.setStyleSheet(BUTTON_SECONDARY)
         self.cancel_btn.clicked.connect(self._on_cancel)
-        self.confirm_btn = QPushButton("确认安装")
+
+        self.confirm_btn = QPushButton("  确认安装")
+        self.confirm_btn.setIcon(qta.icon("ph.download-simple", color="#FFFFFF"))
+        self.confirm_btn.setIconSize(_ICON_SIZE)
         self.confirm_btn.setStyleSheet(BUTTON_PRIMARY)
         self.confirm_btn.clicked.connect(self._on_confirm)
-        self.close_btn = QPushButton("关闭")
+
+        self.close_btn = QPushButton("  关闭")
+        self.close_btn.setIcon(qta.icon("ph.check", color="#475569"))
+        self.close_btn.setIconSize(_ICON_SIZE)
         self.close_btn.setStyleSheet(BUTTON_SECONDARY)
         self.close_btn.hide()
         self.close_btn.clicked.connect(self.accept)
+
         btn_row.addWidget(self.cancel_btn)
         btn_row.addWidget(self.confirm_btn)
         btn_row.addWidget(self.close_btn)
@@ -319,7 +387,7 @@ class DatabaseStatusWorker(QObject):
                 result = self._database_service.check_status(self._ssh_run_fn, info.db_id, self._db_root)
                 self.status_checked.emit(info.db_id, result)
             self.all_done.emit()
-        except Exception as exc:  # pragma: no cover - UI worker safety
+        except Exception as exc:
             self.error.emit(str(exc))
 
 
@@ -362,7 +430,6 @@ class DatabaseInstallMonitor(QObject):
                     str(progress.get("speed", "")),
                     str(progress.get("eta", "")),
                 )
-
                 state = str(status.get("status", ""))
                 if state == "DONE":
                     verify = self._database_service.verify_integrity(self._ssh_run_fn, self._db_id, self._db_root)
@@ -373,5 +440,5 @@ class DatabaseInstallMonitor(QObject):
                     self.install_finished.emit(self._db_id, False, "安装失败")
                     return
                 time.sleep(2)
-        except Exception as exc:  # pragma: no cover - UI worker safety
+        except Exception as exc:
             self.install_finished.emit(self._db_id, False, str(exc))
