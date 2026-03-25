@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 
 from PyQt6.QtCore import QEvent, QSize, QTimer, Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
@@ -32,6 +32,8 @@ from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
 from ui.widgets.project_selector import ProjectSelectorButton
+
+import qtawesome as qta
 
 logger = logging.getLogger(__name__)
 
@@ -148,21 +150,15 @@ class MainWindow(QMainWindow):
         self.log_page = LogPage(main_window=self)
         self.content.addWidget(self.log_page)
 
-        _NAV_ICONS = [
-            # (svg_path_d, label) — 简洁线条图标
-            ("M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2v10a1 1 0 01-1 1h-3m-4 0v-6a1 1 0 011-1h2a1 1 0 011 1v6m-6 0h6",
-             "项目首页"),
-            ("M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
-             "病原检测"),
-            ("M5 4h14a2 2 0 012 2v3a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zm0 9h14a2 2 0 012 2v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3a2 2 0 012-2z",
-             "数据库"),
-            ("M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
-             "系统设置"),
-            ("M4 6h16M4 10h16M4 14h16M4 18h16",
-             "日志"),
+        _NAV_ITEMS = [
+            ("ph.house", "项目首页"),
+            ("ph.shield-check", "病原检测"),
+            ("ph.stack", "数据库"),
+            ("ph.gear-six", "系统设置"),
+            ("ph.list-bullets", "日志"),
         ]
-        for svg_d, label in _NAV_ICONS:
-            icon = self._make_nav_icon(svg_d)
+        for icon_key, label in _NAV_ITEMS:
+            icon = self._make_nav_icon(icon_key)
             item = QListWidgetItem(icon, f"  {label}")
             self.sidebar.addItem(item)
 
@@ -240,23 +236,9 @@ class MainWindow(QMainWindow):
         )
 
     @staticmethod
-    def _make_nav_icon(svg_path_d: str) -> QIcon:
-        """根据 SVG path data 生成单色图标。"""
-        svg_xml = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
-            'viewBox="0 0 24 24" fill="none" stroke="#64748B" '
-            'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
-            f'<path d="{svg_path_d}"/></svg>'
-        )
-        from PyQt6.QtSvg import QSvgRenderer
-        from PyQt6.QtCore import QByteArray
-        pixmap = QPixmap(20, 20)
-        pixmap.fill(QColor(0, 0, 0, 0))
-        renderer = QSvgRenderer(QByteArray(svg_xml.encode()))
-        painter = QPainter(pixmap)
-        renderer.render(painter)
-        painter.end()
-        return QIcon(pixmap)
+    def _make_nav_icon(icon_key: str) -> QIcon:
+        """Build sidebar icon from Phosphor key."""
+        return qta.icon(icon_key, color="#64748B", color_active="#0EA5E9")
 
 
     def _initialize_services_deferred(self) -> None:
@@ -508,4 +490,3 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
-
