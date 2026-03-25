@@ -20,7 +20,35 @@ from config import (
 )
 from ui.page_base import BasePage
 from ui.widgets import SshSettingsCard, NcbiSettingsCard, LinuxSettingsCard
-from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP, SCROLL_BAR_ELEGANT
+from ui.widgets.styles import PAGE_HEADER_TITLE, COLOR_BG_APP
+
+_SCROLL_BAR_GRAY = """
+    QScrollBar:vertical {
+        border: none;
+        background: transparent;
+        width: 10px;
+        margin: 0;
+    }
+    QScrollBar::handle:vertical {
+        background: rgba(100, 116, 139, 0.22);
+        border-radius: 5px;
+        min-height: 40px;
+    }
+    QScrollBar::handle:vertical:hover {
+        background: rgba(100, 116, 139, 0.35);
+    }
+    QScrollBar::handle:vertical:pressed {
+        background: rgba(100, 116, 139, 0.48);
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0;
+        background: transparent;
+        border: none;
+    }
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+        background: transparent;
+    }
+"""
 
 def _is_test_mode() -> bool:
     return bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
@@ -32,7 +60,7 @@ class SettingsPage(BasePage):
     active_client_changed = pyqtSignal(object)
 
     def __init__(self):
-        super().__init__("Settings")
+        super().__init__("系统设置")
         if hasattr(self, "label"):
             self.label.hide()
 
@@ -58,7 +86,7 @@ class SettingsPage(BasePage):
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setStyleSheet(f"background-color: {COLOR_BG_APP};")
-        scroll_area.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
+        scroll_area.verticalScrollBar().setStyleSheet(_SCROLL_BAR_GRAY)
 
         self.scroll_content = QWidget()
         self.scroll_content.setStyleSheet(f"background-color: {COLOR_BG_APP};")
@@ -72,7 +100,7 @@ class SettingsPage(BasePage):
         self.layout.addWidget(scroll_area)
 
     def _init_header(self) -> None:
-        header_title = QLabel("Settings")
+        header_title = QLabel("系统设置")
         header_title.setStyleSheet(PAGE_HEADER_TITLE)
         self.layout.addWidget(header_title)
 
@@ -102,7 +130,7 @@ class SettingsPage(BasePage):
         return self.ssh_card.get_active_client()
 
 
-    def set_global_lock(self, locked: bool, reason: str = "SSH disconnected; settings are locked") -> None:
+    def set_global_lock(self, locked: bool, reason: str = "SSH 未连接，设置已锁定") -> None:
         self.ssh_card.set_external_lock(locked, reason)
         if hasattr(self.linux_card, "set_external_lock"):
             self.linux_card.set_external_lock(locked)
@@ -199,8 +227,8 @@ class SettingsPage(BasePage):
         if self._is_legacy_raw_config(raw) and raw:
             result = QMessageBox.question(
                 self,
-                "Legacy Config Detected",
-                "A legacy settings file was found. Migrate it to the current schema now?",
+                "检测到旧版配置",
+                "发现旧版设置文件，是否立即迁移到当前配置结构？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
@@ -210,13 +238,13 @@ class SettingsPage(BasePage):
                 save_config(migrated)
                 sync_default_from_schema(migrated)
                 self._apply_schema_to_components(migrated)
-                QMessageBox.information(self, "Migration Complete", f"Legacy config backup saved to:\n{backup}")
+                QMessageBox.information(self, "迁移完成", f"旧版配置备份已保存到：\n{backup}")
                 return
 
             defaults = default_settings_schema()
             sync_default_from_schema(defaults)
             self._apply_schema_to_components(defaults)
-            QMessageBox.information(self, "Defaults Loaded", "Legacy config was skipped. Default settings were loaded.")
+            QMessageBox.information(self, "已加载默认值", "你已跳过旧配置迁移，系统已加载默认设置。")
             return
 
         schema = get_config()
@@ -234,7 +262,7 @@ class SettingsPage(BasePage):
             locator.conda_executable = schema["linux"].get("conda_executable", "")
 
         try:
-            self.ssh_card.status_label.setText("Settings saved")
+            self.ssh_card.status_label.setText("设置已保存")
         except Exception:
             pass
 
@@ -245,5 +273,4 @@ class SettingsPage(BasePage):
         if self._auto_check_timer.isActive():
             self._auto_check_timer.stop()
         super().closeEvent(event)
-
 
