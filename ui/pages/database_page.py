@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -244,7 +243,9 @@ class RemoteDirectoryPickerDialog(QDialog):
         # — 目录列表
         self.dir_list = QListWidget()
         self.dir_list.setStyleSheet(_POPOVER_LIST_STYLE)
+        self.dir_list.itemClicked.connect(self._open_child)
         self.dir_list.itemDoubleClicked.connect(self._open_child)
+        self.dir_list.itemActivated.connect(self._open_child)
         self.dir_list.currentItemChanged.connect(self._on_item_selected)
         layout.addWidget(self.dir_list, stretch=1)
 
@@ -290,7 +291,7 @@ class RemoteDirectoryPickerDialog(QDialog):
         if anchor is None:
             return
         pop_w = self.sizeHint().width() or 500
-        x = anchor.mapToGlobal(QPoint(0, 0)).x() + anchor.width() - pop_w
+        x = anchor.mapToGlobal(QPoint(0, 0)).x() + anchor.width() - pop_w - 16
         y = anchor.mapToGlobal(QPoint(0, anchor.height() + 6)).y()
         screen = QApplication.screenAt(anchor.mapToGlobal(QPoint(0, 0))) or QApplication.primaryScreen()
         if screen is not None:
@@ -305,7 +306,7 @@ class RemoteDirectoryPickerDialog(QDialog):
         self._load_path(parent)
 
     def _open_child(self, item: QListWidgetItem) -> None:
-        name = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        name = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
         if not name:
             return
         self._load_path(posixpath.join(self._current_path, name))
@@ -916,6 +917,10 @@ class DatabasePage(BasePage):
         self._refresh_all_status()
 
     def _on_path_override(self, db_id: str) -> None:
+        if self._ssh_client is None:
+            QMessageBox.warning(self, "数据库路径覆盖", "请先连接 SSH，再选择已有路径。")
+            return
+
         cfg = get_config()
         databases = cfg.get("databases", {})
         if not isinstance(databases, dict):
@@ -923,19 +928,18 @@ class DatabasePage(BasePage):
         overrides = databases.get("overrides", {})
         if not isinstance(overrides, dict):
             overrides = {}
-        current = str(overrides.get(db_id, "") or "")
-        value, ok = QInputDialog.getText(self, "数据库路径覆盖", f"设置 {db_id} 的绝对路径:", text=current)
-        if not ok:
+        current = str(overrides.get(db_id, "") or "").strip()
+        start_path = current or self._get_db_root() or "~"
+        selected = self._pick_remote_db_root(start_path)
+        if not selected:
             return
-        path = str(value or "").strip()
-        if path:
-            overrides[db_id] = path
-        else:
-            overrides.pop(db_id, None)
+
+        overrides[db_id] = self._normalize_remote_path(selected)
         databases["overrides"] = overrides
         databases.setdefault("db_root", self._get_db_root())
         cfg["databases"] = databases
         save_config(cfg)
+        QMessageBox.information(self, "数据库路径覆盖", f"{db_id} 已设置为: {overrides[db_id]}")
         self._refresh_all_status()
 
     def _on_cancel_install(self, db_id: str) -> None:
