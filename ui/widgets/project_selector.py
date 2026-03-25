@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QFrame,
     QLineEdit,
@@ -17,36 +17,19 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.widgets import styles
+import qtawesome as qta
 
 if TYPE_CHECKING:
     from core.data.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" fill="none">
-  <circle cx="4" cy="5" r="1.5" fill="#475569"/>
-  <circle cx="4" cy="9" r="1.5" fill="#475569"/>
-  <circle cx="4" cy="13" r="1.5" fill="#475569"/>
-  <rect x="7" y="4.5" width="8" height="1.5" rx="0.75" fill="#475569"/>
-  <rect x="7" y="8.25" width="8" height="1.5" rx="0.75" fill="#475569"/>
-  <rect x="7" y="12" width="8" height="1.5" rx="0.75" fill="#475569"/>
-</svg>"""
-
 _MAX_VISIBLE_ITEMS = 8
 _ITEM_HEIGHT = 36
 
 
-def _svg_to_icon(svg: str, size: int = 18) -> QIcon:
-    from PyQt6.QtCore import QByteArray
-    from PyQt6.QtSvg import QSvgRenderer
-
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    renderer = QSvgRenderer(QByteArray(svg.encode()))
-    painter = QPainter(pixmap)
-    renderer.render(painter)
-    painter.end()
-    return QIcon(pixmap)
+def _project_icon() -> QIcon:
+    return qta.icon("ph.folder-notch-open", color="#475569")
 
 
 class ProjectSelectorButton(QPushButton):
@@ -78,7 +61,7 @@ class ProjectSelectorButton(QPushButton):
         self._update_display()
 
     def _update_display(self) -> None:
-        icon = _svg_to_icon(_PROJECT_ICON_SVG, 18)
+        icon = _project_icon()
         self.setIcon(icon)
         self.setIconSize(QSize(18, 18))
         if self._is_empty:
