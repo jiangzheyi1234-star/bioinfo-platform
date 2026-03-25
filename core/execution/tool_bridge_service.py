@@ -1103,7 +1103,15 @@ class ToolBridgeService:
                 continue
             var_name = str(decl.get("param_name", decl.get("name", ""))).strip()
             if var_name and not str(database_paths.get(var_name, "")).strip():
-                raise ValueError(f"缺少必需数据库路径: {var_name}")
+                db_id = str(decl.get("id", "")).strip() or var_name
+                raise ValueError(
+                    "数据库路径未匹配。\n"
+                    f"缺少必需数据库路径: {var_name} (db_id={db_id})\n"
+                    "请检查：\n"
+                    "1. overrides 是否使用 db_id 作为 key\n"
+                    "2. db_root 是否已设置并可访问\n"
+                    "可在“数据库管理 > ⚙️ 设置”中修复。"
+                )
 
     def get_execution_history(self) -> list[dict]:
         pm = self._get_project_manager()

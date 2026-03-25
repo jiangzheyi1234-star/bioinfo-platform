@@ -10,11 +10,13 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from config import get_config, load_raw_config, save_config
 from core.data.project_manager import ProjectManager
 from core.execution.execution_reconcile_service import ExecutionReconcileService
 from core.service_locator import ServiceLocator
@@ -84,6 +86,7 @@ class MainWindow(QMainWindow):
         self._on_settings_active_client_changed(self.settings_page.get_active_client())
         QTimer.singleShot(0, self._initialize_services_deferred)
         QTimer.singleShot(0, self._initialize_log_context_deferred)
+        QTimer.singleShot(0, self._maybe_show_db_config_upgrade_notice)
 
     def init_ui(self) -> None:
         central = QWidget()
@@ -275,6 +278,58 @@ class MainWindow(QMainWindow):
             self.log_page.set_project_context(pid)
             if self._log_controller is not None:
                 self._log_controller.load_log_history_for_project(pid, logger)
+
+    @staticmethod
+    def _has_legacy_database_config(raw: dict) -> bool:
+        if not isinstance(raw, dict):
+            return False
+        databases = raw.get("databases")
+        if not isinstance(databases, dict):
+            return False
+        allowed = {"db_root", "overrides"}
+        if any(k not in allowed for k in databases.keys()):
+            return True
+        if "overrides" in databases and not isinstance(databases.get("overrides"), dict):
+            return True
+        return False
+
+    def _maybe_show_db_config_upgrade_notice(self) -> None:
+        try:
+            raw = load_raw_config()
+            if not self._has_legacy_database_config(raw):
+                return
+
+            cfg = get_config()
+            runtime = cfg.get("runtime", {})
+            if not isinstance(runtime, dict):
+                runtime = {}
+            if bool(runtime.get("db_config_upgrade_notice_ack_v1", False)):
+                return
+
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("数据库配置已升级")
+            msg.setText("已停止支持旧版数据库路径配置。")
+            msg.setInformativeText(
+                "请在“数据库管理 > ⚙️ 设置”中重新保存 db_root 或 overrides[db_id]。\n"
+                "未迁移可能导致工具找不到数据库路径。"
+            )
+            go_btn = msg.addButton("去设置", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton("稍后", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+
+            runtime["db_config_upgrade_notice_ack_v1"] = True
+            cfg["runtime"] = runtime
+            save_config(cfg)
+
+            if msg.clickedButton() == go_btn:
+                self.sidebar.setCurrentRow(2)
+                if hasattr(self, "database_page") and self.database_page is not None:
+                    open_fn = getattr(self.database_page, "_open_db_settings_dialog", None)
+                    if callable(open_fn):
+                        open_fn()
+        except Exception:
+            logger.exception("显示数据库配置升级提示失败")
 
     def _apply_plugin_registry_to_settings(self) -> None:
         try:
@@ -508,4 +563,3 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.Type.WindowDeactivate:
             self._prev_activated = False
         return super().event(event)
-

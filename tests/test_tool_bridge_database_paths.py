@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from core.execution.tool_bridge_service import ToolBridgeService
 
 
@@ -78,3 +80,17 @@ def test_build_database_paths_ignores_legacy_override_key(monkeypatch):
 
     paths = service.build_database_paths("kraken2")
     assert paths["db"] == "/data/databases/kraken2_standard"
+
+
+def test_validate_required_databases_error_message_includes_guidance():
+    descriptor = {
+        "databases": [
+            {"id": "kraken2_standard", "param_name": "db", "required": True},
+        ]
+    }
+    with pytest.raises(ValueError) as exc:
+        ToolBridgeService.validate_required_databases(descriptor, {})
+    message = str(exc.value)
+    assert "数据库路径未匹配" in message
+    assert "overrides 是否使用 db_id 作为 key" in message
+    assert "数据库管理 > ⚙️ 设置" in message
