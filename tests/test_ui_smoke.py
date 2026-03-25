@@ -131,6 +131,29 @@ class TestMainWindowStartup:
     def test_sidebar_count(self, main_window):
         assert main_window.sidebar.count() == 5
 
+    def test_auto_open_recent_project_when_none_active(self, qapp, tmp_path):
+        from ui.main_window import MainWindow
+
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+        )
+        pm.create_project("auto-open target", "startup fallback")
+        assert pm.current_project is None
+
+        with patch("ui.main_window.DetectionPage", _make_fake_detection_page()):
+            window = MainWindow(project_manager=pm)
+            qapp.processEvents()
+            try:
+                assert pm.current_project is not None
+                assert "新建项目" not in window._project_selector_btn.text()
+            finally:
+                window.close()
+                window.deleteLater()
+                qapp.processEvents()
+                qapp.processEvents()
+        pm.close()
+
 
 class TestPageStartup:
     def test_detection_page_starts(self, qapp):
