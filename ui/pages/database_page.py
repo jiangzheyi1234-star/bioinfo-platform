@@ -6,7 +6,7 @@ import shlex
 from typing import Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QPoint, QSize, Qt, QTimer
+from PyQt6.QtCore import QPoint, QSize, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -37,7 +37,7 @@ from ui.widgets.database_management_components import (
     DatabaseItemCard,
     DatabaseStatusWorker,
 )
-from ui.widgets.styles import BUTTON_LINK, BUTTON_PRIMARY, BUTTON_SECONDARY, INPUT_LINEEDIT, PAGE_HEADER_TITLE
+from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY, INPUT_LINEEDIT, PAGE_HEADER_TITLE
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,6 @@ CATEGORY_LABELS = {
 }
 
 _ICON_COLOR = "#64748B"
-_ICON_COLOR_HOVER = "#0EA5E9"
 _SETTINGS_ICON_COLOR = "#64748B"
 
 _GHOST_BTN_STYLE = """
@@ -113,34 +112,85 @@ _SCROLL_BAR_GRAY = """
     }
 """
 
+# ────────────────────────────────────────────────────────────
+# Popover 公共样式  (shadcn/ui Popover 标准)
+# - 背景纯白，边框 neutral-300 (#D1D5DB)，无任何蓝色渗色
+# - 阴影参数与 ProjectSelectorMenu 一致
+# ────────────────────────────────────────────────────────────
+_POPOVER_PANEL_STYLE = """
+    QFrame#popoverPanel {{
+        background-color: #FFFFFF;
+        border: 1px solid #D1D5DB;
+        border-radius: 10px;
+    }}
+"""
 
-def _apply_popover_shadow(panel: QFrame) -> None:
-    """与 ProjectSelectorMenu 完全相同的阴影参数。"""
+# 内部 QListWidget 样式（全部中性灰，不要蓝色）
+_POPOVER_LIST_STYLE = """
+    QListWidget {
+        border: 1px solid #E5E7EB;
+        border-radius: 6px;
+        background: #FFFFFF;
+        outline: none;
+        font-size: 13px;
+    }
+    QListWidget::item {
+        height: 30px;
+        padding: 2px 8px;
+        color: #111827;
+    }
+    QListWidget::item:hover {
+        background: #F3F4F6;
+    }
+    QListWidget::item:selected {
+        background: #E5E7EB;
+        color: #111827;
+    }
+"""
+
+# VS Code 风格的 Browse 按钮：极小宽、无图标、中性边框
+_BROWSE_BTN_STYLE = """
+    QPushButton {
+        background: #FFFFFF;
+        color: #374151;
+        border: 1px solid #D1D5DB;
+        border-radius: 6px;
+        padding: 0px 10px;
+        font-size: 13px;
+        min-width: 36px;
+        min-height: 36px;
+    }
+    QPushButton:hover {
+        background: #F9FAFB;
+        border-color: #9CA3AF;
+    }
+    QPushButton:pressed {
+        background: #F3F4F6;
+    }
+"""
+
+# 弹窗小标题文字
+_POPOVER_TITLE_STYLE = "font-size: 13px; font-weight: 600; color: #111827; background: transparent;"
+# 分隔线
+_POPOVER_DIVIDER_STYLE = "background: #E5E7EB; max-height: 1px; border: none;"
+
+
+def _make_popover_panel(parent=None) -> QFrame:
+    """shadcn/ui Popover 标准面板：纯白 + 中性灰边框 + 轻阴影。"""
+    panel = QFrame(parent)
+    panel.setObjectName("popoverPanel")
+    panel.setStyleSheet(_POPOVER_PANEL_STYLE)
     shadow = QGraphicsDropShadowEffect(panel)
     shadow.setBlurRadius(16)
     shadow.setColor(QColor(0, 0, 0, 40))
     shadow.setOffset(0, 4)
     panel.setGraphicsEffect(shadow)
-
-
-def _popover_panel(object_name: str) -> QFrame:
-    """返回与 ProjectSelectorMenu 风格一致的面板 Frame。"""
-    panel = QFrame()
-    panel.setObjectName(object_name)
-    panel.setStyleSheet(
-        f"""
-        QFrame#{object_name} {{
-            background-color: #FFFFFF;
-            border: 1px solid #D1D5DB;
-            border-radius: 10px;
-        }}
-        """
-    )
-    _apply_popover_shadow(panel)
     return panel
 
 
 class RemoteDirectoryPickerDialog(QDialog):
+    """VS Code 风格远程目录浏览弹窗。"""
+
     def __init__(self, start_path: str, list_dirs_fn, parent=None):
         super().__init__(parent)
         self.setWindowFlags(
@@ -149,7 +199,7 @@ class RemoteDirectoryPickerDialog(QDialog):
             | Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(520, 430)
+        self.resize(500, 400)
         self._list_dirs_fn = list_dirs_fn
         self.selected_path = ""
         self._current_path = ""
@@ -161,70 +211,65 @@ class RemoteDirectoryPickerDialog(QDialog):
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(0)
 
-        panel = _popover_panel("dirPickerPanel")
+        panel = _make_popover_panel()
         root.addWidget(panel)
 
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(12, 12, 12, 12)
-        panel_layout.setSpacing(8)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
-        title = QLabel("选择数据库根目录")
-        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #0F172A;")
-        panel_layout.addWidget(title)
+        # — 标题
+        title = QLabel("选择目录")
+        title.setStyleSheet(_POPOVER_TITLE_STYLE)
+        layout.addWidget(title)
 
+        # — 分隔线
+        div = QFrame()
+        div.setStyleSheet(_POPOVER_DIVIDER_STYLE)
+        layout.addWidget(div)
+
+        # — 导航行
         nav = QHBoxLayout()
-        self.up_btn = QPushButton("上级")
-        self.up_btn.setStyleSheet(BUTTON_SECONDARY)
+        nav.setSpacing(8)
+        self.up_btn = QPushButton("↑ 上级")
+        self.up_btn.setStyleSheet(_BROWSE_BTN_STYLE)
         self.up_btn.clicked.connect(self._go_parent)
-        self.path_label = QLabel("")
-        self.path_label.setStyleSheet("font-size: 12px; color: #334155;")
+        self.path_label = QLabel()
+        self.path_label.setStyleSheet("font-size: 12px; color: #6B7280; background: transparent;")
+        self.path_label.setWordWrap(False)
         nav.addWidget(self.up_btn)
         nav.addWidget(self.path_label, stretch=1)
-        panel_layout.addLayout(nav)
+        layout.addLayout(nav)
 
+        # — 目录列表
         self.dir_list = QListWidget()
-        self.dir_list.setStyleSheet(
-            """
-            QListWidget {
-                border: 1px solid #D1D5DB;
-                border-radius: 8px;
-                background: #FFFFFF;
-                outline: none;
-            }
-            QListWidget::item {
-                height: 32px;
-                padding: 4px 8px;
-                border-radius: 6px;
-                color: #334155;
-            }
-            QListWidget::item:hover {
-                background: #F3F4F6;
-            }
-            QListWidget::item:selected {
-                background: #DBEAFE;
-                color: #0369A1;
-            }
-            """
-        )
+        self.dir_list.setStyleSheet(_POPOVER_LIST_STYLE)
         self.dir_list.itemDoubleClicked.connect(self._open_child)
         self.dir_list.currentItemChanged.connect(self._on_item_selected)
-        panel_layout.addWidget(self.dir_list, stretch=1)
+        layout.addWidget(self.dir_list, stretch=1)
 
-        self.selected_label = QLabel("当前选择: ")
-        self.selected_label.setStyleSheet("font-size: 12px; color: #475569;")
-        panel_layout.addWidget(self.selected_label)
+        # — 当前选择提示
+        self.selected_label = QLabel("选择: ")
+        self.selected_label.setStyleSheet("font-size: 12px; color: #6B7280; background: transparent;")
+        layout.addWidget(self.selected_label)
 
+        # — 分隔线
+        div2 = QFrame()
+        div2.setStyleSheet(_POPOVER_DIVIDER_STYLE)
+        layout.addWidget(div2)
+
+        # — 操作按钮
         foot = QHBoxLayout()
         foot.addStretch()
-        self.cancel_btn = QPushButton("取消")
-        self.cancel_btn.setStyleSheet(BUTTON_SECONDARY)
-        self.cancel_btn.clicked.connect(self.reject)
-        self.select_btn = QPushButton("选择此目录")
-        self.select_btn.setStyleSheet(BUTTON_PRIMARY)
-        self.select_btn.clicked.connect(self._accept_selected)
-        foot.addWidget(self.cancel_btn)
-        foot.addWidget(self.select_btn)
-        panel_layout.addLayout(foot)
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet(BUTTON_SECONDARY)
+        cancel_btn.clicked.connect(self.reject)
+        select_btn = QPushButton("选择此目录")
+        select_btn.setStyleSheet(BUTTON_PRIMARY)
+        select_btn.clicked.connect(self._accept_selected)
+        foot.addWidget(cancel_btn)
+        foot.addWidget(select_btn)
+        layout.addLayout(foot)
 
     def _load_path(self, raw_path: str) -> None:
         ok, resolved, dirs, message = self._list_dirs_fn(raw_path)
@@ -233,18 +278,18 @@ class RemoteDirectoryPickerDialog(QDialog):
             return
         self._current_path = resolved
         self.selected_path = resolved
-        self.path_label.setText(f"当前位置: {resolved}")
-        self.selected_label.setText(f"当前选择: {resolved}")
+        self.path_label.setText(resolved)
+        self.selected_label.setText(f"选择: {resolved}")
         self.dir_list.clear()
         for name in dirs:
-            item = QListWidgetItem(qta.icon("ph.folder", color="#7EB8D0"), name)
+            item = QListWidgetItem(qta.icon("ph.folder", color="#9CA3AF"), name)
             item.setData(Qt.ItemDataRole.UserRole, name)
             self.dir_list.addItem(item)
 
     def popup_at(self, anchor) -> None:
         if anchor is None:
             return
-        pop_w = self.minimumWidth() or self.sizeHint().width() or 420
+        pop_w = self.sizeHint().width() or 500
         x = anchor.mapToGlobal(QPoint(0, 0)).x() + anchor.width() - pop_w
         y = anchor.mapToGlobal(QPoint(0, anchor.height() + 6)).y()
         screen = QApplication.screenAt(anchor.mapToGlobal(QPoint(0, 0))) or QApplication.primaryScreen()
@@ -263,17 +308,15 @@ class RemoteDirectoryPickerDialog(QDialog):
         name = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
         if not name:
             return
-        child = posixpath.join(self._current_path, name)
-        self._load_path(child)
+        self._load_path(posixpath.join(self._current_path, name))
 
-    def _on_item_selected(self, current: QListWidgetItem, _previous: QListWidgetItem) -> None:
+    def _on_item_selected(self, current: QListWidgetItem, _prev) -> None:
         if current is None:
             self.selected_path = self._current_path
-            self.selected_label.setText(f"当前选择: {self.selected_path}")
-            return
-        name = str(current.data(Qt.ItemDataRole.UserRole) or "").strip()
-        self.selected_path = posixpath.join(self._current_path, name) if name else self._current_path
-        self.selected_label.setText(f"当前选择: {self.selected_path}")
+        else:
+            name = str(current.data(Qt.ItemDataRole.UserRole) or "").strip()
+            self.selected_path = posixpath.join(self._current_path, name) if name else self._current_path
+        self.selected_label.setText(f"选择: {self.selected_path}")
 
     def _accept_selected(self) -> None:
         self.selected_path = self.selected_path or self._current_path
@@ -284,6 +327,8 @@ class RemoteDirectoryPickerDialog(QDialog):
 
 
 class DatabaseSettingsDialog(QDialog):
+    """shadcn/ui Popover 风格的数据库根目录设置弹窗。"""
+
     def __init__(self, initial_path: str, info_fn, browse_fn, save_fn, parent=None):
         super().__init__(parent)
         self.setWindowFlags(
@@ -292,7 +337,7 @@ class DatabaseSettingsDialog(QDialog):
             | Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedWidth(380)
+        self.setFixedWidth(360)
         self._info_fn = info_fn
         self._browse_fn = browse_fn
         self._save_fn = save_fn
@@ -304,42 +349,50 @@ class DatabaseSettingsDialog(QDialog):
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(0)
 
-        panel = _popover_panel("dbSettingsPopover")
+        panel = _make_popover_panel()
         root.addWidget(panel)
 
         content = QVBoxLayout(panel)
-        content.setContentsMargins(16, 16, 16, 16)
-        content.setSpacing(12)
+        content.setContentsMargins(14, 14, 14, 14)
+        content.setSpacing(10)
 
+        # — 标题
         title = QLabel("数据库根目录")
-        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #0F172A;")
+        title.setStyleSheet(_POPOVER_TITLE_STYLE)
         content.addWidget(title)
 
+        # — 分隔线
+        div = QFrame()
+        div.setStyleSheet(_POPOVER_DIVIDER_STYLE)
+        content.addWidget(div)
+
+        # — 输入行：路径框 + VS Code […] 按钮
         row = QHBoxLayout()
         row.setSpacing(6)
         self.path_edit = QLineEdit()
         self.path_edit.setStyleSheet(INPUT_LINEEDIT)
         self.path_edit.setPlaceholderText("~/databases")
-        self.browse_btn = QPushButton("浏览")
-        self.browse_btn.setIcon(qta.icon("ph.folder-open", color="#0EA5E9"))
-        self.browse_btn.setIconSize(QSize(14, 14))
-        self.browse_btn.setStyleSheet(BUTTON_LINK)
+        self.browse_btn = QPushButton("…")
+        self.browse_btn.setStyleSheet(_BROWSE_BTN_STYLE)
+        self.browse_btn.setFixedSize(36, 36)
+        self.browse_btn.setToolTip("浏览远程目录")
         self.browse_btn.clicked.connect(self._on_browse)
         row.addWidget(self.path_edit, stretch=1)
         row.addWidget(self.browse_btn)
         content.addLayout(row)
 
-        actions = QHBoxLayout()
-        actions.addStretch()
+        # — 操作按钮
+        foot = QHBoxLayout()
+        foot.addStretch()
         cancel_btn = QPushButton("取消")
         cancel_btn.setStyleSheet(BUTTON_SECONDARY)
         cancel_btn.clicked.connect(self.reject)
         save_btn = QPushButton("保存")
         save_btn.setStyleSheet(BUTTON_PRIMARY)
         save_btn.clicked.connect(self._on_save)
-        actions.addWidget(cancel_btn)
-        actions.addWidget(save_btn)
-        content.addLayout(actions)
+        foot.addWidget(cancel_btn)
+        foot.addWidget(save_btn)
+        content.addLayout(foot)
 
     def _on_browse(self) -> None:
         selected = self._browse_fn(self.path_edit.text().strip(), self.browse_btn)
@@ -353,12 +406,11 @@ class DatabaseSettingsDialog(QDialog):
     def popup_at(self, anchor) -> None:
         if anchor is None:
             return
-        pop_w = self.minimumWidth() or self.sizeHint().width() or 380
-        anchor_top_left = anchor.mapToGlobal(QPoint(0, 0))
-        x = anchor_top_left.x() - pop_w - 8
-        y = anchor_top_left.y() + anchor.height() + 6
-
-        screen = QApplication.screenAt(anchor_top_left) or QApplication.primaryScreen()
+        pop_w = self.sizeHint().width() or 360
+        anchor_tl = anchor.mapToGlobal(QPoint(0, 0))
+        x = anchor_tl.x() - pop_w - 8
+        y = anchor_tl.y() + anchor.height() + 6
+        screen = QApplication.screenAt(anchor_tl) or QApplication.primaryScreen()
         if screen is not None:
             geo = screen.availableGeometry()
             x = max(geo.left(), min(x, geo.right() - pop_w))
@@ -385,14 +437,12 @@ class DatabasePage(BasePage):
         self.layout.setContentsMargins(30, 24, 30, 24)
         self.layout.setSpacing(10)
 
-        # ── 标题行 ──────────────────────────────────────────
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
 
         title = QLabel("数据库管理")
         title.setStyleSheet(PAGE_HEADER_TITLE)
 
-        # 设置按钮（圆形图标）
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(qta.icon("ph.gear-six", color=_SETTINGS_ICON_COLOR))
         self.settings_btn.setIconSize(QSize(18, 18))
@@ -401,7 +451,6 @@ class DatabasePage(BasePage):
         self.settings_btn.setStyleSheet(_ICON_BTN_STYLE)
         self.settings_btn.clicked.connect(self._open_db_settings_dialog)
 
-        # 刷新按钮（幽灵按钮 + 图标）
         self.refresh_btn = QPushButton("  刷新")
         self.refresh_btn.setIcon(qta.icon("ph.arrows-clockwise", color=_ICON_COLOR))
         self.refresh_btn.setIconSize(QSize(15, 15))
@@ -419,7 +468,6 @@ class DatabasePage(BasePage):
         title_row.addWidget(self.settings_btn)
         self.layout.addLayout(title_row)
 
-        # ── Tab ────────────────────────────────────────────
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
             """
@@ -573,8 +621,7 @@ class DatabasePage(BasePage):
         return ""
 
     def _run_ssh(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]:
-        run_fn = self._make_ssh_run_fn()
-        return run_fn(cmd, timeout)
+        return self._make_ssh_run_fn()(cmd, timeout)
 
     def _list_remote_directories(self, raw_path: str) -> tuple[bool, str, list[str], str]:
         resolved = self._expand_remote_path(raw_path)
@@ -587,7 +634,6 @@ class DatabasePage(BasePage):
         rc_exists, _, _ = self._run_ssh(f"test -d {qpath}", 10)
         if rc_exists != 0:
             return False, "", [], f"目录不存在: {resolved}"
-
         cmd = f"find {qpath} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' | LC_ALL=C sort"
         rc, stdout, stderr = self._run_ssh(cmd, 12)
         if rc != 0:
@@ -618,10 +664,7 @@ class DatabasePage(BasePage):
         if expanded.startswith("~"):
             home = self._get_remote_home()
             if home:
-                if expanded == "~":
-                    expanded = home
-                elif expanded.startswith("~/"):
-                    expanded = f"{home}/{expanded[2:]}"
+                expanded = home if expanded == "~" else f"{home}/{expanded[2:]}"
         return expanded
 
     def _get_remote_home(self) -> str:
@@ -639,14 +682,12 @@ class DatabasePage(BasePage):
         path = str(raw_path or "").strip()
         if not path:
             return False, "", "数据库根目录不能为空。", False
-
         resolved = self._expand_remote_path(path)
         if not resolved:
             return False, "", f"无法解析远程路径: {path}", False
         if not resolved.startswith("/"):
             return False, "", f"数据库根目录必须是绝对路径，当前为: {resolved}", False
         resolved = self._normalize_remote_path(resolved)
-
         created = False
         qroot = shlex.quote(resolved)
         rc, _, _ = self._run_ssh(f"test -d {qroot}", 10)
@@ -658,20 +699,16 @@ class DatabasePage(BasePage):
                 created = True
             else:
                 return False, "", f"目录不存在: {resolved}", False
-
         rc_exec, _, _ = self._run_ssh(f"test -x {qroot}", 10)
         if rc_exec != 0:
             return False, "", f"目录不可进入(-x): {resolved}", created
-
         rc_write, _, _ = self._run_ssh(f"test -w {qroot}", 10)
         if rc_write != 0:
             return False, "", self._build_permission_denied_message(resolved), created
-
         probe = f"{qroot}/.h2ometa_write_probe"
         rc_probe, _, err_probe = self._run_ssh(f"touch {probe} && rm -f {probe}", 10)
         if rc_probe != 0:
             return False, "", self._build_permission_denied_message(resolved, detail=err_probe.strip() or "写入探针失败"), created
-
         return True, resolved, "", created
 
     @property
@@ -686,7 +723,6 @@ class DatabasePage(BasePage):
     def _resolve_empty_db_root_candidate(self) -> str:
         if self._empty_db_root_preference == "use_home":
             return "~/databases"
-
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Question)
         msg.setWindowTitle("数据库配置")
@@ -698,7 +734,6 @@ class DatabasePage(BasePage):
         remember_box = QCheckBox("记住这次选择")
         msg.setCheckBox(remember_box)
         msg.exec()
-
         clicked = msg.clickedButton()
         if clicked == use_home_btn:
             if remember_box.isChecked():
@@ -710,9 +745,7 @@ class DatabasePage(BasePage):
                 cfg["runtime"] = runtime
                 save_config(cfg)
             return "~/databases"
-        if clicked == manual_btn:
-            return ""
-        if clicked == cancel_btn:
+        if clicked in (manual_btn, cancel_btn):
             return ""
         return ""
 
@@ -723,15 +756,11 @@ class DatabasePage(BasePage):
             user = stdout_user.strip()
         lines = [
             f"当前 SSH 用户对目录无写权限: {db_root}",
-            "建议改用: ~/databases（会映射到当前用户 HOME 目录）",
+            "建议改用: ~/databases",
             "如需继续使用该目录，请联系管理员执行：",
-            "# 个人目录方案",
             f"mkdir -p {db_root}",
             f"chown {user}:{user} {db_root}",
             f"chmod 775 {db_root}",
-            "# 共享目录方案（按实际组名替换 bio）",
-            f"chgrp bio {db_root}",
-            f"chmod 2775 {db_root}",
         ]
         if detail:
             lines.append(f"详细错误: {detail}")
@@ -753,13 +782,11 @@ class DatabasePage(BasePage):
         client = self._ssh_client
         if client is None:
             raise RuntimeError("SSH client is not connected")
-
         def _run(cmd: str, timeout: int = 15):
             stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
             del stdin
             rc = stdout.channel.recv_exit_status()
             return rc, stdout.read().decode(errors="replace"), stderr.read().decode(errors="replace")
-
         return _run
 
     def _cleanup_status_worker(self) -> None:
