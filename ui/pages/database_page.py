@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import QSize, QThread
+import qtawesome as qta
+from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -39,43 +40,32 @@ CATEGORY_LABELS = {
     "other": "其他",
 }
 
-# ── 图标工具函数 ──────────────────────────────────────────────
-def _make_icon(icon_name: str, color: str = "#64748B", size: int = 16):
-    """用 qtawesome 生成 Phosphor 图标，导入失败时返回 None。"""
-    try:
-        import qtawesome as qta
-        return qta.icon(icon_name, color=color), size
-    except Exception:
-        return None, size
+_ICON_COLOR = "#64748B"
+_ICON_COLOR_HOVER = "#0EA5E9"
 
-
-# ── 图标按钮样式 ──────────────────────────────────────────────
-_ICON_BTN_STYLE = """
-    QPushButton {{
+_GHOST_BTN_STYLE = """
+    QPushButton {
         background: transparent;
-        color: {color};
+        color: #64748B;
         border: none;
         border-radius: 6px;
-        padding: 5px 10px;
+        padding: 5px 12px;
         font-size: 13px;
-    }}
-    QPushButton:hover {{
+    }
+    QPushButton:hover {
         background: #DBEAFE;
         color: #0EA5E9;
-    }}
-    QPushButton:pressed {{
+    }
+    QPushButton:pressed {
         background: #BFDBFE;
-    }}
+    }
 """
 
-_ICON_ONLY_BTN_STYLE = """
+_ICON_BTN_STYLE = """
     QPushButton {
         background: transparent;
         border: none;
         border-radius: 16px;
-        padding: 4px;
-        min-width: 32px;
-        min-height: 32px;
     }
     QPushButton:hover {
         background: #DBEAFE;
@@ -94,9 +84,9 @@ class DatabasePage(BasePage):
         self._database_service = DatabaseService()
         self._cards: dict[str, DatabaseItemCard] = {}
         self._dialogs: dict[str, DatabaseInstallDialog] = {}
-        self._status_thread: Optional[QThread] = None
+        self._status_thread: Optional[object] = None
         self._status_worker: Optional[DatabaseStatusWorker] = None
-        self._install_threads: dict[str, QThread] = {}
+        self._install_threads: dict[str, object] = {}
         self._install_workers: dict[str, DatabaseInstallMonitor] = {}
         self._init_ui()
         self._load_db_root()
@@ -105,32 +95,26 @@ class DatabasePage(BasePage):
         self.layout.setContentsMargins(30, 24, 30, 24)
         self.layout.setSpacing(10)
 
-        # ── 标题行 ────────────────────────────────────────────
+        # ── 标题行 ──────────────────────────────────────────
         title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+
         title = QLabel("数据库管理")
         title.setStyleSheet(PAGE_HEADER_TITLE)
 
-        # 设置按钮（齿轮图标）
+        # 设置按钮（圆形图标）
         self.settings_btn = QPushButton()
-        self.settings_btn.setToolTip("数据库设置")
-        self.settings_btn.setStyleSheet(_ICON_ONLY_BTN_STYLE)
+        self.settings_btn.setIcon(qta.icon("ph.gear-six", color=_ICON_COLOR))
+        self.settings_btn.setIconSize(QSize(16, 16))
         self.settings_btn.setFixedSize(32, 32)
-        gear_icon, gear_size = _make_icon("ph.gear", color="#64748B", size=16)
-        if gear_icon:
-            self.settings_btn.setIcon(gear_icon)
-            self.settings_btn.setIconSize(QSize(gear_size, gear_size))
-        else:
-            self.settings_btn.setText("⚙")
-            self.settings_btn.setStyleSheet(_ICON_BTN_STYLE.format(color="#64748B"))
+        self.settings_btn.setToolTip("数据库设置")
+        self.settings_btn.setStyleSheet(_ICON_BTN_STYLE)
 
-        # 刷新按钮（箭头图标 + 文字）
-        self.refresh_btn = QPushButton("刷新")
-        self.refresh_btn.setToolTip("刷新所有数据库状态")
-        self.refresh_btn.setStyleSheet(_ICON_BTN_STYLE.format(color="#64748B"))
-        refresh_icon, refresh_size = _make_icon("ph.arrows-clockwise", color="#64748B", size=15)
-        if refresh_icon:
-            self.refresh_btn.setIcon(refresh_icon)
-            self.refresh_btn.setIconSize(QSize(refresh_size, refresh_size))
+        # 刷新按钮（幽灵按钮 + 图标）
+        self.refresh_btn = QPushButton("  刷新")
+        self.refresh_btn.setIcon(qta.icon("ph.arrows-clockwise", color=_ICON_COLOR))
+        self.refresh_btn.setIconSize(QSize(15, 15))
+        self.refresh_btn.setStyleSheet(_GHOST_BTN_STYLE)
         self.refresh_btn.clicked.connect(self._refresh_all_status)
 
         title_row.addWidget(title)
@@ -139,14 +123,16 @@ class DatabasePage(BasePage):
         title_row.addWidget(self.refresh_btn)
         self.layout.addLayout(title_row)
 
-        # ── 根目录行 ──────────────────────────────────────────
+        # ── 根目录行 ────────────────────────────────────────
         root_row = QHBoxLayout()
         root_label = QLabel("数据库根目录:")
         root_label.setStyleSheet("font-size: 13px; color: #334155;")
         self.db_root_edit = QLineEdit()
         self.db_root_edit.setStyleSheet(INPUT_LINEEDIT)
-        self.db_root_edit.setPlaceholderText("~/databases  或  /data/databases")
-        self.save_root_btn = QPushButton("保存")
+        self.db_root_edit.setPlaceholderText("/data/databases")
+        self.save_root_btn = QPushButton("  保存")
+        self.save_root_btn.setIcon(qta.icon("ph.floppy-disk", color="#FFFFFF"))
+        self.save_root_btn.setIconSize(QSize(14, 14))
         self.save_root_btn.setStyleSheet(BUTTON_PRIMARY)
         self.save_root_btn.clicked.connect(self._save_db_root)
         root_row.addWidget(root_label)
@@ -154,7 +140,7 @@ class DatabasePage(BasePage):
         root_row.addWidget(self.save_root_btn)
         self.layout.addLayout(root_row)
 
-        # ── Tab 栏（Segmented Control 风格）─────────────────
+        # ── Tab ────────────────────────────────────────────
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
             """
@@ -175,7 +161,7 @@ class DatabasePage(BasePage):
                 padding: 5px 18px;
                 font-size: 13px;
                 font-weight: 500;
-                min-width: 72px;
+                min-width: 60px;
             }
             QTabBar::tab:selected {
                 background: #FFFFFF;
@@ -184,7 +170,6 @@ class DatabasePage(BasePage):
             }
             QTabBar::tab:hover:!selected {
                 color: #0284C7;
-                background: #DBEAFE;
             }
             """
         )
@@ -281,6 +266,7 @@ class DatabasePage(BasePage):
     def _refresh_all_status(self) -> None:
         if self._ssh_client is None:
             return
+        from PyQt6.QtCore import QThread
         self._cleanup_status_worker()
         self._status_thread = QThread(self)
         self._status_worker = DatabaseStatusWorker(
@@ -340,6 +326,7 @@ class DatabasePage(BasePage):
         self._start_install_monitor(db_id, result["task_dir"])
 
     def _start_install_monitor(self, db_id: str, task_dir: str) -> None:
+        from PyQt6.QtCore import QThread
         self._stop_install_monitor(db_id)
         thread = QThread(self)
         worker = DatabaseInstallMonitor(
