@@ -149,18 +149,8 @@ def normalize_config(data: Any) -> dict[str, Any]:
         section_data = data.get(section)
         if isinstance(section_data, dict):
             if section == "databases":
-                old_keys = {k for k in section_data if k not in ("db_root", "overrides")}
-                if old_keys:
-                    overrides = {
-                        str(k): str(v)
-                        for k, v in section_data.items()
-                        if k not in ("db_root", "overrides") and str(v or "").strip()
-                    }
-                    schema["databases"] = {
-                        "db_root": str(section_data.get("db_root", "") or ""),
-                        "overrides": overrides,
-                    }
-                else:
+                known_keys = set(section_data.keys()) <= {"db_root", "overrides"}
+                if known_keys:
                     schema["databases"]["db_root"] = str(section_data.get("db_root", "") or "")
                     overrides = section_data.get("overrides", {})
                     if isinstance(overrides, dict):
@@ -169,6 +159,8 @@ def normalize_config(data: Any) -> dict[str, Any]:
                             for k, v in overrides.items()
                             if str(v or "").strip()
                         }
+                else:
+                    schema["databases"] = {"db_root": "", "overrides": {}}
             else:
                 schema[section].update(section_data)
 

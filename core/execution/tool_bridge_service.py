@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.database_service import DatabaseService
+from core.data.database_path_resolver import DatabasePathResolver
 from core.data.execution_query_service import ExecutionQueryService
 from core.execution.artifact_store import ArtifactStore
 from core.execution.execution_status_service import ExecutionStatusService
@@ -966,16 +967,17 @@ class ToolBridgeService:
 
             cfg = get_config()
             db_cfg = cfg.get("databases", {}) if isinstance(cfg.get("databases", {}), dict) else {}
-            db_root = str(db_cfg.get("db_root", "") or "").strip()
-            overrides = db_cfg.get("overrides", {})
-            if not isinstance(overrides, dict):
-                overrides = {}
 
             if not self._plugin_registry:
                 return {}
 
             desc = descriptor or self._plugin_registry.get_descriptor(tool_id)
             db_decls = desc.get("databases", [])
+            ssh = self._get_ssh_service()
+            ssh_run_fn = None
+            if ssh is not None and getattr(ssh, "is_connected", False) and hasattr(ssh, "run"):
+                ssh_run_fn = ssh.run
+            resolver = DatabasePathResolver(db_cfg, ssh_run_fn=ssh_run_fn)
 
             paths: dict = {}
             for decl in db_decls:
@@ -984,28 +986,9 @@ class ToolBridgeService:
                 if not param_name:
                     continue
 
-                # 优先级 1: overrides
-                override_path = str(overrides.get(db_id, "") or "").strip()
-                if override_path:
-                    paths[param_name] = override_path
-                    logger.debug("数据库路径已匹配(override): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, override_path)
-                    continue
-
-                # 优先级 2: db_root + databases.yaml install_path
-                if db_root and db_id:
-                    resolved = self._database_service.get_resolved_path(db_id, db_root)
-                    if resolved:
-                        paths[param_name] = resolved
-                        logger.debug("数据库路径已匹配(db_root): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, resolved)
-                        continue
-
-                # 优先级 3: 旧格式兜底
-                for legacy_key in (db_id, param_name):
-                    legacy_value = str(db_cfg.get(legacy_key, "") or "").strip()
-                    if legacy_value:
-                        paths[param_name] = legacy_value
-                        logger.debug("数据库路径已匹配(legacy): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, legacy_value)
-                        break
+                resolved = resolver.resolve(db_id=db_id, param_name=param_name, db_service=self._database_service)
+                if resolved:
+                    paths[param_name] = resolved
 
             return paths
         except Exception:

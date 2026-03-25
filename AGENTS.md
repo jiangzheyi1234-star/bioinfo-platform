@@ -139,13 +139,22 @@ When changing the tool execution path, preserve the current two-stage async mode
 
 ## Current Task State（Codex 每次完成后更新）
 
-Last completed: 数据库管理系统 3 日计划（Task 1-7） ✅
-  - 新增数据库服务与独立数据库页面（含安装/状态/进度逻辑）
-  - 配置结构升级为 `databases: { db_root, overrides }`，并完成兼容迁移
-  - 路径解析优先级落地：`overrides > db_root+registry > legacy`
-  - 清理插件 `tool.yaml` 中数据库绝对路径 `default`
-  - Gate 与全量测试通过（`472 passed, 7 skipped`）
-  - 修复 Windows `offscreen` UI 测试退出期崩溃：测试模式禁用 SSH/Conda 自动线程与 QtWebEngine 初始化
+Last completed: 数据库路径配置彻底收敛（移除 legacy + 引入 DatabasePathResolver） ✅
+  - 新增 `core/data/database_path_resolver.py`，集中解析顺序：`overrides[db_id] > db_root+registry`
+  - `ToolBridgeService.build_database_paths()` 改为薄封装，移除 legacy flat 兜底读取
+  - `~` 在 SSH 在线时展开并缓存；SSH 离线时保留原值
+  - `config.normalize_config()` 移除数据库旧字段迁移逻辑；非标准 databases 结构直接回退空标准结构
+  - 更新测试：移除 legacy 命中预期，新增 resolver 单测与配置收敛断言
+  - 定向与回归测试通过（路径解析、数据库页、ui smoke）
+
+Previous completed: 数据库页改为“仅 ⚙️ 弹窗配置”并接入候选路径磁盘信息 ✅
+  - 主页面移除 db_root 输入行，顶部新增 32x32 圆形 `⚙️` 按钮（与“全部刷新”并排）
+  - 新增数据库设置弹窗：根目录输入 + `📁 浏览` + 只读服务器信息 + 取消/保存
+  - 服务器信息实时展示：SSH 用户、`~` 展开后的真实路径、候选路径分区磁盘剩余
+  - 保存链路复用既有严格校验：路径解析 -> `-d/-x/-w` -> `touch/rm` 探针 -> 自动 `mkdir -p`（仅不存在时）
+  - 空路径策略与“记住选择”策略保持：`~/databases / 手动输入 / 取消`
+  - 保持执行链路优先级：`overrides > db_root+registry > legacy`，兼容旧 override key
+  - 新增与回归测试通过（数据库页/路径解析/UI smoke 定向用例）
 
 Now working on: 等待下一任务
   - 如需可继续执行提交（commit）或拆分 PR 说明文档

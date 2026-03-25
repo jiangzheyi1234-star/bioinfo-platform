@@ -46,7 +46,7 @@ def test_build_database_paths_uses_db_root_with_registry(monkeypatch):
     assert paths["db"] == "/data/databases/kraken2_standard"
 
 
-def test_build_database_paths_fallback_to_legacy_flat(monkeypatch):
+def test_build_database_paths_no_legacy_flat_fallback(monkeypatch):
     descriptor = {
         "databases": [
             {"id": "blast_nt", "param_name": "db", "required": True},
@@ -60,4 +60,21 @@ def test_build_database_paths_fallback_to_legacy_flat(monkeypatch):
     )
 
     paths = service.build_database_paths("blastn")
-    assert paths["db"] == "/legacy/blast_nt"
+    assert "db" not in paths
+
+
+def test_build_database_paths_ignores_legacy_override_key(monkeypatch):
+    descriptor = {
+        "databases": [
+            {"id": "kraken2_standard", "param_name": "db", "required": True},
+        ]
+    }
+    service = ToolBridgeService(plugin_registry=_FakeRegistry(descriptor))
+
+    monkeypatch.setattr(
+        "config.get_config",
+        lambda: {"databases": {"db_root": "/data/databases", "overrides": {"kraken2": "/legacy/kraken2"}}},
+    )
+
+    paths = service.build_database_paths("kraken2")
+    assert paths["db"] == "/data/databases/kraken2_standard"
