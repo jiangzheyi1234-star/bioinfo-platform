@@ -6,8 +6,9 @@ import shlex
 from typing import Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtCore import QPoint, QSize, Qt, QTimer
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QFrame,
@@ -114,8 +115,13 @@ _SCROLL_BAR_GRAY = """
 class RemoteDirectoryPickerDialog(QDialog):
     def __init__(self, start_path: str, list_dirs_fn, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("选择数据库根目录")
-        self.resize(560, 460)
+        self.setWindowFlags(
+            Qt.WindowType.Popup
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.resize(520, 430)
         self._list_dirs_fn = list_dirs_fn
         self.selected_path = ""
         self._current_path = ""
@@ -124,8 +130,29 @@ class RemoteDirectoryPickerDialog(QDialog):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(8)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(0)
+
+        panel = QFrame()
+        panel.setObjectName("dirPickerPanel")
+        panel.setStyleSheet(
+            """
+            QFrame#dirPickerPanel {
+                background: #F8FBFF;
+                border: 1px solid #D6EAF8;
+                border-radius: 12px;
+            }
+            """
+        )
+        root.addWidget(panel)
+
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(12, 12, 12, 12)
+        panel_layout.setSpacing(8)
+
+        title = QLabel("选择数据库根目录")
+        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #0F172A;")
+        panel_layout.addWidget(title)
 
         nav = QHBoxLayout()
         self.up_btn = QPushButton("上级")
@@ -135,16 +162,39 @@ class RemoteDirectoryPickerDialog(QDialog):
         self.path_label.setStyleSheet("font-size: 12px; color: #334155;")
         nav.addWidget(self.up_btn)
         nav.addWidget(self.path_label, stretch=1)
-        root.addLayout(nav)
+        panel_layout.addLayout(nav)
 
         self.dir_list = QListWidget()
+        self.dir_list.setStyleSheet(
+            """
+            QListWidget {
+                border: 1px solid #D6EAF8;
+                border-radius: 8px;
+                background: #FFFFFF;
+                outline: none;
+            }
+            QListWidget::item {
+                height: 32px;
+                padding: 4px 8px;
+                border-radius: 6px;
+                color: #334155;
+            }
+            QListWidget::item:hover {
+                background: #EFF6FF;
+            }
+            QListWidget::item:selected {
+                background: #DBEAFE;
+                color: #0369A1;
+            }
+            """
+        )
         self.dir_list.itemDoubleClicked.connect(self._open_child)
         self.dir_list.currentItemChanged.connect(self._on_item_selected)
-        root.addWidget(self.dir_list, stretch=1)
+        panel_layout.addWidget(self.dir_list, stretch=1)
 
         self.selected_label = QLabel("当前选择: ")
         self.selected_label.setStyleSheet("font-size: 12px; color: #475569;")
-        root.addWidget(self.selected_label)
+        panel_layout.addWidget(self.selected_label)
 
         foot = QHBoxLayout()
         foot.addStretch()
@@ -156,7 +206,7 @@ class RemoteDirectoryPickerDialog(QDialog):
         self.select_btn.clicked.connect(self._accept_selected)
         foot.addWidget(self.cancel_btn)
         foot.addWidget(self.select_btn)
-        root.addLayout(foot)
+        panel_layout.addLayout(foot)
 
     def _load_path(self, raw_path: str) -> None:
         ok, resolved, dirs, message = self._list_dirs_fn(raw_path)
@@ -169,9 +219,22 @@ class RemoteDirectoryPickerDialog(QDialog):
         self.selected_label.setText(f"当前选择: {resolved}")
         self.dir_list.clear()
         for name in dirs:
-            item = QListWidgetItem(f"[DIR] {name}")
+            item = QListWidgetItem(qta.icon("ph.folder", color="#7EB8D0"), name)
             item.setData(Qt.ItemDataRole.UserRole, name)
             self.dir_list.addItem(item)
+
+    def popup_at(self, anchor) -> None:
+        if anchor is None:
+            return
+        # Always open to the left of the trigger, then clamp to visible screen.
+        pop_w = self.minimumWidth() or self.sizeHint().width() or 420
+        x = anchor.mapToGlobal(QPoint(0, 0)).x() + anchor.width() - pop_w
+        y = anchor.mapToGlobal(QPoint(0, anchor.height() + 6)).y()
+        screen = QApplication.screenAt(anchor.mapToGlobal(QPoint(0, 0))) or QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            x = max(geo.left(), min(x, geo.right() - pop_w))
+        self.move(QPoint(x, y))
 
     def _go_parent(self) -> None:
         if not self._current_path:
@@ -206,8 +269,13 @@ class RemoteDirectoryPickerDialog(QDialog):
 class DatabaseSettingsDialog(QDialog):
     def __init__(self, initial_path: str, info_fn, browse_fn, save_fn, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("数据库设置")
-        self.setFixedWidth(520)
+        self.setWindowFlags(
+            Qt.WindowType.Popup
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedWidth(420)
         self._info_fn = info_fn
         self._browse_fn = browse_fn
         self._save_fn = save_fn
@@ -221,27 +289,44 @@ class DatabaseSettingsDialog(QDialog):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 20)
-        root.setSpacing(10)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(0)
+
+        panel = QFrame()
+        panel.setObjectName("dbSettingsPopover")
+        panel.setStyleSheet(
+            """
+            QFrame#dbSettingsPopover {
+                background: #F8FBFF;
+                border: 1px solid #D6EAF8;
+                border-radius: 12px;
+            }
+            """
+        )
+        root.addWidget(panel)
+
+        content = QVBoxLayout(panel)
+        content.setContentsMargins(14, 14, 14, 14)
+        content.setSpacing(10)
 
         title = QLabel("数据库根目录")
         title.setStyleSheet("font-size: 14px; font-weight: 700; color: #071828;")
-        root.addWidget(title)
+        content.addWidget(title)
 
         row = QHBoxLayout()
         self.path_edit = QLineEdit()
         self.path_edit.setStyleSheet(INPUT_LINEEDIT)
         self.path_edit.setPlaceholderText("~/databases")
-        browse_btn = QPushButton("📁 浏览")
-        browse_btn.setStyleSheet(BUTTON_SECONDARY)
-        browse_btn.clicked.connect(self._on_browse)
+        self.browse_btn = QPushButton("📁 浏览")
+        self.browse_btn.setStyleSheet(BUTTON_SECONDARY)
+        self.browse_btn.clicked.connect(self._on_browse)
         row.addWidget(self.path_edit, stretch=1)
-        row.addWidget(browse_btn)
-        root.addLayout(row)
+        row.addWidget(self.browse_btn)
+        content.addLayout(row)
 
         hint = QLabel("所有数据库默认安装位置")
         hint.setStyleSheet("font-size: 12px; color: #4A7A90;")
-        root.addWidget(hint)
+        content.addWidget(hint)
 
         info_row = QHBoxLayout()
         info_row.setContentsMargins(0, 0, 0, 0)
@@ -253,7 +338,7 @@ class DatabaseSettingsDialog(QDialog):
         self.info_line.setStyleSheet("font-size: 12px; color: #0369A1;")
         info_row.addWidget(self.info_icon)
         info_row.addWidget(self.info_line, stretch=1)
-        root.addLayout(info_row)
+        content.addLayout(info_row)
 
         actions = QHBoxLayout()
         actions.addStretch()
@@ -265,7 +350,7 @@ class DatabaseSettingsDialog(QDialog):
         save_btn.clicked.connect(self._on_save)
         actions.addWidget(cancel_btn)
         actions.addWidget(save_btn)
-        root.addLayout(actions)
+        content.addLayout(actions)
 
     def _schedule_refresh_info(self) -> None:
         self._info_timer.start(250)
@@ -275,13 +360,27 @@ class DatabaseSettingsDialog(QDialog):
         self.info_line.setText(str(info.get("resolved", "--") or "--"))
 
     def _on_browse(self) -> None:
-        selected = self._browse_fn(self.path_edit.text().strip())
+        selected = self._browse_fn(self.path_edit.text().strip(), self.browse_btn)
         if selected:
             self.path_edit.setText(selected)
 
     def _on_save(self) -> None:
         if self._save_fn(self.path_edit.text().strip()):
             self.accept()
+
+    def popup_at(self, anchor) -> None:
+        if anchor is None:
+            return
+        pop_w = self.minimumWidth() or self.sizeHint().width() or 420
+        anchor_top_left = anchor.mapToGlobal(QPoint(0, 0))
+        x = anchor_top_left.x() - pop_w - 8
+        y = anchor_top_left.y() + anchor.height() + 6
+
+        screen = QApplication.screenAt(anchor_top_left) or QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            x = max(geo.left(), min(x, geo.right() - pop_w))
+        self.move(QPoint(x, y))
 
 
 class DatabasePage(BasePage):
@@ -478,14 +577,16 @@ class DatabasePage(BasePage):
             save_fn=self._save_db_root,
             parent=self,
         )
+        dialog.popup_at(self.settings_btn)
         dialog.exec()
 
-    def _pick_remote_db_root(self, start_path: str = "") -> str:
+    def _pick_remote_db_root(self, start_path: str = "", anchor=None) -> str:
         if self._ssh_client is None:
             QMessageBox.warning(self, "目录浏览", "请先连接 SSH，再浏览远程目录。")
             return ""
         start_path = start_path or self._get_db_root() or "~"
         dialog = RemoteDirectoryPickerDialog(start_path, self._list_remote_directories, parent=self)
+        dialog.popup_at(anchor)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
             return dialog.selected_path
         return ""
