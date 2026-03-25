@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import copy
 import datetime
 import hashlib
 import json
@@ -35,6 +34,7 @@ from core.execution.result_parsers import (
 from core.execution.result_parsers import (
     parse_primer_result_text as _parse_primer_result_text,
 )
+from core.execution.workbench_view_builders import build_multiplex_view, build_primer_view
 
 if TYPE_CHECKING:
     from core.plugins.plugin_registry import PluginRegistry
@@ -711,27 +711,27 @@ class ToolBridgeService:
         status: dict,
         parameters: list[dict],
     ) -> dict | None:
-        base = copy.deepcopy(self.base_integrated_workbench_config()["views"]["primer_design"])
-        rows = self.parse_primer_result_text(self._read_local_artifact_text(artifacts, "primer_result_final_2.txt"))
-        if not rows:
+        base = self.base_integrated_workbench_config()["views"]["primer_design"]
+        primer_result_text = self._read_local_artifact_text(artifacts, "primer_result_final_2.txt")
+        parsed_rows = self.parse_primer_result_text(primer_result_text)
+        if not parsed_rows:
             return None
 
-        all_candidates_count = self._count_local_artifact_lines(artifacts, "primer_result.txt") or len(rows)
-        filtered_count = self._count_local_artifact_lines(artifacts, "primer_result_final.txt") or len(rows)
-        dimer_count = self._count_local_artifact_lines(artifacts, "dimer_score.txt") or len(rows)
-        base["description"] = description
-        base["status"] = status
-        base["parameters"] = parameters
-        base["summary"] = [
-            {"label": "目标病原体", "value": str(len(rows)), "tone": "primary"},
-            {"label": "候选引物对", "value": str(all_candidates_count), "tone": "info"},
-            {"label": "通过二聚体过滤", "value": str(filtered_count), "tone": "success"},
-            {"label": "二聚体分析记录", "value": str(dimer_count), "tone": "accent"},
-        ]
-        base["rows"] = rows
-        base["artifacts"] = artifacts
-        base["remote_result_dir"] = remote_result_dir
-        return base
+        all_candidates_count = self._count_local_artifact_lines(artifacts, "primer_result.txt") or len(parsed_rows)
+        filtered_count = self._count_local_artifact_lines(artifacts, "primer_result_final.txt") or len(parsed_rows)
+        dimer_count = self._count_local_artifact_lines(artifacts, "dimer_score.txt") or len(parsed_rows)
+        return build_primer_view(
+            base_view=base,
+            primer_result_final_2_text=primer_result_text,
+            all_candidates_count=all_candidates_count,
+            filtered_count=filtered_count,
+            dimer_count=dimer_count,
+            description=description,
+            status=status,
+            parameters=parameters,
+            artifacts=artifacts,
+            remote_result_dir=remote_result_dir,
+        )
 
     def _build_multiplex_view_from_artifacts(
         self,
@@ -741,129 +741,22 @@ class ToolBridgeService:
         status: dict,
         parameters: list[dict],
     ) -> dict | None:
-        rows = self.parse_multiplex_result_text(self._read_local_artifact_text(artifacts, "multiplex_panel.txt"))
-        if not rows:
+        multiplex_text = self._read_local_artifact_text(artifacts, "multiplex_panel.txt")
+        parsed_rows = self.parse_multiplex_result_text(multiplex_text)
+        if not parsed_rows:
             return None
-
-        # Separate valid primers from no_candidate / suboptimal entries
-        valid_rows = [r for r in rows if r.get("pool_id") != "no_candidate" and r.get("forward_primer", "").strip()]
-        no_candidate_rows = [r for r in rows if r.get("pool_id") == "no_candidate" or not r.get("forward_primer", "").strip()]
-        suboptimal_rows = [r for r in valid_rows if r.get("pool_status") == "suboptimal"]
-        optimal_rows = [r for r in valid_rows if r.get("pool_status") != "suboptimal"]
-
         synthesis_count = self._count_local_artifact_lines(artifacts, "synthesis_order.txt")
         optimization_count = self._count_local_artifact_lines(artifacts, "optimization_log.txt")
-        optimization_rounds = max((optimization_count or 1) - 1, 0)
-        parameter_items = list(parameters)
-        parameter_items.append(
-            {
-                "label": "优化轮次",
-                "value": str(optimization_rounds),
-                "description": "指算法为消解引物冲突并满足约束而进行的迭代次数；轮次越多表示优化过程越复杂，不代表结果更差。",
-            }
+        return build_multiplex_view(
+            multiplex_panel_text=multiplex_text,
+            synthesis_count=synthesis_count,
+            optimization_count=optimization_count,
+            description=description,
+            status=status,
+            parameters=parameters,
+            artifacts=artifacts,
+            remote_result_dir=remote_result_dir,
         )
-
-        # Summary: 4 cards showing actionable info
-        total_pathogens = len(rows)
-        coverage_str = f"{len(valid_rows)}/{total_pathogens}"
-        # tone for coverage: success if full, warning if partial
-        coverage_tone = "success" if len(valid_rows) == total_pathogens else "warning"
-
-        # Compute Tm range and recommended annealing temperature from valid primers
-        all_tms: list[float] = []
-        all_amplicon_lengths: list[int] = []
-        for r in valid_rows:
-            for k in ("tm_f", "tm_r"):
-                try:
-                    all_tms.append(float(r.get(k) or 0))
-                except ValueError:
-                    pass
-            try:
-                al = int(r.get("amplicon_length") or 0)
-                if al > 0:
-                    all_amplicon_lengths.append(al)
-            except ValueError:
-                pass
-
-        summary = [
-            {"label": "入池病原体", "value": coverage_str, "tone": coverage_tone},
-            {"label": "订单条目", "value": str(max((synthesis_count or 1) - 1, 0)), "tone": "primary"},
-        ]
-        if suboptimal_rows:
-            summary.append({"label": "需验证", "value": str(len(suboptimal_rows)), "tone": "warning"})
-        else:
-            summary.append({"label": "质量", "value": "全部 optimal", "tone": "success"})
-
-        # 4th card: Tm range — directly tells researcher what annealing T to use
-        if all_tms:
-            tm_min = min(all_tms)
-            tm_max = max(all_tms)
-            tm_mean = sum(all_tms) / len(all_tms)
-            summary.append({"label": "Tm 范围", "value": f"{tm_min:.1f}-{tm_max:.1f}℃", "tone": "accent"})
-        else:
-            summary.append({"label": "优化轮次", "value": str(optimization_rounds), "tone": "accent"})
-
-        # Extra metrics appended to parameters (visible in expanded detail)
-        if all_tms:
-            parameter_items.append({
-                "label": "推荐退火温度",
-                "value": f"{tm_mean - 5:.1f}℃",
-                "description": f"基于池内引物平均 Tm ({tm_mean:.1f}℃) 减 5℃ 计算。实际需根据聚合酶和缓冲体系微调。",
-            })
-        if all_amplicon_lengths:
-            parameter_items.append({
-                "label": "扩增子范围",
-                "value": f"{min(all_amplicon_lengths)}-{max(all_amplicon_lengths)} bp",
-                "description": "池内扩增子长度的最小-最大范围。差异越大越利于凝胶电泳区分。",
-            })
-        if suboptimal_rows:
-            subopt_names = ", ".join(r.get("pathogen", "") for r in suboptimal_rows[:5])
-            suffix = f" 等 {len(suboptimal_rows)} 个" if len(suboptimal_rows) > 5 else ""
-            parameter_items.append({
-                "label": "需实验验证",
-                "value": subopt_names + suffix,
-                "description": "这些病原体的引物在池优化中存在轻微冲突（二聚体/Tm偏差/长度重叠），建议通过调整退火温度或引物浓度在实验端验证。",
-            })
-
-        # Build amplicon length bar chart for visual assessment
-        chart_data = None
-        if valid_rows:
-            chart_items = []
-            for r in rows:
-                pathogen = r.get("pathogen", "")
-                try:
-                    amp_len = int(r.get("amplicon_length") or 0)
-                except ValueError:
-                    amp_len = 0
-                row_status = r.get("pool_status", "optimal")
-                if r.get("pool_id") == "no_candidate" or not r.get("forward_primer", "").strip():
-                    row_status = "no_candidate"
-                    amp_len = 0
-                chart_items.append({
-                    "name": pathogen,
-                    "value": amp_len,
-                    "status": row_status,
-                    "region_id": r.get("region_id", ""),
-                })
-            chart_data = {
-                "type": "bar",
-                "title": "扩增子长度分布",
-                "data": chart_items,
-            }
-
-        return {
-            "tool_ids": ["multiplex_primer_panel"],
-            "title": "多重引物池设计",
-            "description": description,
-            "status": status,
-            "parameters": parameter_items,
-            "summary": summary,
-            "columns": self._build_multiplex_columns(rows),
-            "rows": rows,
-            "chart": chart_data,
-            "artifacts": artifacts,
-            "remote_result_dir": remote_result_dir,
-        }
 
     def get_live_primer_design_view(self) -> dict | None:
         execution = self.find_latest_completed_execution(["primer_design"])
