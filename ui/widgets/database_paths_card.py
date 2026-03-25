@@ -17,6 +17,7 @@ from ui.widgets.styles import (
     BUTTON_SUCCESS,
     CARD_FRAME,
     CARD_TITLE,
+    FORM_LABEL,
     INPUT_LINEEDIT,
     LABEL_MUTED,
 )
@@ -124,7 +125,7 @@ class DatabasePathsCard(QFrame):
 
             lbl = QLabel(label_text)
             lbl.setFixedWidth(130)
-            lbl.setStyleSheet("font-size: 12px; color: rgba(60,60,67,0.7); background: transparent;")
+            lbl.setStyleSheet(FORM_LABEL)
 
             edit = QLineEdit()
             edit.setStyleSheet(INPUT_LINEEDIT)
@@ -134,15 +135,15 @@ class DatabasePathsCard(QFrame):
 
             state_lbl = QLabel("未配置")
             state_lbl.setFixedWidth(52)
-            state_lbl.setStyleSheet("font-size: 11px; color: #9CA3AF;")
+            state_lbl.setStyleSheet("font-size: 11px; color: #94A3B8;")
             self._state_labels[key] = state_lbl
 
             hint_btn = QPushButton("?")
             hint_btn.setFixedSize(22, 22)
             hint_btn.setStyleSheet(
-                "QPushButton { border: 1px solid rgba(60,60,67,0.2); border-radius: 11px;"
-                "  font-size: 11px; color: rgba(60,60,67,0.5); background: transparent; }"
-                "QPushButton:hover { background: rgba(60,60,67,0.08); }"
+                "QPushButton { border: 1px solid #D6EAF8; border-radius: 11px;"
+                "  font-size: 11px; color: #4A7A90; background: transparent; }"
+                "QPushButton:hover { background: #EFF6FF; }"
             )
             hint_btn.setToolTip(f"填写服务器上 {label_text} 的绝对路径。\n留空则运行相关工具时会要求临时指定。")
             hint_btn.clicked.connect(
@@ -209,4 +210,4 @@ class DatabasePathsCard(QFrame):
             edit.setStyleSheet(INPUT_LINEEDIT)
             if state_lbl is not None:
                 state_lbl.setText("未配置")
-                state_lbl.setStyleSheet("font-size: 11px; color: #9CA3AF;")
+                state_lbl.setStyleSheet("font-size: 11px; color: #94A3B8;")

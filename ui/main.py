@@ -10,6 +10,7 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --log-level=3
 from PyQt6.QtWidgets import QApplication
 
 from core.utils import get_app_root
+from ui.widgets.styles import SCROLL_BAR_ELEGANT
 
 _app_root = get_app_root()
 
@@ -124,6 +125,8 @@ def main():
         t0 = time.perf_counter()
         app = QApplication(sys.argv)
         logging.info("Startup timing: create_qapp=%.1fms", (time.perf_counter() - t0) * 1000)
+        # 全局注入统一滚动条样式，避免各控件出现原生系统滚动条。
+        app.setStyleSheet((app.styleSheet() or "") + "\n" + SCROLL_BAR_ELEGANT)
 
         font = app.font()
         if os.name == "nt":
