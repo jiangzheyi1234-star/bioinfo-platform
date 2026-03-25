@@ -139,7 +139,15 @@ When changing the tool execution path, preserve the current two-stage async mode
 
 ## Current Task State（Codex 每次完成后更新）
 
-Last completed: 数据库路径配置彻底收敛（移除 legacy + 引入 DatabasePathResolver） ✅
+Last completed: 启动升级提示 + 数据库路径缺失错误文案增强 ✅
+  - MainWindow 启动时检测 legacy 数据库配置并一次性提示升级（支持“去设置”直达数据库页 ⚙️）
+  - 提示确认状态持久化为 `runtime.db_config_upgrade_notice_ack_v1`
+  - 工具执行前必需数据库路径缺失时，错误信息增加 db_id 与排查指引（overrides/db_root/设置入口）
+  - 新增测试：`tests/test_main_window_db_notice.py`
+  - 更新测试：`tests/test_tool_bridge_database_paths.py`（校验新错误文案）
+  - 全量回归通过（`500 passed, 7 skipped`）
+
+Previous completed: 数据库路径配置彻底收敛（移除 legacy + 引入 DatabasePathResolver） ✅
   - 新增 `core/data/database_path_resolver.py`，集中解析顺序：`overrides[db_id] > db_root+registry`
   - `ToolBridgeService.build_database_paths()` 改为薄封装，移除 legacy flat 兜底读取
   - `~` 在 SSH 在线时展开并缓存；SSH 离线时保留原值
