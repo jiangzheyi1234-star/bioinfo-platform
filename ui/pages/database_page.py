@@ -159,6 +159,8 @@ class DatabasePage(BasePage):
 
     def _make_ssh_run_fn(self):
         client = self._ssh_client
+        if client is None:
+            raise RuntimeError("SSH client is not connected")
 
         def _run(cmd: str, timeout: int = 15):
             stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
@@ -265,7 +267,8 @@ class DatabasePage(BasePage):
         thread = self._install_threads.pop(db_id, None)
         if thread is not None:
             thread.quit()
-            thread.wait(1500)
+            if not thread.wait(1500):
+                logger.warning("Database install thread did not stop in time: %s", db_id)
             thread.deleteLater()
 
     def _on_progress_updated(self, db_id: str, percent: int, speed: str, eta: str) -> None:
@@ -322,3 +325,9 @@ class DatabasePage(BasePage):
         dialog = self._dialogs.pop(db_id, None)
         if dialog:
             dialog.reject()
+
+    def closeEvent(self, event) -> None:
+        self._cleanup_status_worker()
+        for db_id in list(self._install_threads.keys()):
+            self._stop_install_monitor(db_id)
+        super().closeEvent(event)

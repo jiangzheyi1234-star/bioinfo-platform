@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from core.data.database_service import DatabaseService, DatabaseStatus
 
 
@@ -95,3 +97,29 @@ def test_parse_progress():
     assert parsed["percent"] == 50
     assert parsed["speed"] == "2.1M/s"
     assert parsed["eta"] == "1h41m"
+
+
+def test_get_resolved_path_rejects_path_traversal():
+    svc = DatabaseService()
+    info = svc.get_info("kraken2_standard")
+    assert info is not None
+    original = info.install_path
+    info.install_path = "../etc/passwd"
+    try:
+        resolved = svc.get_resolved_path("kraken2_standard", "/data/databases")
+        assert resolved == ""
+    finally:
+        info.install_path = original
+
+
+def test_generate_install_commands_rejects_unsafe_template_syntax():
+    svc = DatabaseService()
+    info = svc.get_info("card_db")
+    assert info is not None
+    original = info.install_cmd
+    info.install_cmd = "echo {{ ''.__class__ }}"
+    try:
+        with pytest.raises(ValueError, match="不受支持"):
+            svc.generate_install_commands("card_db", "/data/databases")
+    finally:
+        info.install_cmd = original
