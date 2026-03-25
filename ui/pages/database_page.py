@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QSize, QThread
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -39,6 +39,52 @@ CATEGORY_LABELS = {
     "other": "其他",
 }
 
+# ── 图标工具函数 ──────────────────────────────────────────────
+def _make_icon(icon_name: str, color: str = "#64748B", size: int = 16):
+    """用 qtawesome 生成 Phosphor 图标，导入失败时返回 None。"""
+    try:
+        import qtawesome as qta
+        return qta.icon(icon_name, color=color), size
+    except Exception:
+        return None, size
+
+
+# ── 图标按钮样式 ──────────────────────────────────────────────
+_ICON_BTN_STYLE = """
+    QPushButton {{
+        background: transparent;
+        color: {color};
+        border: none;
+        border-radius: 6px;
+        padding: 5px 10px;
+        font-size: 13px;
+    }}
+    QPushButton:hover {{
+        background: #DBEAFE;
+        color: #0EA5E9;
+    }}
+    QPushButton:pressed {{
+        background: #BFDBFE;
+    }}
+"""
+
+_ICON_ONLY_BTN_STYLE = """
+    QPushButton {
+        background: transparent;
+        border: none;
+        border-radius: 16px;
+        padding: 4px;
+        min-width: 32px;
+        min-height: 32px;
+    }
+    QPushButton:hover {
+        background: #DBEAFE;
+    }
+    QPushButton:pressed {
+        background: #BFDBFE;
+    }
+"""
+
 
 class DatabasePage(BasePage):
     def __init__(self):
@@ -59,23 +105,47 @@ class DatabasePage(BasePage):
         self.layout.setContentsMargins(30, 24, 30, 24)
         self.layout.setSpacing(10)
 
+        # ── 标题行 ────────────────────────────────────────────
         title_row = QHBoxLayout()
         title = QLabel("数据库管理")
         title.setStyleSheet(PAGE_HEADER_TITLE)
-        self.refresh_btn = QPushButton("全部刷新")
-        self.refresh_btn.setStyleSheet(BUTTON_SECONDARY)
+
+        # 设置按钮（齿轮图标）
+        self.settings_btn = QPushButton()
+        self.settings_btn.setToolTip("数据库设置")
+        self.settings_btn.setStyleSheet(_ICON_ONLY_BTN_STYLE)
+        self.settings_btn.setFixedSize(32, 32)
+        gear_icon, gear_size = _make_icon("ph.gear", color="#64748B", size=16)
+        if gear_icon:
+            self.settings_btn.setIcon(gear_icon)
+            self.settings_btn.setIconSize(QSize(gear_size, gear_size))
+        else:
+            self.settings_btn.setText("⚙")
+            self.settings_btn.setStyleSheet(_ICON_BTN_STYLE.format(color="#64748B"))
+
+        # 刷新按钮（箭头图标 + 文字）
+        self.refresh_btn = QPushButton("刷新")
+        self.refresh_btn.setToolTip("刷新所有数据库状态")
+        self.refresh_btn.setStyleSheet(_ICON_BTN_STYLE.format(color="#64748B"))
+        refresh_icon, refresh_size = _make_icon("ph.arrows-clockwise", color="#64748B", size=15)
+        if refresh_icon:
+            self.refresh_btn.setIcon(refresh_icon)
+            self.refresh_btn.setIconSize(QSize(refresh_size, refresh_size))
         self.refresh_btn.clicked.connect(self._refresh_all_status)
+
         title_row.addWidget(title)
+        title_row.addWidget(self.settings_btn)
         title_row.addStretch()
         title_row.addWidget(self.refresh_btn)
         self.layout.addLayout(title_row)
 
+        # ── 根目录行 ──────────────────────────────────────────
         root_row = QHBoxLayout()
         root_label = QLabel("数据库根目录:")
         root_label.setStyleSheet("font-size: 13px; color: #334155;")
         self.db_root_edit = QLineEdit()
         self.db_root_edit.setStyleSheet(INPUT_LINEEDIT)
-        self.db_root_edit.setPlaceholderText("/data/databases")
+        self.db_root_edit.setPlaceholderText("~/databases  或  /data/databases")
         self.save_root_btn = QPushButton("保存")
         self.save_root_btn.setStyleSheet(BUTTON_PRIMARY)
         self.save_root_btn.clicked.connect(self._save_db_root)
@@ -84,6 +154,7 @@ class DatabasePage(BasePage):
         root_row.addWidget(self.save_root_btn)
         self.layout.addLayout(root_row)
 
+        # ── Tab 栏（Segmented Control 风格）─────────────────
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
             """
@@ -91,23 +162,29 @@ class DatabasePage(BasePage):
                 border: none;
                 background: transparent;
             }
+            QTabBar {
+                background: #EFF6FF;
+                border-radius: 8px;
+                padding: 3px;
+            }
             QTabBar::tab {
-                padding: 8px 16px;
-                margin-right: 4px;
+                background: transparent;
                 color: #64748B;
+                border: none;
+                border-radius: 6px;
+                padding: 5px 18px;
                 font-size: 13px;
                 font-weight: 500;
-                border: none;
-                border-bottom: 2px solid transparent;
-                background: transparent;
+                min-width: 72px;
             }
             QTabBar::tab:selected {
-                color: #3B82F6;
+                background: #FFFFFF;
+                color: #0EA5E9;
                 font-weight: 700;
-                border-bottom: 2px solid #3B82F6;
             }
-            QTabBar::tab:hover {
-                color: #334155;
+            QTabBar::tab:hover:!selected {
+                color: #0284C7;
+                background: #DBEAFE;
             }
             """
         )
