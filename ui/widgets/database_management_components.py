@@ -22,7 +22,7 @@ from core.data.database_service import (
     DatabaseService,
     DatabaseStatus,
 )
-from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_SUCCESS
+from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY
 
 
 class DatabaseItemCard(QFrame):
@@ -41,7 +41,16 @@ class DatabaseItemCard(QFrame):
 
     def _build_ui(self) -> None:
         self.setStyleSheet(
-            "QFrame { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; }"
+            """
+            QFrame {
+                background: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+            }
+            QFrame:hover {
+                border: 1px solid #BFDBFE;
+            }
+            """
         )
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -97,7 +106,7 @@ class DatabaseItemCard(QFrame):
         b_layout.setContentsMargins(12, 0, 12, 10)
         b_layout.addStretch()
         self.install_btn = QPushButton("下载安装")
-        self.install_btn.setStyleSheet(BUTTON_SUCCESS)
+        self.install_btn.setStyleSheet(BUTTON_PRIMARY)
         self.install_btn.clicked.connect(lambda: self.install_requested.emit(self.db_info.db_id))
         self.reinstall_btn = QPushButton("重新安装")
         self.reinstall_btn.setStyleSheet(BUTTON_SECONDARY)
