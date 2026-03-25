@@ -12,11 +12,9 @@
 from __future__ import annotations
 
 import datetime
-import hashlib
 import json
 import logging
 import shlex
-import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.database_service import DatabaseService
 from core.data.execution_query_service import ExecutionQueryService
+from core.execution.artifact_store import ArtifactStore
 from core.execution.execution_status_service import ExecutionStatusService
 from core.execution.result_parsers import (
     build_multiplex_columns as _parse_build_multiplex_columns,
@@ -108,6 +107,7 @@ class ToolBridgeService:
         self._execution_status_service = ExecutionStatusService()
         self._remote_status_cache = self._execution_status_service.cache
         self._database_service = DatabaseService()
+        self._artifact_store = ArtifactStore(self._get_current_project_dir, manifest_name=self._manifest_name)
 
     def set_service_locator(self, sl: ServiceLocator | None) -> None:
         self._service_locator = sl
@@ -484,153 +484,39 @@ class ToolBridgeService:
         return project_dir / "results" / execution_id
 
     def _manifest_path(self, cache_key: str) -> Path | None:
-        project_dir = self._get_current_project_dir()
-        if project_dir is None or not cache_key:
-            return None
-        return project_dir / "results" / cache_key / self._manifest_name
+        return self._artifact_store.manifest_path(cache_key)
 
     def _load_manifest(self, cache_key: str) -> dict | None:
-        manifest_path = self._manifest_path(cache_key)
-        if manifest_path is None or not manifest_path.exists():
-            return None
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, dict) else None
-        except Exception:
-            logger.exception("读取结果文件清单失败: %s", manifest_path)
-            return None
+        return self._artifact_store.load_manifest(cache_key)
 
     def _normalize_artifacts(self, artifacts: list[dict] | None) -> list[dict]:
-        normalized: list[dict] = []
-        for item in artifacts or []:
-            if not isinstance(item, dict):
-                continue
-            local_path = str(item.get("local_path") or "").strip()
-            available = bool(item.get("available"))
-            if local_path:
-                available = Path(local_path).exists()
-            normalized.append(
-                {
-                    "name": str(item.get("name") or "").strip(),
-                    "remote_path": str(item.get("remote_path") or "").strip(),
-                    "local_path": local_path,
-                    "available": available,
-                    "error": str(item.get("error") or "").strip(),
-                }
-            )
-        return normalized
+        return self._artifact_store.normalize_artifacts(artifacts)
 
     def _artifact_by_name(self, artifacts: list[dict], name: str) -> dict | None:
-        for artifact in artifacts:
-            if artifact.get("name") == name:
-                return artifact
-        return None
+        return self._artifact_store.artifact_by_name(artifacts, name)
 
     def _read_local_artifact_text(self, artifacts: list[dict], name: str) -> str:
-        artifact = self._artifact_by_name(artifacts, name)
-        if artifact is None:
-            return ""
-        local_path = str(artifact.get("local_path") or "").strip()
-        if not local_path:
-            return ""
-        path = Path(local_path)
-        if not path.exists():
-            return ""
-        try:
-            return path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            return path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            logger.exception("读取本地结果文件失败: %s", local_path)
-            return ""
+        return self._artifact_store.read_local_artifact_text(artifacts, name)
 
     def _count_local_artifact_lines(self, artifacts: list[dict], name: str) -> int | None:
-        content = self._read_local_artifact_text(artifacts, name)
-        if not content:
-            return None
-        return len([line for line in content.splitlines() if line.strip()])
+        return self._artifact_store.count_local_artifact_lines(artifacts, name)
 
     def _remote_cache_key(self, tool_id: str, remote_result_dir: str) -> str:
-        digest = hashlib.sha1(remote_result_dir.encode("utf-8")).hexdigest()[:12]
-        return f"{tool_id}_{digest}"
+        return self._artifact_store.remote_cache_key(tool_id, remote_result_dir)
 
     def _remote_file_exists(self, ssh: Any, remote_path: str) -> bool:
-        quoted_path = shlex.quote(str(remote_path or ""))
-        if not quoted_path:
-            return False
-        try:
-            rc, _, _ = ssh.run(f"test -f {quoted_path}", timeout=10)
-            return rc == 0
-        except Exception:
-            logger.debug("检查远端结果文件是否存在失败: %s", remote_path, exc_info=True)
-            return False
+        return self._artifact_store.remote_file_exists(ssh, remote_path)
 
     def _cache_remote_artifacts(self, tool_id: str, remote_result_dir: str) -> list[dict]:
-        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
-        if not normalized_dir:
-            return []
-
-        cache_key = self._remote_cache_key(tool_id, normalized_dir)
-        manifest = self._load_manifest(cache_key)
-        if manifest:
-            return self._normalize_artifacts(manifest.get("artifacts"))
-
-        ssh = self._get_ssh_service()
-        manifest_path = self._manifest_path(cache_key)
-        if ssh is None or not getattr(ssh, "is_connected", False) or manifest_path is None:
-            return []
-
-        results_dir = manifest_path.parent
-        results_dir.mkdir(parents=True, exist_ok=True)
-        artifacts: list[dict] = []
-        for name in self._result_artifact_names.get(tool_id, []):
-            remote_path = f"{normalized_dir}/{name}"
-            local_path = results_dir / name
-            available = False
-            error = ""
-            try:
-                if self._remote_file_exists(ssh, remote_path):
-                    ssh.download(remote_path, str(local_path))
-                    available = local_path.exists()
-                else:
-                    error = "remote_file_not_found"
-                    logger.debug("远端结果文件不存在，跳过缓存: %s", remote_path)
-            except Exception as exc:
-                error = str(exc)
-                logger.warning("缓存远端结果文件失败: %s (%s)", remote_path, exc)
-            item = {
-                "name": name,
-                "remote_path": remote_path,
-                "local_path": str(local_path),
-                "available": available,
-            }
-            if error:
-                item["error"] = error
-            artifacts.append(item)
-
-        try:
-            manifest_path.write_text(
-                json.dumps(
-                    {
-                        "execution_id": cache_key,
-                        "tool_id": tool_id,
-                        "output_dir": normalized_dir,
-                        "artifacts": artifacts,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except OSError:
-            logger.exception("写入远端结果缓存清单失败: %s", manifest_path)
-        return self._normalize_artifacts(artifacts)
+        return self._artifact_store.cache_remote_artifacts(
+            tool_id=tool_id,
+            remote_result_dir=remote_result_dir,
+            result_artifact_names=self._result_artifact_names,
+            ssh=self._get_ssh_service(),
+        )
 
     def list_local_execution_artifacts(self, execution_id: str) -> list[dict]:
-        manifest = self._load_manifest(str(execution_id or "").strip())
-        if manifest:
-            return self._normalize_artifacts(manifest.get("artifacts"))
-        return []
+        return self._artifact_store.list_local_execution_artifacts(execution_id)
 
     def _persist_execution_artifacts(
         self,
@@ -640,65 +526,12 @@ class ToolBridgeService:
         artifacts: list[dict],
     ) -> list[dict]:
         """Persist downloaded artifacts under results/<execution_id>/ and write manifest."""
-        normalized_execution_id = str(execution_id or "").strip()
-        if not normalized_execution_id:
-            return self._normalize_artifacts(artifacts)
-
-        results_dir = self._execution_results_dir(normalized_execution_id)
-        if results_dir is None:
-            return self._normalize_artifacts(artifacts)
-        results_dir.mkdir(parents=True, exist_ok=True)
-
-        persisted: list[dict] = []
-        for item in self._normalize_artifacts(artifacts):
-            name = str(item.get("name") or "").strip()
-            local_path = str(item.get("local_path") or "").strip()
-            available = bool(item.get("available"))
-            copied_path = ""
-            error = str(item.get("error") or "").strip()
-            if name and local_path and available and Path(local_path).exists():
-                src = Path(local_path)
-                dst = results_dir / name
-                try:
-                    if src.resolve() != dst.resolve():
-                        shutil.copy2(src, dst)
-                    copied_path = str(dst)
-                except Exception as exc:
-                    logger.warning("Failed to copy artifact to execution dir: %s -> %s (%s)", src, dst, exc)
-                    error = error or str(exc)
-                    copied_path = local_path
-            else:
-                copied_path = local_path
-
-            persisted_item = {
-                "name": name,
-                "remote_path": str(item.get("remote_path") or "").strip(),
-                "local_path": copied_path,
-                "available": bool(copied_path) and Path(copied_path).exists(),
-            }
-            if error:
-                persisted_item["error"] = error
-            persisted.append(persisted_item)
-
-        manifest_path = results_dir / self._manifest_name
-        try:
-            manifest_path.write_text(
-                json.dumps(
-                    {
-                        "execution_id": normalized_execution_id,
-                        "tool_id": tool_id,
-                        "output_dir": output_dir,
-                        "artifacts": persisted,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except OSError:
-            logger.exception("Failed to write execution artifacts manifest: %s", manifest_path)
-
-        return self._normalize_artifacts(persisted)
+        return self._artifact_store.persist_execution_artifacts(
+            execution_id=execution_id,
+            tool_id=tool_id,
+            output_dir=output_dir,
+            artifacts=artifacts,
+        )
 
     def download_execution_artifacts(self, execution_id: str) -> list[dict]:
         return self.list_local_execution_artifacts(execution_id)
