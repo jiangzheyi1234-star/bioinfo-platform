@@ -450,15 +450,15 @@ SCROLL_BAR_ELEGANT = f"""
         margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: rgba(14, 165, 233, 0.18);
+        background: rgba(148, 163, 184, 0.32);
         border-radius: 5px;
         min-height: 40px;
     }}
     QScrollBar::handle:vertical:hover {{
-        background: rgba(14, 165, 233, 0.3);
+        background: rgba(148, 163, 184, 0.5);
     }}
     QScrollBar::handle:vertical:pressed {{
-        background: rgba(14, 165, 233, 0.45);
+        background: rgba(100, 116, 139, 0.62);
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
@@ -476,15 +476,15 @@ SCROLL_BAR_ELEGANT = f"""
         margin: 0;
     }}
     QScrollBar::handle:horizontal {{
-        background: rgba(14, 165, 233, 0.18);
+        background: rgba(148, 163, 184, 0.32);
         border-radius: 5px;
         min-width: 40px;
     }}
     QScrollBar::handle:horizontal:hover {{
-        background: rgba(14, 165, 233, 0.3);
+        background: rgba(148, 163, 184, 0.5);
     }}
     QScrollBar::handle:horizontal:pressed {{
-        background: rgba(14, 165, 233, 0.45);
+        background: rgba(100, 116, 139, 0.62);
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         width: 0;
@@ -522,9 +522,9 @@ SIDEBAR_NAV_ITEM = f"""
         color: {COLOR_TEXT_DEFAULT};
     }}
     QListWidget::item:selected {{
-        background: {COLOR_BG_SIDEBAR_SELECTED};
-        color: {COLOR_PRIMARY};
-        font-weight: 700;
+        background: #F1F5F9;
+        color: #475569;
+        font-weight: 600;
     }}
 """
 
