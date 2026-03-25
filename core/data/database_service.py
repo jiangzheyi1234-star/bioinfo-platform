@@ -11,11 +11,10 @@ import re
 import shlex
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
-from jinja2 import Template
 
 from core.environment.env_detector import SshRunFn
 
@@ -57,6 +56,33 @@ def _expand_path(path: str) -> str:
 
 def _quote(path: str) -> str:
     return shlex.quote(path)
+
+
+def _normalize_relative_install_path(install_path: str) -> str:
+    rel = str(install_path or "").strip().replace("\\", "/")
+    if not rel:
+        return ""
+    rel_path = PurePosixPath(rel)
+    if rel_path.is_absolute():
+        return ""
+    if any(part == ".." for part in rel_path.parts):
+        return ""
+    normalized = rel_path.as_posix().lstrip("./")
+    if normalized.startswith("../") or normalized in {"", "."}:
+        return ""
+    return normalized
+
+
+def _render_install_cmd(template: str, db_path: str) -> str:
+    """Render install_cmd with a strict placeholder policy.
+
+    We only allow `{{ db_path }}` replacement to avoid SSTI risks from
+    untrusted YAML payloads.
+    """
+    rendered = re.sub(r"\{\{\s*db_path\s*\}\}", db_path, str(template or ""))
+    if "{{" in rendered or "{%" in rendered or "{#" in rendered:
+        raise ValueError("install_cmd 包含不受支持的模板语法，仅允许 {{ db_path }}")
+    return rendered
 
 
 class DatabaseService:
@@ -111,7 +137,7 @@ class DatabaseService:
         if info is None or info.builtin:
             return ""
         root = str(db_root or "").strip().rstrip("/")
-        rel = str(info.install_path or "").strip().lstrip("/")
+        rel = _normalize_relative_install_path(info.install_path)
         if not root or not rel:
             return ""
         return f"{root}/{rel}"
@@ -160,7 +186,7 @@ class DatabaseService:
         commands = [f"mkdir -p {_quote(db_path)}"]
 
         if info.install_cmd:
-            rendered = Template(info.install_cmd).render(db_path=db_path)
+            rendered = _render_install_cmd(info.install_cmd, db_path=db_path)
             commands.append(rendered)
         elif info.mirrors:
             idx = mirror_index if 0 <= mirror_index < len(info.mirrors) else 0
