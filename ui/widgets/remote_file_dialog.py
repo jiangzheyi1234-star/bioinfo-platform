@@ -36,7 +36,17 @@ class RemoteFileDialog(QDialog):
     def __init__(self, ssh_service, initial_path: str = "", parent=None):
         super().__init__(parent)
         self.setWindowTitle("浏览远程文件")
-        self.resize(600, 480)
+        self.setFixedWidth(420)
+        self.setMinimumHeight(340)
+        self.setStyleSheet(
+            f"""
+            QDialog {{
+                background-color: {styles.COLOR_BG_CARD};
+                border: 1px solid {styles.COLOR_BORDER_INPUT};
+                border-radius: {styles.RADIUS_CARD};
+            }}
+            """
+        )
 
         self._ssh = ssh_service
         self._current_path = initial_path or self._default_home()

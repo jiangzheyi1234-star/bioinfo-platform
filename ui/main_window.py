@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("H2OMeta 宏基因组分析平台")
         self.resize(980, 680)
+        self.setMinimumSize(900, 600)
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
 
         self._pm = project_manager or ProjectManager()
@@ -100,7 +101,7 @@ class MainWindow(QMainWindow):
         middle_layout.setSpacing(0)
 
         sidebar_widget = QWidget()
-        sidebar_widget.setFixedWidth(200)
+        sidebar_widget.setFixedWidth(176)
         sidebar_widget.setStyleSheet(
             f"background-color: {styles.COLOR_BG_SIDEBAR};"
             f"border-right: 1px solid {styles.COLOR_BORDER};"
