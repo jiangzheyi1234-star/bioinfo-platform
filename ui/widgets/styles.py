@@ -1,21 +1,21 @@
 # ui/widgets/styles.py
-# 设计令牌（Design Tokens）系统 — Clash Verge 风格
+# 设计令牌（Design Tokens）系统 — E4 冰蓝风格
 #
 # 设计哲学：
-#   - Clash Verge 亮色主题：纯白底 + 蓝色强调
+#   - 冰蓝主题：极淡冰蓝底 + Sky 500 强调色
 #   - 零阴影，通过背景层次创造深度
-#   - 极细分割线 (rgba 6% 透明度级别)
+#   - 极细分割线
 #   - 选中态 = 低透明度主色调底色，而非实心色块
 #   - 全局 8~12px 圆角
 
 # ═══════════════════════════════════════════════════════════
-#  颜色常量 (Tokens)
+#  颜色常量 (Tokens) — E4 冰蓝
 # ═══════════════════════════════════════════════════════════
 
-# 主色调 — 科技蓝 (Blue 系列，比 Sky 更沉稳)
-COLOR_PRIMARY = "#3B82F6"            # Blue 500
-COLOR_PRIMARY_HOVER = "#2563EB"      # Blue 600
-COLOR_PRIMARY_PRESSED = "#1D4ED8"    # Blue 700
+# 主色调 — 冰蓝 (Sky 系列，轻盈通透)
+COLOR_PRIMARY = "#0EA5E9"            # Sky 500
+COLOR_PRIMARY_HOVER = "#0284C7"      # Sky 600
+COLOR_PRIMARY_PRESSED = "#0369A1"    # Sky 700
 
 # 成功状态色
 COLOR_SUCCESS = "#10B981"            # Emerald 500
@@ -26,59 +26,59 @@ COLOR_SUCCESS_PRESSED = "#047857"    # Emerald 700
 COLOR_DANGER = "#EF4444"             # Red 500
 COLOR_WARNING = "#F59E0B"            # Amber 500
 
-# 背景色系 — 亮色层级
-COLOR_BG_APP = "#F1F5F9"             # Slate 100 (略带蓝灰)
+# 背景色系 — 冰蓝层级
+COLOR_BG_APP = "#F0F8FF"             # 极淡冰蓝
 COLOR_BG_CARD = "#FFFFFF"            # 纯白卡片
-COLOR_BG_PAGE = "#F1F5F9"            # 同 APP 背景
+COLOR_BG_PAGE = "#F0F8FF"            # 同 APP 背景
 COLOR_BG_BLANK = "transparent"
 COLOR_BG_SIDEBAR = "#FFFFFF"         # 白色侧边栏
-COLOR_BG_TERMINAL = "#1E1E2E"        # 终端深色
-COLOR_BG_TERMINAL_TEXT = "#D4D4D4"   # 终端文字
+COLOR_BG_TERMINAL = "#071828"        # 终端深色（配套冰蓝）
+COLOR_BG_TERMINAL_TEXT = "#BAE6FD"   # 终端文字（Sky 200）
 
 # 边框色系
-COLOR_BORDER = "#E2E8F0"             # Slate 200
-COLOR_BORDER_INPUT = "#CBD5E1"       # Slate 300
-COLOR_BORDER_FOCUS = "#3B82F6"       # Blue 500
+COLOR_BORDER = "#D6EAF8"             # 淡冰蓝边框
+COLOR_BORDER_INPUT = "#BAD4E8"       # 输入框边框
+COLOR_BORDER_FOCUS = "#0EA5E9"       # Sky 500
 
 # 选中态色系
-COLOR_SELECTION_BG = "#EFF6FF"       # Blue 50
-COLOR_SELECTION_HOVER = "#F1F5F9"    # Slate 100
+COLOR_SELECTION_BG = "#DBEAFE"       # Sky 100 偏蓝
+COLOR_SELECTION_HOVER = "#F0F8FF"    # 极淡冰蓝
 
-# 文字色系 (Slate 体系)
-COLOR_TEXT_TITLE = "#0F172A"         # Slate 900
-COLOR_TEXT_DEFAULT = "#334155"       # Slate 700
-COLOR_TEXT_SUB = "#475569"           # Slate 600
-COLOR_TEXT_HINT = "#94A3B8"          # Slate 400
-COLOR_TEXT_MUTED = "#CBD5E1"         # Slate 300
+# 文字色系
+COLOR_TEXT_TITLE = "#071828"         # 深冰蓝黑
+COLOR_TEXT_DEFAULT = "#1E3A4A"       # 深蓝灰
+COLOR_TEXT_SUB = "#4A7A90"           # 中蓝灰
+COLOR_TEXT_HINT = "#7EB8D0"          # 浅蓝灰
+COLOR_TEXT_MUTED = "#BAD4E8"         # 极浅蓝灰
 COLOR_TEXT_WHITE = "#FFFFFF"
-COLOR_TEXT_DISABLED = "#94A3B8"
-COLOR_TEXT_INTERPRET = "#1D4ED8"     # Blue 700
+COLOR_TEXT_DISABLED = "#7EB8D0"
+COLOR_TEXT_INTERPRET = "#0369A1"     # Sky 700
 
 # 侧边栏
-COLOR_BG_SIDEBAR_ITEM = "#F1F5F9"        # hover: Slate 100
-COLOR_BG_SIDEBAR_SELECTED = "#EFF6FF"    # Blue 50
+COLOR_BG_SIDEBAR_ITEM = "#EBF5FB"         # hover: 淡冰蓝
+COLOR_BG_SIDEBAR_SELECTED = "#DBEAFE"     # Sky 100
 
 # 按钮 & 交互
-COLOR_BG_BUTTON_HOVER = "#F8FAFC"        # Slate 50
-COLOR_BG_BUTTON_CHECKED = "#3B82F6"      # Blue 500
+COLOR_BG_BUTTON_HOVER = "#F0F8FF"
+COLOR_BG_BUTTON_CHECKED = "#0EA5E9"       # Sky 500
 
 # 表格 & 进度条
-COLOR_BG_PROGRESS_BAR = "#F1F5F9"        # Slate 100
+COLOR_BG_PROGRESS_BAR = "#EBF5FB"
 COLOR_BG_TABLE = "#FFFFFF"
 COLOR_BG_TABLE_CELL = "#FFFFFF"
-COLOR_BG_TABLE_GRIDLINE = "#E2E8F0"      # Slate 200
-COLOR_BG_PROGRESS_CHUNK = "#3B82F6"
+COLOR_BG_TABLE_GRIDLINE = "#D6EAF8"
+COLOR_BG_PROGRESS_CHUNK = "#0EA5E9"
 
 # 卡片高亮 & 解读区
-COLOR_BG_CARD_HIGHLIGHT = "#F8FAFC"
-COLOR_BG_CARD_INTERPRET = "#EFF6FF"
-COLOR_BG_INPUT_DISABLED = "#F1F5F9"
+COLOR_BG_CARD_HIGHLIGHT = "#F5FBFF"
+COLOR_BG_CARD_INTERPRET = "#DBEAFE"
+COLOR_BG_INPUT_DISABLED = "#EBF5FB"
 
 # 信息/警告区块
-COLOR_BG_INFO = "#EFF6FF"                # Blue 50
-COLOR_BG_INFO_BORDER = "#BFDBFE"         # Blue 200
-COLOR_BG_WARN = "#FFFBEB"               # Amber 50
-COLOR_BG_WARN_TEXT = "#B45309"           # Amber 700
+COLOR_BG_INFO = "#DBEAFE"                 # Sky 100
+COLOR_BG_INFO_BORDER = "#BAE6FD"          # Sky 200
+COLOR_BG_WARN = "#FFFBEB"                 # Amber 50
+COLOR_BG_WARN_TEXT = "#B45309"            # Amber 700
 
 # ═══════════════════════════════════════════════════════════
 #  尺寸常量
@@ -102,12 +102,12 @@ FONT_FAMILY = (
 
 
 def apply_card_shadow(widget) -> None:
-    """Clash Verge 风格的轻柔阴影"""
+    """冰蓝风格轻柔阴影"""
     from PyQt6.QtWidgets import QGraphicsDropShadowEffect
     from PyQt6.QtGui import QColor
     shadow = QGraphicsDropShadowEffect(widget)
     shadow.setBlurRadius(15)
-    shadow.setColor(QColor(0, 0, 0, 15))
+    shadow.setColor(QColor(14, 165, 233, 18))
     shadow.setOffset(0, 4)
     widget.setGraphicsEffect(shadow)
 
@@ -138,7 +138,7 @@ _INPUT_BASE = f"""
         selection-color: {COLOR_TEXT_DEFAULT};
     }}
     QLineEdit:hover {{
-        border: 1px solid rgba(59, 130, 246, 0.4);
+        border: 1px solid rgba(14, 165, 233, 0.4);
     }}
     QLineEdit:focus {{
         border: 1px solid {COLOR_BORDER_FOCUS};
@@ -160,7 +160,7 @@ _COMBOBOX_BASE = f"""
         min-height: 30px;
     }}
     QComboBox:hover {{
-        border: 1px solid rgba(59, 130, 246, 0.4);
+        border: 1px solid rgba(14, 165, 233, 0.4);
     }}
     QComboBox:focus {{
         border: 1px solid {COLOR_BORDER_FOCUS};
@@ -205,15 +205,15 @@ _COMBOBOX_BASE = f"""
         margin: 2px;
     }}
     QComboBox QAbstractItemView QScrollBar::handle:vertical {{
-        background: rgba(0, 0, 0, 0.2);
+        background: rgba(14, 165, 233, 0.2);
         border-radius: 4px;
         min-height: 20px;
     }}
     QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {{
-        background: rgba(0, 0, 0, 0.35);
+        background: rgba(14, 165, 233, 0.35);
     }}
     QComboBox QAbstractItemView QScrollBar::handle:vertical:pressed {{
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(14, 165, 233, 0.5);
     }}
     QComboBox QAbstractItemView QScrollBar::add-line:vertical,
     QComboBox QAbstractItemView QScrollBar::sub-line:vertical {{
@@ -233,18 +233,18 @@ _COMBOBOX_BASE = f"""
 
 BUTTON_PRIMARY = _BTN_BASE + f"""
     QPushButton {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B82F6, stop:1 #2563EB);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0EA5E9, stop:1 #0284C7);
         color: {COLOR_TEXT_WHITE};
     }}
     QPushButton:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #60A5FA, stop:1 #3B82F6);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #38BDF8, stop:1 #0EA5E9);
     }}
     QPushButton:pressed {{
-        background: #1D4ED8;
+        background: #0369A1;
     }}
     QPushButton:disabled {{
-        background: #E2E8F0;
-        color: #94A3B8;
+        background: #D6EAF8;
+        color: #7EB8D0;
     }}
 """
 
@@ -260,8 +260,8 @@ BUTTON_SUCCESS = _BTN_BASE + f"""
         background-color: {COLOR_SUCCESS_PRESSED};
     }}
     QPushButton:disabled {{
-        background-color: #E2E8F0;
-        color: #94A3B8;
+        background-color: #D6EAF8;
+        color: #7EB8D0;
     }}
 """
 
@@ -276,37 +276,37 @@ BUTTON_SECONDARY = f"""
         font-size: 13px;
     }}
     QPushButton:hover {{
-        border-color: #94A3B8;
+        border-color: {COLOR_PRIMARY_HOVER};
         background-color: {COLOR_BG_BUTTON_HOVER};
-        color: #0F172A;
+        color: {COLOR_TEXT_TITLE};
     }}
     QPushButton:pressed {{
         border-color: {COLOR_PRIMARY_PRESSED};
-        background-color: #F1F5F9;
+        background-color: #EBF5FB;
     }}
     QPushButton:disabled {{
-        border-color: #E2E8F0;
-        color: #94A3B8;
-        background-color: #F8FAFC;
+        border-color: #D6EAF8;
+        color: #7EB8D0;
+        background-color: #F5FBFF;
     }}
 """
 
 BUTTON_PASTEL_PRIMARY = f"""
     QPushButton {{
-        background: #EFF6FF;
-        color: #1D4ED8;
-        border: 1px solid #BFDBFE;
+        background: #DBEAFE;
+        color: #0369A1;
+        border: 1px solid #BAE6FD;
         border-radius: {RADIUS_CTRL};
         padding: 8px 16px;
         font-weight: 600;
         font-size: 13px;
     }}
     QPushButton:hover {{
-        background: #DBEAFE;
-        border-color: #93C5FD;
+        background: #BAE6FD;
+        border-color: #7DD3FC;
     }}
     QPushButton:pressed {{
-        background: #BFDBFE;
+        background: #7DD3FC;
     }}
 """
 
@@ -353,22 +353,22 @@ BUTTON_NAV_TOGGLE = f"""
 
 BUTTON_DANGER = _BTN_BASE + f"""
     QPushButton {{
-        background-color: rgba(255, 59, 48, 0.1);
+        background-color: rgba(239, 68, 68, 0.1);
         color: {COLOR_DANGER};
-        border: 1px solid rgba(255, 59, 48, 0.2);
+        border: 1px solid rgba(239, 68, 68, 0.2);
     }}
     QPushButton:hover {{
-        background-color: rgba(255, 59, 48, 0.16);
-        border: 1px solid rgba(255, 59, 48, 0.3);
+        background-color: rgba(239, 68, 68, 0.16);
+        border: 1px solid rgba(239, 68, 68, 0.3);
     }}
     QPushButton:pressed {{
-        background-color: rgba(255, 59, 48, 0.22);
-        border: 1px solid rgba(255, 59, 48, 0.35);
+        background-color: rgba(239, 68, 68, 0.22);
+        border: 1px solid rgba(239, 68, 68, 0.35);
     }}
     QPushButton:disabled {{
-        background-color: rgba(255, 59, 48, 0.04);
-        color: rgba(255, 59, 48, 0.3);
-        border: 1px solid rgba(255, 59, 48, 0.06);
+        background-color: rgba(239, 68, 68, 0.04);
+        color: rgba(239, 68, 68, 0.3);
+        border: 1px solid rgba(239, 68, 68, 0.06);
     }}
 """
 
@@ -377,7 +377,7 @@ BUTTON_DANGER = _BTN_BASE + f"""
 # ═══════════════════════════════════════════════════════════
 
 def CARD_FRAME(object_name: str) -> str:
-    """Clash Verge 风格卡片 — 纯白底，12px 圆角"""
+    """冰蓝风格卡片 — 纯白底，12px 圆角"""
     return f"""
         QFrame#{object_name} {{
             background-color: {COLOR_BG_CARD};
@@ -450,15 +450,15 @@ SCROLL_BAR_ELEGANT = f"""
         margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(14, 165, 233, 0.18);
         border-radius: 5px;
         min-height: 40px;
     }}
     QScrollBar::handle:vertical:hover {{
-        background: rgba(0, 0, 0, 0.25);
+        background: rgba(14, 165, 233, 0.3);
     }}
     QScrollBar::handle:vertical:pressed {{
-        background: rgba(0, 0, 0, 0.35);
+        background: rgba(14, 165, 233, 0.45);
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
@@ -476,15 +476,15 @@ SCROLL_BAR_ELEGANT = f"""
         margin: 0;
     }}
     QScrollBar::handle:horizontal {{
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(14, 165, 233, 0.18);
         border-radius: 5px;
         min-width: 40px;
     }}
     QScrollBar::handle:horizontal:hover {{
-        background: rgba(0, 0, 0, 0.25);
+        background: rgba(14, 165, 233, 0.3);
     }}
     QScrollBar::handle:horizontal:pressed {{
-        background: rgba(0, 0, 0, 0.35);
+        background: rgba(14, 165, 233, 0.45);
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         width: 0;
@@ -497,11 +497,7 @@ SCROLL_BAR_ELEGANT = f"""
 """
 
 # ═══════════════════════════════════════════════════════════
-#  侧边栏导航 — Clash Verge 核心风格
-#
-#  选中态: 蓝色背景 + 白色文字 (圆角胶囊)
-#  hover: 浅灰薄雾
-#  文字: 700 粗体
+#  侧边栏导航 — 冰蓝风格
 # ═══════════════════════════════════════════════════════════
 
 SIDEBAR_NAV_ITEM = f"""
@@ -527,7 +523,7 @@ SIDEBAR_NAV_ITEM = f"""
     }}
     QListWidget::item:selected {{
         background: {COLOR_BG_SIDEBAR_SELECTED};
-        color: {COLOR_TEXT_DEFAULT};
+        color: {COLOR_PRIMARY};
         font-weight: 700;
     }}
 """
@@ -571,15 +567,15 @@ TABLE_WIDGET = f"""
         margin: 0;
     }}
     QTableWidget QScrollBar::handle:vertical {{
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(14, 165, 233, 0.18);
         border-radius: 5px;
         min-height: 40px;
     }}
     QTableWidget QScrollBar::handle:vertical:hover {{
-        background: rgba(0, 0, 0, 0.25);
+        background: rgba(14, 165, 233, 0.3);
     }}
     QTableWidget QScrollBar::handle:vertical:pressed {{
-        background: rgba(0, 0, 0, 0.35);
+        background: rgba(14, 165, 233, 0.45);
     }}
     QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical {{
         height: 0;
@@ -596,15 +592,15 @@ TABLE_WIDGET = f"""
         margin: 0;
     }}
     QTableWidget QScrollBar::handle:horizontal {{
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(14, 165, 233, 0.18);
         border-radius: 5px;
         min-width: 40px;
     }}
     QTableWidget QScrollBar::handle:horizontal:hover {{
-        background: rgba(0, 0, 0, 0.25);
+        background: rgba(14, 165, 233, 0.3);
     }}
     QTableWidget QScrollBar::handle:horizontal:pressed {{
-        background: rgba(0, 0, 0, 0.35);
+        background: rgba(14, 165, 233, 0.45);
     }}
     QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal {{
         width: 0;
@@ -660,7 +656,7 @@ PROJECT_SELECTOR_BUTTON_EMPTY = f"""
 PROJECT_SELECTOR_MENU = f"""
     QFrame {{
         background-color: {COLOR_BG_CARD};
-        border: 1px solid #CBD5E1;
+        border: 1px solid {COLOR_BORDER_INPUT};
         border-radius: 10px;
     }}
 """
@@ -668,7 +664,7 @@ PROJECT_SELECTOR_MENU = f"""
 PROJECT_MENU_SEARCH = f"""
     QLineEdit {{
         border: none;
-        border-bottom: 1px solid #E2E8F0;
+        border-bottom: 1px solid {COLOR_BORDER};
         padding: 10px 10px;
         font-size: 13px;
         color: {COLOR_TEXT_DEFAULT};
@@ -705,12 +701,12 @@ PROJECT_MENU_LIST = f"""
         margin: 6px 4px 6px 2px;
     }}
     QScrollBar::handle:vertical {{
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(14, 165, 233, 0.18);
         border-radius: 2px;
         min-height: 20px;
     }}
     QScrollBar::handle:vertical:hover {{
-        background: rgba(0, 0, 0, 0.25);
+        background: rgba(14, 165, 233, 0.3);
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
@@ -725,7 +721,7 @@ PROJECT_MENU_BUTTON = f"""
     QPushButton {{
         background: transparent;
         border: none;
-        border-top: 1px solid #E2E8F0;
+        border-top: 1px solid {COLOR_BORDER};
         border-radius: 0;
         padding: 10px 10px;
         text-align: left;
@@ -741,7 +737,7 @@ PROJECT_MENU_BUTTON_DANGER = f"""
     QPushButton {{
         background: transparent;
         border: none;
-        border-top: 1px solid #E2E8F0;
+        border-top: 1px solid {COLOR_BORDER};
         border-radius: 0;
         padding: 10px 10px;
         text-align: left;
