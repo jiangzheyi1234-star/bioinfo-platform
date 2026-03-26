@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 import posixpath
 import shlex
-from typing import Optional
+from typing import Callable, Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QPoint, QSize, Qt
+from PyQt6.QtCore import QObject, QPoint, QSize, Qt, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -187,6 +187,24 @@ def _make_popover_panel(parent=None) -> QFrame:
     return panel
 
 
+class _AsyncTaskWorker(QObject):
+    """Run a callable inside QThread and emit result to UI thread."""
+
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, task_fn: Callable[[], object]):
+        super().__init__()
+        self._task_fn = task_fn
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(self._task_fn())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class RemoteDirectoryPickerDialog(QDialog):
     """VS Code 风格远程目录浏览弹窗。"""
 
@@ -200,6 +218,7 @@ class RemoteDirectoryPickerDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(500, 400)
         self._list_dirs_fn = list_dirs_fn
+        self._loading = False
         self.selected_path = ""
         self._current_path = ""
         self._build_ui()
@@ -273,19 +292,32 @@ class RemoteDirectoryPickerDialog(QDialog):
         layout.addLayout(foot)
 
     def _load_path(self, raw_path: str) -> None:
-        ok, resolved, dirs, message = self._list_dirs_fn(raw_path)
-        if not ok:
-            QMessageBox.warning(self, "目录浏览", message)
+        if self._loading:
             return
-        self._current_path = resolved
-        self.selected_path = resolved
-        self.path_label.setText(resolved)
-        self.selected_label.setText(f"选择: {resolved}")
-        self.dir_list.clear()
-        for name in dirs:
-            item = QListWidgetItem(qta.icon("ph.folder", color="#9CA3AF"), name)
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            self.dir_list.addItem(item)
+        self._loading = True
+        self.up_btn.setEnabled(False)
+        self.dir_list.setEnabled(False)
+        self.selected_label.setText("选择: 读取目录中...")
+
+        def _on_done(ok: bool, resolved: str, dirs: list[str], message: str) -> None:
+            self._loading = False
+            self.up_btn.setEnabled(True)
+            self.dir_list.setEnabled(True)
+            if not ok:
+                self.selected_label.setText(f"选择: {self.selected_path or self._current_path or '--'}")
+                QMessageBox.warning(self, "目录浏览", message)
+                return
+            self._current_path = resolved
+            self.selected_path = resolved
+            self.path_label.setText(resolved)
+            self.selected_label.setText(f"选择: {resolved}")
+            self.dir_list.clear()
+            for name in dirs:
+                item = QListWidgetItem(qta.icon("ph.folder", color="#9CA3AF"), name)
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                self.dir_list.addItem(item)
+
+        self._list_dirs_fn(raw_path, _on_done)
 
     def popup_at(self, anchor) -> None:
         if anchor is None:
@@ -300,12 +332,14 @@ class RemoteDirectoryPickerDialog(QDialog):
         self.move(QPoint(x, y))
 
     def _go_parent(self) -> None:
-        if not self._current_path:
+        if self._loading or not self._current_path:
             return
         parent = posixpath.dirname(self._current_path.rstrip("/")) or "/"
         self._load_path(parent)
 
     def _open_child(self, item: QListWidgetItem) -> None:
+        if self._loading:
+            return
         name = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
         if not name:
             return
@@ -344,6 +378,7 @@ class DatabaseSettingsDialog(QDialog):
         self._save_fn = save_fn
         self._build_ui()
         self.path_edit.setText(initial_path)
+        self._set_busy(False)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -391,6 +426,8 @@ class DatabaseSettingsDialog(QDialog):
         save_btn = QPushButton("保存")
         save_btn.setStyleSheet(BUTTON_PRIMARY)
         save_btn.clicked.connect(self._on_save)
+        self._save_btn = save_btn
+        self._cancel_btn = cancel_btn
         foot.addWidget(cancel_btn)
         foot.addWidget(save_btn)
         content.addLayout(foot)
@@ -401,8 +438,23 @@ class DatabaseSettingsDialog(QDialog):
             self.path_edit.setText(selected)
 
     def _on_save(self) -> None:
-        if self._save_fn(self.path_edit.text().strip()):
-            self.accept()
+        self._set_busy(True)
+
+        def _on_done(success: bool) -> None:
+            self._set_busy(False)
+            if success:
+                self.accept()
+
+        started = self._save_fn(self.path_edit.text().strip(), _on_done)
+        if not started:
+            self._set_busy(False)
+
+    def _set_busy(self, busy: bool) -> None:
+        self.path_edit.setEnabled(not busy)
+        self.browse_btn.setEnabled(not busy)
+        self._cancel_btn.setEnabled(not busy)
+        self._save_btn.setEnabled(not busy)
+        self._save_btn.setText("处理中..." if busy else "保存")
 
     def popup_at(self, anchor) -> None:
         if anchor is None:
@@ -431,6 +483,8 @@ class DatabasePage(BasePage):
         self._status_worker: Optional[DatabaseStatusWorker] = None
         self._install_threads: dict[str, object] = {}
         self._install_workers: dict[str, DatabaseInstallMonitor] = {}
+        self._async_tasks: dict[str, tuple[QThread, _AsyncTaskWorker]] = {}
+        self._install_submit_pending: set[str] = set()
         self._init_ui()
         self._load_db_root()
 
@@ -543,61 +597,91 @@ class DatabasePage(BasePage):
     def _get_db_root(self) -> str:
         return str(self._db_root_value or "").strip()
 
-    def _save_db_root(self, raw_input: str = "") -> bool:
+    def _save_db_root(self, raw_input: str = "", done_cb: Optional[Callable[[bool], None]] = None) -> bool:
         if self._ssh_client is None:
             QMessageBox.warning(self, "数据库配置", "请先连接 SSH，再保存数据库根目录。")
+            if done_cb:
+                done_cb(False)
             return False
 
         candidate = raw_input
         if not candidate:
             candidate = self._resolve_empty_db_root_candidate()
             if not candidate:
+                if done_cb:
+                    done_cb(False)
                 return False
 
-        allow_create = False
-        expanded = self._expand_remote_path(candidate)
-        if expanded and expanded.startswith("/"):
-            normalized = self._normalize_remote_path(expanded)
-            qroot = shlex.quote(normalized)
-            rc_exists, _, _ = self._run_ssh(f"test -d {qroot}", 10)
-            if rc_exists != 0:
+        def _persist(resolved_root: str, created: bool) -> None:
+            cfg = get_config()
+            databases = cfg.get("databases", {})
+            if not isinstance(databases, dict):
+                databases = {}
+            databases["db_root"] = resolved_root
+            databases.setdefault("overrides", {})
+            cfg["databases"] = databases
+            if self._empty_db_root_preference:
+                runtime = cfg.get("runtime", {})
+                if not isinstance(runtime, dict):
+                    runtime = {}
+                runtime["db_root_empty_action"] = self._empty_db_root_preference
+                cfg["runtime"] = runtime
+            save_config(cfg)
+            self._db_root_value = resolved_root
+            if created:
+                QMessageBox.information(self, "数据库配置", f"已自动创建并保存目录: {resolved_root}")
+            else:
+                QMessageBox.information(self, "数据库配置", f"数据库根目录已保存: {resolved_root}")
+            self._refresh_all_status()
+            if done_cb:
+                done_cb(True)
+
+        def _run_validate(allow_create: bool) -> bool:
+            task_key = "db_root_validate"
+            return self._start_async_task(
+                task_key,
+                lambda: {
+                    "allow_create": allow_create,
+                    "result": self._validate_db_root_remote(candidate, allow_create=allow_create),
+                },
+                on_success=lambda payload: _on_validated(payload["allow_create"], payload["result"]),
+                on_error=lambda err: _on_validate_error(allow_create, err),
+            )
+
+        def _on_validate_error(_allow_create: bool, err: str) -> None:
+            QMessageBox.warning(self, "数据库配置", f"数据库根目录校验失败: {err}")
+            if done_cb:
+                done_cb(False)
+
+        def _on_validated(allow_create: bool, result: tuple[bool, str, str, bool]) -> None:
+            ok, resolved_root, message, created = result
+            if ok:
+                _persist(resolved_root, created)
+                return
+            if (not allow_create) and message.startswith("目录不存在:"):
                 answer = QMessageBox.question(
                     self,
                     "目录不存在",
-                    f"目录不存在：{normalized}\n是否现在创建该目录并继续保存？",
+                    f"{message}\n是否现在创建该目录并继续保存？",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes,
                 )
-                if answer != QMessageBox.StandardButton.Yes:
-                    return False
-                allow_create = True
-
-        ok, resolved_root, message, created = self._validate_db_root_remote(candidate, allow_create=allow_create)
-        if not ok:
+                if answer == QMessageBox.StandardButton.Yes:
+                    if not _run_validate(True):
+                        QMessageBox.warning(self, "数据库配置", "目录校验任务已在执行，请稍候。")
+                        if done_cb:
+                            done_cb(False)
+                    return
             QMessageBox.warning(self, "数据库配置", message)
-            return False
+            if done_cb:
+                done_cb(False)
 
-        cfg = get_config()
-        databases = cfg.get("databases", {})
-        if not isinstance(databases, dict):
-            databases = {}
-        databases["db_root"] = resolved_root
-        databases.setdefault("overrides", {})
-        cfg["databases"] = databases
-        if self._empty_db_root_preference:
-            runtime = cfg.get("runtime", {})
-            if not isinstance(runtime, dict):
-                runtime = {}
-            runtime["db_root_empty_action"] = self._empty_db_root_preference
-            cfg["runtime"] = runtime
-        save_config(cfg)
-        self._db_root_value = resolved_root
-        if created:
-            QMessageBox.information(self, "数据库配置", f"已自动创建并保存目录: {resolved_root}")
-        else:
-            QMessageBox.information(self, "数据库配置", f"数据库根目录已保存: {resolved_root}")
-        self._refresh_all_status()
-        return True
+        started = _run_validate(False)
+        if not started:
+            QMessageBox.warning(self, "数据库配置", "目录校验任务已在执行，请稍候。")
+            if done_cb:
+                done_cb(False)
+        return started
 
     def _open_db_settings_dialog(self) -> None:
         dialog = DatabaseSettingsDialog(
@@ -615,7 +699,7 @@ class DatabasePage(BasePage):
             QMessageBox.warning(self, "目录浏览", "请先连接 SSH，再浏览远程目录。")
             return ""
         start_path = start_path or self._get_db_root() or "~"
-        dialog = RemoteDirectoryPickerDialog(start_path, self._list_remote_directories, parent=self)
+        dialog = RemoteDirectoryPickerDialog(start_path, self._list_remote_directories_async, parent=self)
         dialog.popup_at(anchor)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
             return dialog.selected_path
@@ -623,6 +707,45 @@ class DatabasePage(BasePage):
 
     def _run_ssh(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]:
         return self._make_ssh_run_fn()(cmd, timeout)
+
+    def _start_async_task(
+        self,
+        task_key: str,
+        task_fn: Callable[[], object],
+        on_success: Callable[[object], None],
+        on_error: Optional[Callable[[str], None]] = None,
+    ) -> bool:
+        if task_key in self._async_tasks:
+            return False
+        thread = QThread(self)
+        worker = _AsyncTaskWorker(task_fn)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(lambda payload, k=task_key: self._on_async_task_finished(k, payload, on_success))
+        worker.failed.connect(lambda err, k=task_key: self._on_async_task_failed(k, err, on_error))
+        self._async_tasks[task_key] = (thread, worker)
+        thread.start()
+        return True
+
+    def _on_async_task_finished(self, task_key: str, payload: object, on_success: Callable[[object], None]) -> None:
+        self._stop_async_task(task_key)
+        on_success(payload)
+
+    def _on_async_task_failed(self, task_key: str, error: str, on_error: Optional[Callable[[str], None]]) -> None:
+        self._stop_async_task(task_key)
+        if on_error:
+            on_error(error)
+        else:
+            logger.warning("Async task failed (%s): %s", task_key, error)
+
+    def _stop_async_task(self, task_key: str) -> None:
+        pair = self._async_tasks.pop(task_key, None)
+        if not pair:
+            return
+        thread, _worker = pair
+        thread.quit()
+        thread.wait(1500)
+        thread.deleteLater()
 
     def _list_remote_directories(self, raw_path: str) -> tuple[bool, str, list[str], str]:
         resolved = self._expand_remote_path(raw_path)
@@ -641,6 +764,20 @@ class DatabasePage(BasePage):
             return False, "", [], f"读取目录失败: {stderr.strip() or resolved}"
         dirs = [line.strip() for line in stdout.splitlines() if line.strip()]
         return True, resolved, dirs, ""
+
+    def _list_remote_directories_async(self, raw_path: str, done_cb: Callable[[bool, str, list[str], str], None]) -> None:
+        if self._ssh_client is None:
+            done_cb(False, "", [], "请先连接 SSH，再浏览远程目录。")
+            return
+
+        started = self._start_async_task(
+            "db_list_dirs",
+            lambda: self._list_remote_directories(raw_path),
+            on_success=lambda payload: done_cb(*payload),
+            on_error=lambda err: done_cb(False, "", [], f"读取目录失败: {err}"),
+        )
+        if not started:
+            done_cb(False, "", [], "目录读取任务正在进行，请稍候重试。")
 
     def _collect_db_root_info(self, raw_path: str) -> dict[str, str]:
         if self._ssh_client is None:
@@ -841,26 +978,51 @@ class DatabasePage(BasePage):
             return
         dialog = DatabaseInstallDialog(info, commands, parent=self)
         self._dialogs[db_id] = dialog
-        dialog.install_confirmed.connect(self._start_install)
+        dialog.install_confirmed.connect(self._submit_install_async)
         dialog.install_cancelled.connect(lambda _: self._dialogs.pop(db_id, None))
         dialog.show()
 
-    def _start_install(self, db_id: str, mirror_index: int) -> None:
+    def _submit_install_async(self, db_id: str, mirror_index: int) -> None:
+        if db_id in self._install_submit_pending:
+            QMessageBox.information(self, "数据库安装", "该数据库安装任务正在提交，请稍候。")
+            return
         card = self._cards.get(db_id)
         if card is None:
             return
-        try:
-            result = self._database_service.submit_install(
+        self._install_submit_pending.add(db_id)
+        card.set_installing(True)
+
+        started = self._start_async_task(
+            f"submit_install:{db_id}",
+            lambda: self._database_service.submit_install(
                 self._make_ssh_run_fn(),
                 db_id=db_id,
                 db_root=self._get_db_root(),
                 mirror_index=mirror_index,
-            )
-        except Exception as exc:
-            QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {exc}")
+            ),
+            on_success=lambda result: self._on_install_submit_success(db_id, result),
+            on_error=lambda err: self._on_install_submit_failed(db_id, err),
+        )
+        if not started:
+            self._install_submit_pending.discard(db_id)
+            card.set_installing(False)
+            QMessageBox.warning(self, "数据库安装", "安装提交任务已在执行，请稍候。")
             return
-        card.set_installing(True)
-        self._start_install_monitor(db_id, result["task_dir"])
+
+    def _on_install_submit_success(self, db_id: str, result: dict) -> None:
+        self._install_submit_pending.discard(db_id)
+        task_dir = str(result.get("task_dir", "") or "").strip()
+        if not task_dir:
+            self._on_install_submit_failed(db_id, "返回的任务目录为空")
+            return
+        self._start_install_monitor(db_id, task_dir)
+
+    def _on_install_submit_failed(self, db_id: str, error: str) -> None:
+        self._install_submit_pending.discard(db_id)
+        card = self._cards.get(db_id)
+        if card is not None:
+            card.set_installing(False)
+        QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {error}")
 
     def _start_install_monitor(self, db_id: str, task_dir: str) -> None:
         from PyQt6.QtCore import QThread
@@ -953,6 +1115,9 @@ class DatabasePage(BasePage):
 
     def closeEvent(self, event) -> None:
         self._cleanup_status_worker()
+        for task_key in list(self._async_tasks.keys()):
+            self._stop_async_task(task_key)
         for db_id in list(self._install_threads.keys()):
             self._stop_install_monitor(db_id)
+        self._install_submit_pending.clear()
         super().closeEvent(event)
