@@ -13,7 +13,9 @@
 **硬禁令，违反必崩：**
 
 1. Qt slot / 主线程禁止直接调用 SSH 命令或任何阻塞操作，
-   耗时操作必须放 `QThread+Worker`。
+   耗时操作必须放 `QThread+Worker`。 
+   **包含 SSH 调用的私有方法，必须只从 Worker 内部调用，
+   不得从 `__init__`、`setup()`、事件回调直接调用。**
 2. 所有 SSH 命令必须走 `SSHService.run(cmd)` 单队列，
    禁止自建 `paramiko.SSHClient()` 或绕过队列并发调用。
 3. QThread worker 内禁止直接操作 Qt Widget，
