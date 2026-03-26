@@ -95,7 +95,19 @@ def test_make_ssh_run_fn_fails_fast_when_service_disconnected(qapp):
     assert called["run"] == 0
 
 
-def test_get_existing_env_paths_uses_batch_checker(qapp, monkeypatch):
+def test_get_existing_env_paths_main_thread_asserts(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    card = LinuxSettingsCard()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "{}", ""))})())
+
+    with pytest.raises(AssertionError, match="_get_existing_env_paths\\(\\) performs SSH and must not run on the main thread"):
+        card._get_existing_env_paths()
+
+
+def test_get_existing_env_paths_off_main_thread_uses_batch_checker(qapp, monkeypatch):
+    from ui.widgets import linux_settings_card as module
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     card = LinuxSettingsCard()
@@ -110,6 +122,7 @@ def test_get_existing_env_paths_uses_batch_checker(qapp, monkeypatch):
         assert conda_executable == "/home/user/.h2ometa/conda/bin/conda"
         return {"/home/user/.h2ometa/conda/envs/a"}
 
+    monkeypatch.setattr(module.QThread, "isMainThread", staticmethod(lambda: False))
     monkeypatch.setattr("ui.widgets.linux_settings_card.get_existing_env_paths", fake_get_existing_env_paths)
     paths = card._get_existing_env_paths()
 

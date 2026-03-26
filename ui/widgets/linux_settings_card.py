@@ -1816,6 +1816,9 @@ class LinuxSettingsCard(QFrame):
 
     def _get_existing_env_paths(self) -> set[str]:
         """获取远端所有已存在的 conda 环境路径集合。"""
+        assert not QThread.isMainThread(), (
+            "_get_existing_env_paths() performs SSH and must not run on the main thread"
+        )
         if not self._conda_executable:
             return set()
 
