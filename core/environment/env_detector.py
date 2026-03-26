@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional, Tuple
 
+from core.environment.h2o_env_paths import H2O_CONDARC, h2o_env_prefix
+
 logger = logging.getLogger(__name__)
 
 # ssh_run_fn 类型: (cmd, timeout) -> (rc, stdout, stderr)
@@ -302,11 +304,9 @@ def infer_conda_root(conda_executable: str) -> str:
 
 
 def expected_env_path(conda_executable: str, env_name: str) -> str:
-    """给定 conda 可执行路径和环境名，返回预期的环境绝对路径。"""
-    root = infer_conda_root(conda_executable)
-    if not root or not env_name:
-        return ""
-    return f"{root}/envs/{env_name}"
+    """给定环境名返回统一工具环境路径（与 conda 根目录解耦）。"""
+    _ = conda_executable  # 保持签名兼容，路径策略不再依赖 conda 根目录。
+    return h2o_env_prefix(env_name)
 
 
 def extract_env_name(install_cmd: str) -> str:
@@ -341,7 +341,7 @@ def write_h2ometa_condarc(
     ssh_run_fn: SshRunFn,
     timeout: int = 15,
 ) -> None:
-    """将受控 condarc 写到 ~/.h2ometa/runtime/condarc。
+    """将受控 condarc 写到 H2OMeta runtime 目录。
 
     env_installer 在包装脚本中设置 CONDARC 指向此文件，确保：
     - channel 配置固定（conda-forge + bioconda, strict priority）
@@ -352,13 +352,13 @@ def write_h2ometa_condarc(
         ssh_run_fn("mkdir -p ~/.h2ometa/runtime", timeout)
         encoded = base64.b64encode(_CONDARC_TEMPLATE.encode()).decode()
         rc, _, stderr = ssh_run_fn(
-            f"echo '{encoded}' | base64 -d > ~/.h2ometa/runtime/condarc",
+            f"echo '{encoded}' | base64 -d > {H2O_CONDARC}",
             timeout,
         )
         if rc != 0:
             logger.warning("写入 condarc 失败: %s", stderr[:100])
         else:
-            logger.info("已写入受控 condarc: ~/.h2ometa/runtime/condarc")
+            logger.info("已写入受控 condarc: %s", H2O_CONDARC)
     except Exception as e:
         logger.warning("write_h2ometa_condarc 出错: %s", e)
 

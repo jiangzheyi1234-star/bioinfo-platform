@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-from core.environment import env_detector
+from core.environment.h2o_env_paths import H2O_ENVS_DIR, h2o_env_prefix
 
 if TYPE_CHECKING:
     from paramiko import SSHClient
@@ -27,6 +27,20 @@ class ToolCheckResult:
     tool_id: str
     env_name: str
     ok: bool
+
+
+def _expand_remote_path(
+    ssh_run_fn: Callable[[str, int], tuple[int, str, str]],
+    raw_path: str,
+) -> str:
+    """在远端展开 `~`，失败时返回原值。"""
+    try:
+        rc, stdout, _ = ssh_run_fn(f"eval echo {raw_path}", 10)
+        if rc == 0 and stdout.strip():
+            return stdout.strip()
+    except Exception:
+        pass
+    return raw_path
 
 
 def check_all_envs(
@@ -71,30 +85,16 @@ def check_all_envs(
     if not conda_envs:
         logger.warning("所有候选命令均未取到 conda 环境列表")
 
-    conda_root = env_detector.infer_conda_root(conda_exe)
-    logger.debug("conda 根目录（原始）：%s", conda_root or "(未知)")
+    h2o_envs_dir = _expand_remote_path(ssh_run_fn, H2O_ENVS_DIR).rstrip("/")
+    logger.debug("工具环境目录（展开后）：%s", h2o_envs_dir)
 
-    if conda_root and "~" in conda_root:
-        try:
-            _, stdout, _ = ssh_run_fn(f"eval echo {conda_root}", 10)
-            expanded = stdout.strip()
-            if expanded and not expanded.startswith("~"):
-                conda_root = expanded
-                logger.debug("conda 根目录（展开后）：%s", conda_root)
-        except Exception as e:
-            logger.debug("展开 ~ 失败: %s", e)
-
-    if conda_root:
-        filtered_envs: list[str] = []
-        for path in conda_envs:
-            p = path.rstrip("/")
-            if p == conda_root or p.startswith(conda_root + "/"):
-                filtered_envs.append(p)
-        conda_envs = filtered_envs
-        if filtered_envs:
-            logger.debug("过滤后保留 %d 个环境（仅当前 conda 根目录）", len(conda_envs))
-        else:
-            logger.warning("过滤后没有环境，按严格模式处理为 0 个环境")
+    filtered_envs: list[str] = []
+    for path in conda_envs:
+        p = path.rstrip("/")
+        if p.startswith(h2o_envs_dir + "/"):
+            filtered_envs.append(p)
+    conda_envs = filtered_envs
+    logger.debug("过滤后保留 %d 个环境（仅 H2OMeta 目录）", len(conda_envs))
 
     env_paths_set = {p.rstrip("/") for p in conda_envs}
     env_names_set: set[str] = set()
@@ -112,20 +112,14 @@ def check_all_envs(
             results.append(ToolCheckResult(tool_id=tool_id, env_name="(系统路径)", ok=True))
             continue
 
-        if conda_root:
-            expected_path = f"{conda_root}/envs/{conda_env}"
-        else:
-            expected_path = ""
-
-        if expected_path:
-            ok = expected_path in env_paths_set
-            if not ok and conda_env in env_names_set:
-                logger.warning(
-                    "tool=%s conda_env=%s 命中同名环境但路径不匹配，expected=%s",
-                    tool_id, conda_env, expected_path,
-                )
-        else:
-            ok = conda_env in env_names_set
+        expected_path = _expand_remote_path(ssh_run_fn, h2o_env_prefix(conda_env)).rstrip("/")
+        ok = expected_path in env_paths_set
+        if not ok and conda_env in env_names_set:
+            logger.warning(
+                "tool=%s conda_env=%s 命中同名环境但路径不匹配，expected=%s",
+                tool_id, conda_env, expected_path,
+            )
+            ok = True
         logger.debug("tool=%s conda_env=%s expected=%s ok=%s", tool_id, conda_env, expected_path, ok)
         results.append(ToolCheckResult(tool_id=tool_id, env_name=conda_env, ok=ok))
 
@@ -140,6 +134,8 @@ def get_existing_env_paths(
     if not conda_executable:
         return set()
 
+    h2o_envs_dir = _expand_remote_path(ssh_run_fn, H2O_ENVS_DIR).rstrip("/")
+
     try:
         cmd = f"{conda_executable} env list --json"
         rc, stdout, stderr = ssh_run_fn(cmd, 30)
@@ -149,7 +145,8 @@ def get_existing_env_paths(
             json_start = stdout.find("{")
             if json_start >= 0:
                 data = json.loads(stdout[json_start:])
-                return {p.rstrip("/") for p in data.get("envs", [])}
+                paths = {p.rstrip("/") for p in data.get("envs", [])}
+                return {p for p in paths if p.startswith(h2o_envs_dir + "/")}
     except Exception as e:
         logger.debug("获取环境列表失败: %s", e)
 

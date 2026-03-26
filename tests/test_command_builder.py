@@ -137,7 +137,7 @@ class TestBuild:
             output_dir="/out",
             sample_id="s1",
         )
-        assert "conda run -n fastp_env" in cmd
+        assert "conda run -p ~/.h2ometa/envs/fastp_env" in cmd
 
     def test_no_conda_env(self, simple_descriptor: dict) -> None:
         """没有 conda_env 时不应包装 conda run。"""
@@ -361,7 +361,7 @@ class TestCondaExecutable:
             sample_id="s1",
             conda_executable="/home/user/miniconda3/bin/conda",
         )
-        assert "/home/user/miniconda3/bin/conda run -p /home/user/miniconda3/envs/fastp_env" in cmd
+        assert "/home/user/miniconda3/bin/conda run -p ~/.h2ometa/envs/fastp_env" in cmd
         assert "conda run -p" in cmd
 
     def test_empty_conda_executable_uses_default(self, fastp_descriptor: dict) -> None:
@@ -374,8 +374,8 @@ class TestCondaExecutable:
             sample_id="s1",
             conda_executable="",
         )
-        # 默认 CONDA_RUNNER 是 "conda"
-        assert "conda run -n fastp_env" in cmd
+        # 默认 CONDA_RUNNER 是 "conda"，路径前缀固定为 ~/.h2ometa/envs
+        assert "conda run -p ~/.h2ometa/envs/fastp_env" in cmd
 
     def test_no_conda_env_ignores_executable(self, simple_descriptor: dict) -> None:
         """没有 conda_env 时即使传了 conda_executable 也不包装。"""
