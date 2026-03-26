@@ -8,7 +8,7 @@ import sys
 import time
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl, QElapsedTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -321,7 +321,6 @@ class LinuxSettingsCard(QFrame):
         super().__init__(parent)
         self.setObjectName("LinuxSettingsCard")
 
-        self.active_client = None
         self._ssh_service = None
         self._is_locked = False
         self._checking = False
@@ -433,19 +432,27 @@ class LinuxSettingsCard(QFrame):
         return dict(current)
 
     def set_active_client(self, client) -> None:
-        """接收外部传入的 SSH 客户端实例。SSH 连接成功后自动触发 conda 检测。"""
-        self.active_client = client
-        if client is not None:
+        """接收连接状态变化信号，触发后续检测流程。"""
+        if client is not None and self._is_ssh_service_ready():
             self._set_status("SSH 已就绪")
             # SSH 连接成功后延迟 1s 自动触发 conda 检测
             if not _is_test_mode():
                 QTimer.singleShot(1000, lambda: self._ensure_conda_ready(interactive=False))
+        elif client is not None:
+            self._set_status("SSH 已连接，正在等待服务通道就绪")
         else:
             self._set_status("等待 SSH 连接")
 
     def set_ssh_service(self, ssh_service) -> None:
         """注入统一 SSHService，优先使用其串行 run 通道。"""
         self._ssh_service = ssh_service
+        if self._is_ssh_service_ready():
+            self._set_status("SSH 已就绪")
+            if not _is_test_mode():
+                QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
+
+    def _is_ssh_service_ready(self) -> bool:
+        return self._ssh_service is not None and bool(getattr(self._ssh_service, "is_connected", False))
 
     def get_values(self) -> dict:
         """供 SettingsPage 获取数据。"""
@@ -638,31 +645,14 @@ class LinuxSettingsCard(QFrame):
     # ── conda 检测 ────────────────────────────────────────
 
     def _make_ssh_run_fn(self):
-        """封装 paramiko client 为 env_detector 所需的 ssh_run_fn 回调。"""
+        """仅经 SSHService 串行队列发送命令，服务不可用时快速失败。"""
         def run(cmd, timeout=15):
-            start = QElapsedTimer()
-            start.start()
-            if self._ssh_service is not None and getattr(self._ssh_service, "is_connected", False):
+            if self._is_ssh_service_ready():
                 rc, out, err = self._ssh_service.run(cmd, timeout=timeout)
-                logger.debug(
-                    "linux_card ssh_run source=service cmd=%r timeout=%s rc=%s duration_ms=%s",
-                    cmd[:80], timeout, rc, start.elapsed(),
-                )
+                logger.debug("linux_card ssh_run cmd=%r timeout=%s rc=%s", cmd[:80], timeout, rc)
                 return rc, out, err
 
-            client = self.active_client
-            if client is None:
-                raise RuntimeError("SSH client is not connected")
-            _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-            # Fallback path: keep safe read ordering to avoid channel hang.
-            out = stdout.read().decode("utf-8", errors="ignore")
-            err = stderr.read().decode("utf-8", errors="ignore")
-            rc = stdout.channel.recv_exit_status()
-            logger.debug(
-                "linux_card ssh_run source=client-fallback cmd=%r timeout=%s rc=%s duration_ms=%s",
-                cmd[:80], timeout, rc, start.elapsed(),
-            )
-            return rc, out, err
+            raise RuntimeError("SSH service is not connected")
 
         return run
 
@@ -676,7 +666,7 @@ class LinuxSettingsCard(QFrame):
         """
         if _is_test_mode():
             return
-        if not self.active_client or self._checking or self._external_lock:
+        if not self._is_ssh_service_ready() or self._checking or self._external_lock:
             return
         if self._miniforge_installing:
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
@@ -799,7 +789,7 @@ class LinuxSettingsCard(QFrame):
 
     def _start_miniforge_install_silent(self) -> None:
         """后台静默初始化 Miniforge（detached remote task，可跨重启恢复）。"""
-        if not self.active_client:
+        if not self._is_ssh_service_ready():
             return
         if self._miniforge_installing:
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
@@ -929,7 +919,7 @@ class LinuxSettingsCard(QFrame):
 
     def _do_batch_check(self) -> None:
         """实际执行批量检测。"""
-        if not self.active_client or self._checking or self._external_lock:
+        if not self._is_ssh_service_ready() or self._checking or self._external_lock:
             return
 
         if not is_managed_conda_executable(self._conda_executable):
@@ -1043,7 +1033,7 @@ class LinuxSettingsCard(QFrame):
 
     def _ensure_tool_install_ready(self, *, interactive: bool = True) -> bool:
         """工具安装前置守卫：SSH + 自管 conda 就绪。"""
-        if not self.active_client:
+        if not self._is_ssh_service_ready():
             self._set_status("SSH 未连接，无法安装", STATUS_ERROR)
             return False
         if self._miniforge_installing:
@@ -1308,7 +1298,7 @@ class LinuxSettingsCard(QFrame):
         - DONE    → 静默清理并触发一次重检（不写入安装任务面板）
         - FAILED  → 保留诊断目录，不在启动时写入安装任务面板
         """
-        if not self.active_client:
+        if not self._is_ssh_service_ready():
             return
         try:
             installs = EnvInstaller.scan_running(self._make_ssh_run_fn())
@@ -1435,7 +1425,7 @@ class LinuxSettingsCard(QFrame):
             return
         if self._tool_install_polling:
             return
-        if not self.active_client:
+        if not self._is_ssh_service_ready():
             return
 
         self._tool_install_polling = True

@@ -51,6 +51,50 @@ def test_env_batch_check_worker_uses_ssh_run_fn(monkeypatch):
     assert done_payload == [["/home/user/.h2ometa/conda/envs/demo"]]
 
 
+def test_make_ssh_run_fn_fails_fast_when_service_missing_and_never_calls_legacy_client(qapp):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    card = LinuxSettingsCard()
+
+    called = {"exec": 0}
+
+    class _LegacyClient:
+        def exec_command(self, cmd, timeout=10):  # pragma: no cover - should never execute
+            called["exec"] += 1
+            raise AssertionError("legacy exec_command must not be used")
+
+    # 即使外部误设了 legacy client，也不允许 fallback 执行
+    card.active_client = _LegacyClient()
+    run = card._make_ssh_run_fn()
+
+    with pytest.raises(RuntimeError, match="SSH service is not connected"):
+        run("echo ok", 5)
+    assert called["exec"] == 0
+
+
+def test_make_ssh_run_fn_fails_fast_when_service_disconnected(qapp):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    card = LinuxSettingsCard()
+
+    called = {"run": 0}
+
+    class _Service:
+        is_connected = False
+
+        @staticmethod
+        def run(cmd, timeout=10):  # pragma: no cover - should never execute
+            called["run"] += 1
+            raise AssertionError("disconnected service.run must not be called")
+
+    card.set_ssh_service(_Service())
+    run = card._make_ssh_run_fn()
+
+    with pytest.raises(RuntimeError, match="SSH service is not connected"):
+        run("echo ok", 5)
+    assert called["run"] == 0
+
+
 def test_get_existing_env_paths_uses_batch_checker(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
@@ -127,7 +171,6 @@ def test_poll_miniforge_running_but_session_dead_fails(qapp, monkeypatch):
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._miniforge_installing = True
     card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
@@ -160,7 +203,6 @@ def test_poll_miniforge_running_dead_session_but_fresh_heartbeat_keeps_running(q
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._miniforge_installing = True
     card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
@@ -189,7 +231,6 @@ def test_poll_miniforge_stale_heartbeat_and_dead_session_fails(qapp, monkeypatch
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._miniforge_installing = True
     card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
@@ -222,7 +263,6 @@ def test_poll_miniforge_done_emits_install_task_success(qapp, monkeypatch):
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._miniforge_installing = True
     card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
@@ -269,7 +309,6 @@ def test_recover_running_installs_only_emits_running(qapp, monkeypatch):
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
     card._tools = [
@@ -305,7 +344,6 @@ def test_queue_install_tool_does_not_mark_running_before_submit(qapp, monkeypatc
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     monkeypatch.setattr(card, "_ensure_tool_install_ready", lambda interactive=True: True)
     monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
@@ -348,7 +386,6 @@ def test_dialog_install_requested_starts_submit_worker(qapp, monkeypatch):
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card._tools = [{"id": "abricate", "name": "ABRicate", "install_cmd": "conda create -n abricate_env -y"}]
     monkeypatch.setattr(card, "_ensure_tool_install_ready", lambda interactive=True: True)
@@ -450,7 +487,6 @@ def test_recover_running_install_dead_session_reverts_missing_silently(qapp, mon
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
     card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]

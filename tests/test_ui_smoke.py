@@ -667,7 +667,6 @@ def test_linux_settings_web_install_is_deferred(qapp, monkeypatch):
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
 
     card = LinuxSettingsCard()
-    card.active_client = object()
     card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
 
     scheduled = []
@@ -697,7 +696,6 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
 
     card = LinuxSettingsCard()
-    card.active_client = MagicMock()
     monkeypatch.setattr(card, "_make_ssh_run_fn", lambda: MagicMock())
 
     def raise_dialog_error(*args, **kwargs):
