@@ -224,23 +224,24 @@ def check_status(ssh_run_fn: SshRunFn, task_dir: str = TASK_DIR, timeout: int = 
     status = ""
     exit_code = ""
     heartbeat = ""
+    cmd = (
+        f'DIR={expanded}; '
+        'STATUS="$(cat "$DIR/status.txt" 2>/dev/null | tr -d \'\\r\\n\')"; '
+        'EXIT_CODE="$(cat "$DIR/exit_code.txt" 2>/dev/null | tr -d \'\\r\\n\')"; '
+        'HEARTBEAT="$(cat "$DIR/heartbeat.txt" 2>/dev/null | tr -d \'\\r\\n\')"; '
+        'printf "STATUS=%s\\nEXIT_CODE=%s\\nHEARTBEAT=%s\\n" "$STATUS" "$EXIT_CODE" "$HEARTBEAT"'
+    )
     try:
-        rc, stdout, _ = ssh_run_fn(f"cat {expanded}/status.txt 2>/dev/null", timeout)
-        if rc == 0:
-            status = stdout.strip()
-    except Exception:
-        pass
-    if status in ("DONE", "FAILED"):
-        try:
-            rc, stdout, _ = ssh_run_fn(f"cat {expanded}/exit_code.txt 2>/dev/null", timeout)
-            if rc == 0:
-                exit_code = stdout.strip()
-        except Exception:
-            pass
-    try:
-        rc, stdout, _ = ssh_run_fn(f"cat {expanded}/heartbeat.txt 2>/dev/null", timeout)
-        if rc == 0:
-            heartbeat = stdout.strip()
+        rc, stdout, _ = ssh_run_fn(cmd, timeout)
+        if rc == 0 and stdout:
+            for raw in stdout.splitlines():
+                line = raw.strip()
+                if line.startswith("STATUS="):
+                    status = line[len("STATUS="):].strip()
+                elif line.startswith("EXIT_CODE="):
+                    exit_code = line[len("EXIT_CODE="):].strip()
+                elif line.startswith("HEARTBEAT="):
+                    heartbeat = line[len("HEARTBEAT="):].strip()
     except Exception:
         pass
     return {

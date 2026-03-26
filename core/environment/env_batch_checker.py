@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-from core.environment.h2o_env_paths import H2O_ENVS_DIR, h2o_env_prefix, is_managed_conda_executable
+from core.environment.h2o_env_paths import H2O_ENVS_DIR, is_managed_conda_executable
 
 if TYPE_CHECKING:
     from paramiko import SSHClient
@@ -122,7 +122,7 @@ def check_all_envs(
             results.append(ToolCheckResult(tool_id=tool_id, env_name="(系统路径)", ok=True))
             continue
 
-        expected_path = _expand_remote_path(ssh_run_fn, h2o_env_prefix(conda_env)).rstrip("/")
+        expected_path = f"{h2o_envs_dir}/{conda_env}".rstrip("/")
         ok = expected_path in env_paths_set
         if not ok and conda_env in env_names_set:
             logger.warning(

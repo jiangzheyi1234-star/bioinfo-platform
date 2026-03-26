@@ -440,3 +440,42 @@ def test_poll_running_or_empty_with_dead_session_reverts_missing(qapp, monkeypat
     assert finished["tool_id"] == "abricate"
     assert finished["success"] is False
     assert not any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "failed" for e in events)
+
+
+def test_tool_install_batch_poll_worker_uses_batch_probe(monkeypatch):
+    from ui.widgets.linux_settings_card import ToolInstallBatchPollWorker
+
+    called = {"tool_ids": None}
+
+    def fake_batch_probe(ssh_run_fn, tool_ids, tail_lines=120, timeout=20):
+        called["tool_ids"] = list(tool_ids)
+        return [{"tool_id": "fastp", "status": "RUNNING", "session_alive": True, "log_size": 10, "log_text": "x", "exit_code": ""}]
+
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstaller.batch_probe", fake_batch_probe)
+    worker = ToolInstallBatchPollWorker(lambda cmd, timeout=10: (0, "", ""), ["fastp"])
+    rows = []
+    worker.finished.connect(lambda payload: rows.extend(payload))
+    worker.run()
+
+    assert called["tool_ids"] == ["fastp"]
+    assert rows and rows[0]["tool_id"] == "fastp"
+
+
+def test_on_batch_finished_recovers_with_cached_envs(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
+    card._pending_recover_after_batch = True
+
+    captured = {"envs": None}
+
+    def fake_recover(existing_env_paths=None):
+        captured["envs"] = existing_env_paths
+
+    monkeypatch.setattr(card, "_recover_running_installs", fake_recover)
+    card._on_batch_finished(["/home/user/.h2ometa/conda/envs/fastp_env"])
+
+    assert captured["envs"] == {"/home/user/.h2ometa/conda/envs/fastp_env"}
+    assert card._pending_recover_after_batch is False
