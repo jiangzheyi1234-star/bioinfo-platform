@@ -7,6 +7,8 @@
 
 import base64
 import logging
+import shlex
+import time
 
 from core.utils import sanitize_log
 from core.environment.env_detector import (
@@ -253,6 +255,79 @@ class EnvInstaller:
                 pass
 
         return {"status": status, "exit_code": exit_code}
+
+    @staticmethod
+    def batch_probe(
+        ssh_run_fn: SshRunFn,
+        tool_ids: list[str],
+        tail_lines: int = 120,
+        timeout: int = 20,
+    ) -> list[dict]:
+        """批量探测多个工具安装任务状态（单次 SSH 往返）。"""
+        clean_ids = [str(t).strip() for t in tool_ids if str(t).strip()]
+        if not clean_ids:
+            return []
+
+        quoted_ids = " ".join(shlex.quote(tid) for tid in clean_ids)
+        tail = max(int(tail_lines or 0), 0)
+        cmd = (
+            f'BASE="$(eval echo {_expand_path(INSTALL_BASE)})"; '
+            f'TAIL={tail}; '
+            'SCREEN_LIST="$(screen -ls 2>/dev/null || true)"; '
+            f'for TOOL_ID in {quoted_ids}; do '
+            '  TASK_DIR="$BASE/$TOOL_ID"; '
+            '  STATUS="$(cat "$TASK_DIR/status.txt" 2>/dev/null | tr -d \'\\r\\n\')"; '
+            '  EXIT_CODE="$(cat "$TASK_DIR/exit_code.txt" 2>/dev/null | tr -d \'\\r\\n\')"; '
+            '  SESSION_ALIVE=0; '
+            '  echo "$SCREEN_LIST" | grep -q "h2o_install_${TOOL_ID}" && SESSION_ALIVE=1 || true; '
+            '  LOG_SIZE=0; LOG_B64=""; '
+            '  if [ "$STATUS" = "" ] || [ "$STATUS" = "RUNNING" ]; then '
+            '    if [ -f "$TASK_DIR/task.log" ]; then '
+            '      LOG_SIZE="$(wc -c < "$TASK_DIR/task.log" 2>/dev/null | tr -d \' \\r\\n\')"; '
+            '      LOG_B64="$(tail -n "$TAIL" "$TASK_DIR/task.log" 2>/dev/null | base64 | tr -d \'\\r\\n\')"; '
+            '    fi; '
+            '  fi; '
+            '  printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$TOOL_ID" "$STATUS" "$EXIT_CODE" "$SESSION_ALIVE" "${LOG_SIZE:-0}" "$LOG_B64"; '
+            "done"
+        )
+
+        started = time.perf_counter()
+        rc, stdout, stderr = ssh_run_fn(cmd, timeout)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        if rc != 0:
+            raise RuntimeError(f"批量轮询失败: {stderr[:200]}")
+
+        rows: list[dict] = []
+        for raw in (stdout or "").splitlines():
+            line = raw.rstrip("\r")
+            if not line:
+                continue
+            parts = line.split("\t", 5)
+            if len(parts) < 6:
+                continue
+            tool_id, status, exit_code, alive_str, log_size_str, log_b64 = parts
+            log_text = ""
+            if log_b64:
+                try:
+                    log_text = sanitize_log(base64.b64decode(log_b64).decode("utf-8", errors="ignore"))
+                except Exception:
+                    log_text = ""
+            try:
+                log_size = int((log_size_str or "0").strip() or "0")
+            except Exception:
+                log_size = 0
+            rows.append(
+                {
+                    "tool_id": tool_id.strip(),
+                    "status": (status or "").strip().upper(),
+                    "exit_code": (exit_code or "").strip(),
+                    "session_alive": str(alive_str).strip() == "1",
+                    "log_size": max(log_size, 0),
+                    "log_text": log_text,
+                }
+            )
+        logger.debug("batch_probe tool_count=%d row_count=%d duration_ms=%d", len(clean_ids), len(rows), elapsed_ms)
+        return rows
 
     @staticmethod
     def read_log(
