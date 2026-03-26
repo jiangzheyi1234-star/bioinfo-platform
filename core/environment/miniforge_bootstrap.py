@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 
 from core.environment.env_detector import SshRunFn
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
@@ -15,6 +16,7 @@ TASK_DIR = "~/.h2ometa/runtime/miniforge_bootstrap"
 JOB_ID = "h2o_bootstrap_conda"
 INSTALL_SCRIPT = f"{TASK_DIR}/install.sh"
 LOG_TAIL_LINES = 60
+HEARTBEAT_STALE_SECONDS = 180
 
 _STATUS_ORDER_HINT = ("status.txt", "exit_code.txt", "heartbeat.txt")
 
@@ -105,9 +107,26 @@ def _expand_path(path: str) -> str:
 
 def submit(ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
     """提交后台 Miniforge 初始化任务（screen detached）。"""
+    alive = is_session_alive(ssh_run_fn, JOB_ID, timeout=timeout)
     status = check_status(ssh_run_fn, TASK_DIR, timeout=timeout)
-    if status.get("status") == "RUNNING" and is_session_alive(ssh_run_fn, JOB_ID, timeout=timeout):
-        return {"job_id": JOB_ID, "task_dir": TASK_DIR, "already_running": True}
+    status_text = (status.get("status") or "").strip().upper()
+    heartbeat = (status.get("heartbeat") or "").strip()
+    if alive:
+        # 优先以 screen 会话存活判定“已有任务运行中”，避免 status 文件异常导致重复提交。
+        return {
+            "job_id": JOB_ID,
+            "task_dir": TASK_DIR,
+            "already_running": True,
+            "status": status.get("status", ""),
+        }
+    if status_text == "RUNNING" and is_heartbeat_fresh(heartbeat):
+        # 会话探测可能瞬时失败；若 RUNNING 且心跳新鲜，判定任务仍在执行，避免重复下载。
+        return {
+            "job_id": JOB_ID,
+            "task_dir": TASK_DIR,
+            "already_running": True,
+            "status": status.get("status", ""),
+        }
 
     task_dir_expanded = f'"$(eval echo {_expand_path(TASK_DIR)})"'
     script_path_expanded = f'"$(eval echo {_expand_path(INSTALL_SCRIPT)})"'
@@ -134,7 +153,12 @@ def submit(ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
     if rc != 0:
         raise RuntimeError(f"启动 Miniforge 后台任务失败: {stderr[:200]}")
     logger.info("Miniforge 后台初始化已提交: job_id=%s task_dir=%s", JOB_ID, TASK_DIR)
-    return {"job_id": JOB_ID, "task_dir": TASK_DIR, "already_running": False}
+    return {
+        "job_id": JOB_ID,
+        "task_dir": TASK_DIR,
+        "already_running": False,
+        "status": status.get("status", ""),
+    }
 
 
 def check_status(ssh_run_fn: SshRunFn, task_dir: str = TASK_DIR, timeout: int = 10) -> dict:
@@ -156,13 +180,12 @@ def check_status(ssh_run_fn: SshRunFn, task_dir: str = TASK_DIR, timeout: int = 
                 exit_code = stdout.strip()
         except Exception:
             pass
-    if status in ("RUNNING", "DONE", "FAILED"):
-        try:
-            rc, stdout, _ = ssh_run_fn(f"cat {expanded}/heartbeat.txt 2>/dev/null", timeout)
-            if rc == 0:
-                heartbeat = stdout.strip()
-        except Exception:
-            pass
+    try:
+        rc, stdout, _ = ssh_run_fn(f"cat {expanded}/heartbeat.txt 2>/dev/null", timeout)
+        if rc == 0:
+            heartbeat = stdout.strip()
+    except Exception:
+        pass
     return {
         "status": status,
         "exit_code": exit_code,
@@ -188,3 +211,11 @@ def is_session_alive(ssh_run_fn: SshRunFn, job_id: str = JOB_ID, timeout: int = 
         return rc == 0
     except Exception:
         return False
+
+
+def is_heartbeat_fresh(heartbeat_value: str, stale_seconds: int = HEARTBEAT_STALE_SECONDS) -> bool:
+    try:
+        ts = int((heartbeat_value or "").strip())
+    except Exception:
+        return False
+    return (time.time() - ts) <= stale_seconds

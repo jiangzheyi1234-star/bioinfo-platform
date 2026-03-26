@@ -25,12 +25,14 @@ from ui.pages.home_page import HomePage
 from ui.pages.log_page import LogPage
 from ui.pages.detection_page_web import DetectionPageWeb as DetectionPage
 from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
+from ui.controllers.install_task_controller import InstallTaskController
 from ui.controllers.main_window_log_controller import MainWindowLogController
 from ui.controllers.main_window_project_controller import MainWindowProjectController
 from ui.controllers.main_window_reconcile_controller import MainWindowReconcileController
 from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
+from ui.widgets.install_task_panel import InstallTaskPanel
 from ui.widgets.project_selector import ProjectSelectorButton
 
 import qtawesome as qta
@@ -77,6 +79,8 @@ class MainWindow(QMainWindow):
         self._project_controller: Optional[MainWindowProjectController] = None
         self._reconcile_controller: Optional[MainWindowReconcileController] = None
         self._ssh_controller: Optional[MainWindowSSHController] = None
+        self._install_task_controller = InstallTaskController(self)
+        self._install_task_panel: Optional[InstallTaskPanel] = None
 
         self._prev_activated = True
 
@@ -177,8 +181,21 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.status_bar)
         self.log_page.log_status_changed.connect(self.status_bar.update_log_status)
         self.status_bar.update_log_status("日志: 就绪")
+        self.status_bar.install_status_clicked.connect(self._toggle_install_task_panel)
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
+        self.status_bar.update_install_status("安装: 空闲", "idle")
+
+        self._install_task_panel = InstallTaskPanel(self)
+        self._install_task_panel.locate_requested.connect(self._on_install_task_locate_requested)
+        self._install_task_controller.changed.connect(self._refresh_install_task_ui)
+        self._refresh_install_task_ui()
+
+        linux_card = getattr(self.settings_page, "linux_card", None)
+        if linux_card is not None and hasattr(linux_card, "install_task_event"):
+            linux_card.install_task_event.connect(self._on_install_task_event)
+        if hasattr(self.database_page, "install_task_event"):
+            self.database_page.install_task_event.connect(self._on_install_task_event)
 
         self.sidebar.setCurrentRow(0)
 
@@ -453,7 +470,40 @@ class MainWindow(QMainWindow):
             pending=status.get("pending", 0),
         )
 
+    def _on_install_task_event(self, payload: dict) -> None:
+        self._install_task_controller.ingest_event(payload)
+
+    def _refresh_install_task_ui(self) -> None:
+        summary = self._install_task_controller.summary()
+        self.status_bar.update_install_status(
+            str(summary.get("text", "安装: 空闲")),
+            str(summary.get("level", "idle")),
+        )
+        if self._install_task_panel is not None:
+            self._install_task_panel.set_tasks(self._install_task_controller.snapshot())
+
+    def _toggle_install_task_panel(self) -> None:
+        if self._install_task_panel is None:
+            return
+        if self._install_task_panel.isVisible():
+            self._install_task_panel.hide()
+            return
+        self._install_task_panel.set_tasks(self._install_task_controller.snapshot())
+        self._install_task_panel.popup_at(self.status_bar.install_status_anchor())
+
+    def _on_install_task_locate_requested(self, source: str) -> None:
+        src = str(source or "").strip().lower()
+        if src == "db":
+            self.sidebar.setCurrentRow(2)
+            return
+        if src in {"bootstrap", "tool_env"}:
+            self.sidebar.setCurrentRow(3)
+            return
+        logger.debug("Unknown install task source for locate: %s", source)
+
     def closeEvent(self, event) -> None:
+        if self._install_task_panel is not None:
+            self._install_task_panel.hide()
         if self._disk_monitor is not None:
             self._disk_monitor.shutdown()
         if self._log_controller is not None:

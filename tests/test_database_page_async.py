@@ -95,6 +95,36 @@ def test_submit_install_async_success_starts_monitor(page: DatabasePage, monkeyp
     assert db_id not in page._install_submit_pending
 
 
+def test_submit_install_emits_running_task_event(page: DatabasePage, monkeypatch):
+    db_id = _first_db_id(page)
+    page._ssh_service = MagicMock(is_connected=True)
+    monkeypatch.setattr(page._cards[db_id], "set_installing", lambda _installing: None)
+    monkeypatch.setattr(
+        page,
+        "_start_async_task",
+        lambda _k, _fn, on_success, on_error=None: on_success({"task_dir": "/tmp/task_2"}) or True,
+    )
+    monkeypatch.setattr(page, "_start_install_monitor", lambda *_args, **_kwargs: None)
+
+    events = []
+    page.install_task_event.connect(lambda payload: events.append(payload))
+    page._submit_install_async(db_id, 0)
+
+    assert any(e.get("task_id") == f"db:{db_id}" and e.get("state") == "running" for e in events)
+
+
+def test_progress_and_finish_emit_install_task_events(page: DatabasePage):
+    db_id = _first_db_id(page)
+    events = []
+    page.install_task_event.connect(lambda payload: events.append(payload))
+
+    page._on_progress_updated(db_id, 35, "2.1MB/s", "00:10")
+    page._on_install_finished(db_id, True, "安装完成")
+
+    assert any(e.get("state") == "running" and "35%" in str(e.get("detail", "")) for e in events)
+    assert any(e.get("state") == "success" for e in events)
+
+
 def test_close_event_cleans_async_tasks(page: DatabasePage, monkeypatch):
     from PyQt6.QtGui import QCloseEvent
 

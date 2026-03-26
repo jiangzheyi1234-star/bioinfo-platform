@@ -154,6 +154,46 @@ class TestMainWindowStartup:
                 qapp.processEvents()
         pm.close()
 
+    def test_install_status_click_opens_task_panel(self, temp_main_window, qapp):
+        window = temp_main_window
+        window._on_install_task_event(
+            {
+                "task_id": "db:kraken2_standard",
+                "title": "数据库安装 · Kraken2 Standard Database",
+                "source": "db",
+                "state": "running",
+                "detail": "20%",
+            }
+        )
+        _flush_events(qapp)
+        assert window._install_task_panel is not None
+        assert not window._install_task_panel.isVisible()
+
+        window.status_bar.install_status_clicked.emit()
+        _flush_events(qapp)
+        assert window._install_task_panel.isVisible()
+
+    def test_install_panel_locate_switches_page(self, temp_main_window, qapp):
+        window = temp_main_window
+        window._on_install_task_event(
+            {
+                "task_id": "tool_env:kraken2",
+                "title": "工具环境安装 · kraken2",
+                "source": "tool_env",
+                "state": "failed",
+                "detail": "安装失败",
+            }
+        )
+        _flush_events(qapp)
+        assert window._install_task_panel is not None
+        window._on_install_task_locate_requested("tool_env")
+        _flush_events(qapp)
+        assert window.sidebar.currentRow() == 3
+
+        window._on_install_task_locate_requested("db")
+        _flush_events(qapp)
+        assert window.sidebar.currentRow() == 2
+
 
 class TestPageStartup:
     def test_detection_page_starts(self, qapp):
