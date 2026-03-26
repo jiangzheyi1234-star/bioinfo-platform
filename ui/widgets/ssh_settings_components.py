@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtSlot
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, pyqtSlot
 from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from core.remote.ssh_connector import run_diagnostics
@@ -87,6 +87,7 @@ class SSHDiagnosticDialog(QDialog):
         self._close_requested = False
         self._diagnostics_running = False
         self._diagnostics_done = False
+        self._thread = None
         self.setStyleSheet(
             """
             QDialog {
@@ -151,16 +152,19 @@ class SSHDiagnosticDialog(QDialog):
         layout.addLayout(button_row)
 
         self._worker = SSHDiagnosticWorker(ip, port, user, pwd, key_file, existing_client=existing_client)
+        self._diagnostics_running = True
+        self._start_diagnostics()
+
+    def _start_diagnostics(self) -> None:
+        self._cleanup_thread()
+        self._thread = QThread(self)
+        self._worker.moveToThread(self._thread)
         self._worker.log.connect(self._append_log)
         self._worker.done.connect(self._on_done)
-        QTimer.singleShot(0, self._run_diagnostics_sync)
-
-    def _run_diagnostics_sync(self) -> None:
-        self._diagnostics_running = True
-        try:
-            self._worker.run()
-        finally:
-            self._diagnostics_running = False
+        self._worker.done.connect(self._thread.quit)
+        self._thread.started.connect(self._worker.run)
+        self._thread.finished.connect(self._on_thread_finished)
+        self._thread.start()
 
     def _append_log(self, text: str) -> None:
         html = text.replace("✓", '<span style="color: #A6E3A1;">✓</span>')
@@ -173,8 +177,45 @@ class SSHDiagnosticDialog(QDialog):
         self._diagnostics_done = True
         self.close_btn.setEnabled(True)
         self.close_btn.setText("Close")
-        if self._close_requested and not self._diagnostics_running:
+
+    def _on_thread_finished(self) -> None:
+        self._diagnostics_running = False
+        self._cleanup_thread()
+        if self._close_requested and self._diagnostics_done:
             self.accept()
+
+    def _cleanup_thread(self) -> None:
+        thread = self._thread
+        worker = self._worker
+        if thread is None:
+            return
+        try:
+            thread.started.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            thread.finished.disconnect(self._on_thread_finished)
+        except (TypeError, RuntimeError):
+            pass
+        if thread.isRunning():
+            thread.quit()
+            thread.wait(3000)
+        if worker is not None:
+            try:
+                worker.done.disconnect(self._on_done)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                worker.done.disconnect(thread.quit)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                worker.log.disconnect(self._append_log)
+            except (TypeError, RuntimeError):
+                pass
+            worker.moveToThread(self.thread())
+        thread.deleteLater()
+        self._thread = None
 
     def _on_close_requested(self) -> None:
         if self._diagnostics_running:
@@ -191,6 +232,7 @@ class SSHDiagnosticDialog(QDialog):
             self.close_btn.setText("Running...")
             event.ignore()
             return
+        self._cleanup_thread()
         super().closeEvent(event)
 
 
