@@ -81,3 +81,41 @@ def test_set_values_rejects_non_managed_conda_path(qapp):
     values = card.get_values()
     assert values["conda_executable"] == ""
     assert values["auto_installed"] is False
+
+
+def test_conda_not_found_startup_uses_silent_install(qapp, monkeypatch):
+    from core.environment.env_detector import CondaStatus
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._detect_interactive_request = False
+
+    calls = {"silent": 0, "prompt": 0}
+    monkeypatch.setattr(card, "_start_miniforge_install_silent", lambda: calls.__setitem__("silent", calls["silent"] + 1))
+    monkeypatch.setattr(card, "_prompt_miniforge_install", lambda: calls.__setitem__("prompt", calls["prompt"] + 1))
+
+    result = type("R", (), {"status": CondaStatus.NOT_FOUND})()
+    card._on_conda_detected(result)
+
+    assert calls["silent"] == 1
+    assert calls["prompt"] == 0
+
+
+def test_conda_not_found_interactive_prompts_install(qapp, monkeypatch):
+    from core.environment.env_detector import CondaStatus
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._detect_interactive_request = True
+
+    calls = {"silent": 0, "prompt": 0}
+    monkeypatch.setattr(card, "_start_miniforge_install_silent", lambda: calls.__setitem__("silent", calls["silent"] + 1))
+    monkeypatch.setattr(card, "_prompt_miniforge_install", lambda: calls.__setitem__("prompt", calls["prompt"] + 1))
+
+    result = type("R", (), {"status": CondaStatus.NOT_FOUND})()
+    card._on_conda_detected(result)
+
+    assert calls["silent"] == 0
+    assert calls["prompt"] == 1
