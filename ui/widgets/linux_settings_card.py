@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl, QElapsedTimer
 from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -172,9 +172,9 @@ class EnvBatchCheckWorker(QObject):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, client, tools: list[dict], conda_executable: str = ""):
+    def __init__(self, ssh_run_fn, tools: list[dict], conda_executable: str = ""):
         super().__init__()
-        self.client = client
+        self._ssh_run_fn = ssh_run_fn
         self.tools = tools
         self._conda_executable = conda_executable or "conda"
         self._cancelled = False
@@ -196,15 +196,8 @@ class EnvBatchCheckWorker(QObject):
     @pyqtSlot()
     def run(self):
         try:
-            def ssh_run_fn(cmd, timeout=30):
-                _, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
-                exit_code = stdout.channel.recv_exit_status()
-                output = stdout.read().decode("utf-8", errors="ignore")
-                err_out = stderr.read().decode("utf-8", errors="ignore")
-                return exit_code, output, err_out
-
             results, conda_envs = check_all_envs(
-                ssh_run_fn=ssh_run_fn,
+                ssh_run_fn=self._ssh_run_fn,
                 tools=self.tools,
                 conda_executable=self._conda_executable,
             )
@@ -249,6 +242,7 @@ class LinuxSettingsCard(QFrame):
         self.setObjectName("LinuxSettingsCard")
 
         self.active_client = None
+        self._ssh_service = None
         self._is_locked = False
         self._checking = False
         self._in_edit_mode = False
@@ -292,6 +286,10 @@ class LinuxSettingsCard(QFrame):
                 QTimer.singleShot(1000, self._ensure_conda_ready)
         else:
             self._set_status("等待 SSH 连接")
+
+    def set_ssh_service(self, ssh_service) -> None:
+        """注入统一 SSHService，优先使用其串行 run 通道。"""
+        self._ssh_service = ssh_service
 
     def get_values(self) -> dict:
         """供 SettingsPage 获取数据。"""
@@ -480,13 +478,29 @@ class LinuxSettingsCard(QFrame):
 
     def _make_ssh_run_fn(self):
         """封装 paramiko client 为 env_detector 所需的 ssh_run_fn 回调。"""
-        client = self.active_client
-
         def run(cmd, timeout=15):
+            start = QElapsedTimer()
+            start.start()
+            if self._ssh_service is not None and getattr(self._ssh_service, "is_connected", False):
+                rc, out, err = self._ssh_service.run(cmd, timeout=timeout)
+                logger.debug(
+                    "linux_card ssh_run source=service cmd=%r timeout=%s rc=%s duration_ms=%s",
+                    cmd[:80], timeout, rc, start.elapsed(),
+                )
+                return rc, out, err
+
+            client = self.active_client
+            if client is None:
+                raise RuntimeError("SSH client is not connected")
             _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-            rc = stdout.channel.recv_exit_status()
+            # Fallback path: keep safe read ordering to avoid channel hang.
             out = stdout.read().decode("utf-8", errors="ignore")
             err = stderr.read().decode("utf-8", errors="ignore")
+            rc = stdout.channel.recv_exit_status()
+            logger.debug(
+                "linux_card ssh_run source=client-fallback cmd=%r timeout=%s rc=%s duration_ms=%s",
+                cmd[:80], timeout, rc, start.elapsed(),
+            )
             return rc, out, err
 
         return run
@@ -740,7 +754,7 @@ class LinuxSettingsCard(QFrame):
 
         self._check_thread = QThread()
         self._check_worker = EnvBatchCheckWorker(
-            self.active_client, self._tools, self._conda_executable,
+            self._make_ssh_run_fn(), self._tools, self._conda_executable,
         )
         self._check_worker.moveToThread(self._check_thread)
 
@@ -951,21 +965,16 @@ class LinuxSettingsCard(QFrame):
 
     def _get_existing_env_paths(self) -> set[str]:
         """获取远端所有已存在的 conda 环境路径集合。"""
-        if not self.active_client or not self._conda_executable:
+        if not self._conda_executable:
             return set()
 
         try:
-            import json as _json
-            cmd = f"{self._conda_executable} env list --json"
-            _, stdout, stderr = self.active_client.exec_command(cmd, timeout=30)
-            exit_code = stdout.channel.recv_exit_status()
-            output = stdout.read().decode("utf-8", errors="ignore").strip()
-
-            if exit_code == 0 and output:
-                json_start = output.find("{")
-                if json_start >= 0:
-                    data = _json.loads(output[json_start:])
-                    return {p.rstrip("/") for p in data.get("envs", [])}
+            paths = get_existing_env_paths(
+                ssh_run_fn=self._make_ssh_run_fn(),
+                conda_executable=self._conda_executable,
+            )
+            logger.debug("linux_card existing env paths count=%s", len(paths))
+            return paths
         except Exception as e:
             logger.debug("获取环境列表失败: %s", e)
 
