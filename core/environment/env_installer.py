@@ -11,15 +11,15 @@ import logging
 from core.utils import sanitize_log
 from core.environment.env_detector import (
     SshRunFn,
-    expected_env_path,
     extract_env_name,
     pin_create_env_to_conda_root,
     rewrite_install_cmd,
 )
+from core.environment.h2o_env_paths import H2O_ENVS_DIR, H2O_INSTALL_DIR, h2o_env_prefix, h2o_tmp_prefix
 
 logger = logging.getLogger(__name__)
 
-INSTALL_BASE = "~/.h2ometa/env_installs"
+INSTALL_BASE = H2O_INSTALL_DIR
 
 
 # 包装脚本模板（原子安装：tmp_prefix → verify → rename 到 final_prefix）
@@ -136,20 +136,28 @@ class EnvInstaller:
         Returns:
             {"job_id": str, "task_dir": str, "final_prefix": str}
         """
+        if not conda_executable:
+            raise RuntimeError("未检测到 conda 可执行路径，无法提交环境安装任务")
+
         resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable)
 
         # 计算安装路径
         env_name = extract_env_name(resolved_cmd) or tool_id
-        final_prefix = expected_env_path(conda_executable, env_name)
-        tmp_prefix = (final_prefix + ".installing") if final_prefix else ""
+        final_prefix = h2o_env_prefix(env_name)
+        tmp_prefix = h2o_tmp_prefix(env_name)
+
+        def _expand_remote_required(path: str) -> str:
+            rc, stdout, _ = ssh_run_fn(f"eval echo {_expand_path(path)}", timeout)
+            expanded = stdout.strip() if rc == 0 else ""
+            if not expanded or expanded.startswith(("~", "$HOME")):
+                raise RuntimeError(f"无法展开远端路径: {path}")
+            return expanded
 
         # 安装到临时路径（原子安装的关键）
-        if tmp_prefix:
-            resolved_cmd = pin_create_env_to_conda_root(
-                resolved_cmd, conda_executable, override_prefix=tmp_prefix
-            )
-        else:
-            resolved_cmd = pin_create_env_to_conda_root(resolved_cmd, conda_executable)
+        tmp_prefix_for_cmd = _expand_remote_required(tmp_prefix)
+        resolved_cmd = pin_create_env_to_conda_root(
+            resolved_cmd, conda_executable, override_prefix=tmp_prefix_for_cmd
+        )
 
         # 构建 verify_block
         verify_block = ""
@@ -163,9 +171,11 @@ class EnvInstaller:
 
         task_dir_raw = f"{INSTALL_BASE}/{tool_id}"
         task_dir_expanded = f'"$(eval echo {_expand_path(task_dir_raw)})"'
+        envs_dir_expanded = f'"$(eval echo {_expand_path(H2O_ENVS_DIR)})"'
 
         # 创建任务目录
         ssh_run_fn(f"mkdir -p {task_dir_expanded}", timeout)
+        ssh_run_fn(f"mkdir -p {envs_dir_expanded}", timeout)
 
         # tmp_prefix / final_prefix 在脚本内部展开 $HOME
         def _to_shell(p: str) -> str:
