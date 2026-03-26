@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from jinja2 import BaseLoader, Environment, TemplateSyntaxError, UndefinedError
 
 from core.environment.env_detector import expected_env_path
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 
 logger = logging.getLogger(__name__)
 
@@ -146,8 +147,15 @@ class CommandBuilder:
         if conda_env:
             context["conda_env"] = conda_env
 
-        # conda 执行器路径 — 始终注入，供多步管线模板内引用
-        runner = conda_executable or CONDA_RUNNER
+        # conda 执行器路径 — 对 conda_env 工具必须为自管路径，避免裸 conda 回退。
+        if conda_env:
+            if not is_managed_conda_executable(conda_executable):
+                raise CommandBuildError("运行环境未就绪，请先在系统设置完成运行环境初始化")
+            runner = conda_executable
+        else:
+            runner = conda_executable or CONDA_RUNNER
+        if not runner:
+            runner = H2O_CONDA_EXE
         context["conda_executable"] = runner
 
         # workflow 目录（自研脚本上传后的远端路径）
@@ -166,20 +174,13 @@ class CommandBuilder:
         lines = [line for line in rendered.splitlines() if line.strip()]
         command = "\n".join(lines)
 
-        # conda/mamba 激活包装（优先使用传入的 conda_executable，回退到模块级常量）
+        # conda 激活包装：仅允许自管 conda 路径，不再回退裸 conda。
         if conda_env:
-            runner = conda_executable or CONDA_RUNNER
+            runner = conda_executable
             env_prefix = expected_env_path(conda_executable, conda_env)
-            if env_prefix:
-                # 统一使用固定前缀（-p），与 H2OMeta 环境安装路径一致。
-                command = f"{runner} run -p {env_prefix} bash -c '{_escape_single_quotes(command)}'"
-            else:
-                # 应急兜底：理论上 expected_env_path 总会返回非空。
-                logger.warning(
-                    "未能构建 conda 前缀路径，回退到 conda run -n %s（可能找到错误的环境）",
-                    conda_env,
-                )
-                command = f"{runner} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
+            if not env_prefix:
+                raise CommandBuildError("未能构建 conda 环境前缀路径")
+            command = f"{runner} run -p {env_prefix} bash -c '{_escape_single_quotes(command)}'"
 
         logger.debug("已构建命令 (插件: %s): %s", descriptor.get("id"), command[:200])
         return command

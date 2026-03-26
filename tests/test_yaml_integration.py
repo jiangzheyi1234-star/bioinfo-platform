@@ -17,6 +17,7 @@ from core.plugins.plugin_registry import PluginRegistry
 
 # 项目真实 plugins 目录
 _PLUGINS_DIR = Path(__file__).parent.parent / "plugins"
+_MANAGED_CONDA = "/home/user/.h2ometa/conda/bin/conda"
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ def _build_and_wrap(
         output_dir=output_dir,
         sample_id=sample_id,
         database_paths=database_paths,
+        conda_executable=_MANAGED_CONDA,
     )
     job_id = f"h2o_test_{tool_id}"
     task_dir = f"/tmp/h2ometa/{job_id}"

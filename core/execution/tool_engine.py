@@ -14,7 +14,8 @@ from typing import Any, Callable, Optional, Protocol
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.data.data_registry import DataRegistry
-from core.execution.command_builder import CommandBuilder, CommandBuildError
+from core.environment.h2o_env_paths import is_managed_conda_executable
+from core.execution.command_builder import CommandBuilder
 from core.execution.execution_preparer import PreparationRequest, prepare_execution
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,16 @@ class ToolEngine(QObject):
             raise ValueError("请先选择或创建项目")
 
         descriptor = self._plugins.get_descriptor(tool_id)
+        conda_env = str(descriptor.get("conda_env", "") or "").strip()
+        if conda_env and not is_managed_conda_executable(self._conda_executable):
+            logger.warning(
+                "Execution blocked: conda runtime not ready (tool=%s, conda_env=%s, conda_executable=%r)",
+                tool_id,
+                conda_env,
+                self._conda_executable,
+            )
+            raise ValueError("运行环境未就绪，请先在系统设置完成运行环境初始化")
+
         merged_params = self._merge_defaults(descriptor, parameters)
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
         input_paths = self._resolve_inputs(descriptor, input_data_ids)

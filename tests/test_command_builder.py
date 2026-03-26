@@ -4,6 +4,8 @@ import pytest
 
 from core.execution.command_builder import CommandBuildError, CommandBuilder, HEARTBEAT_INTERVAL
 
+_MANAGED_CONDA = "/home/user/.h2ometa/conda/bin/conda"
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -119,6 +121,7 @@ class TestBuild:
             },
             output_dir="/out",
             sample_id="s1",
+            conda_executable=_MANAGED_CONDA,
         )
         assert "-i /data/s1.R1.fq.gz" in cmd
         assert "-q 20" in cmd
@@ -136,8 +139,9 @@ class TestBuild:
             },
             output_dir="/out",
             sample_id="s1",
+            conda_executable=_MANAGED_CONDA,
         )
-        assert "conda run -p ~/.h2ometa/conda/envs/fastp_env" in cmd
+        assert f"{_MANAGED_CONDA} run -p ~/.h2ometa/conda/envs/fastp_env" in cmd
 
     def test_no_conda_env(self, simple_descriptor: dict) -> None:
         """没有 conda_env 时不应包装 conda run。"""
@@ -159,6 +163,7 @@ class TestBuild:
             output_dir="/out",
             sample_id="s1",
             database_paths={"db": "/databases/kraken2_standard"},
+            conda_executable=_MANAGED_CONDA,
         )
         assert "--db /databases/kraken2_standard" in cmd
 
@@ -171,6 +176,7 @@ class TestBuild:
             output_dir="/out",
             sample_id="s1",
             database_paths={"db": "/db/k2"},
+            conda_executable=_MANAGED_CONDA,
         )
         # 模板使用 {{ input_reads }}
         assert "/data/reads.fq" in cmd
@@ -352,30 +358,28 @@ class TestCondaExecutable:
     """CommandBuilder.build() 的 conda_executable 参数测试。"""
 
     def test_conda_executable_overrides_default(self, fastp_descriptor: dict) -> None:
-        """传入 conda_executable 时应使用绝对路径而非默认 "conda"。"""
+        """传入自管 conda_executable 时应使用绝对路径。"""
         cmd = CommandBuilder.build(
             descriptor=fastp_descriptor,
             parameters={"qualified_quality_phred": 15, "length_required": 50, "thread": 4},
             input_paths={"reads_1": "/data/r1.fq", "clean_1": "/out/c1.fq"},
             output_dir="/out",
             sample_id="s1",
-            conda_executable="/home/user/miniconda3/bin/conda",
+            conda_executable=_MANAGED_CONDA,
         )
-        assert "/home/user/miniconda3/bin/conda run -p ~/.h2ometa/conda/envs/fastp_env" in cmd
-        assert "conda run -p" in cmd
+        assert f"{_MANAGED_CONDA} run -p ~/.h2ometa/conda/envs/fastp_env" in cmd
 
-    def test_empty_conda_executable_uses_default(self, fastp_descriptor: dict) -> None:
-        """空 conda_executable 应回退到 CONDA_RUNNER 默认值。"""
-        cmd = CommandBuilder.build(
-            descriptor=fastp_descriptor,
-            parameters={"qualified_quality_phred": 15, "length_required": 50, "thread": 4},
-            input_paths={"reads_1": "/data/r1.fq", "clean_1": "/out/c1.fq"},
-            output_dir="/out",
-            sample_id="s1",
-            conda_executable="",
-        )
-        # 默认 CONDA_RUNNER 是 "conda"，路径前缀固定为 ~/.h2ometa/conda/envs
-        assert "conda run -p ~/.h2ometa/conda/envs/fastp_env" in cmd
+    def test_empty_conda_executable_raises_error(self, fastp_descriptor: dict) -> None:
+        """空 conda_executable 时（带 conda_env）应阻断构建。"""
+        with pytest.raises(CommandBuildError, match="运行环境未就绪"):
+            CommandBuilder.build(
+                descriptor=fastp_descriptor,
+                parameters={"qualified_quality_phred": 15, "length_required": 50, "thread": 4},
+                input_paths={"reads_1": "/data/r1.fq", "clean_1": "/out/c1.fq"},
+                output_dir="/out",
+                sample_id="s1",
+                conda_executable="",
+            )
 
     def test_no_conda_env_ignores_executable(self, simple_descriptor: dict) -> None:
         """没有 conda_env 时即使传了 conda_executable 也不包装。"""
@@ -385,7 +389,7 @@ class TestCondaExecutable:
             input_paths={"input_file": "/data/test.txt"},
             output_dir="/output",
             sample_id="s1",
-            conda_executable="/home/user/miniconda3/bin/conda",
+            conda_executable=_MANAGED_CONDA,
         )
         assert "conda run" not in cmd
         assert "miniconda3" not in cmd
