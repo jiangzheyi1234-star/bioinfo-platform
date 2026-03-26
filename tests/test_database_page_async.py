@@ -40,7 +40,7 @@ def test_save_db_root_async_success_persists(page: DatabasePage, monkeypatch):
         or True,
     )
     monkeypatch.setattr(db_page_module.QMessageBox, "information", lambda *a, **kw: infos.append((a, kw)))
-    page._ssh_client = object()
+    page._ssh_service = MagicMock(is_connected=True)
 
     started = page._save_db_root("~/databases", done.append)
 
@@ -54,7 +54,7 @@ def test_save_db_root_async_success_persists(page: DatabasePage, monkeypatch):
 def test_save_db_root_async_rejects_when_task_running(page: DatabasePage, monkeypatch):
     warnings = []
     done = []
-    page._ssh_client = object()
+    page._ssh_service = MagicMock(is_connected=True)
     monkeypatch.setattr(page, "_start_async_task", lambda *a, **kw: False)
     monkeypatch.setattr(db_page_module.QMessageBox, "warning", lambda *a, **kw: warnings.append((a, kw)))
 
@@ -79,7 +79,7 @@ def test_submit_install_prevents_reentry(page: DatabasePage, monkeypatch):
 def test_submit_install_async_success_starts_monitor(page: DatabasePage, monkeypatch):
     db_id = _first_db_id(page)
     monitors = []
-    page._ssh_client = MagicMock()
+    page._ssh_service = MagicMock(is_connected=True)
     monkeypatch.setattr(page, "_make_ssh_run_fn", lambda: (lambda _cmd, _timeout=15: (0, "", "")))
     monkeypatch.setattr(page, "_start_install_monitor", lambda did, task_dir: monitors.append((did, task_dir)))
     monkeypatch.setattr(page._cards[db_id], "set_installing", lambda _installing: None)

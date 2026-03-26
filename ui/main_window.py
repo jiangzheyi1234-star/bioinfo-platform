@@ -296,6 +296,7 @@ class MainWindow(QMainWindow):
             return
         self._ssh_service_wrapper = self._ssh_controller.apply_active_client(client)
         if hasattr(self, "database_page") and self.database_page is not None:
+            self.database_page.set_ssh_service(self._ssh_service_wrapper)
             self.database_page.set_active_client(client)
 
     def _show_project_menu(self) -> None:

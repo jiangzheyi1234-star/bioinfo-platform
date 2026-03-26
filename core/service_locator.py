@@ -468,6 +468,11 @@ class ServiceLocator(QObject):
         self._task_dirs.clear()
         self._tool_engine = None
         self._data_registry = None
+        if self._ssh is not None and hasattr(self._ssh, "close"):
+            try:
+                self._ssh.close()
+            except Exception:
+                logger.debug("SSH service close failed during shutdown", exc_info=True)
         self._ssh = None
         self._project_manager.close()
         logger.info("ServiceLocator closed")
