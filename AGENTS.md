@@ -1,5 +1,6 @@
 # Persistent Agent Notes
-
+## ⚠️ 最高优先级
+失败必须大声抛出，禁止 silent fallback，禁止保留已删除字段的任何兜底引用。
 ## SSH 访问基线（必须复用）
 
 1. 优先通过 ServiceLocator 复用 `core/remote/ssh_service.py`。
