@@ -32,7 +32,7 @@ _STATUS_META = {
     DatabaseStatus.READY: ("ph.check-circle", "#10B981"),
     DatabaseStatus.NOT_INSTALLED: ("ph.warning-circle", "#EF4444"),
     DatabaseStatus.INCOMPLETE: ("ph.warning-circle", "#EF4444"),
-    DatabaseStatus.INSTALLING: ("ph.circle-notch", "#3B82F6"),
+    DatabaseStatus.INSTALLING: ("ph.arrows-clockwise", "#3B82F6"),
     DatabaseStatus.UNKNOWN: ("ph.question", "#94A3B8"),
 }
 
@@ -182,7 +182,10 @@ class DatabaseItemCard(QFrame):
 
     def _update_status_icon(self, status: DatabaseStatus) -> None:
         icon_name, color = _STATUS_META.get(status, ("ph.question", "#94A3B8"))
-        pixmap = qta.icon(icon_name, color=color).pixmap(QSize(16, 16))
+        try:
+            pixmap = qta.icon(icon_name, color=color).pixmap(QSize(16, 16))
+        except Exception:
+            pixmap = qta.icon("ph.question", color="#94A3B8").pixmap(QSize(16, 16))
         self.status_icon.setPixmap(pixmap)
 
     def _set_status_style(self, color: str) -> None:

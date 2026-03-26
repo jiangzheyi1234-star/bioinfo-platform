@@ -3,9 +3,12 @@
 提供远程命令执行、文件传输等功能。
 集成 SSHReconnector 实现连接丢失时的自动重连。
 """
+import queue
 import logging
-from threading import RLock
-from typing import Optional, Tuple, Callable, List
+import time
+from dataclasses import dataclass
+from threading import Event, RLock, Thread
+from typing import Any, Callable, List, Optional, Tuple
 
 import paramiko
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -13,6 +16,25 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from core.remote.ssh_reconnector import SSHReconnector
 
 logger = logging.getLogger(__name__)
+
+_PRIO_USER_INTERACTIVE = 1
+_PRIO_TASK_SUBMIT = 3
+_PRIO_BACKGROUND_POLL = 9
+_STOP = "__SSH_QUEUE_STOP__"
+
+
+@dataclass
+class _CommandRequest:
+    request_id: str
+    cmd: str
+    timeout: int
+    priority: int
+    tag: str
+    done: Event
+    rc: int = -1
+    out: str = ""
+    err: str = ""
+    exc: Exception | None = None
 
 
 class SSHService(QObject):
@@ -47,6 +69,11 @@ class SSHService(QObject):
         self._connect_fn = connect_fn
         self._reconnected_client: Optional[paramiko.SSHClient] = None
         self._io_lock = RLock()
+        self._queue: "queue.PriorityQueue[tuple[int, int, _CommandRequest | str]]" = queue.PriorityQueue()
+        self._seq = 0
+        self._queue_alive = True
+        self._worker = Thread(target=self._queue_loop, daemon=True, name="SSHServiceQueueWorker")
+        self._worker.start()
 
         # 初始化重连器（仅在提供 connect_fn 时）
         self._reconnector: Optional[SSHReconnector] = None
@@ -131,19 +158,44 @@ class SSHService(QObject):
         Returns:
             (exit_code, stdout, stderr) 元组
         """
-        with self._io_lock:
-            client = self._ensure_connection()
-            stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-            rc = stdout.channel.recv_exit_status()
-            out = stdout.read().decode("utf-8", errors="ignore")
-            err = stderr.read().decode("utf-8", errors="ignore")
-            return rc, out, err
+        request_id = f"ssh_{int(time.time() * 1000)}_{self._next_seq()}"
+        priority = self._classify_priority(cmd, async_mode=False)
+        request = _CommandRequest(
+            request_id=request_id,
+            cmd=cmd,
+            timeout=timeout,
+            priority=priority,
+            tag=self._build_tag(cmd),
+            done=Event(),
+        )
+        enqueue_ts = time.time()
+        self._queue.put((priority, self._next_seq(), request))
+        request.done.wait()
+        if request.exc is not None:
+            raise request.exc
+        duration_ms = int((time.time() - enqueue_ts) * 1000)
+        logger.debug(
+            "ssh_cmd_end request_id=%s tag=%s timeout=%s priority=%s duration_ms=%s rc=%s",
+            request.request_id,
+            request.tag,
+            timeout,
+            priority,
+            duration_ms,
+            request.rc,
+        )
+        return request.rc, request.out, request.err
 
     def run_async(self, cmd: str) -> None:
         """执行远程命令但不等待结果（用于启动后台任务）"""
-        with self._io_lock:
-            client = self._ensure_connection()
-            client.exec_command(cmd, timeout=5)
+        request = _CommandRequest(
+            request_id=f"ssh_async_{int(time.time() * 1000)}_{self._next_seq()}",
+            cmd=cmd,
+            timeout=5,
+            priority=self._classify_priority(cmd, async_mode=True),
+            tag=self._build_tag(cmd),
+            done=Event(),
+        )
+        self._queue.put((request.priority, self._next_seq(), request))
 
     def sftp(self) -> paramiko.SFTPClient:
         """获取 SFTP 客户端"""
@@ -215,3 +267,79 @@ class SSHService(QObject):
             return sessions
         except Exception:
             return []
+
+    def close(self) -> None:
+        """Stop queue worker gracefully."""
+        if not self._queue_alive:
+            return
+        self._queue_alive = False
+        self._queue.put((_PRIO_USER_INTERACTIVE, self._next_seq(), _STOP))
+        self._worker.join(timeout=2.0)
+
+    def _next_seq(self) -> int:
+        with self._io_lock:
+            self._seq += 1
+            return self._seq
+
+    def _queue_loop(self) -> None:
+        while self._queue_alive:
+            _prio, _seq, payload = self._queue.get()
+            try:
+                if payload == _STOP:
+                    return
+                request = payload
+                assert isinstance(request, _CommandRequest)
+                try:
+                    logger.debug(
+                        "ssh_cmd_begin request_id=%s tag=%s timeout=%s priority=%s",
+                        request.request_id,
+                        request.tag,
+                        request.timeout,
+                        request.priority,
+                    )
+                    rc, out, err = self._execute_command(request.cmd, request.timeout)
+                    request.rc = rc
+                    request.out = out
+                    request.err = err
+                except Exception as exc:
+                    request.exc = exc
+                    logger.exception(
+                        "ssh_cmd_error request_id=%s tag=%s timeout=%s priority=%s",
+                        request.request_id,
+                        request.tag,
+                        request.timeout,
+                        request.priority,
+                    )
+                finally:
+                    request.done.set()
+            finally:
+                self._queue.task_done()
+
+    def _execute_command(self, cmd: str, timeout: int) -> Tuple[int, str, str]:
+        # Serialize all command channel operations and keep sftp operations coherent.
+        with self._io_lock:
+            client = self._ensure_connection()
+            stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
+            del stdin
+            # Paramiko best practice: read streams first, then recv exit status.
+            out = stdout.read().decode("utf-8", errors="ignore")
+            err = stderr.read().decode("utf-8", errors="ignore")
+            rc = stdout.channel.recv_exit_status()
+            return rc, out, err
+
+    def _build_tag(self, cmd: str) -> str:
+        text = (cmd or "").strip().replace("\n", " ")
+        return text[:64] if text else "empty"
+
+    def _classify_priority(self, cmd: str, async_mode: bool) -> int:
+        lowered = str(cmd or "").lower()
+        # 用户点击触发命令：目录浏览、权限校验、手动路径操作
+        if any(k in lowered for k in ("find ", "ls ", "test -d", "test -w", "test -x", "touch ", "mkdir -p")):
+            return _PRIO_USER_INTERACTIVE
+        # 后台轮询命令：状态文件、心跳、screen 列表、tail 日志
+        if any(k in lowered for k in ("status.txt", "heartbeat.txt", "exit_code.txt", "screen -ls", "tail -", "date +%s")):
+            return _PRIO_BACKGROUND_POLL
+        # 任务提交/默认命令
+        if async_mode:
+            return _PRIO_TASK_SUBMIT
+        return _PRIO_TASK_SUBMIT
