@@ -11,7 +11,7 @@ class _FakeClient:
 
 
 def test_ssh_service_run_is_serialized() -> None:
-    service = SSHService(client_provider=lambda: _FakeClient())
+    service = SSHService(initial_client=_FakeClient())
     lock = threading.Lock()
     max_active = 0
     active = 0
@@ -45,7 +45,7 @@ def test_ssh_service_run_is_serialized() -> None:
 
 
 def test_ssh_service_priority_preemption() -> None:
-    service = SSHService(client_provider=lambda: _FakeClient())
+    service = SSHService(initial_client=_FakeClient())
     executed: list[str] = []
 
     def fake_exec(cmd: str, timeout: int):
@@ -95,7 +95,7 @@ def test_execute_command_reads_streams_before_exit_status() -> None:
         def exec_command(self, cmd: str, timeout: int = 10):
             return None, _FakeStream("stdout", "ok"), _FakeStream("stderr", "")
 
-    service = SSHService(client_provider=lambda: _FakeClient())
+    service = SSHService(initial_client=_FakeClient())
     service._ensure_connection = lambda: _FakeExecClient()  # type: ignore[method-assign]
 
     rc, out, err = service._execute_command("echo test", 5)
