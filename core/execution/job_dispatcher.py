@@ -200,6 +200,10 @@ class JobDispatcher(QObject):
         for execution_id in list(self._running_waiters.keys()):
             self.stop_waiting(execution_id)
 
+    def is_waiting(self, execution_id: str) -> bool:
+        """Return whether execution has an active waiter thread."""
+        return execution_id in self._running_waiters
+
     @pyqtSlot(str)
     def _on_waiter_completed(self, execution_id: str) -> None:
         """等待线程完成回调。"""

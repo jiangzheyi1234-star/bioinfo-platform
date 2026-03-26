@@ -100,7 +100,17 @@ class RemoteFileDialog(QDialog):
         self._tree.setHeaderLabels(["名称", "大小", "类型"])
         self._tree.setRootIsDecorated(False)
         self._tree.setAlternatingRowColors(True)
-        self._tree.setStyleSheet("font-size: 13px;")
+        self._tree.setStyleSheet(
+            f"""
+            QTreeWidget {{
+                font-size: 13px;
+                border: 1px solid {styles.COLOR_BORDER};
+                border-radius: 8px;
+                background-color: {styles.COLOR_BG_CARD};
+            }}
+            {styles.SCROLL_BAR_ELEGANT}
+            """
+        )
         header = self._tree.header()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
