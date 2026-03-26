@@ -92,6 +92,27 @@ def _safe_emit(signal, *args) -> bool:
         logger.debug("Skipped signal emit on deleted Qt object", exc_info=True)
         return False
 
+
+def _normalize_env_paths(paths) -> set[str]:
+    return {str(path).rstrip("/") for path in (paths or []) if str(path).strip()}
+
+
+def _tool_env_exists_in_paths(tool: dict | None, existing_env_paths: set[str], conda_executable: str = "") -> bool:
+    tool = tool or {}
+    conda_env = str(tool.get("conda_env", "") or "").strip()
+    if not conda_env:
+        return True
+
+    normalized_paths = _normalize_env_paths(existing_env_paths)
+    env_names = {path.split("/")[-1] for path in normalized_paths}
+    if conda_env in env_names:
+        return True
+
+    expected_path = env_detector.expected_env_path(conda_executable, conda_env)
+    if expected_path and "~" not in expected_path:
+        return expected_path.rstrip("/") in normalized_paths
+    return False
+
 # ── Conda 检测 Worker ─────────────────────────────────────────────
 
 
@@ -296,6 +317,153 @@ class ToolInstallSubmitWorker(QObject):
             self.error.emit(self._tool_id, str(exc))
 
 
+class RecoverInstallsWorker(QObject):
+    """后台恢复/解析工具安装状态，避免主线程同步 SSH。"""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        ssh_run_fn,
+        tools: list[dict],
+        conda_executable: str = "",
+        existing_env_paths=None,
+        rows: list[dict] | None = None,
+    ):
+        super().__init__()
+        self._ssh_run_fn = ssh_run_fn
+        self._tools = list(tools or [])
+        self._conda_executable = str(conda_executable or "")
+        self._existing_env_paths = None if existing_env_paths is None else _normalize_env_paths(existing_env_paths)
+        self._rows = [dict(row) for row in (rows or [])]
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _emit(self, signal_name: str, *args) -> bool:
+        if self._cancelled:
+            return False
+        try:
+            signal = getattr(self, signal_name)
+        except RuntimeError:
+            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
+            return False
+        return _safe_emit(signal, *args)
+
+    def _load_existing_env_paths(self) -> set[str]:
+        if self._existing_env_paths is not None:
+            return set(self._existing_env_paths)
+        return _normalize_env_paths(
+            get_existing_env_paths(
+                ssh_run_fn=self._ssh_run_fn,
+                conda_executable=self._conda_executable,
+            )
+        )
+
+    def _run_recover_scan(self, existing_env_paths: set[str], tool_map: dict[str, dict]) -> list[dict]:
+        installs = EnvInstaller.scan_running(self._ssh_run_fn)
+        rows: list[dict] = []
+        for item in installs:
+            if self._cancelled:
+                return []
+            tool_id = str(item.get("tool_id", "") or "").strip()
+            status = str(item.get("status", "") or "").strip().upper()
+            task_dir = str(item.get("task_dir", "") or "").strip()
+            tool = tool_map.get(tool_id)
+            env_exists = False
+            session_alive = False
+            cleanup_attempted = False
+
+            if status == "RUNNING":
+                env_exists = _tool_env_exists_in_paths(tool, existing_env_paths, self._conda_executable)
+                if not env_exists:
+                    session_alive = EnvInstaller.is_session_alive(
+                        self._ssh_run_fn,
+                        f"h2o_install_{tool_id}",
+                        timeout=10,
+                    )
+                    if not session_alive:
+                        cleanup_attempted = True
+                        try:
+                            EnvInstaller.cleanup(self._ssh_run_fn, task_dir)
+                        except Exception:
+                            logger.debug("恢复阶段清理任务目录失败: %s", task_dir, exc_info=True)
+            elif status == "DONE":
+                cleanup_attempted = True
+                try:
+                    EnvInstaller.cleanup(self._ssh_run_fn, task_dir)
+                except Exception:
+                    logger.debug("恢复阶段清理已完成任务失败: %s", task_dir, exc_info=True)
+
+            rows.append(
+                {
+                    "tool_id": tool_id,
+                    "task_dir": task_dir,
+                    "status": status,
+                    "env_exists": env_exists,
+                    "session_alive": session_alive,
+                    "cleanup_attempted": cleanup_attempted,
+                }
+            )
+        return rows
+
+    def _run_poll_resolve(self, existing_env_paths: set[str], tool_map: dict[str, dict]) -> list[dict]:
+        rows: list[dict] = []
+        for item in self._rows:
+            if self._cancelled:
+                return []
+            tool_id = str(item.get("tool_id", "") or "").strip()
+            task_dir = str(item.get("task_dir", "") or f"{_INSTALL_BASE}/{tool_id}").strip()
+            tool = tool_map.get(tool_id)
+            env_exists = _tool_env_exists_in_paths(tool, existing_env_paths, self._conda_executable)
+            cleanup_attempted = True
+            try:
+                EnvInstaller.cleanup(self._ssh_run_fn, task_dir)
+            except Exception:
+                logger.debug("轮询兜底清理任务目录失败: %s", task_dir, exc_info=True)
+            rows.append(
+                {
+                    "tool_id": tool_id,
+                    "task_dir": task_dir,
+                    "status": str(item.get("status", "") or "").strip().upper() or "RUNNING",
+                    "env_exists": env_exists,
+                    "session_alive": False,
+                    "cleanup_attempted": cleanup_attempted,
+                }
+            )
+        return rows
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            existing_env_paths = self._load_existing_env_paths()
+            if self._cancelled:
+                return
+
+            tool_map = {str(tool.get("id", "") or "").strip(): dict(tool) for tool in self._tools}
+            rows = self._run_poll_resolve(existing_env_paths, tool_map) if self._rows else self._run_recover_scan(
+                existing_env_paths, tool_map
+            )
+            if self._cancelled:
+                return
+
+            self._emit(
+                "finished",
+                {
+                    "rows": rows,
+                    "existing_env_paths": sorted(existing_env_paths),
+                },
+            )
+        except Exception as exc:
+            if self._cancelled:
+                return
+            logger.exception("RecoverInstallsWorker 出错")
+            self._emit("error", str(exc))
+
+
 # ── LinuxSettingsCard ─────────────────────────────────────────────
 
 
@@ -341,9 +509,12 @@ class LinuxSettingsCard(QFrame):
         self._tool_install_poll_timer = QTimer(self)
         self._tool_install_poll_timer.setInterval(TOOL_INSTALL_POLL_INTERVAL_MS)
         self._tool_install_poll_timer.timeout.connect(self._poll_running_tool_installs)
+        self._tool_install_poll_resolving: bool = False
+        self._tool_install_poll_resolve_needs_recheck: bool = False
         self._tool_log_samples: dict[str, tuple[int, float]] = {}
         self._latest_detected_env_paths: set[str] = set()
         self._pending_recover_after_batch: bool = False
+        self._recover_installs_running: bool = False
         self._tool_install_snapshots: dict[str, dict] = {}
         self._tool_install_submitting_ids: set[str] = set()
         self._tool_install_submit_threads: dict[str, QThread] = {}
@@ -1309,6 +1480,26 @@ class LinuxSettingsCard(QFrame):
         )
         self._ensure_tool_install_polling()
 
+    def _cleanup_recover_installs_resources(self) -> None:
+        cleanup_thread_pair(self, "_recover_installs_thread", "_recover_installs_worker", wait_ms=3000)
+
+    def _start_recover_installs_job(self, existing_env_paths: Optional[set[str]] = None) -> None:
+        self._cleanup_recover_installs_resources()
+        self._recover_installs_thread = QThread()
+        self._recover_installs_worker = RecoverInstallsWorker(
+            self._make_ssh_run_fn(),
+            self._tools,
+            self._conda_executable,
+            existing_env_paths=existing_env_paths,
+        )
+        self._recover_installs_worker.moveToThread(self._recover_installs_thread)
+        self._recover_installs_thread.started.connect(self._recover_installs_worker.run)
+        self._recover_installs_worker.finished.connect(self._on_recover_installs_finished)
+        self._recover_installs_worker.error.connect(self._on_recover_installs_error)
+        self._recover_installs_worker.finished.connect(self._cleanup_recover_installs_resources)
+        self._recover_installs_worker.error.connect(self._cleanup_recover_installs_resources)
+        self._recover_installs_thread.start()
+
     def _recover_running_installs(self, existing_env_paths: Optional[set[str]] = None) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。
 
@@ -1318,32 +1509,32 @@ class LinuxSettingsCard(QFrame):
         """
         if not self._is_ssh_service_ready():
             return
-        try:
-            installs = EnvInstaller.scan_running(self._make_ssh_run_fn())
-        except Exception as e:
-            logger.debug("扫描后台安装失败: %s", e)
+        if self._recover_installs_running:
             return
+        self._recover_installs_running = True
+        self._start_recover_installs_job(existing_env_paths=existing_env_paths)
 
+    def _on_recover_installs_finished(self, payload: object) -> None:
+        self._recover_installs_running = False
+        data = payload if isinstance(payload, dict) else {}
+        rows = list(data.get("rows", []) or [])
+        existing_env_paths = _normalize_env_paths(data.get("existing_env_paths", []))
         running_tools = []
         newly_done = False
+        logger.debug("恢复安装状态完成: install_count=%d env_count=%d", len(rows), len(existing_env_paths))
 
-        if existing_env_paths is None:
-            # 回退路径：仍可独立查询
-            existing_env_paths = self._get_existing_env_paths()
-            logger.debug("恢复安装状态使用独立环境查询: env_count=%d", len(existing_env_paths))
-        else:
-            existing_env_paths = {p.rstrip("/") for p in existing_env_paths if p}
-            logger.debug("恢复安装状态使用缓存环境查询: env_count=%d", len(existing_env_paths))
-
-        for item in installs:
-            tool_id = item["tool_id"]
-            status = item["status"]
-            task_dir = item["task_dir"]
+        for item in rows:
+            tool_id = str(item.get("tool_id", "") or "").strip()
+            status = str(item.get("status", "") or "").strip().upper()
+            task_dir = str(item.get("task_dir", "") or "").strip()
+            env_exists = bool(item.get("env_exists", False))
+            session_alive = bool(item.get("session_alive", False))
+            if not tool_id:
+                continue
 
             if status == "RUNNING":
-                # 检查该工具的环境是否实际已存在（防止状态文件残留）
                 tool = next((t for t in self._tools if t["id"] == tool_id), None)
-                if tool and self._is_tool_env_exists(tool, existing_env_paths):
+                if tool and (env_exists or self._is_tool_env_exists(tool, existing_env_paths)):
                     logger.info("工具 %s 状态为 RUNNING 但环境已存在，视为安装完成", tool_id)
                     newly_done = True
                     self._update_tool_install_snapshot(
@@ -1352,46 +1543,31 @@ class LinuxSettingsCard(QFrame):
                         task_dir=task_dir,
                         message="检测到环境已就绪，安装视为完成。",
                     )
-                    # 清理残留的安装目录
-                    try:
-                        EnvInstaller.cleanup(self._make_ssh_run_fn(), task_dir)
-                    except Exception:
-                        pass
-                else:
-                    alive = EnvInstaller.is_session_alive(
-                        self._make_ssh_run_fn(), f"h2o_install_{tool_id}", timeout=10
+                elif session_alive:
+                    running_tools.append(tool_id)
+                    self._installing_tool_ids.add(tool_id)
+                    self._update_tool_install_snapshot(
+                        tool_id,
+                        status="RUNNING",
+                        task_dir=task_dir,
+                        message="检测到后台安装任务仍在运行",
                     )
-                    if alive:
-                        running_tools.append(tool_id)
-                        self._installing_tool_ids.add(tool_id)
-                        self._update_tool_install_snapshot(
-                            tool_id,
-                            status="RUNNING",
-                            task_dir=task_dir,
-                            message="检测到后台安装任务仍在运行",
-                        )
-                        # 通知 Web UI 显示"安装中"状态
-                        if self._bridge:
-                            self._bridge.emit_install_started(tool_id)
-                        self._emit_tool_install_event(tool_id, "running", "检测到后台安装任务仍在运行")
-                        self._ensure_tool_install_polling()
-                    else:
-                        logger.info("工具 %s RUNNING 但会话已不存在且环境未落地，静默回缺失", tool_id)
-                        self._installing_tool_ids.discard(tool_id)
-                        self._tool_log_samples.pop(tool_id, None)
-                        self._update_tool_install_snapshot(
-                            tool_id,
-                            status="FAILED",
-                            task_dir=task_dir,
-                            message="安装会话已退出且环境未落地，请重试安装。",
-                        )
-                        if self._bridge:
-                            self._bridge.emit_install_finished(tool_id, False)
-                        newly_done = True
-                        try:
-                            EnvInstaller.cleanup(self._make_ssh_run_fn(), task_dir)
-                        except Exception:
-                            pass
+                    if self._bridge:
+                        self._bridge.emit_install_started(tool_id)
+                    self._emit_tool_install_event(tool_id, "running", "检测到后台安装任务仍在运行")
+                else:
+                    logger.info("工具 %s RUNNING 但会话已不存在且环境未落地，静默回缺失", tool_id)
+                    self._installing_tool_ids.discard(tool_id)
+                    self._tool_log_samples.pop(tool_id, None)
+                    self._update_tool_install_snapshot(
+                        tool_id,
+                        status="FAILED",
+                        task_dir=task_dir,
+                        message="安装会话已退出且环境未落地，请重试安装。",
+                    )
+                    if self._bridge:
+                        self._bridge.emit_install_finished(tool_id, False)
+                    newly_done = True
             elif status == "DONE":
                 newly_done = True
                 self._update_tool_install_snapshot(
@@ -1401,11 +1577,6 @@ class LinuxSettingsCard(QFrame):
                     message="安装任务已完成。",
                 )
                 logger.info("发现已完成的后台安装任务，静默清理: %s", tool_id)
-                # 清理已完成的安装目录
-                try:
-                    EnvInstaller.cleanup(self._make_ssh_run_fn(), task_dir)
-                except Exception:
-                    pass
             elif status == "FAILED":
                 # 保留失败目录供诊断，启动恢复阶段不提示，避免误判为新失败
                 self._update_tool_install_snapshot(
@@ -1419,11 +1590,18 @@ class LinuxSettingsCard(QFrame):
         if running_tools:
             names = ", ".join(running_tools)
             self._set_status(f"后台安装进行中: {names}")
+            self._ensure_tool_install_polling()
 
         if newly_done:
             QTimer.singleShot(500, self._on_batch_check)
 
+    def _on_recover_installs_error(self, msg: str) -> None:
+        self._recover_installs_running = False
+        logger.debug("恢复后台安装状态失败: %s", msg)
+
     def _ensure_tool_install_polling(self) -> None:
+        if self._tool_install_poll_resolving:
+            return
         if self._installing_tool_ids:
             was_active = self._tool_install_poll_timer.isActive()
             if not was_active:
@@ -1437,11 +1615,38 @@ class LinuxSettingsCard(QFrame):
     def _cleanup_tool_install_poll_resources(self) -> None:
         cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=3000)
 
+    def _cleanup_tool_install_poll_resolve_resources(self) -> None:
+        cleanup_thread_pair(self, "_tool_install_poll_resolve_thread", "_tool_install_poll_resolve_worker", wait_ms=3000)
+
+    def _start_tool_install_poll_resolve(self, rows: list[dict], *, need_recheck: bool = False) -> None:
+        if not rows:
+            if need_recheck:
+                QTimer.singleShot(300, self._on_batch_check)
+            self._ensure_tool_install_polling()
+            return
+        self._tool_install_poll_resolving = True
+        self._tool_install_poll_resolve_needs_recheck = self._tool_install_poll_resolve_needs_recheck or need_recheck
+        self._cleanup_tool_install_poll_resolve_resources()
+        self._tool_install_poll_resolve_thread = QThread()
+        self._tool_install_poll_resolve_worker = RecoverInstallsWorker(
+            self._make_ssh_run_fn(),
+            self._tools,
+            self._conda_executable,
+            rows=rows,
+        )
+        self._tool_install_poll_resolve_worker.moveToThread(self._tool_install_poll_resolve_thread)
+        self._tool_install_poll_resolve_thread.started.connect(self._tool_install_poll_resolve_worker.run)
+        self._tool_install_poll_resolve_worker.finished.connect(self._on_tool_install_poll_resolve_finished)
+        self._tool_install_poll_resolve_worker.error.connect(self._on_tool_install_poll_resolve_error)
+        self._tool_install_poll_resolve_worker.finished.connect(self._cleanup_tool_install_poll_resolve_resources)
+        self._tool_install_poll_resolve_worker.error.connect(self._cleanup_tool_install_poll_resolve_resources)
+        self._tool_install_poll_resolve_thread.start()
+
     def _poll_running_tool_installs(self) -> None:
         if not self._installing_tool_ids:
             self._ensure_tool_install_polling()
             return
-        if self._tool_install_polling:
+        if self._tool_install_polling or self._tool_install_poll_resolving:
             return
         if not self._is_ssh_service_ready():
             return
@@ -1487,7 +1692,7 @@ class LinuxSettingsCard(QFrame):
     def _on_tool_install_poll_finished(self, rows: list[dict]) -> None:
         self._tool_install_polling = False
         need_recheck = False
-        existing_env_paths: Optional[set[str]] = None
+        resolve_rows: list[dict] = []
 
         for row in rows or []:
             tool_id = str(row.get("tool_id", "") or "").strip()
@@ -1512,10 +1717,13 @@ class LinuxSettingsCard(QFrame):
             if status_text == "DONE":
                 self._on_install_succeeded(tool_id)
                 need_recheck = True
-                try:
-                    EnvInstaller.cleanup(self._make_ssh_run_fn(), f"{_INSTALL_BASE}/{tool_id}")
-                except Exception:
-                    pass
+                resolve_rows.append(
+                    {
+                        "tool_id": tool_id,
+                        "task_dir": f"{_INSTALL_BASE}/{tool_id}",
+                        "status": "DONE",
+                    }
+                )
                 continue
 
             if status_text == "FAILED":
@@ -1530,32 +1738,13 @@ class LinuxSettingsCard(QFrame):
                 continue
 
             if status_text in ("", "RUNNING") and not session_alive:
-                if existing_env_paths is None:
-                    existing_env_paths = self._get_existing_env_paths()
-                tool = next((t for t in self._tools if t["id"] == tool_id), None)
-                if tool and self._is_tool_env_exists(tool, existing_env_paths):
-                    self._on_install_succeeded(tool_id)
-                    need_recheck = True
-                    try:
-                        EnvInstaller.cleanup(self._make_ssh_run_fn(), f"{_INSTALL_BASE}/{tool_id}")
-                    except Exception:
-                        pass
-                else:
-                    logger.info("工具 %s 安装会话已退出且状态不可靠，静默回缺失", tool_id)
-                    self._installing_tool_ids.discard(tool_id)
-                    self._tool_log_samples.pop(tool_id, None)
-                    if self._bridge:
-                        self._bridge.emit_install_finished(tool_id, False)
-                    self._update_tool_install_snapshot(
-                        tool_id,
-                        status="FAILED",
-                        message="安装会话已退出且状态不可靠，请重试安装。",
-                    )
-                    need_recheck = True
-                    try:
-                        EnvInstaller.cleanup(self._make_ssh_run_fn(), f"{_INSTALL_BASE}/{tool_id}")
-                    except Exception:
-                        pass
+                resolve_rows.append(
+                    {
+                        "tool_id": tool_id,
+                        "task_dir": f"{_INSTALL_BASE}/{tool_id}",
+                        "status": status_text or "RUNNING",
+                    }
+                )
                 continue
 
             detail = self._build_tool_install_running_detail(
@@ -1572,8 +1761,52 @@ class LinuxSettingsCard(QFrame):
             )
             self._emit_tool_install_event(tool_id, "running", detail)
 
+        if resolve_rows:
+            self._start_tool_install_poll_resolve(resolve_rows, need_recheck=need_recheck)
+            return
         if need_recheck:
             QTimer.singleShot(300, self._on_batch_check)
+        self._ensure_tool_install_polling()
+
+    def _on_tool_install_poll_resolve_finished(self, payload: object) -> None:
+        self._tool_install_poll_resolving = False
+        data = payload if isinstance(payload, dict) else {}
+        rows = list(data.get("rows", []) or [])
+        need_recheck = self._tool_install_poll_resolve_needs_recheck
+        self._tool_install_poll_resolve_needs_recheck = False
+
+        for row in rows:
+            tool_id = str(row.get("tool_id", "") or "").strip()
+            task_dir = str(row.get("task_dir", "") or f"{_INSTALL_BASE}/{tool_id}").strip()
+            env_exists = bool(row.get("env_exists", False))
+            if not tool_id or tool_id not in self._installing_tool_ids:
+                continue
+
+            if env_exists:
+                self._on_install_succeeded(tool_id)
+                continue
+
+            logger.info("工具 %s 安装会话已退出且状态不可靠，静默回缺失", tool_id)
+            self._installing_tool_ids.discard(tool_id)
+            self._tool_log_samples.pop(tool_id, None)
+            if self._bridge:
+                self._bridge.emit_install_finished(tool_id, False)
+            self._update_tool_install_snapshot(
+                tool_id,
+                status="FAILED",
+                task_dir=task_dir,
+                message="安装会话已退出且状态不可靠，请重试安装。",
+            )
+            need_recheck = True
+
+        if need_recheck:
+            QTimer.singleShot(300, self._on_batch_check)
+        self._ensure_tool_install_polling()
+
+    def _on_tool_install_poll_resolve_error(self, msg: str) -> None:
+        self._tool_install_poll_resolving = False
+        self._tool_install_poll_resolve_needs_recheck = False
+        logger.debug("轮询兜底解析失败: %s", msg)
         self._ensure_tool_install_polling()
 
     def _on_tool_install_poll_error(self, msg: str) -> None:
@@ -1600,31 +1833,7 @@ class LinuxSettingsCard(QFrame):
 
     def _is_tool_env_exists(self, tool: dict, existing_env_paths: set[str]) -> bool:
         """检查指定工具的环境是否已存在。"""
-        conda_env = tool.get("conda_env", "")
-        if not conda_env:
-            return True  # 无环境要求，视为已存在
-
-        # 使用环境名匹配（更可靠，不受 ~ 展开影响）
-        env_names = {p.rstrip("/").split("/")[-1] for p in existing_env_paths}
-        if conda_env in env_names:
-            return True
-
-        # 也可以尝试路径匹配（展开 ~）
-        expected_path = env_detector.expected_env_path(
-            self._conda_executable, conda_env
-        )
-        if expected_path and "~" in expected_path:
-            try:
-                _, stdout, _ = self._make_ssh_run_fn()(
-                    f"eval echo {expected_path}", 10
-                )
-                expanded = stdout.strip()
-                if expanded in existing_env_paths:
-                    return True
-            except Exception:
-                pass
-
-        return False
+        return _tool_env_exists_in_paths(tool, existing_env_paths, self._conda_executable)
 
     # ── 保存/锁定 ─────────────────────────────────────────
 
@@ -1710,5 +1919,7 @@ class LinuxSettingsCard(QFrame):
         cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=1000)
         cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
         cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=1000)
+        self._cleanup_recover_installs_resources()
         cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=1000)
+        self._cleanup_tool_install_poll_resolve_resources()
         super().closeEvent(event)
