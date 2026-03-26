@@ -16,6 +16,8 @@ from core.data.project_manager import ProjectInfo, _SCHEMA_SQL
 from core.execution.command_builder import CommandBuilder
 from core.execution.tool_engine import ExecutionRecord, ToolEngine
 
+_MANAGED_CONDA = "/home/user/.h2ometa/conda/bin/conda"
+
 
 class FakeSSHService:
     def __init__(self) -> None:
@@ -202,6 +204,7 @@ def engine(
         data_registry=registry,
         job_queue=queue,
         schedule_preparation_fn=scheduler,
+        conda_executable=_MANAGED_CONDA,
     )
 
 
@@ -343,6 +346,76 @@ class TestToolEngineExecute:
                 parameters={},
                 sample_id="smp_x",
             )
+
+    def test_execute_requires_managed_conda_when_env_declared(
+        self,
+        ssh: FakeSSHService,
+        plugin_registry: MagicMock,
+        pm: FakeProjectManager,
+        registry: DataRegistry,
+        queue: FakeJobQueue,
+        scheduler: FakePreparationScheduler,
+        sample_id: str,
+    ) -> None:
+        engine = ToolEngine(
+            ssh_service=ssh,
+            plugin_registry=plugin_registry,
+            project_manager=pm,
+            data_registry=registry,
+            job_queue=queue,
+            schedule_preparation_fn=scheduler,
+            conda_executable="",
+        )
+        data_id = registry.register_input("/data/r1.fq", sample_id, "fastq")
+
+        with pytest.raises(ValueError, match="运行环境未就绪"):
+            engine.execute(
+                tool_id="fastp",
+                input_data_ids=[data_id],
+                parameters={},
+                sample_id=sample_id,
+            )
+
+        row = pm.db.execute(
+            "SELECT COUNT(*) AS cnt FROM executions",
+        ).fetchone()
+        assert int(row["cnt"]) == 0
+        assert queue.submitted == []
+
+    def test_execute_rejects_non_managed_conda(
+        self,
+        ssh: FakeSSHService,
+        plugin_registry: MagicMock,
+        pm: FakeProjectManager,
+        registry: DataRegistry,
+        queue: FakeJobQueue,
+        scheduler: FakePreparationScheduler,
+        sample_id: str,
+    ) -> None:
+        engine = ToolEngine(
+            ssh_service=ssh,
+            plugin_registry=plugin_registry,
+            project_manager=pm,
+            data_registry=registry,
+            job_queue=queue,
+            schedule_preparation_fn=scheduler,
+            conda_executable="/opt/conda/bin/conda",
+        )
+        data_id = registry.register_input("/data/r1.fq", sample_id, "fastq")
+
+        with pytest.raises(ValueError, match="运行环境未就绪"):
+            engine.execute(
+                tool_id="fastp",
+                input_data_ids=[data_id],
+                parameters={},
+                sample_id=sample_id,
+            )
+
+        row = pm.db.execute(
+            "SELECT COUNT(*) AS cnt FROM executions",
+        ).fetchone()
+        assert int(row["cnt"]) == 0
+        assert queue.submitted == []
 
     def test_execute_missing_required_input_raises(self, engine: ToolEngine, sample_id: str) -> None:
         with pytest.raises(ValueError, match="缺少必需的输入"):
@@ -488,6 +561,7 @@ def test_command_builder_still_builds_fastp_command() -> None:
         input_paths={"reads_1": "/data/sample1.R1.fq.gz", **output_paths},
         output_dir=output_dir,
         sample_id="sample1",
+        conda_executable=_MANAGED_CONDA,
     )
 
     assert "fastp" in cmd
