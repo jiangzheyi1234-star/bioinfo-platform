@@ -35,6 +35,7 @@ from ui.widgets.styles import (
 )
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
 from ui.widgets.report_view import create_report_web_view
+from ui.widgets.toast import Toast
 
 from core.environment import env_detector
 from core.environment.env_detector import CondaStatus
@@ -252,6 +253,8 @@ class LinuxSettingsCard(QFrame):
         self._plugin_registry = plugin_registry
         self._conda_executable: str = ""
         self._auto_installed: bool = False
+        self._detect_interactive_request: bool = False
+        self._miniforge_installing: bool = False
 
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
@@ -284,7 +287,7 @@ class LinuxSettingsCard(QFrame):
             self._set_status("SSH 已就绪")
             # SSH 连接成功后延迟 1s 自动触发 conda 检测
             if not _is_test_mode():
-                QTimer.singleShot(1000, self._ensure_conda_ready)
+                QTimer.singleShot(1000, lambda: self._ensure_conda_ready(interactive=False))
         else:
             self._set_status("等待 SSH 连接")
 
@@ -511,18 +514,24 @@ class LinuxSettingsCard(QFrame):
 
         return run
 
-    def _ensure_conda_ready(self) -> None:
+    def _ensure_conda_ready(self, interactive: bool = False) -> None:
         """SSH 连接后的第一层检测 — 检测 conda 是否可用。
 
         成功后缓存路径、保存配置、更新 ServiceLocator，然后继续 batch check。
-        未找到时弹窗提示安装 Miniforge。
+        未找到时：
+          - 启动自动探测（非交互）: 静默安装并在状态栏提示
+          - 用户主动触发（交互）: 弹窗确认后安装
         """
         if _is_test_mode():
             return
         if not self.active_client or self._checking or self._external_lock:
             return
+        if self._miniforge_installing:
+            self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+            return
 
         self._checking = True
+        self._detect_interactive_request = interactive
         self._set_status("正在检测 conda 环境...")
 
         self._cleanup_conda_detect_resources()
@@ -548,8 +557,12 @@ class LinuxSettingsCard(QFrame):
             if not is_managed_conda_executable(result.executable or ""):
                 logger.warning("检测到非自管 conda 路径，已忽略: %s", result.executable)
                 self._conda_executable = ""
-                self._set_status("检测到非自管 conda，已拒绝", STATUS_ERROR)
-                self._prompt_miniforge_install()
+                if self._detect_interactive_request:
+                    self._set_status("检测到非自管 conda，已拒绝", STATUS_ERROR)
+                    self._prompt_miniforge_install()
+                else:
+                    self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+                    self._start_miniforge_install_silent()
                 return
             self._conda_executable = result.executable
             version_str = f" {result.version}" if result.version else ""
@@ -571,8 +584,12 @@ class LinuxSettingsCard(QFrame):
             QTimer.singleShot(500, self._recover_running_installs)
 
         elif result.status == CondaStatus.NOT_FOUND:
-            self._set_status("未检测到 conda", STATUS_ERROR)
-            self._prompt_miniforge_install()
+            if self._detect_interactive_request:
+                self._set_status("未检测到 conda", STATUS_ERROR)
+                self._prompt_miniforge_install()
+            else:
+                self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+                self._start_miniforge_install_silent()
 
     def _on_conda_detect_error(self, msg: str) -> None:
         """conda 检测出错。"""
@@ -583,26 +600,97 @@ class LinuxSettingsCard(QFrame):
         """清理 conda 检测线程资源。"""
         cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=5000)
 
+    def _cleanup_miniforge_resources(self) -> None:
+        """清理静默 Miniforge 安装线程资源。"""
+        cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=5000)
+
     def _prompt_miniforge_install(self) -> None:
-        """弹窗提示：未检测到自管 conda，引导自动安装。"""
+        """弹窗提示：未检测到自管 conda，引导后台自动安装。"""
         from PyQt6.QtWidgets import QMessageBox
 
         box = QMessageBox(self)
-        box.setWindowTitle("未检测到 conda")
+        box.setWindowTitle("首次启动初始化")
         box.setText(
-            "未检测到 H2OMeta 自管 conda。\n\n"
-            "平台将自动安装 Miniforge 到固定目录：\n"
+            "H2OMeta 需要初始化运行环境（一次性操作）。\n\n"
+            "安装目录：\n"
             "~/.h2ometa/conda\n\n"
-            "安装完成后将仅使用该路径，不依赖用户自带 conda。"
+            "不会影响服务器上已有的软件环境。"
         )
-        btn_install = box.addButton("安装 Miniforge", QMessageBox.ButtonRole.AcceptRole)
+        btn_install = box.addButton("后台自动安装", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(btn_install)
         box.exec()
 
         clicked = box.clickedButton()
         if clicked == btn_install:
-            self._start_miniforge_install()
+            self._start_miniforge_install_silent()
+
+    def _prompt_miniforge_install_failed(self, message: str) -> None:
+        """静默安装失败后弹窗提示，提供重试入口。"""
+        from PyQt6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("运行环境初始化失败")
+        box.setText(
+            "后台初始化未完成，请重试安装。\n\n"
+            f"错误信息：{message[:300]}"
+        )
+        btn_retry = box.addButton("重试安装", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("稍后处理", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_retry)
+        box.exec()
+        if box.clickedButton() == btn_retry:
+            self._start_miniforge_install_silent()
+
+    def _start_miniforge_install_silent(self) -> None:
+        """后台静默安装 Miniforge：启动时不弹窗，仅更新状态；失败时再弹提示。"""
+        if not self.active_client:
+            return
+        if self._miniforge_installing:
+            self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+            return
+
+        self._miniforge_installing = True
+        self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+        self._cleanup_miniforge_resources()
+
+        self._miniforge_thread = QThread()
+        self._miniforge_worker = MiniforgeInstallWorker(self._make_ssh_run_fn())
+        self._miniforge_worker.moveToThread(self._miniforge_thread)
+        self._miniforge_thread.started.connect(self._miniforge_worker.run)
+
+        def _on_output_line(line: str) -> None:
+            text = (line or "").strip()
+            if text:
+                logger.info("miniforge_bootstrap: %s", text)
+
+        def _on_finished(result) -> None:
+            self._miniforge_installing = False
+            if result.status == CondaStatus.OK:
+                self._conda_executable = result.executable
+                self._auto_installed = True
+                self._set_status("运行环境已就绪，正在检测工具环境...", STATUS_SUCCESS)
+                Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
+                self.request_save.emit()
+                QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
+            else:
+                msg = getattr(result, "message", "") or "安装失败"
+                self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
+                self._prompt_miniforge_install_failed(msg)
+            self._cleanup_miniforge_resources()
+
+        def _on_error(msg: str) -> None:
+            self._miniforge_installing = False
+            self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
+            self._prompt_miniforge_install_failed(msg)
+            self._cleanup_miniforge_resources()
+
+        self._miniforge_worker.output_line.connect(_on_output_line)
+        self._miniforge_worker.finished.connect(_on_finished)
+        self._miniforge_worker.error.connect(_on_error)
+
+        self._miniforge_thread.start()
 
     def _start_miniforge_install(self) -> None:
         """启动 Miniforge 安装。
@@ -693,7 +781,7 @@ class LinuxSettingsCard(QFrame):
                     except RuntimeError:
                         pass
                     install_btn.clicked.connect(dlg.accept)
-                    QTimer.singleShot(500, self._ensure_conda_ready)
+                    QTimer.singleShot(500, lambda: self._ensure_conda_ready(interactive=False))
                 else:
                     output_edit.insertPlainText(f"\n{result.message}\n")
                     status_lbl.setText("安装失败，请检查网络或手动安装。")
@@ -731,7 +819,7 @@ class LinuxSettingsCard(QFrame):
         if self._conda_executable and is_managed_conda_executable(self._conda_executable):
             self._do_batch_check()
         else:
-            self._ensure_conda_ready()
+            self._ensure_conda_ready(interactive=True)
 
     def _do_batch_check(self) -> None:
         """实际执行批量检测。"""
@@ -740,7 +828,7 @@ class LinuxSettingsCard(QFrame):
 
         if not is_managed_conda_executable(self._conda_executable):
             self._set_status("未检测到自管 conda，无法检测工具环境", STATUS_ERROR)
-            QTimer.singleShot(200, self._ensure_conda_ready)
+            QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=True))
             return
 
         if not self._tools:
@@ -885,17 +973,19 @@ class LinuxSettingsCard(QFrame):
             self._bridge.emit_install_finished(tool_id, True)
 
         tool = next((t for t in self._tools if t["id"] == tool_id), None)
+        tool_name = tool.get("name", tool_id) if tool else tool_id
 
         if tool and tool.get("databases"):
-            from PyQt6.QtWidgets import QMessageBox
-            db_ids = "\n".join(f"  • {d.get('id', '')}" for d in tool["databases"])
-            QMessageBox.information(
+            db_names = [d.get("id", "") for d in tool["databases"] if d.get("id", "")]
+            db_hint = f"，请配置数据库：{', '.join(db_names[:3])}" if db_names else "，请在数据库页配置所需数据库"
+            Toast.show_toast(
                 self,
-                "请配置数据库路径",
-                f"工具【{tool.get('name', tool_id)}】环境安装成功！\n\n"
-                f"该工具运行需要以下数据库：\n{db_ids}\n\n"
-                f"请在下方「数据库路径配置」卡片中填写对应路径。",
+                f"工具 {tool_name} 安装完成{db_hint}",
+                level="info",
+                duration_ms=4200,
             )
+        else:
+            Toast.show_toast(self, f"工具 {tool_name} 安装完成", level="success", duration_ms=3000)
 
         # 重新检测所有工具
         QTimer.singleShot(300, self._on_batch_check)
@@ -1090,4 +1180,5 @@ class LinuxSettingsCard(QFrame):
     def closeEvent(self, event) -> None:
         cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=1000)
         cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
+        cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=1000)
         super().closeEvent(event)
