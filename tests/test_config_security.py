@@ -80,3 +80,41 @@ def test_normalize_config_keeps_structured_databases():
 
     assert normalized["databases"]["db_root"] == "/data/databases"
     assert normalized["databases"]["overrides"]["kraken2"] == "/custom/kraken2"
+
+
+def test_default_schema_runtime_has_conda_profiles():
+    schema = config.default_settings_schema()
+    assert "conda_profiles" in schema["runtime"]
+    assert schema["runtime"]["conda_profiles"] == {}
+
+
+def test_normalize_config_runtime_conda_profiles_invalid_type_resets():
+    data = config.default_settings_schema()
+    data["runtime"]["conda_profiles"] = "invalid"
+
+    normalized = config.normalize_config(data)
+
+    assert normalized["runtime"]["conda_profiles"] == {}
+
+
+def test_save_config_keeps_runtime_conda_profiles(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.json"
+    monkeypatch.setattr(config, "_CONFIG_PATH", cfg_path)
+
+    schema = config.default_settings_schema()
+    schema["runtime"]["conda_profiles"] = {
+        "fp:abc|u:root|p:22": {
+            "conda_executable": "/home/root/.h2ometa/conda/bin/conda",
+            "fingerprint": "abc",
+            "user": "root",
+            "port": 22,
+            "host": "10.0.0.1",
+            "updated_at": 1.0,
+        }
+    }
+
+    config.save_config(schema)
+    stored = _read_json(cfg_path)
+
+    assert "conda_profiles" in stored["runtime"]
+    assert "fp:abc|u:root|p:22" in stored["runtime"]["conda_profiles"]

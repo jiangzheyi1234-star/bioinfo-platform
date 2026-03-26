@@ -90,6 +90,7 @@ def default_settings_schema() -> dict[str, Any]:
             "db_connect_timeout_sec": 20,
             "db_busy_timeout_ms": 20000,
             "db_journal_mode": "delete",
+            "conda_profiles": {},
         },
     }
 
@@ -173,6 +174,14 @@ def normalize_config(data: Any) -> dict[str, Any]:
                 schema[section].update(section_data)
 
     schema["version"] = CONFIG_VERSION
+    runtime_profiles = schema["runtime"].get("conda_profiles", {})
+    if not isinstance(runtime_profiles, dict):
+        schema["runtime"]["conda_profiles"] = {}
+    else:
+        schema["runtime"]["conda_profiles"] = {
+            str(k): v for k, v in runtime_profiles.items()
+            if isinstance(v, dict)
+        }
     schema["runtime"]["local_output_dir"] = ensure_output_dir(str(schema["runtime"].get("local_output_dir") or ""))
     return schema
 
