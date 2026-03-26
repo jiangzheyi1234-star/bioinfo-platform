@@ -9,16 +9,6 @@ except Exception:  # pragma: no cover
     NcbiSettingsCard = None  # type: ignore
 
 try:
-    from .blast_settings_card import BlastSettingsCard
-except Exception:  # pragma: no cover
-    BlastSettingsCard = None  # type: ignore
-
-try:
-    from .blast_resource_card import BlastResourceCard
-except Exception:  # pragma: no cover
-    BlastResourceCard = None  # type: ignore
-
-try:
     from .blast_sample_card import BlastSampleCard
 except Exception:  # pragma: no cover
     BlastSampleCard = None  # type: ignore
@@ -124,8 +114,7 @@ except Exception:  # pragma: no cover
 from . import styles
 
 __all__ = [
-    "SshSettingsCard", "NcbiSettingsCard", "BlastSettingsCard",
-    "BlastResourceCard", "BlastSampleCard", "BlastRunCard",
+    "SshSettingsCard", "NcbiSettingsCard", "BlastSampleCard", "BlastRunCard",
     "LinuxSettingsCard", "TaskHistoryCard", "StageStatusWidget",
     "ExecutionHistoryCard", "ExportDialog", "DatabasePathsCard",
     "ChartWidget", "ResultsPanel", "RemoteFileDialog", "EnvironmentStatusBar", "InputDataSelector",

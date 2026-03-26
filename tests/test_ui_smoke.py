@@ -105,9 +105,9 @@ class TestUIImports:
         assert all([DetectionPage, HomePage, SettingsPage])
 
     def test_import_widgets(self):
-        from ui.widgets import BlastResourceCard, BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget
+        from ui.widgets import BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget
 
-        assert all([BlastResourceCard, BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget])
+        assert all([BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget])
 
 
 class TestMainWindowStartup:
