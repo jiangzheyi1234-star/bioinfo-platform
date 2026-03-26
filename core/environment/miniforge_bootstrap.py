@@ -22,12 +22,17 @@ _STATUS_ORDER_HINT = ("status.txt", "exit_code.txt", "heartbeat.txt")
 
 _CONDARC_TEMPLATE = """\
 channels:
-  - conda-forge
-  - bioconda
-channel_priority: strict
+  - defaults
+custom_channels:
+  conda-forge: https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud
+  bioconda: https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud
+  defaults: https://mirrors.tuna.tsinghua.edu.cn/anaconda
+channel_priority: flexible
 remote_connect_timeout_secs: 30
-remote_read_timeout_secs: 60
+remote_read_timeout_secs: 90
 remote_max_retries: 5
+show_channel_urls: true
+auto_activate_base: false
 """
 
 _BOOTSTRAP_WRAPPER = r"""#!/bin/bash
@@ -79,13 +84,67 @@ if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
     exit 2
 fi
 
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$INSTALLER" "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${{ARCH}}.sh"
-elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$INSTALLER" "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${{ARCH}}.sh"
-else
+HAS_CURL=0
+HAS_WGET=0
+command -v curl >/dev/null 2>&1 && HAS_CURL=1 || true
+command -v wget >/dev/null 2>&1 && HAS_WGET=1 || true
+if [ "$HAS_CURL" -eq 0 ] && [ "$HAS_WGET" -eq 0 ]; then
     echo "curl/wget not found" >&2
     exit 3
+fi
+
+_download_one() {{
+    local url="$1"
+    local ok=1
+
+    rm -f "$INSTALLER"
+    if [ "$HAS_CURL" -eq 1 ]; then
+        if curl -fsSL --connect-timeout 15 --max-time 120 -o "$INSTALLER" "$url"; then
+            ok=0
+        fi
+    fi
+    if [ "$ok" -ne 0 ] && [ "$HAS_WGET" -eq 1 ]; then
+        if wget -q --timeout=120 -O "$INSTALLER" "$url"; then
+            ok=0
+        fi
+    fi
+    if [ "$ok" -ne 0 ]; then
+        return 1
+    fi
+
+    local size
+    size="$(stat -c%s "$INSTALLER" 2>/dev/null || echo 0)"
+    if [ "$size" -lt 1000000 ]; then
+        echo "installer too small: $size bytes, url=$url" >&2
+        rm -f "$INSTALLER"
+        return 1
+    fi
+    if ! head -n 1 "$INSTALLER" | grep -q '^#!'; then
+        echo "installer shebang check failed, url=$url" >&2
+        rm -f "$INSTALLER"
+        return 1
+    fi
+    return 0
+}}
+
+DOWNLOAD_OK=0
+for URL in \
+    "https://mirrors.tuna.tsinghua.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-Linux-${{ARCH}}.sh" \
+    "https://mirrors.bfsu.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-Linux-${{ARCH}}.sh" \
+    "https://mirrors.ustc.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-Linux-${{ARCH}}.sh" \
+    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${{ARCH}}.sh"
+do
+    echo "Trying Miniforge mirror: $URL"
+    if _download_one "$URL"; then
+        DOWNLOAD_OK=1
+        echo "Downloaded Miniforge installer from: $URL"
+        break
+    fi
+done
+
+if [ "$DOWNLOAD_OK" -ne 1 ]; then
+    echo "all miniforge mirrors failed" >&2
+    exit 4
 fi
 
 mkdir -p "$(dirname "$CONDA_HOME")"
@@ -95,8 +154,6 @@ rm -f "$INSTALLER"
 mkdir -p "$(dirname "$CONDARC_PATH")"
 echo "$CONDARC_B64" | base64 -d > "$CONDARC_PATH"
 
-"$CONDA_EXE" config --add channels bioconda || true
-"$CONDA_EXE" config --set channel_priority strict || true
 "$CONDA_EXE" --version
 """
 
