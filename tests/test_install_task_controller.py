@@ -100,3 +100,21 @@ def test_ingest_event_is_idempotent_for_same_task():
     assert len(rows) == 1
     assert rows[0]["state"] == "success"
 
+
+def test_summary_running_includes_download_speed():
+    ctrl = InstallTaskController()
+    ctrl.ingest_event(
+        {
+            "task_id": "db:nt",
+            "title": "数据库安装 · nt",
+            "source": "db",
+            "state": "running",
+            "detail": "35% · 速度 2.1MB/s · 预计 00:10",
+        }
+    )
+
+    summary = ctrl.summary()
+    text = str(summary["text"])
+    assert summary["level"] == "running"
+    assert "2.1MB/s" in text
+    assert "35%" in text

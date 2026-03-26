@@ -94,9 +94,10 @@ class InstallTaskController(QObject):
 
         if running:
             current = running[0]
+            running_text = self._build_running_text(current)
             return {
                 "level": "running",
-                "text": f"安装: ⏳ 正在安装 {current['title']}...",
+                "text": running_text,
                 "running": len(running),
                 "failed": len(failed),
                 "success": len(succeeded),
@@ -139,3 +140,35 @@ class InstallTaskController(QObject):
             return "failed"
         return "running"
 
+    @staticmethod
+    def _build_running_text(current: dict) -> str:
+        title = str(current.get("title", "") or "安装任务").strip()
+        detail = str(current.get("detail", "") or "").strip()
+        progress, speed = InstallTaskController._extract_progress_and_speed(detail)
+
+        parts = []
+        if progress:
+            parts.append(progress)
+        if speed:
+            parts.append(speed)
+        if parts:
+            return f"安装: ⏳ 正在安装 {title} · {' · '.join(parts)}"
+        return f"安装: ⏳ 正在安装 {title}..."
+
+    @staticmethod
+    def _extract_progress_and_speed(detail: str) -> tuple[str, str]:
+        progress = ""
+        speed = ""
+        text = str(detail or "").strip()
+        if not text:
+            return progress, speed
+
+        segments = [seg.strip() for seg in text.split("·") if seg.strip()]
+        for seg in segments:
+            if not progress and seg.endswith("%"):
+                progress = seg
+            if seg.startswith("速度 "):
+                speed = seg[len("速度 ") :].strip()
+            elif any(unit in seg for unit in ("KB/s", "MB/s", "GB/s", "B/s")):
+                speed = seg.replace("速度", "").strip()
+        return progress, speed
