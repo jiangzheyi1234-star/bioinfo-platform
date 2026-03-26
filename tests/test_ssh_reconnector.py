@@ -225,12 +225,12 @@ class TestSSHServiceIsConnected:
         mock_transport.is_active.return_value = True
         mock_client.get_transport.return_value = mock_transport
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         assert service.is_connected is True
 
     def test_not_connected_no_client(self):
         """无 client 时返回 False"""
-        service = SSHService(client_provider=lambda: None)
+        service = SSHService(initial_client=None)
         assert service.is_connected is False
 
     def test_not_connected_transport_inactive(self):
@@ -240,7 +240,7 @@ class TestSSHServiceIsConnected:
         mock_transport.is_active.return_value = False
         mock_client.get_transport.return_value = mock_transport
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         assert service.is_connected is False
 
     def test_not_connected_transport_exception(self):
@@ -248,7 +248,7 @@ class TestSSHServiceIsConnected:
         mock_client = MagicMock(spec=paramiko.SSHClient)
         mock_client.get_transport.side_effect = Exception("transport 错误")
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         assert service.is_connected is False
 
 
@@ -259,21 +259,21 @@ class TestSSHServiceReconnectIntegration:
         """提供 connect_fn 时应创建 reconnector"""
         connect_fn = MagicMock()
         service = SSHService(
-            client_provider=lambda: None,
+            initial_client=None,
             connect_fn=connect_fn,
         )
         assert service.reconnector is not None
 
     def test_reconnector_not_created_without_connect_fn(self):
         """未提供 connect_fn 时不应创建 reconnector"""
-        service = SSHService(client_provider=lambda: None)
+        service = SSHService(initial_client=None)
         assert service.reconnector is None
 
     def test_ensure_connection_triggers_reconnect(self):
         """连接不可用时应触发重连"""
         connect_fn = MagicMock()
         service = SSHService(
-            client_provider=lambda: None,
+            initial_client=None,
             connect_fn=connect_fn,
         )
 
@@ -289,7 +289,7 @@ class TestSSHServiceReconnectIntegration:
         """已在重连时不应重复触发"""
         connect_fn = MagicMock()
         service = SSHService(
-            client_provider=lambda: None,
+            initial_client=None,
             connect_fn=connect_fn,
         )
 
@@ -307,7 +307,7 @@ class TestSSHServiceReconnectIntegration:
         """重连成功时应发出 connection_status_changed(True)"""
         connect_fn = MagicMock()
         service = SSHService(
-            client_provider=lambda: None,
+            initial_client=None,
             connect_fn=connect_fn,
         )
 
@@ -323,7 +323,7 @@ class TestSSHServiceReconnectIntegration:
         """连接丢失时应发出 connection_status_changed(False)"""
         connect_fn = MagicMock()
         service = SSHService(
-            client_provider=lambda: None,
+            initial_client=None,
             connect_fn=connect_fn,
         )
 
@@ -337,7 +337,7 @@ class TestSSHServiceReconnectIntegration:
         """重连失败时应发出 connection_status_changed(False)"""
         connect_fn = MagicMock()
         service = SSHService(
-            client_provider=lambda: None,
+            initial_client=None,
             connect_fn=connect_fn,
         )
 
@@ -346,6 +346,36 @@ class TestSSHServiceReconnectIntegration:
 
         service._on_reconnect_failed("超过最大重试次数")
         status_spy.assert_called_with(False)
+
+    def test_reconnected_client_replaces_active_client(self):
+        """重连成功后应仅保留新 client 为活动连接"""
+        connect_fn = MagicMock()
+        old_client = MagicMock(spec=paramiko.SSHClient)
+        new_client = MagicMock(spec=paramiko.SSHClient)
+        service = SSHService(initial_client=old_client, connect_fn=connect_fn)
+
+        service._on_reconnected(new_client)
+
+        assert service._client() is new_client
+        old_client.close.assert_called_once()
+
+    def test_ensure_connection_never_falls_back_to_old_client(self):
+        """新 client 失效时不应回退到旧 client，应直接触发重连"""
+        connect_fn = MagicMock()
+        old_client = MagicMock(spec=paramiko.SSHClient)
+        new_client = MagicMock(spec=paramiko.SSHClient)
+        service = SSHService(initial_client=old_client, connect_fn=connect_fn)
+        service._on_reconnected(new_client)
+
+        service.reconnector.start = MagicMock()
+        service._check_transport = MagicMock(return_value=False)
+
+        with pytest.raises(RuntimeError, match="SSH 未连接"):
+            service._ensure_connection()
+
+        service.reconnector.start.assert_called_once()
+        checked_clients = [call.args[0] for call in service._check_transport.call_args_list]
+        assert checked_clients == [new_client]
 
 
 class TestSSHServiceRun:
@@ -358,7 +388,7 @@ class TestSSHServiceRun:
         mock_transport.is_active.return_value = True
         mock_client.get_transport.return_value = mock_transport
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         return service, mock_client
 
     def test_run_success(self):
@@ -380,7 +410,7 @@ class TestSSHServiceRun:
 
     def test_run_disconnected_raises(self):
         """连接断开时 run 应抛异常"""
-        service = SSHService(client_provider=lambda: None)
+        service = SSHService(initial_client=None)
 
         with pytest.raises(RuntimeError, match="SSH 未连接"):
             service.run("echo test")
@@ -395,7 +425,7 @@ class TestSSHServiceFileTransfer:
         mock_transport.is_active.return_value = True
         mock_client.get_transport.return_value = mock_transport
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         return service, mock_client
 
     def test_upload(self):
@@ -438,7 +468,7 @@ class TestSSHServiceLegacyCompat:
         mock_stderr.read.return_value = b""
         mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         assert service.check_command_exists("python3") is True
 
     def test_check_command_exists_not_found(self):
@@ -455,7 +485,7 @@ class TestSSHServiceLegacyCompat:
         mock_stderr.read.return_value = b""
         mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         assert service.check_command_exists("nonexistent") is False
 
     def test_list_screen_sessions_empty(self):
@@ -472,15 +502,16 @@ class TestSSHServiceLegacyCompat:
         mock_stderr.read.return_value = b""
         mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
 
-        service = SSHService(client_provider=lambda: mock_client)
+        service = SSHService(initial_client=mock_client)
         assert service.list_screen_sessions() == []
 
     def test_check_screen_session_disconnected(self):
         """断连时 check_screen_session 应返回 False"""
-        service = SSHService(client_provider=lambda: None)
+        service = SSHService(initial_client=None)
         assert service.check_screen_session("test") is False
 
     def test_kill_screen_session_disconnected(self):
         """断连时 kill_screen_session 应返回 False"""
-        service = SSHService(client_provider=lambda: None)
+        service = SSHService(initial_client=None)
         assert service.kill_screen_session("test") is False
+
