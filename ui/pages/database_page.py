@@ -471,6 +471,8 @@ class DatabaseSettingsDialog(QDialog):
 
 
 class DatabasePage(BasePage):
+    install_task_event = pyqtSignal(dict)
+
     def __init__(self):
         super().__init__("数据库管理")
         self.label.hide()
@@ -597,6 +599,24 @@ class DatabasePage(BasePage):
 
     def _get_db_root(self) -> str:
         return str(self._db_root_value or "").strip()
+
+    def _emit_install_task_event(self, db_id: str, state: str, detail: str = "") -> None:
+        db_key = str(db_id or "").strip()
+        if not db_key:
+            return
+        info = self._database_service.get_info(db_key)
+        title = f"数据库安装 · {info.name if info else db_key}"
+        payload = {
+            "task_id": f"db:{db_key}",
+            "title": title,
+            "source": "db",
+            "state": str(state or "").strip().lower() or "running",
+            "detail": str(detail or "").strip(),
+        }
+        try:
+            self.install_task_event.emit(payload)
+        except RuntimeError:
+            logger.debug("Skipped install_task_event emit on deleted page", exc_info=True)
 
     def _save_db_root(self, raw_input: str = "", done_cb: Optional[Callable[[bool], None]] = None) -> bool:
         if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
@@ -1005,6 +1025,7 @@ class DatabasePage(BasePage):
                 return
             self._install_submit_pending.add(db_id)
             card.set_installing(True)
+            self._emit_install_task_event(db_id, "running", "正在提交安装任务")
 
             started = self._start_async_task(
                 f"submit_install:{db_id}",
@@ -1020,6 +1041,7 @@ class DatabasePage(BasePage):
             if not started:
                 self._install_submit_pending.discard(db_id)
                 card.set_installing(False)
+                self._emit_install_task_event(db_id, "failed", "安装提交任务已在执行")
                 QMessageBox.warning(self, "数据库安装", "安装提交任务已在执行，请稍候。")
                 return
         except Exception as exc:
@@ -1028,6 +1050,7 @@ class DatabasePage(BasePage):
             if card is not None:
                 card.set_installing(False)
             logger.exception("install_submit_error db_id=%s error=%s", db_id, exc)
+            self._emit_install_task_event(db_id, "failed", f"提交安装任务失败: {exc}")
             QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {exc}")
 
     def _on_install_submit_success(self, db_id: str, result: dict) -> None:
@@ -1037,6 +1060,7 @@ class DatabasePage(BasePage):
         if not task_dir:
             self._on_install_submit_failed(db_id, "返回的任务目录为空")
             return
+        self._emit_install_task_event(db_id, "running", "安装任务已提交，正在拉取进度")
         self._start_install_monitor(db_id, task_dir)
 
     def _on_install_submit_failed(self, db_id: str, error: str) -> None:
@@ -1045,6 +1069,7 @@ class DatabasePage(BasePage):
         card = self._cards.get(db_id)
         if card is not None:
             card.set_installing(False)
+        self._emit_install_task_event(db_id, "failed", str(error or "提交安装任务失败"))
         QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {error}")
 
     def _start_install_monitor(self, db_id: str, task_dir: str) -> None:
@@ -1085,6 +1110,12 @@ class DatabasePage(BasePage):
         dialog = self._dialogs.get(db_id)
         if dialog:
             dialog.update_progress(percent, speed, eta)
+        detail_parts = [f"{int(percent)}%"]
+        if str(speed or "").strip():
+            detail_parts.append(f"速度 {speed}")
+        if str(eta or "").strip():
+            detail_parts.append(f"预计 {eta}")
+        self._emit_install_task_event(db_id, "running", " · ".join(detail_parts))
 
     def _on_log_updated(self, db_id: str, log_text: str) -> None:
         dialog = self._dialogs.get(db_id)
@@ -1099,6 +1130,11 @@ class DatabasePage(BasePage):
         dialog = self._dialogs.get(db_id)
         if dialog:
             dialog.show_result(success, message)
+        self._emit_install_task_event(
+            db_id,
+            "success" if success else "failed",
+            str(message or "").strip(),
+        )
         self._refresh_all_status()
 
     def _on_path_override(self, db_id: str) -> None:
@@ -1135,6 +1171,7 @@ class DatabasePage(BasePage):
         dialog = self._dialogs.pop(db_id, None)
         if dialog:
             dialog.reject()
+        self._emit_install_task_event(db_id, "failed", "用户已取消安装任务")
 
     def closeEvent(self, event) -> None:
         self._cleanup_status_worker()
