@@ -8,7 +8,9 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from config import get_config
 from core.data.data_registry import DataRegistry
+from core.environment.h2o_env_paths import is_managed_conda_executable
 from core.data.project_manager import ProjectManager
 from core.execution.command_builder import CommandBuilder
 from core.execution.execution_preparer import ExecutionPreparer, PreparationRequest, PreparationResult
@@ -60,6 +62,7 @@ class ServiceLocator(QObject):
         self._shutting_down = False
 
     def initialize(self) -> int:
+        self._hydrate_conda_executable_from_config()
         count = self._plugin_registry.scan()
         logger.info("ServiceLocator initialized: scanned %d plugins", count)
         self._connect_signals()
@@ -71,6 +74,27 @@ class ServiceLocator(QObject):
             self._rebuild_registry_and_engine()
 
         return count
+
+    def _hydrate_conda_executable_from_config(self) -> None:
+        """Load managed conda path from config early to avoid startup empty window."""
+        if self._conda_executable:
+            return
+        try:
+            cfg = get_config()
+            linux = cfg.get("linux", {}) if isinstance(cfg, dict) else {}
+            conda_path = str(linux.get("conda_executable", "") or "").strip()
+        except Exception:
+            logger.exception("Failed to read conda path from config")
+            return
+
+        if not conda_path:
+            return
+
+        if not is_managed_conda_executable(conda_path):
+            logger.warning("Ignoring non-managed conda path from config: %s", conda_path)
+            return
+
+        self.conda_executable = conda_path
 
     @property
     def ssh_service(self) -> Optional[SSHService]:

@@ -487,9 +487,40 @@ class TestServiceLocatorShutdown:
 
 
 class TestServiceLocatorCondaExecutable:
-    def test_conda_executable_default_empty(self, tmp_path) -> None:
+    def test_conda_executable_default_empty(self, tmp_path, monkeypatch) -> None:
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
+        monkeypatch.setattr(
+            "core.service_locator.get_config",
+            lambda: {"linux": {"conda_executable": ""}},
+        )
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+
+        assert locator.conda_executable == ""
+
+    def test_initialize_loads_managed_conda_from_config(self, tmp_path, monkeypatch) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        managed = "/home/user/.h2ometa/conda/bin/conda"
+        monkeypatch.setattr(
+            "core.service_locator.get_config",
+            lambda: {"linux": {"conda_executable": managed}},
+        )
+
+        locator = ServiceLocator(plugins_dir=plugins_dir)
+        locator.initialize()
+
+        assert locator.conda_executable == managed
+
+    def test_initialize_ignores_non_managed_conda_from_config(self, tmp_path, monkeypatch) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        monkeypatch.setattr(
+            "core.service_locator.get_config",
+            lambda: {"linux": {"conda_executable": "/opt/conda/bin/conda"}},
+        )
 
         locator = ServiceLocator(plugins_dir=plugins_dir)
         locator.initialize()
