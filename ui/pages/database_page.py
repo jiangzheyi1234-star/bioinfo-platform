@@ -475,6 +475,7 @@ class DatabasePage(BasePage):
         super().__init__("数据库管理")
         self.label.hide()
         self._ssh_client = None
+        self._ssh_service = None
         self._db_root_value = ""
         self._database_service = DatabaseService()
         self._cards: dict[str, DatabaseItemCard] = {}
@@ -598,7 +599,7 @@ class DatabasePage(BasePage):
         return str(self._db_root_value or "").strip()
 
     def _save_db_root(self, raw_input: str = "", done_cb: Optional[Callable[[bool], None]] = None) -> bool:
-        if self._ssh_client is None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             QMessageBox.warning(self, "数据库配置", "请先连接 SSH，再保存数据库根目录。")
             if done_cb:
                 done_cb(False)
@@ -695,7 +696,7 @@ class DatabasePage(BasePage):
         dialog.exec()
 
     def _pick_remote_db_root(self, start_path: str = "", anchor=None) -> str:
-        if self._ssh_client is None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             QMessageBox.warning(self, "目录浏览", "请先连接 SSH，再浏览远程目录。")
             return ""
         start_path = start_path or self._get_db_root() or "~"
@@ -766,7 +767,7 @@ class DatabasePage(BasePage):
         return True, resolved, dirs, ""
 
     def _list_remote_directories_async(self, raw_path: str, done_cb: Callable[[bool, str, list[str], str], None]) -> None:
-        if self._ssh_client is None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             done_cb(False, "", [], "请先连接 SSH，再浏览远程目录。")
             return
 
@@ -780,7 +781,7 @@ class DatabasePage(BasePage):
             done_cb(False, "", [], "目录读取任务正在进行，请稍候重试。")
 
     def _collect_db_root_info(self, raw_path: str) -> dict[str, str]:
-        if self._ssh_client is None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             return {"resolved": "--"}
         candidate = str(raw_path or "").strip() or "~"
         resolved = self._expand_remote_path(candidate)
@@ -906,25 +907,31 @@ class DatabasePage(BasePage):
 
     def set_active_client(self, client) -> None:
         self._ssh_client = client
-        if client is None:
+        if client is None and self._ssh_service is None:
+            for card in self._cards.values():
+                card.update_status(DatabaseCheckResult(db_id=card.db_info.db_id, status=DatabaseStatus.UNKNOWN))
+            return
+        self._refresh_all_status()
+
+    def set_ssh_service(self, ssh_service) -> None:
+        self._ssh_service = ssh_service
+        if ssh_service is None and self._ssh_client is None:
             for card in self._cards.values():
                 card.update_status(DatabaseCheckResult(db_id=card.db_info.db_id, status=DatabaseStatus.UNKNOWN))
             return
         self._refresh_all_status()
 
     def refresh_context(self) -> None:
-        if self._ssh_client is not None:
+        if self._ssh_service is not None or self._ssh_client is not None:
             self._refresh_all_status()
 
     def _make_ssh_run_fn(self):
-        client = self._ssh_client
-        if client is None:
-            raise RuntimeError("SSH client is not connected")
+        ssh = self._ssh_service
+        if ssh is None:
+            raise RuntimeError("SSH service is not connected")
+
         def _run(cmd: str, timeout: int = 15):
-            stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-            del stdin
-            rc = stdout.channel.recv_exit_status()
-            return rc, stdout.read().decode(errors="replace"), stderr.read().decode(errors="replace")
+            return ssh.run(cmd, timeout=timeout)
         return _run
 
     def _cleanup_status_worker(self) -> None:
@@ -938,7 +945,7 @@ class DatabasePage(BasePage):
         self._status_thread = None
 
     def _refresh_all_status(self) -> None:
-        if self._ssh_client is None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             return
         from PyQt6.QtCore import QThread
         self._cleanup_status_worker()
@@ -965,51 +972,66 @@ class DatabasePage(BasePage):
         self._cleanup_status_worker()
 
     def _on_install_clicked(self, db_id: str) -> None:
-        if self._ssh_client is None:
-            QMessageBox.warning(self, "数据库安装", "请先连接 SSH。")
-            return
-        info = self._database_service.get_info(db_id)
-        if info is None:
-            return
         try:
-            commands = self._database_service.generate_install_commands(db_id, self._get_db_root())
+            logger.info("install_confirm_click db_id=%s", db_id)
+            if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
+                QMessageBox.warning(self, "数据库安装", "请先连接 SSH。")
+                return
+            info = self._database_service.get_info(db_id)
+            if info is None:
+                return
+            try:
+                commands = self._database_service.generate_install_commands(db_id, self._get_db_root())
+            except Exception as exc:
+                QMessageBox.warning(self, "数据库安装", str(exc))
+                return
+            dialog = DatabaseInstallDialog(info, commands, parent=self)
+            self._dialogs[db_id] = dialog
+            dialog.install_confirmed.connect(self._submit_install_async)
+            dialog.install_cancelled.connect(lambda _: self._dialogs.pop(db_id, None))
+            dialog.show()
         except Exception as exc:
-            QMessageBox.warning(self, "数据库安装", str(exc))
-            return
-        dialog = DatabaseInstallDialog(info, commands, parent=self)
-        self._dialogs[db_id] = dialog
-        dialog.install_confirmed.connect(self._submit_install_async)
-        dialog.install_cancelled.connect(lambda _: self._dialogs.pop(db_id, None))
-        dialog.show()
+            logger.exception("install_confirm_click_error db_id=%s error=%s", db_id, exc)
+            QMessageBox.warning(self, "数据库安装", f"打开安装窗口失败: {exc}")
 
     def _submit_install_async(self, db_id: str, mirror_index: int) -> None:
-        if db_id in self._install_submit_pending:
-            QMessageBox.information(self, "数据库安装", "该数据库安装任务正在提交，请稍候。")
-            return
-        card = self._cards.get(db_id)
-        if card is None:
-            return
-        self._install_submit_pending.add(db_id)
-        card.set_installing(True)
+        try:
+            logger.info("install_submit_begin db_id=%s mirror_index=%s", db_id, mirror_index)
+            if db_id in self._install_submit_pending:
+                QMessageBox.information(self, "数据库安装", "该数据库安装任务正在提交，请稍候。")
+                return
+            card = self._cards.get(db_id)
+            if card is None:
+                return
+            self._install_submit_pending.add(db_id)
+            card.set_installing(True)
 
-        started = self._start_async_task(
-            f"submit_install:{db_id}",
-            lambda: self._database_service.submit_install(
-                self._make_ssh_run_fn(),
-                db_id=db_id,
-                db_root=self._get_db_root(),
-                mirror_index=mirror_index,
-            ),
-            on_success=lambda result: self._on_install_submit_success(db_id, result),
-            on_error=lambda err: self._on_install_submit_failed(db_id, err),
-        )
-        if not started:
+            started = self._start_async_task(
+                f"submit_install:{db_id}",
+                lambda: self._database_service.submit_install(
+                    self._make_ssh_run_fn(),
+                    db_id=db_id,
+                    db_root=self._get_db_root(),
+                    mirror_index=mirror_index,
+                ),
+                on_success=lambda result: self._on_install_submit_success(db_id, result),
+                on_error=lambda err: self._on_install_submit_failed(db_id, err),
+            )
+            if not started:
+                self._install_submit_pending.discard(db_id)
+                card.set_installing(False)
+                QMessageBox.warning(self, "数据库安装", "安装提交任务已在执行，请稍候。")
+                return
+        except Exception as exc:
             self._install_submit_pending.discard(db_id)
-            card.set_installing(False)
-            QMessageBox.warning(self, "数据库安装", "安装提交任务已在执行，请稍候。")
-            return
+            card = self._cards.get(db_id)
+            if card is not None:
+                card.set_installing(False)
+            logger.exception("install_submit_error db_id=%s error=%s", db_id, exc)
+            QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {exc}")
 
     def _on_install_submit_success(self, db_id: str, result: dict) -> None:
+        logger.info("install_submit_end db_id=%s rc=0", db_id)
         self._install_submit_pending.discard(db_id)
         task_dir = str(result.get("task_dir", "") or "").strip()
         if not task_dir:
@@ -1018,6 +1040,7 @@ class DatabasePage(BasePage):
         self._start_install_monitor(db_id, task_dir)
 
     def _on_install_submit_failed(self, db_id: str, error: str) -> None:
+        logger.warning("install_submit_end db_id=%s rc=-1 error=%s", db_id, error)
         self._install_submit_pending.discard(db_id)
         card = self._cards.get(db_id)
         if card is not None:
@@ -1079,7 +1102,7 @@ class DatabasePage(BasePage):
         self._refresh_all_status()
 
     def _on_path_override(self, db_id: str) -> None:
-        if self._ssh_client is None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             QMessageBox.warning(self, "数据库路径覆盖", "请先连接 SSH，再选择已有路径。")
             return
 
