@@ -697,6 +697,17 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
 
     card = LinuxSettingsCard()
     monkeypatch.setattr(card, "_make_ssh_run_fn", lambda: MagicMock())
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+
+    finished = {"count": 0}
+
+    class _Bridge:
+        @staticmethod
+        def emit_install_finished(_tool_id, _success):
+            finished["count"] += 1
+
+    card._bridge = _Bridge()
 
     def raise_dialog_error(*args, **kwargs):
         raise RuntimeError("dialog boom")
@@ -712,6 +723,8 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
 
     assert card.status_label.text() == "打开安装窗口失败: fastp"
     assert len(critical_calls) == 1
+    assert finished["count"] == 0
+    assert events == []
 
     card.close()
 
@@ -752,8 +765,9 @@ def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, mo
     dialogs = []
 
     class _FakeDialog:
-        def __init__(self, tool, parent=None):
+        def __init__(self, tool, conda_executable="", parent=None):
             self.tool = tool
+            self.conda_executable = conda_executable
             self.parent = parent
             self.install_requested = _Signal()
             self.applied = []
@@ -775,6 +789,74 @@ def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, mo
     card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
 
     assert dialogs
+    assert dialogs[0].conda_executable == card._conda_executable
     assert dialogs[0].applied and dialogs[0].applied[0].get("status") == "RUNNING"
     assert submit_called["count"] == 0
+    card.close()
+
+
+def test_linux_settings_dialog_exec_error_keeps_running_install(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    card._installing_tool_ids.add("fastp")
+    card._tool_install_snapshots["fastp"] = {
+        "tool_id": "fastp",
+        "status": "RUNNING",
+        "message": "安装中……",
+    }
+
+    finished = {"count": 0}
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+
+    class _Bridge:
+        @staticmethod
+        def emit_install_finished(_tool_id, _success):
+            finished["count"] += 1
+
+    card._bridge = _Bridge()
+
+    critical_calls = []
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QMessageBox.critical",
+        lambda *args: critical_calls.append(args),
+    )
+
+    class _Signal:
+        def __init__(self):
+            self._handler = None
+
+        def connect(self, handler):
+            self._handler = handler
+
+    class _FakeDialog:
+        def __init__(self, tool, conda_executable="", parent=None):
+            self.tool = tool
+            self.conda_executable = conda_executable
+            self.parent = parent
+            self.install_requested = _Signal()
+
+        def on_snapshot_updated(self, tool_id, snapshot):
+            return None
+
+        def apply_install_snapshot(self, snapshot):
+            return None
+
+        def exec(self):
+            raise RuntimeError("exec boom")
+
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+
+    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+
+    assert "fastp" in card._installing_tool_ids
+    assert finished["count"] == 0
+    assert events == []
+    assert card.status_label.text() == "安装窗口异常关闭，后台任务仍在继续: fastp"
+    assert len(critical_calls) == 1
+
     card.close()

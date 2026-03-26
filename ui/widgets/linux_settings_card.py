@@ -1053,12 +1053,25 @@ class LinuxSettingsCard(QFrame):
 
     def _do_install_tool(self, tool: dict) -> None:
         """实际执行安装工具。"""
+        tool_name = tool.get("name") or tool.get("id") or "未知工具"
+        tool_id = str(tool.get("id", "") or "").strip()
+        dlg = None
         try:
-            dlg = EnvInstallDialog(tool, parent=self)
+            dlg = EnvInstallDialog(tool, conda_executable=self._conda_executable, parent=self)
+        except Exception as exc:
+            logger.exception("打开安装对话框失败: tool=%s", tool_name)
+            self._set_status(f"打开安装窗口失败: {tool_name}", STATUS_ERROR)
+            QMessageBox.critical(
+                self,
+                "安装窗口打开失败",
+                f"工具【{tool_name}】的安装窗口打开失败。\n\n错误信息：{exc}",
+            )
+            return
+
+        try:
             dlg.install_requested.connect(self._on_dialog_install_requested)
             self.tool_install_snapshot_updated.connect(dlg.on_snapshot_updated)
 
-            tool_id = str(tool.get("id", "") or "").strip()
             snapshot = self._get_tool_install_snapshot(tool_id)
             if not snapshot and tool_id in self._installing_tool_ids:
                 snapshot = self._update_tool_install_snapshot(
@@ -1076,22 +1089,27 @@ class LinuxSettingsCard(QFrame):
                 dlg.apply_install_snapshot(snapshot)
             dlg.exec()
         except Exception as exc:
-            tool_name = tool.get("name") or tool.get("id") or "未知工具"
-            tool_id = tool.get("id", "")
-            logger.exception("打开安装对话框失败: tool=%s", tool_name)
-            # 从安装中集合移除
-            self._installing_tool_ids.discard(tool_id)
-            self._set_status(f"打开安装窗口失败: {tool_name}", STATUS_ERROR)
-            # 通知 JS 安装失败
-            if self._bridge:
-                self._bridge.emit_install_finished(tool_id, False)
-            if tool_id:
-                self._emit_tool_install_event(tool_id, "failed", f"打开安装窗口失败: {exc}")
+            logger.exception("安装对话框运行异常: tool=%s", tool_name)
+            active_install = tool_id in self._installing_tool_ids or tool_id in self._tool_install_submitting_ids
+            if active_install:
+                self._set_status(f"安装窗口异常关闭，后台任务仍在继续: {tool_name}", STATUS_NEUTRAL)
+                message = (
+                    f"工具【{tool_name}】的安装窗口运行异常，但后台安装任务仍会继续。\n\n"
+                    f"错误信息：{exc}"
+                )
+            else:
+                self._set_status(f"打开安装窗口失败: {tool_name}", STATUS_ERROR)
+                message = f"工具【{tool_name}】的安装窗口打开失败。\n\n错误信息：{exc}"
             QMessageBox.critical(
                 self,
                 "安装窗口打开失败",
-                f"工具【{tool_name}】的安装窗口打开失败。\n\n错误信息：{exc}",
+                message,
             )
+        finally:
+            try:
+                self.tool_install_snapshot_updated.disconnect(dlg.on_snapshot_updated)
+            except (TypeError, RuntimeError):
+                pass
 
     def _on_dialog_install_requested(self, tool_id: str) -> None:
         clean_tool_id = str(tool_id or "").strip()

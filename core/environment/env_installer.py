@@ -376,7 +376,6 @@ class EnvInstaller:
         Returns:
             [{"tool_id": str, "task_dir": str, "status": str}]
         """
-        base_expanded = f'"$(eval echo {_expand_path(INSTALL_BASE)})"'
         results = []
 
         try:
