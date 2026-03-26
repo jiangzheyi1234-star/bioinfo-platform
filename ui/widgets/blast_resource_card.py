@@ -18,7 +18,7 @@ class ResourceVerifyWorker(QThread):
 
     def run(self):
         try:
-            service = SSHService(self.client_provider)
+            service = SSHService(initial_client=self.client_provider())
             blast_bin = str(get_blast_setting("bin_path", "") or "").strip()
 
             if blast_bin:

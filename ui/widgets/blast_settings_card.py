@@ -37,7 +37,7 @@ class VerifyWorker(QObject):
                 self.finished.emit(False, "SSH 未连接")
                 return
 
-            ssh_service = SSHService(lambda: self.client)
+            ssh_service = SSHService(initial_client=self.client)
             
             if self.blast_bin_path and self.blast_bin_path.strip():
                 blast_path = self.blast_bin_path.strip()
@@ -439,7 +439,7 @@ fi
 echo -e '{config_content}' >> "$CONFIG_FILE"
 """
 
-            ssh_service = SSHService(lambda: client)
+            ssh_service = SSHService(initial_client=client)
             rc, out, err = ssh_service.run(cmd, timeout=10)
 
             if rc != 0:
@@ -509,6 +509,5 @@ echo -e '{config_content}' >> "$CONFIG_FILE"
             self.bin_path_input.setEnabled(False)
             self.remote_dir_input.setEnabled(False)
             self.modify_btn.setEnabled(True)
-
 
 

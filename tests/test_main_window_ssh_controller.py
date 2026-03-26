@@ -26,8 +26,8 @@ class _FakeSSHService:
     run_handler = staticmethod(lambda _cmd, _timeout=10: (0, "", ""))
     instances: list["_FakeSSHService"] = []
 
-    def __init__(self, client_provider, connect_fn=None) -> None:
-        self._client_provider = client_provider
+    def __init__(self, initial_client=None, connect_fn=None) -> None:
+        self._active_client = initial_client
         self._connect_fn = connect_fn
         self.connection_status_changed = _DummySignal()
         self.is_connected = True

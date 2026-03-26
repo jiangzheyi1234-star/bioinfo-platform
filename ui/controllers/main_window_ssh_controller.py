@@ -59,7 +59,7 @@ class MainWindowSSHController:
         ssh_cfg = self._settings_page.ssh_card.last_stable_config
         connect_fn = self._build_connect_fn(ssh_cfg) if ssh_cfg else None
         self._ssh_service_wrapper = SSHService(
-            lambda c=client: c,
+            initial_client=client,
             connect_fn=connect_fn,
         )
         self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_status_changed)

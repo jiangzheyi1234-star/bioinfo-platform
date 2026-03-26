@@ -51,23 +51,22 @@ class SSHService(QObject):
 
     def __init__(
         self,
-        client_provider: Callable[[], Optional[paramiko.SSHClient]],
+        initial_client: Optional[paramiko.SSHClient] = None,
         connect_fn: Optional[Callable[[], paramiko.SSHClient]] = None,
         max_retries: int = 5,
         parent: Optional[QObject] = None,
     ):
         """
         Args:
-            client_provider: 返回当前活跃的 paramiko.SSHClient（或 None）
+            initial_client: 初始活跃的 SSHClient（可为 None）
             connect_fn: 重连函数，调用后返回新的 SSHClient。
                         若为 None，则不启用自动重连。
             max_retries: SSHReconnector 最大重试次数，默认 5
             parent: 父 QObject
         """
         super().__init__(parent)
-        self._client_provider = client_provider
+        self._active_client: Optional[paramiko.SSHClient] = initial_client
         self._connect_fn = connect_fn
-        self._reconnected_client: Optional[paramiko.SSHClient] = None
         self._io_lock = RLock()
         self._queue: "queue.PriorityQueue[tuple[int, int, _CommandRequest | str]]" = queue.PriorityQueue()
         self._seq = 0
@@ -95,18 +94,13 @@ class SSHService(QObject):
     @property
     def is_connected(self) -> bool:
         """检查 SSH 连接是否可用"""
-        client = self._client_provider()
+        client = self._client()
         if not client:
             return False
         return self._check_transport(client)
 
     def _client(self) -> Optional[paramiko.SSHClient]:
-        # 优先使用重连后的客户端
-        if self._reconnected_client is not None:
-            if self._check_transport(self._reconnected_client):
-                return self._reconnected_client
-            self._reconnected_client = None
-        return self._client_provider()
+        return self._active_client
 
     def _check_transport(self, client: paramiko.SSHClient) -> bool:
         """检查 SSH 连接是否仍然活跃"""
@@ -135,7 +129,13 @@ class SSHService(QObject):
     def _on_reconnected(self, client: paramiko.SSHClient) -> None:
         """重连成功回调，存储新客户端"""
         logger.info("SSH 连接已恢复")
-        self._reconnected_client = client
+        old_client = self._active_client
+        self._active_client = client
+        if old_client is not None and old_client is not client:
+            try:
+                old_client.close()
+            except Exception:
+                logger.debug("Failed to close old SSH client after reconnection", exc_info=True)
         self.connection_status_changed.emit(True)
 
     def _on_connection_lost(self) -> None:
