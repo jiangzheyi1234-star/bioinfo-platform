@@ -295,6 +295,10 @@ class MainWindow(QMainWindow):
         if self._ssh_controller is None:
             return
         self._ssh_service_wrapper = self._ssh_controller.apply_active_client(client)
+        if hasattr(self, "settings_page") and self.settings_page is not None:
+            linux_card = getattr(self.settings_page, "linux_card", None)
+            if linux_card is not None and hasattr(linux_card, "set_ssh_service"):
+                linux_card.set_ssh_service(self._ssh_service_wrapper)
         if hasattr(self, "database_page") and self.database_page is not None:
             self.database_page.set_ssh_service(self._ssh_service_wrapper)
             self.database_page.set_active_client(client)
