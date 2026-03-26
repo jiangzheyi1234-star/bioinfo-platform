@@ -5,7 +5,7 @@ Create and use conda environments on remote Linux without sudo/root.
 
 ## Verified Baseline (2026-03-17)
 - SSH reachable as normal user
-- Conda path: `/home/zyserver/anaconda3/bin/conda`
+- Conda path: `~/.h2ometa/conda/bin/conda`
 - Verified command chain:
   1. `conda --version`
   2. `conda create -y -n <env> python=3.10`
@@ -13,19 +13,19 @@ Create and use conda environments on remote Linux without sudo/root.
 
 ## Standard Steps
 1. Check conda exists:
-   - `which conda`
-   - fallback fixed path `/home/zyserver/anaconda3/bin/conda`
+   - `test -x "$(eval echo ~/.h2ometa/conda/bin/conda)"`
+   - fixed path `~/.h2ometa/conda/bin/conda`
 2. Create env (no sudo):
-   - `/home/zyserver/anaconda3/bin/conda create -y -n <env> python=3.10`
+   - `~/.h2ometa/conda/bin/conda create -y -p ~/.h2ometa/conda/envs/<env> python=3.10`
 3. Install deps in env (no sudo):
-   - `/home/zyserver/anaconda3/bin/conda run -n <env> python -m pip install <pkg>`
-   - or `/home/zyserver/anaconda3/bin/conda install -y -n <env> -c conda-forge <pkg>`
+   - `~/.h2ometa/conda/bin/conda run -p ~/.h2ometa/conda/envs/<env> python -m pip install <pkg>`
+   - or `~/.h2ometa/conda/bin/conda install -y -p ~/.h2ometa/conda/envs/<env> -c conda-forge <pkg>`
 4. Verify:
-   - `/home/zyserver/anaconda3/bin/conda run -n <env> python -V`
+   - `~/.h2ometa/conda/bin/conda run -p ~/.h2ometa/conda/envs/<env> python -V`
 
 ## Notes
 - Avoid `sudo` entirely for Python/runtime deps.
-- Use `conda run -n <env> ...` to avoid shell activation edge cases.
+- Use `conda run -p <prefix> ...` to avoid shell activation edge cases.
 - If package install needs system binary (e.g. unrar), prefer Python fallback logic in pipeline.
 
 ## Last Verified Example

@@ -33,28 +33,28 @@ def test_env_batch_check_worker_uses_ssh_run_fn(monkeypatch):
         assert rc == 0
         assert out == "ok"
         assert err == ""
-        return [], ["/home/user/miniforge3/envs/demo"]
+        return [], ["/home/user/.h2ometa/conda/envs/demo"]
 
     monkeypatch.setattr("ui.widgets.linux_settings_card.check_all_envs", fake_check_all_envs)
 
     worker = EnvBatchCheckWorker(
         ssh_run_fn=lambda cmd, timeout=30: (0, "ok", ""),
         tools=[{"id": "demo", "conda_env": "demo"}],
-        conda_executable="/home/user/miniforge3/bin/conda",
+        conda_executable="/home/user/.h2ometa/conda/bin/conda",
     )
     done_payload = []
     worker.finished.connect(lambda payload: done_payload.append(payload))
     worker.run()
 
     assert called["fn"] is not None
-    assert done_payload == [["/home/user/miniforge3/envs/demo"]]
+    assert done_payload == [["/home/user/.h2ometa/conda/envs/demo"]]
 
 
 def test_get_existing_env_paths_uses_batch_checker(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     card = LinuxSettingsCard()
-    card._conda_executable = "/home/user/miniforge3/bin/conda"
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "{}", ""))})())
 
     called = {"count": 0}
@@ -62,11 +62,22 @@ def test_get_existing_env_paths_uses_batch_checker(qapp, monkeypatch):
     def fake_get_existing_env_paths(ssh_run_fn, conda_executable):
         called["count"] += 1
         assert callable(ssh_run_fn)
-        assert conda_executable == "/home/user/miniforge3/bin/conda"
-        return {"/home/user/miniforge3/envs/a"}
+        assert conda_executable == "/home/user/.h2ometa/conda/bin/conda"
+        return {"/home/user/.h2ometa/conda/envs/a"}
 
     monkeypatch.setattr("ui.widgets.linux_settings_card.get_existing_env_paths", fake_get_existing_env_paths)
     paths = card._get_existing_env_paths()
 
     assert called["count"] == 1
-    assert "/home/user/miniforge3/envs/a" in paths
+    assert "/home/user/.h2ometa/conda/envs/a" in paths
+
+
+def test_set_values_rejects_non_managed_conda_path(qapp):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    card = LinuxSettingsCard()
+    card.set_values(conda_executable="/home/user/miniforge3/bin/conda", auto_installed=True)
+
+    values = card.get_values()
+    assert values["conda_executable"] == ""
+    assert values["auto_installed"] is False

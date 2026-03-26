@@ -40,6 +40,7 @@ from core.environment import env_detector
 from core.environment.env_detector import CondaStatus
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
 from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, get_existing_env_paths
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, is_managed_conda_executable
 from core.utils import sanitize_terminal_line
 
 logger = logging.getLogger(__name__)
@@ -305,8 +306,13 @@ class LinuxSettingsCard(QFrame):
         auto_installed: bool = False,
     ) -> None:
         """供 SettingsPage 回填数据。"""
-        self._conda_executable = conda_executable
-        self._auto_installed = auto_installed
+        if conda_executable and not is_managed_conda_executable(conda_executable):
+            logger.warning("忽略非自管 conda 配置路径: %s", conda_executable)
+            self._conda_executable = ""
+            self._auto_installed = False
+        else:
+            self._conda_executable = conda_executable
+            self._auto_installed = auto_installed
 
     def set_external_lock(self, locked: bool) -> None:
         """外部锁定功能，用于在 SSH 连接被占用时禁用编辑。"""
@@ -539,6 +545,12 @@ class LinuxSettingsCard(QFrame):
         self._checking = False
 
         if result.status == CondaStatus.OK:
+            if not is_managed_conda_executable(result.executable or ""):
+                logger.warning("检测到非自管 conda 路径，已忽略: %s", result.executable)
+                self._conda_executable = ""
+                self._set_status("检测到非自管 conda，已拒绝", STATUS_ERROR)
+                self._prompt_miniforge_install()
+                return
             self._conda_executable = result.executable
             version_str = f" {result.version}" if result.version else ""
             self._set_status(f"conda{version_str} 就绪，正在检测工具环境...", STATUS_SUCCESS)
@@ -572,37 +584,24 @@ class LinuxSettingsCard(QFrame):
         cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=5000)
 
     def _prompt_miniforge_install(self) -> None:
-        """弹窗提示：未检测到 conda，提供手动指定路径 / 自动安装 Miniforge 两个选项。"""
-        from PyQt6.QtWidgets import QMessageBox, QInputDialog
+        """弹窗提示：未检测到自管 conda，引导自动安装。"""
+        from PyQt6.QtWidgets import QMessageBox
 
         box = QMessageBox(self)
         box.setWindowTitle("未检测到 conda")
         box.setText(
-            "远端服务器未自动检测到 conda 环境管理器。\n\n"
-            "如果你已安装 conda / anaconda / miniconda，\n"
-            "请点击「手动指定」输入 conda 可执行文件的绝对路径。\n\n"
-            "如果没有 conda，可点击「安装 Miniforge」自动安装。"
+            "未检测到 H2OMeta 自管 conda。\n\n"
+            "平台将自动安装 Miniforge 到固定目录：\n"
+            "~/.h2ometa/conda\n\n"
+            "安装完成后将仅使用该路径，不依赖用户自带 conda。"
         )
-        btn_manual = box.addButton("手动指定路径", QMessageBox.ButtonRole.ActionRole)
         btn_install = box.addButton("安装 Miniforge", QMessageBox.ButtonRole.AcceptRole)
-        btn_cancel = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(btn_install)
         box.exec()
 
         clicked = box.clickedButton()
-        if clicked == btn_manual:
-            path, ok = QInputDialog.getText(
-                self,
-                "指定 conda 路径",
-                "请输入远端 conda 可执行文件的绝对路径：\n"
-                "（例如 /home/zyserver/anaconda3/bin/conda）",
-            )
-            if ok and path.strip():
-                self._conda_executable = path.strip()
-                self.request_save.emit()
-                # 用指定路径重新检测
-                QTimer.singleShot(200, self._ensure_conda_ready)
-        elif clicked == btn_install:
+        if clicked == btn_install:
             self._start_miniforge_install()
 
     def _start_miniforge_install(self) -> None:
@@ -626,7 +625,7 @@ class LinuxSettingsCard(QFrame):
         layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        info_lbl = QLabel("将安装 Miniforge3 到 ~/miniforge3，这可能需要几分钟。")
+        info_lbl = QLabel(f"将安装 Miniforge3 到 {H2O_CONDA_HOME}，这可能需要几分钟。")
         info_lbl.setWordWrap(True)
         info_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
         layout.addWidget(info_lbl)
@@ -729,7 +728,7 @@ class LinuxSettingsCard(QFrame):
 
     def _on_batch_check_from_web(self) -> None:
         """从 Web UI 调用的检测入口 — 如果 conda 已知则直接检测，否则先检测 conda。"""
-        if self._conda_executable:
+        if self._conda_executable and is_managed_conda_executable(self._conda_executable):
             self._do_batch_check()
         else:
             self._ensure_conda_ready()
@@ -737,6 +736,11 @@ class LinuxSettingsCard(QFrame):
     def _do_batch_check(self) -> None:
         """实际执行批量检测。"""
         if not self.active_client or self._checking or self._external_lock:
+            return
+
+        if not is_managed_conda_executable(self._conda_executable):
+            self._set_status("未检测到自管 conda，无法检测工具环境", STATUS_ERROR)
+            QTimer.singleShot(200, self._ensure_conda_ready)
             return
 
         if not self._tools:
@@ -1018,6 +1022,10 @@ class LinuxSettingsCard(QFrame):
             self._set_form_enabled(True)
             self.lock_btn.setText("确认并保存")
             self._set_status("配置已解锁，可修改")
+            return
+
+        if self._conda_executable and not is_managed_conda_executable(self._conda_executable):
+            self._set_status(f"仅允许使用自管 conda: {H2O_CONDA_EXE}", STATUS_ERROR)
             return
 
         self._is_locked = True

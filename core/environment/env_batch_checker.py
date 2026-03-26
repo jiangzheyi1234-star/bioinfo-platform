@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-from core.environment.h2o_env_paths import H2O_ENVS_DIR, h2o_env_prefix
+from core.environment.h2o_env_paths import H2O_ENVS_DIR, h2o_env_prefix, is_managed_conda_executable
 
 if TYPE_CHECKING:
     from paramiko import SSHClient
@@ -61,7 +61,17 @@ def check_all_envs(
     results: list[ToolCheckResult] = []
     conda_envs: list[str] = []
 
-    conda_exe = conda_executable or "conda"
+    if not is_managed_conda_executable(conda_executable):
+        logger.warning("环境检测跳过：未提供自管 conda 路径（current=%r）", conda_executable)
+        for tool in tools:
+            conda_env = tool.get("conda_env", "")
+            if not conda_env:
+                results.append(ToolCheckResult(tool_id=tool.get("id", ""), env_name="(系统路径)", ok=True))
+            else:
+                results.append(ToolCheckResult(tool_id=tool.get("id", ""), env_name=conda_env, ok=False))
+        return results, conda_envs
+
+    conda_exe = conda_executable
     cmd = f"{conda_exe} env list --json"
 
     try:
@@ -131,7 +141,7 @@ def get_existing_env_paths(
     conda_executable: str,
 ) -> set[str]:
     """获取远端所有已存在的 conda 环境路径集合。"""
-    if not conda_executable:
+    if not is_managed_conda_executable(conda_executable):
         return set()
 
     h2o_envs_dir = _expand_remote_path(ssh_run_fn, H2O_ENVS_DIR).rstrip("/")

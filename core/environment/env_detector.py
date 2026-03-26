@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional, Tuple
 
-from core.environment.h2o_env_paths import H2O_CONDARC, h2o_env_prefix
+from core.environment.h2o_env_paths import (
+    H2O_CONDA_EXE,
+    H2O_CONDA_HOME,
+    H2O_CONDARC,
+    h2o_env_prefix,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +29,6 @@ _MINIFORGE_URL = (
     "https://github.com/conda-forge/miniforge/releases/latest/download/"
     "Miniforge3-Linux-x86_64.sh"
 )
-
-# 远端常见 conda 安装目录（用户级）
-_COMMON_CONDA_PATHS = [
-    "~/anaconda3/bin/conda",
-    "~/miniconda3/bin/conda",
-    "~/miniforge3/bin/conda",
-]
 
 # conda --version 输出正则: "conda 24.1.2"
 _VERSION_RE = re.compile(r"conda\s+(\d+\.\d+(?:\.\d+)?)")
@@ -99,12 +97,11 @@ def detect(
     ssh_run_fn: SshRunFn,
     timeout: int = 15,
 ) -> CondaDetectResult:
-    """检测远端 conda 可执行文件（自动模式）。
+    """检测远端 H2OMeta 自管 conda 可执行文件（自动模式）。
 
     检测顺序：
-    1. bash -ic 'which conda'（用户 shell 实际环境）
-    2. 常见安装目录扫描（anaconda3/miniconda3/miniforge3）
-    3. NOT_FOUND
+    1. 固定路径 `~/.h2ometa/conda/bin/conda`
+    2. NOT_FOUND
 
     Args:
         ssh_run_fn: SSH 命令执行回调 (cmd, timeout) -> (rc, stdout, stderr)
@@ -114,43 +111,21 @@ def detect(
         CondaDetectResult
     """
 
-    # Step 1: bash -ic 'which conda' — 用户 shell 实际环境（自动检测）
+    # Step 1: 固定自管路径检测
     try:
-        rc, stdout, _stderr = ssh_run_fn(
-            "bash -ic 'which conda' 2>/dev/null", timeout,
-        )
-        if rc == 0 and stdout.strip():
-            which_path = stdout.strip().splitlines()[0].strip()
-            if which_path and not which_path.startswith("which:"):
-                result = _validate_conda(ssh_run_fn, which_path, timeout)
-                if result.status == CondaStatus.OK:
-                    logger.info("which conda 找到: %s", which_path)
-                    return result
+        result = _validate_conda(ssh_run_fn, H2O_CONDA_EXE, timeout)
+        if result.status == CondaStatus.OK:
+            logger.info("命中自管 conda: %s", result.executable)
+            return result
     except Exception as e:
-        logger.debug("which conda 失败: %s", e)
+        logger.debug("检测自管 conda 失败: %s", e)
 
-    # Step 2: 常见安装目录扫描
-    for candidate in _COMMON_CONDA_PATHS:
-        try:
-            rc, _, _ = ssh_run_fn(
-                f'test -x "$(eval echo {candidate})" && eval echo {candidate}',
-                timeout,
-            )
-            if rc != 0:
-                continue
-            result = _validate_conda(ssh_run_fn, candidate, timeout)
-            if result.status == CondaStatus.OK:
-                logger.info("常见目录扫描命中: %s", candidate)
-                return result
-        except Exception:
-            continue
-
-    # Step 3: 全部失败
+    # Step 2: 全部失败
     return CondaDetectResult(
         status=CondaStatus.NOT_FOUND,
         executable=None,
         version=None,
-        message="未在远端检测到 conda，请安装 Miniforge 或手动指定路径",
+        message="未在远端检测到 H2OMeta 自管 conda，请先执行自动安装",
     )
 
 
@@ -158,12 +133,12 @@ def install_miniforge(
     ssh_run_fn: SshRunFn,
     timeout: int = 600,
 ) -> CondaDetectResult:
-    """在远端安装 Miniforge3（默认路径 ~/miniforge3）。
+    """在远端安装 Miniforge3（固定路径 ~/.h2ometa/conda）。
 
     流程：
     1. 前置检查（架构、下载工具）
     2. 下载 Miniforge3 安装脚本
-    3. 静默安装（Miniforge 默认装到 ~/miniforge3）
+    3. 静默安装到 ~/.h2ometa/conda
     4. 清理安装脚本
     5. 添加 bioconda channel + 设置 strict channel_priority
     6. 验证安装
@@ -228,9 +203,12 @@ def install_miniforge(
             message=f"下载 Miniforge 出错: {e}",
         )
 
-    # ── 安装（-b 静默，不指定 -p，默认装到 ~/miniforge3） ──
+    # ── 安装（-b -p，固定安装到 ~/.h2ometa/conda） ──
     try:
-        rc, _, stderr = ssh_run_fn(f"bash {installer} -b", timeout)
+        rc, _, stderr = ssh_run_fn(
+            f"bash {installer} -b -p \"$(eval echo {H2O_CONDA_HOME})\"",
+            timeout,
+        )
         if rc != 0:
             return CondaDetectResult(
                 status=CondaStatus.NOT_FOUND, executable=None, version=None,
@@ -249,7 +227,7 @@ def install_miniforge(
         pass
 
     # 配置 channels
-    conda_exe = "~/miniforge3/bin/conda"
+    conda_exe = H2O_CONDA_EXE
     try:
         ssh_run_fn(f"{conda_exe} config --add channels bioconda", 30)
         ssh_run_fn(f"{conda_exe} config --set channel_priority strict", 30)

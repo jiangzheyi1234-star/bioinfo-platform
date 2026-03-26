@@ -15,7 +15,13 @@ from core.environment.env_detector import (
     pin_create_env_to_conda_root,
     rewrite_install_cmd,
 )
-from core.environment.h2o_env_paths import H2O_ENVS_DIR, H2O_INSTALL_DIR, h2o_env_prefix, h2o_tmp_prefix
+from core.environment.h2o_env_paths import (
+    H2O_ENVS_DIR,
+    H2O_INSTALL_DIR,
+    h2o_env_prefix,
+    h2o_tmp_prefix,
+    is_managed_conda_executable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +144,8 @@ class EnvInstaller:
         """
         if not conda_executable:
             raise RuntimeError("未检测到 conda 可执行路径，无法提交环境安装任务")
+        if not is_managed_conda_executable(conda_executable):
+            raise RuntimeError(f"检测到非自管 conda 路径，已拒绝: {conda_executable}")
 
         resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable)
 
