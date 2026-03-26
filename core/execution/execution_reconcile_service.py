@@ -89,6 +89,79 @@ class ExecutionReconcileService:
         return actions
 
     @classmethod
+    def collect_resume_actions(
+        cls,
+        ssh,
+        remote_base: str,
+        running_rows: list[tuple[str, str, str]],
+    ) -> dict[str, list[dict[str, str]]]:
+        """Collect startup recovery actions for running executions.
+
+        DB is index, remote status is truth:
+        - mark_completed: remote indicates DONE/exit=0
+        - mark_failed: remote indicates FAILED/ended unexpectedly
+        - resume_waiting: still running, should re-attach waiter
+        """
+        actions: dict[str, list[dict[str, str]]] = {
+            "mark_completed": [],
+            "mark_failed": [],
+            "resume_waiting": [],
+        }
+        for execution_id, sample_id, tool_id in running_rows:
+            task_dir = f"{remote_base}/intermediate/{sample_id}/{tool_id}_{execution_id}"
+            job_id = f"h2o_{execution_id}"
+            status_text, exit_code, _heartbeat = cls.read_status_bundle(ssh, task_dir)
+
+            if exit_code == "0" or status_text == "DONE":
+                actions["mark_completed"].append(
+                    {
+                        "execution_id": execution_id,
+                        "sample_id": sample_id,
+                        "tool_id": tool_id,
+                        "output_dir": task_dir,
+                    }
+                )
+                continue
+            if status_text == "FAILED":
+                actions["mark_failed"].append(
+                    {
+                        "execution_id": execution_id,
+                        "error": "remote status: FAILED",
+                    }
+                )
+                continue
+
+            session_exists = False
+            try:
+                rc_screen, _, _ = ssh.run(
+                    f"screen -ls | grep -Fq -- {shlex.quote(job_id)}",
+                    timeout=10,
+                )
+                session_exists = rc_screen == 0
+            except Exception:
+                session_exists = False
+
+            if status_text == "RUNNING" or session_exists:
+                actions["resume_waiting"].append(
+                    {
+                        "execution_id": execution_id,
+                        "sample_id": sample_id,
+                        "tool_id": tool_id,
+                        "task_dir": task_dir,
+                        "job_id": job_id,
+                    }
+                )
+                continue
+
+            actions["mark_failed"].append(
+                {
+                    "execution_id": execution_id,
+                    "error": f"remote status: {status_text}" if status_text else "Remote execution ended unexpectedly",
+                }
+            )
+        return actions
+
+    @classmethod
     def read_status_bundle(cls, ssh, task_dir: str) -> tuple[str, str, str]:
         status_cmd = (
             "{ "
@@ -146,4 +219,3 @@ class ExecutionReconcileService:
             if text:
                 result[key] = text.splitlines()[0].strip()
         return result
-
