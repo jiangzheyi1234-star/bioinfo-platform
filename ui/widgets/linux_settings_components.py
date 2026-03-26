@@ -127,15 +127,12 @@ class EnvInstallDialog(QDialog):
 
     install_requested = pyqtSignal(str)
 
-    def __init__(self, tool_info: dict, parent=None):
+    def __init__(self, tool_info: dict, conda_executable: str = "", parent=None):
         super().__init__(parent)
         self.tool_info = tool_info
         self._tool_id = str(self.tool_info.get("id", "") or "").strip()
         self._installing = False
-
-        self._conda_executable = ""
-        if parent and hasattr(parent, "_conda_executable"):
-            self._conda_executable = parent._conda_executable
+        self._conda_executable = str(conda_executable or "")
 
         self.setWindowTitle("安装工具环境")
         self.setMinimumWidth(580)

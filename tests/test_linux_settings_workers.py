@@ -459,6 +459,52 @@ def test_submit_finished_marks_running_and_updates_snapshot(qapp, monkeypatch):
     assert snapshots[-1][1].get("task_dir") == "~/.h2ometa/env_installs/abricate"
 
 
+def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+
+    dialogs = []
+
+    class _Signal:
+        def __init__(self):
+            self._handler = None
+
+        def connect(self, handler):
+            self._handler = handler
+
+    class _FakeDialog:
+        def __init__(self, tool, conda_executable="", parent=None):
+            self.tool = tool
+            self.conda_executable = conda_executable
+            self.parent = parent
+            self.install_requested = _Signal()
+            self.updates = []
+            dialogs.append(self)
+
+        def on_snapshot_updated(self, tool_id, snapshot):
+            self.updates.append((tool_id, snapshot))
+
+        def apply_install_snapshot(self, snapshot):
+            return None
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+
+    card._do_install_tool({"id": "abricate", "name": "ABRicate", "install_cmd": "conda create -n abricate_env -y"})
+
+    assert dialogs
+    assert dialogs[0].conda_executable == card._conda_executable
+
+    card.tool_install_snapshot_updated.emit("abricate", {"status": "RUNNING"})
+
+    assert dialogs[0].updates == []
+
+
 def test_submit_error_marks_failed_and_does_not_add_installing(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
