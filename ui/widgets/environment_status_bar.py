@@ -127,26 +127,37 @@ class EnvironmentStatusBar(QFrame):
         layout.addWidget(self._queue_label)
 
         # 分隔符
-        sep_install = QLabel("|")
-        sep_install.setStyleSheet(
+        self._sep_install = QLabel("|")
+        self._sep_install.setStyleSheet(
             f"color: {styles.COLOR_BORDER}; font-size: 11px; "
             f"background: {styles.COLOR_BG_BLANK};"
         )
-        layout.addWidget(sep_install)
+        layout.addWidget(self._sep_install)
 
         # 安装状态（可点击）
-        self._install_dot = _StatusDot("gray")
+        self._install_widget = QWidget()
+        self._install_widget.setStyleSheet(f"background: {styles.COLOR_BG_BLANK};")
+        install_row = QHBoxLayout(self._install_widget)
+        install_row.setContentsMargins(0, 0, 0, 0)
+        install_row.setSpacing(4)
+
         self._install_icon = QLabel("")
         self._install_icon.setFixedSize(14, 14)
+        self._install_spin = None
         self._set_install_icon("idle")
-        self._install_label = _ClickableLabel("安装: 空闲")
+
+        self._install_label = _ClickableLabel("")
         self._install_label.setStyleSheet(label_style)
         self._install_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._install_label.setToolTip("点击查看安装任务")
         self._install_label.clicked.connect(self.install_status_clicked.emit)
-        layout.addWidget(self._install_dot)
-        layout.addWidget(self._install_icon)
-        layout.addWidget(self._install_label)
+        install_row.addWidget(self._install_icon)
+        install_row.addWidget(self._install_label)
+        layout.addWidget(self._install_widget)
+
+        # 空闲时不显示安装区域
+        self._install_widget.setVisible(False)
+        self._sep_install.setVisible(False)
 
         # 分隔符
         sep_log = QLabel("|")
@@ -251,21 +262,24 @@ class EnvironmentStatusBar(QFrame):
 
     def update_install_status(self, summary: str, level: str = "idle") -> None:
         """更新安装任务状态段。"""
-        text = str(summary or "").strip() or "安装: 空闲"
         lv = str(level or "idle").strip().lower()
-        dot_color = "gray"
+        if lv == "idle":
+            self._install_widget.setVisible(False)
+            self._sep_install.setVisible(False)
+            return
+
+        self._install_widget.setVisible(True)
+        self._sep_install.setVisible(True)
+
+        text = str(summary or "").strip()
         text_color = styles.COLOR_TEXT_SUB
         if lv == "running":
-            dot_color = "yellow"
             text_color = styles.COLOR_WARNING
         elif lv == "error":
-            dot_color = "red"
             text_color = styles.COLOR_DANGER
         elif lv == "success":
-            dot_color = "green"
             text_color = styles.COLOR_SUCCESS
 
-        self._install_dot.set_color(dot_color)
         self._set_install_icon(lv)
         self._install_label.setText(text)
         self._install_label.setStyleSheet(
@@ -277,16 +291,27 @@ class EnvironmentStatusBar(QFrame):
         return self._install_label
 
     def _set_install_icon(self, level: str) -> None:
-        icon_key = "ph.minus-circle"
+        icon_key = "ph.info"
         color = styles.COLOR_TEXT_SUB
         if level == "running":
-            icon_key = "ph.spinner-gap"
             color = styles.COLOR_WARNING
-        elif level == "error":
+            self._install_spin = qta.Spin(self._install_icon)
+            icon = qta.icon(
+                "ph.circle-notch",
+                color=color,
+                animation=self._install_spin,
+            )
+            self._install_icon.setPixmap(icon.pixmap(self._INSTALL_ICON_SIZE))
+            return
+        self._install_spin = None
+        if level == "error":
             icon_key = "ph.warning-circle"
             color = styles.COLOR_DANGER
         elif level == "success":
             icon_key = "ph.check-circle"
             color = styles.COLOR_SUCCESS
+        elif level == "idle":
+            icon_key = "ph.info"
+            color = styles.COLOR_TEXT_SUB
         icon = qta.icon(icon_key, color=color)
         self._install_icon.setPixmap(icon.pixmap(self._INSTALL_ICON_SIZE))

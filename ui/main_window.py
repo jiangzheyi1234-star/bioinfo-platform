@@ -184,7 +184,6 @@ class MainWindow(QMainWindow):
         self.status_bar.install_status_clicked.connect(self._toggle_install_task_panel)
         current = self._pm.current_project
         self.status_bar.update_project(current.name if current else None)
-        self.status_bar.update_install_status("安装: 空闲", "idle")
 
         self._install_task_panel = InstallTaskPanel(self)
         self._install_task_panel.locate_requested.connect(self._on_install_task_locate_requested)
