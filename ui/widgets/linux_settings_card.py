@@ -243,43 +243,12 @@ class ToolInstallBatchPollWorker(QObject):
     @pyqtSlot()
     def run(self) -> None:
         try:
-            rows = []
-            for tool_id in self._tool_ids:
-                if self._cancelled:
-                    return
-                task_dir = f"{_INSTALL_BASE}/{tool_id}"
-                status = EnvInstaller.check_status(self._ssh_run_fn, task_dir)
-                status_text = str(status.get("status", "") or "").strip().upper()
-                log_text = ""
-                log_size = 0
-                session_alive = False
-                if status_text in ("", "RUNNING"):
-                    session_alive = EnvInstaller.is_session_alive(
-                        self._ssh_run_fn, f"h2o_install_{tool_id}", timeout=10
-                    )
-                    log_text = EnvInstaller.read_log(self._ssh_run_fn, task_dir, tail_lines=120)
-                    try:
-                        rc, out, _ = self._ssh_run_fn(
-                            (
-                                f'LOG="$(eval echo {_INSTALL_BASE}/{tool_id})/task.log"; '
-                                'if [ -f "$LOG" ]; then wc -c < "$LOG"; else echo 0; fi'
-                            ),
-                            10,
-                        )
-                        if rc == 0:
-                            log_size = int((out or "").strip() or "0")
-                    except Exception:
-                        log_size = 0
-                rows.append(
-                    {
-                        "tool_id": tool_id,
-                        "status": status_text,
-                        "exit_code": str(status.get("exit_code", "") or "").strip(),
-                        "log_text": log_text,
-                        "log_size": log_size,
-                        "session_alive": session_alive,
-                    }
-                )
+            rows = EnvInstaller.batch_probe(
+                self._ssh_run_fn,
+                self._tool_ids,
+                tail_lines=120,
+                timeout=20,
+            )
             if not self._cancelled:
                 self.finished.emit(rows)
         except Exception as exc:
@@ -338,6 +307,8 @@ class LinuxSettingsCard(QFrame):
         self._tool_install_poll_timer.setInterval(TOOL_INSTALL_POLL_INTERVAL_MS)
         self._tool_install_poll_timer.timeout.connect(self._poll_running_tool_installs)
         self._tool_log_samples: dict[str, tuple[int, float]] = {}
+        self._latest_detected_env_paths: set[str] = set()
+        self._pending_recover_after_batch: bool = False
 
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
@@ -704,10 +675,12 @@ class LinuxSettingsCard(QFrame):
             self.request_save.emit()
 
             # 继续批量检测工具环境
-            QTimer.singleShot(200, self._on_batch_check)
-
-            # 检查是否有后台安装正在运行
-            QTimer.singleShot(500, self._recover_running_installs)
+            if self._tools:
+                self._pending_recover_after_batch = True
+                QTimer.singleShot(200, self._on_batch_check)
+            else:
+                self._pending_recover_after_batch = False
+                QTimer.singleShot(200, lambda: self._recover_running_installs(existing_env_paths=set()))
 
         elif result.status == CondaStatus.NOT_FOUND:
             if self._detect_interactive_request:
@@ -949,6 +922,7 @@ class LinuxSettingsCard(QFrame):
         self._checking = False
 
         env_paths_set = {path.rstrip("/") for path in conda_envs if path}
+        self._latest_detected_env_paths = set(env_paths_set)
         env_names = {path.rstrip("/").split("/")[-1] for path in conda_envs}
         ok_count = 0
         for tool in self._tools:
@@ -982,10 +956,19 @@ class LinuxSettingsCard(QFrame):
         elif ok_count == 0:
             self.status_label.setStyleSheet(STATUS_ERROR)
 
+        if self._pending_recover_after_batch:
+            self._pending_recover_after_batch = False
+            logger.debug("恢复安装状态复用本轮环境快照: env_count=%d", len(env_paths_set))
+            self._recover_running_installs(existing_env_paths=env_paths_set)
+
     def _on_batch_error(self, msg: str) -> None:
         """检测出错。"""
         self._checking = False
         self._set_status(f"检测失败: {msg[:30]}", STATUS_ERROR)
+        if self._pending_recover_after_batch:
+            self._pending_recover_after_batch = False
+            logger.debug("批量检测失败，回退到独立恢复流程")
+            self._recover_running_installs(existing_env_paths=None)
 
     def _cleanup_check_resources(self) -> None:
         """清理检测线程资源。"""
@@ -1115,7 +1098,7 @@ class LinuxSettingsCard(QFrame):
         self._emit_tool_install_event(tool_id, "failed", "工具环境安装失败")
         self._ensure_tool_install_polling()
 
-    def _recover_running_installs(self) -> None:
+    def _recover_running_installs(self, existing_env_paths: Optional[set[str]] = None) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。
 
         - RUNNING → 恢复为“安装中”并继续轮询
@@ -1133,8 +1116,13 @@ class LinuxSettingsCard(QFrame):
         running_tools = []
         newly_done = False
 
-        # 获取当前所有已存在的 conda 环境路径
-        existing_env_paths = self._get_existing_env_paths()
+        if existing_env_paths is None:
+            # 回退路径：仍可独立查询
+            existing_env_paths = self._get_existing_env_paths()
+            logger.debug("恢复安装状态使用独立环境查询: env_count=%d", len(existing_env_paths))
+        else:
+            existing_env_paths = {p.rstrip("/") for p in existing_env_paths if p}
+            logger.debug("恢复安装状态使用缓存环境查询: env_count=%d", len(existing_env_paths))
 
         for item in installs:
             tool_id = item["tool_id"]

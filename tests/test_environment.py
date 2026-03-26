@@ -259,3 +259,58 @@ class TestBatchChecker:
         )
         assert envs == []
         assert {r.tool_id: r.ok for r in results} == {"fastp": False, "unknown": True}
+
+    def test_check_all_envs_expands_h2o_base_only_once(self):
+        fn = make_ssh_fn({
+            "/home/user/.h2ometa/conda/bin/conda env list --json": (
+                0,
+                '{"envs":["/home/user/.h2ometa/conda/envs/fastp_env","/home/user/.h2ometa/conda/envs/kraken2_env"]}',
+                "",
+            ),
+            "eval echo ~/.h2ometa/conda/envs": (0, "/home/user/.h2ometa/conda/envs\n", ""),
+        })
+
+        results, _envs = check_all_envs(
+            ssh_run_fn=fn,
+            tools=[
+                {"id": "fastp", "conda_env": "fastp_env"},
+                {"id": "kraken2", "conda_env": "kraken2_env"},
+            ],
+            conda_executable="/home/user/.h2ometa/conda/bin/conda",
+        )
+        assert {r.tool_id: r.ok for r in results} == {"fastp": True, "kraken2": True}
+        eval_calls = [c for c in fn.calls if c.startswith("eval echo ")]
+        assert eval_calls == ["eval echo ~/.h2ometa/conda/envs"]
+
+
+class TestEnvInstallerBatchProbe:
+    def test_batch_probe_parses_rows(self):
+        log_text = "Downloading... 32%\nSpeed 3.2MB/s"
+        line1 = "\t".join(
+            [
+                "fastp",
+                "RUNNING",
+                "",
+                "1",
+                "12345",
+                base64.b64encode(log_text.encode("utf-8")).decode("ascii"),
+            ]
+        )
+        line2 = "\t".join(["abricate", "DONE", "0", "0", "0", ""])
+        payload = f"{line1}\n{line2}\n"
+
+        def fn(cmd, timeout=20):
+            if 'for TOOL_ID in' in cmd:
+                return 0, payload, ""
+            return 1, "", "unexpected"
+
+        rows = EnvInstaller.batch_probe(fn, ["fastp", "abricate"], tail_lines=80, timeout=20)
+        assert len(rows) == 2
+        assert rows[0]["tool_id"] == "fastp"
+        assert rows[0]["status"] == "RUNNING"
+        assert rows[0]["session_alive"] is True
+        assert rows[0]["log_size"] == 12345
+        assert "3.2MB/s" in rows[0]["log_text"]
+        assert rows[1]["tool_id"] == "abricate"
+        assert rows[1]["status"] == "DONE"
+        assert rows[1]["exit_code"] == "0"
