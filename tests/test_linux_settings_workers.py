@@ -343,6 +343,108 @@ def test_on_install_submitted_marks_running(qapp, monkeypatch):
     assert any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "running" for e in events)
 
 
+def test_dialog_install_requested_starts_submit_worker(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    card._tools = [{"id": "abricate", "name": "ABRicate", "install_cmd": "conda create -n abricate_env -y"}]
+    monkeypatch.setattr(card, "_ensure_tool_install_ready", lambda interactive=True: True)
+
+    called = {"tool_id": "", "install_cmd": ""}
+    monkeypatch.setattr(
+        card,
+        "_start_tool_install_submit",
+        lambda tool_id, install_cmd: called.update({"tool_id": tool_id, "install_cmd": install_cmd}),
+    )
+
+    card._on_dialog_install_requested("abricate")
+
+    assert called["tool_id"] == "abricate"
+    assert "conda create" in called["install_cmd"]
+
+
+def test_dialog_install_requested_running_attach_only(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._installing_tool_ids.add("abricate")
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+
+    called = {"count": 0}
+    monkeypatch.setattr(
+        card,
+        "_start_tool_install_submit",
+        lambda *_args, **_kwargs: called.__setitem__("count", called["count"] + 1),
+    )
+
+    card._on_dialog_install_requested("abricate")
+
+    assert called["count"] == 0
+    snapshot = card._get_tool_install_snapshot("abricate")
+    assert snapshot.get("status") == "RUNNING"
+
+
+def test_submit_finished_marks_running_and_updates_snapshot(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tool_install_submitting_ids.add("abricate")
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+
+    started = {"tool_id": ""}
+
+    class _Bridge:
+        @staticmethod
+        def emit_install_started(tool_id):
+            started["tool_id"] = tool_id
+
+    card._bridge = _Bridge()
+
+    snapshots = []
+    card.tool_install_snapshot_updated.connect(lambda tool_id, snapshot: snapshots.append((tool_id, snapshot)))
+
+    card._on_tool_install_submit_finished(
+        "abricate",
+        {"task_dir": "~/.h2ometa/env_installs/abricate", "job_id": "h2o_install_abricate"},
+    )
+
+    assert "abricate" in card._installing_tool_ids
+    assert "abricate" not in card._tool_install_submitting_ids
+    assert started["tool_id"] == "abricate"
+    assert snapshots
+    assert snapshots[-1][0] == "abricate"
+    assert snapshots[-1][1].get("status") == "RUNNING"
+    assert snapshots[-1][1].get("task_dir") == "~/.h2ometa/env_installs/abricate"
+
+
+def test_submit_error_marks_failed_and_does_not_add_installing(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tool_install_submitting_ids.add("abricate")
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+
+    snapshots = []
+    events = []
+    card.tool_install_snapshot_updated.connect(lambda tool_id, snapshot: snapshots.append((tool_id, snapshot)))
+    card.install_task_event.connect(lambda payload: events.append(payload))
+
+    card._on_tool_install_submit_error("abricate", "submit boom")
+
+    assert "abricate" not in card._tool_install_submitting_ids
+    assert "abricate" not in card._installing_tool_ids
+    assert snapshots
+    assert snapshots[-1][1].get("status") == "FAILED"
+    assert "submit boom" in snapshots[-1][1].get("message", "")
+    assert any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "failed" for e in events)
+
+
 def test_recover_running_install_dead_session_reverts_missing_silently(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
@@ -440,6 +542,37 @@ def test_poll_running_or_empty_with_dead_session_reverts_missing(qapp, monkeypat
     assert finished["tool_id"] == "abricate"
     assert finished["success"] is False
     assert not any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "failed" for e in events)
+
+
+def test_tool_install_poll_running_broadcasts_snapshot_with_log(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]
+    card._installing_tool_ids.add("abricate")
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+
+    snapshots = []
+    card.tool_install_snapshot_updated.connect(lambda tool_id, snapshot: snapshots.append((tool_id, snapshot)))
+
+    card._on_tool_install_poll_finished(
+        [
+            {
+                "tool_id": "abricate",
+                "status": "RUNNING",
+                "exit_code": "",
+                "log_text": "download 10% 1.0MB/s",
+                "log_size": 123,
+                "session_alive": True,
+            }
+        ]
+    )
+
+    assert snapshots
+    assert snapshots[-1][0] == "abricate"
+    assert snapshots[-1][1].get("status") == "RUNNING"
+    assert "download 10%" in snapshots[-1][1].get("log_text", "")
 
 
 def test_tool_install_batch_poll_worker_uses_batch_probe(monkeypatch):

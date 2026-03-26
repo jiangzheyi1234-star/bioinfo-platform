@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import json
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, pyqtSlot
 from PyQt6.QtWidgets import QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
-from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 from ui.widgets import styles
 from ui.widgets.styles import (
@@ -124,104 +122,16 @@ class ToolEnvBridge(QObject):
         self.installFinished.emit(tool_id, success)
 
 
-class EnvInstallCheckWorker(QObject):
-    """Check whether an install is already running."""
-
-    finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, ssh_run_fn, tool_id: str):
-        super().__init__()
-        self._ssh_run_fn = ssh_run_fn
-        self._tool_id = tool_id
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            if self._cancelled:
-                return
-            task_dir = f"{_INSTALL_BASE}/{self._tool_id}"
-            status = EnvInstaller.check_status(self._ssh_run_fn, task_dir)
-            if self._cancelled:
-                return
-            if status["status"] == "RUNNING":
-                self.finished.emit(
-                    {
-                        "is_running": True,
-                        "task_dir": task_dir,
-                        "job_id": f"h2o_install_{self._tool_id}",
-                    }
-                )
-            else:
-                self.finished.emit({"is_running": False})
-        except Exception as exc:
-            if self._cancelled:
-                return
-            logger.exception("EnvInstallCheckWorker 出错")
-            self.error.emit(str(exc))
-
-
-class EnvInstallPollWorker(QObject):
-    """Poll install status and logs in a background thread."""
-
-    status_updated = pyqtSignal(dict)
-    log_updated = pyqtSignal(str)
-    poll_error = pyqtSignal(str)
-
-    def __init__(self, ssh_run_fn, task_dir: str):
-        super().__init__()
-        self._ssh_run_fn = ssh_run_fn
-        self._task_dir = task_dir
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    @pyqtSlot()
-    def poll(self):
-        try:
-            if self._cancelled:
-                return
-            status = EnvInstaller.check_status(self._ssh_run_fn, self._task_dir)
-            if self._cancelled:
-                return
-            self.status_updated.emit(status)
-            log_text = EnvInstaller.read_log(self._ssh_run_fn, self._task_dir)
-            if self._cancelled:
-                return
-            if log_text:
-                self.log_updated.emit(log_text)
-        except Exception as exc:
-            if self._cancelled:
-                return
-            self.poll_error.emit(str(exc))
-
-
 class EnvInstallDialog(QDialog):
-    """Tool conda-environment installation dialog."""
+    """Tool conda-environment installation dialog (UI shell only)."""
 
-    install_submitted = pyqtSignal(str)
-    install_succeeded = pyqtSignal(str)
-    install_failed = pyqtSignal(str)
+    install_requested = pyqtSignal(str)
 
-    POLL_INTERVAL_MS = 3000
-
-    def __init__(self, ssh_run_fn, tool_info: dict, parent=None):
+    def __init__(self, tool_info: dict, parent=None):
         super().__init__(parent)
-        self._ssh_run_fn = ssh_run_fn
         self.tool_info = tool_info
+        self._tool_id = str(self.tool_info.get("id", "") or "").strip()
         self._installing = False
-        self._task_dir: str = ""
-        self._job_id: str = ""
-        self._poll_timer: Optional[QTimer] = None
-        self._poll_thread: Optional[QThread] = None
-        self._poll_worker: Optional[EnvInstallPollWorker] = None
 
         self._conda_executable = ""
         if parent and hasattr(parent, "_conda_executable"):
@@ -233,7 +143,6 @@ class EnvInstallDialog(QDialog):
         self.setStyleSheet(f"background-color: {COLOR_BG_PAGE};")
 
         self._build_ui()
-        self._check_existing_install()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -322,38 +231,6 @@ class EnvInstallDialog(QDialog):
         btn_row.addWidget(self.install_btn)
         layout.addLayout(btn_row)
 
-    def _check_existing_install(self):
-        tool_id = self.tool_info.get("id", "")
-        if not tool_id:
-            return
-
-        self._check_install_thread = QThread()
-        self._check_install_worker = EnvInstallCheckWorker(self._ssh_run_fn, tool_id)
-        self._check_install_worker.moveToThread(self._check_install_thread)
-
-        self._check_install_thread.started.connect(self._check_install_worker.run)
-        self._check_install_worker.finished.connect(self._on_check_install_finished)
-        self._check_install_worker.error.connect(self._on_check_install_error)
-        self._check_install_worker.finished.connect(self._cleanup_check_install_resources)
-
-        self._check_install_thread.start()
-
-    def _on_check_install_finished(self, result: dict):
-        if result.get("is_running"):
-            self._task_dir = result["task_dir"]
-            self._job_id = result["job_id"]
-            self._installing = True
-            self.install_btn.setEnabled(False)
-            self.cancel_btn.setText("关闭")
-            self._set_status("检测到正在后台安装，已接续显示进度...", f"color: {styles.COLOR_PRIMARY}; font-size: 12px;")
-            self._start_polling()
-
-    def _on_check_install_error(self, msg: str):
-        logger.debug("检查已有安装失败: %s", msg)
-
-    def _cleanup_check_install_resources(self):
-        cleanup_thread_pair(self, "_check_install_thread", "_check_install_worker", wait_ms=3000)
-
     def _on_start_install(self):
         if self._installing:
             return
@@ -372,93 +249,74 @@ class EnvInstallDialog(QDialog):
         self.install_btn.setEnabled(False)
         self.cancel_btn.setText("关闭")
         self._set_status(
-            "正在启动后台安装……（安装在服务器端运行，关闭窗口不影响）",
+            "正在提交后台安装任务……（安装在服务器端运行，关闭窗口不影响）",
             f"color: {styles.COLOR_PRIMARY}; font-size: 12px;",
         )
         self.output_edit.clear()
+        self.install_requested.emit(self._tool_id)
 
-        try:
-            result = EnvInstaller.submit(
-                self._ssh_run_fn,
-                self.tool_info.get("id", ""),
-                install_cmd,
-                self._conda_executable,
-            )
-            self._task_dir = result["task_dir"]
-            self._job_id = result["job_id"]
-            self.install_submitted.emit(self.tool_info.get("id", ""))
+    @pyqtSlot(str, dict)
+    def on_snapshot_updated(self, tool_id: str, snapshot: dict) -> None:
+        if str(tool_id or "").strip() != self._tool_id:
+            return
+        self.apply_install_snapshot(snapshot)
+
+    def apply_install_snapshot(self, snapshot: dict) -> None:
+        if not isinstance(snapshot, dict):
+            return
+        status = str(snapshot.get("status", "") or "").strip().upper()
+        message = str(snapshot.get("message", "") or "").strip()
+        log_text = str(snapshot.get("log_text", "") or "")
+        exit_code = str(snapshot.get("exit_code", "") or "").strip()
+
+        if log_text:
+            self.output_edit.setPlainText(log_text)
+            scroll_bar = self.output_edit.verticalScrollBar()
+            scroll_bar.setValue(scroll_bar.maximum())
+
+        if status == "SUBMITTING":
+            self._installing = True
+            self.install_btn.setEnabled(False)
+            self.cancel_btn.setText("关闭")
             self._set_status(
-                "安装中……（conda 安装可能需要 5-30 分钟，可关闭窗口后台继续）",
+                message or "正在提交后台安装任务……",
                 f"color: {styles.COLOR_PRIMARY}; font-size: 12px;",
             )
-            self._start_polling()
-        except Exception as exc:
-            logger.exception("启动后台安装失败")
+            return
+
+        if status in ("RUNNING", ""):
+            self._installing = True
+            self.install_btn.setEnabled(False)
+            self.cancel_btn.setText("关闭")
+            self._set_status(
+                message or "安装中……（conda 安装可能需要 5-30 分钟，可关闭窗口后台继续）",
+                f"color: {styles.COLOR_PRIMARY}; font-size: 12px;",
+            )
+            return
+
+        if status == "DONE":
             self._installing = False
-            self.install_btn.setEnabled(True)
-            self.install_btn.setText("重试")
-            self._set_status(f"启动安装失败: {exc}", f"color: {styles.COLOR_DANGER}; font-size: 12px;")
-
-    def _start_polling(self):
-        self._stop_polling()
-
-        self._poll_thread = QThread()
-        self._poll_worker = EnvInstallPollWorker(self._ssh_run_fn, self._task_dir)
-        self._poll_worker.moveToThread(self._poll_thread)
-
-        self._poll_worker.status_updated.connect(self._on_status_updated)
-        self._poll_worker.log_updated.connect(self._on_log_updated)
-        self._poll_worker.poll_error.connect(self._on_poll_error)
-
-        self._poll_thread.start()
-
-        self._poll_timer = QTimer(self)
-        self._poll_timer.timeout.connect(self._poll_worker.poll)
-        self._poll_timer.start(self.POLL_INTERVAL_MS)
-
-        QTimer.singleShot(100, self._poll_worker.poll)
-
-    def _stop_polling(self):
-        if self._poll_timer is not None:
-            self._poll_timer.stop()
-            self._poll_timer = None
-        cleanup_thread_pair(self, "_poll_thread", "_poll_worker", wait_ms=3000)
-
-    def _on_status_updated(self, status: dict):
-        st = status.get("status", "")
-        if st == "DONE":
-            self._stop_polling()
-            self._installing = False
-            self.output_edit.append("\n--- 安装成功 ---\n")
-            self._set_status("安装成功！", f"color: {styles.COLOR_SUCCESS}; font-size: 13px; font-weight: bold;")
             self.install_btn.setText("关闭")
             self.install_btn.setEnabled(True)
             self._rebind_install_btn(self.accept)
             self.cancel_btn.setText("关闭")
-            self.install_succeeded.emit(self.tool_info.get("id", ""))
-            try:
-                EnvInstaller.cleanup(self._ssh_run_fn, self._task_dir)
-            except Exception:
-                pass
-        elif st == "FAILED":
-            self._stop_polling()
+            self._set_status(
+                message or "安装成功！",
+                f"color: {styles.COLOR_SUCCESS}; font-size: 13px; font-weight: bold;",
+            )
+            return
+
+        if status == "FAILED":
             self._installing = False
-            exit_code = status.get("exit_code", "?")
-            self.output_edit.append(f"\n--- 安装失败 (exit_code={exit_code}) ---\n")
-            self._set_status("安装失败，请检查上方输出或网络后重试。", f"color: {styles.COLOR_DANGER}; font-size: 12px;")
             self.install_btn.setText("重试")
             self.install_btn.setEnabled(True)
             self._rebind_install_btn(self._on_start_install)
             self.cancel_btn.setText("关闭")
-            self.install_failed.emit(self.tool_info.get("id", ""))
-
-    def _on_log_updated(self, log_text: str):
-        self.output_edit.setPlainText(log_text)
-        scroll_bar = self.output_edit.verticalScrollBar()
-        scroll_bar.setValue(scroll_bar.maximum())
-
-    def _on_poll_error(self, msg: str):
-        logger.debug("轮询出错（可能 SSH 暂时断开）: %s", msg)
+            if exit_code:
+                fail_msg = message or f"安装失败 (exit_code={exit_code})，请检查上方输出后重试。"
+            else:
+                fail_msg = message or "安装失败，请检查上方输出或网络后重试。"
+            self._set_status(fail_msg, f"color: {styles.COLOR_DANGER}; font-size: 12px;")
 
     def _set_status(self, text: str, style: str = "") -> None:
         self.status_lbl.setText(text)
@@ -473,10 +331,4 @@ class EnvInstallDialog(QDialog):
         self.install_btn.clicked.connect(handler)
 
     def _on_cancel(self):
-        self._stop_polling()
         self.reject()
-
-    def closeEvent(self, event):
-        self._stop_polling()
-        self._cleanup_check_install_resources()
-        super().closeEvent(event)
