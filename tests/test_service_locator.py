@@ -384,6 +384,84 @@ class TestServiceLocatorSignalChain:
 
         assert received == [("exec_fail001", "内存不足")]
 
+    def test_resume_execution_waiting_starts_waiter(self, db_conn, project, ssh, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        pm = FakeProjectManager(db_conn, project)
+        locator = ServiceLocator(
+            ssh_service=ssh,  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+            project_manager=pm,  # type: ignore[arg-type]
+        )
+        locator.initialize()
+
+        start_calls = Recorder()
+        locator._job_dispatcher.start_waiting = start_calls  # type: ignore[assignment]
+        locator._plugin_registry.get_descriptor = lambda _tool_id: {"id": "fastp", "outputs": []}  # type: ignore[assignment]
+
+        ok = locator.resume_execution_waiting(
+            execution_id="exec_resume_001",
+            sample_id="smp_001",
+            tool_id="fastp",
+            task_dir="/remote/task/exec_resume_001",
+        )
+
+        assert ok is True
+        assert start_calls.calls
+        assert locator.get_task_dir("exec_resume_001") == "/remote/task/exec_resume_001"
+
+    def test_resume_execution_waiting_skips_when_already_waiting(self, db_conn, project, ssh, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        pm = FakeProjectManager(db_conn, project)
+        locator = ServiceLocator(
+            ssh_service=ssh,  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+            project_manager=pm,  # type: ignore[arg-type]
+        )
+        locator.initialize()
+        locator._job_dispatcher.is_waiting = lambda _execution_id: True  # type: ignore[assignment]
+
+        ok = locator.resume_execution_waiting(
+            execution_id="exec_resume_002",
+            sample_id="smp_001",
+            tool_id="fastp",
+            task_dir="/remote/task/exec_resume_002",
+        )
+
+        assert ok is False
+
+    def test_on_completed_ignores_non_active_execution(self, db_conn, project, ssh, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        pm = FakeProjectManager(db_conn, project)
+        locator = ServiceLocator(
+            ssh_service=ssh,  # type: ignore[arg-type]
+            plugins_dir=plugins_dir,
+            project_manager=pm,  # type: ignore[arg-type]
+        )
+        locator.initialize()
+
+        db_conn.execute(
+            "INSERT INTO samples (sample_id, name) VALUES (?, ?)",
+            ("smp_003", "test3"),
+        )
+        db_conn.execute(
+            "INSERT INTO executions "
+            "(execution_id, sample_id, tool_id, parameters, status, created_at, completed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("exec_done_ignored", "smp_003", "test", "{}", "completed", time.time(), time.time()),
+        )
+        db_conn.commit()
+
+        received: list[str] = []
+        locator.execution_completed.connect(received.append)
+        locator._on_completed("exec_done_ignored")
+        assert received == []
+
 
 class TestServiceLocatorShutdown:
     def test_shutdown_does_not_error(self, tmp_path) -> None:

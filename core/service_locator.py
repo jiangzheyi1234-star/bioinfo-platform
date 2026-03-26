@@ -127,6 +127,51 @@ class ServiceLocator(QObject):
         """Return the remote task dir for an execution."""
         return self._task_dirs.get(execution_id)
 
+    def is_execution_waiting(self, execution_id: str) -> bool:
+        """Whether execution is currently monitored by JobDispatcher waiter."""
+        return self._job_dispatcher.is_waiting(execution_id)
+
+    def resume_execution_waiting(
+        self,
+        *,
+        execution_id: str,
+        sample_id: str,
+        tool_id: str,
+        task_dir: str,
+        job_id: str | None = None,
+    ) -> bool:
+        """Re-attach waiter for an existing running remote execution.
+
+        This does not re-dispatch remote command. It only restores minimal context
+        and starts waiter monitoring.
+        """
+        ssh = self._ssh
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return False
+        if self._tool_engine is None:
+            return False
+        if self.is_execution_waiting(execution_id):
+            return False
+
+        descriptor = self._plugin_registry.get_descriptor(tool_id)
+        self.register_execution_context(
+            execution_id=execution_id,
+            command="[resumed-existing-job]",
+            descriptor=descriptor,
+            sample_id=sample_id,
+            output_dir=task_dir,
+            task_dir=task_dir,
+        )
+        self._task_dirs[execution_id] = task_dir
+        self._job_dispatcher.start_waiting(
+            ssh_service=ssh,
+            execution_id=execution_id,
+            job_id=job_id or f"h2o_{execution_id}",
+            task_dir=task_dir,
+        )
+        logger.info("Execution waiter resumed: %s", execution_id)
+        return True
+
     def _connect_signals(self) -> None:
         self._job_queue.job_started.connect(self._on_dispatch)
         self._execution_preparer.preparation_succeeded.connect(self._on_preparation_succeeded)
@@ -260,6 +305,12 @@ class ServiceLocator(QObject):
         self._on_failed(execution_id, error)
 
     def _on_completed(self, execution_id: str) -> None:
+        if not self._is_execution_active(execution_id):
+            logger.debug("Completion ignored for non-active execution: %s", execution_id)
+            self._execution_ctx.pop(execution_id, None)
+            self._task_dirs.pop(execution_id, None)
+            return
+
         ctx = self._execution_ctx.pop(execution_id, None)
         self._task_dirs.pop(execution_id, None)
         if not ctx:
@@ -274,16 +325,24 @@ class ServiceLocator(QObject):
                 output_dir=ctx["output_dir"],
             )
 
-        self._job_queue.on_job_finished(execution_id)
+        if self._job_queue.has_job(execution_id):
+            self._job_queue.on_job_finished(execution_id)
         self.execution_completed.emit(execution_id)
 
     def _on_failed(self, execution_id: str, error: str) -> None:
+        if not self._is_execution_active(execution_id):
+            logger.debug("Failure ignored for non-active execution: %s", execution_id)
+            self._execution_ctx.pop(execution_id, None)
+            self._task_dirs.pop(execution_id, None)
+            return
+
         ctx = self._execution_ctx.get(execution_id)
         if ctx is None:
             logger.debug("Failure callback ignored for already-handled execution: %s", execution_id)
             return
 
-        self._job_queue.on_job_finished(execution_id)
+        if self._job_queue.has_job(execution_id):
+            self._job_queue.on_job_finished(execution_id)
         retry_decision = self._retry_manager.on_task_failed(execution_id, error)
         if retry_decision == "auto_retry":
             logger.info("Task entering auto retry: %s", execution_id)
@@ -412,6 +471,22 @@ class ServiceLocator(QObject):
         self._ssh = None
         self._project_manager.close()
         logger.info("ServiceLocator closed")
+
+    def _is_execution_active(self, execution_id: str) -> bool:
+        """Check DB status to prevent duplicated terminal transitions."""
+        try:
+            row = self._project_manager.db.execute(
+                "SELECT status, archived_at FROM executions WHERE execution_id = ?",
+                (execution_id,),
+            ).fetchone()
+        except Exception:
+            return True
+        if row is None:
+            return False
+        if row["archived_at"] is not None:
+            return False
+        status = str(row["status"] or "").strip().lower()
+        return status in {"pending", "running", "retrying"}
 
 
 class _NullSSH:

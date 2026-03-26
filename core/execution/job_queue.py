@@ -74,11 +74,15 @@ class JobQueue(QObject):
             del self._running[execution_id]
             logger.info("任务 %s 完成 (运行数: %d)", execution_id, len(self._running))
         else:
-            logger.warning("任务 %s 不在运行列表中", execution_id)
+            logger.debug("任务 %s 不在运行列表中（可能是恢复监控任务）", execution_id)
 
         if not self._running:
             logger.info("所有任务已完成")
             self.queue_empty.emit()
+
+    def has_job(self, execution_id: str) -> bool:
+        """Whether execution currently exists in queue running map."""
+        return execution_id in self._running
 
     def get_status(self) -> Dict[str, int]:
         """获取队列状态
