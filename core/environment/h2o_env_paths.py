@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 H2O_ROOT = "~/.h2ometa"
-H2O_ENVS_DIR = f"{H2O_ROOT}/envs"
+H2O_CONDA_HOME = f"{H2O_ROOT}/conda"
+H2O_CONDA_EXE = f"{H2O_CONDA_HOME}/bin/conda"
+H2O_ENVS_DIR = f"{H2O_CONDA_HOME}/envs"
 H2O_DB_DIR = f"{H2O_ROOT}/databases"
 H2O_INSTALL_DIR = f"{H2O_ROOT}/env_installs"
 H2O_CONDARC = f"{H2O_ROOT}/runtime/condarc"
@@ -27,3 +29,14 @@ def h2o_tmp_prefix(env_name: str) -> str:
     if not prefix:
         return ""
     return f"{prefix}.installing"
+
+
+def is_managed_conda_executable(path: str) -> bool:
+    """是否为 H2OMeta 自管 conda 可执行路径。"""
+    p = (path or "").strip()
+    if not p:
+        return False
+    if p == H2O_CONDA_EXE:
+        return True
+    normalized = p.replace("\\", "/")
+    return normalized.endswith("/.h2ometa/conda/bin/conda")
