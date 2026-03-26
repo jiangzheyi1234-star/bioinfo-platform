@@ -262,3 +262,181 @@ def test_tool_install_success_emits_install_task_event(qapp, monkeypatch):
         e.get("task_id") == "tool_env:fastp" and e.get("state") == "success"
         for e in events
     )
+
+
+def test_recover_running_installs_only_emits_running(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+    card._tools = [
+        {"id": "running_tool", "name": "running_tool", "conda_env": "running_tool_env"},
+        {"id": "done_tool", "name": "done_tool", "conda_env": "done_tool_env"},
+        {"id": "failed_tool", "name": "failed_tool", "conda_env": "failed_tool_env"},
+    ]
+
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.EnvInstaller.scan_running",
+        lambda *args, **kwargs: [
+            {"tool_id": "running_tool", "task_dir": "~/.h2ometa/env_installs/running_tool", "status": "RUNNING"},
+            {"tool_id": "done_tool", "task_dir": "~/.h2ometa/env_installs/done_tool", "status": "DONE"},
+            {"tool_id": "failed_tool", "task_dir": "~/.h2ometa/env_installs/failed_tool", "status": "FAILED"},
+        ],
+    )
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstaller.cleanup", lambda *args, **kwargs: None)
+    monkeypatch.setattr(card, "_get_existing_env_paths", lambda: set())
+    monkeypatch.setattr(card, "_is_tool_env_exists", lambda tool, existing: False)
+    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+    card._recover_running_installs()
+
+    assert any(e.get("task_id") == "tool_env:running_tool" and e.get("state") == "running" for e in events)
+    assert not any(e.get("task_id") == "tool_env:done_tool" for e in events)
+    assert not any(e.get("task_id") == "tool_env:failed_tool" for e in events)
+
+
+def test_queue_install_tool_does_not_mark_running_before_submit(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    monkeypatch.setattr(card, "_ensure_tool_install_ready", lambda interactive=True: True)
+    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+    card._queue_install_tool({"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"})
+
+    assert "abricate" not in card._installing_tool_ids
+    assert events == []
+
+
+def test_on_install_submitted_marks_running(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+
+    started = {"tool_id": ""}
+
+    class _Bridge:
+        @staticmethod
+        def emit_install_started(tool_id):
+            started["tool_id"] = tool_id
+
+    card._bridge = _Bridge()
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+    card._on_install_submitted("abricate")
+
+    assert "abricate" in card._installing_tool_ids
+    assert started["tool_id"] == "abricate"
+    assert any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "running" for e in events)
+
+
+def test_recover_running_install_dead_session_reverts_missing_silently(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+    card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]
+
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.EnvInstaller.scan_running",
+        lambda *args, **kwargs: [
+            {"tool_id": "abricate", "task_dir": "~/.h2ometa/env_installs/abricate", "status": "RUNNING"},
+        ],
+    )
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstaller.is_session_alive", lambda *args, **kwargs: False)
+    monkeypatch.setattr(card, "_get_existing_env_paths", lambda: set())
+    monkeypatch.setattr(card, "_is_tool_env_exists", lambda tool, existing: False)
+    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+
+    cleaned = {"count": 0}
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.EnvInstaller.cleanup",
+        lambda *args, **kwargs: cleaned.__setitem__("count", cleaned["count"] + 1),
+    )
+
+    finished = {"tool_id": "", "success": None}
+
+    class _Bridge:
+        @staticmethod
+        def emit_install_started(_tool_id):
+            raise AssertionError("dead session should not be marked installing")
+
+        @staticmethod
+        def emit_install_finished(tool_id, success):
+            finished["tool_id"] = tool_id
+            finished["success"] = success
+
+    card._bridge = _Bridge()
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+    card._recover_running_installs()
+
+    assert finished["tool_id"] == "abricate"
+    assert finished["success"] is False
+    assert cleaned["count"] >= 1
+    assert "abricate" not in card._installing_tool_ids
+    assert not any(e.get("task_id") == "tool_env:abricate" for e in events)
+
+
+def test_poll_running_or_empty_with_dead_session_reverts_missing(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]
+    card._installing_tool_ids.add("abricate")
+    card._tool_log_samples["abricate"] = (100, time.time())
+
+    monkeypatch.setattr(card, "_get_existing_env_paths", lambda: set())
+    monkeypatch.setattr(card, "_is_tool_env_exists", lambda tool, existing: False)
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstaller.cleanup", lambda *args, **kwargs: None)
+
+    finished = {"tool_id": "", "success": None}
+
+    class _Bridge:
+        @staticmethod
+        def emit_install_finished(tool_id, success):
+            finished["tool_id"] = tool_id
+            finished["success"] = success
+
+    card._bridge = _Bridge()
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+
+    card._on_tool_install_poll_finished(
+        [
+            {
+                "tool_id": "abricate",
+                "status": "",
+                "exit_code": "",
+                "log_text": "",
+                "log_size": 0,
+                "session_alive": False,
+            }
+        ]
+    )
+
+    assert "abricate" not in card._installing_tool_ids
+    assert "abricate" not in card._tool_log_samples
+    assert finished["tool_id"] == "abricate"
+    assert finished["success"] is False
+    assert not any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "failed" for e in events)

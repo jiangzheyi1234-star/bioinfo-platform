@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
 from PyQt6.QtWidgets import QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 from ui.widgets import styles
 from ui.widgets.styles import (
     BUTTON_PRIMARY,
@@ -205,6 +206,7 @@ class EnvInstallPollWorker(QObject):
 class EnvInstallDialog(QDialog):
     """Tool conda-environment installation dialog."""
 
+    install_submitted = pyqtSignal(str)
     install_succeeded = pyqtSignal(str)
     install_failed = pyqtSignal(str)
 
@@ -311,6 +313,9 @@ class EnvInstallDialog(QDialog):
         if not install_cmd:
             self.install_btn.setEnabled(False)
             self.status_lbl.setText("该工具未配置 install_cmd，无法自动安装。")
+        elif not self._conda_executable or not is_managed_conda_executable(self._conda_executable):
+            self.install_btn.setEnabled(False)
+            self.status_lbl.setText(f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。")
 
         btn_row.addStretch()
         btn_row.addWidget(self.cancel_btn)
@@ -355,6 +360,13 @@ class EnvInstallDialog(QDialog):
         install_cmd = self.tool_info.get("install_cmd", "")
         if not install_cmd:
             return
+        if not self._conda_executable or not is_managed_conda_executable(self._conda_executable):
+            self.install_btn.setEnabled(False)
+            self._set_status(
+                f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。",
+                f"color: {styles.COLOR_DANGER}; font-size: 12px;",
+            )
+            return
 
         self._installing = True
         self.install_btn.setEnabled(False)
@@ -374,6 +386,7 @@ class EnvInstallDialog(QDialog):
             )
             self._task_dir = result["task_dir"]
             self._job_id = result["job_id"]
+            self.install_submitted.emit(self.tool_info.get("id", ""))
             self._set_status(
                 "安装中……（conda 安装可能需要 5-30 分钟，可关闭窗口后台继续）",
                 f"color: {styles.COLOR_PRIMARY}; font-size: 12px;",
