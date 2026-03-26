@@ -4,19 +4,17 @@ import logging
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl, QElapsedTimer
 from PyQt6.QtWidgets import (
-    QDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -26,12 +24,10 @@ from ui.widgets.styles import (
     BUTTON_PRIMARY,
     CARD_TITLE,
     COLOR_TEXT_HINT,
-    COLOR_BG_PAGE,
     STATUS_NEUTRAL,
     STATUS_SUCCESS,
     STATUS_ERROR,
     BUTTON_LINK,
-    SCROLL_BAR_ELEGANT,
 )
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
 from ui.widgets.report_view import create_report_web_view
@@ -42,10 +38,10 @@ from core.environment import miniforge_bootstrap
 from core.environment.env_detector import CondaStatus
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
 from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, get_existing_env_paths
-from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, is_managed_conda_executable
-from core.utils import sanitize_terminal_line
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 
 logger = logging.getLogger(__name__)
+MINIFORGE_HEARTBEAT_STALE_SECONDS = 180
 
 
 def _is_test_mode() -> bool:
@@ -97,63 +93,6 @@ class CondaDetectWorker(QObject):
             if self._cancelled:
                 return
             logger.exception("CondaDetectWorker 出错")
-            self._emit("error", str(e))
-
-
-# ── Miniforge 安装 Worker ─────────────────────────────────────────
-
-
-class MiniforgeInstallWorker(QObject):
-    """在 QThread 中运行 env_detector.install_miniforge()。"""
-
-    output_line = pyqtSignal(str)
-    finished = pyqtSignal(object)  # CondaDetectResult
-    error = pyqtSignal(str)
-
-    def __init__(self, ssh_run_fn):
-        super().__init__()
-        self._ssh_run_fn = ssh_run_fn
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    def _emit(self, signal_name: str, *args) -> bool:
-        if self._cancelled:
-            return False
-        try:
-            signal = getattr(self, signal_name)
-        except RuntimeError:
-            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
-            return False
-        return _safe_emit(signal, *args)
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            # 包装 ssh_run_fn 以输出日志
-            original_fn = self._ssh_run_fn
-
-            def logging_fn(cmd, timeout=15):
-                self._emit("output_line", f"$ {cmd}\n")
-                rc, stdout, stderr = original_fn(cmd, timeout)
-                if stdout.strip():
-                    clean = sanitize_terminal_line(stdout)
-                    if clean:
-                        self._emit("output_line", clean)
-                if stderr.strip():
-                    clean = sanitize_terminal_line(stderr)
-                    if clean:
-                        self._emit("output_line", f"[stderr] {clean}")
-                return rc, stdout, stderr
-
-            result = env_detector.install_miniforge(logging_fn)
-            self._emit("finished", result)
-        except Exception as e:
-            if self._cancelled:
-                return
-            logger.exception("MiniforgeInstallWorker 出错")
             self._emit("error", str(e))
 
 
@@ -270,6 +209,7 @@ class LinuxSettingsCard(QFrame):
     """
 
     request_save = pyqtSignal()
+    install_task_event = pyqtSignal(dict)
 
     def __init__(self, parent=None, plugin_registry=None):
         super().__init__(parent)
@@ -316,6 +256,49 @@ class LinuxSettingsCard(QFrame):
         """外部注入 PluginRegistry，用于刷新工具列表。"""
         self._plugin_registry = plugin_registry
         self._refresh_tool_list()
+
+    def _emit_install_task_event(
+        self,
+        *,
+        task_id: str,
+        title: str,
+        source: str,
+        state: str,
+        detail: str = "",
+    ) -> None:
+        payload = {
+            "task_id": str(task_id or "").strip(),
+            "title": str(title or "").strip(),
+            "source": str(source or "").strip(),
+            "state": str(state or "").strip().lower() or "running",
+            "detail": str(detail or "").strip(),
+        }
+        if not payload["task_id"] or not payload["title"]:
+            return
+        try:
+            self.install_task_event.emit(payload)
+        except RuntimeError:
+            logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
+
+    def _emit_bootstrap_install_event(self, state: str, detail: str = "") -> None:
+        self._emit_install_task_event(
+            task_id="bootstrap:miniforge",
+            title="运行环境初始化",
+            source="bootstrap",
+            state=state,
+            detail=detail,
+        )
+
+    def _emit_tool_install_event(self, tool_id: str, state: str, detail: str = "") -> None:
+        tool = next((t for t in self._tools if t.get("id") == tool_id), None)
+        tool_name = str((tool or {}).get("name", "") or tool_id).strip() or tool_id
+        self._emit_install_task_event(
+            task_id=f"tool_env:{tool_id}",
+            title=f"工具环境安装 · {tool_name}",
+            source="tool_env",
+            state=state,
+            detail=detail,
+        )
 
     def set_active_client(self, client) -> None:
         """接收外部传入的 SSH 客户端实例。SSH 连接成功后自动触发 conda 检测。"""
@@ -686,10 +669,12 @@ class LinuxSettingsCard(QFrame):
             return
         if self._miniforge_installing:
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+            self._emit_bootstrap_install_event("running", "运行环境初始化进行中")
             return
 
         self._miniforge_installing = True
         self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+        self._emit_bootstrap_install_event("running", "后台提交初始化任务")
         self._cleanup_miniforge_resources()
 
         self._miniforge_thread = QThread()
@@ -699,6 +684,9 @@ class LinuxSettingsCard(QFrame):
 
         def _on_finished(result: dict) -> None:
             self._miniforge_task_dir = result.get("task_dir", miniforge_bootstrap.TASK_DIR)
+            already_running = bool(result.get("already_running", False))
+            detail = "已接管后台运行中的初始化任务" if already_running else "初始化任务已提交到后台"
+            self._emit_bootstrap_install_event("running", detail)
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
             self._start_miniforge_polling()
             self._cleanup_miniforge_resources()
@@ -706,6 +694,7 @@ class LinuxSettingsCard(QFrame):
         def _on_error(msg: str) -> None:
             self._miniforge_installing = False
             self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
+            self._emit_bootstrap_install_event("failed", f"提交失败: {msg}")
             self._prompt_miniforge_install_failed(msg)
             self._cleanup_miniforge_resources()
 
@@ -731,6 +720,7 @@ class LinuxSettingsCard(QFrame):
             )
             state = (status.get("status") or "").strip().upper()
             rc = (status.get("exit_code") or "").strip()
+            heartbeat = (status.get("heartbeat") or "").strip()
             alive = miniforge_bootstrap.is_session_alive(
                 self._make_ssh_run_fn(),
                 job_id=miniforge_bootstrap.JOB_ID,
@@ -741,147 +731,54 @@ class LinuxSettingsCard(QFrame):
                 self._miniforge_installing = False
                 self._miniforge_poll_timer.stop()
                 self._set_status("运行环境已就绪，正在检测工具环境...", STATUS_SUCCESS)
+                self._emit_bootstrap_install_event("success", "运行环境初始化完成")
                 Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
                 QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
                 return
 
-            if state == "FAILED" or (state == "" and not alive):
-                self._miniforge_installing = False
-                self._miniforge_poll_timer.stop()
-                log_text = miniforge_bootstrap.read_log(
-                    self._make_ssh_run_fn(),
-                    task_dir=self._miniforge_task_dir,
-                    tail_lines=40,
-                    timeout=10,
-                )
-                message = log_text.strip() or "远端初始化任务失败或异常退出"
-                self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
-                self._prompt_miniforge_install_failed(message)
+            if state == "FAILED":
+                self._handle_miniforge_failure("远端初始化任务失败")
+                return
+
+            if state == "RUNNING" and not alive:
+                if self._is_stale_heartbeat(heartbeat):
+                    self._handle_miniforge_failure("远端会话已退出（状态仍为 RUNNING 且心跳超时）")
+                    return
+
+            if not alive and (state == "" or self._is_stale_heartbeat(heartbeat)):
+                self._handle_miniforge_failure("远端会话已退出且心跳超时")
                 return
 
             # RUNNING / status 空但 session 存活
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+            self._emit_bootstrap_install_event("running", "后台初始化任务执行中")
         except Exception as exc:
             logger.debug("轮询 Miniforge 初始化状态失败: %s", exc)
             # 网络瞬时抖动不立即失败，保持下次轮询继续
         finally:
             self._miniforge_polling = False
 
-    def _start_miniforge_install(self) -> None:
-        """启动 Miniforge 安装。
+    def _is_stale_heartbeat(self, heartbeat_value: str, stale_seconds: int = MINIFORGE_HEARTBEAT_STALE_SECONDS) -> bool:
+        try:
+            ts = int((heartbeat_value or "").strip())
+        except Exception:
+            return True
+        return (time.time() - ts) > stale_seconds
 
-        Miniforge 是一次性短操作（< 5 分钟），保持 MiniforgeInstallWorker 阻塞方式。
-        使用简化的 QDialog 而不是 EnvInstallDialog。
-        """
-        if not self.active_client:
-            return
-
-        from PyQt6.QtWidgets import QMessageBox
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("安装 Miniforge3")
-        dlg.setMinimumWidth(580)
-        dlg.setMinimumHeight(440)
-        dlg.setStyleSheet(f"background-color: {COLOR_BG_PAGE};")
-
-        layout = QVBoxLayout(dlg)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        info_lbl = QLabel(f"将安装 Miniforge3 到 {H2O_CONDA_HOME}，这可能需要几分钟。")
-        info_lbl.setWordWrap(True)
-        info_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-        layout.addWidget(info_lbl)
-
-        output_edit = QTextEdit()
-        output_edit.setReadOnly(True)
-        output_edit.setStyleSheet(
-            "background: #1e1e1e; color: #d4d4d4;"
-            "font-family: Consolas, 'Courier New', monospace;"
-            "font-size: 12px; border-radius: 4px; border: none;"
+    def _handle_miniforge_failure(self, reason: str) -> None:
+        self._miniforge_installing = False
+        self._miniforge_poll_timer.stop()
+        log_text = miniforge_bootstrap.read_log(
+            self._make_ssh_run_fn(),
+            task_dir=self._miniforge_task_dir,
+            tail_lines=40,
+            timeout=10,
         )
-        output_edit.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
-        output_edit.setMinimumHeight(180)
-        layout.addWidget(output_edit)
-
-        status_lbl = QLabel("点击「开始安装」启动安装。")
-        status_lbl.setWordWrap(True)
-        status_lbl.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-        layout.addWidget(status_lbl)
-
-        btn_row = QHBoxLayout()
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setFixedWidth(80)
-        cancel_btn.clicked.connect(dlg.reject)
-        install_btn = QPushButton("开始安装")
-        install_btn.setFixedWidth(100)
-        install_btn.setStyleSheet(BUTTON_PRIMARY)
-        btn_row.addStretch()
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(install_btn)
-        layout.addLayout(btn_row)
-
-        def _append_output(line):
-            output_edit.insertPlainText(line)
-            sb = output_edit.verticalScrollBar()
-            sb.setValue(sb.maximum())
-
-        def _do_miniforge():
-            install_btn.setEnabled(False)
-            cancel_btn.setEnabled(False)
-            status_lbl.setText("正在安装 Miniforge3...")
-            status_lbl.setStyleSheet("color: #1565c0; font-size: 12px;")
-            output_edit.clear()
-
-            thread = QThread()
-            worker = MiniforgeInstallWorker(self._make_ssh_run_fn())
-            worker.moveToThread(thread)
-
-            thread.started.connect(worker.run)
-            worker.output_line.connect(_append_output)
-
-            def on_finished(result):
-                thread.quit()
-                thread.wait(3000)
-                cancel_btn.setEnabled(True)
-                if result.status == CondaStatus.OK:
-                    self._conda_executable = result.executable
-                    self._auto_installed = True
-                    status_lbl.setText("Miniforge3 安装成功！")
-                    status_lbl.setStyleSheet("color: #2e7d32; font-size: 13px; font-weight: bold;")
-                    install_btn.setText("关闭")
-                    install_btn.setEnabled(True)
-                    try:
-                        install_btn.clicked.disconnect()
-                    except RuntimeError:
-                        pass
-                    install_btn.clicked.connect(dlg.accept)
-                    QTimer.singleShot(500, lambda: self._ensure_conda_ready(interactive=False))
-                else:
-                    output_edit.insertPlainText(f"\n{result.message}\n")
-                    status_lbl.setText("安装失败，请检查网络或手动安装。")
-                    status_lbl.setStyleSheet("color: #c62828; font-size: 12px;")
-                    install_btn.setText("重试")
-                    install_btn.setEnabled(True)
-
-            def on_error(msg):
-                thread.quit()
-                thread.wait(3000)
-                cancel_btn.setEnabled(True)
-                install_btn.setEnabled(True)
-                install_btn.setText("重试")
-                status_lbl.setText(f"安装出错: {msg[:80]}")
-                status_lbl.setStyleSheet(STATUS_ERROR)
-
-            worker.finished.connect(on_finished)
-            worker.error.connect(on_error)
-
-            dlg._mf_thread = thread
-            dlg._mf_worker = worker
-            thread.start()
-
-        install_btn.clicked.connect(_do_miniforge)
-        dlg.exec()
+        tail = log_text.strip()
+        message = f"{reason}\n\n{tail}" if tail else reason
+        self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
+        self._emit_bootstrap_install_event("failed", reason)
+        self._prompt_miniforge_install_failed(message)
 
     # ── 批量检测 ─────────────────────────────────────────
 
@@ -1006,6 +903,9 @@ class LinuxSettingsCard(QFrame):
     def _queue_install_tool(self, tool: dict) -> None:
         """在当前事件结束后再打开安装对话框，避免 WebChannel 回调重入。"""
         tool_snapshot = dict(tool)
+        tool_id = str(tool_snapshot.get("id", "") or "").strip()
+        if tool_id:
+            self._emit_tool_install_event(tool_id, "running", "等待安装任务开始")
         QTimer.singleShot(0, lambda: self._do_install_tool(tool_snapshot))
 
     def _do_install_tool(self, tool: dict) -> None:
@@ -1013,9 +913,12 @@ class LinuxSettingsCard(QFrame):
         if not self.active_client:
             self._set_status("SSH 未连接，无法安装", STATUS_ERROR)
             # 从安装中集合移除（如果之前被添加）
-            self._installing_tool_ids.discard(tool.get("id", ""))
+            failed_tool_id = tool.get("id", "")
+            self._installing_tool_ids.discard(failed_tool_id)
             if self._bridge:
-                self._bridge.emit_install_finished(tool.get("id", ""), False)
+                self._bridge.emit_install_finished(failed_tool_id, False)
+            if failed_tool_id:
+                self._emit_tool_install_event(failed_tool_id, "failed", "SSH 未连接，无法安装")
             return
 
         try:
@@ -1033,6 +936,8 @@ class LinuxSettingsCard(QFrame):
             # 通知 JS 安装失败
             if self._bridge:
                 self._bridge.emit_install_finished(tool_id, False)
+            if tool_id:
+                self._emit_tool_install_event(tool_id, "failed", f"打开安装窗口失败: {exc}")
             QMessageBox.critical(
                 self,
                 "安装窗口打开失败",
@@ -1046,6 +951,7 @@ class LinuxSettingsCard(QFrame):
         # 通知 JS 安装完成
         if self._bridge:
             self._bridge.emit_install_finished(tool_id, True)
+        self._emit_tool_install_event(tool_id, "success", "工具环境安装完成")
 
         tool = next((t for t in self._tools if t["id"] == tool_id), None)
         tool_name = tool.get("name", tool_id) if tool else tool_id
@@ -1071,6 +977,7 @@ class LinuxSettingsCard(QFrame):
         self._installing_tool_ids.discard(tool_id)
         if self._bridge:
             self._bridge.emit_install_finished(tool_id, False)
+        self._emit_tool_install_event(tool_id, "failed", "工具环境安装失败")
 
     def _recover_running_installs(self) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。
@@ -1114,8 +1021,10 @@ class LinuxSettingsCard(QFrame):
                     # 通知 Web UI 显示"安装中"状态
                     if self._bridge:
                         self._bridge.emit_install_started(tool_id)
+                    self._emit_tool_install_event(tool_id, "running", "检测到后台安装任务仍在运行")
             elif status == "DONE":
                 newly_done = True
+                self._emit_tool_install_event(tool_id, "success", "后台安装任务已完成")
                 # 清理已完成的安装目录
                 try:
                     EnvInstaller.cleanup(self._make_ssh_run_fn(), task_dir)
@@ -1123,7 +1032,7 @@ class LinuxSettingsCard(QFrame):
                     pass
             elif status == "FAILED":
                 # 保留失败目录供诊断，但不提示
-                pass
+                self._emit_tool_install_event(tool_id, "failed", "后台安装任务失败")
 
         if running_tools:
             names = ", ".join(running_tools)

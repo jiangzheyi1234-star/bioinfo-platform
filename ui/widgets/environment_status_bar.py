@@ -5,7 +5,7 @@
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -41,6 +41,17 @@ class _StatusDot(QLabel):
         )
 
 
+class _ClickableLabel(QLabel):
+    """可点击文本标签。"""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class EnvironmentStatusBar(QFrame):
     """环境状态栏
 
@@ -51,6 +62,8 @@ class EnvironmentStatusBar(QFrame):
 
     使用颜色指示器: 绿=正常, 黄=警告/重连, 红=断开/错误
     """
+
+    install_status_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -109,6 +122,24 @@ class EnvironmentStatusBar(QFrame):
         self._queue_label.setStyleSheet(label_style)
         layout.addWidget(self._queue_dot)
         layout.addWidget(self._queue_label)
+
+        # 分隔符
+        sep_install = QLabel("|")
+        sep_install.setStyleSheet(
+            f"color: {styles.COLOR_BORDER}; font-size: 11px; "
+            f"background: {styles.COLOR_BG_BLANK};"
+        )
+        layout.addWidget(sep_install)
+
+        # 安装状态（可点击）
+        self._install_dot = _StatusDot("gray")
+        self._install_label = _ClickableLabel("安装: 空闲")
+        self._install_label.setStyleSheet(label_style)
+        self._install_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._install_label.setToolTip("点击查看安装任务")
+        self._install_label.clicked.connect(self.install_status_clicked.emit)
+        layout.addWidget(self._install_dot)
+        layout.addWidget(self._install_label)
 
         # 分隔符
         sep_log = QLabel("|")
@@ -210,3 +241,29 @@ class EnvironmentStatusBar(QFrame):
         """更新日志面板状态提示。"""
         text = str(status_text or "").strip() or "日志: 就绪"
         self._log_label.setText(text)
+
+    def update_install_status(self, summary: str, level: str = "idle") -> None:
+        """更新安装任务状态段。"""
+        text = str(summary or "").strip() or "安装: 空闲"
+        lv = str(level or "idle").strip().lower()
+        dot_color = "gray"
+        text_color = styles.COLOR_TEXT_SUB
+        if lv == "running":
+            dot_color = "yellow"
+            text_color = styles.COLOR_WARNING
+        elif lv == "error":
+            dot_color = "red"
+            text_color = styles.COLOR_DANGER
+        elif lv == "success":
+            dot_color = "green"
+            text_color = styles.COLOR_SUCCESS
+
+        self._install_dot.set_color(dot_color)
+        self._install_label.setText(text)
+        self._install_label.setStyleSheet(
+            f"font-size: 11px; color: {text_color}; background: {styles.COLOR_BG_BLANK};"
+        )
+
+    def install_status_anchor(self) -> QWidget:
+        """返回安装状态段锚点控件（用于弹出任务面板定位）。"""
+        return self._install_label

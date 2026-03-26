@@ -1,4 +1,5 @@
 import pytest
+import time
 
 
 pytestmark = pytest.mark.ui
@@ -119,3 +120,145 @@ def test_conda_not_found_interactive_prompts_install(qapp, monkeypatch):
 
     assert calls["silent"] == 0
     assert calls["prompt"] == 1
+
+
+def test_poll_miniforge_running_but_session_dead_fails(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._miniforge_installing = True
+    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+    stale = str(int(time.time()) - 3600)
+
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
+        lambda *args, **kwargs: {"status": "RUNNING", "exit_code": "", "heartbeat": stale},
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.read_log",
+        lambda *args, **kwargs: "tail log",
+    )
+
+    failed = {"message": ""}
+    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+
+    card._poll_miniforge_status()
+
+    assert card._miniforge_installing is False
+    assert "会话已退出" in failed["message"]
+
+
+def test_poll_miniforge_running_dead_session_but_fresh_heartbeat_keeps_running(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._miniforge_installing = True
+    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+
+    fresh = str(int(time.time()))
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
+        lambda *args, **kwargs: {"status": "RUNNING", "exit_code": "", "heartbeat": fresh},
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
+        lambda *args, **kwargs: False,
+    )
+
+    failed = {"count": 0}
+    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("count", failed["count"] + 1))
+
+    card._poll_miniforge_status()
+
+    assert card._miniforge_installing is True
+    assert failed["count"] == 0
+
+
+def test_poll_miniforge_stale_heartbeat_and_dead_session_fails(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._miniforge_installing = True
+    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+
+    stale = str(int(time.time()) - 3600)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
+        lambda *args, **kwargs: {"status": "", "exit_code": "", "heartbeat": stale},
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.read_log",
+        lambda *args, **kwargs: "tail log",
+    )
+
+    failed = {"message": ""}
+    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+
+    card._poll_miniforge_status()
+
+    assert card._miniforge_installing is False
+    assert "心跳超时" in failed["message"]
+
+
+def test_poll_miniforge_done_emits_install_task_success(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card.active_client = object()
+    card._miniforge_installing = True
+    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
+    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
+        lambda *args, **kwargs: {"status": "DONE", "exit_code": "0", "heartbeat": str(int(time.time()))},
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr("ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None)
+    monkeypatch.setattr(card, "_ensure_conda_ready", lambda interactive=False: None)
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+    card._poll_miniforge_status()
+
+    assert any(e.get("task_id") == "bootstrap:miniforge" and e.get("state") == "success" for e in events)
+
+
+def test_tool_install_success_emits_install_task_event(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
+    monkeypatch.setattr("ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None)
+    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+    card._on_install_succeeded("fastp")
+
+    assert any(
+        e.get("task_id") == "tool_env:fastp" and e.get("state") == "success"
+        for e in events
+    )

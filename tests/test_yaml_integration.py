@@ -102,7 +102,7 @@ class TestFastpIntegration:
         assert "-q 20" in cmd  # 默认值
         assert "-l 50" in cmd  # 默认值
         assert "-w 4" in cmd   # 默认值
-        assert "conda run -n fastp_env" in cmd
+        assert "conda run -p ~/.h2ometa/conda/envs/fastp_env" in cmd
         # 单端: 不应有 -I
         assert "-I " not in cmd
 
@@ -172,7 +172,7 @@ class TestFastpIntegration:
         assert "trap _cleanup EXIT" in wrapped
         assert f"sleep {HEARTBEAT_INTERVAL}" in wrapped
         assert "fastp" in wrapped
-        assert "conda run -n fastp_env" in wrapped
+        assert "conda run -p ~/.h2ometa/conda/envs/fastp_env" in wrapped
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ class TestKraken2Integration:
         assert "--threads 8" in cmd   # 默认值
         assert "--confidence 0.1" in cmd  # 默认值
         assert "--minimum-hit-groups 2" in cmd  # 默认值
-        assert "conda run -n kraken2_env" in cmd
+        assert "conda run -p ~/.h2ometa/conda/envs/kraken2_env" in cmd
 
     def test_build_input_reads_alias(self, registry: PluginRegistry) -> None:
         """模板使用 {input_reads}，应通过 input_ 前缀别名解析。"""
@@ -268,7 +268,7 @@ class TestKraken2Integration:
             database_paths={"db": "/db/k2"},
         )
         assert "kraken2" in wrapped
-        assert "conda run -n kraken2_env" in wrapped
+        assert "conda run -p ~/.h2ometa/conda/envs/kraken2_env" in wrapped
         assert "trap _cleanup EXIT" in wrapped
 
 
@@ -302,7 +302,7 @@ class TestHostileIntegration:
         assert "--aligner bowtie2" in cmd     # 默认值
         assert "--index human-t2t-hla" in cmd  # 默认值
         assert "--threads 8" in cmd            # 默认值
-        assert "conda run -n hostile_env" in cmd
+        assert "conda run -p ~/.h2ometa/conda/envs/hostile_env" in cmd
         assert "--fastq2" not in cmd
 
     def test_build_paired_end(self, registry: PluginRegistry) -> None:
@@ -360,7 +360,7 @@ class TestHostileIntegration:
             input_paths={"reads_1": "/data/r1.fq"},
         )
         assert "hostile clean" in wrapped
-        assert "conda run -n hostile_env" in wrapped
+        assert "conda run -p ~/.h2ometa/conda/envs/hostile_env" in wrapped
         assert 'echo "RUNNING"' in wrapped
         assert 'echo "DONE"' in wrapped
 
@@ -398,7 +398,7 @@ class TestBlastnIntegration:
         assert "-evalue 1e-05" in cmd or "-evalue 1.0e-05" in cmd  # 浮点格式
         assert "-max_target_seqs 10" in cmd
         assert "-num_threads 4" in cmd
-        assert "conda run -n blast_env" in cmd
+        assert "conda run -p ~/.h2ometa/conda/envs/blast_env" in cmd
 
     def test_build_input_query_alias(self, registry: PluginRegistry) -> None:
         """模板使用 {input_query}，应通过 input_ 前缀别名解析。"""
@@ -472,7 +472,7 @@ class TestBlastnIntegration:
             database_paths={"db": "/db/nt"},
         )
         assert "blastn" in wrapped
-        assert "conda run -n blast_env" in wrapped
+        assert "conda run -p ~/.h2ometa/conda/envs/blast_env" in wrapped
         assert "set -euo pipefail" in wrapped
         assert "trap _cleanup EXIT" in wrapped
         assert f"sleep {HEARTBEAT_INTERVAL}" in wrapped
