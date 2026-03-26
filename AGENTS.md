@@ -67,6 +67,28 @@ When remote dependency setup is needed, do **not** use `sudo` by default.
    - keep pipeline Python fallback path enabled (e.g. `rarfile`),
    - or switch test input to `.zip` / `.tar.gz`.
 
+## Remote Long-Running Install Baseline (Must Reuse)
+
+For remote install/download/bootstrap tasks expected to exceed ~30s (e.g. Miniforge, tool env install, DB download), always use a **detached remote task** model:
+
+1. Do not bind long remote installation to local UI process lifetime.
+2. Start remote execution in detached mode (`screen` preferred), and persist task metadata.
+3. Always write and reconcile status files in this order:
+   - `status.txt`
+   - `exit_code.txt`
+   - `heartbeat.txt`
+   - detached session state (`screen -ls`)
+4. If app closes/restarts, task must continue remotely; on next launch, recover monitoring from task metadata + status files.
+5. Treat `status.txt = DONE` or `exit_code.txt = 0` as completed even if detached session still exists.
+6. Startup UX rule:
+   - no blocking success popups for auto bootstrap
+   - show non-blocking status/toast for progress/success
+   - only block with dialog when user decision is required (failure/disk/permission escalation).
+7. Reuse existing patterns in:
+   - `core/environment/env_installer.py`
+   - `core/execution/execution_reconcile_service.py`
+   - `core/execution/job_monitor.py`
+
 ### Last Verified
 
 - Date: `2026-03-17`
