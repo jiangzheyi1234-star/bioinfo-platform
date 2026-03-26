@@ -716,3 +716,67 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
     assert len(critical_calls) == 1
 
     card.close()
+
+
+def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    card._installing_tool_ids.add("fastp")
+    card._tool_install_snapshots["fastp"] = {
+        "tool_id": "fastp",
+        "status": "RUNNING",
+        "message": "安装中……",
+        "log_text": "existing log",
+    }
+
+    submit_called = {"count": 0}
+    monkeypatch.setattr(
+        card,
+        "_start_tool_install_submit",
+        lambda *_args, **_kwargs: submit_called.__setitem__("count", submit_called["count"] + 1),
+    )
+    monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
+
+    class _Signal:
+        def __init__(self):
+            self._handler = None
+
+        def connect(self, handler):
+            self._handler = handler
+
+        def emit(self, *args, **kwargs):
+            if self._handler is not None:
+                self._handler(*args, **kwargs)
+
+    dialogs = []
+
+    class _FakeDialog:
+        def __init__(self, tool, parent=None):
+            self.tool = tool
+            self.parent = parent
+            self.install_requested = _Signal()
+            self.applied = []
+            dialogs.append(self)
+
+        def on_snapshot_updated(self, tool_id, snapshot):
+            return None
+
+        def apply_install_snapshot(self, snapshot):
+            self.applied.append(snapshot)
+
+        def exec(self):
+            # 模拟用户再次点击“开始安装”，应走 attach 分支而不是重复提交
+            self.install_requested.emit(self.tool.get("id", ""))
+            return 0
+
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+
+    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+
+    assert dialogs
+    assert dialogs[0].applied and dialogs[0].applied[0].get("status") == "RUNNING"
+    assert submit_called["count"] == 0
+    card.close()

@@ -296,13 +296,19 @@ class EnvironmentStatusBar(QFrame):
         if level == "running":
             color = styles.COLOR_WARNING
             self._install_spin = qta.Spin(self._install_icon)
-            icon = qta.icon(
-                "ph.circle-notch",
-                color=color,
-                animation=self._install_spin,
-            )
-            self._install_icon.setPixmap(icon.pixmap(self._INSTALL_ICON_SIZE))
-            return
+            for icon_key in ("ph.spinner-gap", "fa5s.spinner", "mdi.loading"):
+                try:
+                    icon = qta.icon(
+                        icon_key,
+                        color=color,
+                        animation=self._install_spin,
+                    )
+                    self._install_icon.setPixmap(icon.pixmap(self._INSTALL_ICON_SIZE))
+                    return
+                except Exception:
+                    continue
+            self._install_spin = None
+            icon_key = "ph.info"
         self._install_spin = None
         if level == "error":
             icon_key = "ph.warning-circle"
