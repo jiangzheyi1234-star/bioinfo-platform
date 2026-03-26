@@ -6,12 +6,14 @@ import logging
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QWidget,
 )
+import qtawesome as qta
 
 from ui.widgets import styles
 
@@ -64,6 +66,7 @@ class EnvironmentStatusBar(QFrame):
     """
 
     install_status_clicked = pyqtSignal()
+    _INSTALL_ICON_SIZE = QSize(14, 14)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -133,12 +136,16 @@ class EnvironmentStatusBar(QFrame):
 
         # 安装状态（可点击）
         self._install_dot = _StatusDot("gray")
+        self._install_icon = QLabel("")
+        self._install_icon.setFixedSize(14, 14)
+        self._set_install_icon("idle")
         self._install_label = _ClickableLabel("安装: 空闲")
         self._install_label.setStyleSheet(label_style)
         self._install_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._install_label.setToolTip("点击查看安装任务")
         self._install_label.clicked.connect(self.install_status_clicked.emit)
         layout.addWidget(self._install_dot)
+        layout.addWidget(self._install_icon)
         layout.addWidget(self._install_label)
 
         # 分隔符
@@ -259,6 +266,7 @@ class EnvironmentStatusBar(QFrame):
             text_color = styles.COLOR_SUCCESS
 
         self._install_dot.set_color(dot_color)
+        self._set_install_icon(lv)
         self._install_label.setText(text)
         self._install_label.setStyleSheet(
             f"font-size: 11px; color: {text_color}; background: {styles.COLOR_BG_BLANK};"
@@ -267,3 +275,18 @@ class EnvironmentStatusBar(QFrame):
     def install_status_anchor(self) -> QWidget:
         """返回安装状态段锚点控件（用于弹出任务面板定位）。"""
         return self._install_label
+
+    def _set_install_icon(self, level: str) -> None:
+        icon_key = "ph.minus-circle"
+        color = styles.COLOR_TEXT_SUB
+        if level == "running":
+            icon_key = "ph.spinner-gap"
+            color = styles.COLOR_WARNING
+        elif level == "error":
+            icon_key = "ph.warning-circle"
+            color = styles.COLOR_DANGER
+        elif level == "success":
+            icon_key = "ph.check-circle"
+            color = styles.COLOR_SUCCESS
+        icon = qta.icon(icon_key, color=color)
+        self._install_icon.setPixmap(icon.pixmap(self._INSTALL_ICON_SIZE))

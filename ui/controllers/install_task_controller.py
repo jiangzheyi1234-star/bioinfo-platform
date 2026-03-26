@@ -106,7 +106,7 @@ class InstallTaskController(QObject):
         if failed:
             return {
                 "level": "error",
-                "text": f"安装: ❌ {len(failed)} 项失败",
+                "text": f"安装: {len(failed)} 项失败",
                 "running": 0,
                 "failed": len(failed),
                 "success": len(succeeded),
@@ -116,7 +116,7 @@ class InstallTaskController(QObject):
             latest = succeeded[0]
             return {
                 "level": "success",
-                "text": f"安装: ✅ 最近完成 {latest['title']}",
+                "text": f"安装: 最近完成 {latest['title']}",
                 "running": 0,
                 "failed": 0,
                 "success": len(succeeded),
@@ -152,8 +152,8 @@ class InstallTaskController(QObject):
         if speed:
             parts.append(speed)
         if parts:
-            return f"安装: ⏳ 正在安装 {title} · {' · '.join(parts)}"
-        return f"安装: ⏳ 正在安装 {title}..."
+            return f"安装: 正在安装 {title} · {' · '.join(parts)}"
+        return f"安装: 正在安装 {title}..."
 
     @staticmethod
     def _extract_progress_and_speed(detail: str) -> tuple[str, str]:

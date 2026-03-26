@@ -159,6 +159,14 @@ When changing the tool execution path, preserve the current two-stage async mode
 - **外层留 margin** 给自定义阴影留空间
 - 参考：`ui/widgets/project_selector.py`
 
+## UI Icon Baseline (Must Reuse)
+
+1. **MUST** use `qtawesome` for UI icons (e.g. `qta.icon("ph.xxx")`).
+2. **MUST NOT** use Unicode emoji (`⏳/✅/❌/⚙️`) as visual icons in status bars, buttons, nav, or cards.
+3. Status text should stay semantic words; icon semantics must come from `qtawesome`.
+4. Icons **MUST** support unified color + hover/active styles.
+5. Emoji is allowed only for user-provided/third-party raw text, never as product iconography.
+
 ## Current Task State（Codex 每次完成后更新）
 
 Last completed: 数据库管理系统 3 日计划（Task 1-7） ✅
