@@ -15,6 +15,7 @@ from core.environment.env_detector import (
     rewrite_install_cmd,
     _COMMON_CONDA_PATHS,
 )
+from core.environment.env_batch_checker import check_all_envs, get_existing_env_paths
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE
 
 
@@ -145,7 +146,7 @@ class TestCondaRootHelpers:
         assert infer_conda_root("") == ""
 
     def test_expected_env_path(self):
-        assert expected_env_path("/opt/miniconda3/bin/conda", "fastp_env") == "/opt/miniconda3/envs/fastp_env"
+        assert expected_env_path("/opt/miniconda3/bin/conda", "fastp_env") == "~/.h2ometa/envs/fastp_env"
 
     def test_pin_create_env_to_conda_root(self):
         cmd = "/opt/conda/bin/conda create -n fastp_env -c bioconda fastp -y"
@@ -163,6 +164,9 @@ class TestEnvInstallerSubmit:
     def test_submit_basic(self):
         """基本提交流程。"""
         fn = make_ssh_fn({
+            "eval echo $HOME/.h2ometa/envs/fastp_env.installing": (
+                0, "/home/user/.h2ometa/envs/fastp_env.installing\n", ""
+            ),
             "mkdir -p": (0, "", ""),
             "echo '": (0, "", ""),
             "screen -S h2o_install_fastp -X quit": (0, "", ""),
@@ -179,6 +183,8 @@ class TestEnvInstallerSubmit:
         """提交时替换 conda 路径。"""
         written_script = []
         def capture_fn(cmd, timeout=15):
+            if cmd.startswith("eval echo $HOME/.h2ometa/envs/fastp_env.installing"):
+                return (0, "/home/user/.h2ometa/envs/fastp_env.installing\n", "")
             if cmd.startswith("echo '"):
                 parts = cmd.split("'")
                 if len(parts) >= 2:
@@ -193,3 +199,53 @@ class TestEnvInstallerSubmit:
         assert len(written_script) == 1
         assert "/opt/conda/bin/conda create" in written_script[0]
 
+    def test_submit_requires_conda_executable(self):
+        fn = make_ssh_fn({})
+        with pytest.raises(RuntimeError, match="未检测到 conda 可执行路径"):
+            EnvInstaller.submit(
+                fn,
+                "fastp",
+                "conda create -n fastp_env -y",
+                "",
+            )
+
+
+class TestBatchChecker:
+    def test_check_all_envs_only_accepts_h2o_envs_dir(self):
+        fn = make_ssh_fn({
+            "/opt/conda/bin/conda env list --json": (
+                0,
+                '{"envs":["/home/user/anaconda3/envs/fastp_env","/home/user/.h2ometa/envs/fastp_env","/home/user/.h2ometa/envs/kraken2_env"]}',
+                "",
+            ),
+            "eval echo ~/.h2ometa/envs": (0, "/home/user/.h2ometa/envs\n", ""),
+            "eval echo ~/.h2ometa/envs/fastp_env": (0, "/home/user/.h2ometa/envs/fastp_env\n", ""),
+            "eval echo ~/.h2ometa/envs/kraken2_env": (0, "/home/user/.h2ometa/envs/kraken2_env\n", ""),
+        })
+
+        results, envs = check_all_envs(
+            ssh_run_fn=fn,
+            tools=[
+                {"id": "fastp", "conda_env": "fastp_env"},
+                {"id": "kraken2", "conda_env": "kraken2_env"},
+            ],
+            conda_executable="/opt/conda/bin/conda",
+        )
+
+        assert set(envs) == {
+            "/home/user/.h2ometa/envs/fastp_env",
+            "/home/user/.h2ometa/envs/kraken2_env",
+        }
+        assert {r.tool_id: r.ok for r in results} == {"fastp": True, "kraken2": True}
+
+    def test_get_existing_env_paths_filters_legacy_paths(self):
+        fn = make_ssh_fn({
+            "/opt/conda/bin/conda env list --json": (
+                0,
+                '{"envs":["/home/user/anaconda3/envs/fastp_env","/home/user/.h2ometa/envs/fastp_env"]}',
+                "",
+            ),
+            "eval echo ~/.h2ometa/envs": (0, "/home/user/.h2ometa/envs\n", ""),
+        })
+        paths = get_existing_env_paths(fn, "/opt/conda/bin/conda")
+        assert paths == {"/home/user/.h2ometa/envs/fastp_env"}

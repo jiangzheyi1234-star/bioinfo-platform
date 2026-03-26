@@ -169,14 +169,14 @@ class CommandBuilder:
         # conda/mamba 激活包装（优先使用传入的 conda_executable，回退到模块级常量）
         if conda_env:
             runner = conda_executable or CONDA_RUNNER
-            env_prefix = expected_env_path(conda_executable, conda_env) if conda_executable else ""
+            env_prefix = expected_env_path(conda_executable, conda_env)
             if env_prefix:
-                # 使用绝对路径（-p），与 env_installer 安装路径完全一致，避免找错 env
+                # 统一使用固定前缀（-p），与 H2OMeta 环境安装路径一致。
                 command = f"{runner} run -p {env_prefix} bash -c '{_escape_single_quotes(command)}'"
             else:
-                # fallback：conda_executable 未知时按名字查找（记录警告）
+                # 应急兜底：理论上 expected_env_path 总会返回非空。
                 logger.warning(
-                    "conda_executable 未知，回退到 conda run -n %s（可能找到错误的环境）",
+                    "未能构建 conda 前缀路径，回退到 conda run -n %s（可能找到错误的环境）",
                     conda_env,
                 )
                 command = f"{runner} run -n {conda_env} bash -c '{_escape_single_quotes(command)}'"
