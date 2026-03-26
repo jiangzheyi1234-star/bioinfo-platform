@@ -13,10 +13,10 @@ from core.environment.env_detector import (
     install_miniforge,
     pin_create_env_to_conda_root,
     rewrite_install_cmd,
-    _COMMON_CONDA_PATHS,
 )
 from core.environment.env_batch_checker import check_all_envs, get_existing_env_paths
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME
 
 
 # ----------------------------------------------------------------------------
@@ -45,37 +45,15 @@ def make_ssh_fn(responses: dict):
 class TestDetect:
     """env_detector.detect() 检测测试 — 精简核心场景"""
 
-    def test_which_conda_success(self):
-        """bash -ic which conda 成功时返回 OK。"""
+    def test_managed_conda_success(self):
+        """固定自管路径存在时返回 OK。"""
         fn = make_ssh_fn({
-            "bash -ic 'which conda' 2>/dev/null": (0, "/home/user/anaconda3/bin/conda\n", ""),
-            "bash -c '/home/user/anaconda3/bin/conda --version'": (0, "conda 24.3.0", ""),
-            "eval echo /home/user/anaconda3/bin/conda": (0, "/home/user/anaconda3/bin/conda", ""),
+            "bash -c '$HOME/.h2ometa/conda/bin/conda --version'": (0, "conda 24.3.0", ""),
+            "eval echo $HOME/.h2ometa/conda/bin/conda": (0, "/home/user/.h2ometa/conda/bin/conda", ""),
         })
         result = detect(fn)
         assert result.status == CondaStatus.OK
-        assert result.executable == "/home/user/anaconda3/bin/conda"
-
-    def test_which_falls_back_to_scan(self):
-        """which 失败，回退到常见目录扫描。"""
-        scan_cmds = {}
-        for i, path in enumerate(_COMMON_CONDA_PATHS):
-            test_cmd = f'test -x "$(eval echo {path})" && eval echo {path}'
-            version_path = path.replace("~/", "$HOME/", 1) if path.startswith("~") else path
-            if i == 0:  # 第一个路径成功
-                scan_cmds[test_cmd] = (0, path, "")
-                scan_cmds[f"bash -c '{version_path} --version'"] = (0, "conda 22.9.0", "")
-                scan_cmds[f"eval echo {version_path}"] = (0, "/home/user/anaconda3/bin/conda", "")
-            else:
-                scan_cmds[test_cmd] = (1, "", "")
-
-        fn = make_ssh_fn({
-            "bash -ic 'which conda' 2>/dev/null": (1, "", ""),
-            **scan_cmds
-        })
-        result = detect(fn)
-        assert result.status == CondaStatus.OK
-        assert "/anaconda3/bin/conda" in result.executable
+        assert result.executable == "/home/user/.h2ometa/conda/bin/conda"
 
     def test_all_not_found(self):
         """全部未命中 → NOT_FOUND。"""
@@ -98,12 +76,12 @@ class TestInstallMiniforge:
             "uname -m": (0, "x86_64", ""),
             "command -v curl": (0, "/usr/bin/curl", ""),
             "curl -fsSL -o /tmp/miniforge_install.sh": (0, "", ""),
-            "bash /tmp/miniforge_install.sh -b": (0, "", ""),
+            f"bash /tmp/miniforge_install.sh -b -p \"$(eval echo {H2O_CONDA_HOME})\"": (0, "", ""),
             "rm -f /tmp/miniforge_install.sh": (0, "", ""),
-            "bash -c '~/miniforge3/bin/conda config --add channels bioconda'": (0, "", ""),
-            "bash -c '~/miniforge3/bin/conda config --set channel_priority strict'": (0, "", ""),
-            "bash -c '$HOME/miniforge3/bin/conda --version'": (0, "conda 24.7.1", ""),
-            "eval echo $HOME/miniforge3/bin/conda": (0, "/home/user/miniforge3/bin/conda", ""),
+            f"{H2O_CONDA_EXE} config --add channels bioconda": (0, "", ""),
+            f"{H2O_CONDA_EXE} config --set channel_priority strict": (0, "", ""),
+            "bash -c '$HOME/.h2ometa/conda/bin/conda --version'": (0, "conda 24.7.1", ""),
+            "eval echo $HOME/.h2ometa/conda/bin/conda": (0, "/home/user/.h2ometa/conda/bin/conda", ""),
         })
         result = install_miniforge(fn)
         assert result.status == CondaStatus.OK
@@ -146,7 +124,7 @@ class TestCondaRootHelpers:
         assert infer_conda_root("") == ""
 
     def test_expected_env_path(self):
-        assert expected_env_path("/opt/miniconda3/bin/conda", "fastp_env") == "~/.h2ometa/envs/fastp_env"
+        assert expected_env_path("/opt/miniconda3/bin/conda", "fastp_env") == "~/.h2ometa/conda/envs/fastp_env"
 
     def test_pin_create_env_to_conda_root(self):
         cmd = "/opt/conda/bin/conda create -n fastp_env -c bioconda fastp -y"
@@ -164,8 +142,8 @@ class TestEnvInstallerSubmit:
     def test_submit_basic(self):
         """基本提交流程。"""
         fn = make_ssh_fn({
-            "eval echo $HOME/.h2ometa/envs/fastp_env.installing": (
-                0, "/home/user/.h2ometa/envs/fastp_env.installing\n", ""
+            "eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing": (
+                0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", ""
             ),
             "mkdir -p": (0, "", ""),
             "echo '": (0, "", ""),
@@ -175,7 +153,7 @@ class TestEnvInstallerSubmit:
         result = EnvInstaller.submit(
             fn, "fastp",
             "conda create -n fastp_env -c bioconda fastp -y",
-            "/home/user/conda/bin/conda")
+            "/home/user/.h2ometa/conda/bin/conda")
         assert result["job_id"] == "h2o_install_fastp"
         assert result["task_dir"] == f"{INSTALL_BASE}/fastp"
 
@@ -183,8 +161,8 @@ class TestEnvInstallerSubmit:
         """提交时替换 conda 路径。"""
         written_script = []
         def capture_fn(cmd, timeout=15):
-            if cmd.startswith("eval echo $HOME/.h2ometa/envs/fastp_env.installing"):
-                return (0, "/home/user/.h2ometa/envs/fastp_env.installing\n", "")
+            if cmd.startswith("eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing"):
+                return (0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", "")
             if cmd.startswith("echo '"):
                 parts = cmd.split("'")
                 if len(parts) >= 2:
@@ -195,9 +173,14 @@ class TestEnvInstallerSubmit:
                         pass
             return (0, "", "")
 
-        EnvInstaller.submit(capture_fn, "fastp", "conda create -n fastp_env -y", "/opt/conda/bin/conda")
+        EnvInstaller.submit(
+            capture_fn,
+            "fastp",
+            "conda create -n fastp_env -y",
+            "/home/user/.h2ometa/conda/bin/conda",
+        )
         assert len(written_script) == 1
-        assert "/opt/conda/bin/conda create" in written_script[0]
+        assert "/home/user/.h2ometa/conda/bin/conda create" in written_script[0]
 
     def test_submit_requires_conda_executable(self):
         fn = make_ssh_fn({})
@@ -209,18 +192,28 @@ class TestEnvInstallerSubmit:
                 "",
             )
 
+    def test_submit_rejects_non_managed_conda_executable(self):
+        fn = make_ssh_fn({})
+        with pytest.raises(RuntimeError, match="检测到非自管 conda 路径"):
+            EnvInstaller.submit(
+                fn,
+                "fastp",
+                "conda create -n fastp_env -y",
+                "/opt/conda/bin/conda",
+            )
+
 
 class TestBatchChecker:
     def test_check_all_envs_only_accepts_h2o_envs_dir(self):
         fn = make_ssh_fn({
-            "/opt/conda/bin/conda env list --json": (
+            "/home/user/.h2ometa/conda/bin/conda env list --json": (
                 0,
-                '{"envs":["/home/user/anaconda3/envs/fastp_env","/home/user/.h2ometa/envs/fastp_env","/home/user/.h2ometa/envs/kraken2_env"]}',
+                '{"envs":["/home/user/anaconda3/envs/fastp_env","/home/user/.h2ometa/conda/envs/fastp_env","/home/user/.h2ometa/conda/envs/kraken2_env"]}',
                 "",
             ),
-            "eval echo ~/.h2ometa/envs": (0, "/home/user/.h2ometa/envs\n", ""),
-            "eval echo ~/.h2ometa/envs/fastp_env": (0, "/home/user/.h2ometa/envs/fastp_env\n", ""),
-            "eval echo ~/.h2ometa/envs/kraken2_env": (0, "/home/user/.h2ometa/envs/kraken2_env\n", ""),
+            "eval echo ~/.h2ometa/conda/envs": (0, "/home/user/.h2ometa/conda/envs\n", ""),
+            "eval echo ~/.h2ometa/conda/envs/fastp_env": (0, "/home/user/.h2ometa/conda/envs/fastp_env\n", ""),
+            "eval echo ~/.h2ometa/conda/envs/kraken2_env": (0, "/home/user/.h2ometa/conda/envs/kraken2_env\n", ""),
         })
 
         results, envs = check_all_envs(
@@ -229,23 +222,40 @@ class TestBatchChecker:
                 {"id": "fastp", "conda_env": "fastp_env"},
                 {"id": "kraken2", "conda_env": "kraken2_env"},
             ],
-            conda_executable="/opt/conda/bin/conda",
+            conda_executable="/home/user/.h2ometa/conda/bin/conda",
         )
 
         assert set(envs) == {
-            "/home/user/.h2ometa/envs/fastp_env",
-            "/home/user/.h2ometa/envs/kraken2_env",
+            "/home/user/.h2ometa/conda/envs/fastp_env",
+            "/home/user/.h2ometa/conda/envs/kraken2_env",
         }
         assert {r.tool_id: r.ok for r in results} == {"fastp": True, "kraken2": True}
 
     def test_get_existing_env_paths_filters_legacy_paths(self):
         fn = make_ssh_fn({
-            "/opt/conda/bin/conda env list --json": (
+            "/home/user/.h2ometa/conda/bin/conda env list --json": (
                 0,
-                '{"envs":["/home/user/anaconda3/envs/fastp_env","/home/user/.h2ometa/envs/fastp_env"]}',
+                '{"envs":["/home/user/anaconda3/envs/fastp_env","/home/user/.h2ometa/conda/envs/fastp_env"]}',
                 "",
             ),
-            "eval echo ~/.h2ometa/envs": (0, "/home/user/.h2ometa/envs\n", ""),
+            "eval echo ~/.h2ometa/conda/envs": (0, "/home/user/.h2ometa/conda/envs\n", ""),
         })
-        paths = get_existing_env_paths(fn, "/opt/conda/bin/conda")
-        assert paths == {"/home/user/.h2ometa/envs/fastp_env"}
+        paths = get_existing_env_paths(fn, "/home/user/.h2ometa/conda/bin/conda")
+        assert paths == {"/home/user/.h2ometa/conda/envs/fastp_env"}
+
+    def test_check_all_envs_rejects_non_managed_conda(self):
+        fn = make_ssh_fn({
+            "/opt/conda/bin/conda env list --json": (
+                0, '{"envs":["/opt/conda/envs/fastp_env"]}', ""
+            )
+        })
+        results, envs = check_all_envs(
+            ssh_run_fn=fn,
+            tools=[
+                {"id": "fastp", "conda_env": "fastp_env"},
+                {"id": "unknown", "conda_env": ""},
+            ],
+            conda_executable="/opt/conda/bin/conda",
+        )
+        assert envs == []
+        assert {r.tool_id: r.ok for r in results} == {"fastp": False, "unknown": True}
