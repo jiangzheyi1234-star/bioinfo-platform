@@ -122,6 +122,15 @@ def _build_controller(monkeypatch):
     return controller, locator, status_bar, disk_cb, notify_cb
 
 
+def _capture_worker(worker):
+    done: list[dict[str, Any]] = []
+    errors: list[tuple[str, dict[str, Any]]] = []
+    worker.finished.connect(lambda payload: done.append(payload))
+    worker.error.connect(lambda message, context: errors.append((message, context)))
+    worker.run()
+    return done, errors
+
+
 def _config_state(initial_profiles: dict[str, dict] | None = None):
     state = {
         "version": 2,
@@ -154,12 +163,11 @@ def test_apply_active_client_none_clears_ssh_and_conda(monkeypatch):
     assert len(notify_cb.values) == 1
 
 
-def test_apply_active_client_cache_hit_validated_skips_detect(monkeypatch):
+def test_conda_bind_worker_cache_hit_validated_skips_detect(monkeypatch):
     import ui.controllers.main_window_ssh_controller as module
 
-    controller, locator, *_ = _build_controller(monkeypatch)
     cached = "/home/root/.h2ometa/conda/bin/conda"
-    get_cfg, save_cfg, _state, saved = _config_state({_identity(): {"conda_executable": cached}})
+    get_cfg, save_cfg, _state, _saved = _config_state({_identity(): {"conda_executable": cached}})
     monkeypatch.setattr(module, "get_config", get_cfg)
     monkeypatch.setattr(module, "save_config", save_cfg)
 
@@ -171,78 +179,73 @@ def test_apply_active_client_cache_hit_validated_skips_detect(monkeypatch):
 
     monkeypatch.setattr(module.env_detector, "detect", _detect_should_not_run)
     _FakeSSHService.run_handler = staticmethod(lambda _cmd, _timeout=10: (0, "conda 24.9.0", ""))
+    worker = module.CondaBindWorker(
+        ssh=_FakeSSHService(initial_client=_Client()),
+        client=_Client(),
+        ssh_cfg=_SettingsPage().ssh_card.last_stable_config,
+        token=7,
+    )
 
-    controller.apply_active_client(_Client())
+    finished, errors = _capture_worker(worker)
 
-    assert locator.conda_executable == cached
+    assert errors == []
+    assert finished == [
+        {
+            "token": 7,
+            "identity": _identity(),
+            "fingerprint": "a1" * 16,
+            "user": "root",
+            "port": 22,
+            "host": "10.0.0.1",
+            "resolved_executable": cached,
+            "profile_action": "save",
+            "status": "ok",
+            "source": "cache_hit",
+        }
+    ]
     assert detect_calls["count"] == 0
-    assert saved, "cache hit should refresh timestamp/profile"
-    assert _FakeSSHService.instances[-1].run_calls[0][0] == f"{cached} --version"
+    assert worker._ssh.run_calls[0][0] == f"{cached} --version"
 
 
-def test_apply_active_client_cache_miss_runs_detect_and_writes_profile(monkeypatch):
+def test_conda_bind_worker_cache_invalid_falls_back_to_detect(monkeypatch):
     import ui.controllers.main_window_ssh_controller as module
 
-    controller, locator, *_ = _build_controller(monkeypatch)
-    get_cfg, save_cfg, state, saved = _config_state({})
+    stale = "/home/root/.h2ometa/conda/bin/conda"
+    get_cfg, save_cfg, _state, _saved = _config_state({_identity(): {"conda_executable": stale}})
     monkeypatch.setattr(module, "get_config", get_cfg)
     monkeypatch.setattr(module, "save_config", save_cfg)
 
     detected = "/home/root/.h2ometa/conda/bin/conda"
+    detect_calls = {"count": 0}
+
     monkeypatch.setattr(
         module.env_detector,
         "detect",
-        lambda _run_fn: SimpleNamespace(
-            status=module.CondaStatus.OK,
-            executable=detected,
-            version="24.9.0",
-        ),
+        lambda _run_fn: detect_calls.__setitem__("count", detect_calls["count"] + 1)
+        or SimpleNamespace(status=module.CondaStatus.OK, executable=detected, version="24.9.0"),
+    )
+    _FakeSSHService.run_handler = staticmethod(lambda _cmd, _timeout=10: (1, "", "missing"))
+    worker = module.CondaBindWorker(
+        ssh=_FakeSSHService(initial_client=_Client()),
+        client=_Client(),
+        ssh_cfg=_SettingsPage().ssh_card.last_stable_config,
+        token=11,
     )
 
-    controller.apply_active_client(_Client())
+    finished, errors = _capture_worker(worker)
 
-    assert locator.conda_executable == detected
-    assert saved
-    profile = state["runtime"]["conda_profiles"][_identity()]
-    assert profile["conda_executable"] == detected
-    assert profile["fingerprint"] == "a1" * 16
-    assert profile["user"] == "root"
-    assert profile["port"] == 22
-    assert profile["host"] == "10.0.0.1"
-
-
-def test_apply_active_client_cache_invalid_falls_back_to_detect(monkeypatch):
-    import ui.controllers.main_window_ssh_controller as module
-
-    controller, locator, *_ = _build_controller(monkeypatch)
-    stale = "/home/root/.h2ometa/conda/bin/conda"
-    get_cfg, save_cfg, state, _saved = _config_state({_identity(): {"conda_executable": stale}})
-    monkeypatch.setattr(module, "get_config", get_cfg)
-    monkeypatch.setattr(module, "save_config", save_cfg)
-
-    _FakeSSHService.run_handler = staticmethod(lambda _cmd, _timeout=10: (1, "", "missing"))
-    refreshed = "/home/root/.h2ometa/conda/bin/conda"
-    detect_calls = {"count": 0}
-
-    def _detect(_run_fn):
-        detect_calls["count"] += 1
-        return SimpleNamespace(status=module.CondaStatus.OK, executable=refreshed, version="24.9.1")
-
-    monkeypatch.setattr(module.env_detector, "detect", _detect)
-
-    controller.apply_active_client(_Client())
-
+    assert errors == []
     assert detect_calls["count"] == 1
-    assert locator.conda_executable == refreshed
-    assert state["runtime"]["conda_profiles"][_identity()]["conda_executable"] == refreshed
+    assert finished[0]["status"] == "ok"
+    assert finished[0]["source"] == "cache_invalid"
+    assert finished[0]["resolved_executable"] == detected
 
 
-def test_apply_active_client_detect_failure_clears_and_removes_profile(monkeypatch):
+def test_conda_bind_worker_detect_not_found_returns_remove(monkeypatch):
     import ui.controllers.main_window_ssh_controller as module
 
-    controller, locator, *_ = _build_controller(monkeypatch)
     stale = "/home/root/.h2ometa/conda/bin/conda"
-    get_cfg, save_cfg, state, _saved = _config_state({_identity(): {"conda_executable": stale}})
+    get_cfg, save_cfg, _state, _saved = _config_state({_identity(): {"conda_executable": stale}})
     monkeypatch.setattr(module, "get_config", get_cfg)
     monkeypatch.setattr(module, "save_config", save_cfg)
 
@@ -256,8 +259,133 @@ def test_apply_active_client_detect_failure_clears_and_removes_profile(monkeypat
             version=None,
         ),
     )
+    worker = module.CondaBindWorker(
+        ssh=_FakeSSHService(initial_client=_Client()),
+        client=_Client(),
+        ssh_cfg=_SettingsPage().ssh_card.last_stable_config,
+        token=13,
+    )
+
+    finished, errors = _capture_worker(worker)
+
+    assert errors == []
+    assert finished[0]["status"] == "not_found"
+    assert finished[0]["profile_action"] == "remove"
+
+
+def test_conda_bind_worker_detect_exception_emits_error(monkeypatch):
+    import ui.controllers.main_window_ssh_controller as module
+
+    stale = "/home/root/.h2ometa/conda/bin/conda"
+    get_cfg, save_cfg, state, _saved = _config_state({_identity(): {"conda_executable": stale}})
+    monkeypatch.setattr(module, "get_config", get_cfg)
+    monkeypatch.setattr(module, "save_config", save_cfg)
+
+    _FakeSSHService.run_handler = staticmethod(lambda _cmd, _timeout=10: (1, "", "missing"))
+    monkeypatch.setattr(module.env_detector, "detect", lambda _run_fn: (_ for _ in ()).throw(RuntimeError("boom")))
+    worker = module.CondaBindWorker(
+        ssh=_FakeSSHService(initial_client=_Client()),
+        client=_Client(),
+        ssh_cfg=_SettingsPage().ssh_card.last_stable_config,
+        token=17,
+    )
+
+    finished, errors = _capture_worker(worker)
+
+    assert finished == []
+    assert errors
+    assert errors[0][0] == "boom"
+    assert errors[0][1]["token"] == 17
+    assert errors[0][1]["profile_action"] == "remove"
+    assert _identity() in state["runtime"]["conda_profiles"]
+
+
+def test_apply_active_client_starts_async_conda_bind_and_clears_stale_value(monkeypatch):
+    controller, locator, *_ = _build_controller(monkeypatch)
+
+    started: list[dict[str, Any]] = []
+
+    def fake_start(*, client, ssh_cfg, token):
+        started.append({"client": client, "ssh_cfg": ssh_cfg, "token": token})
+
+    monkeypatch.setattr(controller, "_start_conda_bind_job", fake_start)
+    locator.conda_executable = "/home/root/.h2ometa/conda/bin/conda"
 
     controller.apply_active_client(_Client())
+
+    assert locator.conda_executable == ""
+    assert len(started) == 1
+    assert started[0]["token"] == controller._conda_bind_token
+
+
+def test_on_conda_bind_finished_writes_locator_and_profile(monkeypatch):
+    import ui.controllers.main_window_ssh_controller as module
+
+    controller, locator, *_ = _build_controller(monkeypatch)
+    get_cfg, save_cfg, state, saved = _config_state({})
+    monkeypatch.setattr(module, "get_config", get_cfg)
+    monkeypatch.setattr(module, "save_config", save_cfg)
+    monkeypatch.setattr(controller, "_start_conda_bind_job", lambda **kwargs: None)
+
+    controller.apply_active_client(_Client())
+    payload = {
+        "token": controller._conda_bind_token,
+        "identity": _identity(),
+        "fingerprint": "a1" * 16,
+        "user": "root",
+        "port": 22,
+        "host": "10.0.0.1",
+        "resolved_executable": "/home/root/.h2ometa/conda/bin/conda",
+        "profile_action": "save",
+        "status": "ok",
+        "source": "detect",
+    }
+
+    controller._on_conda_bind_finished(payload)
+
+    assert locator.conda_executable == payload["resolved_executable"]
+    assert saved
+    assert state["runtime"]["conda_profiles"][_identity()]["conda_executable"] == payload["resolved_executable"]
+
+
+def test_on_conda_bind_finished_ignores_stale_token(monkeypatch):
+    controller, locator, *_ = _build_controller(monkeypatch)
+    monkeypatch.setattr(controller, "_start_conda_bind_job", lambda **kwargs: None)
+    controller.apply_active_client(_Client())
+    current = controller._conda_bind_token
+
+    controller._on_conda_bind_finished(
+        {
+            "token": current - 1,
+            "identity": _identity(),
+            "resolved_executable": "/home/root/.h2ometa/conda/bin/conda",
+            "profile_action": "save",
+            "status": "ok",
+        }
+    )
+
+    assert locator.conda_executable == ""
+
+
+def test_on_conda_bind_error_clears_and_removes_profile(monkeypatch):
+    import ui.controllers.main_window_ssh_controller as module
+
+    controller, locator, *_ = _build_controller(monkeypatch)
+    get_cfg, save_cfg, state, _saved = _config_state({_identity(): {"conda_executable": "/stale"}})
+    monkeypatch.setattr(module, "get_config", get_cfg)
+    monkeypatch.setattr(module, "save_config", save_cfg)
+    monkeypatch.setattr(controller, "_start_conda_bind_job", lambda **kwargs: None)
+    controller.apply_active_client(_Client())
+    locator.conda_executable = "/home/root/.h2ometa/conda/bin/conda"
+
+    controller._on_conda_bind_error(
+        "boom",
+        {
+            "token": controller._conda_bind_token,
+            "identity": _identity(),
+            "profile_action": "remove",
+        },
+    )
 
     assert locator.conda_executable == ""
     assert _identity() not in state["runtime"]["conda_profiles"]
