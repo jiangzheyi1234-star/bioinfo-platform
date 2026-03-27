@@ -179,123 +179,208 @@ def test_conda_not_found_interactive_prompts_install(qapp, monkeypatch):
     assert calls["prompt"] == 1
 
 
-def test_poll_miniforge_running_but_session_dead_fails(qapp, monkeypatch):
+def test_miniforge_poll_worker_probe_status_uses_bootstrap_helpers():
+    from ui.widgets.linux_settings_card import MiniforgePollWorker
+
+    commands = []
+
+    def fake_run(cmd, timeout=10):
+        commands.append((cmd, timeout))
+        if "STATUS=" in cmd and "HEARTBEAT=" in cmd:
+            return 0, "STATUS=RUNNING\nEXIT_CODE=\nHEARTBEAT=123\n", ""
+        if "screen -ls" in cmd:
+            return 1, "", ""
+        raise AssertionError(f"unexpected cmd: {cmd}")
+
+    worker = MiniforgePollWorker(fake_run, "~/.h2ometa/runtime/miniforge_bootstrap", "probe_status")
+    payloads = []
+    worker.finished.connect(lambda payload: payloads.append(payload))
+    worker.run()
+
+    assert payloads == [
+        {
+            "operation": "probe_status",
+            "task_dir": "~/.h2ometa/runtime/miniforge_bootstrap",
+            "status": "RUNNING",
+            "exit_code": "",
+            "heartbeat": "123",
+            "session_alive": False,
+        }
+    ]
+    assert any("screen -ls" in cmd for cmd, _timeout in commands)
+
+
+def test_miniforge_poll_worker_reads_failure_log():
+    from ui.widgets.linux_settings_card import MiniforgePollWorker
+
+    commands = []
+
+    def fake_run(cmd, timeout=10):
+        commands.append((cmd, timeout))
+        if "tail -n 40" in cmd:
+            return 0, "tail log", ""
+        raise AssertionError(f"unexpected cmd: {cmd}")
+
+    worker = MiniforgePollWorker(fake_run, "~/.h2ometa/runtime/miniforge_bootstrap", "read_failure_log", "boom")
+    payloads = []
+    worker.finished.connect(lambda payload: payloads.append(payload))
+    worker.run()
+
+    assert payloads == [
+        {
+            "operation": "read_failure_log",
+            "task_dir": "~/.h2ometa/runtime/miniforge_bootstrap",
+            "reason": "boom",
+            "log_text": "tail log",
+        }
+    ]
+    assert commands and "tail -n 40" in commands[0][0]
+
+
+def test_poll_miniforge_status_starts_background_worker(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
     card._miniforge_installing = True
-    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
-    stale = str(int(time.time()) - 3600)
 
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
-        lambda *args, **kwargs: {"status": "RUNNING", "exit_code": "", "heartbeat": stale},
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not probe on main thread")),
     )
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
-        lambda *args, **kwargs: False,
-    )
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.read_log",
-        lambda *args, **kwargs: "tail log",
-    )
-
-    failed = {"message": ""}
-    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+    started = []
+    monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.append((operation, reason)))
 
     card._poll_miniforge_status()
 
-    assert card._miniforge_installing is False
-    assert "会话已退出" in failed["message"]
+    assert card._miniforge_polling is True
+    assert started == [("probe_status", "")]
 
 
-def test_poll_miniforge_running_dead_session_but_fresh_heartbeat_keeps_running(qapp, monkeypatch):
+def test_poll_miniforge_status_deduplicates_background_worker(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
     card._miniforge_installing = True
-    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
     card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
 
-    fresh = str(int(time.time()))
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
-        lambda *args, **kwargs: {"status": "RUNNING", "exit_code": "", "heartbeat": fresh},
-    )
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
-        lambda *args, **kwargs: False,
-    )
+    started = {"count": 0}
+    monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.__setitem__("count", started["count"] + 1))
+
+    card._poll_miniforge_status()
+    card._poll_miniforge_status()
+
+    assert started["count"] == 1
+
+
+def test_on_miniforge_poll_finished_running_dead_session_but_fresh_heartbeat_keeps_running(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._miniforge_installing = True
+    card._miniforge_polling = True
 
     failed = {"count": 0}
+    scheduled = {"delay": None}
     monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("count", failed["count"] + 1))
+    monkeypatch.setattr(card, "_schedule_miniforge_poll", lambda delay_ms=3000: scheduled.__setitem__("delay", delay_ms))
 
-    card._poll_miniforge_status()
+    card._on_miniforge_poll_finished(
+        {
+            "operation": "probe_status",
+            "status": "RUNNING",
+            "exit_code": "",
+            "heartbeat": str(int(time.time())),
+            "session_alive": False,
+        }
+    )
 
     assert card._miniforge_installing is True
+    assert card._miniforge_polling is False
     assert failed["count"] == 0
+    assert scheduled["delay"] == 3000
 
 
-def test_poll_miniforge_stale_heartbeat_and_dead_session_fails(qapp, monkeypatch):
+def test_on_miniforge_poll_finished_done_emits_install_task_success(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
     card._miniforge_installing = True
-    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+    card._miniforge_polling = True
 
-    stale = str(int(time.time()) - 3600)
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
-        lambda *args, **kwargs: {"status": "", "exit_code": "", "heartbeat": stale},
-    )
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
-        lambda *args, **kwargs: False,
-    )
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.read_log",
-        lambda *args, **kwargs: "tail log",
-    )
-
-    failed = {"message": ""}
-    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
-
-    card._poll_miniforge_status()
-
-    assert card._miniforge_installing is False
-    assert "心跳超时" in failed["message"]
-
-
-def test_poll_miniforge_done_emits_install_task_success(qapp, monkeypatch):
-    from ui.widgets.linux_settings_card import LinuxSettingsCard
-
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
-    card = LinuxSettingsCard()
-    card._miniforge_installing = True
-    card._miniforge_task_dir = "~/.h2ometa/runtime/miniforge_bootstrap"
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
-
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
-        lambda *args, **kwargs: {"status": "DONE", "exit_code": "0", "heartbeat": str(int(time.time()))},
-    )
-    monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.miniforge_bootstrap.is_session_alive",
-        lambda *args, **kwargs: False,
-    )
     monkeypatch.setattr("ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None)
-    monkeypatch.setattr(card, "_ensure_conda_ready", lambda interactive=False: None)
+    calls = {"ensure": 0}
+    monkeypatch.setattr(card, "_ensure_conda_ready", lambda interactive=False: calls.__setitem__("ensure", calls["ensure"] + 1))
+    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, fn: fn())
 
     events = []
     card.install_task_event.connect(lambda payload: events.append(payload))
-    card._poll_miniforge_status()
+    card._on_miniforge_poll_finished(
+        {
+            "operation": "probe_status",
+            "status": "DONE",
+            "exit_code": "0",
+            "heartbeat": str(int(time.time())),
+            "session_alive": False,
+        }
+    )
 
+    assert card._miniforge_installing is False
+    assert calls["ensure"] == 1
     assert any(e.get("task_id") == "bootstrap:miniforge" and e.get("state") == "success" for e in events)
+
+
+def test_handle_miniforge_failure_starts_background_log_read(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._miniforge_installing = True
+    card._miniforge_polling = True
+
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.miniforge_bootstrap.read_log",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not read log on main thread")),
+    )
+    started = []
+    monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.append((operation, reason)))
+
+    card._handle_miniforge_failure("远端初始化任务失败")
+
+    assert card._miniforge_installing is False
+    assert card._miniforge_polling is False
+    assert started == [("read_failure_log", "远端初始化任务失败")]
+
+
+def test_on_miniforge_failure_log_finished_prompts_with_tail(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    failed = {"message": ""}
+    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+
+    card._on_miniforge_failure_log_finished({"reason": "会话已退出", "log_text": "tail log"})
+
+    assert "会话已退出" in failed["message"]
+    assert "tail log" in failed["message"]
+
+
+def test_on_miniforge_failure_log_error_prompts_reason(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    failed = {"message": ""}
+    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+
+    card._on_miniforge_failure_log_error({"reason": "心跳超时", "error": "boom"})
+
+    assert failed["message"] == "心跳超时"
 
 
 def test_tool_install_success_emits_install_task_event(qapp, monkeypatch):
@@ -892,17 +977,19 @@ def test_recover_running_installs_deduplicates_worker_start(qapp, monkeypatch):
     assert started["envs"] == {"a"}
 
 
-def test_close_event_cleans_recover_and_poll_resolve_resources(qapp, monkeypatch):
+def test_close_event_cleans_recover_miniforge_poll_and_poll_resolve_resources(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
 
-    counts = {"recover": 0, "poll_resolve": 0}
+    counts = {"recover": 0, "miniforge_poll": 0, "poll_resolve": 0}
     monkeypatch.setattr(card, "_cleanup_recover_installs_resources", lambda: counts.__setitem__("recover", counts["recover"] + 1))
+    monkeypatch.setattr(card, "_cleanup_miniforge_resources", lambda: counts.__setitem__("miniforge_poll", counts["miniforge_poll"] + 1))
     monkeypatch.setattr(card, "_cleanup_tool_install_poll_resolve_resources", lambda: counts.__setitem__("poll_resolve", counts["poll_resolve"] + 1))
 
     card.close()
 
     assert counts["recover"] == 1
+    assert counts["miniforge_poll"] == 1
     assert counts["poll_resolve"] == 1

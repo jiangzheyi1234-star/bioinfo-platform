@@ -184,6 +184,86 @@ class MiniforgeBootstrapSubmitWorker(QObject):
             self.error.emit(str(exc))
 
 
+class MiniforgePollWorker(QObject):
+    """后台探测 Miniforge 状态或读取失败日志，避免主线程同步 SSH。"""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(object)
+
+    def __init__(self, ssh_run_fn, task_dir: str, operation: str, reason: str = ""):
+        super().__init__()
+        self._ssh_run_fn = ssh_run_fn
+        self._task_dir = str(task_dir or miniforge_bootstrap.TASK_DIR)
+        self._operation = str(operation or "").strip()
+        self._reason = str(reason or "")
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _emit(self, signal_name: str, *args) -> bool:
+        if self._cancelled:
+            return False
+        try:
+            signal = getattr(self, signal_name)
+        except RuntimeError:
+            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
+            return False
+        return _safe_emit(signal, *args)
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            if self._operation == "probe_status":
+                status = miniforge_bootstrap.check_status(
+                    self._ssh_run_fn,
+                    task_dir=self._task_dir,
+                    timeout=10,
+                )
+                alive = miniforge_bootstrap.is_session_alive(
+                    self._ssh_run_fn,
+                    job_id=miniforge_bootstrap.JOB_ID,
+                    timeout=10,
+                )
+                payload = {
+                    "operation": self._operation,
+                    "task_dir": self._task_dir,
+                    "status": str(status.get("status", "") or ""),
+                    "exit_code": str(status.get("exit_code", "") or ""),
+                    "heartbeat": str(status.get("heartbeat", "") or ""),
+                    "session_alive": bool(alive),
+                }
+            elif self._operation == "read_failure_log":
+                log_text = miniforge_bootstrap.read_log(
+                    self._ssh_run_fn,
+                    task_dir=self._task_dir,
+                    tail_lines=40,
+                    timeout=10,
+                )
+                payload = {
+                    "operation": self._operation,
+                    "task_dir": self._task_dir,
+                    "reason": self._reason,
+                    "log_text": str(log_text or ""),
+                }
+            else:
+                raise RuntimeError(f"Unsupported Miniforge poll operation: {self._operation}")
+
+            self._emit("finished", payload)
+        except Exception as exc:
+            logger.exception("MiniforgePollWorker 出错: operation=%s", self._operation)
+            self._emit(
+                "error",
+                {
+                    "operation": self._operation,
+                    "task_dir": self._task_dir,
+                    "reason": self._reason,
+                    "error": str(exc),
+                },
+            )
+
+
 # ── 批量环境检测 Worker ─────────────────────────────────────────────
 
 
@@ -503,7 +583,7 @@ class LinuxSettingsCard(QFrame):
         self._miniforge_task_dir: str = miniforge_bootstrap.TASK_DIR
         self._miniforge_polling: bool = False
         self._miniforge_poll_timer = QTimer(self)
-        self._miniforge_poll_timer.setInterval(3000)
+        self._miniforge_poll_timer.setSingleShot(True)
         self._miniforge_poll_timer.timeout.connect(self._poll_miniforge_status)
         self._tool_install_polling: bool = False
         self._tool_install_poll_timer = QTimer(self)
@@ -916,8 +996,15 @@ class LinuxSettingsCard(QFrame):
         cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=5000)
 
     def _cleanup_miniforge_resources(self) -> None:
-        """清理 Miniforge 后台任务提交线程资源。"""
+        """清理 Miniforge 提交/轮询线程资源。"""
+        self._cleanup_miniforge_submit_resources()
+        self._cleanup_miniforge_poll_resources()
+
+    def _cleanup_miniforge_submit_resources(self) -> None:
         cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=5000)
+
+    def _cleanup_miniforge_poll_resources(self) -> None:
+        cleanup_thread_pair(self, "_miniforge_poll_thread", "_miniforge_poll_worker", wait_ms=5000)
 
     def _prompt_miniforge_install(self) -> None:
         """弹窗提示：未检测到自管 conda，引导后台自动安装。"""
@@ -999,59 +1086,87 @@ class LinuxSettingsCard(QFrame):
         self._miniforge_thread.start()
 
     def _start_miniforge_polling(self) -> None:
-        if not self._miniforge_poll_timer.isActive():
-            self._miniforge_poll_timer.start()
-        QTimer.singleShot(100, self._poll_miniforge_status)
+        self._schedule_miniforge_poll(100)
+
+    def _schedule_miniforge_poll(self, delay_ms: int = 3000) -> None:
+        if not self._miniforge_installing:
+            return
+        self._miniforge_poll_timer.stop()
+        self._miniforge_poll_timer.start(max(int(delay_ms), 0))
+
+    def _start_miniforge_poll_job(self, operation: str, reason: str = "") -> None:
+        self._cleanup_miniforge_poll_resources()
+        self._miniforge_poll_thread = QThread()
+        self._miniforge_poll_worker = MiniforgePollWorker(
+            self._make_ssh_run_fn(),
+            self._miniforge_task_dir,
+            operation=operation,
+            reason=reason,
+        )
+        self._miniforge_poll_worker.moveToThread(self._miniforge_poll_thread)
+        self._miniforge_poll_thread.started.connect(self._miniforge_poll_worker.run)
+        self._miniforge_poll_worker.finished.connect(self._on_miniforge_poll_finished)
+        self._miniforge_poll_worker.error.connect(self._on_miniforge_poll_error)
+        self._miniforge_poll_worker.finished.connect(self._cleanup_miniforge_poll_resources)
+        self._miniforge_poll_worker.error.connect(self._cleanup_miniforge_poll_resources)
+        self._miniforge_poll_thread.start()
 
     def _poll_miniforge_status(self) -> None:
         if not self._miniforge_installing or self._miniforge_polling:
             return
+        if not self._is_ssh_service_ready():
+            return
         self._miniforge_polling = True
-        try:
-            status = miniforge_bootstrap.check_status(
-                self._make_ssh_run_fn(),
-                task_dir=self._miniforge_task_dir,
-                timeout=10,
-            )
-            state = (status.get("status") or "").strip().upper()
-            rc = (status.get("exit_code") or "").strip()
-            heartbeat = (status.get("heartbeat") or "").strip()
-            alive = miniforge_bootstrap.is_session_alive(
-                self._make_ssh_run_fn(),
-                job_id=miniforge_bootstrap.JOB_ID,
-                timeout=10,
-            )
+        self._start_miniforge_poll_job("probe_status")
 
-            if state == "DONE" or rc == "0":
-                self._miniforge_installing = False
-                self._miniforge_poll_timer.stop()
-                self._set_status("运行环境已就绪，正在检测工具环境...", STATUS_SUCCESS)
-                self._emit_bootstrap_install_event("success", "运行环境初始化完成")
-                Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
-                QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
-                return
+    def _on_miniforge_poll_finished(self, payload: object) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        operation = str(data.get("operation", "") or "").strip()
+        self._miniforge_polling = False
+        if operation == "read_failure_log":
+            self._on_miniforge_failure_log_finished(data)
+            return
 
-            if state == "FAILED":
-                self._handle_miniforge_failure("远端初始化任务失败")
-                return
+        state = str(data.get("status", "") or "").strip().upper()
+        rc = str(data.get("exit_code", "") or "").strip()
+        heartbeat = str(data.get("heartbeat", "") or "").strip()
+        alive = bool(data.get("session_alive", False))
 
-            if state == "RUNNING" and not alive:
-                if self._is_stale_heartbeat(heartbeat):
-                    self._handle_miniforge_failure("远端会话已退出（状态仍为 RUNNING 且心跳超时）")
-                    return
+        if state == "DONE" or rc == "0":
+            self._miniforge_installing = False
+            self._miniforge_poll_timer.stop()
+            self._set_status("运行环境已就绪，正在检测工具环境...", STATUS_SUCCESS)
+            self._emit_bootstrap_install_event("success", "运行环境初始化完成")
+            Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
+            QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
+            return
 
-            if not alive and (state == "" or self._is_stale_heartbeat(heartbeat)):
-                self._handle_miniforge_failure("远端会话已退出且心跳超时")
-                return
+        if state == "FAILED":
+            self._handle_miniforge_failure("远端初始化任务失败")
+            return
 
-            # RUNNING / status 空但 session 存活
-            self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
-            self._emit_bootstrap_install_event("running", "后台初始化任务执行中")
-        except Exception as exc:
-            logger.debug("轮询 Miniforge 初始化状态失败: %s", exc)
-            # 网络瞬时抖动不立即失败，保持下次轮询继续
-        finally:
-            self._miniforge_polling = False
+        if state == "RUNNING" and not alive and self._is_stale_heartbeat(heartbeat):
+            self._handle_miniforge_failure("远端会话已退出（状态仍为 RUNNING 且心跳超时）")
+            return
+
+        if not alive and (state == "" or self._is_stale_heartbeat(heartbeat)):
+            self._handle_miniforge_failure("远端会话已退出且心跳超时")
+            return
+
+        self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+        self._emit_bootstrap_install_event("running", "后台初始化任务执行中")
+        self._schedule_miniforge_poll(3000)
+
+    def _on_miniforge_poll_error(self, payload: object) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        operation = str(data.get("operation", "") or "").strip()
+        self._miniforge_polling = False
+        if operation == "read_failure_log":
+            self._on_miniforge_failure_log_error(data)
+            return
+        logger.debug("轮询 Miniforge 初始化状态失败: %s", data.get("error", ""))
+        if self._miniforge_installing:
+            self._schedule_miniforge_poll(3000)
 
     def _is_stale_heartbeat(self, heartbeat_value: str, stale_seconds: int = MINIFORGE_HEARTBEAT_STALE_SECONDS) -> bool:
         try:
@@ -1063,17 +1178,22 @@ class LinuxSettingsCard(QFrame):
     def _handle_miniforge_failure(self, reason: str) -> None:
         self._miniforge_installing = False
         self._miniforge_poll_timer.stop()
-        log_text = miniforge_bootstrap.read_log(
-            self._make_ssh_run_fn(),
-            task_dir=self._miniforge_task_dir,
-            tail_lines=40,
-            timeout=10,
-        )
-        tail = log_text.strip()
-        message = f"{reason}\n\n{tail}" if tail else reason
+        self._miniforge_polling = False
         self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
         self._emit_bootstrap_install_event("failed", reason)
+        self._start_miniforge_poll_job("read_failure_log", reason=reason)
+
+    def _on_miniforge_failure_log_finished(self, payload: dict) -> None:
+        reason = str(payload.get("reason", "") or "").strip()
+        log_text = str(payload.get("log_text", "") or "")
+        tail = log_text.strip()
+        message = f"{reason}\n\n{tail}" if tail else reason
         self._prompt_miniforge_install_failed(message)
+
+    def _on_miniforge_failure_log_error(self, payload: dict) -> None:
+        reason = str(payload.get("reason", "") or "").strip() or "运行环境初始化失败"
+        logger.debug("读取 Miniforge 失败日志失败: %s", payload.get("error", ""))
+        self._prompt_miniforge_install_failed(reason)
 
     # ── 批量检测 ─────────────────────────────────────────
 
@@ -1921,7 +2041,7 @@ class LinuxSettingsCard(QFrame):
         self._cleanup_tool_install_submit_resources()
         cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=1000)
         cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
-        cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=1000)
+        self._cleanup_miniforge_resources()
         self._cleanup_recover_installs_resources()
         cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=1000)
         self._cleanup_tool_install_poll_resolve_resources()
