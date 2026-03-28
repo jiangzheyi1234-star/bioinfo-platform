@@ -8,6 +8,11 @@ import time
 
 from core.environment.env_detector import SshRunFn
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
+from core.environment.miniforge_release import (
+    MINIFORGE_INSTALLER_MIN_BYTES,
+    MINIFORGE_RELEASE_API_URL,
+    MINIFORGE_RELEASE_BASES,
+)
 from core.utils import sanitize_log
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,15 @@ show_channel_urls: true
 auto_activate_base: false
 """
 
+
+def _bootstrap_source_entries() -> str:
+    entries = []
+    for label, base in MINIFORGE_RELEASE_BASES:
+        installer_url = f"{base}/${{MINIFORGE_VERSION}}/Miniforge3-Linux-${{ARCH}}.sh"
+        checksum_url = f"{installer_url}.sha256"
+        entries.append(f'    "{label}|{installer_url}|{checksum_url}"')
+    return " \\\n".join(entries)
+
 _BOOTSTRAP_WRAPPER = r"""#!/bin/bash
 set -euo pipefail
 
@@ -50,7 +64,9 @@ LOG_FILE="$TASK_DIR/task.log"
 CONDA_HOME="{conda_home}"
 CONDA_EXE="{conda_exe}"
 CONDARC_PATH="{condarc_path}"
-INSTALLER="/tmp/miniforge_install.sh"
+RELEASE_API_URL="{release_api_url}"
+INSTALLER=""
+CHECKSUM_FILE=""
 CONDARC_B64='{condarc_b64}'
 
 echo "RUNNING" > "$STATUS_FILE"
@@ -67,6 +83,7 @@ HB_PID=$!
 _cleanup() {{
     local ec=$?
     kill $HB_PID 2>/dev/null || true
+    rm -f "$INSTALLER" "$CHECKSUM_FILE" 2>/dev/null || true
     echo "$ec" > "$EXIT_CODE_FILE"
     if [ "$ec" -eq 0 ]; then
         echo "DONE" > "$STATUS_FILE"
@@ -93,63 +110,166 @@ if [ "$HAS_CURL" -eq 0 ] && [ "$HAS_WGET" -eq 0 ]; then
     exit 3
 fi
 
-_download_one() {{
+HASH_CMD=""
+if command -v sha256sum >/dev/null 2>&1; then
+    HASH_CMD="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+    HASH_CMD="shasum -a 256"
+else
+    echo "sha256sum/shasum not found" >&2
+    exit 5
+fi
+
+_download_to_file() {{
     local url="$1"
-    local ok=1
+    local destination="$2"
 
-    rm -f "$INSTALLER"
+    rm -f "$destination"
     if [ "$HAS_CURL" -eq 1 ]; then
-        if curl -fsSL --connect-timeout 15 --max-time 120 -o "$INSTALLER" "$url"; then
-            ok=0
+        if curl -fsSL --connect-timeout 15 --max-time 120 -o "$destination" "$url"; then
+            return 0
         fi
     fi
-    if [ "$ok" -ne 0 ] && [ "$HAS_WGET" -eq 1 ]; then
-        if wget -q --timeout=120 -O "$INSTALLER" "$url"; then
-            ok=0
+    if [ "$HAS_WGET" -eq 1 ]; then
+        if wget -q --timeout=120 -O "$destination" "$url"; then
+            return 0
         fi
     fi
-    if [ "$ok" -ne 0 ]; then
-        return 1
-    fi
+    return 1
+}}
 
-    local size
-    size="$(stat -c%s "$INSTALLER" 2>/dev/null || echo 0)"
-    if [ "$size" -lt 1000000 ]; then
-        echo "installer too small: $size bytes, url=$url" >&2
-        rm -f "$INSTALLER"
+_download_text() {{
+    local url="$1"
+
+    if [ "$HAS_CURL" -eq 1 ]; then
+        if curl -fsSL --connect-timeout 15 --max-time 60 "$url"; then
+            return 0
+        fi
+    fi
+    if [ "$HAS_WGET" -eq 1 ]; then
+        if wget -q -O - --timeout=60 "$url"; then
+            return 0
+        fi
+    fi
+    return 1
+}}
+
+_record_failure() {{
+    local label="$1"
+    local reason="$2"
+    local item="[$label] $reason"
+    echo "Miniforge source failed: $item" >&2
+    if [ -z "${{FAILURE_SUMMARY:-}}" ]; then
+        FAILURE_SUMMARY="$item"
+    else
+        FAILURE_SUMMARY="${{FAILURE_SUMMARY}} | $item"
+    fi
+}}
+
+_resolve_latest_version() {{
+    local payload=""
+    local version=""
+    if ! payload="$(_download_text "$RELEASE_API_URL")"; then
         return 1
     fi
-    if ! head -n 1 "$INSTALLER" | grep -q '^#!'; then
-        echo "installer shebang check failed, url=$url" >&2
-        rm -f "$INSTALLER"
-        return 1
-    fi
+    version="$(printf '%s' "$payload" | tr -d '\r\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]\+\)".*/\1/p')"
+    case "$version" in
+        ""|*[!A-Za-z0-9._-]*)
+            return 1
+            ;;
+    esac
+    printf '%s\n' "$version"
     return 0
 }}
 
+_compute_sha256() {{
+    local path="$1"
+    $HASH_CMD "$path" | awk '{{print $1}}'
+}}
+
+_download_one() {{
+    local label="$1"
+    local installer_url="$2"
+    local checksum_url="$3"
+    local size=""
+    local shebang=""
+    local expected_sha256=""
+    local actual_sha256=""
+
+    if ! _download_to_file "$installer_url" "$INSTALLER"; then
+        _record_failure "$label" "installer download failed: $installer_url"
+        return 1
+    fi
+
+    size="$(stat -c%s "$INSTALLER" 2>/dev/null || echo 0)"
+    if [ "$size" -lt {installer_min_bytes} ]; then
+        _record_failure "$label" "installer too small: $size bytes"
+        return 1
+    fi
+
+    shebang="$(head -n 1 "$INSTALLER" 2>/dev/null || true)"
+    if ! printf '%s\n' "$shebang" | grep -q '^#!'; then
+        _record_failure "$label" "installer shebang check failed"
+        return 1
+    fi
+
+    if ! _download_to_file "$checksum_url" "$CHECKSUM_FILE"; then
+        _record_failure "$label" "checksum download failed: $checksum_url"
+        return 1
+    fi
+
+    expected_sha256="$(grep -oE '[0-9a-fA-F]{{64}}' "$CHECKSUM_FILE" 2>/dev/null | head -n 1 | tr '[:upper:]' '[:lower:]')"
+    if [ -z "$expected_sha256" ]; then
+        _record_failure "$label" "checksum parse failed"
+        return 1
+    fi
+
+    actual_sha256="$(_compute_sha256 "$INSTALLER" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+    if [ -z "$actual_sha256" ]; then
+        _record_failure "$label" "checksum compute failed"
+        return 1
+    fi
+    if [ "$actual_sha256" != "$expected_sha256" ]; then
+        _record_failure "$label" "checksum mismatch: expected ${{expected_sha256:0:12}}, got ${{actual_sha256:0:12}}"
+        return 1
+    fi
+
+    return 0
+}}
+
+INSTALLER="$(mktemp /tmp/miniforge_install.XXXXXX.sh)"
+CHECKSUM_FILE="$(mktemp /tmp/miniforge_install.XXXXXX.sha256)"
+FAILURE_SUMMARY=""
+MINIFORGE_VERSION="$(_resolve_latest_version || true)"
+if [ -z "$MINIFORGE_VERSION" ]; then
+    _record_failure "latest-release" "latest release tag resolve failed via $RELEASE_API_URL"
+    echo "all miniforge mirrors failed: $FAILURE_SUMMARY" >&2
+    exit 4
+fi
+echo "Resolved Miniforge release tag: $MINIFORGE_VERSION"
+
 DOWNLOAD_OK=0
-for URL in \
-    "https://mirrors.tuna.tsinghua.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-Linux-${{ARCH}}.sh" \
-    "https://mirrors.bfsu.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-Linux-${{ARCH}}.sh" \
-    "https://mirrors.ustc.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-Linux-${{ARCH}}.sh" \
-    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${{ARCH}}.sh"
+for SOURCE in \
+{source_entries}
 do
-    echo "Trying Miniforge mirror: $URL"
-    if _download_one "$URL"; then
+    IFS='|' read -r LABEL URL SHA256_URL <<EOF
+$SOURCE
+EOF
+    echo "Trying Miniforge source [$LABEL]: $URL"
+    if _download_one "$LABEL" "$URL" "$SHA256_URL"; then
         DOWNLOAD_OK=1
-        echo "Downloaded Miniforge installer from: $URL"
+        echo "Downloaded and verified Miniforge installer from [$LABEL]: $URL"
         break
     fi
 done
 
 if [ "$DOWNLOAD_OK" -ne 1 ]; then
-    echo "all miniforge mirrors failed" >&2
+    echo "all miniforge mirrors failed: $FAILURE_SUMMARY" >&2
     exit 4
 fi
 
 mkdir -p "$(dirname "$CONDA_HOME")"
 bash "$INSTALLER" -b -p "$CONDA_HOME"
-rm -f "$INSTALLER"
 
 mkdir -p "$(dirname "$CONDARC_PATH")"
 echo "$CONDARC_B64" | base64 -d > "$CONDARC_PATH"
@@ -196,6 +316,9 @@ def submit(ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
         conda_home=f"$(eval echo {_expand_path(H2O_CONDA_HOME)})",
         conda_exe=f"$(eval echo {_expand_path(H2O_CONDA_EXE)})",
         condarc_path=f"$(eval echo {_expand_path(H2O_CONDARC)})",
+        release_api_url=MINIFORGE_RELEASE_API_URL,
+        installer_min_bytes=MINIFORGE_INSTALLER_MIN_BYTES,
+        source_entries=_bootstrap_source_entries(),
         condarc_b64=base64.b64encode(_CONDARC_TEMPLATE.encode()).decode(),
     )
     encoded = base64.b64encode(script.encode()).decode()

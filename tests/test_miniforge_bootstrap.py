@@ -112,14 +112,22 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
     script = _extract_wrapper_script(calls)
     assert script, "should write bootstrap wrapper script through base64"
     assert "_download_one()" in script
-    assert "Trying Miniforge mirror:" in script
+    assert "_resolve_latest_version()" in script
+    assert "Trying Miniforge source [" in script
+    assert "api.github.com/repos/conda-forge/miniforge/releases/latest" in script
     assert "mirrors.tuna.tsinghua.edu.cn" in script
     assert "mirrors.bfsu.edu.cn" in script
     assert "mirrors.ustc.edu.cn" in script
-    assert "github.com/conda-forge/miniforge/releases/latest/download" in script
+    assert "github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}" in script
+    assert ".sha256" in script
+    assert "mktemp /tmp/miniforge_install.XXXXXX.sh" in script
+    assert "mktemp /tmp/miniforge_install.XXXXXX.sha256" in script
+    assert 'HASH_CMD="sha256sum"' in script
+    assert 'HASH_CMD="shasum -a 256"' in script
     assert "stat -c%s" in script
     assert "head -n 1" in script and "grep -q '^#!'" in script
-    assert "all miniforge mirrors failed" in script
+    assert "checksum mismatch" in script
+    assert "all miniforge mirrors failed: $FAILURE_SUMMARY" in script
     assert "exit 4" in script
 
 
