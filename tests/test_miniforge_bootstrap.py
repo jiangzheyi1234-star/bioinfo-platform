@@ -4,6 +4,8 @@ import base64
 import re
 
 from core.environment import miniforge_bootstrap
+from core.environment.env_detector import _CONDARC_TEMPLATE as detector_condarc_template
+from core.environment.miniforge_condarc import CONDARC_TEMPLATE
 
 
 def _extract_wrapper_script(calls: list[str]) -> str:
@@ -135,10 +137,16 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
     assert "exit 4" in script
 
 
-def test_condarc_template_uses_cn_mirror_and_flexible_priority():
+def test_condarc_template_uses_shared_runtime_baseline():
     template = miniforge_bootstrap._CONDARC_TEMPLATE
-    assert "custom_channels:" in template
-    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/cloud" in template
+    assert template == CONDARC_TEMPLATE
+    assert template == detector_condarc_template
+    assert "channels:" in template
+    assert "  - conda-forge" in template
+    assert "  - bioconda" in template
     assert "channel_priority: flexible" in template
+    assert "custom_channels:" not in template
+    assert "defaults:" not in template
+    assert "strict" not in template
     assert "show_channel_urls: true" in template
     assert "auto_activate_base: false" in template

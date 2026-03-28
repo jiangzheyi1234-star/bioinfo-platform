@@ -16,7 +16,8 @@ from core.environment.env_detector import (
 )
 from core.environment.env_batch_checker import check_all_envs, get_existing_env_paths
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE
-from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
+from core.environment.miniforge_condarc import CONDARC_TEMPLATE
 from core.environment.miniforge_release import (
     MINIFORGE_RELEASE_API_URL,
     build_miniforge_download_candidates,
@@ -115,10 +116,6 @@ class TestInstallMiniforge:
                 return 0, f"{installer_path}: OK\n", ""
             if cmd == f"bash {installer_path} -b -p \"$(eval echo {H2O_CONDA_HOME})\"":
                 return 0, "", ""
-            if cmd == f"{H2O_CONDA_EXE} config --add channels bioconda":
-                return 0, "", ""
-            if cmd == f"{H2O_CONDA_EXE} config --set channel_priority strict":
-                return 0, "", ""
             if cmd == "bash -c '$HOME/.h2ometa/conda/bin/conda --version'":
                 return 0, "conda 24.7.1", ""
             if cmd == "eval echo $HOME/.h2ometa/conda/bin/conda":
@@ -133,6 +130,8 @@ class TestInstallMiniforge:
         assert result.status == CondaStatus.OK
         assert any(f"/releases/download/{release_tag}/Miniforge3-Linux-x86_64.sh" in cmd for cmd in calls)
         assert any(candidate.sha256_url in cmd for cmd in calls)
+        assert not any("config --add channels bioconda" in cmd for cmd in calls)
+        assert not any("config --set channel_priority" in cmd for cmd in calls)
 
     def test_install_fails_on_unsupported_arch(self):
         """不支持的架构应失败。"""
@@ -191,10 +190,6 @@ class TestInstallMiniforge:
                 return 0, f"{installer_path}: OK\n", ""
             if cmd == f"bash {installer_path} -b -p \"$(eval echo {H2O_CONDA_HOME})\"":
                 return 0, "", ""
-            if cmd == f"{H2O_CONDA_EXE} config --add channels bioconda":
-                return 0, "", ""
-            if cmd == f"{H2O_CONDA_EXE} config --set channel_priority strict":
-                return 0, "", ""
             if cmd == "bash -c '$HOME/.h2ometa/conda/bin/conda --version'":
                 return 0, "conda 24.7.1", ""
             if cmd == "eval echo $HOME/.h2ometa/conda/bin/conda":
@@ -209,6 +204,8 @@ class TestInstallMiniforge:
         assert result.status == CondaStatus.OK
         assert "apt-get update" in calls
         assert "apt-get install -y coreutils" in calls
+        assert not any("config --add channels bioconda" in cmd for cmd in calls)
+        assert not any("config --set channel_priority" in cmd for cmd in calls)
 
     def test_install_fails_when_sha256sum_cannot_be_auto_installed(self):
         fn = make_ssh_fn({
@@ -255,6 +252,18 @@ class TestInstallMiniforge:
         assert result.status == CondaStatus.NOT_FOUND
         assert "[tsinghua] installer download failed" in result.message
         assert "[github] installer download failed" in result.message
+
+
+def test_shared_condarc_template_matches_runtime_expectations():
+    assert "channels:" in CONDARC_TEMPLATE
+    assert "  - conda-forge" in CONDARC_TEMPLATE
+    assert "  - bioconda" in CONDARC_TEMPLATE
+    assert "channel_priority: flexible" in CONDARC_TEMPLATE
+    assert "show_channel_urls: true" in CONDARC_TEMPLATE
+    assert "auto_activate_base: false" in CONDARC_TEMPLATE
+    assert "custom_channels:" not in CONDARC_TEMPLATE
+    assert "defaults:" not in CONDARC_TEMPLATE
+    assert "strict" not in CONDARC_TEMPLATE
 
 
 # ----------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import time
 
 from core.environment.env_detector import SshRunFn
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
+from core.environment.miniforge_condarc import CONDARC_TEMPLATE as _CONDARC_TEMPLATE
 from core.environment.miniforge_release import (
     MINIFORGE_INSTALLER_MIN_BYTES,
     MINIFORGE_RELEASE_API_URL,
@@ -24,22 +25,6 @@ LOG_TAIL_LINES = 60
 HEARTBEAT_STALE_SECONDS = 180
 
 _STATUS_ORDER_HINT = ("status.txt", "exit_code.txt", "heartbeat.txt")
-
-_CONDARC_TEMPLATE = """\
-channels:
-  - defaults
-custom_channels:
-  conda-forge: https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud
-  bioconda: https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud
-  defaults: https://mirrors.tuna.tsinghua.edu.cn/anaconda
-channel_priority: flexible
-remote_connect_timeout_secs: 30
-remote_read_timeout_secs: 90
-remote_max_retries: 5
-show_channel_urls: true
-auto_activate_base: false
-"""
-
 
 def _bootstrap_source_entries() -> str:
     entries = []
