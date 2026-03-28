@@ -17,6 +17,10 @@ from core.environment.env_detector import (
 from core.environment.env_batch_checker import check_all_envs, get_existing_env_paths
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME
+from core.environment.miniforge_release import (
+    MINIFORGE_RELEASE_API_URL,
+    build_miniforge_download_candidates,
+)
 
 
 # ----------------------------------------------------------------------------
@@ -72,19 +76,63 @@ class TestInstallMiniforge:
 
     def test_install_success(self):
         """Miniforge 安装成功流程。"""
-        fn = make_ssh_fn({
-            "uname -m": (0, "x86_64", ""),
-            "command -v curl": (0, "/usr/bin/curl", ""),
-            "curl -fsSL -o /tmp/miniforge_install.sh": (0, "", ""),
-            f"bash /tmp/miniforge_install.sh -b -p \"$(eval echo {H2O_CONDA_HOME})\"": (0, "", ""),
-            "rm -f /tmp/miniforge_install.sh": (0, "", ""),
-            f"{H2O_CONDA_EXE} config --add channels bioconda": (0, "", ""),
-            f"{H2O_CONDA_EXE} config --set channel_priority strict": (0, "", ""),
-            "bash -c '$HOME/.h2ometa/conda/bin/conda --version'": (0, "conda 24.7.1", ""),
-            "eval echo $HOME/.h2ometa/conda/bin/conda": (0, "/home/user/.h2ometa/conda/bin/conda", ""),
-        })
+        calls = []
+        release_tag = "25.1.0-0"
+        installer_path = "/tmp/miniforge_install.abcd12.sh"
+        checksum_path = "/tmp/miniforge_install.abcd12.sha256"
+        candidate = build_miniforge_download_candidates(release_tag, "x86_64")[-1]
+        expected_sha = "a" * 64
+
+        def fn(cmd, timeout=15):
+            calls.append(cmd)
+            if cmd == "uname -m":
+                return 0, "x86_64", ""
+            if cmd == "command -v curl":
+                return 0, "/usr/bin/curl", ""
+            if cmd == "command -v wget":
+                return 1, "", ""
+            if cmd == "command -v sha256sum":
+                return 0, "/usr/bin/sha256sum", ""
+            if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sh":
+                return 0, f"{installer_path}\n", ""
+            if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sha256":
+                return 0, f"{checksum_path}\n", ""
+            if cmd.startswith("rm -f "):
+                return 0, "", ""
+            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 60 {MINIFORGE_RELEASE_API_URL}":
+                return 0, f'{{"tag_name":"{release_tag}"}}', ""
+            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {candidate.installer_url}":
+                return 0, "", ""
+            if cmd == f"stat -c%s {installer_path}":
+                return 0, "1500000\n", ""
+            if cmd == f"head -n 1 {installer_path}":
+                return 0, "#!/bin/bash\n", ""
+            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {checksum_path} {candidate.sha256_url}":
+                return 0, "", ""
+            if cmd == f"cat {checksum_path}":
+                return 0, f"{expected_sha}  Miniforge3-Linux-x86_64.sh\n", ""
+            if cmd == f"sha256sum {installer_path}":
+                return 0, f"{expected_sha}  {installer_path}\n", ""
+            if cmd == f"bash {installer_path} -b -p \"$(eval echo {H2O_CONDA_HOME})\"":
+                return 0, "", ""
+            if cmd == f"{H2O_CONDA_EXE} config --add channels bioconda":
+                return 0, "", ""
+            if cmd == f"{H2O_CONDA_EXE} config --set channel_priority strict":
+                return 0, "", ""
+            if cmd == "bash -c '$HOME/.h2ometa/conda/bin/conda --version'":
+                return 0, "conda 24.7.1", ""
+            if cmd == "eval echo $HOME/.h2ometa/conda/bin/conda":
+                return 0, "/home/user/.h2ometa/conda/bin/conda", ""
+            if cmd == "mkdir -p ~/.h2ometa/runtime":
+                return 0, "", ""
+            if cmd.startswith("echo '") and f"> {H2O_CONDARC}" in cmd:
+                return 0, "", ""
+            return 1, "", f"unexpected command: {cmd}"
+
         result = install_miniforge(fn)
         assert result.status == CondaStatus.OK
+        assert any(f"/releases/download/{release_tag}/Miniforge3-Linux-x86_64.sh" in cmd for cmd in calls)
+        assert any(candidate.sha256_url in cmd for cmd in calls)
 
     def test_install_fails_on_unsupported_arch(self):
         """不支持的架构应失败。"""
@@ -92,6 +140,39 @@ class TestInstallMiniforge:
         result = install_miniforge(fn)
         assert result.status == CondaStatus.NOT_FOUND
         assert "不支持的架构" in result.message
+
+    def test_install_reports_per_source_failures(self):
+        release_tag = "25.1.0-0"
+        installer_path = "/tmp/miniforge_install.abcd12.sh"
+        checksum_path = "/tmp/miniforge_install.abcd12.sha256"
+        candidates = build_miniforge_download_candidates(release_tag, "x86_64")
+
+        def fn(cmd, timeout=15):
+            if cmd == "uname -m":
+                return 0, "x86_64", ""
+            if cmd == "command -v curl":
+                return 0, "/usr/bin/curl", ""
+            if cmd == "command -v wget":
+                return 1, "", ""
+            if cmd == "command -v sha256sum":
+                return 0, "/usr/bin/sha256sum", ""
+            if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sh":
+                return 0, f"{installer_path}\n", ""
+            if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sha256":
+                return 0, f"{checksum_path}\n", ""
+            if cmd.startswith("rm -f "):
+                return 0, "", ""
+            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 60 {MINIFORGE_RELEASE_API_URL}":
+                return 0, f'{{"tag_name":"{release_tag}"}}', ""
+            for candidate in candidates:
+                if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {candidate.installer_url}":
+                    return 1, "", f"{candidate.label} down"
+            return 1, "", f"unexpected command: {cmd}"
+
+        result = install_miniforge(fn)
+        assert result.status == CondaStatus.NOT_FOUND
+        assert "[tsinghua] installer download failed" in result.message
+        assert "[github] installer download failed" in result.message
 
 
 # ----------------------------------------------------------------------------
