@@ -21,6 +21,7 @@ from core.execution.task_runner import TaskRunner
 from core.execution.tool_engine import ToolEngine
 from core.plugins.plugin_registry import PluginRegistry
 from core.remote.ssh_service import SSHService
+from core.remote.server_capabilities import ServerCapabilities
 from core.utils import get_app_root
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ class ServiceLocator(QObject):
         self._execution_ctx: dict[str, dict[str, Any]] = {}
         self._task_dirs: dict[str, str] = {}
         self._conda_executable: str = ""
+        self._server_capabilities: Optional[ServerCapabilities] = None
+        self._server_capability_error: str = ""
         self._shutting_down = False
 
     def initialize(self) -> int:
@@ -146,6 +149,22 @@ class ServiceLocator(QObject):
             "conda_executable updated: %s",
             self._conda_executable or "(empty)",
         )
+
+    @property
+    def server_capabilities(self) -> Optional[ServerCapabilities]:
+        return self._server_capabilities
+
+    @server_capabilities.setter
+    def server_capabilities(self, caps: Optional[ServerCapabilities]) -> None:
+        self._server_capabilities = caps
+
+    @property
+    def server_capability_error(self) -> str:
+        return self._server_capability_error
+
+    @server_capability_error.setter
+    def server_capability_error(self, message: str) -> None:
+        self._server_capability_error = str(message or "")
 
     def get_task_dir(self, execution_id: str) -> Optional[str]:
         """Return the remote task dir for an execution."""
