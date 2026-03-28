@@ -170,6 +170,7 @@ def test_condarc_template_uses_shared_runtime_baseline():
     assert "  - conda-forge" in template
     assert "  - bioconda" in template
     assert "channel_priority: flexible" in template
+    assert "solver: libmamba" in template
     assert "custom_channels:" not in template
     assert "defaults:" not in template
     assert "strict" not in template

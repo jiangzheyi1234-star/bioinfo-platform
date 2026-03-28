@@ -180,6 +180,7 @@ def test_shared_condarc_template_matches_runtime_expectations():
     assert "  - conda-forge" in CONDARC_TEMPLATE
     assert "  - bioconda" in CONDARC_TEMPLATE
     assert "channel_priority: flexible" in CONDARC_TEMPLATE
+    assert "solver: libmamba" in CONDARC_TEMPLATE
     assert "show_channel_urls: true" in CONDARC_TEMPLATE
     assert "auto_activate_base: false" in CONDARC_TEMPLATE
     assert "custom_channels:" not in CONDARC_TEMPLATE
@@ -196,7 +197,7 @@ class TestRewriteInstallCmd:
 
     def test_basic_rewrite(self):
         result = rewrite_install_cmd(
-            "conda create -n fastp_env -c bioconda fastp -y",
+            "conda create -n fastp_env fastp -y",
             "/home/user/miniconda3/bin/conda")
         assert "/home/user/miniconda3/bin/conda create" in result
 
@@ -220,7 +221,7 @@ class TestCondaRootHelpers:
         assert expected_env_path("/opt/miniconda3/bin/conda", "fastp_env") == "~/.h2ometa/conda/envs/fastp_env"
 
     def test_pin_create_env_to_conda_root(self):
-        cmd = "/opt/conda/bin/conda create -n fastp_env -c bioconda fastp -y"
+        cmd = "/opt/conda/bin/conda create -n fastp_env fastp -y"
         pinned = pin_create_env_to_conda_root(cmd, "/opt/conda/bin/conda")
         assert " -p /opt/conda/envs/fastp_env " in f" {pinned} "
 
@@ -245,7 +246,7 @@ class TestEnvInstallerSubmit:
         })
         result = EnvInstaller.submit(
             fn, "fastp",
-            "conda create -n fastp_env -c bioconda fastp -y",
+            "conda create -n fastp_env fastp -y",
             "/home/user/.h2ometa/conda/bin/conda")
         assert result["job_id"] == "h2o_install_fastp"
         assert result["task_dir"] == f"{INSTALL_BASE}/fastp"

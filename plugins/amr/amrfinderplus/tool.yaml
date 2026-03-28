@@ -4,7 +4,7 @@ version: "4.0.3"
 category: amr
 description: "NCBI 耐药基因、毒力因子与应激基因综合检测工具"
 conda_env: amrfinderplus_env
-install_cmd: "conda create -n amrfinderplus_env -c bioconda -c conda-forge ncbi-amrfinderplus=4.0.3 -y"
+install_cmd: "conda create -n amrfinderplus_env ncbi-amrfinderplus=4.0.3 -y"
 
 detection:
   command: "amrfinder --version"
@@ -86,3 +86,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'genome: 必填，类型 fasta。'
+

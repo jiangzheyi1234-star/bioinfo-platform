@@ -4,7 +4,7 @@ version: "2.0.6"
 category: mobile_elements
 description: "整合子与相关元件检测工具，常用于抗性传播研究"
 conda_env: integron_finder_env
-install_cmd: "conda create -n integron_finder_env -c bioconda -c conda-forge integron_finder=2.0.6 -y"
+install_cmd: "conda create -n integron_finder_env integron_finder=2.0.6 -y"
 
 detection:
   command: "integron_finder --version"
@@ -74,3 +74,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'contigs: 必填，类型 fasta。'
+

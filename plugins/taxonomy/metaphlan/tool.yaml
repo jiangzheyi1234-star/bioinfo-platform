@@ -4,7 +4,7 @@ version: "4.1.1"
 category: taxonomy
 description: "标记基因物种分类工具，无需组装即可获得精确丰度"
 conda_env: metaphlan_env
-install_cmd: "conda create -n metaphlan_env -c bioconda -c conda-forge metaphlan=4.1.1 -y"
+install_cmd: "conda create -n metaphlan_env metaphlan=4.1.1 -y"
 
 detection:
   command: "metaphlan --version"
@@ -99,3 +99,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'reads: 必填，类型 fastq。'
+

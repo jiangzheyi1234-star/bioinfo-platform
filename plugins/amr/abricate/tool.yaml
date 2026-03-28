@@ -4,7 +4,7 @@ version: "1.0.1"
 category: amr
 description: "多数据库 AMR 快速筛查工具，支持 CARD/NCBI/ResFinder/VFDB 等"
 conda_env: abricate_env
-install_cmd: "conda create -n abricate_env -c bioconda -c conda-forge abricate=1.0.1 -y"
+install_cmd: "conda create -n abricate_env abricate=1.0.1 -y"
 
 detection:
   command: "abricate --version"
@@ -92,3 +92,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'contigs: 必填，类型 fasta。'
+
