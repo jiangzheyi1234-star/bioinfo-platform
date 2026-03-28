@@ -76,6 +76,12 @@ function renderToolList(tools) {
                 '<button class="btn-install hidden" data-tool-id="' + tool.id + '">安装</button>' +
             '</td>';
 
+        const btn = row.querySelector('.btn-install');
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            installTool(tool.id);
+        });
+
         tbody.appendChild(row);
     });
 
@@ -179,26 +185,6 @@ function onCheckFinished(resultJson) {
         } else {
             document.getElementById('status-text').textContent = readyCount + '/' + totalCount + ' 就绪，' + missingCount + ' 个需要安装';
         }
-
-        // 更新安装按钮状态
-        allTools.forEach(function(tool) {
-            const btn = document.querySelector('[data-tool-id="' + tool.id + '"]');
-            if (btn) {
-                const row = document.getElementById('row-' + tool.id);
-                const statusDot = row.querySelector('.dot');
-                const isMissing = statusDot.classList.contains('dot-missing');
-                btn.classList.toggle('hidden', !isMissing);
-
-                // 绑定安装按钮事件
-                if (!btn.hasListener) {
-                    btn.hasListener = true;
-                    btn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        installTool(tool.id);
-                    });
-                }
-            }
-        });
     } catch (e) {
         console.error('Failed to parse check result:', e);
         document.getElementById('status-text').textContent = '检测完成';
