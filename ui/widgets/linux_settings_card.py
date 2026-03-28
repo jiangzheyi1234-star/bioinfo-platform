@@ -36,7 +36,6 @@ from ui.widgets.toast import Toast
 
 from core.environment import env_detector
 from core.environment import miniforge_bootstrap
-from core.environment.env_detector import CondaStatus
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
 from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, get_existing_env_paths
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
@@ -45,6 +44,7 @@ from core.remote.server_capabilities import ServerCapabilities
 logger = logging.getLogger(__name__)
 MINIFORGE_HEARTBEAT_STALE_SECONDS = 180
 TOOL_INSTALL_POLL_INTERVAL_MS = 3000
+MINIFORGE_PROBE_COMMAND = "test -f ~/.h2ometa/conda/bin/conda && echo OK || echo MISSING"
 _SPEED_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([KMG]?B/s)", re.IGNORECASE)
 _PROGRESS_RE = re.compile(r"\b([0-9]{1,3})%\b")
 
@@ -117,10 +117,10 @@ def _tool_env_exists_in_paths(tool: dict | None, existing_env_paths: set[str], c
 # ── Conda 检测 Worker ─────────────────────────────────────────────
 
 
-class CondaDetectWorker(QObject):
-    """在 QThread 中运行 env_detector.detect()，避免阻塞主线程。"""
+class MiniforgeProbeWorker(QObject):
+    """在 QThread 中探测自管 Miniforge 是否已落盘。"""
 
-    finished = pyqtSignal(object)  # CondaDetectResult
+    finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
     def __init__(self, ssh_run_fn):
@@ -145,12 +145,24 @@ class CondaDetectWorker(QObject):
     @pyqtSlot()
     def run(self):
         try:
-            result = env_detector.detect(self._ssh_run_fn)
-            self._emit("finished", result)
+            rc, out, err = self._ssh_run_fn(MINIFORGE_PROBE_COMMAND, timeout=10)
+            status = str(out or "").strip()
+            if rc != 0 or status not in {"OK", "MISSING"}:
+                raise RuntimeError(
+                    f"Miniforge probe failed: rc={rc}, out={status!r}, err={str(err or '').strip()!r}"
+                )
+            self._emit(
+                "finished",
+                {
+                    "command": MINIFORGE_PROBE_COMMAND,
+                    "status": status,
+                    "deployed": status == "OK",
+                },
+            )
         except Exception as e:
             if self._cancelled:
                 return
-            logger.exception("CondaDetectWorker 出错")
+            logger.exception("MiniforgeProbeWorker 出错")
             self._emit("error", str(e))
 
 
@@ -411,14 +423,12 @@ class RecoverInstallsWorker(QObject):
         tools: list[dict],
         conda_executable: str = "",
         existing_env_paths=None,
-        rows: list[dict] | None = None,
     ):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
         self._tools = list(tools or [])
         self._conda_executable = str(conda_executable or "")
         self._existing_env_paths = None if existing_env_paths is None else _normalize_env_paths(existing_env_paths)
-        self._rows = [dict(row) for row in (rows or [])]
         self._cancelled = False
 
     @pyqtSlot()
@@ -492,32 +502,6 @@ class RecoverInstallsWorker(QObject):
             )
         return rows
 
-    def _run_poll_resolve(self, existing_env_paths: set[str], tool_map: dict[str, dict]) -> list[dict]:
-        rows: list[dict] = []
-        for item in self._rows:
-            if self._cancelled:
-                return []
-            tool_id = str(item.get("tool_id", "") or "").strip()
-            task_dir = str(item.get("task_dir", "") or f"{_INSTALL_BASE}/{tool_id}").strip()
-            tool = tool_map.get(tool_id)
-            env_exists = _tool_env_exists_in_paths(tool, existing_env_paths, self._conda_executable)
-            cleanup_attempted = True
-            try:
-                EnvInstaller.cleanup(self._ssh_run_fn, task_dir)
-            except Exception:
-                logger.debug("轮询兜底清理任务目录失败: %s", task_dir, exc_info=True)
-            rows.append(
-                {
-                    "tool_id": tool_id,
-                    "task_dir": task_dir,
-                    "status": str(item.get("status", "") or "").strip().upper() or "RUNNING",
-                    "env_exists": env_exists,
-                    "session_alive": False,
-                    "cleanup_attempted": cleanup_attempted,
-                }
-            )
-        return rows
-
     @pyqtSlot()
     def run(self) -> None:
         try:
@@ -526,9 +510,7 @@ class RecoverInstallsWorker(QObject):
                 return
 
             tool_map = {str(tool.get("id", "") or "").strip(): dict(tool) for tool in self._tools}
-            rows = self._run_poll_resolve(existing_env_paths, tool_map) if self._rows else self._run_recover_scan(
-                existing_env_paths, tool_map
-            )
+            rows = self._run_recover_scan(existing_env_paths, tool_map)
             if self._cancelled:
                 return
 
@@ -560,12 +542,13 @@ class LinuxSettingsCard(QFrame):
       - 使用 Web UI (QWebEngineView) 展示工具环境表格，解决对齐问题。
 
     get_values() 返回字段:
-      conda_executable, auto_installed, conda_env_path(空), conda_env_name(空), is_locked
+      conda_executable, conda_env_path(空), conda_env_name(空), is_locked
     """
 
     request_save = pyqtSignal()
     install_task_event = pyqtSignal(dict)
     tool_install_snapshot_updated = pyqtSignal(str, dict)
+    deploy_state_changed = pyqtSignal(dict)
 
     def __init__(self, parent=None, plugin_registry=None):
         super().__init__(parent)
@@ -579,8 +562,9 @@ class LinuxSettingsCard(QFrame):
 
         self._plugin_registry = plugin_registry
         self._conda_executable: str = ""
-        self._auto_installed: bool = False
-        self._detect_interactive_request: bool = False
+        self._miniforge_deployed: bool = False
+        self._miniforge_probe_inflight: bool = False
+        self._miniforge_probe_completed: bool = False
         self._miniforge_installing: bool = False
         self._miniforge_task_dir: str = miniforge_bootstrap.TASK_DIR
         self._miniforge_polling: bool = False
@@ -591,8 +575,6 @@ class LinuxSettingsCard(QFrame):
         self._tool_install_poll_timer = QTimer(self)
         self._tool_install_poll_timer.setInterval(TOOL_INSTALL_POLL_INTERVAL_MS)
         self._tool_install_poll_timer.timeout.connect(self._poll_running_tool_installs)
-        self._tool_install_poll_resolving: bool = False
-        self._tool_install_poll_resolve_needs_recheck: bool = False
         self._tool_log_samples: dict[str, tuple[int, float]] = {}
         self._latest_detected_env_paths: set[str] = set()
         self._pending_recover_after_batch: bool = False
@@ -687,22 +669,30 @@ class LinuxSettingsCard(QFrame):
     def set_active_client(self, client) -> None:
         """接收连接状态变化信号，触发后续检测流程。"""
         if client is not None and self._is_ssh_service_ready():
-            self._set_status("SSH 已就绪")
-            # SSH 连接成功后延迟 1s 自动触发 conda 检测
-            if not _is_test_mode():
-                QTimer.singleShot(1000, lambda: self._ensure_conda_ready(interactive=False))
+            self._set_status("SSH 已就绪，正在检查运行环境...")
+            self._schedule_miniforge_probe(200)
         elif client is not None:
             self._set_status("SSH 已连接，正在等待服务通道就绪")
         else:
+            self._reset_miniforge_probe_state(clear_conda=True)
             self._set_status("等待 SSH 连接")
 
     def set_ssh_service(self, ssh_service) -> None:
         """注入统一 SSHService，优先使用其串行 run 通道。"""
+        service_changed = ssh_service is not self._ssh_service
         self._ssh_service = ssh_service
+        if service_changed and not self._miniforge_installing:
+            self._reset_miniforge_probe_state(clear_conda=True)
         if self._is_ssh_service_ready():
-            self._set_status("SSH 已就绪")
-            if not _is_test_mode():
-                QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
+            if self._miniforge_installing:
+                self._emit_deploy_state()
+                self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+                self._schedule_miniforge_poll(200)
+                return
+            self._set_status("SSH 已就绪，正在检查运行环境...")
+            self._schedule_miniforge_probe(200)
+        else:
+            self._reset_miniforge_probe_state(clear_conda=True)
 
     def _is_ssh_service_ready(self) -> bool:
         return self._ssh_service is not None and bool(getattr(self._ssh_service, "is_connected", False))
@@ -711,23 +701,21 @@ class LinuxSettingsCard(QFrame):
         """供 SettingsPage 获取数据。"""
         return {
             "conda_executable": self._conda_executable,
-            "auto_installed": self._auto_installed,
             "is_locked": self._is_locked,
         }
 
     def set_values(
         self,
         conda_executable: str = "",
-        auto_installed: bool = False,
     ) -> None:
         """供 SettingsPage 回填数据。"""
         if conda_executable and not is_managed_conda_executable(conda_executable):
             logger.warning("忽略非自管 conda 配置路径: %s", conda_executable)
             self._conda_executable = ""
-            self._auto_installed = False
         else:
             self._conda_executable = conda_executable
-            self._auto_installed = auto_installed
+            self._miniforge_deployed = bool(conda_executable)
+        self._emit_deploy_state()
 
     def set_external_lock(self, locked: bool) -> None:
         """外部锁定功能，用于在 SSH 连接被占用时禁用编辑。"""
@@ -735,6 +723,56 @@ class LinuxSettingsCard(QFrame):
             return
         self._external_lock = locked
         self._refresh_interaction_state()
+
+    def start_deploy(self) -> None:
+        if not self._is_ssh_service_ready():
+            self._set_status("SSH 未连接，无法部署运行环境", STATUS_ERROR)
+            return
+        if self._miniforge_installing:
+            self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+            self._emit_deploy_state()
+            return
+        if self._miniforge_deployed:
+            self._set_status("运行环境已就绪", STATUS_SUCCESS)
+            self._emit_deploy_state()
+            return
+        self._start_miniforge_install_silent()
+
+    def _sync_locator_conda_executable(self) -> None:
+        window = self.window()
+        locator = getattr(window, "service_locator", None)
+        if locator is not None and hasattr(locator, "conda_executable"):
+            locator.conda_executable = self._conda_executable
+
+    def _emit_deploy_state(self) -> None:
+        if not self._is_ssh_service_ready():
+            state = "hidden"
+        elif self._miniforge_installing:
+            state = "deploying"
+        elif self._miniforge_probe_inflight and not self._miniforge_probe_completed:
+            state = "checking"
+        elif self._miniforge_deployed:
+            state = "ready"
+        else:
+            state = "missing"
+        _safe_emit(
+            self.deploy_state_changed,
+            {
+                "state": state,
+                "deployed": self._miniforge_deployed,
+                "deploying": self._miniforge_installing,
+                "checking": self._miniforge_probe_inflight and not self._miniforge_probe_completed,
+            },
+        )
+
+    def _reset_miniforge_probe_state(self, *, clear_conda: bool) -> None:
+        self._miniforge_probe_inflight = False
+        self._miniforge_probe_completed = False
+        self._miniforge_deployed = False
+        if clear_conda:
+            self._conda_executable = ""
+            self._sync_locator_conda_executable()
+        self._emit_deploy_state()
 
     def _set_status(self, text: str, style: str = STATUS_NEUTRAL) -> None:
         self.status_label.setText(text)
@@ -895,7 +933,7 @@ class LinuxSettingsCard(QFrame):
             "databases": desc.get("databases", []),
         }
 
-    # ── conda 检测 ────────────────────────────────────────
+    # ── 运行环境探测 ────────────────────────────────────────
 
     def _make_ssh_run_fn(self):
         """仅经 SSHService 串行队列发送命令，服务不可用时快速失败。"""
@@ -909,98 +947,72 @@ class LinuxSettingsCard(QFrame):
 
         return run
 
-    def _ensure_conda_ready(self, interactive: bool = False) -> None:
-        """SSH 连接后的第一层检测 — 检测 conda 是否可用。
-
-        成功后缓存路径、保存配置、更新 ServiceLocator，然后继续 batch check。
-        未找到时：
-          - 启动自动探测（非交互）: 静默安装并在状态栏提示
-          - 用户主动触发（交互）: 弹窗确认后安装
-        """
+    def _schedule_miniforge_probe(self, delay_ms: int = 200) -> None:
         if _is_test_mode():
             return
-        if not self._is_ssh_service_ready() or self._checking or self._external_lock:
+        if not self._is_ssh_service_ready():
             return
-        if self._miniforge_installing:
-            self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
+        if self._miniforge_installing or self._miniforge_probe_inflight or self._miniforge_probe_completed:
+            self._emit_deploy_state()
+            return
+        QTimer.singleShot(max(int(delay_ms), 0), self._check_miniforge_exists)
+
+    def _check_miniforge_exists(self) -> None:
+        if _is_test_mode():
+            return
+        if not self._is_ssh_service_ready() or self._external_lock:
+            return
+        if self._miniforge_installing or self._miniforge_probe_inflight or self._miniforge_probe_completed:
+            self._emit_deploy_state()
             return
 
-        self._checking = True
-        self._detect_interactive_request = interactive
-        self._set_status("正在检测 conda 环境...")
+        self._miniforge_probe_inflight = True
+        self._emit_deploy_state()
+        self._cleanup_miniforge_probe_resources()
 
-        self._cleanup_conda_detect_resources()
+        self._miniforge_probe_thread = QThread()
+        self._miniforge_probe_worker = MiniforgeProbeWorker(self._make_ssh_run_fn())
+        self._miniforge_probe_worker.moveToThread(self._miniforge_probe_thread)
+        self._miniforge_probe_thread.started.connect(self._miniforge_probe_worker.run)
+        self._miniforge_probe_worker.finished.connect(self._on_miniforge_probe_finished)
+        self._miniforge_probe_worker.error.connect(self._on_miniforge_probe_error)
+        self._miniforge_probe_worker.finished.connect(self._cleanup_miniforge_probe_resources)
+        self._miniforge_probe_worker.error.connect(self._cleanup_miniforge_probe_resources)
+        self._miniforge_probe_thread.start()
 
-        self._conda_detect_thread = QThread()
-        self._conda_detect_worker = CondaDetectWorker(
-            ssh_run_fn=self._make_ssh_run_fn(),
-        )
-        self._conda_detect_worker.moveToThread(self._conda_detect_thread)
+    def _on_miniforge_probe_finished(self, payload: object) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        deployed = bool(data.get("deployed", False))
+        self._miniforge_probe_inflight = False
+        self._miniforge_probe_completed = True
+        self._miniforge_deployed = deployed
+        self._conda_executable = H2O_CONDA_EXE if deployed else ""
+        self._sync_locator_conda_executable()
+        self.request_save.emit()
+        if deployed:
+            self._set_status("运行环境已就绪", STATUS_SUCCESS)
+        else:
+            self._set_status("运行环境未部署，请先点击“一键部署运行环境”", STATUS_NEUTRAL)
+        self._emit_deploy_state()
 
-        self._conda_detect_thread.started.connect(self._conda_detect_worker.run)
-        self._conda_detect_worker.finished.connect(self._on_conda_detected)
-        self._conda_detect_worker.error.connect(self._on_conda_detect_error)
-        self._conda_detect_worker.finished.connect(self._cleanup_conda_detect_resources)
+    def _on_miniforge_probe_error(self, msg: str) -> None:
+        self._miniforge_probe_inflight = False
+        self._miniforge_probe_completed = False
+        self._miniforge_deployed = False
+        self._conda_executable = ""
+        self._sync_locator_conda_executable()
+        self.request_save.emit()
+        self._set_status(f"运行环境检查失败: {msg[:60]}", STATUS_ERROR)
+        self._emit_deploy_state()
 
-        self._conda_detect_thread.start()
-
-    def _on_conda_detected(self, result) -> None:
-        """conda 检测完成回调。"""
-        self._checking = False
-
-        if result.status == CondaStatus.OK:
-            if not is_managed_conda_executable(result.executable or ""):
-                logger.warning("检测到非自管 conda 路径，已忽略: %s", result.executable)
-                self._conda_executable = ""
-                if self._detect_interactive_request:
-                    self._set_status("检测到非自管 conda，已拒绝", STATUS_ERROR)
-                    self._prompt_miniforge_install()
-                else:
-                    self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
-                    self._start_miniforge_install_silent()
-                return
-            self._conda_executable = result.executable
-            version_str = f" {result.version}" if result.version else ""
-            self._set_status(f"conda{version_str} 就绪，正在检测工具环境...", STATUS_SUCCESS)
-
-            # 更新 ServiceLocator
-            window = self.window()
-            locator = getattr(window, "service_locator", None)
-            if locator is not None and hasattr(locator, "conda_executable"):
-                locator.conda_executable = self._conda_executable
-
-            # 保存配置
-            self.request_save.emit()
-
-            # 继续批量检测工具环境
-            if self._tools:
-                self._pending_recover_after_batch = True
-                QTimer.singleShot(200, self._on_batch_check)
-            else:
-                self._pending_recover_after_batch = False
-                QTimer.singleShot(200, lambda: self._recover_running_installs(existing_env_paths=set()))
-
-        elif result.status == CondaStatus.NOT_FOUND:
-            if self._detect_interactive_request:
-                self._set_status("未检测到 conda", STATUS_ERROR)
-                self._prompt_miniforge_install()
-            else:
-                self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
-                self._start_miniforge_install_silent()
-
-    def _on_conda_detect_error(self, msg: str) -> None:
-        """conda 检测出错。"""
-        self._checking = False
-        self._set_status(f"conda 检测失败: {msg[:40]}", STATUS_ERROR)
-
-    def _cleanup_conda_detect_resources(self) -> None:
-        """清理 conda 检测线程资源。"""
-        cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=5000)
+    def _cleanup_miniforge_probe_resources(self) -> None:
+        cleanup_thread_pair(self, "_miniforge_probe_thread", "_miniforge_probe_worker", wait_ms=5000)
 
     def _cleanup_miniforge_resources(self) -> None:
         """清理 Miniforge 提交/轮询线程资源。"""
         self._cleanup_miniforge_submit_resources()
         self._cleanup_miniforge_poll_resources()
+        self._cleanup_miniforge_probe_resources()
 
     def _cleanup_miniforge_submit_resources(self) -> None:
         cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=5000)
@@ -1018,27 +1030,6 @@ class LinuxSettingsCard(QFrame):
         if isinstance(caps, ServerCapabilities):
             return caps, error
         return None, error
-
-    def _prompt_miniforge_install(self) -> None:
-        """弹窗提示：未检测到自管 conda，引导后台自动安装。"""
-        from PyQt6.QtWidgets import QMessageBox
-
-        box = QMessageBox(self)
-        box.setWindowTitle("首次启动初始化")
-        box.setText(
-            "H2OMeta 需要初始化运行环境（一次性操作）。\n\n"
-            "安装目录：\n"
-            "~/.h2ometa/conda\n\n"
-            "不会影响服务器上已有的软件环境。"
-        )
-        btn_install = box.addButton("后台自动安装", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(btn_install)
-        box.exec()
-
-        clicked = box.clickedButton()
-        if clicked == btn_install:
-            self._start_miniforge_install_silent()
 
     def _prompt_miniforge_install_failed(self, message: str) -> None:
         """静默安装失败后弹窗提示，提供重试入口。"""
@@ -1072,11 +1063,16 @@ class LinuxSettingsCard(QFrame):
         if self._miniforge_installing:
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
             self._emit_bootstrap_install_event("running", "运行环境初始化进行中")
+            self._emit_deploy_state()
             return
 
         self._miniforge_installing = True
+        self._miniforge_probe_inflight = False
+        self._miniforge_probe_completed = True
+        self._miniforge_deployed = False
         self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
         self._emit_bootstrap_install_event("running", "后台提交初始化任务")
+        self._emit_deploy_state()
         self._cleanup_miniforge_resources()
 
         self._miniforge_thread = QThread()
@@ -1095,6 +1091,7 @@ class LinuxSettingsCard(QFrame):
 
         def _on_error(msg: str) -> None:
             self._miniforge_installing = False
+            self._emit_deploy_state()
             self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
             self._emit_bootstrap_install_event("failed", f"提交失败: {msg}")
             self._prompt_miniforge_install_failed(msg)
@@ -1155,10 +1152,22 @@ class LinuxSettingsCard(QFrame):
         if state == "DONE" or rc == "0":
             self._miniforge_installing = False
             self._miniforge_poll_timer.stop()
+            self._miniforge_probe_inflight = False
+            self._miniforge_probe_completed = True
+            self._miniforge_deployed = True
+            self._conda_executable = H2O_CONDA_EXE
+            self._sync_locator_conda_executable()
+            self.request_save.emit()
+            self._emit_deploy_state()
             self._set_status("运行环境已就绪，正在检测工具环境...", STATUS_SUCCESS)
             self._emit_bootstrap_install_event("success", "运行环境初始化完成")
             Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
-            QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=False))
+            if self._tools:
+                self._pending_recover_after_batch = True
+                QTimer.singleShot(200, self._on_batch_check)
+            else:
+                self._pending_recover_after_batch = False
+                QTimer.singleShot(200, lambda: self._recover_running_installs(existing_env_paths=set()))
             return
 
         if state == "FAILED":
@@ -1199,6 +1208,11 @@ class LinuxSettingsCard(QFrame):
         self._miniforge_installing = False
         self._miniforge_poll_timer.stop()
         self._miniforge_polling = False
+        self._miniforge_deployed = False
+        self._conda_executable = ""
+        self._sync_locator_conda_executable()
+        self.request_save.emit()
+        self._emit_deploy_state()
         self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
         self._emit_bootstrap_install_event("failed", reason)
         self._start_miniforge_poll_job("read_failure_log", reason=reason)
@@ -1222,20 +1236,16 @@ class LinuxSettingsCard(QFrame):
         self._do_batch_check()
 
     def _on_batch_check_from_web(self) -> None:
-        """从 Web UI 调用的检测入口 — 如果 conda 已知则直接检测，否则先检测 conda。"""
-        if self._conda_executable and is_managed_conda_executable(self._conda_executable):
-            self._do_batch_check()
-        else:
-            self._ensure_conda_ready(interactive=True)
+        """从 Web UI 调用的检测入口。"""
+        self._do_batch_check()
 
     def _do_batch_check(self) -> None:
         """实际执行批量检测。"""
         if not self._is_ssh_service_ready() or self._checking or self._external_lock:
             return
 
-        if not is_managed_conda_executable(self._conda_executable):
-            self._set_status("未检测到自管 conda，无法检测工具环境", STATUS_ERROR)
-            QTimer.singleShot(200, lambda: self._ensure_conda_ready(interactive=True))
+        if (not self._miniforge_deployed) or (not is_managed_conda_executable(self._conda_executable)):
+            self._set_status("请先点击“一键部署运行环境”", STATUS_ERROR)
             return
 
         if not self._tools:
@@ -1352,8 +1362,6 @@ class LinuxSettingsCard(QFrame):
             return False
         if not self._conda_executable or not is_managed_conda_executable(self._conda_executable):
             self._set_status("运行环境未就绪，请先完成初始化", STATUS_ERROR)
-            if interactive:
-                QTimer.singleShot(100, lambda: self._ensure_conda_ready(interactive=True))
             return False
         return True
 
@@ -1740,8 +1748,6 @@ class LinuxSettingsCard(QFrame):
         logger.debug("恢复后台安装状态失败: %s", msg)
 
     def _ensure_tool_install_polling(self) -> None:
-        if self._tool_install_poll_resolving:
-            return
         if self._installing_tool_ids:
             was_active = self._tool_install_poll_timer.isActive()
             if not was_active:
@@ -1755,38 +1761,11 @@ class LinuxSettingsCard(QFrame):
     def _cleanup_tool_install_poll_resources(self) -> None:
         cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=3000)
 
-    def _cleanup_tool_install_poll_resolve_resources(self) -> None:
-        cleanup_thread_pair(self, "_tool_install_poll_resolve_thread", "_tool_install_poll_resolve_worker", wait_ms=3000)
-
-    def _start_tool_install_poll_resolve(self, rows: list[dict], *, need_recheck: bool = False) -> None:
-        if not rows:
-            if need_recheck:
-                QTimer.singleShot(300, self._on_batch_check)
-            self._ensure_tool_install_polling()
-            return
-        self._tool_install_poll_resolving = True
-        self._tool_install_poll_resolve_needs_recheck = self._tool_install_poll_resolve_needs_recheck or need_recheck
-        self._cleanup_tool_install_poll_resolve_resources()
-        self._tool_install_poll_resolve_thread = QThread()
-        self._tool_install_poll_resolve_worker = RecoverInstallsWorker(
-            self._make_ssh_run_fn(),
-            self._tools,
-            self._conda_executable,
-            rows=rows,
-        )
-        self._tool_install_poll_resolve_worker.moveToThread(self._tool_install_poll_resolve_thread)
-        self._tool_install_poll_resolve_thread.started.connect(self._tool_install_poll_resolve_worker.run)
-        self._tool_install_poll_resolve_worker.finished.connect(self._on_tool_install_poll_resolve_finished)
-        self._tool_install_poll_resolve_worker.error.connect(self._on_tool_install_poll_resolve_error)
-        self._tool_install_poll_resolve_worker.finished.connect(self._cleanup_tool_install_poll_resolve_resources)
-        self._tool_install_poll_resolve_worker.error.connect(self._cleanup_tool_install_poll_resolve_resources)
-        self._tool_install_poll_resolve_thread.start()
-
     def _poll_running_tool_installs(self) -> None:
         if not self._installing_tool_ids:
             self._ensure_tool_install_polling()
             return
-        if self._tool_install_polling or self._tool_install_poll_resolving:
+        if self._tool_install_polling:
             return
         if not self._is_ssh_service_ready():
             return
@@ -1832,7 +1811,6 @@ class LinuxSettingsCard(QFrame):
     def _on_tool_install_poll_finished(self, rows: list[dict]) -> None:
         self._tool_install_polling = False
         need_recheck = False
-        resolve_rows: list[dict] = []
 
         for row in rows or []:
             tool_id = str(row.get("tool_id", "") or "").strip()
@@ -1857,13 +1835,6 @@ class LinuxSettingsCard(QFrame):
             if status_text == "DONE":
                 self._on_install_succeeded(tool_id)
                 need_recheck = True
-                resolve_rows.append(
-                    {
-                        "tool_id": tool_id,
-                        "task_dir": f"{_INSTALL_BASE}/{tool_id}",
-                        "status": "DONE",
-                    }
-                )
                 continue
 
             if status_text == "FAILED":
@@ -1878,13 +1849,18 @@ class LinuxSettingsCard(QFrame):
                 continue
 
             if status_text in ("", "RUNNING") and not session_alive:
-                resolve_rows.append(
-                    {
-                        "tool_id": tool_id,
-                        "task_dir": f"{_INSTALL_BASE}/{tool_id}",
-                        "status": status_text or "RUNNING",
-                    }
+                logger.info("工具 %s 安装会话已退出且状态不可靠，静默回缺失", tool_id)
+                self._installing_tool_ids.discard(tool_id)
+                self._tool_log_samples.pop(tool_id, None)
+                if self._bridge:
+                    self._bridge.emit_install_finished(tool_id, False)
+                self._update_tool_install_snapshot(
+                    tool_id,
+                    status="FAILED",
+                    task_dir=f"{_INSTALL_BASE}/{tool_id}",
+                    message="安装会话已退出且状态不可靠，请重试安装。",
                 )
+                need_recheck = True
                 continue
 
             detail = self._build_tool_install_running_detail(
@@ -1901,52 +1877,8 @@ class LinuxSettingsCard(QFrame):
             )
             self._emit_tool_install_event(tool_id, "running", detail)
 
-        if resolve_rows:
-            self._start_tool_install_poll_resolve(resolve_rows, need_recheck=need_recheck)
-            return
         if need_recheck:
             QTimer.singleShot(300, self._on_batch_check)
-        self._ensure_tool_install_polling()
-
-    def _on_tool_install_poll_resolve_finished(self, payload: object) -> None:
-        self._tool_install_poll_resolving = False
-        data = payload if isinstance(payload, dict) else {}
-        rows = list(data.get("rows", []) or [])
-        need_recheck = self._tool_install_poll_resolve_needs_recheck
-        self._tool_install_poll_resolve_needs_recheck = False
-
-        for row in rows:
-            tool_id = str(row.get("tool_id", "") or "").strip()
-            task_dir = str(row.get("task_dir", "") or f"{_INSTALL_BASE}/{tool_id}").strip()
-            env_exists = bool(row.get("env_exists", False))
-            if not tool_id or tool_id not in self._installing_tool_ids:
-                continue
-
-            if env_exists:
-                self._on_install_succeeded(tool_id)
-                continue
-
-            logger.info("工具 %s 安装会话已退出且状态不可靠，静默回缺失", tool_id)
-            self._installing_tool_ids.discard(tool_id)
-            self._tool_log_samples.pop(tool_id, None)
-            if self._bridge:
-                self._bridge.emit_install_finished(tool_id, False)
-            self._update_tool_install_snapshot(
-                tool_id,
-                status="FAILED",
-                task_dir=task_dir,
-                message="安装会话已退出且状态不可靠，请重试安装。",
-            )
-            need_recheck = True
-
-        if need_recheck:
-            QTimer.singleShot(300, self._on_batch_check)
-        self._ensure_tool_install_polling()
-
-    def _on_tool_install_poll_resolve_error(self, msg: str) -> None:
-        self._tool_install_poll_resolving = False
-        self._tool_install_poll_resolve_needs_recheck = False
-        logger.debug("轮询兜底解析失败: %s", msg)
         self._ensure_tool_install_polling()
 
     def _on_tool_install_poll_error(self, msg: str) -> None:
@@ -2059,10 +1991,8 @@ class LinuxSettingsCard(QFrame):
         if self._tool_install_poll_timer.isActive():
             self._tool_install_poll_timer.stop()
         self._cleanup_tool_install_submit_resources()
-        cleanup_thread_pair(self, "_conda_detect_thread", "_conda_detect_worker", wait_ms=1000)
         cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
         self._cleanup_miniforge_resources()
         self._cleanup_recover_installs_resources()
         cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=1000)
-        self._cleanup_tool_install_poll_resolve_resources()
         super().closeEvent(event)

@@ -120,11 +120,18 @@ class SettingsPage(BasePage):
         self.scroll_layout.addStretch()
 
         self.ssh_card.connection_state_changed.connect(self._on_ssh_state_changed)
+        self.ssh_card.deploy_requested.connect(self.linux_card.start_deploy)
+        self.linux_card.deploy_state_changed.connect(self._on_linux_deploy_state_changed)
 
     def _on_ssh_state_changed(self, connected: bool) -> None:
         client = self.ssh_card.get_active_client() if connected else None
         self.linux_card.set_active_client(client)
+        self.ssh_card.set_deploy_state("checking" if connected else "hidden")
         self.active_client_changed.emit(client)
+
+    def _on_linux_deploy_state_changed(self, payload: object) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        self.ssh_card.set_deploy_state(str(data.get("state", "hidden") or "hidden"))
 
     def get_active_client(self):
         return self.ssh_card.get_active_client()
@@ -169,7 +176,6 @@ class SettingsPage(BasePage):
         )
         self.linux_card.set_values(
             conda_executable=str(linux.get("conda_executable", "") or ""),
-            auto_installed=bool(linux.get("auto_installed", False)),
         )
         self.ncbi_card.set_values(
             ncbi_api_key=str(ncbi.get("api_key", "") or ""),
@@ -200,7 +206,6 @@ class SettingsPage(BasePage):
             },
             "linux": {
                 "conda_executable": str(linux_values.get("conda_executable", "") or ""),
-                "auto_installed": bool(linux_values.get("auto_installed", False)),
             },
             "databases": current.get("databases", {"db_root": "", "overrides": {}}),
             "blast": {
@@ -273,4 +278,3 @@ class SettingsPage(BasePage):
         if self._auto_check_timer.isActive():
             self._auto_check_timer.stop()
         super().closeEvent(event)
-
