@@ -22,13 +22,11 @@ from PyQt6.QtWidgets import (
 
 from ui.widgets.styles import (
     CARD_FRAME,
-    BUTTON_PRIMARY,
     CARD_TITLE,
     COLOR_TEXT_HINT,
     STATUS_NEUTRAL,
     STATUS_SUCCESS,
     STATUS_ERROR,
-    BUTTON_LINK,
 )
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
 from ui.widgets.report_view import create_report_web_view
@@ -542,7 +540,7 @@ class LinuxSettingsCard(QFrame):
       - 使用 Web UI (QWebEngineView) 展示工具环境表格，解决对齐问题。
 
     get_values() 返回字段:
-      conda_executable, conda_env_path(空), conda_env_name(空), is_locked
+      conda_executable
     """
 
     request_save = pyqtSignal()
@@ -555,9 +553,7 @@ class LinuxSettingsCard(QFrame):
         self.setObjectName("LinuxSettingsCard")
 
         self._ssh_service = None
-        self._is_locked = False
         self._checking = False
-        self._in_edit_mode = False
         self._external_lock = False
 
         self._plugin_registry = plugin_registry
@@ -594,12 +590,7 @@ class LinuxSettingsCard(QFrame):
         self._bridge: Optional[ToolEnvBridge] = None
         self._channel = None
 
-        self._auto_fold_timer = QTimer(self)
-        self._auto_fold_timer.setSingleShot(True)
-        self._auto_fold_timer.timeout.connect(self._auto_fold)
-
         self._build_ui()
-        self._lock_inputs()
 
     # ── 公开 API ─────────────────────────────────────────
 
@@ -701,7 +692,6 @@ class LinuxSettingsCard(QFrame):
         """供 SettingsPage 获取数据。"""
         return {
             "conda_executable": self._conda_executable,
-            "is_locked": self._is_locked,
         }
 
     def set_values(
@@ -718,11 +708,10 @@ class LinuxSettingsCard(QFrame):
         self._emit_deploy_state()
 
     def set_external_lock(self, locked: bool) -> None:
-        """外部锁定功能，用于在 SSH 连接被占用时禁用编辑。"""
+        """外部锁定功能，用于在 SSH 连接被占用时禁用交互。"""
         if self._external_lock == locked:
             return
         self._external_lock = locked
-        self._refresh_interaction_state()
 
     def start_deploy(self) -> None:
         if not self._is_ssh_service_ready():
@@ -778,9 +767,6 @@ class LinuxSettingsCard(QFrame):
         self.status_label.setText(text)
         self.status_label.setStyleSheet(style)
 
-    def _set_form_enabled(self, enabled: bool) -> None:
-        pass  # 不再需要启用/禁用表单控件
-
     # ── UI 构建 ──────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -801,17 +787,11 @@ class LinuxSettingsCard(QFrame):
         self.title_label = QLabel("Linux 端运行环境配置")
         self.title_label.setStyleSheet(CARD_TITLE)
 
-        self.modify_btn = QPushButton("修改")
-        self.modify_btn.setMinimumWidth(60)
-        self.modify_btn.setStyleSheet(BUTTON_LINK)
-        self.modify_btn.clicked.connect(self._enable_editing)
-
         self.arrow_label = QLabel("▲")
         self.arrow_label.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
 
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
-        header_layout.addWidget(self.modify_btn)
         header_layout.addWidget(self.arrow_label)
         main_layout.addWidget(self.header_area)
 
@@ -825,17 +805,11 @@ class LinuxSettingsCard(QFrame):
         # ── 工具环境检测区（Web UI）──
         self._build_tool_env_web_view(c_layout)
 
-        # ── 状态行 + 保存按钮 ──
+        # ── 状态行 ──
         row = QHBoxLayout()
-        self.lock_btn = QPushButton("确认并保存")
-        self.lock_btn.setMinimumWidth(110)
-        self.lock_btn.setStyleSheet(BUTTON_PRIMARY)
-        self.lock_btn.clicked.connect(self._on_save_and_lock)
-
         self.status_label = QLabel("等待 SSH 连接")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
-        row.addWidget(self.lock_btn)
         row.addWidget(self.status_label)
         row.addStretch()
         c_layout.addLayout(row)
@@ -1910,30 +1884,6 @@ class LinuxSettingsCard(QFrame):
         """检查指定工具的环境是否已存在。"""
         return _tool_env_exists_in_paths(tool, existing_env_paths, self._conda_executable)
 
-    # ── 保存/锁定 ─────────────────────────────────────────
-
-    def _on_save_and_lock(self) -> None:
-        """保存配置并切换锁定状态。"""
-        if self._is_locked:
-            # 解锁
-            self._is_locked = False
-            self._set_form_enabled(True)
-            self.lock_btn.setText("确认并保存")
-            self._set_status("配置已解锁，可修改")
-            return
-
-        if self._conda_executable and not is_managed_conda_executable(self._conda_executable):
-            self._set_status(f"仅允许使用自管 conda: {H2O_CONDA_EXE}", STATUS_ERROR)
-            return
-
-        self._is_locked = True
-        self._lock_inputs()
-        self.lock_btn.setText("修改配置")
-        self._set_status("配置已保存", STATUS_SUCCESS)
-        self.request_save.emit()
-
-        self._auto_fold_timer.start(1500)
-
     # ── 折叠/展开 ─────────────────────────────────────────
 
     def _toggle_container(self):
@@ -1942,48 +1892,6 @@ class LinuxSettingsCard(QFrame):
         visible = self.container.isVisible()
         self.container.setVisible(not visible)
         self.arrow_label.setText("▲" if not visible else "▼")
-
-    def _auto_fold(self):
-        if not self._in_edit_mode and self.container.isVisible():
-            self.container.hide()
-            self.arrow_label.setText("▼")
-
-    def _enable_editing(self):
-        if self._external_lock:
-            return
-        self.container.show()
-        self.arrow_label.setText("▲")
-
-        self._set_form_enabled(True)
-        self.lock_btn.show()
-        self.lock_btn.setEnabled(True)
-
-        self._set_status("请修改配置并保存")
-        self._in_edit_mode = True
-
-    def _lock_inputs(self):
-        self._set_form_enabled(False)
-        self.lock_btn.setText("修改配置")
-        self._in_edit_mode = False
-
-    def _refresh_interaction_state(self) -> None:
-        if self._external_lock:
-            for w in [
-                self.modify_btn, self.lock_btn,
-            ]:
-                w.setEnabled(False)
-            return
-
-        if self._checking:
-            return
-
-        if self._in_edit_mode:
-            self._set_form_enabled(True)
-            self.lock_btn.setEnabled(True)
-            self.modify_btn.setEnabled(True)
-        else:
-            self._set_form_enabled(False)
-            self.modify_btn.setEnabled(True)
 
     def closeEvent(self, event) -> None:
         if self._miniforge_poll_timer.isActive():
