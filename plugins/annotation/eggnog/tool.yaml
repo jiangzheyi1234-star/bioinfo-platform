@@ -4,7 +4,7 @@ version: "2.1.12"
 category: annotation
 description: "基于 eggNOG 数据库的功能注释工具"
 conda_env: eggnog_env
-install_cmd: "conda create -n eggnog_env -c bioconda -c conda-forge eggnog-mapper=2.1.12 -y"
+install_cmd: "conda create -n eggnog_env eggnog-mapper=2.1.12 -y"
 
 detection:
   command: "emapper.py --version"
@@ -98,3 +98,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'proteins: 必填，类型 fasta。'
+

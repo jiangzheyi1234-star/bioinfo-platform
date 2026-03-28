@@ -4,7 +4,7 @@ version: "6.0.4"
 category: amr
 description: "CARD 数据库耐药基因识别工具（Resistance Gene Identifier）"
 conda_env: rgi_env
-install_cmd: "conda create -n rgi_env -c bioconda -c conda-forge rgi=6.0.4 -y"
+install_cmd: "conda create -n rgi_env rgi=6.0.4 -y"
 
 detection:
   command: "rgi main --version"
@@ -92,3 +92,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'contigs: 必填，类型 fasta。'
+

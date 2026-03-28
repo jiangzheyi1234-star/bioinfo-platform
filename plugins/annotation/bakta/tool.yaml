@@ -4,7 +4,7 @@ version: "1.9.3"
 category: annotation
 description: "快速且标准化的细菌基因组注释工具（Prokka 替代品）"
 conda_env: bakta_env
-install_cmd: "conda create -n bakta_env -c bioconda -c conda-forge bakta=1.9.3 -y"
+install_cmd: "conda create -n bakta_env bakta=1.9.3 -y"
 
 detection:
   command: "bakta --version"
@@ -97,3 +97,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'genome: 必填，类型 fasta。'
+
