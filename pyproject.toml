@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 tmp_path_retention_policy = "none"
-addopts = "--basetemp=.pytest_tmp"
+addopts = "--basetemp=.pytest_tmp -p no:cacheprovider"
 markers = [
     "ui: UI smoke tests requiring Qt (run in isolation)",
 ]

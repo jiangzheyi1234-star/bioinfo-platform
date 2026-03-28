@@ -22,6 +22,7 @@ from core.environment.miniforge_release import (
     MINIFORGE_RELEASE_API_URL,
     build_miniforge_download_candidates,
 )
+from core.remote.server_capabilities import ServerCapabilities
 
 
 # ----------------------------------------------------------------------------
@@ -75,6 +76,19 @@ class TestDetect:
 class TestInstallMiniforge:
     """Miniforge 安装测试"""
 
+    @staticmethod
+    def _caps(**overrides) -> ServerCapabilities:
+        data = {
+            "arch": "x86_64",
+            "has_curl": True,
+            "has_wget": False,
+            "has_screen": True,
+            "has_sha256sum": True,
+            "free_disk_gb": 20.0,
+        }
+        data.update(overrides)
+        return ServerCapabilities(**data)
+
     def test_install_success(self):
         """Miniforge 安装成功流程。"""
         calls = []
@@ -86,14 +100,6 @@ class TestInstallMiniforge:
 
         def fn(cmd, timeout=15):
             calls.append(cmd)
-            if cmd == "uname -m":
-                return 0, "x86_64", ""
-            if cmd == "command -v curl":
-                return 0, "/usr/bin/curl", ""
-            if cmd == "command -v wget":
-                return 1, "", ""
-            if cmd == "command -v sha256sum":
-                return 0, "/usr/bin/sha256sum", ""
             if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sh":
                 return 0, f"{installer_path}\n", ""
             if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sha256":
@@ -126,99 +132,22 @@ class TestInstallMiniforge:
                 return 0, "", ""
             return 1, "", f"unexpected command: {cmd}"
 
-        result = install_miniforge(fn)
+        result = install_miniforge(fn, self._caps())
         assert result.status == CondaStatus.OK
         assert any(f"/releases/download/{release_tag}/Miniforge3-Linux-x86_64.sh" in cmd for cmd in calls)
         assert any(candidate.sha256_url in cmd for cmd in calls)
+        assert "uname -m" not in calls
+        assert "command -v curl" not in calls
+        assert "command -v wget" not in calls
         assert not any("config --add channels bioconda" in cmd for cmd in calls)
         assert not any("config --set channel_priority" in cmd for cmd in calls)
 
     def test_install_fails_on_unsupported_arch(self):
         """不支持的架构应失败。"""
-        fn = make_ssh_fn({"uname -m": (0, "armv7l", "")})
-        result = install_miniforge(fn)
+        fn = make_ssh_fn({})
+        result = install_miniforge(fn, self._caps(arch="armv7l"))
         assert result.status == CondaStatus.NOT_FOUND
         assert "不支持的架构" in result.message
-
-    def test_install_auto_installs_sha256sum_via_apt_get(self):
-        calls = []
-        release_tag = "25.1.0-0"
-        installer_path = "/tmp/miniforge_install.abcd12.sh"
-        checksum_path = "/tmp/miniforge_install.abcd12.sha256"
-        candidate = build_miniforge_download_candidates(release_tag, "x86_64")[-1]
-        expected_sha = "a" * 64
-        state = {"sha256sum_ready": False}
-
-        def fn(cmd, timeout=15):
-            calls.append(cmd)
-            if cmd == "uname -m":
-                return 0, "x86_64", ""
-            if cmd == "command -v curl":
-                return 0, "/usr/bin/curl", ""
-            if cmd == "command -v wget":
-                return 1, "", ""
-            if cmd == "command -v sha256sum":
-                return (0, "/usr/bin/sha256sum", "") if state["sha256sum_ready"] else (1, "", "")
-            if cmd == "id -u":
-                return 0, "0\n", ""
-            if cmd == "command -v apt-get":
-                return 0, "/usr/bin/apt-get", ""
-            if cmd == "apt-get update":
-                return 0, "", ""
-            if cmd == "apt-get install -y coreutils":
-                state["sha256sum_ready"] = True
-                return 0, "", ""
-            if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sh":
-                return 0, f"{installer_path}\n", ""
-            if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sha256":
-                return 0, f"{checksum_path}\n", ""
-            if cmd.startswith("rm -f "):
-                return 0, "", ""
-            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 60 {MINIFORGE_RELEASE_API_URL}":
-                return 0, f'{{"tag_name":"{release_tag}"}}', ""
-            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {candidate.installer_url}":
-                return 0, "", ""
-            if cmd == f"stat -c%s {installer_path}":
-                return 0, "1500000\n", ""
-            if cmd == f"head -n 1 {installer_path}":
-                return 0, "#!/bin/bash\n", ""
-            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {checksum_path} {candidate.sha256_url}":
-                return 0, "", ""
-            if cmd == f"cat {checksum_path}":
-                return 0, f"{expected_sha}  Miniforge3-Linux-x86_64.sh\n", ""
-            if cmd == f"printf '%s  %s\\n' {expected_sha} {installer_path} | sha256sum -c -":
-                return 0, f"{installer_path}: OK\n", ""
-            if cmd == f"bash {installer_path} -b -p \"$(eval echo {H2O_CONDA_HOME})\"":
-                return 0, "", ""
-            if cmd == "bash -c '$HOME/.h2ometa/conda/bin/conda --version'":
-                return 0, "conda 24.7.1", ""
-            if cmd == "eval echo $HOME/.h2ometa/conda/bin/conda":
-                return 0, "/home/user/.h2ometa/conda/bin/conda", ""
-            if cmd == "mkdir -p ~/.h2ometa/runtime":
-                return 0, "", ""
-            if cmd.startswith("echo '") and f"> {H2O_CONDARC}" in cmd:
-                return 0, "", ""
-            return 1, "", f"unexpected command: {cmd}"
-
-        result = install_miniforge(fn)
-        assert result.status == CondaStatus.OK
-        assert "apt-get update" in calls
-        assert "apt-get install -y coreutils" in calls
-        assert not any("config --add channels bioconda" in cmd for cmd in calls)
-        assert not any("config --set channel_priority" in cmd for cmd in calls)
-
-    def test_install_fails_when_sha256sum_cannot_be_auto_installed(self):
-        fn = make_ssh_fn({
-            "uname -m": (0, "x86_64", ""),
-            "command -v curl": (0, "/usr/bin/curl", ""),
-            "command -v wget": (1, "", ""),
-            "command -v sha256sum": (1, "", ""),
-            "id -u": (0, "1000\n", ""),
-            "sudo -n true": (1, "", "sudo denied"),
-        })
-        result = install_miniforge(fn)
-        assert result.status == CondaStatus.NOT_FOUND
-        assert "无免密 sudo" in result.message
 
     def test_install_reports_per_source_failures(self):
         release_tag = "25.1.0-0"
@@ -227,14 +156,6 @@ class TestInstallMiniforge:
         candidates = build_miniforge_download_candidates(release_tag, "x86_64")
 
         def fn(cmd, timeout=15):
-            if cmd == "uname -m":
-                return 0, "x86_64", ""
-            if cmd == "command -v curl":
-                return 0, "/usr/bin/curl", ""
-            if cmd == "command -v wget":
-                return 1, "", ""
-            if cmd == "command -v sha256sum":
-                return 0, "/usr/bin/sha256sum", ""
             if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sh":
                 return 0, f"{installer_path}\n", ""
             if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sha256":
@@ -248,7 +169,7 @@ class TestInstallMiniforge:
                     return 1, "", f"{candidate.label} down"
             return 1, "", f"unexpected command: {cmd}"
 
-        result = install_miniforge(fn)
+        result = install_miniforge(fn, self._caps())
         assert result.status == CondaStatus.NOT_FOUND
         assert "[tsinghua] installer download failed" in result.message
         assert "[github] installer download failed" in result.message

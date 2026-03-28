@@ -40,6 +40,7 @@ from core.environment.env_detector import CondaStatus
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTALL_BASE
 from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, get_existing_env_paths
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
+from core.remote.server_capabilities import ServerCapabilities
 
 logger = logging.getLogger(__name__)
 MINIFORGE_HEARTBEAT_STALE_SECONDS = 180
@@ -159,9 +160,10 @@ class MiniforgeBootstrapSubmitWorker(QObject):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, ssh_run_fn):
+    def __init__(self, ssh_run_fn, caps: ServerCapabilities):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
+        self._caps = caps
         self._cancelled = False
 
     @pyqtSlot()
@@ -173,7 +175,7 @@ class MiniforgeBootstrapSubmitWorker(QObject):
         if self._cancelled:
             return
         try:
-            result = miniforge_bootstrap.submit(self._ssh_run_fn)
+            result = miniforge_bootstrap.submit(self._caps, self._ssh_run_fn)
             if self._cancelled:
                 return
             self.finished.emit(result)
@@ -1006,6 +1008,17 @@ class LinuxSettingsCard(QFrame):
     def _cleanup_miniforge_poll_resources(self) -> None:
         cleanup_thread_pair(self, "_miniforge_poll_thread", "_miniforge_poll_worker", wait_ms=5000)
 
+    def _get_server_capabilities(self) -> tuple[ServerCapabilities | None, str]:
+        window = self.window()
+        locator = getattr(window, "service_locator", None)
+        if locator is None:
+            return None, "未找到运行时服务上下文"
+        caps = getattr(locator, "server_capabilities", None)
+        error = str(getattr(locator, "server_capability_error", "") or "")
+        if isinstance(caps, ServerCapabilities):
+            return caps, error
+        return None, error
+
     def _prompt_miniforge_install(self) -> None:
         """弹窗提示：未检测到自管 conda，引导后台自动安装。"""
         from PyQt6.QtWidgets import QMessageBox
@@ -1049,6 +1062,13 @@ class LinuxSettingsCard(QFrame):
         """后台静默初始化 Miniforge（detached remote task，可跨重启恢复）。"""
         if not self._is_ssh_service_ready():
             return
+        caps, preflight_error = self._get_server_capabilities()
+        if caps is None:
+            message = preflight_error or "服务器预检尚未完成，请稍后重试。"
+            self._set_status(message[:60], STATUS_ERROR)
+            self._emit_bootstrap_install_event("failed", message)
+            self._prompt_miniforge_install_failed(message)
+            return
         if self._miniforge_installing:
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
             self._emit_bootstrap_install_event("running", "运行环境初始化进行中")
@@ -1060,7 +1080,7 @@ class LinuxSettingsCard(QFrame):
         self._cleanup_miniforge_resources()
 
         self._miniforge_thread = QThread()
-        self._miniforge_worker = MiniforgeBootstrapSubmitWorker(self._make_ssh_run_fn())
+        self._miniforge_worker = MiniforgeBootstrapSubmitWorker(self._make_ssh_run_fn(), caps)
         self._miniforge_worker.moveToThread(self._miniforge_thread)
         self._miniforge_thread.started.connect(self._miniforge_worker.run)
 

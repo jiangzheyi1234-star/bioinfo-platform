@@ -14,7 +14,9 @@ from config import get_config, save_config
 from core.environment import env_detector
 from core.environment.env_detector import CondaStatus
 from core.environment.h2o_env_paths import is_managed_conda_executable
+from core.environment.server_preflight import run_preflight
 from core.remote.ssh_service import SSHService
+from core.remote.server_capabilities import ServerCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,37 @@ class CondaBindWorker(QObject):
         )
 
 
+class CapabilityBindWorker(QObject):
+    """Resolve remote server capabilities without blocking the UI thread."""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, *, ssh: SSHService) -> None:
+        super().__init__()
+        self._ssh = ssh
+        self._cancelled = False
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    @pyqtSlot()
+    def run(self) -> None:
+        if self._cancelled:
+            return
+        try:
+            caps = run_preflight(self._ssh.run)
+            if self._cancelled:
+                return
+            self.finished.emit(caps)
+        except Exception as exc:
+            if self._cancelled:
+                return
+            logger.exception("server capability preflight failed while binding SSH client")
+            self.error.emit(str(exc))
+
+
 class MainWindowSSHController:
     """Manage active SSH client binding and SSHService wrapper lifecycle."""
 
@@ -201,6 +234,7 @@ class MainWindowSSHController:
         self._notify_pages_context_changed = notify_pages_context_changed
         self._ssh_service_wrapper: Optional[SSHService] = None
         self._conda_bind_token = 0
+        self._capability_bind_token = 0
 
     @property
     def ssh_service_wrapper(self) -> Optional[SSHService]:
@@ -210,12 +244,16 @@ class MainWindowSSHController:
         # Disconnect old wrapper signals to avoid dangling references.
         self._disconnect_wrapper_signals()
         self._conda_bind_token += 1
+        self._capability_bind_token += 1
         self._cleanup_conda_bind_resources()
+        self._cleanup_capability_bind_resources()
 
         if client is None:
             self._ssh_service_wrapper = None
             self._locator.ssh_service = None  # type: ignore[assignment]
             self._locator.conda_executable = ""
+            self._locator.server_capabilities = None
+            self._locator.server_capability_error = ""
             self._status_bar.update_ssh_status(False)
             self._on_ssh_changed_for_disk(False)
             self._notify_pages_context_changed()
@@ -230,7 +268,10 @@ class MainWindowSSHController:
         self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_status_changed)
         self._ssh_service_wrapper.connection_status_changed.connect(self._on_ssh_changed_for_disk)
         self._locator.ssh_service = self._ssh_service_wrapper
+        self._locator.server_capabilities = None
+        self._locator.server_capability_error = ""
         self._bind_conda_executable(client=client, ssh_cfg=ssh_cfg or {})
+        self._bind_server_capabilities()
         self._status_bar.update_ssh_status(self._ssh_service_wrapper.is_connected)
         self._on_ssh_changed_for_disk(self._ssh_service_wrapper.is_connected)
         self._notify_pages_context_changed()
@@ -239,7 +280,9 @@ class MainWindowSSHController:
     def shutdown(self) -> None:
         self._disconnect_wrapper_signals()
         self._conda_bind_token += 1
+        self._capability_bind_token += 1
         self._cleanup_conda_bind_resources()
+        self._cleanup_capability_bind_resources()
 
     def _disconnect_wrapper_signals(self) -> None:
         if self._ssh_service_wrapper is None:
@@ -284,6 +327,16 @@ class MainWindowSSHController:
             return
         self._locator.conda_executable = ""
         self._start_conda_bind_job(client=client, ssh_cfg=ssh_cfg, token=self._conda_bind_token)
+
+    def _bind_server_capabilities(self) -> None:
+        ssh = self._ssh_service_wrapper
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            self._locator.server_capabilities = None
+            self._locator.server_capability_error = ""
+            return
+        self._locator.server_capabilities = None
+        self._locator.server_capability_error = ""
+        self._start_capability_bind_job(token=self._capability_bind_token)
 
     @staticmethod
     def _build_server_identity(client: Any, ssh_cfg: dict) -> tuple[str, str, str, int]:
@@ -441,6 +494,44 @@ class MainWindowSSHController:
             worker.deleteLater()
             delattr(self, "_conda_bind_worker")
 
+    def _start_capability_bind_job(self, *, token: int) -> None:
+        ssh = self._ssh_service_wrapper
+        if ssh is None:
+            return
+        self._capability_bind_thread = QThread()
+        self._capability_bind_worker = CapabilityBindWorker(ssh=ssh)
+        self._capability_bind_worker.moveToThread(self._capability_bind_thread)
+        self._capability_bind_thread.started.connect(self._capability_bind_worker.run)
+        self._capability_bind_worker.finished.connect(
+            lambda caps, _token=token: self._on_capability_bind_finished(_token, caps)
+        )
+        self._capability_bind_worker.error.connect(
+            lambda message, _token=token: self._on_capability_bind_error(_token, message)
+        )
+        self._capability_bind_worker.finished.connect(self._cleanup_capability_bind_resources)
+        self._capability_bind_worker.error.connect(self._cleanup_capability_bind_resources)
+        self._capability_bind_thread.start()
+
+    def _cleanup_capability_bind_resources(self) -> None:
+        worker = getattr(self, "_capability_bind_worker", None)
+        if worker is not None:
+            cancel = getattr(worker, "cancel", None)
+            if callable(cancel):
+                try:
+                    cancel()
+                except RuntimeError:
+                    logger.debug("Capability bind worker already deleted", exc_info=True)
+        thread = getattr(self, "_capability_bind_thread", None)
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(3000)
+        if thread is not None:
+            thread.deleteLater()
+            delattr(self, "_capability_bind_thread")
+        if worker is not None:
+            worker.deleteLater()
+            delattr(self, "_capability_bind_worker")
+
     def _on_conda_bind_finished(self, result: object) -> None:
         payload = result if isinstance(result, dict) else {}
         if int(payload.get("token", -1)) != self._conda_bind_token:
@@ -483,3 +574,27 @@ class MainWindowSSHController:
         identity = str(payload.get("identity", "") or "").strip()
         if str(payload.get("profile_action", "") or "") == "remove" and identity:
             self._remove_conda_profile(identity)
+
+    def _on_capability_bind_finished(self, token: int, caps: object) -> None:
+        if int(token) != self._capability_bind_token:
+            return
+        ssh = self._ssh_service_wrapper
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return
+        if not isinstance(caps, ServerCapabilities):
+            self._locator.server_capabilities = None
+            self._locator.server_capability_error = "服务器预检返回了无效结果"
+        else:
+            self._locator.server_capabilities = caps
+            self._locator.server_capability_error = ""
+        self._notify_pages_context_changed()
+
+    def _on_capability_bind_error(self, token: int, message: str) -> None:
+        if int(token) != self._capability_bind_token:
+            return
+        ssh = self._ssh_service_wrapper
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return
+        self._locator.server_capabilities = None
+        self._locator.server_capability_error = str(message or "服务器预检失败")
+        self._notify_pages_context_changed()

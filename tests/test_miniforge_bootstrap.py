@@ -6,6 +6,20 @@ import re
 from core.environment import miniforge_bootstrap
 from core.environment.env_detector import _CONDARC_TEMPLATE as detector_condarc_template
 from core.environment.miniforge_condarc import CONDARC_TEMPLATE
+from core.remote.server_capabilities import PreflightError, ServerCapabilities
+
+
+def _caps(**overrides) -> ServerCapabilities:
+    data = {
+        "arch": "x86_64",
+        "has_curl": True,
+        "has_wget": False,
+        "has_screen": True,
+        "has_sha256sum": True,
+        "free_disk_gb": 20.0,
+    }
+    data.update(overrides)
+    return ServerCapabilities(**data)
 
 
 def _extract_wrapper_script(calls: list[str]) -> str:
@@ -30,7 +44,7 @@ def test_submit_starts_detached_screen_when_not_running():
             return 1, "", ""
         return 0, "", ""
 
-    result = miniforge_bootstrap.submit(fn, timeout=10)
+    result = miniforge_bootstrap.submit(_caps(), fn, timeout=10)
 
     assert result["job_id"] == miniforge_bootstrap.JOB_ID
     assert result["task_dir"] == miniforge_bootstrap.TASK_DIR
@@ -49,7 +63,7 @@ def test_submit_reuses_running_detached_task():
             return 0, "", ""
         return 0, "", ""
 
-    result = miniforge_bootstrap.submit(fn, timeout=10)
+    result = miniforge_bootstrap.submit(_caps(), fn, timeout=10)
 
     assert result["already_running"] is True
     assert not any("screen -dmS h2o_bootstrap_conda bash" in c for c in calls)
@@ -66,7 +80,7 @@ def test_submit_restarts_when_running_status_but_session_dead():
             return 1, "", ""
         return 0, "", ""
 
-    result = miniforge_bootstrap.submit(fn, timeout=10)
+    result = miniforge_bootstrap.submit(_caps(), fn, timeout=10)
 
     assert result["already_running"] is False
     assert any("screen -dmS h2o_bootstrap_conda bash" in c for c in calls)
@@ -82,7 +96,7 @@ def test_submit_reuses_running_when_heartbeat_fresh_even_if_session_probe_dead()
             return 1, "", ""
         return 0, "", ""
 
-    result = miniforge_bootstrap.submit(fn, timeout=10)
+    result = miniforge_bootstrap.submit(_caps(), fn, timeout=10)
     assert result["already_running"] is True
 
 
@@ -108,15 +122,13 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
             return 1, "", ""
         return 0, "", ""
 
-    result = miniforge_bootstrap.submit(fn, timeout=10)
+    result = miniforge_bootstrap.submit(_caps(), fn, timeout=10)
 
     assert result["already_running"] is False
     script = _extract_wrapper_script(calls)
     assert script, "should write bootstrap wrapper script through base64"
     assert "_download_one()" in script
     assert "_resolve_latest_version()" in script
-    assert "_ensure_sha256sum()" in script
-    assert "_run_privileged()" in script
     assert "Trying Miniforge source [" in script
     assert "api.github.com/repos/conda-forge/miniforge/releases/latest" in script
     assert "mirrors.tuna.tsinghua.edu.cn" in script
@@ -126,15 +138,28 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
     assert ".sha256" in script
     assert "mktemp /tmp/miniforge_install.XXXXXX.sh" in script
     assert "mktemp /tmp/miniforge_install.XXXXXX.sha256" in script
-    assert "apt-get install -y coreutils" in script
-    assert "yum install -y coreutils" in script
-    assert 'command -v sha256sum' in script
     assert "sha256sum -c -" in script
     assert "stat -c%s" in script
     assert "head -n 1" in script and "grep -q '^#!'" in script
     assert "sha256 verify failed" in script
     assert "all miniforge mirrors failed: $FAILURE_SUMMARY" in script
     assert "exit 4" in script
+    assert "HAS_CURL" not in script
+    assert "HAS_WGET" not in script
+    assert "_ensure_sha256sum" not in script
+
+
+def test_submit_raises_preflight_error_before_any_ssh_call():
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        calls.append(cmd)
+        return 0, "", ""
+
+    with pytest.raises(PreflightError, match="screen"):
+        miniforge_bootstrap.submit(_caps(has_screen=False), fn, timeout=10)
+
+    assert calls == []
 
 
 def test_condarc_template_uses_shared_runtime_baseline():
