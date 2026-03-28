@@ -305,6 +305,57 @@ class TestGetDescriptor:
         assert desc["databases"][0]["id"] == "kraken2_standard"
         assert desc["databases"][0]["param_name"] == "db"
 
+    def test_conda_create_install_cmd_without_channels_passes(self, tmp_path: Path) -> None:
+        """合法 conda create install_cmd 不应被拒绝。"""
+        tool_dir = tmp_path / "qc" / "fastp"
+        tool_dir.mkdir(parents=True)
+        (tool_dir / "tool.yaml").write_text(
+            yaml.dump({
+                "id": "fastp",
+                "name": "fastp",
+                "category": "qc",
+                "install_cmd": "conda create -n fastp_env fastp=0.23.4 -y",
+            }),
+            encoding="utf-8",
+        )
+
+        reg = PluginRegistry(tmp_path)
+        reg.scan()
+        desc = reg.get_descriptor("fastp")
+        assert desc["install_cmd"] == "conda create -n fastp_env fastp=0.23.4 -y"
+
+    @pytest.mark.parametrize(
+        "install_cmd, forbidden",
+        [
+            ("conda create -n fastp_env -c bioconda fastp=0.23.4 -y", "-c"),
+            ("conda create -n fastp_env --channel bioconda fastp=0.23.4 -y", "--channel"),
+            ("conda create -n fastp_env --override-channels --channel bioconda fastp=0.23.4 -y", "--override-channels"),
+        ],
+    )
+    def test_conda_create_install_cmd_with_inline_channels_raises(
+        self,
+        tmp_path: Path,
+        install_cmd: str,
+        forbidden: str,
+    ) -> None:
+        """违规 channel 参数应在描述符加载时直接报错。"""
+        tool_dir = tmp_path / "qc" / "fastp"
+        tool_dir.mkdir(parents=True)
+        (tool_dir / "tool.yaml").write_text(
+            yaml.dump({
+                "id": "fastp",
+                "name": "fastp",
+                "category": "qc",
+                "install_cmd": install_cmd,
+            }),
+            encoding="utf-8",
+        )
+
+        reg = PluginRegistry(tmp_path)
+        reg.scan()
+        with pytest.raises(ValueError, match=forbidden):
+            reg.get_descriptor("fastp")
+
 
 # ---------------------------------------------------------------------------
 # get_index_entry 测试

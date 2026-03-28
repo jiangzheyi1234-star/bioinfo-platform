@@ -7,6 +7,7 @@
   Layer 3 (full): 运行时解析模板、校验参数（由 CommandBuilder 负责）
 """
 import logging
+import shlex
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Layer 1 索引中保留的头部字段
 _HEADER_KEYS = ("id", "name", "category", "version", "description")
+_FORBIDDEN_CHANNEL_FLAGS = ("-c", "--channel", "--override-channels")
 
 
 class PluginNotFoundError(KeyError):
@@ -108,8 +110,10 @@ class PluginRegistry:
             yaml_path = self._index[tool_id]["path"]
             try:
                 with open(yaml_path, "r", encoding="utf-8") as fh:
-                    self._descriptors[tool_id] = yaml.safe_load(fh)
-                self._descriptors[tool_id]["_yaml_path"] = str(yaml_path)
+                    descriptor = yaml.safe_load(fh)
+                self._validate_install_cmd_policy(descriptor, yaml_path)
+                descriptor["_yaml_path"] = str(yaml_path)
+                self._descriptors[tool_id] = descriptor
                 logger.debug("已加载描述符: %s", tool_id)
             except Exception:
                 logger.exception("加载插件描述符失败: %s (%s)", tool_id, yaml_path)
@@ -172,3 +176,35 @@ class PluginRegistry:
             raise ValueError(f"tool.yaml 缺少必填字段 'id': {yaml_path}")
 
         return {k: data[k] for k in _HEADER_KEYS if k in data}
+
+    @staticmethod
+    def _validate_install_cmd_policy(data: Dict[str, Any], yaml_path: str | Path) -> None:
+        """禁止在 conda create install_cmd 中内联 channel 配置。"""
+        if not isinstance(data, dict):
+            raise ValueError(f"tool.yaml 格式错误（非字典）: {yaml_path}")
+
+        install_cmd = str(data.get("install_cmd", "") or "").strip()
+        if not install_cmd:
+            return
+
+        try:
+            tokens = shlex.split(install_cmd, posix=True)
+        except Exception as exc:
+            raise ValueError(f"tool.yaml install_cmd 无法解析: {yaml_path}") from exc
+
+        if len(tokens) < 2 or tokens[1] != "create" or not tokens[0].endswith("conda"):
+            return
+
+        found_flags = [
+            token
+            for token in tokens
+            if token in _FORBIDDEN_CHANNEL_FLAGS or token.startswith("--channel=")
+        ]
+        if not found_flags:
+            return
+
+        tool_id = str(data.get("id", "<unknown>") or "<unknown>")
+        flags = ", ".join(sorted(set(found_flags)))
+        raise ValueError(
+            f"工具插件 {tool_id} 的 install_cmd 禁止内联 channel 参数 ({flags}): {yaml_path}"
+        )

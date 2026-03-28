@@ -8,6 +8,7 @@
   4. CommandBuilder.wrap() 生成包装脚本
   5. 验证工具名、参数、conda 环境、输出路径等正确性
 """
+import shlex
 from pathlib import Path
 
 import pytest
@@ -531,3 +532,26 @@ class TestCrossToolValidation:
         assert "FAILED" in wrapped
         assert "exit_code" in wrapped.lower()
         assert "heartbeat" in wrapped.lower()
+
+    def test_all_conda_create_install_cmds_do_not_inline_channels(
+        self,
+        registry: PluginRegistry,
+    ) -> None:
+        """真实工具插件的 conda create install_cmd 不应内联 channel。"""
+        forbidden = {"-c", "--channel", "--override-channels"}
+
+        for tool_id in registry.list_all_ids():
+            desc = registry.get_descriptor(tool_id)
+            install_cmd = str(desc.get("install_cmd", "") or "").strip()
+            if not install_cmd:
+                continue
+
+            tokens = shlex.split(install_cmd, posix=True)
+            if len(tokens) < 2 or tokens[1] != "create" or not tokens[0].endswith("conda"):
+                continue
+
+            found = [
+                token for token in tokens
+                if token in forbidden or token.startswith("--channel=")
+            ]
+            assert not found, f"{tool_id} install_cmd 仍内联 channel: {install_cmd}"

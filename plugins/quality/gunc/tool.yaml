@@ -4,7 +4,7 @@ version: "1.0.6"
 category: quality
 description: "MAG 嵌合体与污染检测工具（基于 proGenomes 分类一致性）"
 conda_env: gunc_env
-install_cmd: "conda create -n gunc_env -c bioconda -c conda-forge gunc=1.0.6 -y"
+install_cmd: "conda create -n gunc_env gunc=1.0.6 -y"
 
 detection:
   command: "gunc --version"
@@ -82,3 +82,4 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'bins_dir: 必填，类型 directory。'
+

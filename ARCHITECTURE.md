@@ -63,12 +63,15 @@ name: fastp
 version: "0.23.4"
 category: qc
 conda_env: fastp_env
-install_cmd: "conda create -n fastp_env -c bioconda -c conda-forge fastp -y"
+install_cmd: "conda create -n fastp_env fastp=0.23.4 -y"
 
 inputs:   [{name, type, required}]
 outputs:  [{name, type, tier, pattern, sync_to_local}]
 parameters: [{name, type, default, label}]
 databases:  [{id, param_name, required}]    # 空列表 = 不需要数据库
+
+# channel 只能来自受控 runtime condarc；YAML 中的 -n 仅声明环境名，
+# 运行时会统一重写到 ~/.h2ometa/conda/envs/<env_name> 的受控前缀
 
 command_template: |                         # Jinja2 模板
   fastp -i {{ reads_1 }} ...
@@ -210,3 +213,4 @@ bio_ui/
 - `core/execution/execution_preparer.py`: remote preparation stage before queue submission
 - `core/execution/tool_engine.py`: now records and schedules; no longer does remote preparation directly in the default UI path
 - `core/service_locator.py`: now owns both preparation completion and dispatch completion handoff
+
