@@ -110,13 +110,83 @@ if [ "$HAS_CURL" -eq 0 ] && [ "$HAS_WGET" -eq 0 ]; then
     exit 3
 fi
 
-HASH_CMD=""
-if command -v sha256sum >/dev/null 2>&1; then
-    HASH_CMD="sha256sum"
-elif command -v shasum >/dev/null 2>&1; then
-    HASH_CMD="shasum -a 256"
-else
-    echo "sha256sum/shasum not found" >&2
+_run_privileged() {{
+    if [ "$(id -u)" = "0" ]; then
+        "$@"
+        return $?
+    fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        sudo -n "$@"
+        return $?
+    fi
+    return 1
+}}
+
+_ensure_sha256sum() {{
+    if command -v sha256sum >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if command -v apt-get >/dev/null 2>&1; then
+        if _run_privileged apt-get update && _run_privileged apt-get install -y coreutils; then
+            command -v sha256sum >/dev/null 2>&1 && return 0
+            echo "coreutils installed via apt-get but sha256sum still missing" >&2
+            return 1
+        fi
+        echo "auto-install sha256sum via apt-get failed" >&2
+        return 1
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+        if _run_privileged dnf install -y coreutils; then
+            command -v sha256sum >/dev/null 2>&1 && return 0
+            echo "coreutils installed via dnf but sha256sum still missing" >&2
+            return 1
+        fi
+        echo "auto-install sha256sum via dnf failed" >&2
+        return 1
+    fi
+    if command -v yum >/dev/null 2>&1; then
+        if _run_privileged yum install -y coreutils; then
+            command -v sha256sum >/dev/null 2>&1 && return 0
+            echo "coreutils installed via yum but sha256sum still missing" >&2
+            return 1
+        fi
+        echo "auto-install sha256sum via yum failed" >&2
+        return 1
+    fi
+    if command -v microdnf >/dev/null 2>&1; then
+        if _run_privileged microdnf install -y coreutils; then
+            command -v sha256sum >/dev/null 2>&1 && return 0
+            echo "coreutils installed via microdnf but sha256sum still missing" >&2
+            return 1
+        fi
+        echo "auto-install sha256sum via microdnf failed" >&2
+        return 1
+    fi
+    if command -v apk >/dev/null 2>&1; then
+        if _run_privileged apk add coreutils; then
+            command -v sha256sum >/dev/null 2>&1 && return 0
+            echo "coreutils installed via apk but sha256sum still missing" >&2
+            return 1
+        fi
+        echo "auto-install sha256sum via apk failed" >&2
+        return 1
+    fi
+    if command -v zypper >/dev/null 2>&1; then
+        if _run_privileged zypper --non-interactive install coreutils; then
+            command -v sha256sum >/dev/null 2>&1 && return 0
+            echo "coreutils installed via zypper but sha256sum still missing" >&2
+            return 1
+        fi
+        echo "auto-install sha256sum via zypper failed" >&2
+        return 1
+    fi
+
+    echo "sha256sum not found and no supported package manager is available to install coreutils" >&2
+    return 1
+}}
+
+if ! _ensure_sha256sum; then
     exit 5
 fi
 
@@ -182,11 +252,6 @@ _resolve_latest_version() {{
     return 0
 }}
 
-_compute_sha256() {{
-    local path="$1"
-    $HASH_CMD "$path" | awk '{{print $1}}'
-}}
-
 _download_one() {{
     local label="$1"
     local installer_url="$2"
@@ -194,7 +259,6 @@ _download_one() {{
     local size=""
     local shebang=""
     local expected_sha256=""
-    local actual_sha256=""
 
     if ! _download_to_file "$installer_url" "$INSTALLER"; then
         _record_failure "$label" "installer download failed: $installer_url"
@@ -224,13 +288,8 @@ _download_one() {{
         return 1
     fi
 
-    actual_sha256="$(_compute_sha256 "$INSTALLER" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
-    if [ -z "$actual_sha256" ]; then
-        _record_failure "$label" "checksum compute failed"
-        return 1
-    fi
-    if [ "$actual_sha256" != "$expected_sha256" ]; then
-        _record_failure "$label" "checksum mismatch: expected ${{expected_sha256:0:12}}, got ${{actual_sha256:0:12}}"
+    if ! printf '%s  %s\n' "$expected_sha256" "$INSTALLER" | sha256sum -c - >/dev/null 2>&1; then
+        _record_failure "$label" "sha256 verify failed"
         return 1
     fi
 
