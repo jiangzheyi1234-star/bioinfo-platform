@@ -29,6 +29,10 @@
 
 2. 自动化脚本用 `conda run -p ...`，不依赖 `conda activate`。
 
+3. `condarc` 模板禁止内联。写入 `~/.h2ometa/runtime/condarc` 的内容
+   必须且只能来自 `core/environment/miniforge_condarc.py` 的 `CONDARC_TEMPLATE`，
+   禁止在其他文件复制、内联或重写该字符串。
+
 ## 执行流水线基线（必须复用）
 
 1. `ToolEngine.execute()` 保持主线程轻量，远端操作归 `execution_preparer.py`。
