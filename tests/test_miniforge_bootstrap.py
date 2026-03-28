@@ -113,6 +113,8 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
     assert script, "should write bootstrap wrapper script through base64"
     assert "_download_one()" in script
     assert "_resolve_latest_version()" in script
+    assert "_ensure_sha256sum()" in script
+    assert "_run_privileged()" in script
     assert "Trying Miniforge source [" in script
     assert "api.github.com/repos/conda-forge/miniforge/releases/latest" in script
     assert "mirrors.tuna.tsinghua.edu.cn" in script
@@ -122,11 +124,13 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
     assert ".sha256" in script
     assert "mktemp /tmp/miniforge_install.XXXXXX.sh" in script
     assert "mktemp /tmp/miniforge_install.XXXXXX.sha256" in script
-    assert 'HASH_CMD="sha256sum"' in script
-    assert 'HASH_CMD="shasum -a 256"' in script
+    assert "apt-get install -y coreutils" in script
+    assert "yum install -y coreutils" in script
+    assert 'command -v sha256sum' in script
+    assert "sha256sum -c -" in script
     assert "stat -c%s" in script
     assert "head -n 1" in script and "grep -q '^#!'" in script
-    assert "checksum mismatch" in script
+    assert "sha256 verify failed" in script
     assert "all miniforge mirrors failed: $FAILURE_SUMMARY" in script
     assert "exit 4" in script
 
