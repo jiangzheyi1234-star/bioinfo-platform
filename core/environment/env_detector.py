@@ -159,16 +159,6 @@ def _resolve_miniforge_release_tag(
     return tag, ""
 
 
-def _detect_hash_command(ssh_run_fn: SshRunFn, timeout: int) -> tuple[Optional[str], Optional[str]]:
-    rc, _, _ = ssh_run_fn("command -v sha256sum", timeout)
-    if rc == 0:
-        return "sha256sum", None
-    rc, _, _ = ssh_run_fn("command -v shasum", timeout)
-    if rc == 0:
-        return "shasum -a 256", None
-    return None, "需要 sha256sum 或 shasum 用于校验安装器"
-
-
 def _read_remote_file(ssh_run_fn: SshRunFn, path: str, timeout: int) -> tuple[Optional[str], str]:
     rc, stdout, stderr = ssh_run_fn(f"cat {shlex.quote(path)}", timeout)
     if rc != 0:
@@ -200,14 +190,65 @@ def _extract_sha256(contents: str) -> Optional[str]:
     return match.group(1).lower()
 
 
-def _compute_remote_sha256(ssh_run_fn: SshRunFn, hash_cmd: str, path: str, timeout: int) -> tuple[Optional[str], str]:
-    rc, stdout, stderr = ssh_run_fn(f"{hash_cmd} {shlex.quote(path)}", timeout)
+def _ensure_remote_sha256sum(ssh_run_fn: SshRunFn, timeout: int = 300) -> tuple[bool, str]:
+    rc, _, _ = ssh_run_fn("command -v sha256sum", 15)
+    if rc == 0:
+        return True, ""
+
+    rc, stdout, stderr = ssh_run_fn("id -u", 15)
     if rc != 0:
-        return None, _summarize_error(stdout, stderr, "hash failed")
-    match = _SHA256_RE.search(stdout or "")
-    if not match:
-        return None, f"invalid hash output: {stdout.strip()[:100]}"
-    return match.group(1).lower(), ""
+        return False, f"无法检测远端用户身份: {_summarize_error(stdout, stderr, 'id -u failed')}"
+
+    privileged_prefix = ""
+    if stdout.strip() != "0":
+        rc, _, _ = ssh_run_fn("sudo -n true", 15)
+        if rc != 0:
+            return False, "远端缺少 sha256sum，且当前用户无免密 sudo，无法自动安装 coreutils"
+        privileged_prefix = "sudo -n "
+
+    install_attempts = [
+        ("apt-get", [f"{privileged_prefix}apt-get update", f"{privileged_prefix}apt-get install -y coreutils"]),
+        ("dnf", [f"{privileged_prefix}dnf install -y coreutils"]),
+        ("yum", [f"{privileged_prefix}yum install -y coreutils"]),
+        ("microdnf", [f"{privileged_prefix}microdnf install -y coreutils"]),
+        ("apk", [f"{privileged_prefix}apk add coreutils"]),
+        ("zypper", [f"{privileged_prefix}zypper --non-interactive install coreutils"]),
+    ]
+
+    errors: list[str] = []
+    for manager, commands in install_attempts:
+        rc, _, _ = ssh_run_fn(f"command -v {manager}", 15)
+        if rc != 0:
+            continue
+        for command in commands:
+            rc, stdout, stderr = ssh_run_fn(command, timeout)
+            if rc != 0:
+                errors.append(f"{manager}: {_summarize_error(stdout, stderr, command)}")
+                break
+        else:
+            rc, _, _ = ssh_run_fn("command -v sha256sum", 15)
+            if rc == 0:
+                return True, ""
+            errors.append(f"{manager}: coreutils install completed but sha256sum still missing")
+
+    if errors:
+        return False, "自动安装 sha256sum 失败: " + " | ".join(errors)
+    return False, "远端缺少 sha256sum，且未发现受支持的包管理器用于自动安装 coreutils"
+
+
+def _verify_remote_sha256(
+    ssh_run_fn: SshRunFn,
+    expected_sha256: str,
+    path: str,
+    timeout: int,
+) -> tuple[bool, str]:
+    rc, stdout, stderr = ssh_run_fn(
+        f"printf '%s  %s\\n' {shlex.quote(expected_sha256)} {shlex.quote(path)} | sha256sum -c -",
+        timeout,
+    )
+    if rc != 0:
+        return False, _summarize_error(stdout, stderr, "sha256 verify failed")
+    return True, ""
 
 
 def _validate_conda(ssh_run_fn: SshRunFn, exe: str, timeout: int = 15) -> CondaDetectResult:
@@ -344,15 +385,21 @@ def install_miniforge(
             message=f"无法安装: 无法检测下载工具: {e}",
         )
 
-    has_curl = rc_curl == 0
-    has_wget = rc_wget == 0
-
-    hash_cmd, hash_error = _detect_hash_command(ssh_run_fn, 15)
-    if not hash_cmd:
+    try:
+        ok, ensure_error = _ensure_remote_sha256sum(ssh_run_fn, timeout=min(timeout, 300))
+        if not ok:
+            return CondaDetectResult(
+                status=CondaStatus.NOT_FOUND, executable=None, version=None,
+                message=f"无法安装: {ensure_error}",
+            )
+    except Exception as e:
         return CondaDetectResult(
             status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: {hash_error}",
+            message=f"无法安装: 自动安装 sha256sum 出错: {e}",
         )
+
+    has_curl = rc_curl == 0
+    has_wget = rc_wget == 0
 
     try:
         release_tag, resolve_error = _resolve_miniforge_release_tag(
@@ -432,14 +479,9 @@ def install_miniforge(
                 download_failures.append(f"[{candidate.label}] checksum parse failed")
                 continue
 
-            actual_sha256, actual_error = _compute_remote_sha256(ssh_run_fn, hash_cmd, installer, 30)
-            if actual_sha256 is None:
-                download_failures.append(f"[{candidate.label}] checksum compute failed: {actual_error}")
-                continue
-            if actual_sha256 != expected_sha256:
-                download_failures.append(
-                    f"[{candidate.label}] checksum mismatch: expected {expected_sha256[:12]}, got {actual_sha256[:12]}"
-                )
+            verified, verify_error = _verify_remote_sha256(ssh_run_fn, expected_sha256, installer, 30)
+            if not verified:
+                download_failures.append(f"[{candidate.label}] sha256 verify failed: {verify_error}")
                 continue
 
             logger.info(
