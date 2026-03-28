@@ -155,10 +155,7 @@ function onInstallStarted(toolId) {
 
 function onInstallFinished(toolId, success) {
     console.log('Install finished: ' + toolId + ', success=' + success);
-    // 安装成功会在 Python 端触发重新检测，这里只需要处理失败的情况
-    if (!success) {
-        updateToolStatus(toolId, 'missing');
-    }
+    updateToolStatus(toolId, success ? 'ready' : 'missing');
 }
 
 function onCheckFinished(resultJson) {

@@ -125,6 +125,7 @@ class SshSettingsCard(QFrame):
 
     request_save = pyqtSignal()
     connection_state_changed = pyqtSignal(bool)
+    deploy_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -140,6 +141,7 @@ class SshSettingsCard(QFrame):
         self._status_cache: Optional[tuple[str, str]] = None
         self._auto_connect_armed = False
         self._last_connect_started_at = 0.0
+        self._deploy_state = "hidden"
 
         self._auto_fold_timer = QTimer(self)
         self._auto_fold_timer.setSingleShot(True)
@@ -375,6 +377,18 @@ class SshSettingsCard(QFrame):
         self.status_label = QLabel("等待验证")
         self.status_label.setStyleSheet(STATUS_NEUTRAL)
 
+        self.deploy_btn = QPushButton("一键部署运行环境")
+        self.deploy_btn.setMinimumWidth(130)
+        self.deploy_btn.setStyleSheet(BUTTON_PRIMARY)
+        self.deploy_btn.clicked.connect(self.deploy_requested.emit)
+        self.deploy_btn.hide()
+
+        self.deploy_status_label = QLabel("运行环境已就绪")
+        self.deploy_status_label.setStyleSheet(
+            f"color: {COLOR_SUCCESS}; font-size: 12px; background: transparent;"
+        )
+        self.deploy_status_label.hide()
+
         self.revert_btn = QPushButton("恢复上次成功")
         self.revert_btn.setStyleSheet(BUTTON_DANGER)
         self.revert_btn.clicked.connect(lambda checked=False: self._revert_to_last_stable())
@@ -383,6 +397,8 @@ class SshSettingsCard(QFrame):
         row.addWidget(self.connect_btn)
         row.addWidget(self.diagnose_btn)
         row.addWidget(self.status_label)
+        row.addWidget(self.deploy_btn)
+        row.addWidget(self.deploy_status_label)
         row.addWidget(self.revert_btn)
         row.addStretch()
         c_layout.addLayout(row)
@@ -408,6 +424,33 @@ class SshSettingsCard(QFrame):
         self.key_file_label.setVisible(use_key)
         self.key_file_row.setVisible(use_key)
         self._validate_inputs()
+
+    def set_deploy_state(self, state: str) -> None:
+        clean_state = str(state or "hidden").strip().lower() or "hidden"
+        self._deploy_state = clean_state
+
+        if clean_state == "ready":
+            self.deploy_btn.hide()
+            self.deploy_status_label.setText("运行环境已就绪")
+            self.deploy_status_label.show()
+            return
+
+        self.deploy_status_label.hide()
+        if clean_state == "hidden":
+            self.deploy_btn.hide()
+            return
+
+        self.deploy_btn.show()
+        if clean_state == "checking":
+            self.deploy_btn.setText("检查运行环境...")
+            self.deploy_btn.setEnabled(False)
+        elif clean_state == "deploying":
+            self.deploy_btn.setText("部署中...")
+            self.deploy_btn.setEnabled(False)
+        else:
+            self.deploy_btn.setText("一键部署运行环境")
+            self.deploy_btn.setEnabled(True)
+        self._refresh_interaction_state()
 
     def _browse_key_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -632,6 +675,7 @@ class SshSettingsCard(QFrame):
                 'key_file': self.key_file_input.text(),
             }
             self.connected = True
+            self.set_deploy_state("checking")
             self.connection_state_changed.emit(True)
             self.request_save.emit()
             self._lock_inputs()
@@ -640,6 +684,7 @@ class SshSettingsCard(QFrame):
         else:
             self.status_label.setStyleSheet(STATUS_ERROR)
             self.connected = False
+            self.set_deploy_state("hidden")
             self.connection_state_changed.emit(False)
             self._validate_inputs()
             if self.last_stable_config:
@@ -710,6 +755,7 @@ class SshSettingsCard(QFrame):
 
         if self.connected:
             self.connected = False
+            self.set_deploy_state("hidden")
             self.connection_state_changed.emit(False)
 
             self.status_label.setStyleSheet(STATUS_ERROR)
@@ -749,7 +795,7 @@ class SshSettingsCard(QFrame):
     def _refresh_interaction_state(self) -> None:
         if self._external_lock:
             for w in [self.server_ip, self.ssh_port, self.ssh_user, self.ssh_pwd,
-                       self.connect_btn, self.modify_link, self.revert_btn,
+                       self.connect_btn, self.modify_link, self.revert_btn, self.deploy_btn,
                        self.key_file_input, self.browse_key_btn, self.use_key_cb]:
                 w.setEnabled(False)
             return
@@ -770,6 +816,8 @@ class SshSettingsCard(QFrame):
             self.connect_btn.setEnabled(False)
         if self.revert_btn.isVisible():
             self.revert_btn.setEnabled(True)
+        if self.deploy_btn.isVisible():
+            self.deploy_btn.setEnabled(self.connected and self._deploy_state == "missing")
 
     def closeEvent(self, event) -> None:
         for timer in (self._auto_fold_timer, self._edit_idle_timer, self._ssh_health_timer):
