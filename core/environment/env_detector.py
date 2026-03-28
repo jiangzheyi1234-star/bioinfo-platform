@@ -19,6 +19,7 @@ from core.environment.h2o_env_paths import (
     H2O_CONDARC,
     h2o_env_prefix,
 )
+from core.environment.miniforge_condarc import CONDARC_TEMPLATE as _CONDARC_TEMPLATE
 from core.environment.miniforge_release import (
     MINIFORGE_INSTALLER_MIN_BYTES,
     MINIFORGE_RELEASE_API_URL,
@@ -344,7 +345,7 @@ def install_miniforge(
     2. 下载 Miniforge3 安装脚本
     3. 静默安装到 ~/.h2ometa/conda
     4. 清理安装脚本
-    5. 添加 bioconda channel + 设置 strict channel_priority
+    5. 写入受控 runtime condarc
     6. 验证安装
 
     Args:
@@ -515,15 +516,8 @@ def install_miniforge(
     finally:
         _cleanup_remote_files(ssh_run_fn, installer, checksum_file)
 
-    # 配置 channels
-    conda_exe = H2O_CONDA_EXE
-    try:
-        ssh_run_fn(f"{conda_exe} config --add channels bioconda", 30)
-        ssh_run_fn(f"{conda_exe} config --set channel_priority strict", 30)
-    except Exception as e:
-        logger.warning("配置 bioconda channel 失败: %s", e)
-
     # 验证
+    conda_exe = H2O_CONDA_EXE
     result = _validate_conda(ssh_run_fn, conda_exe, 15)
     if result.status == CondaStatus.OK:
         logger.info("Miniforge 安装成功: %s", result.executable)
@@ -592,18 +586,6 @@ def extract_env_name(install_cmd: str) -> str:
     return ""
 
 
-# 受控 condarc 内容：channels + strict priority + 网络重试参数
-_CONDARC_TEMPLATE = """\
-channels:
-  - conda-forge
-  - bioconda
-channel_priority: strict
-remote_connect_timeout_secs: 30
-remote_read_timeout_secs: 60
-remote_max_retries: 5
-"""
-
-
 def write_h2ometa_condarc(
     ssh_run_fn: SshRunFn,
     timeout: int = 15,
@@ -611,7 +593,7 @@ def write_h2ometa_condarc(
     """将受控 condarc 写到 H2OMeta runtime 目录。
 
     env_installer 在包装脚本中设置 CONDARC 指向此文件，确保：
-    - channel 配置固定（conda-forge + bioconda, strict priority）
+    - channel 配置固定（conda-forge + bioconda, flexible priority）
     - 网络重试参数生效
     - 不受用户系统 ~/.condarc 干扰
     """
