@@ -3,6 +3,20 @@ from __future__ import annotations
 import pytest
 
 from core.data.database_service import DatabaseService, DatabaseStatus
+from core.remote.server_capabilities import PreflightError, ServerCapabilities
+
+
+def _caps(**overrides) -> ServerCapabilities:
+    data = {
+        "arch": "x86_64",
+        "has_curl": True,
+        "has_wget": False,
+        "has_screen": True,
+        "has_sha256sum": True,
+        "free_disk_gb": 20.0,
+    }
+    data.update(overrides)
+    return ServerCapabilities(**data)
 
 
 def _ssh_all_ok(cmd: str, timeout: int = 10):
@@ -73,7 +87,7 @@ def test_check_status_incomplete():
 
 def test_generate_install_commands_mirror():
     svc = DatabaseService()
-    cmds = svc.generate_install_commands("blast_nt", "/data/databases")
+    cmds = svc.generate_install_commands(_caps(has_curl=False, has_wget=True), "blast_nt", "/data/databases")
     joined = "\n".join(cmds)
     assert "wget -c --progress=dot:giga" in joined
     assert "touch /data/databases/blast_nt/.install_ok" in joined
@@ -81,10 +95,18 @@ def test_generate_install_commands_mirror():
 
 def test_generate_install_commands_install_cmd():
     svc = DatabaseService()
-    cmds = svc.generate_install_commands("card_db", "/data/databases")
+    cmds = svc.generate_install_commands(_caps(), "card_db", "/data/databases")
     joined = "\n".join(cmds)
     assert "{{ db_path }}" not in joined
     assert "rgi load --card_json /data/databases/card/card.json --local" in joined
+
+
+def test_generate_install_commands_uses_curl_when_only_curl_available():
+    svc = DatabaseService()
+    cmds = svc.generate_install_commands(_caps(has_curl=True, has_wget=False), "blast_nt", "/data/databases")
+    joined = "\n".join(cmds)
+    assert "curl -fL --progress-bar" in joined
+    assert "wget -c --progress=dot:giga" not in joined
 
 
 def test_parse_progress():
@@ -120,6 +142,20 @@ def test_generate_install_commands_rejects_unsafe_template_syntax():
     info.install_cmd = "echo {{ ''.__class__ }}"
     try:
         with pytest.raises(ValueError, match="不受支持"):
-            svc.generate_install_commands("card_db", "/data/databases")
+            svc.generate_install_commands(_caps(), "card_db", "/data/databases")
     finally:
         info.install_cmd = original
+
+
+def test_submit_install_raises_preflight_error_before_remote_calls():
+    svc = DatabaseService()
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        calls.append(cmd)
+        return 0, "", ""
+
+    with pytest.raises(PreflightError, match="screen"):
+        svc.submit_install(fn, _caps(has_screen=False), "blast_nt", "/data/databases")
+
+    assert calls == []

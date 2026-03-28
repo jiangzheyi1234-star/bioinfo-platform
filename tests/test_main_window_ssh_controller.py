@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+from core.remote.server_capabilities import ServerCapabilities
 from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 
 
@@ -64,6 +65,8 @@ class _Locator:
     def __init__(self) -> None:
         self.ssh_service = None
         self.conda_executable = "/old/path"
+        self.server_capabilities = None
+        self.server_capability_error = ""
 
 
 class _HostKey:
@@ -119,6 +122,7 @@ def _build_controller(monkeypatch):
         on_ssh_changed_for_disk=disk_cb,
         notify_pages_context_changed=notify_cb,
     )
+    monkeypatch.setattr(controller, "_start_capability_bind_job", lambda **kwargs: None)
     return controller, locator, status_bar, disk_cb, notify_cb
 
 
@@ -152,12 +156,16 @@ def _config_state(initial_profiles: dict[str, dict] | None = None):
 def test_apply_active_client_none_clears_ssh_and_conda(monkeypatch):
     controller, locator, status_bar, disk_cb, notify_cb = _build_controller(monkeypatch)
     locator.conda_executable = "/home/user/.h2ometa/conda/bin/conda"
+    locator.server_capabilities = ServerCapabilities("x86_64", True, False, True, True, 20.0)
+    locator.server_capability_error = "old error"
 
     result = controller.apply_active_client(None)
 
     assert result is None
     assert locator.ssh_service is None
     assert locator.conda_executable == ""
+    assert locator.server_capabilities is None
+    assert locator.server_capability_error == ""
     assert status_bar.states[-1] is False
     assert disk_cb.values[-1] is False
     assert len(notify_cb.values) == 1
@@ -304,17 +312,24 @@ def test_apply_active_client_starts_async_conda_bind_and_clears_stale_value(monk
     controller, locator, *_ = _build_controller(monkeypatch)
 
     started: list[dict[str, Any]] = []
+    cap_started: list[dict[str, Any]] = []
 
     def fake_start(*, client, ssh_cfg, token):
         started.append({"client": client, "ssh_cfg": ssh_cfg, "token": token})
 
     monkeypatch.setattr(controller, "_start_conda_bind_job", fake_start)
+    monkeypatch.setattr(controller, "_start_capability_bind_job", lambda **kwargs: cap_started.append(kwargs))
     locator.conda_executable = "/home/root/.h2ometa/conda/bin/conda"
+    locator.server_capabilities = ServerCapabilities("x86_64", True, False, True, True, 20.0)
+    locator.server_capability_error = "old error"
 
     controller.apply_active_client(_Client())
 
     assert locator.conda_executable == ""
+    assert locator.server_capabilities is None
+    assert locator.server_capability_error == ""
     assert len(started) == 1
+    assert len(cap_started) == 1
     assert started[0]["token"] == controller._conda_bind_token
 
 
@@ -389,3 +404,59 @@ def test_on_conda_bind_error_clears_and_removes_profile(monkeypatch):
 
     assert locator.conda_executable == ""
     assert _identity() not in state["runtime"]["conda_profiles"]
+
+
+def test_capability_bind_worker_success(monkeypatch):
+    import ui.controllers.main_window_ssh_controller as module
+
+    caps = ServerCapabilities("x86_64", True, False, True, True, 20.0)
+    monkeypatch.setattr(module, "run_preflight", lambda _run_fn: caps)
+
+    worker = module.CapabilityBindWorker(ssh=_FakeSSHService(initial_client=_Client()))
+    finished: list[object] = []
+    errors: list[str] = []
+    worker.finished.connect(lambda payload: finished.append(payload))
+    worker.error.connect(lambda message: errors.append(message))
+    worker.run()
+
+    assert finished == [caps]
+    assert errors == []
+
+
+def test_capability_bind_worker_error(monkeypatch):
+    import ui.controllers.main_window_ssh_controller as module
+
+    monkeypatch.setattr(module, "run_preflight", lambda _run_fn: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    worker = module.CapabilityBindWorker(ssh=_FakeSSHService(initial_client=_Client()))
+    finished: list[object] = []
+    errors: list[str] = []
+    worker.finished.connect(lambda payload: finished.append(payload))
+    worker.error.connect(lambda message: errors.append(message))
+    worker.run()
+
+    assert finished == []
+    assert errors == ["boom"]
+
+
+def test_on_capability_bind_finished_updates_locator(monkeypatch):
+    controller, locator, *_ = _build_controller(monkeypatch)
+    monkeypatch.setattr(controller, "_start_conda_bind_job", lambda **kwargs: None)
+    controller.apply_active_client(_Client())
+    caps = ServerCapabilities("x86_64", True, False, True, True, 20.0)
+
+    controller._on_capability_bind_finished(controller._capability_bind_token, caps)
+
+    assert locator.server_capabilities == caps
+    assert locator.server_capability_error == ""
+
+
+def test_on_capability_bind_error_updates_locator(monkeypatch):
+    controller, locator, *_ = _build_controller(monkeypatch)
+    monkeypatch.setattr(controller, "_start_conda_bind_job", lambda **kwargs: None)
+    controller.apply_active_client(_Client())
+
+    controller._on_capability_bind_error(controller._capability_bind_token, "远端缺少 screen")
+
+    assert locator.server_capabilities is None
+    assert locator.server_capability_error == "远端缺少 screen"

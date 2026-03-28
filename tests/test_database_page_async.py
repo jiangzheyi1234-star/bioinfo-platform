@@ -1,16 +1,37 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from PyQt6.QtGui import QIcon
 
 from ui.pages import database_page as db_page_module
 from ui.pages.database_page import DatabasePage
+from core.remote.server_capabilities import ServerCapabilities
+
+
+def _caps(**overrides) -> ServerCapabilities:
+    data = {
+        "arch": "x86_64",
+        "has_curl": True,
+        "has_wget": False,
+        "has_screen": True,
+        "has_sha256sum": True,
+        "free_disk_gb": 20.0,
+    }
+    data.update(overrides)
+    return ServerCapabilities(**data)
 
 
 @pytest.fixture()
-def page(_ensure_qapp):
+def page(_ensure_qapp, monkeypatch):
+    monkeypatch.setattr(db_page_module.qta, "icon", lambda *args, **kwargs: QIcon())
     widget = DatabasePage()
+    widget.service_locator = SimpleNamespace(
+        server_capabilities=_caps(),
+        server_capability_error="",
+    )
     widget._refresh_all_status = lambda: None
     yield widget
     widget.close()
@@ -123,6 +144,19 @@ def test_progress_and_finish_emit_install_task_events(page: DatabasePage):
 
     assert any(e.get("state") == "running" and "35%" in str(e.get("detail", "")) for e in events)
     assert any(e.get("state") == "success" for e in events)
+
+
+def test_submit_install_async_blocks_when_preflight_missing(page: DatabasePage, monkeypatch):
+    db_id = _first_db_id(page)
+    warnings = []
+    page._ssh_service = MagicMock(is_connected=True)
+    page.service_locator.server_capabilities = None
+    page.service_locator.server_capability_error = "远端缺少 screen"
+    monkeypatch.setattr(db_page_module.QMessageBox, "warning", lambda *a, **kw: warnings.append((a, kw)))
+
+    page._submit_install_async(db_id, 0)
+
+    assert warnings
 
 
 def test_close_event_cleans_async_tasks(page: DatabasePage, monkeypatch):

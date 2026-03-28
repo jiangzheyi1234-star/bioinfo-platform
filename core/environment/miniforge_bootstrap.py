@@ -6,7 +6,6 @@ import base64
 import logging
 import time
 
-from core.environment.env_detector import SshRunFn
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
 from core.environment.miniforge_condarc import CONDARC_TEMPLATE as _CONDARC_TEMPLATE
 from core.environment.miniforge_release import (
@@ -14,6 +13,7 @@ from core.environment.miniforge_release import (
     MINIFORGE_RELEASE_API_URL,
     MINIFORGE_RELEASE_BASES,
 )
+from core.remote.server_capabilities import PreflightError, ServerCapabilities, SshRunFn
 from core.utils import sanitize_log
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,36 @@ def _bootstrap_source_entries() -> str:
         checksum_url = f"{installer_url}.sha256"
         entries.append(f'    "{label}|{installer_url}|{checksum_url}"')
     return " \\\n".join(entries)
+
+
+def _download_to_file_impl(downloader: str) -> str:
+    if downloader == "curl":
+        return r"""_download_to_file() {
+    local url="$1"
+    local destination="$2"
+
+    rm -f "$destination"
+    curl -fsSL --connect-timeout 15 --max-time 120 -o "$destination" "$url"
+}"""
+    return r"""_download_to_file() {
+    local url="$1"
+    local destination="$2"
+
+    rm -f "$destination"
+    wget -q --timeout=120 -O "$destination" "$url"
+}"""
+
+
+def _download_text_impl(downloader: str) -> str:
+    if downloader == "curl":
+        return r"""_download_text() {
+    local url="$1"
+    curl -fsSL --connect-timeout 15 --max-time 60 "$url"
+}"""
+    return r"""_download_text() {
+    local url="$1"
+    wget -q -O - --timeout=60 "$url"
+}"""
 
 _BOOTSTRAP_WRAPPER = r"""#!/bin/bash
 set -euo pipefail
@@ -86,128 +116,9 @@ if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
     exit 2
 fi
 
-HAS_CURL=0
-HAS_WGET=0
-command -v curl >/dev/null 2>&1 && HAS_CURL=1 || true
-command -v wget >/dev/null 2>&1 && HAS_WGET=1 || true
-if [ "$HAS_CURL" -eq 0 ] && [ "$HAS_WGET" -eq 0 ]; then
-    echo "curl/wget not found" >&2
-    exit 3
-fi
+{download_to_file_impl}
 
-_run_privileged() {{
-    if [ "$(id -u)" = "0" ]; then
-        "$@"
-        return $?
-    fi
-    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-        sudo -n "$@"
-        return $?
-    fi
-    return 1
-}}
-
-_ensure_sha256sum() {{
-    if command -v sha256sum >/dev/null 2>&1; then
-        return 0
-    fi
-
-    if command -v apt-get >/dev/null 2>&1; then
-        if _run_privileged apt-get update && _run_privileged apt-get install -y coreutils; then
-            command -v sha256sum >/dev/null 2>&1 && return 0
-            echo "coreutils installed via apt-get but sha256sum still missing" >&2
-            return 1
-        fi
-        echo "auto-install sha256sum via apt-get failed" >&2
-        return 1
-    fi
-    if command -v dnf >/dev/null 2>&1; then
-        if _run_privileged dnf install -y coreutils; then
-            command -v sha256sum >/dev/null 2>&1 && return 0
-            echo "coreutils installed via dnf but sha256sum still missing" >&2
-            return 1
-        fi
-        echo "auto-install sha256sum via dnf failed" >&2
-        return 1
-    fi
-    if command -v yum >/dev/null 2>&1; then
-        if _run_privileged yum install -y coreutils; then
-            command -v sha256sum >/dev/null 2>&1 && return 0
-            echo "coreutils installed via yum but sha256sum still missing" >&2
-            return 1
-        fi
-        echo "auto-install sha256sum via yum failed" >&2
-        return 1
-    fi
-    if command -v microdnf >/dev/null 2>&1; then
-        if _run_privileged microdnf install -y coreutils; then
-            command -v sha256sum >/dev/null 2>&1 && return 0
-            echo "coreutils installed via microdnf but sha256sum still missing" >&2
-            return 1
-        fi
-        echo "auto-install sha256sum via microdnf failed" >&2
-        return 1
-    fi
-    if command -v apk >/dev/null 2>&1; then
-        if _run_privileged apk add coreutils; then
-            command -v sha256sum >/dev/null 2>&1 && return 0
-            echo "coreutils installed via apk but sha256sum still missing" >&2
-            return 1
-        fi
-        echo "auto-install sha256sum via apk failed" >&2
-        return 1
-    fi
-    if command -v zypper >/dev/null 2>&1; then
-        if _run_privileged zypper --non-interactive install coreutils; then
-            command -v sha256sum >/dev/null 2>&1 && return 0
-            echo "coreutils installed via zypper but sha256sum still missing" >&2
-            return 1
-        fi
-        echo "auto-install sha256sum via zypper failed" >&2
-        return 1
-    fi
-
-    echo "sha256sum not found and no supported package manager is available to install coreutils" >&2
-    return 1
-}}
-
-if ! _ensure_sha256sum; then
-    exit 5
-fi
-
-_download_to_file() {{
-    local url="$1"
-    local destination="$2"
-
-    rm -f "$destination"
-    if [ "$HAS_CURL" -eq 1 ]; then
-        if curl -fsSL --connect-timeout 15 --max-time 120 -o "$destination" "$url"; then
-            return 0
-        fi
-    fi
-    if [ "$HAS_WGET" -eq 1 ]; then
-        if wget -q --timeout=120 -O "$destination" "$url"; then
-            return 0
-        fi
-    fi
-    return 1
-}}
-
-_download_text() {{
-    local url="$1"
-
-    if [ "$HAS_CURL" -eq 1 ]; then
-        if curl -fsSL --connect-timeout 15 --max-time 60 "$url"; then
-            return 0
-        fi
-    fi
-    if [ "$HAS_WGET" -eq 1 ]; then
-        if wget -q -O - --timeout=60 "$url"; then
-            return 0
-        fi
-    fi
-    return 1
-}}
+{download_text_impl}
 
 _record_failure() {{
     local label="$1"
@@ -326,8 +237,12 @@ def _expand_path(path: str) -> str:
     return path.replace("~", "$HOME")
 
 
-def submit(ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
+def submit(caps: ServerCapabilities, ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
     """提交后台 Miniforge 初始化任务（screen detached）。"""
+    failures = caps.failures()
+    if failures:
+        raise PreflightError(failures)
+
     alive = is_session_alive(ssh_run_fn, JOB_ID, timeout=timeout)
     status = check_status(ssh_run_fn, TASK_DIR, timeout=timeout)
     status_text = (status.get("status") or "").strip().upper()
@@ -364,6 +279,8 @@ def submit(ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
         installer_min_bytes=MINIFORGE_INSTALLER_MIN_BYTES,
         source_entries=_bootstrap_source_entries(),
         condarc_b64=base64.b64encode(_CONDARC_TEMPLATE.encode()).decode(),
+        download_to_file_impl=_download_to_file_impl(caps.downloader),
+        download_text_impl=_download_text_impl(caps.downloader),
     )
     encoded = base64.b64encode(script.encode()).decode()
 

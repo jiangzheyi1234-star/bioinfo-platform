@@ -11,7 +11,7 @@ import re
 import shlex
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Optional, Tuple
+from typing import Optional
 
 from core.environment.h2o_env_paths import (
     H2O_CONDA_EXE,
@@ -26,11 +26,9 @@ from core.environment.miniforge_release import (
     MINIFORGE_SUPPORTED_ARCHES,
     build_miniforge_download_candidates,
 )
+from core.remote.server_capabilities import ServerCapabilities, SshRunFn
 
 logger = logging.getLogger(__name__)
-
-# ssh_run_fn 类型: (cmd, timeout) -> (rc, stdout, stderr)
-SshRunFn = Callable[[str, int], Tuple[int, str, str]]
 
 # conda --version 输出正则: "conda 24.1.2"
 _VERSION_RE = re.compile(r"conda\s+(\d+\.\d+(?:\.\d+)?)")
@@ -191,52 +189,6 @@ def _extract_sha256(contents: str) -> Optional[str]:
     return match.group(1).lower()
 
 
-def _ensure_remote_sha256sum(ssh_run_fn: SshRunFn, timeout: int = 300) -> tuple[bool, str]:
-    rc, _, _ = ssh_run_fn("command -v sha256sum", 15)
-    if rc == 0:
-        return True, ""
-
-    rc, stdout, stderr = ssh_run_fn("id -u", 15)
-    if rc != 0:
-        return False, f"无法检测远端用户身份: {_summarize_error(stdout, stderr, 'id -u failed')}"
-
-    privileged_prefix = ""
-    if stdout.strip() != "0":
-        rc, _, _ = ssh_run_fn("sudo -n true", 15)
-        if rc != 0:
-            return False, "远端缺少 sha256sum，且当前用户无免密 sudo，无法自动安装 coreutils"
-        privileged_prefix = "sudo -n "
-
-    install_attempts = [
-        ("apt-get", [f"{privileged_prefix}apt-get update", f"{privileged_prefix}apt-get install -y coreutils"]),
-        ("dnf", [f"{privileged_prefix}dnf install -y coreutils"]),
-        ("yum", [f"{privileged_prefix}yum install -y coreutils"]),
-        ("microdnf", [f"{privileged_prefix}microdnf install -y coreutils"]),
-        ("apk", [f"{privileged_prefix}apk add coreutils"]),
-        ("zypper", [f"{privileged_prefix}zypper --non-interactive install coreutils"]),
-    ]
-
-    errors: list[str] = []
-    for manager, commands in install_attempts:
-        rc, _, _ = ssh_run_fn(f"command -v {manager}", 15)
-        if rc != 0:
-            continue
-        for command in commands:
-            rc, stdout, stderr = ssh_run_fn(command, timeout)
-            if rc != 0:
-                errors.append(f"{manager}: {_summarize_error(stdout, stderr, command)}")
-                break
-        else:
-            rc, _, _ = ssh_run_fn("command -v sha256sum", 15)
-            if rc == 0:
-                return True, ""
-            errors.append(f"{manager}: coreutils install completed but sha256sum still missing")
-
-    if errors:
-        return False, "自动安装 sha256sum 失败: " + " | ".join(errors)
-    return False, "远端缺少 sha256sum，且未发现受支持的包管理器用于自动安装 coreutils"
-
-
 def _verify_remote_sha256(
     ssh_run_fn: SshRunFn,
     expected_sha256: str,
@@ -336,6 +288,7 @@ def detect(
 
 def install_miniforge(
     ssh_run_fn: SshRunFn,
+    caps: ServerCapabilities,
     timeout: int = 600,
 ) -> CondaDetectResult:
     """在远端安装 Miniforge3（固定路径 ~/.h2ometa/conda）。
@@ -355,52 +308,15 @@ def install_miniforge(
     Returns:
         CondaDetectResult
     """
-    # ── 前置检查 ──
-    # 检查架构
-    try:
-        rc, stdout, _ = ssh_run_fn("uname -m", 15)
-        arch = stdout.strip() if rc == 0 else ""
-        if arch not in MINIFORGE_SUPPORTED_ARCHES:
-            return CondaDetectResult(
-                status=CondaStatus.NOT_FOUND, executable=None, version=None,
-                message=f"无法安装: 不支持的架构: {arch or '未知'}（仅支持 x86_64/aarch64）",
-            )
-    except Exception as e:
+    arch = str(caps.arch or "").strip()
+    if arch not in MINIFORGE_SUPPORTED_ARCHES:
         return CondaDetectResult(
             status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: 无法检测架构: {e}",
+            message=f"无法安装: 不支持的架构: {arch or '未知'}（仅支持 x86_64/aarch64）",
         )
 
-    # 检查下载工具
-    try:
-        rc_curl, _, _ = ssh_run_fn("command -v curl", 15)
-        rc_wget, _, _ = ssh_run_fn("command -v wget", 15)
-        if rc_curl != 0 and rc_wget != 0:
-            return CondaDetectResult(
-                status=CondaStatus.NOT_FOUND, executable=None, version=None,
-                message="无法安装: 需要 curl 或 wget 用于下载安装脚本",
-            )
-    except Exception as e:
-        return CondaDetectResult(
-            status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: 无法检测下载工具: {e}",
-        )
-
-    try:
-        ok, ensure_error = _ensure_remote_sha256sum(ssh_run_fn, timeout=min(timeout, 300))
-        if not ok:
-            return CondaDetectResult(
-                status=CondaStatus.NOT_FOUND, executable=None, version=None,
-                message=f"无法安装: {ensure_error}",
-            )
-    except Exception as e:
-        return CondaDetectResult(
-            status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: 自动安装 sha256sum 出错: {e}",
-        )
-
-    has_curl = rc_curl == 0
-    has_wget = rc_wget == 0
+    has_curl = bool(caps.has_curl)
+    has_wget = bool(caps.has_wget)
 
     try:
         release_tag, resolve_error = _resolve_miniforge_release_tag(

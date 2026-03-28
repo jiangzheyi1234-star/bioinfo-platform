@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from core.environment.env_detector import SshRunFn
+from core.remote.server_capabilities import PreflightError, ServerCapabilities, SshRunFn
 
 
 class DatabaseStatus(Enum):
@@ -173,7 +173,13 @@ class DatabaseService:
     def check_all(self, ssh_run_fn: SshRunFn, db_root: str) -> list[DatabaseCheckResult]:
         return [self.check_status(ssh_run_fn, info.db_id, db_root) for info in self.list_all()]
 
-    def generate_install_commands(self, db_id: str, db_root: str, mirror_index: int = 0) -> list[str]:
+    def generate_install_commands(
+        self,
+        caps: ServerCapabilities,
+        db_id: str,
+        db_root: str,
+        mirror_index: int = 0,
+    ) -> list[str]:
         info = self.get_info(db_id)
         if info is None:
             raise ValueError(f"未知数据库: {db_id}")
@@ -194,7 +200,12 @@ class DatabaseService:
             if not url:
                 raise ValueError(f"数据库 {db_id} 缺少可用镜像 URL")
             commands.append(f"cd {_quote(db_path)}")
-            commands.append(f"wget -c --progress=dot:giga {_quote(url)} -O archive.tar.gz")
+            if caps.downloader == "curl":
+                commands.append(
+                    f"curl -fL --progress-bar {_quote(url)} -o archive.tar.gz"
+                )
+            else:
+                commands.append(f"wget -c --progress=dot:giga {_quote(url)} -O archive.tar.gz")
             commands.append("tar xzf archive.tar.gz")
             commands.append("rm -f archive.tar.gz")
         else:
@@ -206,13 +217,18 @@ class DatabaseService:
     def submit_install(
         self,
         ssh_run_fn: SshRunFn,
+        caps: ServerCapabilities,
         db_id: str,
         db_root: str,
         conda_exe: str = "",
         mirror_index: int = 0,
     ) -> dict[str, str]:
         del conda_exe  # 预留兼容参数
-        commands = self.generate_install_commands(db_id, db_root, mirror_index=mirror_index)
+        failures = caps.failures()
+        if failures:
+            raise PreflightError(failures)
+
+        commands = self.generate_install_commands(caps, db_id, db_root, mirror_index=mirror_index)
         task_dir = f"{self.INSTALL_BASE}/{db_id}"
         job_id = f"h2o_dbinstall_{db_id}"
 

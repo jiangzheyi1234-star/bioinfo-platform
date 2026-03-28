@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.data.database_service import DatabaseCheckResult, DatabaseInfo, DatabaseService, DatabaseStatus
+from core.remote.server_capabilities import ServerCapabilities
 from ui.page_base import BasePage
 from ui.widgets.database_management_components import (
     DatabaseInstallDialog,
@@ -600,6 +601,17 @@ class DatabasePage(BasePage):
     def _get_db_root(self) -> str:
         return str(self._db_root_value or "").strip()
 
+    def _get_server_capabilities(self) -> tuple[ServerCapabilities | None, str]:
+        window = self.window()
+        locator = getattr(window, "service_locator", None)
+        if locator is None:
+            return None, "未找到运行时服务上下文"
+        caps = getattr(locator, "server_capabilities", None)
+        error = str(getattr(locator, "server_capability_error", "") or "")
+        if isinstance(caps, ServerCapabilities):
+            return caps, error
+        return None, error
+
     def _emit_install_task_event(self, db_id: str, state: str, detail: str = "") -> None:
         db_key = str(db_id or "").strip()
         if not db_key:
@@ -997,11 +1009,19 @@ class DatabasePage(BasePage):
             if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
                 QMessageBox.warning(self, "数据库安装", "请先连接 SSH。")
                 return
+            caps, preflight_error = self._get_server_capabilities()
+            if caps is None:
+                QMessageBox.warning(
+                    self,
+                    "数据库安装",
+                    preflight_error or "服务器预检尚未完成，请稍后重试。",
+                )
+                return
             info = self._database_service.get_info(db_id)
             if info is None:
                 return
             try:
-                commands = self._database_service.generate_install_commands(db_id, self._get_db_root())
+                commands = self._database_service.generate_install_commands(caps, db_id, self._get_db_root())
             except Exception as exc:
                 QMessageBox.warning(self, "数据库安装", str(exc))
                 return
@@ -1020,6 +1040,14 @@ class DatabasePage(BasePage):
             if db_id in self._install_submit_pending:
                 QMessageBox.information(self, "数据库安装", "该数据库安装任务正在提交，请稍候。")
                 return
+            caps, preflight_error = self._get_server_capabilities()
+            if caps is None:
+                QMessageBox.warning(
+                    self,
+                    "数据库安装",
+                    preflight_error or "服务器预检尚未完成，请稍后重试。",
+                )
+                return
             card = self._cards.get(db_id)
             if card is None:
                 return
@@ -1031,6 +1059,7 @@ class DatabasePage(BasePage):
                 f"submit_install:{db_id}",
                 lambda: self._database_service.submit_install(
                     self._make_ssh_run_fn(),
+                    caps,
                     db_id=db_id,
                     db_root=self._get_db_root(),
                     mirror_index=mirror_index,
