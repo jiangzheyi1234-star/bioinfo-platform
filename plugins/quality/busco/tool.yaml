@@ -57,12 +57,6 @@ command_template: |
   && cp {{ output_dir }}/busco_out/run_*/full_table.tsv \
     {{ output_dir }}/{{ sample_id }}.busco_full_table.tsv
 
-databases:
-  - id: busco_lineage
-    param_name: lineage
-    required: true
-    description: "BUSCO 谱系数据库（如 bacteria_odb10）"
-
 methods_template: >
   Genome completeness was evaluated using BUSCO v{version}
   with the {lineage} lineage dataset in {mode} mode.

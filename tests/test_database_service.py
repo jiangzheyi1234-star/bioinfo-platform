@@ -21,6 +21,8 @@ def _caps(**overrides) -> ServerCapabilities:
 
 def _ssh_all_ok(cmd: str, timeout: int = 10):
     del timeout
+    if "du -sm" in cmd:
+        return 0, "50000\n", ""
     if "cat " in cmd:
         return 0, "", ""
     return 0, "", ""
@@ -28,6 +30,8 @@ def _ssh_all_ok(cmd: str, timeout: int = 10):
 
 def _ssh_status_missing(cmd: str, timeout: int = 10):
     del timeout
+    if "du -sm" in cmd:
+        return 0, "50000\n", ""
     if "status.txt" in cmd:
         return 1, "", ""
     if "test -f" in cmd:
@@ -37,6 +41,8 @@ def _ssh_status_missing(cmd: str, timeout: int = 10):
 
 def _ssh_missing_key(cmd: str, timeout: int = 10):
     del timeout
+    if "du -sm" in cmd:
+        return 0, "50000\n", ""
     if "test -f" in cmd:
         return 0, "", ""
     if "test -e" in cmd and "taxo.k2d" in cmd:
@@ -67,10 +73,42 @@ def test_get_resolved_path():
     assert resolved == "/data/databases/checkm2"
 
 
+def test_resolve_effective_path_prefers_overrides():
+    svc = DatabaseService()
+    resolved = svc.resolve_effective_path(
+        "checkm2_db",
+        "/data/databases",
+        overrides={"checkm2_db": "/custom/checkm2"},
+    )
+    assert resolved == "/custom/checkm2"
+
+
 def test_check_status_ready():
     svc = DatabaseService()
     result = svc.check_status(_ssh_all_ok, "kraken2_standard", "/data/databases")
     assert result.status == DatabaseStatus.READY
+
+
+def test_check_status_uses_override_path():
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        calls.append(cmd)
+        if "du -sm" in cmd:
+            return 0, "50000\n", ""
+        return 0, "", ""
+
+    svc = DatabaseService()
+    result = svc.check_status(
+        fn,
+        "kraken2_standard",
+        "/data/databases",
+        overrides={"kraken2_standard": "/custom/kraken2"},
+    )
+    assert result.status == DatabaseStatus.READY
+    assert any("/custom/kraken2" in cmd for cmd in calls)
+    assert all("/data/databases/kraken2_standard" not in cmd for cmd in calls)
 
 
 def test_check_status_not_installed():
@@ -83,6 +121,19 @@ def test_check_status_incomplete():
     svc = DatabaseService()
     result = svc.check_status(_ssh_missing_key, "kraken2_standard", "/data/databases")
     assert result.status == DatabaseStatus.INCOMPLETE
+
+
+def test_check_status_reports_small_database():
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        if "du -sm" in cmd:
+            return 0, "123\n", ""
+        return 0, "", ""
+
+    svc = DatabaseService()
+    result = svc.check_status(fn, "kraken2_standard", "/data/databases")
+    assert result.status == DatabaseStatus.INCOMPLETE
+    assert "数据库大小不足" in result.message
 
 
 def test_generate_install_commands_mirror():
@@ -159,3 +210,26 @@ def test_submit_install_raises_preflight_error_before_remote_calls():
         svc.submit_install(fn, _caps(has_screen=False), "blast_nt", "/data/databases")
 
     assert calls == []
+
+
+def test_submit_install_reuses_running_task_when_heartbeat_fresh():
+    svc = DatabaseService()
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        calls.append(cmd)
+        if "status.txt" in cmd:
+            return 0, "RUNNING\n", ""
+        if "exit_code.txt" in cmd:
+            return 1, "", ""
+        if "heartbeat.txt" in cmd:
+            return 0, f"{int(__import__('time').time())}\n", ""
+        if "screen -ls" in cmd:
+            return 0, "", ""
+        return 0, "", ""
+
+    result = svc.submit_install(fn, _caps(), "blast_nt", "/data/databases")
+
+    assert result["reused"] == "1"
+    assert not any("screen -dmS" in cmd for cmd in calls)

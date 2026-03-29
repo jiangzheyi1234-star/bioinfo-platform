@@ -276,6 +276,37 @@ class TestKraken2Integration:
 
 
 # ---------------------------------------------------------------------------
+# checkm2 / gtdbtk 数据库绑定测试
+# ---------------------------------------------------------------------------
+
+class TestQualityAndTaxonomyDatabaseBindings:
+    """验证数据库参数在真实 tool.yaml 中的消费语义。"""
+
+    def test_checkm2_consumes_database_path(self, registry: PluginRegistry) -> None:
+        """CheckM2 应显式消费 database_path 并指向 dmnd 文件。"""
+        _, _, cmd, _, _ = _build_and_wrap(
+            registry,
+            "checkm2",
+            input_paths={"bins_dir": "/data/bins"},
+            database_paths={"database_path": "/data/databases/checkm2"},
+        )
+        assert "--database_path /data/databases/checkm2/uniref100.KO.1.dmnd" in cmd
+        assert "checkm2 predict" in cmd
+
+    def test_gtdbtk_exports_gtdbtk_data_path(self, registry: PluginRegistry) -> None:
+        """GTDB-Tk 应显式导出 GTDBTK_DATA_PATH，而不是依赖 mash_db。"""
+        _, _, cmd, _, _ = _build_and_wrap(
+            registry,
+            "gtdbtk",
+            input_paths={"bins_dir": "/data/bins"},
+            database_paths={"db": "/data/databases/gtdbtk/release220"},
+        )
+        assert 'export GTDBTK_DATA_PATH="/data/databases/gtdbtk/release220"' in cmd
+        assert "--mash_db" not in cmd
+        assert "gtdbtk classify_wf" in cmd
+
+
+# ---------------------------------------------------------------------------
 # hostile 端到端测试
 # ---------------------------------------------------------------------------
 

@@ -55,7 +55,7 @@ parameters:
     description: "fastp 过滤后保留 reads 的最短长度（bp）"
 
 databases:
-  - id: centrifuge_db
+  - id: centrifuge_hpvc
     param_name: db
     required: true
     label: "Centrifuge 数据库"

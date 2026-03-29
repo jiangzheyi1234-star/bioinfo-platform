@@ -96,7 +96,7 @@ command_template: |
   {% endif %}
 
 databases:
-  - id: centrifuge
+  - id: centrifuge_hpvc
     param_name: db
     required: true
     label: "Centrifuge HPVC 病原体数据库"

@@ -17,7 +17,7 @@ import logging
 import shlex
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.database_service import DatabaseService
@@ -874,7 +874,7 @@ class ToolBridgeService:
             run_params = self.extract_run_params(descriptor, params)
             database_paths = self.build_database_paths(tool_id, descriptor)
             database_paths.update(self.extract_database_paths(descriptor, params))
-            self.validate_required_databases(descriptor, database_paths)
+            self.validate_required_databases(tool_id, descriptor, database_paths)
 
             execution_id = tool_engine.execute(
                 tool_id=tool_id,
@@ -948,6 +948,24 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to persist normalized remote_base for project %s", project_id)
 
+    @staticmethod
+    def _resolve_database_install_path(db_root: str, install_path: str) -> str:
+        root = str(db_root or "").strip().rstrip("/")
+        rel = str(install_path or "").strip().replace("\\", "/")
+        if not root or not rel:
+            return ""
+
+        rel_path = PurePosixPath(rel)
+        if rel_path.is_absolute():
+            return ""
+        if any(part == ".." for part in rel_path.parts):
+            return ""
+
+        normalized = rel_path.as_posix().lstrip("./")
+        if normalized in {"", "."} or normalized.startswith("../"):
+            return ""
+        return f"{root}/{normalized}"
+
     def get_latest_sample_id(self, pm) -> str:
         try:
             db = pm.db
@@ -961,56 +979,63 @@ class ToolBridgeService:
         return ""
 
     def build_database_paths(self, tool_id: str, descriptor: dict | None = None) -> dict:
-        try:
-            from config import get_config
+        from config import get_config
 
-            cfg = get_config()
-            db_cfg = cfg.get("databases", {}) if isinstance(cfg.get("databases", {}), dict) else {}
-            db_root = str(db_cfg.get("db_root", "") or "").strip()
-            overrides = db_cfg.get("overrides", {})
-            if not isinstance(overrides, dict):
-                overrides = {}
+        if self._plugin_registry is None:
+            raise ValueError(f"工具 {tool_id} 无法解析数据库绑定: 插件注册表未初始化")
 
-            if not self._plugin_registry:
-                return {}
+        cfg = get_config()
+        db_cfg = cfg.get("databases", {}) if isinstance(cfg.get("databases", {}), dict) else {}
+        db_root = str(db_cfg.get("db_root", "") or "").strip()
+        overrides = db_cfg.get("overrides", {})
+        if not isinstance(overrides, dict):
+            overrides = {}
 
-            desc = descriptor or self._plugin_registry.get_descriptor(tool_id)
-            db_decls = desc.get("databases", [])
+        desc = descriptor or self._plugin_registry.get_descriptor(tool_id)
+        db_decls = desc.get("databases", [])
+        if not isinstance(db_decls, list):
+            raise ValueError(f"工具 {tool_id} 的 databases 声明格式错误")
 
-            paths: dict = {}
-            for decl in db_decls:
-                param_name = str(decl.get("param_name", decl.get("name", ""))).strip()
-                db_id = str(decl.get("id", "")).strip()
-                if not param_name:
-                    continue
+        paths: dict[str, str] = {}
+        for decl in db_decls:
+            if not isinstance(decl, dict):
+                raise ValueError(f"工具 {tool_id} 的数据库声明格式错误: {decl!r}")
 
-                # 优先级 1: overrides
-                override_path = str(overrides.get(db_id, "") or "").strip()
-                if override_path:
-                    paths[param_name] = override_path
-                    logger.debug("数据库路径已匹配(override): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, override_path)
-                    continue
+            db_id = str(decl.get("id", "")).strip()
+            param_name = str(decl.get("param_name", "")).strip()
+            if not db_id:
+                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 id")
+            if not param_name:
+                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 param_name: db_id={db_id}")
 
-                # 优先级 2: db_root + databases.yaml install_path
-                if db_root and db_id:
-                    resolved = self._database_service.get_resolved_path(db_id, db_root)
-                    if resolved:
-                        paths[param_name] = resolved
-                        logger.debug("数据库路径已匹配(db_root): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, resolved)
-                        continue
+            info = self._database_service.get_info(db_id)
+            if info is None:
+                raise ValueError(f"工具 {tool_id} 引用未注册数据库: db_id={db_id}")
 
-                # 优先级 3: 旧格式兜底
-                for legacy_key in (db_id, param_name):
-                    legacy_value = str(db_cfg.get(legacy_key, "") or "").strip()
-                    if legacy_value:
-                        paths[param_name] = legacy_value
-                        logger.debug("数据库路径已匹配(legacy): tool=%s, id=%s → %s=%s", tool_id, db_id, param_name, legacy_value)
-                        break
+            override_path = self._database_service._normalized_override_path(overrides, db_id)
+            if override_path:
+                paths[param_name] = override_path
+                logger.debug(
+                    "数据库路径已匹配(override): tool=%s, db_id=%s → %s=%s",
+                    tool_id,
+                    db_id,
+                    param_name,
+                    override_path,
+                )
+                continue
 
-            return paths
-        except Exception:
-            logger.exception("构建数据库路径失败 (tool=%s)", tool_id)
-            return {}
+            resolved = self._resolve_database_install_path(db_root, info.install_path)
+            if resolved:
+                paths[param_name] = resolved
+                logger.debug(
+                    "数据库路径已匹配(db_root): tool=%s, db_id=%s → %s=%s",
+                    tool_id,
+                    db_id,
+                    param_name,
+                    resolved,
+                )
+
+        return paths
 
     def ensure_sample_id(self, pm, params: dict, descriptor: dict) -> str:
         explicit_sample_id = str(params.get("__sample_id", "")).strip()
@@ -1100,27 +1125,31 @@ class ToolBridgeService:
     def extract_database_paths(descriptor: dict, params: dict) -> dict:
         db_paths: dict = {}
         for decl in descriptor.get("databases", []):
-            var_name = str(decl.get("param_name", decl.get("name", ""))).strip()
-            legacy_name = str(decl.get("name", "")).strip()
+            var_name = str(decl.get("param_name", "")).strip()
             if not var_name:
                 continue
 
             value = str(params.get(var_name, "")).strip()
-            if not value and legacy_name:
-                value = str(params.get(legacy_name, "")).strip()
             if value:
                 db_paths[var_name] = value
 
         return db_paths
 
     @staticmethod
-    def validate_required_databases(descriptor: dict, database_paths: dict) -> None:
+    def validate_required_databases(tool_id: str, descriptor: dict, database_paths: dict) -> None:
         for decl in descriptor.get("databases", []):
+            if not isinstance(decl, dict):
+                raise ValueError(f"工具 {tool_id} 的数据库声明格式错误: {decl!r}")
             if not bool(decl.get("required", False)):
                 continue
-            var_name = str(decl.get("param_name", decl.get("name", ""))).strip()
-            if var_name and not str(database_paths.get(var_name, "")).strip():
-                raise ValueError(f"缺少必需数据库路径: {var_name}")
+            db_id = str(decl.get("id", "")).strip()
+            var_name = str(decl.get("param_name", "")).strip()
+            if not db_id:
+                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 id")
+            if not var_name:
+                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 param_name: db_id={db_id}")
+            if not str(database_paths.get(var_name, "")).strip():
+                raise ValueError(f"工具 {tool_id} 缺少必需数据库: db_id={db_id}, param={var_name}")
 
     def get_execution_history(self) -> list[dict]:
         pm = self._get_project_manager()
