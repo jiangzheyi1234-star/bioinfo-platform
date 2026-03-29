@@ -648,101 +648,45 @@ class DatabasePage(BasePage):
     def _get_database_info(self, db_id: str) -> DatabaseInfo | None:
         return self._database_service.get_info(str(db_id or "").strip())
 
-    def _normalize_install_path(self, install_path: str) -> str:
-        rel = str(install_path or "").strip().replace("\\", "/")
-        if not rel:
-            return ""
-        rel = posixpath.normpath(rel)
-        if rel in {"", "."} or rel.startswith(".."):
-            return ""
-        return rel.lstrip("./")
-
-    def _get_database_override_path(self, db_id: str) -> str:
+    def _get_database_overrides(self) -> dict[str, str]:
         cfg = get_config()
         databases = cfg.get("databases", {})
         if not isinstance(databases, dict):
-            return ""
+            return {}
         overrides = databases.get("overrides", {})
         if not isinstance(overrides, dict):
-            return ""
-        override = str(overrides.get(str(db_id or "").strip(), "") or "").strip()
-        if not override:
-            return ""
-        return self._normalize_remote_path(self._expand_remote_path(override) or override)
+            return {}
+        return {str(k): str(v) for k, v in overrides.items()}
 
     def _get_database_install_target_path(self, db_id: str) -> str:
-        info = self._get_database_info(db_id)
-        if info is None or info.builtin:
-            return ""
-        db_root = self._get_db_root()
-        rel_install_path = self._normalize_install_path(info.install_path)
-        if not db_root or not rel_install_path:
-            return ""
-        return self._normalize_remote_path(posixpath.join(db_root.rstrip("/"), rel_install_path))
+        return self._database_service.resolve_binding_value(db_id, self._get_db_root())
 
     def _get_database_effective_path(self, db_id: str) -> str:
-        override_path = self._get_database_override_path(db_id)
-        if override_path:
-            return override_path
-        return self._get_database_install_target_path(db_id)
+        return self._database_service.resolve_binding_value(
+            db_id,
+            self._get_db_root(),
+            overrides=self._get_database_overrides(),
+        )
 
     def _check_database_path_remote(self, info: DatabaseInfo, db_path: str) -> DatabaseCheckResult:
         if info.builtin:
             return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.UNKNOWN, message="builtin 数据库")
 
-        candidate = self._normalize_remote_path(self._expand_remote_path(str(db_path or "").strip()) or str(db_path or "").strip())
-        if not candidate:
-            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径不能为空")
-        if not candidate.startswith("/"):
-            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"数据库路径必须是绝对路径: {candidate}")
-
-        qdb = shlex.quote(candidate)
-        rc, _, _ = self._run_ssh(f"test -d {qdb}", 10)
-        if rc != 0:
-            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"路径不存在: {candidate}")
-
-        rc, _, _ = self._run_ssh(f"test -x {qdb}", 10)
-        if rc != 0:
-            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"路径不可进入(-x): {candidate}")
-
-        status_file = str(info.integrity_check.get("status_file", ".install_ok") or "").strip()
-        if status_file:
-            rc, _, _ = self._run_ssh(f"test -f {qdb}/{shlex.quote(status_file)}", 10)
-            if rc != 0:
-                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"缺少状态文件: {status_file}")
-
-        for key_file in info.integrity_check.get("key_files", []):
-            key = str(key_file or "").strip()
-            if not key:
-                continue
-            rc, _, _ = self._run_ssh(f"test -e {qdb}/{shlex.quote(key)}", 10)
-            if rc != 0:
-                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"缺少: {key}")
-
-        min_size_mb = int(info.integrity_check.get("min_size_mb", 0) or 0)
-        if min_size_mb > 0:
-            rc, stdout, stderr = self._run_ssh(f"du -sm {qdb}", 20)
-            if rc != 0:
-                detail = stderr.strip() or "无法读取目录大小"
-                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"目录大小校验失败: {detail}")
-            try:
-                size_mb = int(str(stdout or "").split()[0])
-            except Exception:
-                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message="目录大小校验失败: 无法解析输出")
-            if size_mb < min_size_mb:
-                return DatabaseCheckResult(
-                    db_id=info.db_id,
-                    status=DatabaseStatus.INCOMPLETE,
-                    message=f"目录大小不足: {size_mb} MB < {min_size_mb} MB",
-                )
-
-        return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.READY)
+        expanded = self._normalize_remote_path(self._expand_remote_path(str(db_path or "").strip()) or str(db_path or "").strip())
+        candidate = self._database_service.binding_value_from_storage_root(info.db_id, expanded)
+        return self._database_service.verify_integrity_at_path(
+            self._make_ssh_run_fn(),
+            info.db_id,
+            candidate,
+        )
 
     def _check_database_status(self, info: DatabaseInfo) -> DatabaseCheckResult:
-        effective_path = self._get_database_effective_path(info.db_id)
-        if not effective_path:
-            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径未配置")
-        return self._check_database_path_remote(info, effective_path)
+        return self._database_service.check_status(
+            self._make_ssh_run_fn(),
+            info.db_id,
+            self._get_db_root(),
+            overrides=self._get_database_overrides(),
+        )
 
     def _save_db_root(self, raw_input: str = "", done_cb: Optional[Callable[[bool], None]] = None) -> bool:
         if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
@@ -1357,7 +1301,10 @@ class DatabasePage(BasePage):
         if not isinstance(overrides, dict):
             overrides = {}
         current = str(overrides.get(db_id, "") or "").strip()
-        start_path = current or self._get_db_root() or "~"
+        start_path = self._get_db_root() or "~"
+        if current:
+            expanded_current = self._normalize_remote_path(self._expand_remote_path(current) or current)
+            start_path = self._database_service.get_storage_root(db_id, expanded_current)
         selected = self._pick_remote_db_root(start_path)
         if not selected:
             return
@@ -1371,7 +1318,10 @@ class DatabasePage(BasePage):
             QMessageBox.warning(self, "数据库路径覆盖", result.message or "数据库路径完整性校验失败")
             return
 
-        overrides[db_id] = self._normalize_remote_path(selected)
+        overrides[db_id] = self._database_service.binding_value_from_storage_root(
+            db_id,
+            self._normalize_remote_path(self._expand_remote_path(selected) or selected),
+        )
         databases["overrides"] = overrides
         databases.setdefault("db_root", self._get_db_root())
         cfg["databases"] = databases

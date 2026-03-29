@@ -9,6 +9,7 @@ databases:
     description: "标准数据库，含细菌/古菌/病毒/人类参考序列"
     category: "reads"
     install_path: "kraken2_standard"
+    binding_mode: "directory_root"
     size_mb: 50000
     tools: ["kraken2"]
     mirrors:
@@ -26,6 +27,7 @@ databases:
     description: "扩展数据库，包含原核+真菌+原生生物+植物"
     category: "reads"
     install_path: "kraken2_plusPFP"
+    binding_mode: "directory_root"
     size_mb: 150000
     tools: ["kraken2"]
     mirrors:
@@ -41,6 +43,8 @@ databases:
     description: "NCBI 全部核苷酸序列数据库"
     category: "reads"
     install_path: "blast_nt"
+    binding_mode: "index_prefix"
+    binding_leaf: "nt"
     size_mb: 350000
     tools: ["blastn"]
     mirrors:
@@ -58,6 +62,8 @@ databases:
     description: "精选核心核苷酸数据库（较小）"
     category: "reads"
     install_path: "core_nt"
+    binding_mode: "index_prefix"
+    binding_leaf: "core_nt"
     size_mb: 80000
     tools: ["blastn"]
     integrity_check:
@@ -69,6 +75,8 @@ databases:
     description: "Human Pathogen & Virus Centrifuge 数据库"
     category: "reads"
     install_path: "hpvc"
+    binding_mode: "index_prefix"
+    binding_leaf: "hpvc"
     size_mb: 5000
     tools: ["centrifuge"]
     builtin: false
@@ -83,6 +91,7 @@ databases:
     description: "CheckM2 DIAMOND 模型数据库"
     category: "mag"
     install_path: "checkm2"
+    binding_mode: "directory_root"
     size_mb: 3500
     tools: ["checkm2"]
     mirrors:
@@ -98,6 +107,7 @@ databases:
     description: "GTDB-Tk 参考数据库，基因组分类注释"
     category: "mag"
     install_path: "gtdbtk/release220"
+    binding_mode: "env_var_root"
     size_mb: 110000
     tools: ["gtdbtk"]
     mirrors:
@@ -114,6 +124,7 @@ databases:
     description: "BUSCO 细菌谱系数据库"
     category: "mag"
     install_path: "busco/bacteria_odb10"
+    binding_mode: "directory_root"
     size_mb: 200
     tools: ["busco"]
     mirrors:
@@ -130,6 +141,7 @@ databases:
     description: "Bakta 完整注释数据库"
     category: "annotation"
     install_path: "bakta/db"
+    binding_mode: "directory_root"
     size_mb: 35000
     tools: ["bakta"]
     mirrors:
@@ -145,6 +157,7 @@ databases:
     description: "Bakta 轻量版注释数据库"
     category: "annotation"
     install_path: "bakta/db-light"
+    binding_mode: "directory_root"
     size_mb: 3000
     tools: ["bakta"]
     mirrors:
@@ -160,6 +173,7 @@ databases:
     description: "eggNOG-mapper DIAMOND 数据库"
     category: "annotation"
     install_path: "eggnog"
+    binding_mode: "directory_root"
     size_mb: 45000
     tools: ["eggnog"]
     mirrors:
@@ -177,6 +191,7 @@ databases:
     description: "Comprehensive Antibiotic Resistance Database，RGI 依赖"
     category: "amr"
     install_path: "card"
+    binding_mode: "directory_root"
     size_mb: 500
     tools: ["rgi"]
     mirrors:
@@ -193,6 +208,7 @@ databases:
     description: "AMRFinderPlus 参考数据库（含耐药/毒力/应激基因）"
     category: "amr"
     install_path: "amrfinder"
+    binding_mode: "directory_root"
     size_mb: 1000
     tools: ["amrfinderplus"]
     mirrors:
@@ -211,6 +227,8 @@ databases:
     description: "GUNC MAG 嵌合体检测参考数据库"
     category: "mag"
     install_path: "gunc"
+    binding_mode: "specific_file"
+    binding_leaf: "gunc_db_progenomes2.1.dmnd"
     size_mb: 15000
     tools: ["gunc"]
     mirrors:
@@ -228,6 +246,7 @@ databases:
     description: "MetaPhlAn 标记基因分类数据库"
     category: "reads"
     install_path: "metaphlan"
+    binding_mode: "directory_root"
     size_mb: 15000
     tools: ["metaphlan"]
     mirrors:
@@ -245,6 +264,7 @@ databases:
     description: "geNomad 病毒/质粒参考数据库"
     category: "other"
     install_path: "genomad"
+    binding_mode: "directory_root"
     size_mb: 3000
     tools: ["genomad"]
     mirrors:
@@ -263,6 +283,7 @@ databases:
     description: "Hostile 宿主去除参考基因组（内置，无需手动安装）"
     category: "other"
     install_path: ""
+    binding_mode: "directory_root"
     size_mb: 0
     tools: ["hostile"]
     builtin: true
