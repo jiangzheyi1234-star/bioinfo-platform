@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, pyqtSlot
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, pyqtSlot
 from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -11,21 +11,18 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSizePolicy,
-    QTextEdit,
     QVBoxLayout,
 )
-import qtawesome as qta
 
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
-from ui.install_log_parser import build_failure_guidance
+from core.utils import get_app_root
+from ui.install_log_parser import analyze_install_log, build_failure_guidance
+from ui.qt_bootstrap import ensure_qt_webengine_ready
 from ui.widgets import styles
+from ui.widgets.report_view import create_report_web_view
 from ui.widgets.styles import (
     BUTTON_PRIMARY,
-    BUTTON_SECONDARY,
     COLOR_BG_PAGE,
-    COLOR_TEXT_HINT,
-    SCROLL_BAR_ELEGANT,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,152 +131,103 @@ class ToolEnvBridge(QObject):
         self.installFinished.emit(tool_id, success)
 
 
+class InstallDialogBridge(QObject):
+    """Bridge between Python install dialog shell and its Web UI."""
+
+    snapshotUpdated = pyqtSignal(str, arguments=["json"])
+    toolInfoReady = pyqtSignal(str, arguments=["json"])
+
+    def __init__(self, dialog: "EnvInstallDialog"):
+        super().__init__(dialog)
+        self._dialog = dialog
+
+    @pyqtSlot()
+    def requestToolInfo(self) -> None:
+        self.toolInfoReady.emit(self._dialog._tool_info_json)
+        if self._dialog._latest_snapshot_json:
+            self.snapshotUpdated.emit(self._dialog._latest_snapshot_json)
+
+    @pyqtSlot()
+    def requestInstall(self) -> None:
+        self._dialog._on_start_install()
+
+    @pyqtSlot()
+    def requestClose(self) -> None:
+        self._dialog._close_from_bridge()
+
+
 class EnvInstallDialog(QDialog):
-    """Tool conda-environment installation dialog (UI shell only)."""
+    """Tool conda-environment installation dialog rendered with Web UI."""
 
     install_requested = pyqtSignal(str)
     _INFO_SUBMITTING = "[INFO] 正在连接服务器，提交后台安装任务..."
-    _EXPANDED_LOG_MAX_HEIGHT = 16777215
 
     def __init__(self, tool_info: dict, conda_executable: str = "", parent=None):
         super().__init__(parent)
-        self.tool_info = tool_info
+        self.tool_info = dict(tool_info or {})
         self._tool_id = str(self.tool_info.get("id", "") or "").strip()
+        self._tool_info_json = json.dumps(self.tool_info, ensure_ascii=False)
         self._installing = False
         self._conda_executable = str(conda_executable or "")
-        self._user_expanded_log = False
         self._failure_hint_appended = False
         self._last_snapshot_updated_at = 0.0
         self._terminal_status = ""
+        self._current_log_text = ""
+        self._latest_snapshot_payload: dict[str, object] = {}
+        self._latest_snapshot_json = ""
 
         self.setWindowTitle("安装工具环境")
-        self.setMinimumWidth(580)
-        self.setMinimumHeight(360)
+        self.setMinimumWidth(620)
+        self.setMinimumHeight(420)
         self.setStyleSheet(f"background-color: {COLOR_BG_PAGE};")
 
         self._build_ui()
         self._render_initial_state()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        tool_name = self.tool_info.get("name", self.tool_info.get("id", ""))
-        conda_env = self.tool_info.get("conda_env", "")
-        install_cmd = self.tool_info.get("install_cmd", "")
-        databases = self.tool_info.get("databases", [])
+        ensure_qt_webengine_ready()
+        from PyQt6.QtWebChannel import QWebChannel
 
-        info_frame = QFrame()
-        info_frame.setStyleSheet(
-            f"background: {styles.COLOR_BG_INFO}; border: 1px solid {styles.COLOR_BG_INFO_BORDER}; border-radius: 6px;"
+        self._install_bridge = InstallDialogBridge(self)
+        self._web_view = create_report_web_view(
+            parent=self,
+            background="#FFFFFF",
+            disable_context_menu=True,
+            allow_remote_resources=False,
         )
-        info_layout = QFormLayout(info_frame)
-        info_layout.setContentsMargins(14, 12, 14, 12)
-        info_layout.setVerticalSpacing(8)
+        self._web_view.setStyleSheet("background: #FFFFFF; border: none;")
 
-        def _info_lbl(text: str) -> QLabel:
-            lbl = QLabel(text)
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet(f"font-size: 13px; color: {styles.COLOR_TEXT_DEFAULT};")
-            return lbl
+        self._channel = QWebChannel(self)
+        self._channel.registerObject("installBridge", self._install_bridge)
+        self._web_view.page().setWebChannel(self._channel)
 
-        info_layout.addRow("工具:", _info_lbl(f"{tool_name}  ({conda_env})"))
-        info_layout.addRow("命令:", _info_lbl(install_cmd or "（未配置）"))
+        html_path = get_app_root() / "ui" / "pages" / "settings_page_assets" / "install_dialog.html"
+        if not html_path.exists():
+            raise RuntimeError(f"安装弹窗 HTML 文件未找到: {html_path}")
+        self._web_view.setUrl(QUrl.fromLocalFile(str(html_path)))
+        layout.addWidget(self._web_view)
 
-        if databases:
-            db_ids = "、".join(d.get("id", "") for d in databases)
-            db_hint = QLabel(
-                f"⚠ 该工具需要数据库：{db_ids}\n"
-                "安装环境完成后，请在「数据库路径配置」卡片中填写数据库路径。"
-            )
-            db_hint.setWordWrap(True)
-            db_hint.setStyleSheet(
-                f"color: {styles.COLOR_BG_WARN_TEXT}; background: {styles.COLOR_BG_WARN};"
-                f"border: 1px solid rgba(251,191,36,0.3); border-radius: 4px;"
-                "padding: 8px; font-size: 12px;"
-            )
-            info_layout.addRow("", db_hint)
-        else:
-            info_layout.addRow("数据库:", _info_lbl("无（不需要额外数据库）"))
-
-        layout.addWidget(info_frame)
-
-        self._log_toggle_row = QFrame()
-        self._log_toggle_row.setStyleSheet(
-            f"QFrame {{ background: {styles.COLOR_BG_CARD}; border-top: 1px solid {styles.COLOR_BORDER}; "
-            f"border-bottom: 1px solid {styles.COLOR_BORDER}; border-radius: 8px; }}"
-        )
-        toggle_layout = QHBoxLayout(self._log_toggle_row)
-        toggle_layout.setContentsMargins(10, 4, 10, 4)
-        toggle_layout.setSpacing(0)
-
-        self.log_toggle_btn = QPushButton("")
-        self.log_toggle_btn.setStyleSheet(
-            BUTTON_SECONDARY
-            + f" QPushButton {{ text-align: left; color: {styles.COLOR_PRIMARY}; padding: 4px 10px; }}"
-        )
-        self.log_toggle_btn.clicked.connect(self._toggle_log_drawer)
-        toggle_layout.addWidget(self.log_toggle_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-        toggle_layout.addStretch()
-        layout.addWidget(self._log_toggle_row)
-
-        self._log_drawer = QFrame()
-        self._log_drawer.setStyleSheet("QFrame { border: none; background: transparent; }")
-        drawer_layout = QVBoxLayout(self._log_drawer)
-        drawer_layout.setContentsMargins(0, 0, 0, 0)
-        drawer_layout.setSpacing(0)
-
-        self._log_content = QFrame()
-        self._log_content.setStyleSheet("QFrame { border: none; background: transparent; }")
-        self._log_content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        content_layout = QVBoxLayout(self._log_content)
-        content_layout.setContentsMargins(0, 6, 0, 0)
-        content_layout.setSpacing(6)
-
-        output_title = QLabel("详细日志：")
-        output_title.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 12px;")
-        content_layout.addWidget(output_title)
-
-        self.output_edit = QTextEdit()
-        self.output_edit.setReadOnly(True)
-        self.output_edit.setStyleSheet(
-            f"background: {styles.COLOR_BG_TERMINAL}; color: {styles.COLOR_BG_TERMINAL_TEXT};"
-            "font-family: Consolas, 'Courier New', monospace;"
-            "font-size: 12px; border-radius: 4px; border: none;"
-        )
-        self.output_edit.verticalScrollBar().setStyleSheet(SCROLL_BAR_ELEGANT)
-        self.output_edit.setMinimumHeight(180)
-        content_layout.addWidget(self.output_edit)
-
-        drawer_layout.addWidget(self._log_content)
-        layout.addWidget(self._log_drawer)
-
-        btn_row = QHBoxLayout()
-        self.cancel_btn = QPushButton("取消")
-        self.cancel_btn.setFixedWidth(80)
-        self.cancel_btn.clicked.connect(self._on_cancel)
-
-        self.install_btn = QPushButton("开始安装")
-        self.install_btn.setFixedWidth(100)
-        self.install_btn.setStyleSheet(BUTTON_PRIMARY)
-        self.install_btn.clicked.connect(self._on_start_install)
-
-        btn_row.addStretch()
-        btn_row.addWidget(self.cancel_btn)
-        btn_row.addWidget(self.install_btn)
-        layout.addLayout(btn_row)
-        self._set_log_visible(False, user_initiated=False)
-
-    def _on_start_install(self):
+    def _on_start_install(self) -> None:
         if self._installing:
             return
-        install_cmd = self.tool_info.get("install_cmd", "")
+        install_cmd = str(self.tool_info.get("install_cmd", "") or "").strip()
         if not install_cmd:
+            self._emit_view_snapshot(
+                status="IDLE",
+                message="该工具未配置 install_cmd，无法自动安装。",
+                primary_enabled=False,
+            )
             return
         if not self._conda_executable or not is_managed_conda_executable(self._conda_executable):
-            self.install_btn.setEnabled(False)
-            self.install_btn.setToolTip(f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。")
+            self._emit_view_snapshot(
+                status="IDLE",
+                message=f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。",
+                primary_enabled=False,
+            )
             return
 
         self._reset_attempt_state()
@@ -308,133 +256,155 @@ class EnvInstallDialog(QDialog):
 
         if updated_at is not None:
             self._last_snapshot_updated_at = updated_at
-
         if log_text:
             self._set_log_text(log_text)
 
         if status == "SUBMITTING":
             self._installing = True
-            self._set_action_mode("running")
+            message = message or "正在提交安装任务……"
         elif status in {"RUNNING", ""}:
             self._installing = True
-            self._set_action_mode("running")
+            status = "RUNNING"
+            message = message or "安装中……"
         elif status == "DONE":
             self._installing = False
             self._terminal_status = "DONE"
-            self._set_action_mode("success")
+            message = message or "安装成功！"
         elif status == "FAILED":
             self._installing = False
             self._terminal_status = "FAILED"
-            self._set_action_mode("failed")
             self._append_failure_guidance(exit_code)
+            message = message or "安装失败，请检查详细日志后重试。"
+            if exit_code and "exit_code" not in message:
+                message = f"{message} (exit_code={exit_code})"
         else:
             raise RuntimeError(f"Unknown install snapshot status: {status!r}")
 
-        self._sync_log_visibility(status)
-
-    def _rebind_install_btn(self, handler) -> None:
-        try:
-            self.install_btn.clicked.disconnect()
-        except (TypeError, RuntimeError):
-            pass
-        self.install_btn.clicked.connect(handler)
+        self._emit_view_snapshot(
+            status=status,
+            message=message,
+            exit_code=exit_code,
+            updated_at=updated_at,
+        )
 
     def _render_initial_state(self) -> None:
         install_cmd = str(self.tool_info.get("install_cmd", "") or "").strip()
-        self._set_action_mode("idle")
-        self._set_log_visible(False, user_initiated=False)
-        self.output_edit.clear()
-
         if not install_cmd:
-            self.install_btn.setEnabled(False)
-            self.install_btn.setToolTip("该工具未配置 install_cmd，无法自动安装。")
             self._set_log_text("该工具未配置 install_cmd，无法自动安装。")
+            self._emit_view_snapshot(
+                status="IDLE",
+                message="该工具未配置 install_cmd，无法自动安装。",
+                primary_enabled=False,
+            )
             return
         if not self._conda_executable or not is_managed_conda_executable(self._conda_executable):
-            self.install_btn.setEnabled(False)
-            self.install_btn.setToolTip(f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。")
             self._set_log_text(f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。")
+            self._emit_view_snapshot(
+                status="IDLE",
+                message=f"运行环境未就绪，请先完成初始化（{H2O_CONDA_EXE}）。",
+                primary_enabled=False,
+            )
             return
-
-        self.install_btn.setEnabled(True)
-        self.install_btn.setToolTip("")
-        self.output_edit.clear()
+        self._set_log_text("")
+        self._emit_view_snapshot(status="IDLE", message="", primary_enabled=True)
 
     def _reset_attempt_state(self) -> None:
         self._installing = True
         self._failure_hint_appended = False
         self._last_snapshot_updated_at = 0.0
         self._terminal_status = ""
-        self._user_expanded_log = False
-        self.output_edit.clear()
-        self._set_log_visible(False, user_initiated=False)
+        self._set_log_text("")
 
-    def _set_action_mode(self, mode: str) -> None:
-        if mode == "idle":
-            self.cancel_btn.show()
-            self.cancel_btn.setText("取消")
-            self.install_btn.show()
-            self.install_btn.setText("开始安装")
-            self.install_btn.setEnabled(True)
-            self._rebind_install_btn(self._on_start_install)
-            return
-        if mode == "running":
-            self.cancel_btn.show()
-            self.cancel_btn.setText("关闭")
-            self.install_btn.hide()
-            return
-        if mode == "success":
-            self.cancel_btn.hide()
-            self.install_btn.show()
-            self.install_btn.setText("完成")
-            self.install_btn.setEnabled(True)
-            self._rebind_install_btn(self.accept)
-            return
-        if mode == "failed":
-            self.cancel_btn.show()
-            self.cancel_btn.setText("关闭")
-            self.install_btn.show()
-            self.install_btn.setText("重试")
-            self.install_btn.setEnabled(True)
-            self._rebind_install_btn(self._on_start_install)
-            return
-        raise RuntimeError(f"Unknown action mode: {mode!r}")
+    def _emit_view_snapshot(
+        self,
+        *,
+        status: str,
+        message: str,
+        exit_code: str = "",
+        updated_at: float | None = None,
+        primary_enabled: bool | None = None,
+    ) -> None:
+        normalized_status = str(status or "").strip().upper() or "IDLE"
+        analysis = analyze_install_log(
+            normalized_status if normalized_status != "IDLE" else "RUNNING",
+            message=message,
+            log_text=self._current_log_text,
+            exit_code=exit_code,
+        )
+        payload: dict[str, object] = {
+            "status": normalized_status,
+            "message": message,
+            "log_text": self._current_log_text,
+            "exit_code": exit_code,
+            "updated_at": updated_at if updated_at is not None else self._last_snapshot_updated_at,
+            "phase_text": self._build_phase_text(normalized_status, analysis, message),
+            "progress": analysis.progress_value or 0,
+            "progress_text": analysis.progress_text,
+            "speed": analysis.speed_text,
+            "log_auto_expand": normalized_status == "FAILED",
+        }
+        payload.update(self._button_payload(normalized_status, primary_enabled=primary_enabled))
+        self._latest_snapshot_payload = payload
+        self._latest_snapshot_json = json.dumps(payload, ensure_ascii=False)
+        self._install_bridge.snapshotUpdated.emit(self._latest_snapshot_json)
 
-    def _toggle_log_drawer(self) -> None:
-        self._set_log_visible(self._log_content.isHidden(), user_initiated=True)
+    def _button_payload(self, status: str, *, primary_enabled: bool | None = None) -> dict[str, object]:
+        normalized_status = str(status or "").strip().upper()
+        primary_action = "install"
+        primary_label = "开始安装"
+        secondary_label = "取消"
+        secondary_visible = True
+        enabled = True if primary_enabled is None else bool(primary_enabled)
 
-    def _set_log_visible(self, visible: bool, *, user_initiated: bool) -> None:
-        self._log_drawer.setVisible(True)
-        self._log_content.setVisible(visible)
-        self._log_content.setMaximumHeight(self._EXPANDED_LOG_MAX_HEIGHT if visible else 0)
-        self._log_content.setMinimumHeight(0)
-        vertical_policy = QSizePolicy.Policy.Preferred if visible else QSizePolicy.Policy.Fixed
-        self._log_content.setSizePolicy(QSizePolicy.Policy.Preferred, vertical_policy)
-        if user_initiated:
-            self._user_expanded_log = visible
-        icon_name = "ph.caret-down" if visible else "ph.caret-right"
-        self.log_toggle_btn.setIcon(qta.icon(icon_name, color=styles.COLOR_PRIMARY))
-        self.log_toggle_btn.setText("隐藏详细日志" if visible else "查看详细日志")
+        if normalized_status in {"SUBMITTING", "RUNNING"}:
+            primary_label = "开始安装"
+            primary_action = "install"
+            secondary_label = "关闭"
+            enabled = False
+        elif normalized_status == "DONE":
+            primary_label = "关闭"
+            primary_action = "close"
+            secondary_visible = False
+            enabled = True
+        elif normalized_status == "FAILED":
+            primary_label = "重试"
+            primary_action = "install"
+            secondary_label = "关闭"
+            enabled = True
 
-    def _sync_log_visibility(self, status: str) -> None:
-        normalized = str(status or "").strip().upper()
-        if self._user_expanded_log:
-            self._set_log_visible(True, user_initiated=False)
-            return
-        self._set_log_visible(normalized == "FAILED", user_initiated=False)
+        return {
+            "primary_label": primary_label,
+            "primary_action": primary_action,
+            "primary_enabled": enabled,
+            "secondary_label": secondary_label,
+            "secondary_visible": secondary_visible,
+        }
+
+    def _build_phase_text(self, status: str, analysis, message: str) -> str:
+        normalized_status = str(status or "").strip().upper()
+        if normalized_status == "IDLE":
+            if message:
+                return message
+            return "点击「开始安装」执行安装"
+        if normalized_status == "DONE":
+            return "安装成功"
+        if normalized_status == "FAILED":
+            return "安装失败"
+        if normalized_status == "SUBMITTING":
+            return "正在连接服务器并提交任务"
+        if message:
+            return analysis.phase_text
+        return analysis.phase_text
 
     def _set_log_text(self, text: str) -> None:
-        self.output_edit.setPlainText(text)
-        self._scroll_log_to_bottom()
+        self._current_log_text = str(text or "")
 
     def _append_log_block(self, text: str) -> None:
         block = str(text or "").strip()
         if not block:
             return
-        current = self.output_edit.toPlainText()
-        merged = f"{current.rstrip()}\n\n{block}" if current.strip() else block
-        self.output_edit.setPlainText(merged)
-        self._scroll_log_to_bottom()
+        current = self._current_log_text.rstrip()
+        self._current_log_text = f"{current}\n\n{block}" if current else block
 
     def _append_failure_guidance(self, exit_code: str) -> None:
         if self._failure_hint_appended:
@@ -442,9 +412,11 @@ class EnvInstallDialog(QDialog):
         self._append_log_block(build_failure_guidance(exit_code))
         self._failure_hint_appended = True
 
-    def _scroll_log_to_bottom(self) -> None:
-        scroll_bar = self.output_edit.verticalScrollBar()
-        scroll_bar.setValue(scroll_bar.maximum())
+    def _close_from_bridge(self) -> None:
+        if self._terminal_status == "DONE":
+            self.accept()
+            return
+        self.reject()
 
     @staticmethod
     def _parse_updated_at(snapshot: dict) -> float | None:
@@ -455,6 +427,3 @@ class EnvInstallDialog(QDialog):
             return float(raw)
         except (TypeError, ValueError):
             return None
-
-    def _on_cancel(self):
-        self.reject()
