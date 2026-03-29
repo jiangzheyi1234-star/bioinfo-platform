@@ -207,6 +207,44 @@ def test_check_status_specific_file_checks_file_path():
     assert any("du -sm" in cmd and "gunc_db_progenomes2.1.dmnd" in cmd for cmd in calls)
 
 
+def test_verify_integrity_at_path_can_skip_missing_status_file_for_existing_database():
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        calls.append(cmd)
+        if "test -f" in cmd and ".install_ok" in cmd:
+            return 1, "", ""
+        if "du -sm" in cmd:
+            return 0, "500000\n", ""
+        return 0, "", ""
+
+    svc = DatabaseService()
+    result = svc.verify_integrity_at_path(
+        fn,
+        "blast_nt",
+        "/custom/blast_nt/nt",
+        require_status_file=False,
+    )
+
+    assert result.status == DatabaseStatus.READY
+    assert not any(".install_ok" in cmd for cmd in calls)
+
+
+def test_ensure_status_marker_at_path_touches_storage_root_marker():
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        calls.append(cmd)
+        return 0, "", ""
+
+    svc = DatabaseService()
+    svc.ensure_status_marker_at_path(fn, "core_nt", "/custom/core_nt/core_nt")
+
+    assert any("touch" in cmd and "/custom/core_nt/.install_ok" in cmd for cmd in calls)
+
+
 def test_check_status_not_installed():
     svc = DatabaseService()
     result = svc.check_status(_ssh_status_missing, "kraken2_standard", "/data/databases")
