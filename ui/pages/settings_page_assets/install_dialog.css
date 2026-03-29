@@ -1,0 +1,254 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #ffffff;
+    color: #24292f;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dialog-shell {
+    padding: 16px;
+}
+
+.info-block {
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.info-row {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 10px;
+    align-items: start;
+}
+
+.info-row + .info-row {
+    margin-top: 8px;
+}
+
+.info-label {
+    color: #57606a;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.info-value {
+    color: #24292f;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.env-name {
+    display: inline-block;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    background: #ddf4ff;
+    color: #0969da;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-right: 6px;
+}
+
+.code-wrap {
+    word-break: break-all;
+}
+
+.db-warn {
+    color: #9a6700;
+}
+
+.progress-block {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+}
+
+.progress-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #8c959f;
+}
+
+.dot.idle {
+    background: #8c959f;
+}
+
+.dot.running {
+    background: #9c27b0;
+    animation: pulse 1s infinite;
+}
+
+.dot.done {
+    background: #1a7f37;
+}
+
+.dot.failed {
+    background: #cf222e;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+.phase-text {
+    flex: 1;
+    color: #57606a;
+    font-size: 12px;
+}
+
+.speed-text {
+    color: #8c959f;
+    font-size: 11px;
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+progress {
+    width: 100%;
+    height: 6px;
+    appearance: none;
+    border: none;
+    background: #d8dee4;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+progress::-webkit-progress-bar {
+    background: #d8dee4;
+    border-radius: 999px;
+}
+
+progress::-webkit-progress-value {
+    background: #9c27b0;
+    border-radius: 999px;
+    transition: width 0.25s ease;
+}
+
+.progress-pct {
+    margin-top: 6px;
+    text-align: right;
+    color: #8c959f;
+    font-size: 11px;
+}
+
+.log-block {
+    margin-top: 12px;
+}
+
+details summary {
+    list-style: none;
+    cursor: pointer;
+    color: #57606a;
+    font-size: 12px;
+    user-select: none;
+}
+
+details summary::before {
+    content: "▶ ";
+    font-size: 10px;
+}
+
+details[open] summary::before {
+    content: "▼ ";
+}
+
+.log-area {
+    margin-top: 8px;
+    background: #1f2937;
+    color: #dbe4f0;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border-radius: 6px;
+    padding: 10px 12px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.log-area::-webkit-scrollbar {
+    width: 6px;
+}
+
+.log-area::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 999px;
+}
+
+.status-row {
+    min-height: 18px;
+    margin-top: 10px;
+    color: #57606a;
+    font-size: 12px;
+}
+
+.status-row.success {
+    color: #1a7f37;
+    font-weight: 500;
+}
+
+.status-row.error {
+    color: #cf222e;
+}
+
+.btn-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.btn {
+    border-radius: 6px;
+    border: 1px solid #d0d7de;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-cancel {
+    background: #f6f8fa;
+    color: #24292f;
+}
+
+.btn-cancel:hover {
+    background: #eef2f6;
+}
+
+.btn-primary {
+    background: linear-gradient(to bottom, #1f6feb, #1158c7);
+    color: #ffffff;
+    border-color: #1158c7;
+}
+
+.btn-primary:hover:not(:disabled) {
+    box-shadow: 0 2px 6px rgba(31, 111, 235, 0.35);
+}
+
+.btn-primary:disabled {
+    background: #8c959f;
+    border-color: #8c959f;
+    cursor: not-allowed;
+}
