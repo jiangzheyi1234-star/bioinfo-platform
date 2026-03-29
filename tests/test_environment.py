@@ -17,7 +17,11 @@ from core.environment.env_detector import (
 from core.environment.env_batch_checker import check_all_envs, get_existing_env_paths
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
-from core.environment.miniforge_condarc import CONDARC_TEMPLATE
+from core.environment.miniforge_condarc import (
+    CONDARC_TEMPLATE,
+    MANAGED_OVERRIDE_CHANNEL_URLS,
+    build_override_channel_args,
+)
 from core.environment.miniforge_release import (
     MINIFORGE_RELEASE_API_URL,
     build_miniforge_download_candidates,
@@ -179,13 +183,22 @@ def test_shared_condarc_template_matches_runtime_expectations():
     assert "channels:" in CONDARC_TEMPLATE
     assert "  - conda-forge" in CONDARC_TEMPLATE
     assert "  - bioconda" in CONDARC_TEMPLATE
-    assert "channel_priority: flexible" in CONDARC_TEMPLATE
+    assert "default_channels:" in CONDARC_TEMPLATE
+    assert "custom_channels:" in CONDARC_TEMPLATE
+    assert "channel_priority: strict" in CONDARC_TEMPLATE
     assert "solver: libmamba" in CONDARC_TEMPLATE
     assert "show_channel_urls: true" in CONDARC_TEMPLATE
     assert "auto_activate_base: false" in CONDARC_TEMPLATE
-    assert "custom_channels:" not in CONDARC_TEMPLATE
-    assert "defaults:" not in CONDARC_TEMPLATE
-    assert "strict" not in CONDARC_TEMPLATE
+    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/cloud" in CONDARC_TEMPLATE
+    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main" in CONDARC_TEMPLATE
+
+
+def test_build_override_channel_args_uses_managed_mirror_urls():
+    args = build_override_channel_args()
+    assert args[0] == "--override-channels"
+    urls = [args[i + 1] for i, tok in enumerate(args) if tok == "-c"]
+    assert urls == list(MANAGED_OVERRIDE_CHANNEL_URLS)
+    assert len(urls) == len(MANAGED_OVERRIDE_CHANNEL_URLS)
 
 
 # ----------------------------------------------------------------------------
@@ -236,11 +249,15 @@ class TestEnvInstallerSubmit:
     def test_submit_basic(self):
         """基本提交流程。"""
         fn = make_ssh_fn({
+            "mkdir -p ~/.h2ometa/runtime": (0, "", ""),
+            "echo '": (0, "", ""),
+            "eval echo $HOME/.h2ometa/conda/bin/conda": (
+                0, "/home/user/.h2ometa/conda/bin/conda\n", ""
+            ),
             "eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing": (
                 0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", ""
             ),
             "mkdir -p": (0, "", ""),
-            "echo '": (0, "", ""),
             "screen -S h2o_install_fastp -X quit": (0, "", ""),
             "screen -dmS": (0, "", ""),
         })
@@ -255,10 +272,14 @@ class TestEnvInstallerSubmit:
         """提交时替换 conda 路径。"""
         written_script = []
         def capture_fn(cmd, timeout=15):
+            if cmd == "mkdir -p ~/.h2ometa/runtime":
+                return (0, "", "")
             if cmd.startswith("eval echo $HOME/.h2ometa/conda/bin/conda"):
                 return (0, "/home/user/.h2ometa/conda/bin/conda\n", "")
             if cmd.startswith("eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing"):
                 return (0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", "")
+            if cmd.startswith("echo '") and f"> {H2O_CONDARC}" in cmd:
+                return (0, "", "")
             if cmd.startswith("echo '"):
                 parts = cmd.split("'")
                 if len(parts) >= 2:
@@ -277,16 +298,23 @@ class TestEnvInstallerSubmit:
         )
         assert len(written_script) == 1
         assert "/home/user/.h2ometa/conda/bin/conda create" in written_script[0]
+        assert "--override-channels" in written_script[0]
+        assert "mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge" in written_script[0]
+        assert "mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main" in written_script[0]
 
     def test_submit_expands_tilde_conda_executable_before_writing_script(self):
         """提交时先将自管 conda 的 ~ 路径展开为远端绝对路径。"""
         written_script = []
 
         def capture_fn(cmd, timeout=15):
+            if cmd == "mkdir -p ~/.h2ometa/runtime":
+                return (0, "", "")
             if cmd == "eval echo $HOME/.h2ometa/conda/bin/conda":
                 return (0, "/home/user/.h2ometa/conda/bin/conda\n", "")
             if cmd == "eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing":
                 return (0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", "")
+            if cmd.startswith("echo '") and f"> {H2O_CONDARC}" in cmd:
+                return (0, "", "")
             if cmd.startswith("echo '"):
                 parts = cmd.split("'")
                 if len(parts) >= 2:
@@ -310,6 +338,24 @@ class TestEnvInstallerSubmit:
         assert "/home/user/.h2ometa/conda/bin/conda create" in script
         assert "/home/user/.h2ometa/conda/bin/conda run -p \"$TMP_PREFIX\"" in script
         assert "'~/.h2ometa/conda/bin/conda'" not in script
+        assert "--override-channels" in script
+
+    def test_submit_rejects_composite_install_cmd(self):
+        fn = make_ssh_fn({
+            "mkdir -p ~/.h2ometa/runtime": (0, "", ""),
+            "echo '": (0, "", ""),
+            "eval echo $HOME/.h2ometa/conda/bin/conda": (
+                0, "/home/user/.h2ometa/conda/bin/conda\n", ""
+            ),
+        })
+
+        with pytest.raises(RuntimeError, match="复合 shell 语法"):
+            EnvInstaller.submit(
+                fn,
+                "fastp",
+                "conda create -n fastp_env -y && echo done",
+                H2O_CONDA_EXE,
+            )
 
     def test_submit_requires_conda_executable(self):
         fn = make_ssh_fn({})
