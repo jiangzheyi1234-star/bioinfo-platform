@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from ui.controllers.install_task_controller import InstallTaskController
 
 
@@ -16,7 +18,7 @@ def test_summary_running_has_priority():
             "message": "正在安装数据库",
             "progress_text": "30%",
             "speed_text": "2.1MB/s",
-            "detail": "legacy detail should be ignored",
+            "location_hint": "database",
         }
     )
     ctrl.ingest_event(
@@ -25,7 +27,8 @@ def test_summary_running_has_priority():
             "title": "工具环境安装 · fastp",
             "source": "tool_env",
             "state": "failed",
-            "detail": "command not found",
+            "message": "command not found",
+            "location_hint": "settings",
         }
     )
 
@@ -42,7 +45,8 @@ def test_summary_failed_when_no_running():
             "title": "工具环境安装 · kraken2",
             "source": "tool_env",
             "state": "failed",
-            "detail": "安装失败",
+            "message": "安装失败",
+            "location_hint": "settings",
         }
     )
 
@@ -59,7 +63,7 @@ def test_snapshot_sorted_by_updated_at_desc():
             "title": "任务A",
             "source": "db",
             "state": "running",
-            "detail": "",
+            "location_hint": "database",
         }
     )
     time.sleep(0.01)
@@ -69,7 +73,7 @@ def test_snapshot_sorted_by_updated_at_desc():
             "title": "任务B",
             "source": "db",
             "state": "success",
-            "detail": "",
+            "location_hint": "database",
         }
     )
 
@@ -87,7 +91,8 @@ def test_ingest_event_is_idempotent_for_same_task():
             "source": "db",
             "state": "running",
             "progress_text": "10%",
-            "detail": "10%",
+            "message": "下载中",
+            "location_hint": "database",
         }
     )
     ctrl.ingest_event(
@@ -97,7 +102,7 @@ def test_ingest_event_is_idempotent_for_same_task():
             "source": "db",
             "state": "success",
             "message": "完成",
-            "detail": "完成",
+            "location_hint": "database",
         }
     )
 
@@ -117,7 +122,8 @@ def test_summary_running_includes_download_speed():
             "state": "running",
             "progress_text": "35%",
             "speed_text": "2.1MB/s",
-            "detail": "legacy detail should not be parsed",
+            "message": "下载中",
+            "location_hint": "database",
         }
     )
 
@@ -129,42 +135,19 @@ def test_summary_running_includes_download_speed():
     assert text == "安装: nt 35% 2.1MB/s"
 
 
-def test_summary_running_falls_back_to_legacy_detail_parsing():
+def test_legacy_detail_payload_raises():
     ctrl = InstallTaskController()
-    ctrl.ingest_event(
-        {
-            "task_id": "db:nt",
-            "title": "数据库安装 · nt",
-            "source": "db",
-            "state": "running",
-            "detail": "35% · 速度 2.1MB/s · 预计 00:10",
-        }
-    )
 
-    summary = ctrl.summary()
-    assert summary["level"] == "running"
-    assert str(summary["text"]) == "安装: nt 35% 2.1MB/s"
-
-
-def test_legacy_detail_only_event_keeps_detail_and_summary():
-    ctrl = InstallTaskController()
-    ctrl.ingest_event(
-        {
-            "task_id": "db:legacy",
-            "title": "数据库安装 · Legacy",
-            "source": "db",
-            "state": "running",
-            "detail": "42% · 速度 1.2MB/s",
-        }
-    )
-
-    rows = ctrl.snapshot()
-    assert rows[0]["detail"] == "42% · 速度 1.2MB/s"
-    assert rows[0]["message"] == "42% · 速度 1.2MB/s"
-
-    summary = ctrl.summary()
-    assert summary["level"] == "running"
-    assert str(summary["text"]) == "安装: Legacy 42% 1.2MB/s"
+    with pytest.raises(ValueError, match="Legacy install_task_event.detail"):
+        ctrl.ingest_event(
+            {
+                "task_id": "db:legacy",
+                "title": "数据库安装 · Legacy",
+                "source": "db",
+                "state": "running",
+                "detail": "42% · 速度 1.2MB/s",
+            }
+        )
 
 
 def test_summary_success_uses_compact_title():
@@ -175,10 +158,28 @@ def test_summary_success_uses_compact_title():
             "title": "工具环境安装 · Prodigal",
             "source": "tool_env",
             "state": "success",
-            "detail": "工具环境安装完成",
+            "message": "工具环境安装完成",
+            "location_hint": "settings",
         }
     )
 
     summary = ctrl.summary()
     assert summary["level"] == "success"
     assert str(summary["text"]) == "安装: Prodigal 完成"
+
+
+def test_snapshot_keeps_location_hint():
+    ctrl = InstallTaskController()
+    ctrl.ingest_event(
+        {
+            "task_id": "bootstrap:miniforge",
+            "title": "运行环境初始化",
+            "source": "bootstrap",
+            "state": "running",
+            "message": "后台初始化任务执行中",
+            "location_hint": "settings",
+        }
+    )
+
+    rows = ctrl.snapshot()
+    assert rows[0]["location_hint"] == "settings"

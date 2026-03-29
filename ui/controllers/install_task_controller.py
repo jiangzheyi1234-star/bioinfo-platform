@@ -7,7 +7,6 @@ from dataclasses import asdict, dataclass
 from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from ui.install_log_parser import extract_progress_and_speed
 
 
 @dataclass
@@ -19,7 +18,7 @@ class InstallTask:
     message: str
     progress_text: str
     speed_text: str
-    detail: str
+    location_hint: str
     updated_at: float
 
 
@@ -39,12 +38,12 @@ class InstallTaskController(QObject):
         title = str(payload.get("title", "") or task_id).strip()
         source = str(payload.get("source", "") or "").strip()
         state = self._normalize_state(payload.get("state", "running"))
+        if "detail" in payload:
+            raise ValueError("Legacy install_task_event.detail is no longer supported")
         message = self._clean_text(payload.get("message", ""))
         progress_text = self._clean_text(payload.get("progress_text", ""))
         speed_text = self._clean_text(payload.get("speed_text", ""))
-        detail = self._clean_text(payload.get("detail", ""))
-        if not message and detail:
-            message = detail
+        location_hint = self._clean_text(payload.get("location_hint", ""))
         self._tasks[task_id] = InstallTask(
             task_id=task_id,
             title=title,
@@ -53,7 +52,7 @@ class InstallTaskController(QObject):
             message=message,
             progress_text=progress_text,
             speed_text=speed_text,
-            detail=detail,
+            location_hint=location_hint,
             updated_at=time.time(),
         )
         self.changed.emit()
@@ -67,7 +66,7 @@ class InstallTaskController(QObject):
         message: str = "",
         progress_text: str = "",
         speed_text: str = "",
-        detail: str = "",
+        location_hint: str = "",
     ) -> None:
         self.ingest_event(
             {
@@ -78,7 +77,7 @@ class InstallTaskController(QObject):
                 "message": message,
                 "progress_text": progress_text,
                 "speed_text": speed_text,
-                "detail": detail,
+                "location_hint": location_hint,
             }
         )
 
@@ -91,7 +90,7 @@ class InstallTaskController(QObject):
         message: str = "",
         progress_text: str = "",
         speed_text: str = "",
-        detail: str = "",
+        location_hint: str = "",
     ) -> None:
         self.start(
             task_id=task_id,
@@ -100,7 +99,7 @@ class InstallTaskController(QObject):
             message=message,
             progress_text=progress_text,
             speed_text=speed_text,
-            detail=detail,
+            location_hint=location_hint,
         )
 
     def success(
@@ -112,7 +111,7 @@ class InstallTaskController(QObject):
         message: str = "",
         progress_text: str = "",
         speed_text: str = "",
-        detail: str = "",
+        location_hint: str = "",
     ) -> None:
         self.ingest_event(
             {
@@ -123,7 +122,7 @@ class InstallTaskController(QObject):
                 "message": message,
                 "progress_text": progress_text,
                 "speed_text": speed_text,
-                "detail": detail,
+                "location_hint": location_hint,
             }
         )
 
@@ -136,7 +135,7 @@ class InstallTaskController(QObject):
         message: str = "",
         progress_text: str = "",
         speed_text: str = "",
-        detail: str = "",
+        location_hint: str = "",
     ) -> None:
         self.ingest_event(
             {
@@ -147,7 +146,7 @@ class InstallTaskController(QObject):
                 "message": message,
                 "progress_text": progress_text,
                 "speed_text": speed_text,
-                "detail": detail,
+                "location_hint": location_hint,
             }
         )
 
@@ -216,9 +215,6 @@ class InstallTaskController(QObject):
         title = InstallTaskController._compact_title(str(current.get("title", "") or "安装任务").strip())
         progress = InstallTaskController._clean_text(current.get("progress_text", ""))
         speed = InstallTaskController._clean_text(current.get("speed_text", ""))
-        if not progress and not speed:
-            detail = str(current.get("detail", "") or "").strip()
-            progress, speed = extract_progress_and_speed(detail)
 
         parts = []
         if progress:

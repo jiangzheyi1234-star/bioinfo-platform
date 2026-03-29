@@ -131,7 +131,14 @@ def test_submit_install_emits_running_task_event(page: DatabasePage, monkeypatch
     page.install_task_event.connect(lambda payload: events.append(payload))
     page._submit_install_async(db_id, 0)
 
-    assert any(e.get("task_id") == f"db:{db_id}" and e.get("state") == "running" for e in events)
+    assert any(
+        e.get("task_id") == f"db:{db_id}"
+        and e.get("state") == "running"
+        and e.get("message") == "正在提交安装任务"
+        and e.get("location_hint") == "database"
+        and "detail" not in e
+        for e in events
+    )
 
 
 def test_progress_and_finish_emit_install_task_events(page: DatabasePage):
@@ -142,8 +149,22 @@ def test_progress_and_finish_emit_install_task_events(page: DatabasePage):
     page._on_progress_updated(db_id, 35, "2.1MB/s", "00:10")
     page._on_install_finished(db_id, True, "安装完成")
 
-    assert any(e.get("state") == "running" and "35%" in str(e.get("detail", "")) for e in events)
-    assert any(e.get("state") == "success" for e in events)
+    assert any(
+        e.get("state") == "running"
+        and e.get("message") == "35% · 速度 2.1MB/s · 预计 00:10"
+        and e.get("progress_value") == 35
+        and e.get("progress_text") == "35%"
+        and e.get("speed_text") == "2.1MB/s"
+        and "detail" not in e
+        for e in events
+    )
+    assert any(
+        e.get("state") == "success"
+        and e.get("message") == "安装完成"
+        and e.get("location_hint") == "database"
+        and "detail" not in e
+        for e in events
+    )
 
 
 def test_submit_install_async_blocks_when_preflight_missing(page: DatabasePage, monkeypatch):

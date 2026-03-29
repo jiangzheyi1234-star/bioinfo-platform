@@ -28,7 +28,11 @@ from ui.widgets.styles import (
     STATUS_ERROR,
 )
 from ui.install_log_parser import extract_progress_and_speed
-from ui.controllers.install_workflow import InstallWorkflowPresenter, InstallWorkflowStore
+from ui.controllers.install_workflow import (
+    InstallWorkflowStore,
+    build_bootstrap_task_event,
+    build_tool_install_task_event,
+)
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge
 from ui.widgets.web_ui_host import create_local_web_ui_host
 from ui.widgets.toast import Toast
@@ -480,11 +484,7 @@ class LinuxSettingsCard(QFrame):
         self._pending_recover_after_batch: bool = False
         self._recover_installs_running: bool = False
         self._workflow_store = InstallWorkflowStore()
-        self._workflow_presenter = InstallWorkflowPresenter()
-        self._tool_install_snapshots = self._workflow_store._tool_snapshots
         self._tool_install_submitting_ids: set[str] = set()
-        self._tool_install_submit_threads: dict[str, QThread] = {}
-        self._tool_install_submit_workers: dict[str, ToolInstallSubmitWorker] = {}
         self._tool_install_dialogs: dict[str, EnvInstallDialog] = {}
 
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
@@ -506,67 +506,15 @@ class LinuxSettingsCard(QFrame):
         self._plugin_registry = plugin_registry
         self._refresh_tool_list()
 
-    def _emit_install_task_event(
-        self,
-        *,
-        task_id: str,
-        title: str,
-        source: str,
-        state: str,
-        detail: str = "",
-        message: str = "",
-        progress_text: str = "",
-        speed_text: str = "",
-        location_hint: str = "",
-    ) -> None:
-        payload = self._workflow_presenter.build_task_event(
-            task_id=task_id,
-            title=title,
-            source=source,
-            state=state,
-            detail=detail,
-            message=message,
-            progress_text=progress_text,
-            speed_text=speed_text,
-            location_hint=location_hint,
-        )
-        if not payload["task_id"] or not payload["title"]:
+    def _emit_install_task(self, payload: dict) -> None:
+        if not payload.get("task_id") or not payload.get("title"):
             return
-        try:
-            self.install_task_event.emit(payload)
-        except RuntimeError:
-            logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
+        self.install_task_event.emit(payload)
 
-    def _emit_bootstrap_install_event(self, state: str, detail: str = "") -> None:
-        payload = self._workflow_presenter.build_bootstrap_task_event(state, detail)
-        try:
-            self.install_task_event.emit(payload)
-        except RuntimeError:
-            logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
-
-    def _emit_tool_install_event(
-        self,
-        tool_id: str,
-        state: str,
-        detail: str = "",
-        *,
-        progress_text: str = "",
-        speed_text: str = "",
-    ) -> None:
-        tool = next((t for t in self._tools if t.get("id") == tool_id), None)
-        tool_name = str((tool or {}).get("name", "") or tool_id).strip() or tool_id
-        payload = self._workflow_presenter.build_tool_install_task_event(
-            tool_id,
-            tool_name,
-            state,
-            detail,
-            progress_text=progress_text,
-            speed_text=speed_text,
-        )
-        try:
-            self.install_task_event.emit(payload)
-        except RuntimeError:
-            logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
+    def _tool_display_name(self, tool_id: str) -> str:
+        clean_tool_id = str(tool_id or "").strip()
+        tool = next((item for item in self._tools if item.get("id") == clean_tool_id), None)
+        return str((tool or {}).get("name", "") or clean_tool_id).strip() or clean_tool_id
 
     def _get_tool_install_snapshot(self, tool_id: str) -> dict:
         return self._workflow_store.get_tool_snapshot(tool_id)
@@ -925,12 +873,14 @@ class LinuxSettingsCard(QFrame):
         if caps is None:
             message = preflight_error or "服务器预检尚未完成，请稍后重试。"
             self._set_status(message[:60], STATUS_ERROR)
-            self._emit_bootstrap_install_event("failed", message)
+            self._emit_install_task(build_bootstrap_task_event("failed", message))
             self._prompt_miniforge_install_failed(message)
             return
         if self._miniforge_installing:
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
-            self._emit_bootstrap_install_event("running", "运行环境初始化进行中")
+            self._emit_install_task(
+                build_bootstrap_task_event("running", "运行环境初始化进行中")
+            )
             self._emit_deploy_state()
             return
 
@@ -939,15 +889,17 @@ class LinuxSettingsCard(QFrame):
         self._miniforge_probe_completed = True
         self._miniforge_deployed = False
         self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
-        self._emit_bootstrap_install_event("running", "后台提交初始化任务")
+        self._emit_install_task(
+            build_bootstrap_task_event("running", "后台提交初始化任务")
+        )
         self._emit_deploy_state()
         self._cleanup_miniforge_resources()
 
         def _on_finished(result: dict) -> None:
             self._miniforge_task_dir = result.get("task_dir", miniforge_bootstrap.TASK_DIR)
             already_running = bool(result.get("already_running", False))
-            detail = "已接管后台运行中的初始化任务" if already_running else "初始化任务已提交到后台"
-            self._emit_bootstrap_install_event("running", detail)
+            message = "已接管后台运行中的初始化任务" if already_running else "初始化任务已提交到后台"
+            self._emit_install_task(build_bootstrap_task_event("running", message))
             self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
             self._start_miniforge_polling()
             self._cleanup_miniforge_resources()
@@ -956,7 +908,7 @@ class LinuxSettingsCard(QFrame):
             self._miniforge_installing = False
             self._emit_deploy_state()
             self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
-            self._emit_bootstrap_install_event("failed", f"提交失败: {msg}")
+            self._emit_install_task(build_bootstrap_task_event("failed", f"提交失败: {msg}"))
             self._prompt_miniforge_install_failed(msg)
             self._cleanup_miniforge_resources()
 
@@ -1025,7 +977,9 @@ class LinuxSettingsCard(QFrame):
             self.request_save.emit()
             self._emit_deploy_state()
             self._set_status("运行环境已就绪，正在检测工具环境...", STATUS_SUCCESS)
-            self._emit_bootstrap_install_event("success", "运行环境初始化完成")
+            self._emit_install_task(
+                build_bootstrap_task_event("success", "运行环境初始化完成")
+            )
             Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
             if self._tools:
                 self._pending_recover_after_batch = True
@@ -1048,7 +1002,9 @@ class LinuxSettingsCard(QFrame):
             return
 
         self._set_status("正在初始化运行环境（首次启动约 1-2 分钟）...")
-        self._emit_bootstrap_install_event("running", "后台初始化任务执行中")
+        self._emit_install_task(
+            build_bootstrap_task_event("running", "后台初始化任务执行中")
+        )
         self._schedule_miniforge_poll(3000)
 
     def _on_miniforge_poll_error(self, payload: object) -> None:
@@ -1079,7 +1035,7 @@ class LinuxSettingsCard(QFrame):
         self.request_save.emit()
         self._emit_deploy_state()
         self._set_status("运行环境初始化失败，请重试安装", STATUS_ERROR)
-        self._emit_bootstrap_install_event("failed", reason)
+        self._emit_install_task(build_bootstrap_task_event("failed", reason))
         self._start_miniforge_poll_job("read_failure_log", reason=reason)
 
     def _on_miniforge_failure_log_finished(self, payload: dict) -> None:
@@ -1386,7 +1342,14 @@ class LinuxSettingsCard(QFrame):
                 status="FAILED",
                 message="运行环境未就绪，请先完成初始化。",
             )
-            self._emit_tool_install_event(clean_tool_id, "failed", "运行环境未就绪，无法安装")
+            self._emit_install_task(
+                build_tool_install_task_event(
+                    clean_tool_id,
+                    self._tool_display_name(clean_tool_id),
+                    "failed",
+                    "运行环境未就绪，无法安装",
+                )
+            )
             return
 
         tool = next((t for t in self._tools if t.get("id") == clean_tool_id), None)
@@ -1397,66 +1360,68 @@ class LinuxSettingsCard(QFrame):
                 status="FAILED",
                 message="该工具未配置 install_cmd，无法自动安装。",
             )
-            self._emit_tool_install_event(clean_tool_id, "failed", "该工具未配置 install_cmd")
+            self._emit_install_task(
+                build_tool_install_task_event(
+                    clean_tool_id,
+                    self._tool_display_name(clean_tool_id),
+                    "failed",
+                    "该工具未配置 install_cmd",
+                )
+            )
             return
 
         self._start_tool_install_submit(clean_tool_id, install_cmd)
 
     def _start_tool_install_submit(self, tool_id: str, install_cmd: str) -> None:
-        self._cleanup_tool_install_submit_job(tool_id)
+        existing_thread = getattr(self, "_tool_install_submit_thread", None)
+        if existing_thread is not None and existing_thread.isRunning():
+            self._tool_install_submitting_ids.discard(tool_id)
+            self._update_tool_install_snapshot(
+                tool_id,
+                status="FAILED",
+                message="已有安装提交任务在执行，请稍候重试。",
+            )
+            self._emit_install_task(
+                build_tool_install_task_event(
+                    tool_id,
+                    self._tool_display_name(tool_id),
+                    "failed",
+                    "已有安装提交任务在执行，请稍候重试。",
+                )
+            )
+            return
         self._tool_install_submitting_ids.add(tool_id)
         self._update_tool_install_snapshot(
             tool_id,
             status="SUBMITTING",
             message="正在提交后台安装任务……",
         )
-        self._emit_tool_install_event(tool_id, "running", "正在提交安装任务")
-
-        thread = QThread(self)
-        worker = ToolInstallSubmitWorker(
-            self._make_ssh_run_fn(),
-            tool_id,
-            install_cmd,
-            self._conda_executable,
+        self._emit_install_task(
+            build_tool_install_task_event(
+                tool_id,
+                self._tool_display_name(tool_id),
+                "running",
+                "正在提交安装任务",
+            )
         )
-        worker.moveToThread(thread)
-        self._tool_install_submit_threads[tool_id] = thread
-        self._tool_install_submit_workers[tool_id] = worker
 
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._on_tool_install_submit_finished)
-        worker.error.connect(self._on_tool_install_submit_error)
-        worker.finished.connect(thread.quit)
-        worker.error.connect(thread.quit)
-        thread.start()
-
-    def _cleanup_tool_install_submit_job(self, tool_id: str) -> None:
-        clean_tool_id = str(tool_id or "").strip()
-        worker = self._tool_install_submit_workers.pop(clean_tool_id, None)
-        thread = self._tool_install_submit_threads.pop(clean_tool_id, None)
-        if worker is not None:
-            cancel = getattr(worker, "cancel", None)
-            if callable(cancel):
-                try:
-                    cancel()
-                except RuntimeError:
-                    logger.debug("submit worker already deleted: %s", clean_tool_id, exc_info=True)
-            worker.deleteLater()
-        if thread is not None:
-            if thread.isRunning():
-                thread.quit()
-                thread.wait(3000)
-            thread.deleteLater()
-
-    def _cleanup_tool_install_submit_resources(self) -> None:
-        for tool_id in list(self._tool_install_submit_threads.keys()):
-            self._cleanup_tool_install_submit_job(tool_id)
-        self._tool_install_submitting_ids.clear()
+        launch_worker(
+            self,
+            "_tool_install_submit_thread",
+            "_tool_install_submit_worker",
+            ToolInstallSubmitWorker(
+                self._make_ssh_run_fn(),
+                tool_id,
+                install_cmd,
+                self._conda_executable,
+            ),
+            on_finished=self._on_tool_install_submit_finished,
+            on_error=self._on_tool_install_submit_error,
+        )
 
     def _on_tool_install_submit_finished(self, tool_id: str, result: dict) -> None:
         clean_tool_id = str(tool_id or "").strip()
         self._tool_install_submitting_ids.discard(clean_tool_id)
-        self._cleanup_tool_install_submit_job(clean_tool_id)
 
         task_dir = str((result or {}).get("task_dir", "") or "").strip()
         job_id = str((result or {}).get("job_id", "") or "").strip()
@@ -1472,7 +1437,6 @@ class LinuxSettingsCard(QFrame):
     def _on_tool_install_submit_error(self, tool_id: str, message: str) -> None:
         clean_tool_id = str(tool_id or "").strip()
         self._tool_install_submitting_ids.discard(clean_tool_id)
-        self._cleanup_tool_install_submit_job(clean_tool_id)
         self._installing_tool_ids.discard(clean_tool_id)
         self._tool_log_samples.pop(clean_tool_id, None)
         self._update_tool_install_snapshot(
@@ -1481,7 +1445,14 @@ class LinuxSettingsCard(QFrame):
             message=f"启动安装失败: {message}",
         )
         if clean_tool_id:
-            self._emit_tool_install_event(clean_tool_id, "failed", f"提交安装失败: {message}")
+            self._emit_install_task(
+                build_tool_install_task_event(
+                    clean_tool_id,
+                    self._tool_display_name(clean_tool_id),
+                    "failed",
+                    f"提交安装失败: {message}",
+                )
+            )
         self._ensure_tool_install_polling()
 
     def _on_install_submitted(self, tool_id: str) -> None:
@@ -1491,7 +1462,14 @@ class LinuxSettingsCard(QFrame):
         self._installing_tool_ids.add(tool_id)
         if self._bridge:
             self._bridge.emit_install_started(tool_id)
-        self._emit_tool_install_event(tool_id, "running", "安装任务已提交，正在拉取进度")
+        self._emit_install_task(
+            build_tool_install_task_event(
+                tool_id,
+                self._tool_display_name(tool_id),
+                "running",
+                "安装任务已提交，正在拉取进度",
+            )
+        )
         self._update_tool_install_snapshot(
             tool_id,
             status="RUNNING",
@@ -1516,7 +1494,14 @@ class LinuxSettingsCard(QFrame):
         if not tool_id:
             return
         self._finalize_tool_install_state(tool_id, success=True)
-        self._emit_tool_install_event(tool_id, "success", "工具环境安装完成")
+        self._emit_install_task(
+            build_tool_install_task_event(
+                tool_id,
+                self._tool_display_name(tool_id),
+                "success",
+                "工具环境安装完成",
+            )
+        )
         self._update_tool_install_snapshot(
             tool_id,
             status="DONE",
@@ -1547,7 +1532,14 @@ class LinuxSettingsCard(QFrame):
         if not tool_id:
             return
         self._finalize_tool_install_state(tool_id, success=False)
-        self._emit_tool_install_event(tool_id, "failed", "工具环境安装失败")
+        self._emit_install_task(
+            build_tool_install_task_event(
+                tool_id,
+                self._tool_display_name(tool_id),
+                "failed",
+                "工具环境安装失败",
+            )
+        )
         self._update_tool_install_snapshot(
             tool_id,
             status="FAILED",
@@ -1623,7 +1615,14 @@ class LinuxSettingsCard(QFrame):
                     )
                     if self._bridge:
                         self._bridge.emit_install_started(tool_id)
-                    self._emit_tool_install_event(tool_id, "running", "检测到后台安装任务仍在运行")
+                    self._emit_install_task(
+                        build_tool_install_task_event(
+                            tool_id,
+                            self._tool_display_name(tool_id),
+                            "running",
+                            "检测到后台安装任务仍在运行",
+                        )
+                    )
                 else:
                     logger.info("工具 %s RUNNING 但会话已不存在且环境未落地，静默回缺失", tool_id)
                     self._installing_tool_ids.discard(tool_id)
@@ -1701,7 +1700,7 @@ class LinuxSettingsCard(QFrame):
             on_error=self._on_tool_install_poll_error,
         )
 
-    def _build_tool_install_running_detail(self, tool_id: str, log_text: str, log_size: int) -> str:
+    def _build_tool_install_running_message(self, tool_id: str, log_text: str, log_size: int) -> str:
         progress, speed = extract_progress_and_speed(log_text)
         now = time.time()
         last = self._tool_log_samples.get(tool_id)
@@ -1778,25 +1777,28 @@ class LinuxSettingsCard(QFrame):
                 need_recheck = True
                 continue
 
-            detail = self._build_tool_install_running_detail(
+            message = self._build_tool_install_running_message(
                 tool_id,
                 log_text,
                 log_size,
             )
-            progress_text, speed_text = extract_progress_and_speed(detail)
+            progress_text, speed_text = extract_progress_and_speed(message)
             self._update_tool_install_snapshot(
                 tool_id,
                 status="RUNNING",
                 log_text=log_text,
                 log_size=max(log_size, 0),
-                message=detail,
+                message=message,
             )
-            self._emit_tool_install_event(
-                tool_id,
-                "running",
-                detail,
-                progress_text=progress_text,
-                speed_text=speed_text,
+            self._emit_install_task(
+                build_tool_install_task_event(
+                    tool_id,
+                    self._tool_display_name(tool_id),
+                    "running",
+                    message,
+                    progress_text=progress_text,
+                    speed_text=speed_text,
+                )
             )
 
         if need_recheck:
@@ -1847,7 +1849,8 @@ class LinuxSettingsCard(QFrame):
         if self._tool_install_poll_timer.isActive():
             self._tool_install_poll_timer.stop()
         self._close_tool_install_dialogs()
-        self._cleanup_tool_install_submit_resources()
+        self._tool_install_submitting_ids.clear()
+        request_worker_stop(self, "_tool_install_submit_thread", "_tool_install_submit_worker")
         request_worker_stop(self, "_check_thread", "_check_worker")
         self._cleanup_miniforge_resources()
         request_worker_stop(self, "_recover_installs_thread", "_recover_installs_worker")
