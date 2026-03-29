@@ -242,6 +242,16 @@ def test_older_snapshot_is_ignored(qapp):
     qapp.processEvents()
 
 
+def test_unknown_snapshot_status_raises_loudly(qapp):
+    dialog = _make_dialog()
+
+    with pytest.raises(RuntimeError, match="Unknown install snapshot status"):
+        dialog.apply_install_snapshot({"status": "PAUSED", "message": "paused"})
+
+    dialog.close()
+    qapp.processEvents()
+
+
 def test_request_close_rejects_running_dialog_and_accepts_success(qapp):
     dialog = _make_dialog()
     dialog.apply_install_snapshot({"status": "RUNNING", "message": "运行中", "updated_at": 1})
