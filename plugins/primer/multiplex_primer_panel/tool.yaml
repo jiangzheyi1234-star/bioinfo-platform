@@ -176,7 +176,7 @@ command_template: |
   cp -f "{{ output_dir }}/multiplex_workspace/my_result/primer_result_final_2.txt" "{{ output_dir }}/primer_result_final_2.txt" 2>/dev/null || true
 
 databases:
-  - id: blast_nt
+  - id: core_nt
     param_name: db
     required: true
     label: "core_nt 数据库"

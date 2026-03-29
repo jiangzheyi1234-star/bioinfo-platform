@@ -54,6 +54,12 @@ def _first_managed_db_id(page: DatabasePage) -> str:
     pytest.skip("no managed database available")
 
 
+def _managed_db_id(page: DatabasePage, target_db_id: str) -> str:
+    if target_db_id not in page._cards:
+        pytest.skip(f"{target_db_id} card unavailable")
+    return target_db_id
+
+
 def test_check_database_status_uses_effective_override_path(page: DatabasePage, monkeypatch):
     db_id = _first_managed_db_id(page)
     info = page._get_database_info(db_id)
@@ -66,6 +72,7 @@ def test_check_database_status_uses_effective_override_path(page: DatabasePage, 
         lambda: {"databases": {"db_root": "/data/databases", "overrides": {db_id: "/custom/db"}}},
     )
     monkeypatch.setattr(page, "_expand_remote_path", lambda value: value)
+    monkeypatch.setattr(page, "_make_ssh_run_fn", lambda: fake_run)
 
     def fake_run(cmd: str, timeout: int = 10):
         del timeout
@@ -89,6 +96,7 @@ def test_on_path_override_rejects_incomplete_existing_path(page: DatabasePage, m
     saved = []
     page._ssh_service = MagicMock(is_connected=True)
     monkeypatch.setattr(page, "_pick_remote_db_root", lambda _start, anchor=None: "/remote/incomplete")
+    monkeypatch.setattr(page, "_expand_remote_path", lambda value: value)
     monkeypatch.setattr(
         page,
         "_check_database_path_remote",
@@ -111,6 +119,7 @@ def test_on_path_override_saves_after_integrity_check(page: DatabasePage, monkey
     infos = []
     page._ssh_service = MagicMock(is_connected=True)
     monkeypatch.setattr(page, "_pick_remote_db_root", lambda _start, anchor=None: "/remote/ok")
+    monkeypatch.setattr(page, "_expand_remote_path", lambda value: value)
     monkeypatch.setattr(
         page,
         "_check_database_path_remote",
@@ -125,6 +134,48 @@ def test_on_path_override_saves_after_integrity_check(page: DatabasePage, monkey
     assert saved
     assert saved[-1]["databases"]["overrides"][db_id] == "/remote/ok"
     assert infos
+
+
+def test_on_path_override_normalizes_prefix_database_to_canonical_value(page: DatabasePage, monkeypatch):
+    db_id = _managed_db_id(page, "blast_nt")
+    saved = []
+    page._ssh_service = MagicMock(is_connected=True)
+    monkeypatch.setattr(page, "_pick_remote_db_root", lambda _start, anchor=None: "/remote/blast_nt")
+    monkeypatch.setattr(page, "_expand_remote_path", lambda value: value)
+    monkeypatch.setattr(
+        page,
+        "_check_database_path_remote",
+        lambda info, path: DatabaseCheckResult(info.db_id, DatabaseStatus.READY, f"ok: {path}"),
+    )
+    monkeypatch.setattr(db_page_module, "get_config", lambda: {"databases": {"db_root": "/data/databases", "overrides": {}}})
+    monkeypatch.setattr(db_page_module, "save_config", lambda payload: saved.append(payload))
+    monkeypatch.setattr(db_page_module.QMessageBox, "information", lambda *a, **kw: None)
+
+    page._on_path_override(db_id)
+
+    assert saved
+    assert saved[-1]["databases"]["overrides"][db_id] == "/remote/blast_nt/nt"
+
+
+def test_on_path_override_normalizes_specific_file_database_to_canonical_value(page: DatabasePage, monkeypatch):
+    db_id = _managed_db_id(page, "gunc_db")
+    saved = []
+    page._ssh_service = MagicMock(is_connected=True)
+    monkeypatch.setattr(page, "_pick_remote_db_root", lambda _start, anchor=None: "/remote/gunc")
+    monkeypatch.setattr(page, "_expand_remote_path", lambda value: value)
+    monkeypatch.setattr(
+        page,
+        "_check_database_path_remote",
+        lambda info, path: DatabaseCheckResult(info.db_id, DatabaseStatus.READY, f"ok: {path}"),
+    )
+    monkeypatch.setattr(db_page_module, "get_config", lambda: {"databases": {"db_root": "/data/databases", "overrides": {}}})
+    monkeypatch.setattr(db_page_module, "save_config", lambda payload: saved.append(payload))
+    monkeypatch.setattr(db_page_module.QMessageBox, "information", lambda *a, **kw: None)
+
+    page._on_path_override(db_id)
+
+    assert saved
+    assert saved[-1]["databases"]["overrides"][db_id] == "/remote/gunc/gunc_db_progenomes2.1.dmnd"
 
 
 def test_set_ssh_service_triggers_recovery(page: DatabasePage, monkeypatch):

@@ -17,7 +17,7 @@ import logging
 import shlex
 import time
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.database_service import DatabaseService
@@ -949,22 +949,16 @@ class ToolBridgeService:
             logger.exception("Failed to persist normalized remote_base for project %s", project_id)
 
     @staticmethod
-    def _resolve_database_install_path(db_root: str, install_path: str) -> str:
-        root = str(db_root or "").strip().rstrip("/")
-        rel = str(install_path or "").strip().replace("\\", "/")
-        if not root or not rel:
-            return ""
-
-        rel_path = PurePosixPath(rel)
-        if rel_path.is_absolute():
-            return ""
-        if any(part == ".." for part in rel_path.parts):
-            return ""
-
-        normalized = rel_path.as_posix().lstrip("./")
-        if normalized in {"", "."} or normalized.startswith("../"):
-            return ""
-        return f"{root}/{normalized}"
+    def _descriptor_consumes_database_var(tool_id: str, descriptor: dict, param_name: str, db_id: str) -> None:
+        command_template = str(descriptor.get("command_template", "") or "")
+        marker = f"{{{{ {param_name} }}}}"
+        compact_marker = f"{{{{{param_name}}}}}"
+        if marker in command_template or compact_marker in command_template:
+            return
+        raise ValueError(
+            f"工具 {tool_id} 声明了数据库绑定但命令模板未消费该变量: "
+            f"db_id={db_id}, param={param_name}"
+        )
 
     def get_latest_sample_id(self, pm) -> str:
         try:
@@ -1007,28 +1001,17 @@ class ToolBridgeService:
                 raise ValueError(f"工具 {tool_id} 的数据库声明缺少 id")
             if not param_name:
                 raise ValueError(f"工具 {tool_id} 的数据库声明缺少 param_name: db_id={db_id}")
+            self._descriptor_consumes_database_var(tool_id, desc, param_name, db_id)
 
             info = self._database_service.get_info(db_id)
             if info is None:
                 raise ValueError(f"工具 {tool_id} 引用未注册数据库: db_id={db_id}")
 
-            override_path = self._database_service._normalized_override_path(overrides, db_id)
-            if override_path:
-                paths[param_name] = override_path
-                logger.debug(
-                    "数据库路径已匹配(override): tool=%s, db_id=%s → %s=%s",
-                    tool_id,
-                    db_id,
-                    param_name,
-                    override_path,
-                )
-                continue
-
-            resolved = self._resolve_database_install_path(db_root, info.install_path)
+            resolved = self._database_service.resolve_binding_value(db_id, db_root, overrides=overrides)
             if resolved:
                 paths[param_name] = resolved
                 logger.debug(
-                    "数据库路径已匹配(db_root): tool=%s, db_id=%s → %s=%s",
+                    "数据库路径已匹配(binding): tool=%s, db_id=%s → %s=%s",
                     tool_id,
                     db_id,
                     param_name,

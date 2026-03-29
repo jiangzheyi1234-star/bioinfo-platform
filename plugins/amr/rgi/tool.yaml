@@ -55,12 +55,6 @@ command_template: |
     --num_threads {{ threads }} \
     --clean
 
-databases:
-  - id: card_db
-    param_name: db
-    required: true
-    description: "CARD 耐药基因参考数据库"
-
 methods_template: >
   Antimicrobial resistance genes were identified using RGI v{version}
   with the CARD database and {alignment_tool} alignment.
