@@ -488,6 +488,7 @@ class DatabasePage(BasePage):
         self._status_worker: Optional[DatabaseStatusWorker] = None
         self._install_threads: dict[str, object] = {}
         self._install_workers: dict[str, DatabaseInstallMonitor] = {}
+        self._install_verify_paths: dict[str, str] = {}
         self._async_tasks: dict[str, tuple[QThread, _AsyncTaskWorker]] = {}
         self._install_submit_pending: set[str] = set()
         self._init_ui()
@@ -643,6 +644,105 @@ class DatabasePage(BasePage):
             "updated_at": float(updated_at if updated_at is not None else time.time()),
         }
         self.install_task_event.emit(payload)
+
+    def _get_database_info(self, db_id: str) -> DatabaseInfo | None:
+        return self._database_service.get_info(str(db_id or "").strip())
+
+    def _normalize_install_path(self, install_path: str) -> str:
+        rel = str(install_path or "").strip().replace("\\", "/")
+        if not rel:
+            return ""
+        rel = posixpath.normpath(rel)
+        if rel in {"", "."} or rel.startswith(".."):
+            return ""
+        return rel.lstrip("./")
+
+    def _get_database_override_path(self, db_id: str) -> str:
+        cfg = get_config()
+        databases = cfg.get("databases", {})
+        if not isinstance(databases, dict):
+            return ""
+        overrides = databases.get("overrides", {})
+        if not isinstance(overrides, dict):
+            return ""
+        override = str(overrides.get(str(db_id or "").strip(), "") or "").strip()
+        if not override:
+            return ""
+        return self._normalize_remote_path(self._expand_remote_path(override) or override)
+
+    def _get_database_install_target_path(self, db_id: str) -> str:
+        info = self._get_database_info(db_id)
+        if info is None or info.builtin:
+            return ""
+        db_root = self._get_db_root()
+        rel_install_path = self._normalize_install_path(info.install_path)
+        if not db_root or not rel_install_path:
+            return ""
+        return self._normalize_remote_path(posixpath.join(db_root.rstrip("/"), rel_install_path))
+
+    def _get_database_effective_path(self, db_id: str) -> str:
+        override_path = self._get_database_override_path(db_id)
+        if override_path:
+            return override_path
+        return self._get_database_install_target_path(db_id)
+
+    def _check_database_path_remote(self, info: DatabaseInfo, db_path: str) -> DatabaseCheckResult:
+        if info.builtin:
+            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.UNKNOWN, message="builtin 数据库")
+
+        candidate = self._normalize_remote_path(self._expand_remote_path(str(db_path or "").strip()) or str(db_path or "").strip())
+        if not candidate:
+            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径不能为空")
+        if not candidate.startswith("/"):
+            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"数据库路径必须是绝对路径: {candidate}")
+
+        qdb = shlex.quote(candidate)
+        rc, _, _ = self._run_ssh(f"test -d {qdb}", 10)
+        if rc != 0:
+            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"路径不存在: {candidate}")
+
+        rc, _, _ = self._run_ssh(f"test -x {qdb}", 10)
+        if rc != 0:
+            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"路径不可进入(-x): {candidate}")
+
+        status_file = str(info.integrity_check.get("status_file", ".install_ok") or "").strip()
+        if status_file:
+            rc, _, _ = self._run_ssh(f"test -f {qdb}/{shlex.quote(status_file)}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"缺少状态文件: {status_file}")
+
+        for key_file in info.integrity_check.get("key_files", []):
+            key = str(key_file or "").strip()
+            if not key:
+                continue
+            rc, _, _ = self._run_ssh(f"test -e {qdb}/{shlex.quote(key)}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"缺少: {key}")
+
+        min_size_mb = int(info.integrity_check.get("min_size_mb", 0) or 0)
+        if min_size_mb > 0:
+            rc, stdout, stderr = self._run_ssh(f"du -sm {qdb}", 20)
+            if rc != 0:
+                detail = stderr.strip() or "无法读取目录大小"
+                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"目录大小校验失败: {detail}")
+            try:
+                size_mb = int(str(stdout or "").split()[0])
+            except Exception:
+                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message="目录大小校验失败: 无法解析输出")
+            if size_mb < min_size_mb:
+                return DatabaseCheckResult(
+                    db_id=info.db_id,
+                    status=DatabaseStatus.INCOMPLETE,
+                    message=f"目录大小不足: {size_mb} MB < {min_size_mb} MB",
+                )
+
+        return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.READY)
+
+    def _check_database_status(self, info: DatabaseInfo) -> DatabaseCheckResult:
+        effective_path = self._get_database_effective_path(info.db_id)
+        if not effective_path:
+            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径未配置")
+        return self._check_database_path_remote(info, effective_path)
 
     def _save_db_root(self, raw_input: str = "", done_cb: Optional[Callable[[bool], None]] = None) -> bool:
         if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
@@ -958,6 +1058,7 @@ class DatabasePage(BasePage):
                 card.update_status(DatabaseCheckResult(db_id=card.db_info.db_id, status=DatabaseStatus.UNKNOWN))
             return
         self._refresh_all_status()
+        self._recover_running_install_monitors()
 
     def set_ssh_service(self, ssh_service) -> None:
         self._ssh_service = ssh_service
@@ -966,10 +1067,12 @@ class DatabasePage(BasePage):
                 card.update_status(DatabaseCheckResult(db_id=card.db_info.db_id, status=DatabaseStatus.UNKNOWN))
             return
         self._refresh_all_status()
+        self._recover_running_install_monitors()
 
     def refresh_context(self) -> None:
         if self._ssh_service is not None or self._ssh_client is not None:
             self._refresh_all_status()
+            self._recover_running_install_monitors()
 
     def _make_ssh_run_fn(self):
         ssh = self._ssh_service
@@ -998,8 +1101,7 @@ class DatabasePage(BasePage):
         self._status_thread = QThread(self)
         self._status_worker = DatabaseStatusWorker(
             database_service=self._database_service,
-            ssh_run_fn=self._make_ssh_run_fn(),
-            db_root=self._get_db_root(),
+            status_check_fn=self._check_database_status,
         )
         self._status_worker.moveToThread(self._status_thread)
         self._status_thread.started.connect(self._status_worker.run)
@@ -1011,6 +1113,8 @@ class DatabasePage(BasePage):
     def _on_status_checked(self, db_id: str, result) -> None:
         card = self._cards.get(db_id)
         if card is not None:
+            if db_id in self._install_workers or db_id in self._install_submit_pending:
+                return
             card.update_status(result)
 
     def _on_status_error(self, message: str) -> None:
@@ -1067,6 +1171,7 @@ class DatabasePage(BasePage):
                 return
             self._install_submit_pending.add(db_id)
             card.set_installing(True)
+            self._install_verify_paths[db_id] = self._get_database_install_target_path(db_id)
             self._emit_install_task_event(db_id, "running", message="正在提交安装任务")
 
             started = self._start_async_task(
@@ -1084,6 +1189,7 @@ class DatabasePage(BasePage):
             if not started:
                 self._install_submit_pending.discard(db_id)
                 card.set_installing(False)
+                self._install_verify_paths.pop(db_id, None)
                 self._emit_install_task_event(db_id, "failed", message="安装提交任务已在执行")
                 QMessageBox.warning(self, "数据库安装", "安装提交任务已在执行，请稍候。")
                 return
@@ -1092,6 +1198,7 @@ class DatabasePage(BasePage):
             card = self._cards.get(db_id)
             if card is not None:
                 card.set_installing(False)
+            self._install_verify_paths.pop(db_id, None)
             logger.exception("install_submit_error db_id=%s error=%s", db_id, exc)
             self._emit_install_task_event(db_id, "failed", message=f"提交安装任务失败: {exc}")
             QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {exc}")
@@ -1112,11 +1219,13 @@ class DatabasePage(BasePage):
         card = self._cards.get(db_id)
         if card is not None:
             card.set_installing(False)
+        self._install_verify_paths.pop(db_id, None)
         self._emit_install_task_event(db_id, "failed", message=str(error or "提交安装任务失败"))
         QMessageBox.warning(self, "数据库安装", f"提交安装任务失败: {error}")
 
     def _start_install_monitor(self, db_id: str, task_dir: str) -> None:
         from PyQt6.QtCore import QThread
+        verify_db_path = str(self._install_verify_paths.get(db_id, "") or "").strip() or self._get_database_install_target_path(db_id)
         self._stop_install_monitor(db_id)
         thread = QThread(self)
         worker = DatabaseInstallMonitor(
@@ -1124,12 +1233,13 @@ class DatabasePage(BasePage):
             ssh_run_fn=self._make_ssh_run_fn(),
             db_id=db_id,
             task_dir=task_dir,
-            db_root=self._get_db_root(),
+            verify_db_path=verify_db_path,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress_updated.connect(self._on_progress_updated)
         worker.log_updated.connect(self._on_log_updated)
+        worker.install_stalled.connect(self._on_install_stalled)
         worker.install_finished.connect(self._on_install_finished)
         self._install_threads[db_id] = thread
         self._install_workers[db_id] = worker
@@ -1145,6 +1255,7 @@ class DatabasePage(BasePage):
             if not thread.wait(1500):
                 logger.warning("Database install thread did not stop in time: %s", db_id)
             thread.deleteLater()
+        self._install_verify_paths.pop(db_id, None)
 
     def _on_progress_updated(self, db_id: str, percent: int, speed: str, eta: str) -> None:
         card = self._cards.get(db_id)
@@ -1187,6 +1298,52 @@ class DatabasePage(BasePage):
         )
         self._refresh_all_status()
 
+    def _on_install_stalled(self, db_id: str, message: str) -> None:
+        self._emit_install_task_event(db_id, "running", message=str(message or "安装任务心跳超时").strip())
+        dialog = self._dialogs.get(db_id)
+        if dialog is not None:
+            dialog.update_log(message)
+
+    def _scan_running_install_tasks(self) -> list[dict[str, str]]:
+        ssh_run_fn = self._make_ssh_run_fn()
+        rows: list[dict[str, str]] = []
+        for info in self._database_service.list_all():
+            task_dir = f"{self._database_service.INSTALL_BASE}/{info.db_id}"
+            status = self._database_service.check_install_status(ssh_run_fn, task_dir)
+            if str(status.get("status", "")).strip().upper() == "RUNNING":
+                rows.append({"db_id": info.db_id, "task_dir": task_dir})
+        return rows
+
+    def _recover_running_install_monitors(self) -> None:
+        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
+            return
+        started = self._start_async_task(
+            "db_install_recovery",
+            self._scan_running_install_tasks,
+            on_success=self._on_recover_running_install_monitors_finished,
+            on_error=self._on_recover_running_install_monitors_error,
+        )
+        if not started:
+            return
+
+    def _on_recover_running_install_monitors_finished(self, payload: object) -> None:
+        rows = list(payload if isinstance(payload, list) else [])
+        for item in rows:
+            db_id = str(item.get("db_id", "") or "").strip()
+            task_dir = str(item.get("task_dir", "") or "").strip()
+            if not db_id or not task_dir:
+                continue
+            if db_id in self._install_workers:
+                continue
+            card = self._cards.get(db_id)
+            if card is not None:
+                card.set_installing(True)
+            self._emit_install_task_event(db_id, "running", message="检测到后台数据库安装任务仍在运行")
+            self._start_install_monitor(db_id, task_dir)
+
+    def _on_recover_running_install_monitors_error(self, message: str) -> None:
+        logger.warning("恢复数据库安装监控失败: %s", message)
+
     def _on_path_override(self, db_id: str) -> None:
         if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
             QMessageBox.warning(self, "数据库路径覆盖", "请先连接 SSH，再选择已有路径。")
@@ -1203,6 +1360,15 @@ class DatabasePage(BasePage):
         start_path = current or self._get_db_root() or "~"
         selected = self._pick_remote_db_root(start_path)
         if not selected:
+            return
+
+        info = self._get_database_info(db_id)
+        if info is None:
+            QMessageBox.warning(self, "数据库路径覆盖", f"未找到数据库定义: {db_id}")
+            return
+        result = self._check_database_path_remote(info, selected)
+        if result.status != DatabaseStatus.READY:
+            QMessageBox.warning(self, "数据库路径覆盖", result.message or "数据库路径完整性校验失败")
             return
 
         overrides[db_id] = self._normalize_remote_path(selected)

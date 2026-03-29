@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import qtawesome as qta
 from PyQt6.QtCore import QObject, QSize, pyqtSignal, pyqtSlot
@@ -26,6 +26,7 @@ from core.data.database_service import (
 from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY
 
 _ICON_SIZE = QSize(14, 14)
+_INSTALL_HEARTBEAT_TIMEOUT_SECONDS = 120
 
 # 状态对应的图标和颜色
 _STATUS_META = {
@@ -370,11 +371,10 @@ class DatabaseStatusWorker(QObject):
     all_done = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, database_service: DatabaseService, ssh_run_fn, db_root: str):
+    def __init__(self, database_service: DatabaseService, status_check_fn: Callable[[DatabaseInfo], DatabaseCheckResult]):
         super().__init__()
         self._database_service = database_service
-        self._ssh_run_fn = ssh_run_fn
-        self._db_root = db_root
+        self._status_check_fn = status_check_fn
         self._cancelled = False
 
     @pyqtSlot()
@@ -387,7 +387,7 @@ class DatabaseStatusWorker(QObject):
             for info in self._database_service.list_all():
                 if self._cancelled:
                     return
-                result = self._database_service.check_status(self._ssh_run_fn, info.db_id, self._db_root)
+                result = self._status_check_fn(info)
                 self.status_checked.emit(info.db_id, result)
             self.all_done.emit()
         except Exception as exc:
@@ -398,6 +398,7 @@ class DatabaseInstallMonitor(QObject):
     progress_updated = pyqtSignal(str, int, str, str)
     log_updated = pyqtSignal(str, str)
     install_finished = pyqtSignal(str, bool, str)
+    install_stalled = pyqtSignal(str, str)
 
     def __init__(
         self,
@@ -405,15 +406,16 @@ class DatabaseInstallMonitor(QObject):
         ssh_run_fn,
         db_id: str,
         task_dir: str,
-        db_root: str,
+        verify_db_path: str,
     ):
         super().__init__()
         self._database_service = database_service
         self._ssh_run_fn = ssh_run_fn
         self._db_id = db_id
         self._task_dir = task_dir
-        self._db_root = db_root
+        self._verify_db_path = verify_db_path
         self._cancelled = False
+        self._stall_notified = False
 
     @pyqtSlot()
     def cancel(self) -> None:
@@ -434,14 +436,48 @@ class DatabaseInstallMonitor(QObject):
                     str(progress.get("eta", "")),
                 )
                 state = str(status.get("status", ""))
+                heartbeat = str(status.get("heartbeat", "") or "").strip()
                 if state == "DONE":
-                    verify = self._database_service.verify_integrity(self._ssh_run_fn, self._db_id, self._db_root)
+                    verify = self._database_service.verify_integrity_at_path(self._ssh_run_fn, self._db_id, self._verify_db_path)
                     ok = verify.status == DatabaseStatus.READY
                     self.install_finished.emit(self._db_id, ok, verify.message or ("安装完成" if ok else "完整性校验失败"))
                     return
                 if state == "FAILED":
                     self.install_finished.emit(self._db_id, False, "安装失败")
                     return
+                if state == "RUNNING" and heartbeat:
+                    if self._is_heartbeat_stale(heartbeat):
+                        if self._is_screen_running():
+                            if not self._stall_notified:
+                                self.install_stalled.emit(self._db_id, "安装任务心跳超时，远端会话仍在运行")
+                                self._stall_notified = True
+                        else:
+                            self.install_finished.emit(self._db_id, False, "安装任务心跳超时，远端 screen 会话已退出")
+                            return
+                    else:
+                        self._stall_notified = False
                 time.sleep(2)
         except Exception as exc:
             self.install_finished.emit(self._db_id, False, str(exc))
+
+    def _is_heartbeat_stale(self, heartbeat_value: str) -> bool:
+        try:
+            heartbeat_ts = float(str(heartbeat_value or "").strip())
+        except Exception:
+            return True
+        current_ts = self._read_remote_timestamp()
+        return (current_ts - heartbeat_ts) > _INSTALL_HEARTBEAT_TIMEOUT_SECONDS
+
+    def _read_remote_timestamp(self) -> float:
+        rc, out, _ = self._ssh_run_fn("date +%s", 10)
+        if rc != 0:
+            raise RuntimeError("读取远端时间失败，无法判断安装心跳")
+        return float(str(out or "").strip())
+
+    def _is_screen_running(self) -> bool:
+        job_id = f"h2o_dbinstall_{self._db_id}"
+        try:
+            rc, _, _ = self._ssh_run_fn(f"screen -ls | grep -q {shlex.quote(job_id)}", 10)
+            return rc == 0
+        except Exception:
+            return False

@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import re
 import shlex
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePosixPath
@@ -87,6 +88,7 @@ def _render_install_cmd(template: str, db_path: str) -> str:
 
 class DatabaseService:
     INSTALL_BASE = "~/.h2ometa/db_installs"
+    HEARTBEAT_STALE_SECONDS = 180
 
     def __init__(self, databases_yaml_path: str = ""):
         if databases_yaml_path:
@@ -132,6 +134,16 @@ class DatabaseService:
     def get_info(self, db_id: str) -> DatabaseInfo | None:
         return self._registry.get(db_id)
 
+    @staticmethod
+    def _normalized_override_path(overrides: dict[str, str] | None, db_id: str) -> str:
+        if not isinstance(overrides, dict):
+            return ""
+        raw_value = str(overrides.get(db_id, "") or "").strip()
+        if not raw_value:
+            return ""
+        normalized = PurePosixPath(raw_value.replace("\\", "/")).as_posix().strip()
+        return normalized.rstrip("/") if normalized not in {"", "/"} else normalized
+
     def get_resolved_path(self, db_id: str, db_root: str) -> str:
         info = self.get_info(db_id)
         if info is None or info.builtin:
@@ -142,23 +154,69 @@ class DatabaseService:
             return ""
         return f"{root}/{rel}"
 
-    def check_status(self, ssh_run_fn: SshRunFn, db_id: str, db_root: str) -> DatabaseCheckResult:
+    def resolve_effective_path(
+        self,
+        db_id: str,
+        db_root: str,
+        overrides: dict[str, str] | None = None,
+    ) -> str:
+        override_path = self._normalized_override_path(overrides, db_id)
+        if override_path:
+            return override_path
+        return self.get_resolved_path(db_id, db_root)
+
+    def is_installable(self, db_id: str) -> bool:
+        info = self.get_info(db_id)
+        return bool(info and not info.builtin and (info.install_cmd or info.mirrors))
+
+    def check_status(
+        self,
+        ssh_run_fn: SshRunFn,
+        db_id: str,
+        db_root: str,
+        overrides: dict[str, str] | None = None,
+    ) -> DatabaseCheckResult:
         info = self.get_info(db_id)
         if info is None:
             return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="数据库未注册")
-        if info.builtin:
-            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="builtin 数据库")
-
-        db_path = self.get_resolved_path(db_id, db_root)
+        db_path = self.resolve_effective_path(db_id, db_root, overrides=overrides)
         if not db_path:
-            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message="db_root 未设置")
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径未配置")
+        return self.check_status_at_path(ssh_run_fn, db_id, db_path)
 
+    def check_status_at_path(self, ssh_run_fn: SshRunFn, db_id: str, db_path: str) -> DatabaseCheckResult:
+        info = self.get_info(db_id)
+        if info is None:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="数据库未注册")
+        normalized_path = str(db_path or "").strip()
+        if not normalized_path:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径未配置")
+        if not normalized_path.startswith("/"):
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"数据库路径必须是绝对路径: {normalized_path}")
+
+        qdb = _quote(normalized_path)
+        rc, _, _ = ssh_run_fn(f"test -d {qdb}", 10)
+        if rc != 0:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"目录不存在: {normalized_path}")
+
+        return self._check_integrity_at_path(ssh_run_fn, info, normalized_path)
+
+    def _check_integrity_at_path(
+        self,
+        ssh_run_fn: SshRunFn,
+        info: DatabaseInfo,
+        db_path: str,
+    ) -> DatabaseCheckResult:
         qdb = _quote(db_path)
         status_file = info.integrity_check.get("status_file", ".install_ok")
         if status_file:
             rc, _, _ = ssh_run_fn(f"test -f {qdb}/{_quote(str(status_file))}", 10)
             if rc != 0:
-                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED)
+                return DatabaseCheckResult(
+                    db_id=info.db_id,
+                    status=DatabaseStatus.NOT_INSTALLED,
+                    message=f"缺少状态文件: {status_file}",
+                )
 
         for kf in info.integrity_check.get("key_files", []):
             key = str(kf).strip()
@@ -166,12 +224,31 @@ class DatabaseService:
                 continue
             rc, _, _ = ssh_run_fn(f"test -e {qdb}/{_quote(key)}", 10)
             if rc != 0:
-                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.INCOMPLETE, message=f"缺少: {key}")
+                return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"缺少: {key}")
 
-        return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.READY)
+        min_size_mb = int(info.integrity_check.get("min_size_mb", 0) or 0)
+        if min_size_mb > 0:
+            rc, stdout, _ = ssh_run_fn(f"du -sm {qdb} 2>/dev/null | awk '{{print $1}}'", 15)
+            try:
+                actual_size_mb = int((stdout or "").strip()) if rc == 0 else 0
+            except ValueError:
+                actual_size_mb = 0
+            if actual_size_mb < min_size_mb:
+                return DatabaseCheckResult(
+                    db_id=info.db_id,
+                    status=DatabaseStatus.INCOMPLETE,
+                    message=f"数据库大小不足: {actual_size_mb} MB < {min_size_mb} MB",
+                )
 
-    def check_all(self, ssh_run_fn: SshRunFn, db_root: str) -> list[DatabaseCheckResult]:
-        return [self.check_status(ssh_run_fn, info.db_id, db_root) for info in self.list_all()]
+        return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.READY)
+
+    def check_all(
+        self,
+        ssh_run_fn: SshRunFn,
+        db_root: str,
+        overrides: dict[str, str] | None = None,
+    ) -> list[DatabaseCheckResult]:
+        return [self.check_status(ssh_run_fn, info.db_id, db_root, overrides=overrides) for info in self.list_all()]
 
     def generate_install_commands(
         self,
@@ -231,6 +308,9 @@ class DatabaseService:
         commands = self.generate_install_commands(caps, db_id, db_root, mirror_index=mirror_index)
         task_dir = f"{self.INSTALL_BASE}/{db_id}"
         job_id = f"h2o_dbinstall_{db_id}"
+        current = self.check_install_status(ssh_run_fn, task_dir)
+        if current.get("status") == "RUNNING" and self.is_heartbeat_fresh(current.get("heartbeat", "")):
+            return {"job_id": job_id, "task_dir": task_dir, "reused": "1"}
 
         expanded_task_dir = f'"$(eval echo {_quote(_expand_path(task_dir))})"'
         rc, _, stderr = ssh_run_fn(f"mkdir -p {expanded_task_dir}", 15)
@@ -275,7 +355,12 @@ exec > "$LOG_FILE" 2>&1
         if rc != 0:
             raise RuntimeError(f"写入安装脚本失败: {stderr[:200]}")
 
-        ssh_run_fn(f"screen -S {_quote(job_id)} -X quit 2>/dev/null || true", 10)
+        ssh_run_fn(
+            f"rm -f {expanded_task_dir}/status.txt {expanded_task_dir}/exit_code.txt {expanded_task_dir}/heartbeat.txt",
+            10,
+        )
+        if current.get("screen_running"):
+            ssh_run_fn(f"screen -S {_quote(job_id)} -X quit 2>/dev/null || true", 10)
         rc, _, stderr = ssh_run_fn(f"screen -dmS {_quote(job_id)} bash {expanded_script_path}", 15)
         if rc != 0:
             raise RuntimeError(f"启动安装任务失败: {stderr[:200]}")
@@ -292,21 +377,47 @@ exec > "$LOG_FILE" 2>&1
 
         rc, heartbeat_out, _ = ssh_run_fn(f"cat {expanded_task_dir}/heartbeat.txt 2>/dev/null", 10)
         heartbeat = heartbeat_out.strip() if rc == 0 else ""
+        heartbeat_age_sec = self.heartbeat_age_seconds(heartbeat)
 
         if status == "DONE" or exit_code == "0":
-            return {"status": "DONE", "exit_code": exit_code or "0", "heartbeat": heartbeat}
+            return {"status": "DONE", "exit_code": exit_code or "0", "heartbeat": heartbeat, "heartbeat_age_sec": str(heartbeat_age_sec or ""), "screen_running": ""}
         if status == "FAILED":
-            return {"status": "FAILED", "exit_code": exit_code, "heartbeat": heartbeat}
+            return {"status": "FAILED", "exit_code": exit_code, "heartbeat": heartbeat, "heartbeat_age_sec": str(heartbeat_age_sec or ""), "screen_running": ""}
         if status == "RUNNING":
-            return {"status": "RUNNING", "exit_code": exit_code, "heartbeat": heartbeat}
+            rc_screen, _, _ = ssh_run_fn(f"screen -ls | grep -q {_quote(f'h2o_dbinstall_{Path(task_dir).name}')}", 10)
+            return {
+                "status": "RUNNING",
+                "exit_code": exit_code,
+                "heartbeat": heartbeat,
+                "heartbeat_age_sec": str(heartbeat_age_sec or ""),
+                "screen_running": "1" if rc_screen == 0 else "",
+            }
 
         job_id = f"h2o_dbinstall_{Path(task_dir).name}"
         rc, _, _ = ssh_run_fn(f"screen -ls | grep -q {_quote(job_id)}", 10)
         if rc == 0:
-            return {"status": "RUNNING", "exit_code": exit_code, "heartbeat": heartbeat}
+            return {
+                "status": "RUNNING",
+                "exit_code": exit_code,
+                "heartbeat": heartbeat,
+                "heartbeat_age_sec": str(heartbeat_age_sec or ""),
+                "screen_running": "1",
+            }
         if exit_code and exit_code != "0":
-            return {"status": "FAILED", "exit_code": exit_code, "heartbeat": heartbeat}
-        return {"status": "", "exit_code": exit_code, "heartbeat": heartbeat}
+            return {
+                "status": "FAILED",
+                "exit_code": exit_code,
+                "heartbeat": heartbeat,
+                "heartbeat_age_sec": str(heartbeat_age_sec or ""),
+                "screen_running": "",
+            }
+        return {
+            "status": "",
+            "exit_code": exit_code,
+            "heartbeat": heartbeat,
+            "heartbeat_age_sec": str(heartbeat_age_sec or ""),
+            "screen_running": "",
+        }
 
     def read_install_log(self, ssh_run_fn: SshRunFn, task_dir: str, tail: int = 50) -> str:
         expanded_task_dir = f'"$(eval echo {_quote(_expand_path(task_dir))})"'
@@ -328,5 +439,34 @@ exec > "$LOG_FILE" 2>&1
             result["eta"] = last[2]
         return result
 
-    def verify_integrity(self, ssh_run_fn: SshRunFn, db_id: str, db_root: str) -> DatabaseCheckResult:
-        return self.check_status(ssh_run_fn, db_id, db_root)
+    @classmethod
+    def heartbeat_age_seconds(cls, heartbeat_value: str) -> int | None:
+        try:
+            return max(0, int(time.time()) - int(str(heartbeat_value or "").strip()))
+        except Exception:
+            return None
+
+    @classmethod
+    def is_heartbeat_fresh(cls, heartbeat_value: str, stale_seconds: int | None = None) -> bool:
+        age = cls.heartbeat_age_seconds(heartbeat_value)
+        if age is None:
+            return False
+        threshold = cls.HEARTBEAT_STALE_SECONDS if stale_seconds is None else int(stale_seconds)
+        return age <= threshold
+
+    def verify_integrity(
+        self,
+        ssh_run_fn: SshRunFn,
+        db_id: str,
+        db_root: str,
+        overrides: dict[str, str] | None = None,
+    ) -> DatabaseCheckResult:
+        return self.check_status(ssh_run_fn, db_id, db_root, overrides=overrides)
+
+    def verify_integrity_at_path(
+        self,
+        ssh_run_fn: SshRunFn,
+        db_id: str,
+        db_path: str,
+    ) -> DatabaseCheckResult:
+        return self.check_status_at_path(ssh_run_fn, db_id, db_path)

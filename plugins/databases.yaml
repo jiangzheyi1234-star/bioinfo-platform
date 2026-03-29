@@ -68,10 +68,10 @@ databases:
     name: "Centrifuge HPVC 病原体数据库"
     description: "Human Pathogen & Virus Centrifuge 数据库"
     category: "reads"
-    install_path: ""
+    install_path: "hpvc"
     size_mb: 5000
     tools: ["centrifuge"]
-    builtin: true
+    builtin: false
     integrity_check:
       status_file: null
       key_files: ["hpvc.1.cf", "hpvc.2.cf", "hpvc.3.cf"]

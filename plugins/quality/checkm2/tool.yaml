@@ -40,6 +40,7 @@ command_template: |
     --input {{ bins_dir }} \
     --output-directory {{ output_dir }}/checkm2_out \
     -x {{ extension }} \
+    --database_path {{ database_path }}/uniref100.KO.1.dmnd \
     -t {{ threads }} \
   && cp {{ output_dir }}/checkm2_out/quality_report.tsv \
     {{ output_dir }}/{{ sample_id }}.checkm2_quality.tsv
