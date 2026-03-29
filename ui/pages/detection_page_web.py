@@ -9,13 +9,12 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
 from core.execution.tool_bridge_service import ToolBridgeService
-from ui.qt_bootstrap import ensure_qt_webengine_ready
-from ui.widgets.report_view import create_report_web_view
+from ui.widgets.web_ui_host import create_local_web_ui_host
 from ui.widgets import styles
 
 logger = logging.getLogger(__name__)
@@ -335,9 +334,25 @@ class DetectionPageWeb(QFrame):
             self.channel = None
             return
 
-        ensure_qt_webengine_ready()
         try:
-            from PyQt6.QtWebChannel import QWebChannel
+            plugin_registry = self._get_plugin_registry()
+            self.bridge = ToolBridge(plugin_registry, main_window, web_view=None)
+            from core.utils import get_app_root
+            assets_dir = get_app_root() / "ui" / "pages" / "detection_page_assets"
+            html_path = assets_dir / "index_galaxy.html"
+            self.web_view, self.channel = create_local_web_ui_host(
+                parent=self,
+                bridge_name="bridge",
+                bridge_object=self.bridge,
+                html_path=html_path,
+                background="#F1F5F9",
+                disable_context_menu=True,
+                allow_remote_resources=True,
+                raise_on_missing_html=False,
+                on_load_finished=self._on_load_finished,
+                on_render_process_terminated=self._on_render_process_terminated,
+            )
+            self.bridge.web_view = self.web_view
         except ImportError as exc:
             logger.warning("QtWebEngine unavailable: %s", exc)
             placeholder = QLabel("检测页 WebEngine 不可用，请通过 ui.main 启动应用或先初始化 QtWebEngine。")
@@ -347,35 +362,6 @@ class DetectionPageWeb(QFrame):
             self.bridge = None
             self.channel = None
             return
-
-        self.web_view = create_report_web_view(
-            parent=self,
-            background="#F1F5F9",
-            disable_context_menu=True,
-        )
-        self.web_view.setStyleSheet("background: #F1F5F9; border: none;")
-        self.web_view.page().setBackgroundColor(QColor("#F1F5F9"))
-        self.web_view.loadFinished.connect(self._on_load_finished)
-
-        render_process_terminated = getattr(self.web_view.page(), "renderProcessTerminated", None)
-        if render_process_terminated is not None:
-            render_process_terminated.connect(self._on_render_process_terminated)
-
-        plugin_registry = self._get_plugin_registry()
-        self.bridge = ToolBridge(plugin_registry, main_window, web_view=self.web_view)
-
-        self.channel = QWebChannel()
-        self.channel.registerObject("bridge", self.bridge)
-        self.web_view.page().setWebChannel(self.channel)
-
-        from core.utils import get_app_root
-        assets_dir = get_app_root() / "ui" / "pages" / "detection_page_assets"
-        html_path = assets_dir / "index_galaxy.html"
-
-        if html_path.exists():
-            self.web_view.setUrl(QUrl.fromLocalFile(str(html_path)))
-        else:
-            logger.error("HTML file not found: %s", html_path)
 
         layout.addWidget(self.web_view)
 

@@ -6,6 +6,13 @@ import base64
 import logging
 import time
 
+from core.environment.detached_job import (
+    clear_remote_status_files,
+    ensure_remote_dirs,
+    expand_home_expr,
+    start_screen_script,
+    write_remote_script,
+)
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
 from core.environment.miniforge_condarc import build_condarc_template, build_miniforge_release_bases
 from core.remote.server_capabilities import PreflightError, ServerCapabilities, SshRunFn
@@ -230,10 +237,6 @@ echo "$CONDARC_B64" | base64 -d > "$CONDARC_PATH"
 """
 
 
-def _expand_path(path: str) -> str:
-    return path.replace("~", "$HOME")
-
-
 def submit(caps: ServerCapabilities, ssh_run_fn: SshRunFn, timeout: int = 20) -> dict:
     """提交后台 Miniforge 初始化任务（screen detached）。"""
     failures = caps.failures()
@@ -261,17 +264,14 @@ def submit(caps: ServerCapabilities, ssh_run_fn: SshRunFn, timeout: int = 20) ->
             "status": status.get("status", ""),
         }
 
-    task_dir_expanded = f'"$(eval echo {_expand_path(TASK_DIR)})"'
-    script_path_expanded = f'"$(eval echo {_expand_path(INSTALL_SCRIPT)})"'
-
-    ssh_run_fn(f"mkdir -p {task_dir_expanded}", timeout)
-    ssh_run_fn(f"rm -f {task_dir_expanded}/status.txt {task_dir_expanded}/exit_code.txt {task_dir_expanded}/heartbeat.txt", timeout)
+    ensure_remote_dirs(ssh_run_fn, [TASK_DIR], timeout)
+    clear_remote_status_files(ssh_run_fn, TASK_DIR, timeout)
 
     script = _BOOTSTRAP_WRAPPER.format(
-        task_dir=f"$(eval echo {_expand_path(TASK_DIR)})",
-        conda_home=f"$(eval echo {_expand_path(H2O_CONDA_HOME)})",
-        conda_exe=f"$(eval echo {_expand_path(H2O_CONDA_EXE)})",
-        condarc_path=f"$(eval echo {_expand_path(H2O_CONDARC)})",
+        task_dir=f"$(eval echo {expand_home_expr(TASK_DIR)})",
+        conda_home=f"$(eval echo {expand_home_expr(H2O_CONDA_HOME)})",
+        conda_exe=f"$(eval echo {expand_home_expr(H2O_CONDA_EXE)})",
+        condarc_path=f"$(eval echo {expand_home_expr(H2O_CONDARC)})",
         release_api_url=MINIFORGE_RELEASE_API_URL,
         installer_min_bytes=MINIFORGE_INSTALLER_MIN_BYTES,
         source_entries=_bootstrap_source_entries(),
@@ -279,17 +279,20 @@ def submit(caps: ServerCapabilities, ssh_run_fn: SshRunFn, timeout: int = 20) ->
         download_to_file_impl=_download_to_file_impl(caps.downloader),
         download_text_impl=_download_text_impl(caps.downloader),
     )
-    encoded = base64.b64encode(script.encode()).decode()
-
-    rc, _, stderr = ssh_run_fn(f"echo '{encoded}' | base64 -d > {script_path_expanded}", timeout)
-    if rc != 0:
-        raise RuntimeError(f"写入 Miniforge 安装脚本失败: {stderr[:200]}")
-    ssh_run_fn(f"chmod +x {script_path_expanded}", timeout)
-
-    ssh_run_fn(f"screen -S {JOB_ID} -X quit 2>/dev/null || true", timeout)
-    rc, _, stderr = ssh_run_fn(f"screen -dmS {JOB_ID} bash {script_path_expanded}", timeout)
-    if rc != 0:
-        raise RuntimeError(f"启动 Miniforge 后台任务失败: {stderr[:200]}")
+    script_path_expanded = write_remote_script(
+        ssh_run_fn,
+        INSTALL_SCRIPT,
+        script,
+        timeout,
+        label="Miniforge 安装脚本",
+    )
+    start_screen_script(
+        ssh_run_fn,
+        JOB_ID,
+        script_path_expanded,
+        timeout,
+        error_prefix="启动 Miniforge 后台任务失败",
+    )
     logger.info("Miniforge 后台初始化已提交: job_id=%s task_dir=%s", JOB_ID, TASK_DIR)
     return {
         "job_id": JOB_ID,
@@ -301,7 +304,7 @@ def submit(caps: ServerCapabilities, ssh_run_fn: SshRunFn, timeout: int = 20) ->
 
 def check_status(ssh_run_fn: SshRunFn, task_dir: str = TASK_DIR, timeout: int = 10) -> dict:
     """按 status/exit_code/heartbeat 顺序读取任务状态。"""
-    expanded = f'"$(eval echo {_expand_path(task_dir)})"'
+    expanded = f'"$(eval echo {expand_home_expr(task_dir)})"'
     status = ""
     exit_code = ""
     heartbeat = ""
@@ -334,7 +337,7 @@ def check_status(ssh_run_fn: SshRunFn, task_dir: str = TASK_DIR, timeout: int = 
 
 
 def read_log(ssh_run_fn: SshRunFn, task_dir: str = TASK_DIR, tail_lines: int = LOG_TAIL_LINES, timeout: int = 10) -> str:
-    expanded = f'"$(eval echo {_expand_path(task_dir)})"'
+    expanded = f'"$(eval echo {expand_home_expr(task_dir)})"'
     try:
         rc, stdout, _ = ssh_run_fn(f"tail -n {tail_lines} {expanded}/task.log 2>/dev/null", timeout)
         if rc == 0:

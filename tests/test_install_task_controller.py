@@ -13,7 +13,10 @@ def test_summary_running_has_priority():
             "title": "数据库安装 · Kraken2",
             "source": "db",
             "state": "running",
-            "detail": "30%",
+            "message": "正在安装数据库",
+            "progress_text": "30%",
+            "speed_text": "2.1MB/s",
+            "detail": "legacy detail should be ignored",
         }
     )
     ctrl.ingest_event(
@@ -28,7 +31,7 @@ def test_summary_running_has_priority():
 
     summary = ctrl.summary()
     assert summary["level"] == "running"
-    assert str(summary["text"]).startswith("安装: Kraken2")
+    assert str(summary["text"]) == "安装: Kraken2 30% 2.1MB/s"
 
 
 def test_summary_failed_when_no_running():
@@ -83,6 +86,7 @@ def test_ingest_event_is_idempotent_for_same_task():
             "title": "数据库安装 · nt",
             "source": "db",
             "state": "running",
+            "progress_text": "10%",
             "detail": "10%",
         }
     )
@@ -92,6 +96,7 @@ def test_ingest_event_is_idempotent_for_same_task():
             "title": "数据库安装 · nt",
             "source": "db",
             "state": "success",
+            "message": "完成",
             "detail": "完成",
         }
     )
@@ -99,9 +104,32 @@ def test_ingest_event_is_idempotent_for_same_task():
     rows = ctrl.snapshot()
     assert len(rows) == 1
     assert rows[0]["state"] == "success"
+    assert rows[0]["message"] == "完成"
 
 
 def test_summary_running_includes_download_speed():
+    ctrl = InstallTaskController()
+    ctrl.ingest_event(
+        {
+            "task_id": "db:nt",
+            "title": "数据库安装 · nt",
+            "source": "db",
+            "state": "running",
+            "progress_text": "35%",
+            "speed_text": "2.1MB/s",
+            "detail": "legacy detail should not be parsed",
+        }
+    )
+
+    summary = ctrl.summary()
+    text = str(summary["text"])
+    assert summary["level"] == "running"
+    assert "2.1MB/s" in text
+    assert "35%" in text
+    assert text == "安装: nt 35% 2.1MB/s"
+
+
+def test_summary_running_falls_back_to_legacy_detail_parsing():
     ctrl = InstallTaskController()
     ctrl.ingest_event(
         {
@@ -114,11 +142,29 @@ def test_summary_running_includes_download_speed():
     )
 
     summary = ctrl.summary()
-    text = str(summary["text"])
     assert summary["level"] == "running"
-    assert "2.1MB/s" in text
-    assert "35%" in text
-    assert text == "安装: nt 35% 2.1MB/s"
+    assert str(summary["text"]) == "安装: nt 35% 2.1MB/s"
+
+
+def test_legacy_detail_only_event_keeps_detail_and_summary():
+    ctrl = InstallTaskController()
+    ctrl.ingest_event(
+        {
+            "task_id": "db:legacy",
+            "title": "数据库安装 · Legacy",
+            "source": "db",
+            "state": "running",
+            "detail": "42% · 速度 1.2MB/s",
+        }
+    )
+
+    rows = ctrl.snapshot()
+    assert rows[0]["detail"] == "42% · 速度 1.2MB/s"
+    assert rows[0]["message"] == "42% · 速度 1.2MB/s"
+
+    summary = ctrl.summary()
+    assert summary["level"] == "running"
+    assert str(summary["text"]) == "安装: Legacy 42% 1.2MB/s"
 
 
 def test_summary_success_uses_compact_title():

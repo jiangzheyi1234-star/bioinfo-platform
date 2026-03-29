@@ -10,6 +10,12 @@ import logging
 import shlex
 import time
 
+from core.environment.detached_job import (
+    ensure_remote_dirs,
+    expand_home_expr,
+    start_screen_script,
+    write_remote_script,
+)
 from core.utils import sanitize_log
 from core.environment.env_detector import (
     SshRunFn,
@@ -113,11 +119,6 @@ echo "验证通过: {verify_cmd}"
 # ===== 验证结束 ====="""
 
 
-def _expand_path(path: str) -> str:
-    """将 ~ 替换为 $HOME 用于 shell eval。"""
-    return path.replace("~", "$HOME")
-
-
 def _inject_managed_channels(install_cmd: str) -> str:
     """Inject managed mirror channels and reject unsupported shell forms loudly."""
     if any(op in install_cmd for op in ("&&", "||", "|", ";", ">", "<")):
@@ -187,7 +188,7 @@ class EnvInstaller:
                 raise RuntimeError("无法展开空路径")
             if "~" not in normalized and "$HOME" not in normalized:
                 return normalized
-            rc, stdout, _ = ssh_run_fn(f"eval echo {_expand_path(path)}", timeout)
+            rc, stdout, _ = ssh_run_fn(f"eval echo {expand_home_expr(path)}", timeout)
             expanded = stdout.strip() if rc == 0 else ""
             if not expanded or expanded.startswith(("~", "$HOME")):
                 raise RuntimeError(f"无法展开远端路径: {path}")
@@ -219,12 +220,7 @@ class EnvInstaller:
             )
 
         task_dir_raw = f"{INSTALL_BASE}/{tool_id}"
-        task_dir_expanded = f'"$(eval echo {_expand_path(task_dir_raw)})"'
-        envs_dir_expanded = f'"$(eval echo {_expand_path(H2O_ENVS_DIR)})"'
-
-        # 创建任务目录
-        ssh_run_fn(f"mkdir -p {task_dir_expanded}", timeout)
-        ssh_run_fn(f"mkdir -p {envs_dir_expanded}", timeout)
+        ensure_remote_dirs(ssh_run_fn, [task_dir_raw, H2O_ENVS_DIR], timeout)
 
         # tmp_prefix / final_prefix 在脚本内部展开 $HOME
         def _to_shell(p: str) -> str:
@@ -232,30 +228,29 @@ class EnvInstaller:
 
         # 生成包装脚本
         script = _INSTALL_WRAPPER.format(
-            task_dir=f"$(eval echo {_expand_path(task_dir_raw)})",
+            task_dir=f"$(eval echo {expand_home_expr(task_dir_raw)})",
             tmp_prefix=_to_shell(tmp_prefix) if tmp_prefix else _to_shell(final_prefix),
             final_prefix=_to_shell(final_prefix) if final_prefix else "",
             command=resolved_cmd,
             verify_block=verify_block,
         )
 
-        # 写脚本���远端（base64 编码避免特殊字符问题）
         script_path = f"{task_dir_raw}/install.sh"
-        script_path_expanded = f'"$(eval echo {_expand_path(script_path)})"'
-
-        encoded = base64.b64encode(script.encode()).decode()
-        write_cmd = f"echo '{encoded}' | base64 -d > {script_path_expanded}"
-        rc, _, stderr = ssh_run_fn(write_cmd, timeout)
-        if rc != 0:
-            raise RuntimeError(f"写入安装脚本失败: {stderr[:200]}")
-
-        # 启动 screen 会话
         job_id = f"h2o_install_{tool_id}"
-        ssh_run_fn(f"screen -S {job_id} -X quit 2>/dev/null || true", timeout)
-        screen_cmd = f"screen -dmS {job_id} bash {script_path_expanded}"
-        rc, _, stderr = ssh_run_fn(screen_cmd, timeout)
-        if rc != 0:
-            raise RuntimeError(f"启动 screen 会话失败: {stderr[:200]}")
+        script_path_expanded = write_remote_script(
+            ssh_run_fn,
+            script_path,
+            script,
+            timeout,
+            label="安装脚本",
+        )
+        start_screen_script(
+            ssh_run_fn,
+            job_id,
+            script_path_expanded,
+            timeout,
+            error_prefix="启动 screen 会话失败",
+        )
 
         logger.info(
             "后台安装已启动: job_id=%s, task_dir=%s, final_prefix=%s",
@@ -270,7 +265,7 @@ class EnvInstaller:
         Returns:
             {"status": "RUNNING"/"DONE"/"FAILED"/"", "exit_code": str}
         """
-        expanded = f'"$(eval echo {_expand_path(task_dir)})"'
+        expanded = f'"$(eval echo {expand_home_expr(task_dir)})"'
 
         status = ""
         try:
@@ -310,7 +305,7 @@ class EnvInstaller:
         quoted_ids = " ".join(shlex.quote(tid) for tid in clean_ids)
         tail = max(int(tail_lines or 0), 0)
         cmd = (
-            f'BASE="$(eval echo {_expand_path(INSTALL_BASE)})"; '
+            f'BASE="$(eval echo {expand_home_expr(INSTALL_BASE)})"; '
             f'TAIL={tail}; '
             'SCREEN_LIST="$(screen -ls 2>/dev/null || true)"; '
             f'for TOOL_ID in {quoted_ids}; do '
@@ -376,7 +371,7 @@ class EnvInstaller:
         timeout: int = 10,
     ) -> str:
         """tail -n task.log，返回清理后的文本。"""
-        expanded = f'"$(eval echo {_expand_path(task_dir)})"'
+        expanded = f'"$(eval echo {expand_home_expr(task_dir)})"'
         try:
             rc, stdout, _ = ssh_run_fn(
                 f"tail -n {tail_lines} {expanded}/task.log 2>/dev/null",
@@ -402,7 +397,7 @@ class EnvInstaller:
     @staticmethod
     def cleanup(ssh_run_fn: SshRunFn, task_dir: str, timeout: int = 10) -> None:
         """rm -rf task_dir"""
-        expanded = f'"$(eval echo {_expand_path(task_dir)})"'
+        expanded = f'"$(eval echo {expand_home_expr(task_dir)})"'
         try:
             ssh_run_fn(f"rm -rf {expanded}", timeout)
         except Exception as e:
@@ -419,7 +414,7 @@ class EnvInstaller:
 
         try:
             rc, stdout, _ = ssh_run_fn(
-                f"for d in $(eval echo {_expand_path(INSTALL_BASE)})/*/; do "
+                f"for d in $(eval echo {expand_home_expr(INSTALL_BASE)})/*/; do "
                 f'  [ -f "$d/status.txt" ] && echo "$(basename $d)|$(cat $d/status.txt)"; '
                 f"done 2>/dev/null",
                 timeout,
