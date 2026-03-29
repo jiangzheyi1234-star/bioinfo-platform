@@ -149,30 +149,36 @@ class EnvInstaller:
         if not is_managed_conda_executable(conda_executable):
             raise RuntimeError(f"检测到非自管 conda 路径，已拒绝: {conda_executable}")
 
-        resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable)
-
-        # 计算安装路径
-        env_name = extract_env_name(resolved_cmd) or tool_id
-        final_prefix = h2o_env_prefix(env_name)
-        tmp_prefix = h2o_tmp_prefix(env_name)
-
         def _expand_remote_required(path: str) -> str:
+            normalized = (path or "").strip()
+            if not normalized:
+                raise RuntimeError("无法展开空路径")
+            if "~" not in normalized and "$HOME" not in normalized:
+                return normalized
             rc, stdout, _ = ssh_run_fn(f"eval echo {_expand_path(path)}", timeout)
             expanded = stdout.strip() if rc == 0 else ""
             if not expanded or expanded.startswith(("~", "$HOME")):
                 raise RuntimeError(f"无法展开远端路径: {path}")
             return expanded
 
+        conda_executable_for_cmd = _expand_remote_required(conda_executable)
+        resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable_for_cmd)
+
+        # 计算安装路径
+        env_name = extract_env_name(resolved_cmd) or tool_id
+        final_prefix = h2o_env_prefix(env_name)
+        tmp_prefix = h2o_tmp_prefix(env_name)
+
         # 安装到临时路径（原子安装的关键）
         tmp_prefix_for_cmd = _expand_remote_required(tmp_prefix)
         resolved_cmd = pin_create_env_to_conda_root(
-            resolved_cmd, conda_executable, override_prefix=tmp_prefix_for_cmd
+            resolved_cmd, conda_executable_for_cmd, override_prefix=tmp_prefix_for_cmd
         )
 
         # 构建 verify_block
         verify_block = ""
         if verify_cmd and version_regex and tmp_prefix and conda_executable:
-            conda_run_p = f"{conda_executable} run -p \"$TMP_PREFIX\""
+            conda_run_p = f"{shlex.quote(conda_executable_for_cmd)} run -p \"$TMP_PREFIX\""
             verify_block = _VERIFY_BLOCK.format(
                 conda_run_p=conda_run_p,
                 verify_cmd=verify_cmd,
