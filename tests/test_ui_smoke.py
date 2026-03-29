@@ -165,7 +165,9 @@ class TestMainWindowStartup:
                 "title": "数据库安装 · Kraken2 Standard Database",
                 "source": "db",
                 "state": "running",
-                "detail": "20%",
+                "message": "下载中",
+                "progress_text": "20%",
+                "location_hint": "database",
             }
         )
         _flush_events(qapp)
@@ -184,7 +186,8 @@ class TestMainWindowStartup:
                 "title": "工具环境安装 · kraken2",
                 "source": "tool_env",
                 "state": "failed",
-                "detail": "安装失败",
+                "message": "安装失败",
+                "location_hint": "settings",
             }
         )
         _flush_events(qapp)
@@ -196,7 +199,8 @@ class TestMainWindowStartup:
                 "title": "工具环境安装 · kraken2",
                 "source": "tool_env",
                 "state": "failed",
-                "detail": "安装失败",
+                "message": "安装失败",
+                "location_hint": "settings",
             }
         )
         assert "任务: kraken2" in text
@@ -753,12 +757,7 @@ def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, mo
     card = LinuxSettingsCard()
     card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
     card._installing_tool_ids.add("fastp")
-    card._tool_install_snapshots["fastp"] = {
-        "tool_id": "fastp",
-        "status": "RUNNING",
-        "message": "安装中……",
-        "log_text": "existing log",
-    }
+    card._update_tool_install_snapshot("fastp", status="RUNNING", message="安装中……", log_text="existing log")
 
     submit_called = {"count": 0}
     monkeypatch.setattr(
@@ -830,11 +829,7 @@ def test_linux_settings_dialog_show_error_keeps_running_install(qapp, monkeypatc
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
     card._installing_tool_ids.add("fastp")
-    card._tool_install_snapshots["fastp"] = {
-        "tool_id": "fastp",
-        "status": "RUNNING",
-        "message": "安装中……",
-    }
+    card._update_tool_install_snapshot("fastp", status="RUNNING", message="安装中……")
 
     finished = {"count": 0}
     events = []

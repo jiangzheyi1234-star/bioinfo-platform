@@ -434,6 +434,7 @@ def test_on_miniforge_poll_finished_done_emits_install_task_success(qapp, monkey
 
 def test_emit_tool_install_event_includes_structured_progress_fields(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from ui.controllers.install_workflow import build_tool_install_task_event
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
@@ -442,12 +443,15 @@ def test_emit_tool_install_event_includes_structured_progress_fields(qapp, monke
     events = []
     card.install_task_event.connect(lambda payload: events.append(payload))
 
-    card._emit_tool_install_event(
-        "fastp",
-        "running",
-        "35% · 速度 2.1MB/s",
-        progress_text="35%",
-        speed_text="2.1MB/s",
+    card._emit_install_task(
+        build_tool_install_task_event(
+            "fastp",
+            "fastp",
+            "running",
+            "35% · 速度 2.1MB/s",
+            progress_text="35%",
+            speed_text="2.1MB/s",
+        )
     )
 
     assert len(events) == 1
@@ -458,6 +462,7 @@ def test_emit_tool_install_event_includes_structured_progress_fields(qapp, monke
     assert payload["progress_text"] == "35%"
     assert payload["speed_text"] == "2.1MB/s"
     assert payload["location_hint"] == "settings"
+    assert "detail" not in payload
 
 
 def test_handle_miniforge_failure_starts_background_log_read(qapp, monkeypatch):
