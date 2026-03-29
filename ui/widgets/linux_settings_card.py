@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-import re
 import sys
 import time
 from typing import Optional
@@ -28,6 +27,7 @@ from ui.widgets.styles import (
     STATUS_SUCCESS,
     STATUS_ERROR,
 )
+from ui.install_log_parser import extract_progress_and_speed
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
 from ui.widgets.report_view import create_report_web_view
 from ui.widgets.toast import Toast
@@ -43,8 +43,6 @@ logger = logging.getLogger(__name__)
 MINIFORGE_HEARTBEAT_STALE_SECONDS = 180
 TOOL_INSTALL_POLL_INTERVAL_MS = 3000
 MINIFORGE_PROBE_COMMAND = "test -f ~/.h2ometa/conda/bin/conda && echo OK || echo MISSING"
-_SPEED_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([KMG]?B/s)", re.IGNORECASE)
-_PROGRESS_RE = re.compile(r"\b([0-9]{1,3})%\b")
 
 
 def _format_rate(bps: float) -> str:
@@ -55,28 +53,6 @@ def _format_rate(bps: float) -> str:
     if bps >= 1024:
         return f"{bps / 1024:.1f}KB/s"
     return f"{max(bps, 0):.0f}B/s"
-
-
-def _extract_progress_and_speed(log_text: str) -> tuple[str, str]:
-    text = str(log_text or "")
-    progress = ""
-    speed = ""
-    progress_matches = list(_PROGRESS_RE.finditer(text))
-    for match in reversed(progress_matches):
-        try:
-            value = int(match.group(1))
-        except Exception:
-            continue
-        if 0 <= value <= 100:
-            progress = f"{value}%"
-            break
-    speed_matches = list(_SPEED_RE.finditer(text))
-    if speed_matches:
-        last = speed_matches[-1]
-        num = last.group(1)
-        unit = last.group(2).upper()
-        speed = f"{num}{unit}"
-    return progress, speed
 
 
 def _is_test_mode() -> bool:
@@ -1761,7 +1737,7 @@ class LinuxSettingsCard(QFrame):
         self._tool_install_poll_thread.start()
 
     def _build_tool_install_running_detail(self, tool_id: str, log_text: str, log_size: int) -> str:
-        progress, speed = _extract_progress_and_speed(log_text)
+        progress, speed = extract_progress_and_speed(log_text)
         now = time.time()
         last = self._tool_log_samples.get(tool_id)
         self._tool_log_samples[tool_id] = (max(int(log_size or 0), 0), now)
