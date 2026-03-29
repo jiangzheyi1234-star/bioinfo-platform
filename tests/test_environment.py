@@ -255,6 +255,8 @@ class TestEnvInstallerSubmit:
         """提交时替换 conda 路径。"""
         written_script = []
         def capture_fn(cmd, timeout=15):
+            if cmd.startswith("eval echo $HOME/.h2ometa/conda/bin/conda"):
+                return (0, "/home/user/.h2ometa/conda/bin/conda\n", "")
             if cmd.startswith("eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing"):
                 return (0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", "")
             if cmd.startswith("echo '"):
@@ -275,6 +277,39 @@ class TestEnvInstallerSubmit:
         )
         assert len(written_script) == 1
         assert "/home/user/.h2ometa/conda/bin/conda create" in written_script[0]
+
+    def test_submit_expands_tilde_conda_executable_before_writing_script(self):
+        """提交时先将自管 conda 的 ~ 路径展开为远端绝对路径。"""
+        written_script = []
+
+        def capture_fn(cmd, timeout=15):
+            if cmd == "eval echo $HOME/.h2ometa/conda/bin/conda":
+                return (0, "/home/user/.h2ometa/conda/bin/conda\n", "")
+            if cmd == "eval echo $HOME/.h2ometa/conda/envs/fastp_env.installing":
+                return (0, "/home/user/.h2ometa/conda/envs/fastp_env.installing\n", "")
+            if cmd.startswith("echo '"):
+                parts = cmd.split("'")
+                if len(parts) >= 2:
+                    written_script.append(base64.b64decode(parts[1]).decode())
+                return (0, "", "")
+            if cmd.startswith("mkdir -p") or cmd.startswith("screen -S") or cmd.startswith("screen -dmS"):
+                return (0, "", "")
+            return (1, "", f"unexpected cmd: {cmd}")
+
+        EnvInstaller.submit(
+            capture_fn,
+            "fastp",
+            "conda create -n fastp_env -y",
+            H2O_CONDA_EXE,
+            verify_cmd="fastp --version",
+            version_regex=r"\\d+\\.\\d+",
+        )
+
+        assert len(written_script) == 1
+        script = written_script[0]
+        assert "/home/user/.h2ometa/conda/bin/conda create" in script
+        assert "/home/user/.h2ometa/conda/bin/conda run -p \"$TMP_PREFIX\"" in script
+        assert "'~/.h2ometa/conda/bin/conda'" not in script
 
     def test_submit_requires_conda_executable(self):
         fn = make_ssh_fn({})
