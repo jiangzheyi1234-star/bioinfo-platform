@@ -41,13 +41,13 @@ parameters:
     label: "线程数"
 
 command_template: |
+  export GTDBTK_DATA_PATH="{{ db }}"
   gtdbtk classify_wf \
     --genome_dir {{ bins_dir }} \
     --out_dir {{ output_dir }}/gtdbtk_out \
     -x {{ extension }} \
     --cpus {{ threads }} \
     --pplacer_cpus {{ pplacer_threads }} \
-    --mash_db {{ db }} \
   && cp {{ output_dir }}/gtdbtk_out/classify/*.summary.tsv \
     {{ output_dir }}/{{ sample_id }}.gtdbtk.summary.tsv
 
