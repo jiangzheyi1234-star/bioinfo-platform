@@ -16,6 +16,7 @@ from core.environment.env_detector import (
     extract_env_name,
     pin_create_env_to_conda_root,
     rewrite_install_cmd,
+    write_h2ometa_condarc,
 )
 from core.environment.h2o_env_paths import (
     H2O_ENVS_DIR,
@@ -24,6 +25,7 @@ from core.environment.h2o_env_paths import (
     h2o_tmp_prefix,
     is_managed_conda_executable,
 )
+from core.environment.miniforge_condarc import build_override_channel_args
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,34 @@ def _expand_path(path: str) -> str:
     return path.replace("~", "$HOME")
 
 
+def _inject_managed_channels(install_cmd: str) -> str:
+    """Inject managed mirror channels and reject unsupported shell forms loudly."""
+    if any(op in install_cmd for op in ("&&", "||", "|", ";", ">", "<")):
+        raise RuntimeError(f"工具安装命令包含复合 shell 语法，无法安全注入受控 channels: {install_cmd}")
+
+    try:
+        tokens = shlex.split(install_cmd, posix=True)
+    except Exception as exc:
+        raise RuntimeError(f"工具安装命令无法解析，无法注入受控 channels: {install_cmd}") from exc
+
+    if len(tokens) < 2 or not tokens[0].endswith("conda"):
+        raise RuntimeError(f"工具安装命令必须是单条 conda 命令，当前不支持: {install_cmd}")
+
+    if any(tok in ("-c", "--channel", "--override-channels") or tok.startswith("--channel=") for tok in tokens):
+        raise RuntimeError(f"工具安装命令已包含 channel 配置，拒绝继续: {install_cmd}")
+
+    insert_at = -1
+    if tokens[1] in ("create", "install", "update", "remove"):
+        insert_at = 2
+    elif len(tokens) >= 3 and tokens[1] == "env" and tokens[2] in ("create", "update", "remove"):
+        insert_at = 3
+    if insert_at < 0:
+        raise RuntimeError(f"暂不支持自动注入 channels 的 conda 命令: {install_cmd}")
+
+    tokens[insert_at:insert_at] = build_override_channel_args()
+    return " ".join(shlex.quote(tok) for tok in tokens)
+
+
 class EnvInstaller:
     """通过 screen 在远端后台安装 conda 环境。"""
 
@@ -149,6 +179,8 @@ class EnvInstaller:
         if not is_managed_conda_executable(conda_executable):
             raise RuntimeError(f"检测到非自管 conda 路径，已拒绝: {conda_executable}")
 
+        write_h2ometa_condarc(ssh_run_fn, timeout=max(timeout, 30))
+
         def _expand_remote_required(path: str) -> str:
             normalized = (path or "").strip()
             if not normalized:
@@ -163,6 +195,7 @@ class EnvInstaller:
 
         conda_executable_for_cmd = _expand_remote_required(conda_executable)
         resolved_cmd = rewrite_install_cmd(install_cmd, conda_executable_for_cmd)
+        resolved_cmd = _inject_managed_channels(resolved_cmd)
 
         # 计算安装路径
         env_name = extract_env_name(resolved_cmd) or tool_id

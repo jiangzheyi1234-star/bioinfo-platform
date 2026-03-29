@@ -509,7 +509,7 @@ def write_h2ometa_condarc(
     """将受控 condarc 写到 H2OMeta runtime 目录。
 
     env_installer 在包装脚本中设置 CONDARC 指向此文件，确保：
-    - channel 配置固定（conda-forge + bioconda, flexible priority）
+    - channel 配置固定（受控镜像 + strict priority）
     - 网络重试参数生效
     - 不受用户系统 ~/.condarc 干扰
     """

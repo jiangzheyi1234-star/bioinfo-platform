@@ -5,7 +5,7 @@ import re
 
 from core.environment import miniforge_bootstrap
 from core.environment.env_detector import _CONDARC_TEMPLATE as detector_condarc_template
-from core.environment.miniforge_condarc import CONDARC_TEMPLATE
+from core.environment.miniforge_condarc import CONDARC_TEMPLATE, MANAGED_OVERRIDE_CHANNEL_URLS
 from core.remote.server_capabilities import PreflightError, ServerCapabilities
 
 
@@ -169,10 +169,12 @@ def test_condarc_template_uses_shared_runtime_baseline():
     assert "channels:" in template
     assert "  - conda-forge" in template
     assert "  - bioconda" in template
-    assert "channel_priority: flexible" in template
+    assert "default_channels:" in template
+    assert "custom_channels:" in template
+    assert "channel_priority: strict" in template
     assert "solver: libmamba" in template
-    assert "custom_channels:" not in template
-    assert "defaults:" not in template
-    assert "strict" not in template
+    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/cloud" in template
+    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main" in template
     assert "show_channel_urls: true" in template
     assert "auto_activate_base: false" in template
+    assert any(url in template for url in MANAGED_OVERRIDE_CHANNEL_URLS)
