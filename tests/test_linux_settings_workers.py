@@ -423,7 +423,41 @@ def test_on_miniforge_poll_finished_done_emits_install_task_success(qapp, monkey
     assert card._conda_executable == "~/.h2ometa/conda/bin/conda"
     assert saved["count"] == 1
     assert checks["count"] == 1
-    assert any(e.get("task_id") == "bootstrap:miniforge" and e.get("state") == "success" for e in events)
+    assert any(
+        e.get("task_id") == "bootstrap:miniforge"
+        and e.get("state") == "success"
+        and e.get("location_hint") == "settings"
+        and e.get("message") == "运行环境初始化完成"
+        for e in events
+    )
+
+
+def test_emit_tool_install_event_includes_structured_progress_fields(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
+
+    events = []
+    card.install_task_event.connect(lambda payload: events.append(payload))
+
+    card._emit_tool_install_event(
+        "fastp",
+        "running",
+        "35% · 速度 2.1MB/s",
+        progress_text="35%",
+        speed_text="2.1MB/s",
+    )
+
+    assert len(events) == 1
+    payload = events[0]
+    assert payload["task_id"] == "tool_env:fastp"
+    assert payload["message"] == "35% · 速度 2.1MB/s"
+    assert payload["progress_value"] == 35
+    assert payload["progress_text"] == "35%"
+    assert payload["speed_text"] == "2.1MB/s"
+    assert payload["location_hint"] == "settings"
 
 
 def test_handle_miniforge_failure_starts_background_log_read(qapp, monkeypatch):
@@ -1019,4 +1053,3 @@ def test_recover_running_installs_deduplicates_worker_start(qapp, monkeypatch):
 
     assert started["count"] == 1
     assert started["envs"] == {"a"}
-

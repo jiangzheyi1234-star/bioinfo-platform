@@ -7,7 +7,7 @@ import sys
 import time
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer, QUrl
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot, QTimer
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -28,8 +28,9 @@ from ui.widgets.styles import (
     STATUS_ERROR,
 )
 from ui.install_log_parser import extract_progress_and_speed
+from ui.controllers.install_workflow import InstallWorkflowPresenter, InstallWorkflowStore
 from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge
-from ui.widgets.report_view import create_report_web_view
+from ui.widgets.web_ui_host import create_local_web_ui_host
 from ui.widgets.toast import Toast
 from ui.workers.base_worker import BaseCancellableWorker, launch_worker, request_worker_stop
 
@@ -39,6 +40,7 @@ from core.environment.env_installer import EnvInstaller, INSTALL_BASE as _INSTAL
 from core.environment.env_batch_checker import ToolCheckResult, check_all_envs, get_existing_env_paths
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 from core.remote.server_capabilities import ServerCapabilities
+from core.utils import get_app_root
 
 logger = logging.getLogger(__name__)
 MINIFORGE_HEARTBEAT_STALE_SECONDS = 180
@@ -477,7 +479,9 @@ class LinuxSettingsCard(QFrame):
         self._latest_detected_env_paths: set[str] = set()
         self._pending_recover_after_batch: bool = False
         self._recover_installs_running: bool = False
-        self._tool_install_snapshots: dict[str, dict] = {}
+        self._workflow_store = InstallWorkflowStore()
+        self._workflow_presenter = InstallWorkflowPresenter()
+        self._tool_install_snapshots = self._workflow_store._tool_snapshots
         self._tool_install_submitting_ids: set[str] = set()
         self._tool_install_submit_threads: dict[str, QThread] = {}
         self._tool_install_submit_workers: dict[str, ToolInstallSubmitWorker] = {}
@@ -510,14 +514,22 @@ class LinuxSettingsCard(QFrame):
         source: str,
         state: str,
         detail: str = "",
+        message: str = "",
+        progress_text: str = "",
+        speed_text: str = "",
+        location_hint: str = "",
     ) -> None:
-        payload = {
-            "task_id": str(task_id or "").strip(),
-            "title": str(title or "").strip(),
-            "source": str(source or "").strip(),
-            "state": str(state or "").strip().lower() or "running",
-            "detail": str(detail or "").strip(),
-        }
+        payload = self._workflow_presenter.build_task_event(
+            task_id=task_id,
+            title=title,
+            source=source,
+            state=state,
+            detail=detail,
+            message=message,
+            progress_text=progress_text,
+            speed_text=speed_text,
+            location_hint=location_hint,
+        )
         if not payload["task_id"] or not payload["title"]:
             return
         try:
@@ -526,37 +538,44 @@ class LinuxSettingsCard(QFrame):
             logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
 
     def _emit_bootstrap_install_event(self, state: str, detail: str = "") -> None:
-        self._emit_install_task_event(
-            task_id="bootstrap:miniforge",
-            title="运行环境初始化",
-            source="bootstrap",
-            state=state,
-            detail=detail,
-        )
+        payload = self._workflow_presenter.build_bootstrap_task_event(state, detail)
+        try:
+            self.install_task_event.emit(payload)
+        except RuntimeError:
+            logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
 
-    def _emit_tool_install_event(self, tool_id: str, state: str, detail: str = "") -> None:
+    def _emit_tool_install_event(
+        self,
+        tool_id: str,
+        state: str,
+        detail: str = "",
+        *,
+        progress_text: str = "",
+        speed_text: str = "",
+    ) -> None:
         tool = next((t for t in self._tools if t.get("id") == tool_id), None)
         tool_name = str((tool or {}).get("name", "") or tool_id).strip() or tool_id
-        self._emit_install_task_event(
-            task_id=f"tool_env:{tool_id}",
-            title=f"工具环境安装 · {tool_name}",
-            source="tool_env",
-            state=state,
-            detail=detail,
+        payload = self._workflow_presenter.build_tool_install_task_event(
+            tool_id,
+            tool_name,
+            state,
+            detail,
+            progress_text=progress_text,
+            speed_text=speed_text,
         )
+        try:
+            self.install_task_event.emit(payload)
+        except RuntimeError:
+            logger.debug("install_task_event emit skipped on deleted card", exc_info=True)
 
     def _get_tool_install_snapshot(self, tool_id: str) -> dict:
-        return dict(self._tool_install_snapshots.get(str(tool_id or "").strip(), {}))
+        return self._workflow_store.get_tool_snapshot(tool_id)
 
     def _update_tool_install_snapshot(self, tool_id: str, **updates) -> dict:
-        clean_tool_id = str(tool_id or "").strip()
+        current = self._workflow_store.update_tool_snapshot(tool_id, **updates)
+        clean_tool_id = str(current.get("tool_id", "") or "").strip()
         if not clean_tool_id:
             return {}
-        current = dict(self._tool_install_snapshots.get(clean_tool_id, {}))
-        current.update({k: v for k, v in updates.items() if v is not None})
-        current["tool_id"] = clean_tool_id
-        current["updated_at"] = time.time()
-        self._tool_install_snapshots[clean_tool_id] = current
         _safe_emit(self.tool_install_snapshot_updated, clean_tool_id, dict(current))
         return dict(current)
 
@@ -730,12 +749,21 @@ class LinuxSettingsCard(QFrame):
             self._channel = None
             return
 
-        # 延迟导入 WebEngine（必须在 QApplication 创建后）
-        from ui.qt_bootstrap import ensure_qt_webengine_ready
-        ensure_qt_webengine_ready()
-
         try:
-            from PyQt6.QtWebChannel import QWebChannel
+            # 延迟导入 WebEngine（必须在 QApplication 创建后）
+            self._bridge = ToolEnvBridge(parent=self)
+            assets_dir = get_app_root() / "ui" / "pages" / "settings_page_assets"
+            html_path = assets_dir / "tool_env_table.html"
+            self._web_view, self._channel = create_local_web_ui_host(
+                parent=self,
+                bridge_name="bridge",
+                bridge_object=self._bridge,
+                html_path=html_path,
+                background="#FFFFFF",
+                disable_context_menu=True,
+                allow_remote_resources=True,
+                raise_on_missing_html=False,
+            )
         except ImportError as exc:
             logger.warning("QtWebEngine 不可用: %s", exc)
             fallback = QLabel("工具环境检测需要 QtWebEngine 支持")
@@ -743,37 +771,12 @@ class LinuxSettingsCard(QFrame):
             parent_layout.addWidget(fallback)
             return
 
-        # 创建 Bridge
-        self._bridge = ToolEnvBridge(parent=self)
-
-        # 创建 WebView
-        self._web_view = create_report_web_view(
-            parent=self,
-            background="#FFFFFF",
-            disable_context_menu=True,
-        )
         self._web_view.setMinimumHeight(45)  # 最小高度（折叠时只显示标题行）
         self._web_view.setMaximumHeight(400)  # 最大高度
         self._web_view.setFixedHeight(45)  # 初始高度设为折叠状态
         self._web_view.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
-        self._web_view.setStyleSheet("background: #FFFFFF; border: none;")
-
-        # 设置 WebChannel
-        self._channel = QWebChannel()
-        self._channel.registerObject("bridge", self._bridge)
-        self._web_view.page().setWebChannel(self._channel)
-
-        # 加载 HTML
-        from core.utils import get_app_root
-        assets_dir = get_app_root() / "ui" / "pages" / "settings_page_assets"
-        html_path = assets_dir / "tool_env_table.html"
-
-        if html_path.exists():
-            self._web_view.setUrl(QUrl.fromLocalFile(str(html_path)))
-        else:
-            logger.error("HTML 文件未找到: %s", html_path)
 
         parent_layout.addWidget(self._web_view)
 
@@ -1780,6 +1783,7 @@ class LinuxSettingsCard(QFrame):
                 log_text,
                 log_size,
             )
+            progress_text, speed_text = extract_progress_and_speed(detail)
             self._update_tool_install_snapshot(
                 tool_id,
                 status="RUNNING",
@@ -1787,7 +1791,13 @@ class LinuxSettingsCard(QFrame):
                 log_size=max(log_size, 0),
                 message=detail,
             )
-            self._emit_tool_install_event(tool_id, "running", detail)
+            self._emit_tool_install_event(
+                tool_id,
+                "running",
+                detail,
+                progress_text=progress_text,
+                speed_text=speed_text,
+            )
 
         if need_recheck:
             QTimer.singleShot(300, self._do_batch_check)
