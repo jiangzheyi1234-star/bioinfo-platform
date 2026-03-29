@@ -186,7 +186,6 @@ class MainWindow(QMainWindow):
         self.status_bar.update_project(current.name if current else None)
 
         self._install_task_panel = InstallTaskPanel(self)
-        self._install_task_panel.locate_requested.connect(self._on_install_task_locate_requested)
         self._install_task_controller.changed.connect(self._refresh_install_task_ui)
         self._refresh_install_task_ui()
 

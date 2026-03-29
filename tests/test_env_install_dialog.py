@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtWidgets import QWidget
 
 from core.environment.h2o_env_paths import H2O_CONDA_EXE
@@ -70,6 +70,19 @@ def test_request_tool_info_replays_info_and_initial_snapshot(qapp):
     assert snapshots
     assert snapshots[-1]["status"] == "IDLE"
     assert snapshots[-1]["primary_label"] == "开始安装"
+
+    dialog.close()
+    qapp.processEvents()
+
+
+def test_dialog_uses_independent_non_modal_window_flags(qapp):
+    dialog = _make_dialog()
+
+    flags = dialog.windowFlags()
+    assert bool(flags & Qt.WindowType.Window)
+    assert bool(flags & Qt.WindowType.WindowMinimizeButtonHint)
+    assert bool(flags & Qt.WindowType.WindowCloseButtonHint)
+    assert dialog.windowModality() == Qt.WindowModality.NonModal
 
     dialog.close()
     qapp.processEvents()

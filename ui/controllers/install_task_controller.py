@@ -105,9 +105,11 @@ class InstallTaskController(QObject):
                 "total": len(rows),
             }
         if failed:
+            latest = failed[0]
+            short_title = self._compact_title(str(latest.get("title", "") or "安装任务"))
             return {
                 "level": "error",
-                "text": f"安装: {len(failed)} 项失败",
+                "text": f"安装: {short_title} 失败",
                 "running": 0,
                 "failed": len(failed),
                 "success": len(succeeded),
@@ -117,7 +119,7 @@ class InstallTaskController(QObject):
             latest = succeeded[0]
             return {
                 "level": "success",
-                "text": f"安装: 最近完成 {latest['title']}",
+                "text": f"安装: {self._compact_title(str(latest.get('title', '') or '安装任务'))} 完成",
                 "running": 0,
                 "failed": 0,
                 "success": len(succeeded),
@@ -143,7 +145,7 @@ class InstallTaskController(QObject):
 
     @staticmethod
     def _build_running_text(current: dict) -> str:
-        title = str(current.get("title", "") or "安装任务").strip()
+        title = InstallTaskController._compact_title(str(current.get("title", "") or "安装任务").strip())
         detail = str(current.get("detail", "") or "").strip()
         progress, speed = extract_progress_and_speed(detail)
 
@@ -153,5 +155,14 @@ class InstallTaskController(QObject):
         if speed:
             parts.append(speed)
         if parts:
-            return f"安装: 正在安装 {title} · {' · '.join(parts)}"
-        return f"安装: 正在安装 {title}..."
+            return f"安装: {title} {' '.join(parts)}"
+        return f"安装: {title}"
+
+    @staticmethod
+    def _compact_title(title: str) -> str:
+        raw = str(title or "").strip()
+        if not raw:
+            return "安装任务"
+        if "·" in raw:
+            raw = raw.split("·")[-1].strip()
+        return raw or "安装任务"

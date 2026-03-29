@@ -555,6 +555,7 @@ class LinuxSettingsCard(QFrame):
         self._tool_install_submitting_ids: set[str] = set()
         self._tool_install_submit_threads: dict[str, QThread] = {}
         self._tool_install_submit_workers: dict[str, ToolInstallSubmitWorker] = {}
+        self._tool_install_dialogs: dict[str, EnvInstallDialog] = {}
 
         # 工具列表: [{"id", "name", "conda_env", "install_cmd", "databases"}]
         self._tools: list[dict] = []
@@ -1324,9 +1325,21 @@ class LinuxSettingsCard(QFrame):
         """实际执行安装工具。"""
         tool_name = tool.get("name") or tool.get("id") or "未知工具"
         tool_id = str(tool.get("id", "") or "").strip()
+        existing = self._get_tool_install_dialog(tool_id)
+        if existing is not None:
+            snapshot = self._get_or_create_tool_install_snapshot(tool_id)
+            try:
+                if snapshot:
+                    existing.apply_install_snapshot(snapshot)
+                self._activate_tool_install_dialog(existing)
+                return
+            except Exception:
+                logger.exception("复用安装窗口失败，准备重建: tool=%s", tool_name)
+                self._cleanup_tool_install_dialog(tool_id)
+
         dlg = None
         try:
-            dlg = EnvInstallDialog(tool, conda_executable=self._conda_executable, parent=self)
+            dlg = EnvInstallDialog(tool, conda_executable=self._conda_executable, parent=None)
         except Exception as exc:
             logger.exception("打开安装对话框失败: tool=%s", tool_name)
             self._set_status(f"打开安装窗口失败: {tool_name}", STATUS_ERROR)
@@ -1338,27 +1351,15 @@ class LinuxSettingsCard(QFrame):
             return
 
         try:
-            dlg.install_requested.connect(self._on_dialog_install_requested)
-            self.tool_install_snapshot_updated.connect(dlg.on_snapshot_updated)
+            self._register_tool_install_dialog(tool_id, dlg)
 
-            snapshot = self._get_tool_install_snapshot(tool_id)
-            if not snapshot and tool_id in self._installing_tool_ids:
-                snapshot = self._update_tool_install_snapshot(
-                    tool_id,
-                    status="RUNNING",
-                    message="安装中……（conda 安装可能需要 5-30 分钟，可关闭窗口后台继续）",
-                )
-            if not snapshot and tool_id in self._tool_install_submitting_ids:
-                snapshot = self._update_tool_install_snapshot(
-                    tool_id,
-                    status="SUBMITTING",
-                    message="正在提交后台安装任务……",
-                )
+            snapshot = self._get_or_create_tool_install_snapshot(tool_id)
             if snapshot:
                 dlg.apply_install_snapshot(snapshot)
-            dlg.exec()
+            self._activate_tool_install_dialog(dlg)
         except Exception as exc:
             logger.exception("安装对话框运行异常: tool=%s", tool_name)
+            self._cleanup_tool_install_dialog(tool_id)
             active_install = tool_id in self._installing_tool_ids or tool_id in self._tool_install_submitting_ids
             if active_install:
                 self._set_status(f"安装窗口异常关闭，后台任务仍在继续: {tool_name}", STATUS_NEUTRAL)
@@ -1374,11 +1375,85 @@ class LinuxSettingsCard(QFrame):
                 "安装窗口打开失败",
                 message,
             )
-        finally:
+
+    def _get_or_create_tool_install_snapshot(self, tool_id: str) -> dict:
+        snapshot = self._get_tool_install_snapshot(tool_id)
+        if not snapshot and tool_id in self._installing_tool_ids:
+            snapshot = self._update_tool_install_snapshot(
+                tool_id,
+                status="RUNNING",
+                message="安装中……（conda 安装可能需要 5-30 分钟，可关闭窗口后台继续）",
+            )
+        if not snapshot and tool_id in self._tool_install_submitting_ids:
+            snapshot = self._update_tool_install_snapshot(
+                tool_id,
+                status="SUBMITTING",
+                message="正在提交后台安装任务……",
+            )
+        return snapshot
+
+    def _get_tool_install_dialog(self, tool_id: str) -> Optional[EnvInstallDialog]:
+        clean_tool_id = str(tool_id or "").strip()
+        dialog = self._tool_install_dialogs.get(clean_tool_id)
+        if dialog is None:
+            return None
+        try:
+            dialog.isVisible()
+        except RuntimeError:
+            logger.exception("安装窗口实例已失效，正在重建: %s", clean_tool_id)
+            self._cleanup_tool_install_dialog(clean_tool_id)
+            return None
+        return dialog
+
+    def _register_tool_install_dialog(self, tool_id: str, dlg: EnvInstallDialog) -> None:
+        clean_tool_id = str(tool_id or "").strip()
+        if not clean_tool_id:
+            raise RuntimeError("注册安装窗口失败：缺少 tool_id")
+        self._tool_install_dialogs[clean_tool_id] = dlg
+        dlg.install_requested.connect(self._on_dialog_install_requested)
+        self.tool_install_snapshot_updated.connect(dlg.on_snapshot_updated)
+        dlg.finished.connect(dlg.deleteLater)
+        dlg.finished.connect(lambda _result, tool_id=clean_tool_id: self._on_tool_install_dialog_finished(tool_id))
+        dlg.destroyed.connect(lambda _obj=None, tool_id=clean_tool_id: self._on_tool_install_dialog_destroyed(tool_id))
+
+    def _activate_tool_install_dialog(self, dlg: EnvInstallDialog) -> None:
+        try:
+            if dlg.isMinimized():
+                dlg.showNormal()
+            else:
+                dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+        except RuntimeError as exc:
+            raise RuntimeError("激活安装窗口失败") from exc
+
+    def _on_tool_install_dialog_finished(self, tool_id: str) -> None:
+        self._cleanup_tool_install_dialog(tool_id)
+
+    def _on_tool_install_dialog_destroyed(self, tool_id: str) -> None:
+        self._tool_install_dialogs.pop(str(tool_id or "").strip(), None)
+
+    def _cleanup_tool_install_dialog(self, tool_id: str) -> None:
+        clean_tool_id = str(tool_id or "").strip()
+        dialog = self._tool_install_dialogs.pop(clean_tool_id, None)
+        if dialog is None:
+            return
+        try:
+            dialog.install_requested.disconnect(self._on_dialog_install_requested)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self.tool_install_snapshot_updated.disconnect(dialog.on_snapshot_updated)
+        except (TypeError, RuntimeError):
+            pass
+
+    def _close_tool_install_dialogs(self) -> None:
+        for tool_id, dialog in list(self._tool_install_dialogs.items()):
+            self._cleanup_tool_install_dialog(tool_id)
             try:
-                self.tool_install_snapshot_updated.disconnect(dlg.on_snapshot_updated)
-            except (TypeError, RuntimeError):
-                pass
+                dialog.close()
+            except RuntimeError:
+                logger.debug("安装窗口已销毁，跳过关闭: %s", tool_id, exc_info=True)
 
     def _on_dialog_install_requested(self, tool_id: str) -> None:
         clean_tool_id = str(tool_id or "").strip()
@@ -1874,6 +1949,7 @@ class LinuxSettingsCard(QFrame):
             self._miniforge_poll_timer.stop()
         if self._tool_install_poll_timer.isActive():
             self._tool_install_poll_timer.stop()
+        self._close_tool_install_dialogs()
         self._cleanup_tool_install_submit_resources()
         cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
         self._cleanup_miniforge_resources()

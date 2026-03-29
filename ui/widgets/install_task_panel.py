@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -36,7 +37,7 @@ QFrame#taskRow {
 }
 """
 
-_LOCATE_BTN_STYLE = """
+_ACTION_BTN_STYLE = """
 QPushButton {
     background: transparent;
     color: #0284C7;
@@ -54,8 +55,6 @@ QPushButton:hover {
 
 class InstallTaskPanel(QDialog):
     """状态栏安装段点击后展示的任务面板（只读）。"""
-
-    locate_requested = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -172,14 +171,13 @@ class InstallTaskPanel(QDialog):
             )
             title = QLabel(str(task.get("title", task.get("task_id", "")) or "安装任务"))
             title.setStyleSheet("font-size: 13px; color: #0F172A; background: transparent; font-weight: 600;")
-            locate_btn = QPushButton("定位")
-            locate_btn.setStyleSheet(_LOCATE_BTN_STYLE)
-            source = str(task.get("source", "") or "")
-            locate_btn.clicked.connect(lambda _=False, src=source: self._on_locate(src))
+            detail_btn = QPushButton("详情")
+            detail_btn.setStyleSheet(_ACTION_BTN_STYLE)
+            detail_btn.clicked.connect(lambda _=False, payload=dict(task): self._show_task_detail(payload))
 
             title_row.addWidget(badge)
             title_row.addWidget(title, 1)
-            title_row.addWidget(locate_btn)
+            title_row.addWidget(detail_btn)
             row_layout.addLayout(title_row)
 
             detail = str(task.get("detail", "") or "").strip()
@@ -193,9 +191,28 @@ class InstallTaskPanel(QDialog):
 
         self._content_layout.addStretch()
 
-    def _on_locate(self, source: str) -> None:
-        self.locate_requested.emit(source)
-        self.hide()
+    def _show_task_detail(self, task: dict) -> None:
+        title = self._compact_title(str(task.get("title", task.get("task_id", "")) or "安装任务"))
+        QMessageBox.information(self, f"{title} 详情", self._build_task_detail_text(task))
+
+    @classmethod
+    def _build_task_detail_text(cls, task: dict) -> str:
+        source = str(task.get("source", "") or "").strip().lower()
+        state = str(task.get("state", "running") or "running").strip().lower()
+        detail = str(task.get("detail", "") or "").strip()
+
+        lines = [
+            f"任务: {cls._compact_title(str(task.get('title', task.get('task_id', '')) or '安装任务'))}",
+            f"类型: {cls._source_text(source)}",
+            f"状态: {cls._state_text(state)}",
+        ]
+        if detail:
+            lines.append(f"进展: {detail}")
+        lines.append(f"处理方式: {cls._execution_text(source)}")
+        hint = cls._hint_text(source, state)
+        if hint:
+            lines.append(f"更多信息: {hint}")
+        return "\n".join(lines)
 
     @staticmethod
     def _state_text(state: str) -> str:
@@ -213,3 +230,45 @@ class InstallTaskPanel(QDialog):
             return "#EF4444"
         return "#F59E0B"
 
+    @staticmethod
+    def _compact_title(title: str) -> str:
+        raw = str(title or "").strip()
+        if not raw:
+            return "安装任务"
+        if "·" in raw:
+            raw = raw.split("·")[-1].strip()
+        return raw or "安装任务"
+
+    @staticmethod
+    def _source_text(source: str) -> str:
+        if source == "tool_env":
+            return "工具环境安装"
+        if source == "db":
+            return "数据库安装"
+        if source == "bootstrap":
+            return "Conda 初始化"
+        return "安装任务"
+
+    @staticmethod
+    def _execution_text(source: str) -> str:
+        if source == "tool_env":
+            return "通过 SSH 提交远端后台安装脚本，在独立 screen 会话中创建工具环境，并按日志与心跳轮询进度。"
+        if source == "db":
+            return "通过 SSH 提交远端后台数据库任务，后台持续下载或解压资源，并定期回传进度。"
+        if source == "bootstrap":
+            return "通过 SSH 提交远端 Conda 初始化任务，后台安装自管 Miniforge 并写入受控 condarc。"
+        return "该任务由后台安装队列异步执行，状态栏持续汇总最近进度。"
+
+    @staticmethod
+    def _hint_text(source: str, state: str) -> str:
+        if source == "tool_env":
+            if state == "failed":
+                return "如需排查，可到“设置 > Linux 环境”查看安装日志。"
+            return "可到“设置 > Linux 环境”查看实时日志和环境状态。"
+        if source == "db":
+            if state == "failed":
+                return "如需排查，可到“数据库页”查看安装日志与错误提示。"
+            return "可到“数据库页”查看实时进度、速度和结果目录。"
+        if source == "bootstrap":
+            return "可到“设置 > Linux 环境”查看 Conda 初始化状态。"
+        return ""

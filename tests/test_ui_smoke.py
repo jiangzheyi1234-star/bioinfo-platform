@@ -43,6 +43,7 @@ def main_window(qapp, tmp_path_factory):
     pm = ProjectManager(
         projects_root=tmp_path / "projects",
         index_path=tmp_path / "projects.json",
+        last_project_path=tmp_path / "last_project.txt",
     )
     project_id = pm.create_project("test project", "used for UI verification")
     pm.open_project(project_id)
@@ -64,6 +65,7 @@ def temp_main_window(qapp, tmp_path: Path):
     pm = ProjectManager(
         projects_root=tmp_path / "projects",
         index_path=tmp_path / "projects.json",
+        last_project_path=tmp_path / "last_project.txt",
     )
     project_id = pm.create_project("test project", "used for UI verification")
     pm.open_project(project_id)
@@ -137,6 +139,7 @@ class TestMainWindowStartup:
         pm = ProjectManager(
             projects_root=tmp_path / "projects",
             index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
         )
         pm.create_project("auto-open target", "startup fallback")
         assert pm.current_project is None
@@ -173,7 +176,7 @@ class TestMainWindowStartup:
         _flush_events(qapp)
         assert window._install_task_panel.isVisible()
 
-    def test_install_panel_locate_switches_page(self, temp_main_window, qapp):
+    def test_install_panel_detail_text_explains_background_flow(self, temp_main_window, qapp):
         window = temp_main_window
         window._on_install_task_event(
             {
@@ -186,13 +189,20 @@ class TestMainWindowStartup:
         )
         _flush_events(qapp)
         assert window._install_task_panel is not None
-        window._on_install_task_locate_requested("tool_env")
-        _flush_events(qapp)
-        assert window.sidebar.currentRow() == 3
 
-        window._on_install_task_locate_requested("db")
-        _flush_events(qapp)
-        assert window.sidebar.currentRow() == 2
+        text = window._install_task_panel._build_task_detail_text(
+            {
+                "task_id": "tool_env:kraken2",
+                "title": "工具环境安装 · kraken2",
+                "source": "tool_env",
+                "state": "failed",
+                "detail": "安装失败",
+            }
+        )
+        assert "任务: kraken2" in text
+        assert "类型: 工具环境安装" in text
+        assert "处理方式: 通过 SSH 提交远端后台安装脚本" in text
+        assert "设置 > Linux 环境" in text
 
 
 class TestPageStartup:
@@ -316,6 +326,7 @@ class TestDetectionIntegratedWorkbench:
         pm = ProjectManager(
             projects_root=tmp_path / "projects",
             index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
         )
         project_id = pm.create_project("history reconcile")
         pm.open_project(project_id)
@@ -424,6 +435,7 @@ class TestDetectionIntegratedWorkbench:
         pm = ProjectManager(
             projects_root=tmp_path / "projects",
             index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
         )
         project_id = pm.create_project("artifact project")
         pm.open_project(project_id)
@@ -572,6 +584,7 @@ class TestHomePageFlows:
         pm = ProjectManager(
             projects_root=tmp_path / "projects",
             index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
         )
         project_one = pm.create_project("project one", "first project")
         pm.open_project(project_one)
@@ -608,6 +621,7 @@ class TestServiceLocatorStartup:
         pm = ProjectManager(
             projects_root=tmp_path / "projects",
             index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
         )
         locator = ServiceLocator(ssh_service=None, project_manager=pm)
         count = locator.initialize()
@@ -633,6 +647,7 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
     pm = ProjectManager(
         projects_root=tmp_path / "projects",
         index_path=tmp_path / "projects.json",
+        last_project_path=tmp_path / "last_project.txt",
     )
     project_id = pm.create_project("test_project", "ui verification")
     pm.open_project(project_id)
@@ -731,6 +746,8 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
 
 def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from PyQt6.QtCore import pyqtSignal
+    from PyQt6.QtWidgets import QDialog
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
@@ -751,26 +768,20 @@ def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, mo
     )
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
 
-    class _Signal:
-        def __init__(self):
-            self._handler = None
-
-        def connect(self, handler):
-            self._handler = handler
-
-        def emit(self, *args, **kwargs):
-            if self._handler is not None:
-                self._handler(*args, **kwargs)
-
     dialogs = []
 
-    class _FakeDialog:
+    class _FakeDialog(QDialog):
+        install_requested = pyqtSignal(str)
+
         def __init__(self, tool, conda_executable="", parent=None):
+            super().__init__(parent)
             self.tool = tool
             self.conda_executable = conda_executable
             self.parent = parent
-            self.install_requested = _Signal()
             self.applied = []
+            self.show_count = 0
+            self.raise_count = 0
+            self.activate_count = 0
             dialogs.append(self)
 
         def on_snapshot_updated(self, tool_id, snapshot):
@@ -779,24 +790,40 @@ def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, mo
         def apply_install_snapshot(self, snapshot):
             self.applied.append(snapshot)
 
-        def exec(self):
-            # 模拟用户再次点击“开始安装”，应走 attach 分支而不是重复提交
-            self.install_requested.emit(self.tool.get("id", ""))
-            return 0
+        def show(self):
+            self.show_count += 1
+
+        def showNormal(self):
+            self.show_count += 1
+
+        def raise_(self):
+            self.raise_count += 1
+
+        def activateWindow(self):
+            self.activate_count += 1
+
+        def exec(self):  # pragma: no cover - must never be called
+            raise AssertionError("exec should not be used")
 
     monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
 
     card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
 
-    assert dialogs
+    assert len(dialogs) == 1
     assert dialogs[0].conda_executable == card._conda_executable
     assert dialogs[0].applied and dialogs[0].applied[0].get("status") == "RUNNING"
+    assert dialogs[0].show_count == 2
+    assert dialogs[0].raise_count == 2
+    assert dialogs[0].activate_count == 2
     assert submit_called["count"] == 0
     card.close()
 
 
-def test_linux_settings_dialog_exec_error_keeps_running_install(qapp, monkeypatch):
+def test_linux_settings_dialog_show_error_keeps_running_install(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from PyQt6.QtCore import pyqtSignal
+    from PyQt6.QtWidgets import QDialog
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
@@ -826,19 +853,14 @@ def test_linux_settings_dialog_exec_error_keeps_running_install(qapp, monkeypatc
         lambda *args: critical_calls.append(args),
     )
 
-    class _Signal:
-        def __init__(self):
-            self._handler = None
+    class _FakeDialog(QDialog):
+        install_requested = pyqtSignal(str)
 
-        def connect(self, handler):
-            self._handler = handler
-
-    class _FakeDialog:
         def __init__(self, tool, conda_executable="", parent=None):
+            super().__init__(parent)
             self.tool = tool
             self.conda_executable = conda_executable
             self.parent = parent
-            self.install_requested = _Signal()
 
         def on_snapshot_updated(self, tool_id, snapshot):
             return None
@@ -846,8 +868,8 @@ def test_linux_settings_dialog_exec_error_keeps_running_install(qapp, monkeypatc
         def apply_install_snapshot(self, snapshot):
             return None
 
-        def exec(self):
-            raise RuntimeError("exec boom")
+        def show(self):
+            raise RuntimeError("show boom")
 
     monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
 
@@ -859,4 +881,49 @@ def test_linux_settings_dialog_exec_error_keeps_running_install(qapp, monkeypatc
     assert card.status_label.text() == "安装窗口异常关闭，后台任务仍在继续: fastp"
     assert len(critical_calls) == 1
 
+    card.close()
+
+
+def test_linux_settings_dialog_cleanup_after_close(qapp, monkeypatch):
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from PyQt6.QtCore import pyqtSignal
+    from PyQt6.QtWidgets import QDialog
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+
+    class _FakeDialog(QDialog):
+        install_requested = pyqtSignal(str)
+
+        def __init__(self, tool, conda_executable="", parent=None):
+            super().__init__(parent)
+            self.tool = tool
+            self.conda_executable = conda_executable
+
+        def on_snapshot_updated(self, tool_id, snapshot):
+            return None
+
+        def apply_install_snapshot(self, snapshot):
+            return None
+
+        def show(self):
+            return None
+
+        def raise_(self):
+            return None
+
+        def activateWindow(self):
+            return None
+
+    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+
+    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+
+    assert "fastp" in card._tool_install_dialogs
+    dialog = card._tool_install_dialogs["fastp"]
+    dialog.reject()
+    qapp.processEvents()
+
+    assert "fastp" not in card._tool_install_dialogs
     card.close()
