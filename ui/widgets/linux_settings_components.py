@@ -27,6 +27,14 @@ from ui.widgets.styles import (
 
 logger = logging.getLogger(__name__)
 
+_INSTALL_STATUS_CONFIG: dict[str, dict[str, object]] = {
+    "IDLE": {"installing": False, "terminal": False, "message": ""},
+    "SUBMITTING": {"installing": True, "terminal": False, "message": "正在提交安装任务……"},
+    "RUNNING": {"installing": True, "terminal": False, "message": "安装中……"},
+    "DONE": {"installing": False, "terminal": True, "message": "安装成功！"},
+    "FAILED": {"installing": False, "terminal": True, "message": "安装失败，请检查详细日志后重试。"},
+}
+
 
 def cleanup_thread_pair(owner, thread_attr: str, worker_attr: str, wait_ms: int) -> None:
     """Stop/delete a (thread, worker) pair stored on an object."""
@@ -252,14 +260,19 @@ class EnvInstallDialog(QDialog):
     def apply_install_snapshot(self, snapshot: dict) -> None:
         if not isinstance(snapshot, dict):
             return
-        status = str(snapshot.get("status", "") or "").strip().upper()
+        raw_status = str(snapshot.get("status", "") or "").strip().upper()
+        status = "RUNNING" if raw_status == "" else raw_status
+        if status not in _INSTALL_STATUS_CONFIG:
+            raise RuntimeError(f"Unknown install snapshot status: {status!r}")
+
+        status_cfg = _INSTALL_STATUS_CONFIG[status]
         message = str(snapshot.get("message", "") or "").strip()
         log_text = str(snapshot.get("log_text", "") or "")
         exit_code = str(snapshot.get("exit_code", "") or "").strip()
         updated_at = self._parse_updated_at(snapshot)
         if updated_at is not None and updated_at < self._last_snapshot_updated_at:
             return
-        if self._terminal_status in {"DONE", "FAILED"} and status in {"", "SUBMITTING", "RUNNING"}:
+        if self._terminal_status in {"DONE", "FAILED"} and not bool(status_cfg["terminal"]):
             return
 
         if updated_at is not None:
@@ -267,26 +280,15 @@ class EnvInstallDialog(QDialog):
         if log_text:
             self._set_log_text(log_text)
 
-        if status == "SUBMITTING":
-            self._installing = True
-            message = message or "正在提交安装任务……"
-        elif status in {"RUNNING", ""}:
-            self._installing = True
-            status = "RUNNING"
-            message = message or "安装中……"
-        elif status == "DONE":
-            self._installing = False
-            self._terminal_status = "DONE"
-            message = message or "安装成功！"
-        elif status == "FAILED":
-            self._installing = False
-            self._terminal_status = "FAILED"
+        self._installing = bool(status_cfg["installing"])
+        if bool(status_cfg["terminal"]):
+            self._terminal_status = status
+        message = message or str(status_cfg["message"])
+
+        if status == "FAILED":
             self._append_failure_guidance(exit_code)
-            message = message or "安装失败，请检查详细日志后重试。"
             if exit_code and "exit_code" not in message:
                 message = f"{message} (exit_code={exit_code})"
-        else:
-            raise RuntimeError(f"Unknown install snapshot status: {status!r}")
 
         self._emit_view_snapshot(
             status=status,
