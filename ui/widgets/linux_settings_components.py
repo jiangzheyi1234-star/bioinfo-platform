@@ -177,6 +177,14 @@ class EnvInstallDialog(QDialog):
         self._latest_snapshot_json = ""
 
         self.setWindowTitle("安装工具环境")
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+        self.setWindowModality(Qt.WindowModality.NonModal)
         self.setMinimumWidth(620)
         self.setMinimumHeight(420)
         self.setStyleSheet(f"background-color: {COLOR_BG_PAGE};")

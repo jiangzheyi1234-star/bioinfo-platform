@@ -28,7 +28,7 @@ def test_summary_running_has_priority():
 
     summary = ctrl.summary()
     assert summary["level"] == "running"
-    assert "正在安装" in str(summary["text"])
+    assert str(summary["text"]).startswith("安装: Kraken2")
 
 
 def test_summary_failed_when_no_running():
@@ -45,7 +45,7 @@ def test_summary_failed_when_no_running():
 
     summary = ctrl.summary()
     assert summary["level"] == "error"
-    assert "失败" in str(summary["text"])
+    assert str(summary["text"]) == "安装: kraken2 失败"
 
 
 def test_snapshot_sorted_by_updated_at_desc():
@@ -118,3 +118,21 @@ def test_summary_running_includes_download_speed():
     assert summary["level"] == "running"
     assert "2.1MB/s" in text
     assert "35%" in text
+    assert text == "安装: nt 35% 2.1MB/s"
+
+
+def test_summary_success_uses_compact_title():
+    ctrl = InstallTaskController()
+    ctrl.ingest_event(
+        {
+            "task_id": "tool_env:prodigal",
+            "title": "工具环境安装 · Prodigal",
+            "source": "tool_env",
+            "state": "success",
+            "detail": "工具环境安装完成",
+        }
+    )
+
+    summary = ctrl.summary()
+    assert summary["level"] == "success"
+    assert str(summary["text"]) == "安装: Prodigal 完成"
