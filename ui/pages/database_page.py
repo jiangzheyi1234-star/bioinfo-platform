@@ -678,6 +678,7 @@ class DatabasePage(BasePage):
             self._make_ssh_run_fn(),
             info.db_id,
             candidate,
+            require_status_file=False,
         )
 
     def _check_database_status(self, info: DatabaseInfo) -> DatabaseCheckResult:
@@ -1318,10 +1319,20 @@ class DatabasePage(BasePage):
             QMessageBox.warning(self, "数据库路径覆盖", result.message or "数据库路径完整性校验失败")
             return
 
-        overrides[db_id] = self._database_service.binding_value_from_storage_root(
+        binding_value = self._database_service.binding_value_from_storage_root(
             db_id,
             self._normalize_remote_path(self._expand_remote_path(selected) or selected),
         )
+        try:
+            self._database_service.ensure_status_marker_at_path(
+                self._make_ssh_run_fn(),
+                db_id,
+                binding_value,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "数据库路径覆盖", f"数据库内容可用，但写入状态标记失败: {exc}")
+            return
+        overrides[db_id] = binding_value
         databases["overrides"] = overrides
         databases.setdefault("db_root", self._get_db_root())
         cfg["databases"] = databases

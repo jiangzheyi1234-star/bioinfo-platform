@@ -349,13 +349,15 @@ class DatabaseService:
         ssh_run_fn: SshRunFn,
         info: DatabaseInfo,
         canonical_binding_value: str,
+        *,
+        require_status_file: bool = True,
     ) -> DatabaseCheckResult:
         storage_root = self._storage_root_for_info(info, canonical_binding_value)
         size_target = self._size_target_for_info(info, canonical_binding_value, storage_root)
         qstorage = _quote(storage_root)
         qsize_target = _quote(size_target)
         status_file = info.integrity_check.get("status_file", ".install_ok")
-        if status_file:
+        if status_file and require_status_file:
             rc, _, _ = ssh_run_fn(f"test -f {qstorage}/{_quote(str(status_file))}", 10)
             if rc != 0:
                 return DatabaseCheckResult(
@@ -614,5 +616,41 @@ exec > "$LOG_FILE" 2>&1
         ssh_run_fn: SshRunFn,
         db_id: str,
         db_path: str,
+        *,
+        require_status_file: bool = True,
     ) -> DatabaseCheckResult:
-        return self.check_status_at_path(ssh_run_fn, db_id, db_path)
+        info = self.get_info(db_id)
+        if info is None:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="数据库未注册")
+        try:
+            canonical_path = self.canonicalize_binding_value(db_id, db_path)
+        except ValueError as exc:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=str(exc))
+        return self._check_integrity_at_path(
+            ssh_run_fn,
+            info,
+            canonical_path,
+            require_status_file=require_status_file,
+        )
+
+    def ensure_status_marker_at_path(
+        self,
+        ssh_run_fn: SshRunFn,
+        db_id: str,
+        db_path: str,
+    ) -> None:
+        info = self.get_info(db_id)
+        if info is None:
+            raise ValueError(f"未知数据库: {db_id}")
+        status_file = str(info.integrity_check.get("status_file", ".install_ok") or "").strip()
+        if not status_file:
+            return
+        canonical_path = self.canonicalize_binding_value(db_id, db_path)
+        storage_root = self._storage_root_for_info(info, canonical_path)
+        rc, _, stderr = ssh_run_fn(
+            f"touch {_quote(self._join_posix(storage_root, status_file))}",
+            10,
+        )
+        if rc != 0:
+            detail = (stderr or "").strip()
+            raise RuntimeError(f"写入状态文件失败: {status_file}" + (f" ({detail})" if detail else ""))

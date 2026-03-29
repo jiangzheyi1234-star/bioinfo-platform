@@ -125,6 +125,12 @@ def test_on_path_override_saves_after_integrity_check(page: DatabasePage, monkey
         "_check_database_path_remote",
         lambda info, path: DatabaseCheckResult(info.db_id, DatabaseStatus.READY, f"ok: {path}"),
     )
+    marker_calls = []
+    monkeypatch.setattr(
+        page._database_service,
+        "ensure_status_marker_at_path",
+        lambda ssh_run_fn, got_db_id, binding_value: marker_calls.append((got_db_id, binding_value)),
+    )
     monkeypatch.setattr(db_page_module, "get_config", lambda: {"databases": {"db_root": "/data/databases", "overrides": {}}})
     monkeypatch.setattr(db_page_module, "save_config", lambda payload: saved.append(payload))
     monkeypatch.setattr(db_page_module.QMessageBox, "information", lambda *a, **kw: infos.append((a, kw)))
@@ -133,6 +139,7 @@ def test_on_path_override_saves_after_integrity_check(page: DatabasePage, monkey
 
     assert saved
     assert saved[-1]["databases"]["overrides"][db_id] == "/remote/ok"
+    assert marker_calls == [(db_id, "/remote/ok")]
     assert infos
 
 
@@ -147,6 +154,12 @@ def test_on_path_override_normalizes_prefix_database_to_canonical_value(page: Da
         "_check_database_path_remote",
         lambda info, path: DatabaseCheckResult(info.db_id, DatabaseStatus.READY, f"ok: {path}"),
     )
+    marker_calls = []
+    monkeypatch.setattr(
+        page._database_service,
+        "ensure_status_marker_at_path",
+        lambda ssh_run_fn, got_db_id, binding_value: marker_calls.append((got_db_id, binding_value)),
+    )
     monkeypatch.setattr(db_page_module, "get_config", lambda: {"databases": {"db_root": "/data/databases", "overrides": {}}})
     monkeypatch.setattr(db_page_module, "save_config", lambda payload: saved.append(payload))
     monkeypatch.setattr(db_page_module.QMessageBox, "information", lambda *a, **kw: None)
@@ -155,6 +168,7 @@ def test_on_path_override_normalizes_prefix_database_to_canonical_value(page: Da
 
     assert saved
     assert saved[-1]["databases"]["overrides"][db_id] == "/remote/blast_nt/nt"
+    assert marker_calls == [(db_id, "/remote/blast_nt/nt")]
 
 
 def test_on_path_override_normalizes_specific_file_database_to_canonical_value(page: DatabasePage, monkeypatch):
@@ -168,6 +182,12 @@ def test_on_path_override_normalizes_specific_file_database_to_canonical_value(p
         "_check_database_path_remote",
         lambda info, path: DatabaseCheckResult(info.db_id, DatabaseStatus.READY, f"ok: {path}"),
     )
+    marker_calls = []
+    monkeypatch.setattr(
+        page._database_service,
+        "ensure_status_marker_at_path",
+        lambda ssh_run_fn, got_db_id, binding_value: marker_calls.append((got_db_id, binding_value)),
+    )
     monkeypatch.setattr(db_page_module, "get_config", lambda: {"databases": {"db_root": "/data/databases", "overrides": {}}})
     monkeypatch.setattr(db_page_module, "save_config", lambda payload: saved.append(payload))
     monkeypatch.setattr(db_page_module.QMessageBox, "information", lambda *a, **kw: None)
@@ -176,6 +196,35 @@ def test_on_path_override_normalizes_specific_file_database_to_canonical_value(p
 
     assert saved
     assert saved[-1]["databases"]["overrides"][db_id] == "/remote/gunc/gunc_db_progenomes2.1.dmnd"
+    assert marker_calls == [(db_id, "/remote/gunc/gunc_db_progenomes2.1.dmnd")]
+
+
+def test_on_path_override_warns_when_status_marker_cannot_be_written(page: DatabasePage, monkeypatch):
+    db_id = _managed_db_id(page, "blast_nt")
+    warnings = []
+    saved = []
+    page._ssh_service = MagicMock(is_connected=True)
+    monkeypatch.setattr(page, "_pick_remote_db_root", lambda _start, anchor=None: "/remote/blast_nt")
+    monkeypatch.setattr(page, "_expand_remote_path", lambda value: value)
+    monkeypatch.setattr(
+        page,
+        "_check_database_path_remote",
+        lambda info, path: DatabaseCheckResult(info.db_id, DatabaseStatus.READY, f"ok: {path}"),
+    )
+    monkeypatch.setattr(
+        page._database_service,
+        "ensure_status_marker_at_path",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("touch failed")),
+    )
+    monkeypatch.setattr(db_page_module, "get_config", lambda: {"databases": {"db_root": "/data/databases", "overrides": {}}})
+    monkeypatch.setattr(db_page_module, "save_config", lambda payload: saved.append(payload))
+    monkeypatch.setattr(db_page_module.QMessageBox, "warning", lambda *a, **kw: warnings.append((a, kw)))
+
+    page._on_path_override(db_id)
+
+    assert not saved
+    assert warnings
+    assert "写入状态标记失败" in str(warnings[-1])
 
 
 def test_set_ssh_service_triggers_recovery(page: DatabasePage, monkeypatch):
