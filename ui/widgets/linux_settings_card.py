@@ -28,9 +28,10 @@ from ui.widgets.styles import (
     STATUS_ERROR,
 )
 from ui.install_log_parser import extract_progress_and_speed
-from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge, cleanup_thread_pair
+from ui.widgets.linux_settings_components import ClickableHeader, EnvInstallDialog, ToolEnvBridge
 from ui.widgets.report_view import create_report_web_view
 from ui.widgets.toast import Toast
+from ui.workers.base_worker import BaseCancellableWorker, launch_worker, request_worker_stop
 
 from core.environment import env_detector
 from core.environment import miniforge_bootstrap
@@ -91,7 +92,7 @@ def _tool_env_exists_in_paths(tool: dict | None, existing_env_paths: set[str], c
 # ── Conda 检测 Worker ─────────────────────────────────────────────
 
 
-class MiniforgeProbeWorker(QObject):
+class MiniforgeProbeWorker(BaseCancellableWorker):
     """在 QThread 中探测自管 Miniforge 是否已落盘。"""
 
     finished = pyqtSignal(object)
@@ -100,21 +101,6 @@ class MiniforgeProbeWorker(QObject):
     def __init__(self, ssh_run_fn):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    def _emit(self, signal_name: str, *args) -> bool:
-        if self._cancelled:
-            return False
-        try:
-            signal = getattr(self, signal_name)
-        except RuntimeError:
-            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
-            return False
-        return _safe_emit(signal, *args)
 
     @pyqtSlot()
     def run(self):
@@ -140,7 +126,7 @@ class MiniforgeProbeWorker(QObject):
             self._emit("error", str(e))
 
 
-class MiniforgeBootstrapSubmitWorker(QObject):
+class MiniforgeBootstrapSubmitWorker(BaseCancellableWorker):
     """在 QThread 中提交 detached Miniforge 初始化任务。"""
 
     finished = pyqtSignal(dict)
@@ -150,11 +136,6 @@ class MiniforgeBootstrapSubmitWorker(QObject):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
         self._caps = caps
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
 
     @pyqtSlot()
     def run(self):
@@ -164,15 +145,15 @@ class MiniforgeBootstrapSubmitWorker(QObject):
             result = miniforge_bootstrap.submit(self._caps, self._ssh_run_fn)
             if self._cancelled:
                 return
-            self.finished.emit(result)
+            self._emit("finished", result)
         except Exception as exc:
             if self._cancelled:
                 return
             logger.exception("提交 Miniforge 后台任务失败")
-            self.error.emit(str(exc))
+            self._emit("error", str(exc))
 
 
-class MiniforgePollWorker(QObject):
+class MiniforgePollWorker(BaseCancellableWorker):
     """后台探测 Miniforge 状态或读取失败日志，避免主线程同步 SSH。"""
 
     finished = pyqtSignal(object)
@@ -184,21 +165,6 @@ class MiniforgePollWorker(QObject):
         self._task_dir = str(task_dir or miniforge_bootstrap.TASK_DIR)
         self._operation = str(operation or "").strip()
         self._reason = str(reason or "")
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    def _emit(self, signal_name: str, *args) -> bool:
-        if self._cancelled:
-            return False
-        try:
-            signal = getattr(self, signal_name)
-        except RuntimeError:
-            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
-            return False
-        return _safe_emit(signal, *args)
 
     @pyqtSlot()
     def run(self) -> None:
@@ -255,7 +221,7 @@ class MiniforgePollWorker(QObject):
 # ── 批量环境检测 Worker ─────────────────────────────────────────────
 
 
-class EnvBatchCheckWorker(QObject):
+class EnvBatchCheckWorker(BaseCancellableWorker):
     """SSH 批量检测工具 conda 环境是否就绪。
 
     薄壳层：仅负责信号转发，后端逻辑委托给 env_batch_checker.check_all_envs()。
@@ -275,21 +241,6 @@ class EnvBatchCheckWorker(QObject):
         self._ssh_run_fn = ssh_run_fn
         self.tools = tools
         self._conda_executable = conda_executable or "conda"
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    def _emit(self, signal_name: str, *args) -> bool:
-        if self._cancelled:
-            return False
-        try:
-            signal = getattr(self, signal_name)
-        except RuntimeError:
-            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
-            return False
-        return _safe_emit(signal, *args)
 
     @pyqtSlot()
     def run(self):
@@ -313,7 +264,7 @@ class EnvBatchCheckWorker(QObject):
             self._emit("error", str(e))
 
 
-class ToolInstallBatchPollWorker(QObject):
+class ToolInstallBatchPollWorker(BaseCancellableWorker):
     """批量轮询工具环境安装状态（后台线程）。"""
 
     finished = pyqtSignal(list)
@@ -323,11 +274,6 @@ class ToolInstallBatchPollWorker(QObject):
         super().__init__()
         self._ssh_run_fn = ssh_run_fn
         self._tool_ids = list(tool_ids)
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
 
     @pyqtSlot()
     def run(self) -> None:
@@ -339,15 +285,15 @@ class ToolInstallBatchPollWorker(QObject):
                 timeout=20,
             )
             if not self._cancelled:
-                self.finished.emit(rows)
+                self._emit("finished", rows)
         except Exception as exc:
             if self._cancelled:
                 return
             logger.exception("ToolInstallBatchPollWorker 出错")
-            self.error.emit(str(exc))
+            self._emit("error", str(exc))
 
 
-class ToolInstallSubmitWorker(QObject):
+class ToolInstallSubmitWorker(BaseCancellableWorker):
     """后台提交工具环境安装任务。"""
 
     finished = pyqtSignal(str, dict)
@@ -359,11 +305,6 @@ class ToolInstallSubmitWorker(QObject):
         self._tool_id = str(tool_id or "").strip()
         self._install_cmd = str(install_cmd or "")
         self._conda_executable = str(conda_executable or "")
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
 
     @pyqtSlot()
     def run(self) -> None:
@@ -377,15 +318,15 @@ class ToolInstallSubmitWorker(QObject):
                 self._conda_executable,
             )
             if not self._cancelled:
-                self.finished.emit(self._tool_id, result)
+                self._emit("finished", self._tool_id, result)
         except Exception as exc:
             if self._cancelled:
                 return
             logger.exception("ToolInstallSubmitWorker 出错: tool_id=%s", self._tool_id)
-            self.error.emit(self._tool_id, str(exc))
+            self._emit("error", self._tool_id, str(exc))
 
 
-class RecoverInstallsWorker(QObject):
+class RecoverInstallsWorker(BaseCancellableWorker):
     """后台恢复/解析工具安装状态，避免主线程同步 SSH。"""
 
     finished = pyqtSignal(object)
@@ -403,21 +344,6 @@ class RecoverInstallsWorker(QObject):
         self._tools = list(tools or [])
         self._conda_executable = str(conda_executable or "")
         self._existing_env_paths = None if existing_env_paths is None else _normalize_env_paths(existing_env_paths)
-        self._cancelled = False
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    def _emit(self, signal_name: str, *args) -> bool:
-        if self._cancelled:
-            return False
-        try:
-            signal = getattr(self, signal_name)
-        except RuntimeError:
-            logger.debug("Skipped worker signal access on deleted Qt object", exc_info=True)
-            return False
-        return _safe_emit(signal, *args)
 
     def _load_existing_env_paths(self) -> set[str]:
         if self._existing_env_paths is not None:
@@ -919,17 +845,14 @@ class LinuxSettingsCard(QFrame):
 
         self._miniforge_probe_inflight = True
         self._emit_deploy_state()
-        self._cleanup_miniforge_probe_resources()
-
-        self._miniforge_probe_thread = QThread()
-        self._miniforge_probe_worker = MiniforgeProbeWorker(self._make_ssh_run_fn())
-        self._miniforge_probe_worker.moveToThread(self._miniforge_probe_thread)
-        self._miniforge_probe_thread.started.connect(self._miniforge_probe_worker.run)
-        self._miniforge_probe_worker.finished.connect(self._on_miniforge_probe_finished)
-        self._miniforge_probe_worker.error.connect(self._on_miniforge_probe_error)
-        self._miniforge_probe_worker.finished.connect(self._cleanup_miniforge_probe_resources)
-        self._miniforge_probe_worker.error.connect(self._cleanup_miniforge_probe_resources)
-        self._miniforge_probe_thread.start()
+        launch_worker(
+            self,
+            "_miniforge_probe_thread",
+            "_miniforge_probe_worker",
+            MiniforgeProbeWorker(self._make_ssh_run_fn()),
+            on_finished=self._on_miniforge_probe_finished,
+            on_error=self._on_miniforge_probe_error,
+        )
 
     def _on_miniforge_probe_finished(self, payload: object) -> None:
         data = payload if isinstance(payload, dict) else {}
@@ -956,20 +879,11 @@ class LinuxSettingsCard(QFrame):
         self._set_status(f"运行环境检查失败: {msg[:60]}", STATUS_ERROR)
         self._emit_deploy_state()
 
-    def _cleanup_miniforge_probe_resources(self) -> None:
-        cleanup_thread_pair(self, "_miniforge_probe_thread", "_miniforge_probe_worker", wait_ms=5000)
-
     def _cleanup_miniforge_resources(self) -> None:
         """清理 Miniforge 提交/轮询线程资源。"""
-        self._cleanup_miniforge_submit_resources()
-        self._cleanup_miniforge_poll_resources()
-        self._cleanup_miniforge_probe_resources()
-
-    def _cleanup_miniforge_submit_resources(self) -> None:
-        cleanup_thread_pair(self, "_miniforge_thread", "_miniforge_worker", wait_ms=5000)
-
-    def _cleanup_miniforge_poll_resources(self) -> None:
-        cleanup_thread_pair(self, "_miniforge_poll_thread", "_miniforge_poll_worker", wait_ms=5000)
+        request_worker_stop(self, "_miniforge_thread", "_miniforge_worker")
+        request_worker_stop(self, "_miniforge_poll_thread", "_miniforge_poll_worker")
+        request_worker_stop(self, "_miniforge_probe_thread", "_miniforge_probe_worker")
 
     def _get_server_capabilities(self) -> tuple[ServerCapabilities | None, str]:
         window = self.window()
@@ -1026,11 +940,6 @@ class LinuxSettingsCard(QFrame):
         self._emit_deploy_state()
         self._cleanup_miniforge_resources()
 
-        self._miniforge_thread = QThread()
-        self._miniforge_worker = MiniforgeBootstrapSubmitWorker(self._make_ssh_run_fn(), caps)
-        self._miniforge_worker.moveToThread(self._miniforge_thread)
-        self._miniforge_thread.started.connect(self._miniforge_worker.run)
-
         def _on_finished(result: dict) -> None:
             self._miniforge_task_dir = result.get("task_dir", miniforge_bootstrap.TASK_DIR)
             already_running = bool(result.get("already_running", False))
@@ -1048,10 +957,14 @@ class LinuxSettingsCard(QFrame):
             self._prompt_miniforge_install_failed(msg)
             self._cleanup_miniforge_resources()
 
-        self._miniforge_worker.finished.connect(_on_finished)
-        self._miniforge_worker.error.connect(_on_error)
-
-        self._miniforge_thread.start()
+        launch_worker(
+            self,
+            "_miniforge_thread",
+            "_miniforge_worker",
+            MiniforgeBootstrapSubmitWorker(self._make_ssh_run_fn(), caps),
+            on_finished=_on_finished,
+            on_error=_on_error,
+        )
 
     def _start_miniforge_polling(self) -> None:
         self._schedule_miniforge_poll(100)
@@ -1063,21 +976,19 @@ class LinuxSettingsCard(QFrame):
         self._miniforge_poll_timer.start(max(int(delay_ms), 0))
 
     def _start_miniforge_poll_job(self, operation: str, reason: str = "") -> None:
-        self._cleanup_miniforge_poll_resources()
-        self._miniforge_poll_thread = QThread()
-        self._miniforge_poll_worker = MiniforgePollWorker(
-            self._make_ssh_run_fn(),
-            self._miniforge_task_dir,
-            operation=operation,
-            reason=reason,
+        launch_worker(
+            self,
+            "_miniforge_poll_thread",
+            "_miniforge_poll_worker",
+            MiniforgePollWorker(
+                self._make_ssh_run_fn(),
+                self._miniforge_task_dir,
+                operation=operation,
+                reason=reason,
+            ),
+            on_finished=self._on_miniforge_poll_finished,
+            on_error=self._on_miniforge_poll_error,
         )
-        self._miniforge_poll_worker.moveToThread(self._miniforge_poll_thread)
-        self._miniforge_poll_thread.started.connect(self._miniforge_poll_worker.run)
-        self._miniforge_poll_worker.finished.connect(self._on_miniforge_poll_finished)
-        self._miniforge_poll_worker.error.connect(self._on_miniforge_poll_error)
-        self._miniforge_poll_worker.finished.connect(self._cleanup_miniforge_poll_resources)
-        self._miniforge_poll_worker.error.connect(self._cleanup_miniforge_poll_resources)
-        self._miniforge_poll_thread.start()
 
     def _poll_miniforge_status(self) -> None:
         if not self._miniforge_installing or self._miniforge_polling:
@@ -1115,7 +1026,7 @@ class LinuxSettingsCard(QFrame):
             Toast.show_toast(self, "运行环境初始化完成", level="success", duration_ms=3000)
             if self._tools:
                 self._pending_recover_after_batch = True
-                QTimer.singleShot(200, self._on_batch_check)
+                QTimer.singleShot(200, self._do_batch_check)
             else:
                 self._pending_recover_after_batch = False
                 QTimer.singleShot(200, lambda: self._recover_running_installs(existing_env_paths=set()))
@@ -1182,10 +1093,6 @@ class LinuxSettingsCard(QFrame):
 
     # ── 批量检测 ─────────────────────────────────────────
 
-    def _on_batch_check(self) -> None:
-        """一键检测所有工具环境（外部调用入口）。"""
-        self._do_batch_check()
-
     def _on_batch_check_from_web(self) -> None:
         """从 Web UI 调用的检测入口。"""
         self._do_batch_check()
@@ -1210,21 +1117,18 @@ class LinuxSettingsCard(QFrame):
         if self._bridge:
             self._bridge.emit_check_started()
 
-        self._cleanup_check_resources()
-
-        self._check_thread = QThread()
-        self._check_worker = EnvBatchCheckWorker(
+        worker = EnvBatchCheckWorker(
             self._make_ssh_run_fn(), self._tools, self._conda_executable,
         )
-        self._check_worker.moveToThread(self._check_thread)
-
-        self._check_thread.started.connect(self._check_worker.run)
-        self._check_worker.tool_checked.connect(self._on_tool_checked)
-        self._check_worker.finished.connect(self._on_batch_finished)
-        self._check_worker.error.connect(self._on_batch_error)
-        self._check_worker.finished.connect(self._cleanup_check_resources)
-
-        self._check_thread.start()
+        worker.tool_checked.connect(self._on_tool_checked)
+        launch_worker(
+            self,
+            "_check_thread",
+            "_check_worker",
+            worker,
+            on_finished=self._on_batch_finished,
+            on_error=self._on_batch_error,
+        )
 
     def _on_tool_checked(self, tool_id: str, env_name: str, ok: bool) -> None:
         """单个工具检测完成，通知 Web UI 更新状态。"""
@@ -1286,10 +1190,6 @@ class LinuxSettingsCard(QFrame):
             self._pending_recover_after_batch = False
             logger.debug("批量检测失败，回退到独立恢复流程")
             self._recover_running_installs(existing_env_paths=None)
-
-    def _cleanup_check_resources(self) -> None:
-        """清理检测线程资源。"""
-        cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=5000)
 
     # ── 安装 ─────────────────────────────────────────────
 
@@ -1596,25 +1496,29 @@ class LinuxSettingsCard(QFrame):
         )
         self._ensure_tool_install_polling()
 
+    def _finalize_tool_install_state(self, tool_id: str, success: bool) -> None:
+        clean_tool_id = str(tool_id or "").strip()
+        if not clean_tool_id:
+            return
+        self._tool_install_submitting_ids.discard(clean_tool_id)
+        self._installing_tool_ids.discard(clean_tool_id)
+        self._tool_log_samples.pop(clean_tool_id, None)
+        if self._bridge:
+            self._bridge.emit_install_finished(clean_tool_id, success)
+        self._ensure_tool_install_polling()
+
     def _on_install_succeeded(self, tool_id: str) -> None:
         """某工具安装成功后：提示数据库（如需要），然后重新检测。"""
         tool_id = str(tool_id or "").strip()
         if not tool_id:
             return
-        self._tool_install_submitting_ids.discard(tool_id)
-        # 从安装中集合移除
-        self._installing_tool_ids.discard(tool_id)
-        self._tool_log_samples.pop(tool_id, None)
-        # 通知 JS 安装完成
-        if self._bridge:
-            self._bridge.emit_install_finished(tool_id, True)
+        self._finalize_tool_install_state(tool_id, success=True)
         self._emit_tool_install_event(tool_id, "success", "工具环境安装完成")
         self._update_tool_install_snapshot(
             tool_id,
             status="DONE",
             message="安装成功！",
         )
-        self._ensure_tool_install_polling()
 
         tool = next((t for t in self._tools if t["id"] == tool_id), None)
         tool_name = tool.get("name", tool_id) if tool else tool_id
@@ -1632,46 +1536,35 @@ class LinuxSettingsCard(QFrame):
             Toast.show_toast(self, f"工具 {tool_name} 安装完成", level="success", duration_ms=3000)
 
         # 重新检测所有工具
-        QTimer.singleShot(300, self._on_batch_check)
+        QTimer.singleShot(300, self._do_batch_check)
 
     def _on_install_failed(self, tool_id: str) -> None:
         """安装失败后通知 JS 更新状态。"""
         tool_id = str(tool_id or "").strip()
         if not tool_id:
             return
-        self._tool_install_submitting_ids.discard(tool_id)
-        # 从安装中集合移除
-        self._installing_tool_ids.discard(tool_id)
-        self._tool_log_samples.pop(tool_id, None)
-        if self._bridge:
-            self._bridge.emit_install_finished(tool_id, False)
+        self._finalize_tool_install_state(tool_id, success=False)
         self._emit_tool_install_event(tool_id, "failed", "工具环境安装失败")
         self._update_tool_install_snapshot(
             tool_id,
             status="FAILED",
             message="安装失败，请检查上方输出或网络后重试。",
         )
-        self._ensure_tool_install_polling()
-
-    def _cleanup_recover_installs_resources(self) -> None:
-        cleanup_thread_pair(self, "_recover_installs_thread", "_recover_installs_worker", wait_ms=3000)
 
     def _start_recover_installs_job(self, existing_env_paths: Optional[set[str]] = None) -> None:
-        self._cleanup_recover_installs_resources()
-        self._recover_installs_thread = QThread()
-        self._recover_installs_worker = RecoverInstallsWorker(
-            self._make_ssh_run_fn(),
-            self._tools,
-            self._conda_executable,
-            existing_env_paths=existing_env_paths,
+        launch_worker(
+            self,
+            "_recover_installs_thread",
+            "_recover_installs_worker",
+            RecoverInstallsWorker(
+                self._make_ssh_run_fn(),
+                self._tools,
+                self._conda_executable,
+                existing_env_paths=existing_env_paths,
+            ),
+            on_finished=self._on_recover_installs_finished,
+            on_error=self._on_recover_installs_error,
         )
-        self._recover_installs_worker.moveToThread(self._recover_installs_thread)
-        self._recover_installs_thread.started.connect(self._recover_installs_worker.run)
-        self._recover_installs_worker.finished.connect(self._on_recover_installs_finished)
-        self._recover_installs_worker.error.connect(self._on_recover_installs_error)
-        self._recover_installs_worker.finished.connect(self._cleanup_recover_installs_resources)
-        self._recover_installs_worker.error.connect(self._cleanup_recover_installs_resources)
-        self._recover_installs_thread.start()
 
     def _recover_running_installs(self, existing_env_paths: Optional[set[str]] = None) -> None:
         """启动时扫描 ~/.h2ometa/env_installs/*/status.txt，恢复安装状态。
@@ -1766,7 +1659,7 @@ class LinuxSettingsCard(QFrame):
             self._ensure_tool_install_polling()
 
         if newly_done:
-            QTimer.singleShot(500, self._on_batch_check)
+            QTimer.singleShot(500, self._do_batch_check)
 
     def _on_recover_installs_error(self, msg: str) -> None:
         self._recover_installs_running = False
@@ -1783,9 +1676,6 @@ class LinuxSettingsCard(QFrame):
                 self._tool_install_poll_timer.stop()
             self._tool_install_polling = False
 
-    def _cleanup_tool_install_poll_resources(self) -> None:
-        cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=3000)
-
     def _poll_running_tool_installs(self) -> None:
         if not self._installing_tool_ids:
             self._ensure_tool_install_polling()
@@ -1796,20 +1686,17 @@ class LinuxSettingsCard(QFrame):
             return
 
         self._tool_install_polling = True
-        self._cleanup_tool_install_poll_resources()
-
-        self._tool_install_poll_thread = QThread()
-        self._tool_install_poll_worker = ToolInstallBatchPollWorker(
-            self._make_ssh_run_fn(),
-            sorted(self._installing_tool_ids),
+        launch_worker(
+            self,
+            "_tool_install_poll_thread",
+            "_tool_install_poll_worker",
+            ToolInstallBatchPollWorker(
+                self._make_ssh_run_fn(),
+                sorted(self._installing_tool_ids),
+            ),
+            on_finished=self._on_tool_install_poll_finished,
+            on_error=self._on_tool_install_poll_error,
         )
-        self._tool_install_poll_worker.moveToThread(self._tool_install_poll_thread)
-        self._tool_install_poll_thread.started.connect(self._tool_install_poll_worker.run)
-        self._tool_install_poll_worker.finished.connect(self._on_tool_install_poll_finished)
-        self._tool_install_poll_worker.error.connect(self._on_tool_install_poll_error)
-        self._tool_install_poll_worker.finished.connect(self._cleanup_tool_install_poll_resources)
-        self._tool_install_poll_worker.error.connect(self._cleanup_tool_install_poll_resources)
-        self._tool_install_poll_thread.start()
 
     def _build_tool_install_running_detail(self, tool_id: str, log_text: str, log_size: int) -> str:
         progress, speed = extract_progress_and_speed(log_text)
@@ -1903,7 +1790,7 @@ class LinuxSettingsCard(QFrame):
             self._emit_tool_install_event(tool_id, "running", detail)
 
         if need_recheck:
-            QTimer.singleShot(300, self._on_batch_check)
+            QTimer.singleShot(300, self._do_batch_check)
         self._ensure_tool_install_polling()
 
     def _on_tool_install_poll_error(self, msg: str) -> None:
@@ -1951,8 +1838,8 @@ class LinuxSettingsCard(QFrame):
             self._tool_install_poll_timer.stop()
         self._close_tool_install_dialogs()
         self._cleanup_tool_install_submit_resources()
-        cleanup_thread_pair(self, "_check_thread", "_check_worker", wait_ms=1000)
+        request_worker_stop(self, "_check_thread", "_check_worker")
         self._cleanup_miniforge_resources()
-        self._cleanup_recover_installs_resources()
-        cleanup_thread_pair(self, "_tool_install_poll_thread", "_tool_install_poll_worker", wait_ms=1000)
+        request_worker_stop(self, "_recover_installs_thread", "_recover_installs_worker")
+        request_worker_stop(self, "_tool_install_poll_thread", "_tool_install_poll_worker")
         super().closeEvent(event)

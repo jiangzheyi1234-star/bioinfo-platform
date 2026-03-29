@@ -5,6 +5,87 @@ import time
 pytestmark = pytest.mark.ui
 
 
+def test_start_singleton_worker_cleans_thread_attrs_after_finish(qapp, monkeypatch):
+    from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from ui.workers.base_worker import launch_worker
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+
+    finished = {"count": 0}
+
+    class _DummyWorker(QObject):
+        finished = pyqtSignal(object)
+        error = pyqtSignal(str)
+
+        @pyqtSlot()
+        def run(self):
+            self.finished.emit({"ok": True})
+
+        @pyqtSlot()
+        def cancel(self):
+            return None
+
+    launch_worker(
+        card,
+        "_dummy_thread",
+        "_dummy_worker",
+        _DummyWorker(),
+        on_finished=lambda payload: finished.__setitem__("count", finished["count"] + int(payload.get("ok", False))),
+    )
+
+    for _ in range(50):
+        qapp.processEvents()
+        if finished["count"] == 1 and not hasattr(card, "_dummy_thread") and not hasattr(card, "_dummy_worker"):
+            break
+        time.sleep(0.01)
+
+    assert finished["count"] == 1
+    assert not hasattr(card, "_dummy_thread")
+    assert not hasattr(card, "_dummy_worker")
+    card.close()
+
+
+def test_launch_worker_rejects_duplicate_running_thread(qapp, monkeypatch):
+    from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
+    from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from ui.workers.base_worker import BaseCancellableWorker, launch_worker, request_worker_stop
+
+    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    card = LinuxSettingsCard()
+
+    class _BlockingWorker(BaseCancellableWorker):
+        finished = pyqtSignal(object)
+        error = pyqtSignal(str)
+
+        @pyqtSlot()
+        def run(self):
+            while not self._cancelled:
+                QThread.msleep(5)
+            self.finished.emit({"done": True})
+
+    launch_worker(card, "_dummy_thread", "_dummy_worker", _BlockingWorker())
+
+    for _ in range(50):
+        qapp.processEvents()
+        thread = getattr(card, "_dummy_thread", None)
+        if thread is not None and thread.isRunning():
+            break
+        time.sleep(0.01)
+
+    with pytest.raises(RuntimeError, match="线程仍在运行"):
+        launch_worker(card, "_dummy_thread", "_dummy_worker", _BlockingWorker())
+
+    request_worker_stop(card, "_dummy_thread", "_dummy_worker")
+    for _ in range(50):
+        qapp.processEvents()
+        if not hasattr(card, "_dummy_thread"):
+            break
+        time.sleep(0.01)
+    card.close()
+
+
 def test_miniforge_probe_worker_cancel_suppresses_emit(qapp):
     from ui.widgets.linux_settings_card import MiniforgeProbeWorker
 
@@ -257,7 +338,7 @@ def test_miniforge_poll_worker_reads_failure_log():
     assert commands and "tail -n 40" in commands[0][0]
 
 
-def test_poll_miniforge_status_starts_background_worker(qapp, monkeypatch):
+def test_poll_miniforge_status_starts_once_and_deduplicates_background_worker(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
@@ -273,26 +354,10 @@ def test_poll_miniforge_status_starts_background_worker(qapp, monkeypatch):
     monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.append((operation, reason)))
 
     card._poll_miniforge_status()
+    card._poll_miniforge_status()
 
     assert card._miniforge_polling is True
     assert started == [("probe_status", "")]
-
-
-def test_poll_miniforge_status_deduplicates_background_worker(qapp, monkeypatch):
-    from ui.widgets.linux_settings_card import LinuxSettingsCard
-
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
-    card = LinuxSettingsCard()
-    card._miniforge_installing = True
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
-
-    started = {"count": 0}
-    monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.__setitem__("count", started["count"] + 1))
-
-    card._poll_miniforge_status()
-    card._poll_miniforge_status()
-
-    assert started["count"] == 1
 
 
 def test_on_miniforge_poll_finished_running_dead_session_but_fresh_heartbeat_keeps_running(qapp, monkeypatch):
@@ -338,7 +403,7 @@ def test_on_miniforge_poll_finished_done_emits_install_task_success(qapp, monkey
     saved = {"count": 0}
     monkeypatch.setattr(card, "_sync_locator_conda_executable", lambda: None)
     card.request_save.connect(lambda: saved.__setitem__("count", saved["count"] + 1))
-    monkeypatch.setattr(card, "_on_batch_check", lambda: checks.__setitem__("count", checks["count"] + 1))
+    monkeypatch.setattr(card, "_do_batch_check", lambda: checks.__setitem__("count", checks["count"] + 1))
     monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, fn: fn())
 
     events = []
@@ -410,12 +475,14 @@ def test_on_miniforge_failure_log_error_prompts_reason(qapp, monkeypatch):
     assert failed["message"] == "心跳超时"
 
 
-def test_tool_install_success_emits_install_task_event(qapp, monkeypatch):
+def test_install_success_emits_event_and_clears_running_state(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
     card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
+    card._installing_tool_ids.add("fastp")
+    card._tool_log_samples["fastp"] = (128, time.time())
     monkeypatch.setattr("ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None)
     monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
 
@@ -427,6 +494,8 @@ def test_tool_install_success_emits_install_task_event(qapp, monkeypatch):
         e.get("task_id") == "tool_env:fastp" and e.get("state") == "success"
         for e in events
     )
+    assert "fastp" not in card._installing_tool_ids
+    assert "fastp" not in card._tool_log_samples
 
 
 def test_recover_installs_worker_uses_cached_env_paths(monkeypatch):
@@ -690,6 +759,8 @@ def test_submit_finished_marks_running_and_updates_snapshot(qapp, monkeypatch):
 
 def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
+    from PyQt6.QtCore import pyqtSignal
+    from PyQt6.QtWidgets import QDialog
 
     monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
     card = LinuxSettingsCard()
@@ -697,19 +768,13 @@ def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, m
 
     dialogs = []
 
-    class _Signal:
-        def __init__(self):
-            self._handler = None
+    class _FakeDialog(QDialog):
+        install_requested = pyqtSignal(str)
 
-        def connect(self, handler):
-            self._handler = handler
-
-    class _FakeDialog:
         def __init__(self, tool, conda_executable="", parent=None):
+            super().__init__(parent)
             self.tool = tool
             self.conda_executable = conda_executable
-            self.parent = parent
-            self.install_requested = _Signal()
             self.updates = []
             dialogs.append(self)
 
@@ -719,8 +784,14 @@ def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, m
         def apply_install_snapshot(self, snapshot):
             return None
 
-        def exec(self):
-            return 0
+        def show(self):
+            return None
+
+        def raise_(self):
+            return None
+
+        def activateWindow(self):
+            return None
 
     monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
 
@@ -729,6 +800,8 @@ def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, m
     assert dialogs
     assert dialogs[0].conda_executable == card._conda_executable
 
+    dialogs[0].reject()
+    qapp.processEvents()
     card.tool_install_snapshot_updated.emit("abricate", {"status": "RUNNING"})
 
     assert dialogs[0].updates == []
@@ -947,18 +1020,3 @@ def test_recover_running_installs_deduplicates_worker_start(qapp, monkeypatch):
     assert started["count"] == 1
     assert started["envs"] == {"a"}
 
-
-def test_close_event_cleans_recover_and_miniforge_resources(qapp, monkeypatch):
-    from ui.widgets.linux_settings_card import LinuxSettingsCard
-
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
-    card = LinuxSettingsCard()
-
-    counts = {"recover": 0, "miniforge": 0}
-    monkeypatch.setattr(card, "_cleanup_recover_installs_resources", lambda: counts.__setitem__("recover", counts["recover"] + 1))
-    monkeypatch.setattr(card, "_cleanup_miniforge_resources", lambda: counts.__setitem__("miniforge", counts["miniforge"] + 1))
-
-    card.close()
-
-    assert counts["recover"] == 1
-    assert counts["miniforge"] == 1
