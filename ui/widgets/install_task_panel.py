@@ -180,12 +180,12 @@ class InstallTaskPanel(QDialog):
             title_row.addWidget(detail_btn)
             row_layout.addLayout(title_row)
 
-            detail = str(task.get("detail", "") or "").strip()
-            if detail:
-                detail_lbl = QLabel(detail)
-                detail_lbl.setWordWrap(True)
-                detail_lbl.setStyleSheet("font-size: 12px; color: #64748B; background: transparent;")
-                row_layout.addWidget(detail_lbl)
+            summary = self._build_row_summary(task)
+            if summary:
+                summary_lbl = QLabel(summary)
+                summary_lbl.setWordWrap(True)
+                summary_lbl.setStyleSheet("font-size: 12px; color: #64748B; background: transparent;")
+                row_layout.addWidget(summary_lbl)
 
             self._content_layout.addWidget(row)
 
@@ -199,20 +199,48 @@ class InstallTaskPanel(QDialog):
     def _build_task_detail_text(cls, task: dict) -> str:
         source = str(task.get("source", "") or "").strip().lower()
         state = str(task.get("state", "running") or "running").strip().lower()
-        detail = str(task.get("detail", "") or "").strip()
+        message = str(task.get("message", "") or "").strip()
+        progress_text = str(task.get("progress_text", "") or "").strip()
+        speed_text = str(task.get("speed_text", "") or "").strip()
+        location_hint = str(task.get("location_hint", "") or "").strip()
 
         lines = [
             f"任务: {cls._compact_title(str(task.get('title', task.get('task_id', '')) or '安装任务'))}",
             f"类型: {cls._source_text(source)}",
             f"状态: {cls._state_text(state)}",
         ]
-        if detail:
-            lines.append(f"进展: {detail}")
+        if message:
+            lines.append(f"说明: {message}")
+        progress_line = cls._progress_line(progress_text, speed_text)
+        if progress_line:
+            lines.append(f"进展: {progress_line}")
+        if location_hint:
+            lines.append(f"位置: {location_hint}")
         lines.append(f"处理方式: {cls._execution_text(source)}")
         hint = cls._hint_text(source, state)
         if hint:
             lines.append(f"更多信息: {hint}")
         return "\n".join(lines)
+
+    @classmethod
+    def _build_row_summary(cls, task: dict) -> str:
+        message = str(task.get("message", "") or "").strip()
+        progress_line = cls._progress_line(
+            str(task.get("progress_text", "") or "").strip(),
+            str(task.get("speed_text", "") or "").strip(),
+        )
+        if message and progress_line:
+            return f"{message} | {progress_line}"
+        return message or progress_line
+
+    @staticmethod
+    def _progress_line(progress_text: str, speed_text: str) -> str:
+        parts = []
+        if progress_text:
+            parts.append(progress_text)
+        if speed_text:
+            parts.append(speed_text)
+        return " ".join(parts)
 
     @staticmethod
     def _state_text(state: str) -> str:
