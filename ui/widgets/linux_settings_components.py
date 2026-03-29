@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, pyqtSlot
 from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -17,9 +17,8 @@ from PyQt6.QtWidgets import (
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 from core.utils import get_app_root
 from ui.install_log_parser import analyze_install_log, build_failure_guidance
-from ui.qt_bootstrap import ensure_qt_webengine_ready
 from ui.widgets import styles
-from ui.widgets.report_view import create_report_web_view
+from ui.widgets.web_ui_host import create_local_web_ui_host
 from ui.widgets.styles import (
     BUTTON_PRIMARY,
     COLOR_BG_PAGE,
@@ -205,26 +204,18 @@ class EnvInstallDialog(QDialog):
         layout.setSpacing(0)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        ensure_qt_webengine_ready()
-        from PyQt6.QtWebChannel import QWebChannel
-
         self._install_bridge = InstallDialogBridge(self)
-        self._web_view = create_report_web_view(
+        html_path = get_app_root() / "ui" / "pages" / "settings_page_assets" / "install_dialog.html"
+        self._web_view, self._channel = create_local_web_ui_host(
             parent=self,
+            bridge_name="installBridge",
+            bridge_object=self._install_bridge,
+            html_path=html_path,
             background="#FFFFFF",
             disable_context_menu=True,
             allow_remote_resources=False,
+            raise_on_missing_html=True,
         )
-        self._web_view.setStyleSheet("background: #FFFFFF; border: none;")
-
-        self._channel = QWebChannel(self)
-        self._channel.registerObject("installBridge", self._install_bridge)
-        self._web_view.page().setWebChannel(self._channel)
-
-        html_path = get_app_root() / "ui" / "pages" / "settings_page_assets" / "install_dialog.html"
-        if not html_path.exists():
-            raise RuntimeError(f"安装弹窗 HTML 文件未找到: {html_path}")
-        self._web_view.setUrl(QUrl.fromLocalFile(str(html_path)))
         layout.addWidget(self._web_view)
 
     def _on_start_install(self) -> None:

@@ -36,11 +36,10 @@ class _FakeWebView(QWidget):
 def _stub_webview(monkeypatch):
     import ui.widgets.linux_settings_components as components
 
-    monkeypatch.setattr(components, "ensure_qt_webengine_ready", lambda: None)
     monkeypatch.setattr(
         components,
-        "create_report_web_view",
-        lambda **kwargs: _FakeWebView(kwargs.get("parent")),
+        "create_local_web_ui_host",
+        lambda **kwargs: (_FakeWebView(kwargs.get("parent")), object()),
     )
 
 

@@ -1,17 +1,7 @@
-"""UI controllers."""
+"""UI controller package.
 
-from ui.controllers.home_page_controller import HomePageController
-from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
-from ui.controllers.main_window_log_controller import MainWindowLogController
-from ui.controllers.main_window_project_controller import MainWindowProjectController
-from ui.controllers.main_window_reconcile_controller import MainWindowReconcileController
-from ui.controllers.main_window_ssh_controller import MainWindowSSHController
+Keep package import side effects minimal so controller submodules can be used
+from widgets/pages without triggering circular imports.
+"""
 
-__all__ = [
-    "HomePageController",
-    "MainWindowDiskMonitor",
-    "MainWindowLogController",
-    "MainWindowProjectController",
-    "MainWindowReconcileController",
-    "MainWindowSSHController",
-]
+__all__ = []
