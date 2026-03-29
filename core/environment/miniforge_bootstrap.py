@@ -7,17 +7,14 @@ import logging
 import time
 
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
-from core.environment.miniforge_condarc import CONDARC_TEMPLATE as _CONDARC_TEMPLATE
-from core.environment.miniforge_release import (
-    MINIFORGE_INSTALLER_MIN_BYTES,
-    MINIFORGE_RELEASE_API_URL,
-    MINIFORGE_RELEASE_BASES,
-)
+from core.environment.miniforge_condarc import build_condarc_template, build_miniforge_release_bases
 from core.remote.server_capabilities import PreflightError, ServerCapabilities, SshRunFn
 from core.utils import sanitize_log
 
 logger = logging.getLogger(__name__)
 
+MINIFORGE_RELEASE_API_URL = "https://api.github.com/repos/conda-forge/miniforge/releases/latest"
+MINIFORGE_INSTALLER_MIN_BYTES = 1_000_000
 TASK_DIR = "~/.h2ometa/runtime/miniforge_bootstrap"
 JOB_ID = "h2o_bootstrap_conda"
 INSTALL_SCRIPT = f"{TASK_DIR}/install.sh"
@@ -28,7 +25,7 @@ _STATUS_ORDER_HINT = ("status.txt", "exit_code.txt", "heartbeat.txt")
 
 def _bootstrap_source_entries() -> str:
     entries = []
-    for label, base in MINIFORGE_RELEASE_BASES:
+    for label, base in build_miniforge_release_bases():
         installer_url = f"{base}/${{MINIFORGE_VERSION}}/Miniforge3-Linux-${{ARCH}}.sh"
         checksum_url = f"{installer_url}.sha256"
         entries.append(f'    "{label}|{installer_url}|{checksum_url}"')
@@ -278,7 +275,7 @@ def submit(caps: ServerCapabilities, ssh_run_fn: SshRunFn, timeout: int = 20) ->
         release_api_url=MINIFORGE_RELEASE_API_URL,
         installer_min_bytes=MINIFORGE_INSTALLER_MIN_BYTES,
         source_entries=_bootstrap_source_entries(),
-        condarc_b64=base64.b64encode(_CONDARC_TEMPLATE.encode()).decode(),
+        condarc_b64=base64.b64encode(build_condarc_template().encode()).decode(),
         download_to_file_impl=_download_to_file_impl(caps.downloader),
         download_text_impl=_download_text_impl(caps.downloader),
     )

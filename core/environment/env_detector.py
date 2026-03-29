@@ -19,16 +19,17 @@ from core.environment.h2o_env_paths import (
     H2O_CONDARC,
     h2o_env_prefix,
 )
-from core.environment.miniforge_condarc import CONDARC_TEMPLATE as _CONDARC_TEMPLATE
-from core.environment.miniforge_release import (
-    MINIFORGE_INSTALLER_MIN_BYTES,
-    MINIFORGE_RELEASE_API_URL,
-    MINIFORGE_SUPPORTED_ARCHES,
-    build_miniforge_download_candidates,
+from core.environment.miniforge_condarc import (
+    build_condarc_template,
+    build_miniforge_release_bases,
 )
 from core.remote.server_capabilities import ServerCapabilities, SshRunFn
 
 logger = logging.getLogger(__name__)
+
+MINIFORGE_RELEASE_API_URL = "https://api.github.com/repos/conda-forge/miniforge/releases/latest"
+MINIFORGE_SUPPORTED_ARCHES = ("x86_64", "aarch64")
+MINIFORGE_INSTALLER_MIN_BYTES = 1_000_000
 
 # conda --version 输出正则: "conda 24.1.2"
 _VERSION_RE = re.compile(r"conda\s+(\d+\.\d+(?:\.\d+)?)")
@@ -343,69 +344,72 @@ def install_miniforge(
         installer = _mktemp_remote(ssh_run_fn, "/tmp/miniforge_install.XXXXXX.sh", 15)
         checksum_file = _mktemp_remote(ssh_run_fn, "/tmp/miniforge_install.XXXXXX.sha256", 15)
 
-        for candidate in build_miniforge_download_candidates(release_tag, arch):
+        installer_name = f"Miniforge3-Linux-{arch}.sh"
+        for source_label, source_base in build_miniforge_release_bases():
+            installer_url = f"{source_base}/{release_tag}/{installer_name}"
+            checksum_url = f"{installer_url}.sha256"
             _cleanup_remote_files(ssh_run_fn, installer, checksum_file)
             ok, reason = _download_file(
                 ssh_run_fn,
-                candidate.installer_url,
+                installer_url,
                 installer,
                 has_curl=has_curl,
                 has_wget=has_wget,
                 timeout=timeout,
             )
             if not ok:
-                download_failures.append(f"[{candidate.label}] installer download failed: {reason}")
+                download_failures.append(f"[{source_label}] installer download failed: {reason}")
                 continue
 
             size, size_error = _read_remote_file_size(ssh_run_fn, installer, 15)
             if size is None:
-                download_failures.append(f"[{candidate.label}] installer stat failed: {size_error}")
+                download_failures.append(f"[{source_label}] installer stat failed: {size_error}")
                 continue
             if size < MINIFORGE_INSTALLER_MIN_BYTES:
                 download_failures.append(
-                    f"[{candidate.label}] installer too small: {size} bytes"
+                    f"[{source_label}] installer too small: {size} bytes"
                 )
                 continue
 
             shebang, shebang_error = _read_remote_shebang(ssh_run_fn, installer, 15)
             if shebang is None:
-                download_failures.append(f"[{candidate.label}] shebang read failed: {shebang_error}")
+                download_failures.append(f"[{source_label}] shebang read failed: {shebang_error}")
                 continue
             if not shebang.startswith("#!"):
-                download_failures.append(f"[{candidate.label}] installer shebang check failed: {shebang}")
+                download_failures.append(f"[{source_label}] installer shebang check failed: {shebang}")
                 continue
 
             ok, reason = _download_file(
                 ssh_run_fn,
-                candidate.sha256_url,
+                checksum_url,
                 checksum_file,
                 has_curl=has_curl,
                 has_wget=has_wget,
                 timeout=timeout,
             )
             if not ok:
-                download_failures.append(f"[{candidate.label}] checksum download failed: {reason}")
+                download_failures.append(f"[{source_label}] checksum download failed: {reason}")
                 continue
 
             checksum_contents, checksum_error = _read_remote_file(ssh_run_fn, checksum_file, 15)
             if checksum_contents is None:
-                download_failures.append(f"[{candidate.label}] checksum read failed: {checksum_error}")
+                download_failures.append(f"[{source_label}] checksum read failed: {checksum_error}")
                 continue
             expected_sha256 = _extract_sha256(checksum_contents)
             if not expected_sha256:
-                download_failures.append(f"[{candidate.label}] checksum parse failed")
+                download_failures.append(f"[{source_label}] checksum parse failed")
                 continue
 
             verified, verify_error = _verify_remote_sha256(ssh_run_fn, expected_sha256, installer, 30)
             if not verified:
-                download_failures.append(f"[{candidate.label}] sha256 verify failed: {verify_error}")
+                download_failures.append(f"[{source_label}] sha256 verify failed: {verify_error}")
                 continue
 
             logger.info(
                 "Miniforge installer verified: tag=%s source=%s url=%s",
                 release_tag,
-                candidate.label,
-                candidate.installer_url,
+                source_label,
+                installer_url,
             )
             break
         else:
@@ -515,7 +519,7 @@ def write_h2ometa_condarc(
     """
     try:
         ssh_run_fn("mkdir -p ~/.h2ometa/runtime", timeout)
-        encoded = base64.b64encode(_CONDARC_TEMPLATE.encode()).decode()
+        encoded = base64.b64encode(build_condarc_template().encode()).decode()
         rc, _, stderr = ssh_run_fn(
             f"echo '{encoded}' | base64 -d > {H2O_CONDARC}",
             timeout,

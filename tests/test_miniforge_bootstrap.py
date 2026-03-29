@@ -4,8 +4,12 @@ import base64
 import re
 
 from core.environment import miniforge_bootstrap
-from core.environment.env_detector import _CONDARC_TEMPLATE as detector_condarc_template
-from core.environment.miniforge_condarc import CONDARC_TEMPLATE, MANAGED_OVERRIDE_CHANNEL_URLS
+from core.environment.miniforge_condarc import (
+    build_condarc_template,
+    build_miniforge_release_bases,
+    build_override_channel_urls,
+    get_default_profile_order,
+)
 from core.remote.server_capabilities import PreflightError, ServerCapabilities
 
 
@@ -132,7 +136,6 @@ def test_submit_wrapper_contains_multi_mirror_retry_and_integrity_checks():
     assert "Trying Miniforge source [" in script
     assert "api.github.com/repos/conda-forge/miniforge/releases/latest" in script
     assert "mirrors.tuna.tsinghua.edu.cn" in script
-    assert "mirrors.bfsu.edu.cn" in script
     assert "mirrors.ustc.edu.cn" in script
     assert "github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}" in script
     assert ".sha256" in script
@@ -163,9 +166,7 @@ def test_submit_raises_preflight_error_before_any_ssh_call():
 
 
 def test_condarc_template_uses_shared_runtime_baseline():
-    template = miniforge_bootstrap._CONDARC_TEMPLATE
-    assert template == CONDARC_TEMPLATE
-    assert template == detector_condarc_template
+    template = build_condarc_template()
     assert "channels:" in template
     assert "  - conda-forge" in template
     assert "  - bioconda" in template
@@ -177,4 +178,10 @@ def test_condarc_template_uses_shared_runtime_baseline():
     assert "mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main" in template
     assert "show_channel_urls: true" in template
     assert "auto_activate_base: false" in template
-    assert any(url in template for url in MANAGED_OVERRIDE_CHANNEL_URLS)
+    assert any(url in template for url in build_override_channel_urls())
+
+
+def test_bootstrap_release_sources_follow_default_profile_order():
+    assert get_default_profile_order() == ("tuna", "ustc", "official")
+    labels = [label for label, _base in build_miniforge_release_bases()]
+    assert labels == ["tuna", "ustc", "github"]

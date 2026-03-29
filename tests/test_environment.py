@@ -18,14 +18,14 @@ from core.environment.env_batch_checker import check_all_envs, get_existing_env_
 from core.environment.env_installer import EnvInstaller, INSTALL_BASE
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, H2O_CONDA_HOME, H2O_CONDARC
 from core.environment.miniforge_condarc import (
-    CONDARC_TEMPLATE,
-    MANAGED_OVERRIDE_CHANNEL_URLS,
+    build_miniforge_release_bases,
     build_override_channel_args,
+    build_condarc_template,
+    get_default_profile_name,
+    get_default_profile_order,
+    get_profile,
 )
-from core.environment.miniforge_release import (
-    MINIFORGE_RELEASE_API_URL,
-    build_miniforge_download_candidates,
-)
+from core.environment.env_detector import MINIFORGE_RELEASE_API_URL
 from core.remote.server_capabilities import ServerCapabilities
 
 
@@ -99,7 +99,9 @@ class TestInstallMiniforge:
         release_tag = "25.1.0-0"
         installer_path = "/tmp/miniforge_install.abcd12.sh"
         checksum_path = "/tmp/miniforge_install.abcd12.sha256"
-        candidate = build_miniforge_download_candidates(release_tag, "x86_64")[-1]
+        label, base = build_miniforge_release_bases()[-1]
+        installer_url = f"{base}/{release_tag}/Miniforge3-Linux-x86_64.sh"
+        sha256_url = f"{installer_url}.sha256"
         expected_sha = "a" * 64
 
         def fn(cmd, timeout=15):
@@ -112,13 +114,13 @@ class TestInstallMiniforge:
                 return 0, "", ""
             if cmd == f"curl -fsSL --connect-timeout 15 --max-time 60 {MINIFORGE_RELEASE_API_URL}":
                 return 0, f'{{"tag_name":"{release_tag}"}}', ""
-            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {candidate.installer_url}":
+            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {installer_url}":
                 return 0, "", ""
             if cmd == f"stat -c%s {installer_path}":
                 return 0, "1500000\n", ""
             if cmd == f"head -n 1 {installer_path}":
                 return 0, "#!/bin/bash\n", ""
-            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {checksum_path} {candidate.sha256_url}":
+            if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {checksum_path} {sha256_url}":
                 return 0, "", ""
             if cmd == f"cat {checksum_path}":
                 return 0, f"{expected_sha}  Miniforge3-Linux-x86_64.sh\n", ""
@@ -139,7 +141,7 @@ class TestInstallMiniforge:
         result = install_miniforge(fn, self._caps())
         assert result.status == CondaStatus.OK
         assert any(f"/releases/download/{release_tag}/Miniforge3-Linux-x86_64.sh" in cmd for cmd in calls)
-        assert any(candidate.sha256_url in cmd for cmd in calls)
+        assert any(sha256_url in cmd for cmd in calls)
         assert "uname -m" not in calls
         assert "command -v curl" not in calls
         assert "command -v wget" not in calls
@@ -157,7 +159,13 @@ class TestInstallMiniforge:
         release_tag = "25.1.0-0"
         installer_path = "/tmp/miniforge_install.abcd12.sh"
         checksum_path = "/tmp/miniforge_install.abcd12.sha256"
-        candidates = build_miniforge_download_candidates(release_tag, "x86_64")
+        candidates = [
+            (
+                label,
+                f"{base}/{release_tag}/Miniforge3-Linux-x86_64.sh",
+            )
+            for label, base in build_miniforge_release_bases()
+        ]
 
         def fn(cmd, timeout=15):
             if cmd == "mktemp /tmp/miniforge_install.XXXXXX.sh":
@@ -168,37 +176,58 @@ class TestInstallMiniforge:
                 return 0, "", ""
             if cmd == f"curl -fsSL --connect-timeout 15 --max-time 60 {MINIFORGE_RELEASE_API_URL}":
                 return 0, f'{{"tag_name":"{release_tag}"}}', ""
-            for candidate in candidates:
-                if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {candidate.installer_url}":
-                    return 1, "", f"{candidate.label} down"
+            for label, installer_url in candidates:
+                if cmd == f"curl -fsSL --connect-timeout 15 --max-time 120 -o {installer_path} {installer_url}":
+                    return 1, "", f"{label} down"
             return 1, "", f"unexpected command: {cmd}"
 
         result = install_miniforge(fn, self._caps())
         assert result.status == CondaStatus.NOT_FOUND
-        assert "[tsinghua] installer download failed" in result.message
+        assert "[tuna] installer download failed" in result.message
         assert "[github] installer download failed" in result.message
 
 
 def test_shared_condarc_template_matches_runtime_expectations():
-    assert "channels:" in CONDARC_TEMPLATE
-    assert "  - conda-forge" in CONDARC_TEMPLATE
-    assert "  - bioconda" in CONDARC_TEMPLATE
-    assert "default_channels:" in CONDARC_TEMPLATE
-    assert "custom_channels:" in CONDARC_TEMPLATE
-    assert "channel_priority: strict" in CONDARC_TEMPLATE
-    assert "solver: libmamba" in CONDARC_TEMPLATE
-    assert "show_channel_urls: true" in CONDARC_TEMPLATE
-    assert "auto_activate_base: false" in CONDARC_TEMPLATE
-    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/cloud" in CONDARC_TEMPLATE
-    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main" in CONDARC_TEMPLATE
+    template = build_condarc_template()
+    assert "channels:" in template
+    assert "  - conda-forge" in template
+    assert "  - bioconda" in template
+    assert "default_channels:" in template
+    assert "custom_channels:" in template
+    assert "channel_priority: strict" in template
+    assert "solver: libmamba" in template
+    assert "show_channel_urls: true" in template
+    assert "auto_activate_base: false" in template
+    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/cloud" in template
+    assert "mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main" in template
 
 
 def test_build_override_channel_args_uses_managed_mirror_urls():
     args = build_override_channel_args()
     assert args[0] == "--override-channels"
     urls = [args[i + 1] for i, tok in enumerate(args) if tok == "-c"]
-    assert urls == list(MANAGED_OVERRIDE_CHANNEL_URLS)
-    assert len(urls) == len(MANAGED_OVERRIDE_CHANNEL_URLS)
+    assert urls == list(get_profile("tuna").override_channel_urls)
+    assert len(urls) == len(get_profile("tuna").override_channel_urls)
+
+
+def test_profile_defaults_use_tuna_then_ustc_then_official():
+    assert get_default_profile_name() == "tuna"
+    assert get_default_profile_order() == ("tuna", "ustc", "official")
+
+
+def test_all_profiles_generate_valid_condarc_and_override_channels():
+    for name in ("tuna", "ustc", "official"):
+        profile = get_profile(name)
+        template = build_condarc_template(name)
+        args = build_override_channel_args(name)
+        urls = [args[i + 1] for i, token in enumerate(args) if token == "-c"]
+
+        assert profile.name == name
+        assert "channels:" in template
+        assert "default_channels:" in template
+        assert "custom_channels:" in template
+        assert "solver: libmamba" in template
+        assert urls == list(profile.override_channel_urls)
 
 
 # ----------------------------------------------------------------------------
