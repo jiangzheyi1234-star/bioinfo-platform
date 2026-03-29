@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
+from ui.install_log_parser import extract_progress_and_speed
 
 
 @dataclass
@@ -144,7 +145,7 @@ class InstallTaskController(QObject):
     def _build_running_text(current: dict) -> str:
         title = str(current.get("title", "") or "安装任务").strip()
         detail = str(current.get("detail", "") or "").strip()
-        progress, speed = InstallTaskController._extract_progress_and_speed(detail)
+        progress, speed = extract_progress_and_speed(detail)
 
         parts = []
         if progress:
@@ -154,21 +155,3 @@ class InstallTaskController(QObject):
         if parts:
             return f"安装: 正在安装 {title} · {' · '.join(parts)}"
         return f"安装: 正在安装 {title}..."
-
-    @staticmethod
-    def _extract_progress_and_speed(detail: str) -> tuple[str, str]:
-        progress = ""
-        speed = ""
-        text = str(detail or "").strip()
-        if not text:
-            return progress, speed
-
-        segments = [seg.strip() for seg in text.split("·") if seg.strip()]
-        for seg in segments:
-            if not progress and seg.endswith("%"):
-                progress = seg
-            if seg.startswith("速度 "):
-                speed = seg[len("速度 ") :].strip()
-            elif any(unit in seg for unit in ("KB/s", "MB/s", "GB/s", "B/s")):
-                speed = seg.replace("速度", "").strip()
-        return progress, speed
