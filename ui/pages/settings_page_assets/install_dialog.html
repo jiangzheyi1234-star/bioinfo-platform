@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安装工具环境</title>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <link rel="stylesheet" href="install_dialog.css">
+</head>
+<body>
+    <div class="dialog-shell">
+        <div class="info-block">
+            <div class="info-row">
+                <span class="info-label">工具</span>
+                <span class="info-value">
+                    <span class="env-name" id="conda-env"></span>
+                    <span id="tool-name"></span>
+                </span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">命令</span>
+                <span class="info-value code-wrap" id="install-cmd"></span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">数据库</span>
+                <span class="info-value" id="db-info">无（不需要额外数据库）</span>
+            </div>
+        </div>
+
+        <div class="progress-block">
+            <div class="progress-header">
+                <div class="dot idle" id="status-dot"></div>
+                <span class="phase-text" id="phase-text">点击「开始安装」执行安装</span>
+                <span class="speed-text" id="speed-text"></span>
+            </div>
+            <progress id="progress-bar" value="0" max="100"></progress>
+            <div class="progress-pct" id="progress-pct"></div>
+        </div>
+
+        <div class="log-block">
+            <details id="log-details">
+                <summary>查看详细日志</summary>
+                <div class="log-area" id="log-area"></div>
+            </details>
+        </div>
+
+        <div class="status-row" id="status-row"></div>
+
+        <div class="btn-row">
+            <button class="btn btn-cancel" id="btn-cancel" type="button">取消</button>
+            <button class="btn btn-primary" id="btn-install" type="button">开始安装</button>
+        </div>
+    </div>
+    <script src="install_dialog.js"></script>
+</body>
+</html>

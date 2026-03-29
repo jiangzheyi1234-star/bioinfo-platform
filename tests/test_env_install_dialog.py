@@ -1,18 +1,47 @@
 from __future__ import annotations
 
+import json
+
 import pytest
+from PyQt6.QtCore import QObject
+from PyQt6.QtWidgets import QWidget
 
 from core.environment.h2o_env_paths import H2O_CONDA_EXE
 from ui.widgets.linux_settings_components import EnvInstallDialog
 
 
+class _FakePage(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.channel = None
+
+    def setWebChannel(self, channel) -> None:
+        self.channel = channel
+
+
+class _FakeWebView(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._page = _FakePage(self)
+        self.url = None
+
+    def page(self):
+        return self._page
+
+    def setUrl(self, url) -> None:
+        self.url = url
+
+
 @pytest.fixture(autouse=True)
-def _stub_qtawesome(monkeypatch):
-    from PyQt6.QtGui import QIcon
+def _stub_webview(monkeypatch):
     import ui.widgets.linux_settings_components as components
 
-    monkeypatch.setattr(components.qta, "icon", lambda *_args, **_kwargs: QIcon())
-    monkeypatch.setattr(components.qta, "Spin", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(components, "ensure_qt_webengine_ready", lambda: None)
+    monkeypatch.setattr(
+        components,
+        "create_report_web_view",
+        lambda **kwargs: _FakeWebView(kwargs.get("parent")),
+    )
 
 
 def _make_dialog() -> EnvInstallDialog:
@@ -27,27 +56,48 @@ def _make_dialog() -> EnvInstallDialog:
     )
 
 
-def test_start_install_shows_immediate_feedback_and_emits(qapp):
+def test_request_tool_info_replays_info_and_initial_snapshot(qapp):
     dialog = _make_dialog()
-    requested = {"tool_id": ""}
-    dialog.install_requested.connect(lambda tool_id: requested.__setitem__("tool_id", tool_id))
+    tool_infos = []
+    snapshots = []
+    dialog._install_bridge.toolInfoReady.connect(lambda raw: tool_infos.append(json.loads(raw)))
+    dialog._install_bridge.snapshotUpdated.connect(lambda raw: snapshots.append(json.loads(raw)))
 
-    assert dialog.minimumHeight() == 360
-    assert dialog._log_content.isHidden() is True
-    assert dialog._log_content.maximumHeight() == 0
+    dialog._install_bridge.requestToolInfo()
 
-    dialog._on_start_install()
-
-    assert requested["tool_id"] == "fastp"
-    assert "[INFO] 正在连接服务器，提交后台安装任务..." in dialog.output_edit.toPlainText()
-    assert dialog.install_btn.isHidden() is True
+    assert tool_infos
+    assert tool_infos[-1]["name"] == "fastp"
+    assert snapshots
+    assert snapshots[-1]["status"] == "IDLE"
+    assert snapshots[-1]["primary_label"] == "开始安装"
 
     dialog.close()
     qapp.processEvents()
 
 
-def test_running_snapshot_keeps_running_mode_and_updates_log(qapp):
+def test_request_install_emits_signal_and_immediate_snapshot(qapp):
     dialog = _make_dialog()
+    requested = {"tool_id": ""}
+    snapshots = []
+    dialog.install_requested.connect(lambda tool_id: requested.__setitem__("tool_id", tool_id))
+    dialog._install_bridge.snapshotUpdated.connect(lambda raw: snapshots.append(json.loads(raw)))
+
+    dialog._install_bridge.requestInstall()
+
+    assert requested["tool_id"] == "fastp"
+    assert snapshots
+    assert snapshots[-1]["status"] == "SUBMITTING"
+    assert "[INFO] 正在连接服务器，提交后台安装任务..." in snapshots[-1]["log_text"]
+    assert snapshots[-1]["primary_enabled"] is False
+
+    dialog.close()
+    qapp.processEvents()
+
+
+def test_apply_install_snapshot_emits_running_payload(qapp):
+    dialog = _make_dialog()
+    snapshots = []
+    dialog._install_bridge.snapshotUpdated.connect(lambda raw: snapshots.append(json.loads(raw)))
 
     dialog.apply_install_snapshot(
         {
@@ -57,46 +107,11 @@ def test_running_snapshot_keeps_running_mode_and_updates_log(qapp):
             "updated_at": 1,
         }
     )
-    assert dialog.install_btn.isHidden() is True
-    assert "Collecting package metadata" in dialog.output_edit.toPlainText()
 
-    dialog.close()
-    qapp.processEvents()
-
-
-def test_log_drawer_auto_expand_and_manual_expand_persists(qapp):
-    dialog = _make_dialog()
-
-    assert dialog._log_drawer.isHidden() is False
-    assert dialog._log_content.isHidden() is True
-    assert dialog._log_content.maximumHeight() == 0
-
-    dialog.apply_install_snapshot(
-        {
-            "status": "FAILED",
-            "message": "安装失败",
-            "updated_at": 1,
-        }
-    )
-    assert dialog._log_content.isHidden() is False
-    assert dialog._log_content.maximumHeight() == dialog._EXPANDED_LOG_MAX_HEIGHT
-
-    dialog._toggle_log_drawer()
-    assert dialog._log_content.isHidden() is True
-    assert dialog._log_content.maximumHeight() == 0
-
-    dialog._toggle_log_drawer()
-    assert dialog._log_content.isHidden() is False
-    assert dialog._log_content.maximumHeight() == dialog._EXPANDED_LOG_MAX_HEIGHT
-
-    dialog.apply_install_snapshot(
-        {
-            "status": "RUNNING",
-            "log_text": "Downloading packages 20%",
-            "updated_at": 2,
-        }
-    )
-    assert dialog._log_content.isHidden() is False
+    assert snapshots
+    assert snapshots[-1]["status"] == "RUNNING"
+    assert snapshots[-1]["phase_text"] == "正在解析依赖"
+    assert "Collecting package metadata" in snapshots[-1]["log_text"]
 
     dialog.close()
     qapp.processEvents()
@@ -105,18 +120,26 @@ def test_log_drawer_auto_expand_and_manual_expand_persists(qapp):
 def test_failed_guidance_is_appended_once_and_resets_on_retry(qapp):
     dialog = _make_dialog()
 
-    failed_snapshot = {
-        "status": "FAILED",
-        "message": "安装失败",
-        "updated_at": 1,
-    }
-    dialog.apply_install_snapshot(failed_snapshot)
-    dialog.apply_install_snapshot(failed_snapshot)
+    dialog.apply_install_snapshot(
+        {
+            "status": "FAILED",
+            "message": "安装失败",
+            "updated_at": 1,
+        }
+    )
+    first_payload = dict(dialog._latest_snapshot_payload)
+    dialog.apply_install_snapshot(
+        {
+            "status": "FAILED",
+            "message": "安装失败",
+            "updated_at": 1,
+        }
+    )
 
-    first_log = dialog.output_edit.toPlainText()
-    assert first_log.count("[DIAG] 排查建议") == 1
+    assert first_payload["log_text"].count("[DIAG] 排查建议") == 1
+    assert str(dialog._latest_snapshot_payload["log_text"]).count("[DIAG] 排查建议") == 1
 
-    dialog._on_start_install()
+    dialog._install_bridge.requestInstall()
     dialog.apply_install_snapshot(
         {
             "status": "FAILED",
@@ -124,8 +147,8 @@ def test_failed_guidance_is_appended_once_and_resets_on_retry(qapp):
             "updated_at": 2,
         }
     )
-    second_log = dialog.output_edit.toPlainText()
-    assert second_log.count("[DIAG] 排查建议") == 1
+
+    assert str(dialog._latest_snapshot_payload["log_text"]).count("[DIAG] 排查建议") == 1
 
     dialog.close()
     qapp.processEvents()
@@ -150,7 +173,8 @@ def test_terminal_state_ignores_late_running_snapshots(qapp):
         }
     )
 
-    assert dialog.install_btn.text() == "完成"
+    assert dialog._latest_snapshot_payload["status"] == "DONE"
+    assert dialog._latest_snapshot_payload["primary_label"] == "关闭"
 
     dialog.close()
     qapp.processEvents()
@@ -172,7 +196,8 @@ def test_terminal_state_ignores_late_running_snapshots(qapp):
         }
     )
 
-    assert dialog.install_btn.text() == "重试"
+    assert dialog._latest_snapshot_payload["status"] == "FAILED"
+    assert dialog._latest_snapshot_payload["primary_label"] == "重试"
 
     dialog.close()
     qapp.processEvents()
@@ -198,7 +223,21 @@ def test_older_snapshot_is_ignored(qapp):
         }
     )
 
-    assert "73%" in dialog.output_edit.toPlainText()
+    assert "73%" in str(dialog._latest_snapshot_payload["log_text"])
 
     dialog.close()
     qapp.processEvents()
+
+
+def test_request_close_rejects_running_dialog_and_accepts_success(qapp):
+    dialog = _make_dialog()
+    dialog.apply_install_snapshot({"status": "RUNNING", "message": "运行中", "updated_at": 1})
+    dialog._install_bridge.requestClose()
+
+    assert dialog.result() == int(dialog.DialogCode.Rejected)
+
+    dialog = _make_dialog()
+    dialog.apply_install_snapshot({"status": "DONE", "message": "安装成功", "updated_at": 2})
+    dialog._install_bridge.requestClose()
+
+    assert dialog.result() == int(dialog.DialogCode.Accepted)
