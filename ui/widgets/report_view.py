@@ -11,6 +11,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QStandardPaths
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QApplication
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +27,23 @@ def _profile_storage_root() -> Path:
     return root
 
 
-def _get_or_create_profile(parent=None):
+def _get_or_create_profile():
     global _PROFILE
     if _PROFILE is not None:
+        try:
+            _PROFILE.parent()
+        except RuntimeError:
+            raise RuntimeError("Shared webengine profile was deleted unexpectedly")
         return _PROFILE
+
+    app = QApplication.instance()
+    if app is None:
+        raise RuntimeError("QApplication must exist before creating shared webengine profile")
 
     from PyQt6.QtWebEngineCore import QWebEngineProfile
 
     storage_root = _profile_storage_root()
-    profile = QWebEngineProfile("h2ometa_report_profile", parent)
+    profile = QWebEngineProfile("h2ometa_report_profile", app)
     profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
     profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
     profile.setCachePath(str(storage_root / "cache"))
@@ -54,7 +63,7 @@ def create_report_web_view(
     from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
     from PyQt6.QtWebEngineWidgets import QWebEngineView
 
-    profile = _get_or_create_profile(parent)
+    profile = _get_or_create_profile()
     page = QWebEnginePage(profile, parent)
     view = QWebEngineView(parent)
     view.setPage(page)
