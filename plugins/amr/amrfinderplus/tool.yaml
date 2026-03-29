@@ -49,12 +49,6 @@ command_template: |
     {%- if plus %} --plus {%- endif %} \
     {%- if ident_min > 0 %} --ident_min {{ ident_min }} {%- endif %}
 
-databases:
-  - id: amrfinder_db
-    param_name: db
-    required: true
-    description: "NCBI AMR 参考数据库"
-
 methods_template: >
   AMR-associated genes were identified using AMRFinderPlus v{version}
   with the NCBI reference database.

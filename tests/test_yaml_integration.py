@@ -305,6 +305,54 @@ class TestQualityAndTaxonomyDatabaseBindings:
         assert "--mash_db" not in cmd
         assert "gtdbtk classify_wf" in cmd
 
+    def test_centrifuge_consumes_index_prefix(self, registry: PluginRegistry) -> None:
+        _, _, cmd, _, _ = _build_and_wrap(
+            registry,
+            "centrifuge",
+            input_paths={"reads": "/data/reads.fastq.gz"},
+            database_paths={"db": "/data/databases/hpvc/hpvc"},
+        )
+        assert "-x /data/databases/hpvc/hpvc" in cmd
+
+    def test_gunc_consumes_specific_db_file(self, registry: PluginRegistry) -> None:
+        _, _, cmd, _, _ = _build_and_wrap(
+            registry,
+            "gunc",
+            input_paths={"bins_dir": "/data/bins"},
+            database_paths={"db": "/data/databases/gunc/gunc_db_progenomes2.1.dmnd"},
+        )
+        assert "--db_file /data/databases/gunc/gunc_db_progenomes2.1.dmnd" in cmd
+
+    def test_primer_design_uses_core_nt_prefix(self, registry: PluginRegistry) -> None:
+        desc = registry.get_descriptor("primer_design")
+        assert desc["databases"][0]["id"] == "core_nt"
+        _, _, cmd, _, _ = _build_and_wrap(
+            registry,
+            "primer_design",
+            input_paths={"genomes_bundle": "/data/genomes.tar.gz"},
+            database_paths={"db": "/data/databases/core_nt/core_nt"},
+        )
+        assert 'export PRIMER_DB_PATH="/data/databases/core_nt/core_nt"' in cmd
+
+    def test_multiplex_primer_panel_uses_core_nt_prefix(self, registry: PluginRegistry) -> None:
+        desc = registry.get_descriptor("multiplex_primer_panel")
+        assert desc["databases"][0]["id"] == "core_nt"
+        _, _, cmd, _, _ = _build_and_wrap(
+            registry,
+            "multiplex_primer_panel",
+            input_paths={"genomes_bundle": "/data/genomes.tar.gz"},
+            database_paths={"db": "/data/databases/core_nt/core_nt"},
+        )
+        assert 'export MULTIPLEX_DB_PATH="/data/databases/core_nt/core_nt"' in cmd
+
+    def test_rgi_no_longer_declares_runtime_database_binding(self, registry: PluginRegistry) -> None:
+        desc = registry.get_descriptor("rgi")
+        assert desc.get("databases", []) == []
+
+    def test_amrfinderplus_no_longer_declares_runtime_database_binding(self, registry: PluginRegistry) -> None:
+        desc = registry.get_descriptor("amrfinderplus")
+        assert desc.get("databases", []) == []
+
 
 # ---------------------------------------------------------------------------
 # hostile 端到端测试
@@ -424,11 +472,11 @@ class TestBlastnIntegration:
             registry,
             self.TOOL_ID,
             input_paths={"query": "/data/query.fa"},
-            database_paths={"db": "/h2ometa/databases/nt"},
+            database_paths={"db": "/h2ometa/databases/blast_nt/nt"},
         )
         assert "blastn" in cmd
         assert "-query /data/query.fa" in cmd
-        assert "-db /h2ometa/databases/nt" in cmd
+        assert "-db /h2ometa/databases/blast_nt/nt" in cmd
         assert "-evalue 1e-05" in cmd or "-evalue 1.0e-05" in cmd  # 浮点格式
         assert "-max_target_seqs 10" in cmd
         assert "-num_threads 4" in cmd

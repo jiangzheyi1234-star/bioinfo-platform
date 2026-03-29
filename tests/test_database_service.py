@@ -56,6 +56,10 @@ def test_load_registry():
     assert db is not None
     assert db.category == "reads"
     assert db.install_path == "kraken2_standard"
+    assert db.binding_mode == "directory_root"
+    assert svc.get_info("blast_nt").binding_mode == "index_prefix"
+    assert svc.get_info("gunc_db").binding_mode == "specific_file"
+    assert svc.get_info("gtdb_r220").binding_mode == "env_var_root"
     assert svc.get_info("hostile_human_t2t").builtin is True
 
 
@@ -83,6 +87,53 @@ def test_resolve_effective_path_prefers_overrides():
     assert resolved == "/custom/checkm2"
 
 
+@pytest.mark.parametrize(
+    ("db_id", "db_root", "expected"),
+    [
+        ("blast_nt", "/data/databases", "/data/databases/blast_nt/nt"),
+        ("core_nt", "/data/databases", "/data/databases/core_nt/core_nt"),
+        ("centrifuge_hpvc", "/data/databases", "/data/databases/hpvc/hpvc"),
+        ("gunc_db", "/data/databases", "/data/databases/gunc/gunc_db_progenomes2.1.dmnd"),
+        ("checkm2_db", "/data/databases", "/data/databases/checkm2"),
+        ("gtdb_r220", "/data/databases", "/data/databases/gtdbtk/release220"),
+    ],
+)
+def test_resolve_binding_value_by_mode(db_id: str, db_root: str, expected: str):
+    svc = DatabaseService()
+    assert svc.resolve_binding_value(db_id, db_root) == expected
+
+
+@pytest.mark.parametrize(
+    ("db_id", "raw_path", "expected"),
+    [
+        ("blast_nt", "/remote/blast_nt", "/remote/blast_nt/nt"),
+        ("blast_nt", "/remote/blast_nt/nt", "/remote/blast_nt/nt"),
+        ("gunc_db", "/remote/gunc", "/remote/gunc/gunc_db_progenomes2.1.dmnd"),
+        ("gunc_db", "/remote/gunc/gunc_db_progenomes2.1.dmnd", "/remote/gunc/gunc_db_progenomes2.1.dmnd"),
+    ],
+)
+def test_canonicalize_binding_value_normalizes_prefix_and_file_modes(db_id: str, raw_path: str, expected: str):
+    svc = DatabaseService()
+    assert svc.canonicalize_binding_value(db_id, raw_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("db_id", "storage_root", "expected"),
+    [
+        ("core_nt", "/remote/core_nt", "/remote/core_nt/core_nt"),
+        ("centrifuge_hpvc", "/remote/hpvc", "/remote/hpvc/hpvc"),
+        ("gunc_db", "/remote/gunc", "/remote/gunc/gunc_db_progenomes2.1.dmnd"),
+    ],
+)
+def test_binding_value_from_storage_root_normalizes_ambiguous_prefix_and_file_modes(
+    db_id: str,
+    storage_root: str,
+    expected: str,
+):
+    svc = DatabaseService()
+    assert svc.binding_value_from_storage_root(db_id, storage_root) == expected
+
+
 def test_check_status_ready():
     svc = DatabaseService()
     result = svc.check_status(_ssh_all_ok, "kraken2_standard", "/data/databases")
@@ -96,7 +147,7 @@ def test_check_status_uses_override_path():
         del timeout
         calls.append(cmd)
         if "du -sm" in cmd:
-            return 0, "50000\n", ""
+            return 0, "500000\n", ""
         return 0, "", ""
 
     svc = DatabaseService()
@@ -109,6 +160,51 @@ def test_check_status_uses_override_path():
     assert result.status == DatabaseStatus.READY
     assert any("/custom/kraken2" in cmd for cmd in calls)
     assert all("/data/databases/kraken2_standard" not in cmd for cmd in calls)
+
+
+def test_check_status_canonicalizes_prefix_override_path():
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        calls.append(cmd)
+        if "du -sm" in cmd:
+            return 0, "500000\n", ""
+        return 0, "", ""
+
+    svc = DatabaseService()
+    result = svc.check_status(
+        fn,
+        "blast_nt",
+        "/data/databases",
+        overrides={"blast_nt": "/custom/blast_nt"},
+    )
+
+    assert result.status == DatabaseStatus.READY
+    assert any("/custom/blast_nt/nt" in cmd for cmd in calls)
+    assert all("/data/databases/blast_nt/nt" not in cmd for cmd in calls)
+
+
+def test_check_status_specific_file_checks_file_path():
+    calls: list[str] = []
+
+    def fn(cmd: str, timeout: int = 10):
+        del timeout
+        calls.append(cmd)
+        if "du -sm" in cmd:
+            return 0, "15000\n", ""
+        return 0, "", ""
+
+    svc = DatabaseService()
+    result = svc.check_status(
+        fn,
+        "gunc_db",
+        "/data/databases",
+    )
+
+    assert result.status == DatabaseStatus.READY
+    assert any("test -f" in cmd and "gunc_db_progenomes2.1.dmnd" in cmd for cmd in calls)
+    assert any("du -sm" in cmd and "gunc_db_progenomes2.1.dmnd" in cmd for cmd in calls)
 
 
 def test_check_status_not_installed():

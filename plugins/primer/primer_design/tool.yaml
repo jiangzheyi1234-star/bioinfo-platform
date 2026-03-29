@@ -138,7 +138,7 @@ command_template: |
   fi
 
 databases:
-  - id: blast_nt
+  - id: core_nt
     param_name: db
     required: true
     label: "core_nt 数据库"

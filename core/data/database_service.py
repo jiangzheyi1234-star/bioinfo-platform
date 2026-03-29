@@ -35,6 +35,8 @@ class DatabaseInfo:
     description: str
     category: str
     install_path: str
+    binding_mode: str
+    binding_leaf: str
     size_mb: int
     tools: list[str] = field(default_factory=list)
     mirrors: list[dict[str, str]] = field(default_factory=list)
@@ -89,6 +91,12 @@ def _render_install_cmd(template: str, db_path: str) -> str:
 class DatabaseService:
     INSTALL_BASE = "~/.h2ometa/db_installs"
     HEARTBEAT_STALE_SECONDS = 180
+    VALID_BINDING_MODES = {
+        "directory_root",
+        "index_prefix",
+        "specific_file",
+        "env_var_root",
+    }
 
     def __init__(self, databases_yaml_path: str = ""):
         if databases_yaml_path:
@@ -103,16 +111,24 @@ class DatabaseService:
             raw = yaml.safe_load(fh) or {}
         databases = raw.get("databases", {})
         if not isinstance(databases, dict):
-            return
+            raise ValueError("plugins/databases.yaml 中的 databases 必须是映射")
         for db_id, node in databases.items():
             if not isinstance(node, dict):
-                continue
+                raise ValueError(f"数据库定义必须是映射: db_id={db_id}")
+            binding_mode = self._normalize_binding_mode(node.get("binding_mode", ""), str(db_id))
+            binding_leaf = self._normalize_binding_leaf(
+                node.get("binding_leaf", ""),
+                str(db_id),
+                binding_mode,
+            )
             self._registry[db_id] = DatabaseInfo(
                 db_id=str(db_id),
                 name=str(node.get("name", db_id)),
                 description=str(node.get("description", "")),
                 category=str(node.get("category", "other")),
                 install_path=str(node.get("install_path", "")),
+                binding_mode=binding_mode,
+                binding_leaf=binding_leaf,
                 size_mb=int(node.get("size_mb", 0) or 0),
                 tools=[str(v) for v in node.get("tools", []) if str(v).strip()],
                 mirrors=[v for v in node.get("mirrors", []) if isinstance(v, dict)],
@@ -134,6 +150,72 @@ class DatabaseService:
     def get_info(self, db_id: str) -> DatabaseInfo | None:
         return self._registry.get(db_id)
 
+    @classmethod
+    def _normalize_binding_mode(cls, raw_mode: Any, db_id: str) -> str:
+        mode = str(raw_mode or "").strip()
+        if mode not in cls.VALID_BINDING_MODES:
+            raise ValueError(f"数据库 {db_id} 的 binding_mode 无效: {mode!r}")
+        return mode
+
+    @staticmethod
+    def _normalize_binding_leaf(raw_leaf: Any, db_id: str, binding_mode: str) -> str:
+        leaf = _normalize_relative_install_path(str(raw_leaf or ""))
+        if binding_mode in {"index_prefix", "specific_file"}:
+            if not leaf:
+                raise ValueError(f"数据库 {db_id} 的 binding_leaf 不能为空: mode={binding_mode}")
+            return leaf
+        if leaf:
+            raise ValueError(f"数据库 {db_id} 不应声明 binding_leaf: mode={binding_mode}")
+        return ""
+
+    @staticmethod
+    def _normalize_binding_input(raw_path: str) -> str:
+        normalized = PurePosixPath(str(raw_path or "").strip().replace("\\", "/")).as_posix().strip()
+        return normalized if normalized == "/" else normalized.rstrip("/")
+
+    @staticmethod
+    def _join_posix(base_path: str, leaf: str) -> str:
+        return PurePosixPath(base_path.rstrip("/"), leaf).as_posix()
+
+    @classmethod
+    def _binding_value_from_storage_root(cls, info: DatabaseInfo, storage_root: str) -> str:
+        normalized_root = cls._normalize_binding_input(storage_root)
+        if not normalized_root:
+            raise ValueError("数据库路径不能为空")
+        if not normalized_root.startswith("/"):
+            raise ValueError(f"数据库路径必须是绝对路径: {normalized_root}")
+        if info.binding_mode in {"directory_root", "env_var_root"}:
+            return normalized_root
+        return cls._join_posix(normalized_root, info.binding_leaf)
+
+    @classmethod
+    def _canonicalize_for_info(cls, info: DatabaseInfo, raw_path: str) -> str:
+        normalized = cls._normalize_binding_input(raw_path)
+        if not normalized:
+            raise ValueError("数据库路径不能为空")
+        if not normalized.startswith("/"):
+            raise ValueError(f"数据库路径必须是绝对路径: {normalized}")
+        if info.binding_mode in {"directory_root", "env_var_root"}:
+            return normalized
+        if info.binding_mode in {"index_prefix", "specific_file"}:
+            leaf_name = PurePosixPath(info.binding_leaf).name
+            if PurePosixPath(normalized).name == leaf_name:
+                return normalized
+            return cls._join_posix(normalized, info.binding_leaf)
+        raise ValueError(f"数据库 {info.db_id} 的 binding_mode 未实现: {info.binding_mode}")
+
+    @staticmethod
+    def _storage_root_for_info(info: DatabaseInfo, canonical_binding_value: str) -> str:
+        if info.binding_mode in {"directory_root", "env_var_root"}:
+            return canonical_binding_value
+        return PurePosixPath(canonical_binding_value).parent.as_posix()
+
+    @staticmethod
+    def _size_target_for_info(info: DatabaseInfo, canonical_binding_value: str, storage_root: str) -> str:
+        if info.binding_mode == "specific_file":
+            return canonical_binding_value
+        return storage_root
+
     @staticmethod
     def _normalized_override_path(overrides: dict[str, str] | None, db_id: str) -> str:
         if not isinstance(overrides, dict):
@@ -154,16 +236,53 @@ class DatabaseService:
             return ""
         return f"{root}/{rel}"
 
+    def canonicalize_binding_value(self, db_id: str, raw_path: str) -> str:
+        info = self.get_info(db_id)
+        if info is None:
+            raise ValueError(f"未知数据库: {db_id}")
+        if info.builtin:
+            raise ValueError(f"builtin 数据库不支持路径绑定: {db_id}")
+        return self._canonicalize_for_info(info, raw_path)
+
+    def binding_value_from_storage_root(self, db_id: str, storage_root: str) -> str:
+        info = self.get_info(db_id)
+        if info is None:
+            raise ValueError(f"未知数据库: {db_id}")
+        if info.builtin:
+            raise ValueError(f"builtin 数据库不支持路径绑定: {db_id}")
+        return self._binding_value_from_storage_root(info, storage_root)
+
+    def get_storage_root(self, db_id: str, binding_value: str) -> str:
+        info = self.get_info(db_id)
+        if info is None:
+            raise ValueError(f"未知数据库: {db_id}")
+        canonical = self.canonicalize_binding_value(db_id, binding_value)
+        return self._storage_root_for_info(info, canonical)
+
+    def resolve_binding_value(
+        self,
+        db_id: str,
+        db_root: str,
+        overrides: dict[str, str] | None = None,
+    ) -> str:
+        info = self.get_info(db_id)
+        if info is None or info.builtin:
+            return ""
+        override_path = self._normalized_override_path(overrides, db_id)
+        if override_path:
+            return self.canonicalize_binding_value(db_id, override_path)
+        install_root = self.get_resolved_path(db_id, db_root)
+        if not install_root:
+            return ""
+        return self._binding_value_from_storage_root(info, install_root)
+
     def resolve_effective_path(
         self,
         db_id: str,
         db_root: str,
         overrides: dict[str, str] | None = None,
     ) -> str:
-        override_path = self._normalized_override_path(overrides, db_id)
-        if override_path:
-            return override_path
-        return self.get_resolved_path(db_id, db_root)
+        return self.resolve_binding_value(db_id, db_root, overrides=overrides)
 
     def is_installable(self, db_id: str) -> bool:
         info = self.get_info(db_id)
@@ -179,38 +298,65 @@ class DatabaseService:
         info = self.get_info(db_id)
         if info is None:
             return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="数据库未注册")
-        db_path = self.resolve_effective_path(db_id, db_root, overrides=overrides)
-        if not db_path:
+        binding_value = self.resolve_binding_value(db_id, db_root, overrides=overrides)
+        if not binding_value:
             return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径未配置")
-        return self.check_status_at_path(ssh_run_fn, db_id, db_path)
+        return self.check_status_at_path(ssh_run_fn, db_id, binding_value)
 
     def check_status_at_path(self, ssh_run_fn: SshRunFn, db_id: str, db_path: str) -> DatabaseCheckResult:
         info = self.get_info(db_id)
         if info is None:
             return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.UNKNOWN, message="数据库未注册")
-        normalized_path = str(db_path or "").strip()
-        if not normalized_path:
-            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message="数据库路径未配置")
-        if not normalized_path.startswith("/"):
-            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"数据库路径必须是绝对路径: {normalized_path}")
+        try:
+            canonical_path = self.canonicalize_binding_value(db_id, db_path)
+        except ValueError as exc:
+            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=str(exc))
 
-        qdb = _quote(normalized_path)
-        rc, _, _ = ssh_run_fn(f"test -d {qdb}", 10)
-        if rc != 0:
-            return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"目录不存在: {normalized_path}")
+        storage_root = self._storage_root_for_info(info, canonical_path)
+        qstorage = _quote(storage_root)
 
-        return self._check_integrity_at_path(ssh_run_fn, info, normalized_path)
+        if info.binding_mode in {"directory_root", "env_var_root"}:
+            rc, _, _ = ssh_run_fn(f"test -d {_quote(canonical_path)}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"目录不存在: {canonical_path}")
+            rc, _, _ = ssh_run_fn(f"test -x {_quote(canonical_path)}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.INCOMPLETE, message=f"路径不可进入(-x): {canonical_path}")
+        elif info.binding_mode == "index_prefix":
+            rc, _, _ = ssh_run_fn(f"test -d {qstorage}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"目录不存在: {storage_root}")
+            rc, _, _ = ssh_run_fn(f"test -x {qstorage}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.INCOMPLETE, message=f"路径不可进入(-x): {storage_root}")
+        elif info.binding_mode == "specific_file":
+            rc, _, _ = ssh_run_fn(f"test -f {_quote(canonical_path)}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"文件不存在: {canonical_path}")
+            rc, _, _ = ssh_run_fn(f"test -d {qstorage}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.NOT_INSTALLED, message=f"目录不存在: {storage_root}")
+            rc, _, _ = ssh_run_fn(f"test -x {qstorage}", 10)
+            if rc != 0:
+                return DatabaseCheckResult(db_id=db_id, status=DatabaseStatus.INCOMPLETE, message=f"路径不可进入(-x): {storage_root}")
+        else:
+            raise ValueError(f"数据库 {db_id} 的 binding_mode 未实现: {info.binding_mode}")
+
+        return self._check_integrity_at_path(ssh_run_fn, info, canonical_path)
 
     def _check_integrity_at_path(
         self,
         ssh_run_fn: SshRunFn,
         info: DatabaseInfo,
-        db_path: str,
+        canonical_binding_value: str,
     ) -> DatabaseCheckResult:
-        qdb = _quote(db_path)
+        storage_root = self._storage_root_for_info(info, canonical_binding_value)
+        size_target = self._size_target_for_info(info, canonical_binding_value, storage_root)
+        qstorage = _quote(storage_root)
+        qsize_target = _quote(size_target)
         status_file = info.integrity_check.get("status_file", ".install_ok")
         if status_file:
-            rc, _, _ = ssh_run_fn(f"test -f {qdb}/{_quote(str(status_file))}", 10)
+            rc, _, _ = ssh_run_fn(f"test -f {qstorage}/{_quote(str(status_file))}", 10)
             if rc != 0:
                 return DatabaseCheckResult(
                     db_id=info.db_id,
@@ -222,13 +368,13 @@ class DatabaseService:
             key = str(kf).strip()
             if not key:
                 continue
-            rc, _, _ = ssh_run_fn(f"test -e {qdb}/{_quote(key)}", 10)
+            rc, _, _ = ssh_run_fn(f"test -e {qstorage}/{_quote(key)}", 10)
             if rc != 0:
                 return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.INCOMPLETE, message=f"缺少: {key}")
 
         min_size_mb = int(info.integrity_check.get("min_size_mb", 0) or 0)
         if min_size_mb > 0:
-            rc, stdout, _ = ssh_run_fn(f"du -sm {qdb} 2>/dev/null | awk '{{print $1}}'", 15)
+            rc, stdout, _ = ssh_run_fn(f"du -sm {qsize_target} 2>/dev/null | awk '{{print $1}}'", 15)
             try:
                 actual_size_mb = int((stdout or "").strip()) if rc == 0 else 0
             except ValueError:

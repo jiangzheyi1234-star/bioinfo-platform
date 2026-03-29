@@ -37,7 +37,7 @@ def test_multiplex_primer_panel_descriptor_has_expected_contract() -> None:
     assert any(o["name"] == "validation_report" for o in desc["outputs"])
     assert len(desc["parameters"]) == 5
     assert desc.get("databases")
-    assert desc["databases"][0]["id"] == "blast_nt"
+    assert desc["databases"][0]["id"] == "core_nt"
     assert desc.get("_yaml_path")
 
 
