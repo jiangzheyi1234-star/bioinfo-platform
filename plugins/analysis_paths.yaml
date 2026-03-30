@@ -41,6 +41,80 @@ paths:
         required: false
         description: "可视化：生成层级分类的 Krona 交互式 HTML"
 
+  wastewater_read_based:
+    name: "废水宏基因组基础分析"
+    description: "废水样本 FASTQ → fastp → 可选去宿主 → Kraken2 → Bracken → Krona"
+    stages:
+      - tool_id: fastp
+        input_type: fastq
+        required: true
+        description: "质控：去低质量碱基、短读长过滤"
+
+      - tool_id: hostile
+        input_type: fastq
+        depends_on: fastp
+        required: false
+        description: "可选去宿主：按样本背景决定是否移除宿主污染"
+
+      - tool_id: kraken2
+        input_type: fastq
+        depends_on: fastp
+        required: true
+        description: "物种分类：基于 k-mer 的读长分类"
+        databases:
+          db: ""
+
+      - tool_id: bracken
+        input_type: kreport
+        depends_on: kraken2
+        required: false
+        description: "丰度重估计：修正 Kraken2 在物种层级的相对丰度"
+        databases:
+          db: ""
+
+      - tool_id: krona
+        input_type: k2output
+        depends_on: kraken2
+        required: false
+        description: "可视化：生成层级分类的 Krona 交互式 HTML"
+
+  animal_read_based:
+    name: "动物源宏基因组基础分析"
+    description: "动物样本 FASTQ → fastp → hostile 去宿主 → Kraken2 → Bracken → Krona"
+    stages:
+      - tool_id: fastp
+        input_type: fastq
+        required: true
+        description: "质控：去低质量碱基、短读长过滤"
+
+      - tool_id: hostile
+        input_type: fastq
+        depends_on: fastp
+        required: true
+        description: "去宿主：移除目标动物宿主背景 reads"
+
+      - tool_id: kraken2
+        input_type: fastq
+        depends_on: hostile
+        required: true
+        description: "物种分类：基于 k-mer 的读长分类"
+        databases:
+          db: ""
+
+      - tool_id: bracken
+        input_type: kreport
+        depends_on: kraken2
+        required: false
+        description: "丰度重估计：修正 Kraken2 在物种层级的相对丰度"
+        databases:
+          db: ""
+
+      - tool_id: krona
+        input_type: k2output
+        depends_on: kraken2
+        required: false
+        description: "可视化：生成层级分类的 Krona 交互式 HTML"
+
   detection:
     name: "未知样品病原体检测"
     description: "FASTQ → 质控 → 去宿主 → 快速分类 → 未分类 reads 组装 → BLAST 补充 → 合并报告"
