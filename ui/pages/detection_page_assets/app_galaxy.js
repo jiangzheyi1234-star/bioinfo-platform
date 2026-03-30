@@ -2187,191 +2187,189 @@ function filterHistoryRecords(query) {
     });
 }
 
-// 渲染执行历史
-function loadPrimerResultsFromHistory(executionId) {
-    if (!executionId) {
-        return;
+const HISTORY_RESULT_CONTEXTS = {
+    primer_design: {
+        featureId: 'primer_design',
+        bridgeMethod: 'get_primer_results_for_execution',
+        loadingMessage: '正在加载引物结果...',
+        successMessage: '已加载该次引物设计结果',
+        errorMessage: '任务结果读取失败',
+        unavailableMessage: '任务结果加载接口不可用',
+    },
+    multiplex_primer_panel: {
+        featureId: 'multiplex_primer_panel',
+        bridgeMethod: 'get_multiplex_results_for_execution',
+        loadingMessage: '正在加载 multiplex 结果...',
+        successMessage: '已加载该次 multiplex 结果',
+        errorMessage: 'Multiplex 结果读取失败',
+        unavailableMessage: 'Multiplex 结果加载接口不可用',
+    },
+    targeted_sequencing: {
+        featureId: 'targeted_sequencing',
+        bridgeMethod: 'get_targeted_seq_results_for_execution',
+        loadingMessage: '正在加载靶向测序结果...',
+        successMessage: '已加载靶向测序分析结果',
+        errorMessage: '靶向测序结果读取失败',
+        unavailableMessage: '靶向测序结果加载接口不可用',
+    },
+    unknown_sample_detection: {
+        featureId: 'unknown_sample_detection',
+        bridgeMethod: 'get_targeted_seq_results_for_execution',
+        loadingMessage: '正在加载未知样品检测结果...',
+        successMessage: '已加载检测结果',
+        errorMessage: '检测结果读取失败',
+        unavailableMessage: '未知样品检测结果加载接口不可用',
+    },
+    fastp: {
+        featureId: 'unknown_sample_detection',
+        bridgeMethod: 'get_fastp_results_for_execution',
+        loadingMessage: '正在加载 fastp QC 结果...',
+        successMessage: '已加载 fastp 质控结果',
+        errorMessage: 'fastp 结果读取失败',
+        unavailableMessage: 'fastp 结果加载接口不可用',
+    },
+};
+
+function ensureIntegratedWorkbenchViews() {
+    if (!integratedWorkbench) {
+        integratedWorkbench = { views: {}, features: [] };
     }
-    if (!bridge || !bridge.get_primer_results_for_execution) {
-        showNotice('任务结果加载接口不可用');
-        return;
+    if (!integratedWorkbench.views) {
+        integratedWorkbench.views = {};
     }
-
-    showNotice('正在加载引物结果...', 'warning', 10000);
-    bridge.get_primer_results_for_execution(executionId, function(json) {
-        try {
-            const payload = JSON.parse(json);
-            if (payload.status !== 'ok' || !payload.view) {
-                showNotice(payload.message || '任务结果读取失败');
-                return;
-            }
-
-            if (!integratedWorkbench) {
-                integratedWorkbench = { views: {} };
-            }
-            if (!integratedWorkbench.views) {
-                integratedWorkbench.views = {};
-            }
-
-            integratedWorkbench.views.primer_design = payload.view;
-            pendingIntegratedFeatureId = 'primer_design';
-            switchTab('integrated');
-            selectIntegratedFeature('primer_design');
-            showNotice('已加载该次引物设计结果', 'success');
-        } catch (e) {
-            console.error('Failed to parse execution primer results:', e);
-            showNotice('任务结果解析失败');
-        }
-    });
+    if (!integratedWorkbench.features) {
+        integratedWorkbench.features = [];
+    }
+    return integratedWorkbench.views;
 }
 
-function loadMultiplexResultsFromHistory(executionId) {
-    if (!executionId) {
+function ensureIntegratedWorkbenchFeature(featureId, view) {
+    if (!featureId) {
         return;
     }
-    if (!bridge || !bridge.get_multiplex_results_for_execution) {
-        showNotice('Multiplex 结果加载接口不可用');
+    ensureIntegratedWorkbenchViews();
+    const exists = (integratedWorkbench.features || []).some(feature => feature && feature.id === featureId);
+    if (exists) {
         return;
     }
-
-    showNotice('正在加载 multiplex 结果...', 'warning', 10000);
-    bridge.get_multiplex_results_for_execution(executionId, function(json) {
-        try {
-            const payload = JSON.parse(json);
-            if (payload.status !== 'ok' || !payload.view) {
-                showNotice(payload.message || 'Multiplex 结果读取失败');
-                return;
-            }
-
-            if (!integratedWorkbench) {
-                integratedWorkbench = { views: {} };
-            }
-            if (!integratedWorkbench.views) {
-                integratedWorkbench.views = {};
-            }
-
-            integratedWorkbench.views.multiplex_primer_panel = payload.view;
-            pendingIntegratedFeatureId = 'multiplex_primer_panel';
-            switchTab('integrated');
-            selectIntegratedFeature('multiplex_primer_panel');
-            showNotice('已加载该次 multiplex 结果', 'success');
-        } catch (e) {
-            console.error('Failed to parse execution multiplex results:', e);
-            showNotice('Multiplex 结果解析失败');
-        }
+    integratedWorkbench.features.push({
+        id: featureId,
+        name: String(view?.title || featureId),
+        badge: '',
+        description: String(view?.description || ''),
+        status: 'active'
     });
+    renderIntegratedFeatureList();
 }
 
-function loadTargetedSeqResultsFromHistory(executionId) {
-    if (!executionId) {
-        return;
+function parseHistoryParameters(record) {
+    try {
+        return typeof record?.parameters === 'string'
+            ? JSON.parse(record.parameters || '{}')
+            : (record?.parameters || {});
+    } catch (error) {
+        return {};
     }
-    if (!bridge || !bridge.get_targeted_seq_results_for_execution) {
-        showNotice('靶向测序结果加载接口不可用');
-        return;
-    }
-
-    showNotice('正在加载靶向测序结果...', 'warning', 10000);
-    bridge.get_targeted_seq_results_for_execution(executionId, function(json) {
-        try {
-            const payload = JSON.parse(json);
-            if (payload.status !== 'ok' || !payload.view) {
-                showNotice(payload.message || '靶向测序结果读取失败');
-                return;
-            }
-
-            if (!integratedWorkbench) {
-                integratedWorkbench = { views: {} };
-            }
-            if (!integratedWorkbench.views) {
-                integratedWorkbench.views = {};
-            }
-
-            integratedWorkbench.views.targeted_sequencing = payload.view;
-            pendingIntegratedFeatureId = 'targeted_sequencing';
-            switchTab('integrated');
-            selectIntegratedFeature('targeted_sequencing');
-            showNotice('已加载靶向测序分析结果', 'success');
-        } catch (e) {
-            console.error('Failed to parse targeted seq results:', e);
-            showNotice('靶向测序结果解析失败');
-        }
-    });
 }
 
-function loadDetectionResultsFromHistory(executionId) {
+function resolveHistoryResultContext(record) {
+    const toolId = String(record?.tool_id || '').trim();
+    const params = parseHistoryParameters(record);
+
+    if (toolId === 'centrifuge' || toolId === 'kraken2') {
+        const workflow = String(params.workflow || '').trim();
+        return workflow === 'unknown_detection'
+            ? HISTORY_RESULT_CONTEXTS.unknown_sample_detection
+            : HISTORY_RESULT_CONTEXTS.targeted_sequencing;
+    }
+
+    return HISTORY_RESULT_CONTEXTS[toolId] || {
+        featureId: toolId,
+        bridgeMethod: '',
+        loadingMessage: `正在加载 ${toolId || '任务'} 结果...`,
+        successMessage: '已加载任务结果',
+        errorMessage: '任务结果读取失败',
+        unavailableMessage: '任务结果加载接口不可用',
+    };
+}
+
+function loadExecutionResultsFromHistory(executionId, context = {}) {
     if (!executionId) {
         return;
     }
-    if (!bridge || !bridge.get_targeted_seq_results_for_execution) {
-        showNotice('未知样品检测结果加载接口不可用');
+
+    const directLoader = bridge && typeof bridge.get_results_for_execution === 'function'
+        ? bridge.get_results_for_execution.bind(bridge)
+        : null;
+    const fallbackMethod = String(context.bridgeMethod || '').trim();
+    const fallbackLoader = !directLoader && fallbackMethod && bridge && typeof bridge[fallbackMethod] === 'function'
+        ? bridge[fallbackMethod].bind(bridge)
+        : null;
+    const loader = directLoader || fallbackLoader;
+
+    if (!loader) {
+        showNotice(context.unavailableMessage || '任务结果加载接口不可用');
         return;
     }
 
-    showNotice('正在加载未知样品检测结果...', 'warning', 10000);
-    bridge.get_targeted_seq_results_for_execution(executionId, function(json) {
+    const loadingMessage = context.loadingMessage || '正在加载任务结果...';
+    const successMessage = context.successMessage || '已加载任务结果';
+    const errorMessage = context.errorMessage || '任务结果读取失败';
+    showNotice(loadingMessage, 'warning', 10000);
+
+    loader(executionId, function(json) {
         try {
-            const payload = JSON.parse(json);
+            const payload = JSON.parse(json || '{}');
             if (payload.status !== 'ok' || !payload.view) {
-                showNotice(payload.message || '检测结果读取失败');
+                showNotice(payload.message || errorMessage);
                 return;
             }
 
-            if (!integratedWorkbench) {
-                integratedWorkbench = { views: {} };
-            }
-            if (!integratedWorkbench.views) {
-                integratedWorkbench.views = {};
+            const views = ensureIntegratedWorkbenchViews();
+            const featureId = String(
+                payload.view.feature_id
+                || payload.view.view_id
+                || payload.view.tool_id
+                || context.featureId
+                || ''
+            ).trim();
+            if (!featureId) {
+                showNotice(payload.message || errorMessage);
+                return;
             }
 
-            const featureId = String(payload.view.feature_id || payload.view.view_id || 'unknown_sample_detection');
-            integratedWorkbench.views[featureId] = payload.view;
+            views[featureId] = payload.view;
+            ensureIntegratedWorkbenchFeature(featureId, payload.view);
             pendingIntegratedFeatureId = featureId;
             switchTab('integrated');
             selectIntegratedFeature(featureId);
-            showNotice(`已加载${payload.view.title || '检测'}结果`, 'success');
-        } catch (e) {
-            console.error('Failed to parse detection results:', e);
-            showNotice('检测结果解析失败');
+            showNotice(payload.message || successMessage, 'success');
+        } catch (error) {
+            console.error(`Failed to parse history results via ${fallbackMethod || 'get_results_for_execution'}:`, error);
+            showNotice(errorMessage);
         }
     });
 }
 
+// 渲染执行历史
+function loadPrimerResultsFromHistory(executionId) {
+    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.primer_design);
+}
+
+function loadMultiplexResultsFromHistory(executionId) {
+    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.multiplex_primer_panel);
+}
+
+function loadTargetedSeqResultsFromHistory(executionId) {
+    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.targeted_sequencing);
+}
+
+function loadDetectionResultsFromHistory(executionId) {
+    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.unknown_sample_detection);
+}
+
 function loadFastpResultsFromHistory(executionId) {
-    if (!executionId) {
-        return;
-    }
-    if (!bridge || !bridge.get_fastp_results_for_execution) {
-        showNotice('fastp 结果加载接口不可用');
-        return;
-    }
-
-    showNotice('正在加载 fastp QC 结果...', 'warning', 10000);
-    bridge.get_fastp_results_for_execution(executionId, function(json) {
-        try {
-            const payload = JSON.parse(json);
-            if (payload.status !== 'ok' || !payload.view) {
-                showNotice(payload.message || 'fastp 结果读取失败');
-                return;
-            }
-
-            if (!integratedWorkbench) {
-                integratedWorkbench = { views: {} };
-            }
-            if (!integratedWorkbench.views) {
-                integratedWorkbench.views = {};
-            }
-
-            integratedWorkbench.views.unknown_sample_detection = payload.view;
-            pendingIntegratedFeatureId = 'unknown_sample_detection';
-            switchTab('integrated');
-            selectIntegratedFeature('unknown_sample_detection');
-            showNotice('已加载 fastp 质控结果', 'success');
-        } catch (e) {
-            console.error('Failed to parse fastp results:', e);
-            showNotice('fastp 结果解析失败');
-        }
-    });
+    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.fastp);
 }
 
 function buildExecutionRemoteStatusHtml(data) {
@@ -2610,61 +2608,15 @@ function renderHistory(history) {
 
         const actionsContainer = row.querySelector('.task-actions');
 
-        // 按钮逻辑 (与旧版对齐)
-        // 1. 对于 primer_design 已完成任务，显示查看结果
-        if (record.status === 'completed' && record.tool_id === 'primer_design') {
+        // 按钮逻辑
+        if (record.status === 'completed') {
+            const resultContext = resolveHistoryResultContext(record);
             const viewBtn = document.createElement('button');
             viewBtn.className = 'task-action-btn btn-view';
             viewBtn.textContent = '查看结果';
             viewBtn.onclick = function(e) {
                 e.preventDefault();
-                loadPrimerResultsFromHistory(record.execution_id);
-            };
-            actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'completed' && record.tool_id === 'multiplex_primer_panel') {
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'task-action-btn btn-view';
-            viewBtn.textContent = '查看结果';
-            viewBtn.onclick = function(e) {
-                e.preventDefault();
-                loadMultiplexResultsFromHistory(record.execution_id);
-            };
-            actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'completed' && DETECTION_WORKFLOW_TOOL_IDS.includes(record.tool_id)) {
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'task-action-btn btn-view';
-            viewBtn.textContent = '查看结果';
-            viewBtn.onclick = function(e) {
-                e.preventDefault();
-                loadDetectionResultsFromHistory(record.execution_id);
-            };
-            actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'completed' && (record.tool_id === 'centrifuge' || record.tool_id === 'kraken2')) {
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'task-action-btn btn-view';
-            viewBtn.textContent = '查看结果';
-            viewBtn.onclick = function(e) {
-                e.preventDefault();
-                // 根据 workflow 标记区分跳转到靶向测序 or 未知样品检测
-                let workflow = '';
-                try {
-                    const params = JSON.parse(record.parameters || '{}');
-                    workflow = params.workflow || '';
-                } catch (_) { /* ignore */ }
-                if (workflow === 'unknown_detection') {
-                    loadDetectionResultsFromHistory(record.execution_id);
-                } else {
-                    loadTargetedSeqResultsFromHistory(record.execution_id);
-                }
-            };
-            actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'completed' && record.tool_id === 'fastp') {
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'task-action-btn btn-view';
-            viewBtn.textContent = '查看结果';
-            viewBtn.onclick = function(e) {
-                e.preventDefault();
-                loadFastpResultsFromHistory(record.execution_id);
+                loadExecutionResultsFromHistory(record.execution_id, resultContext || {});
             };
             actionsContainer.appendChild(viewBtn);
         } else if (record.status === 'running') {

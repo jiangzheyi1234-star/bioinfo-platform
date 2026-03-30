@@ -634,6 +634,10 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-table-body"' in html
         assert 'id="integrated-html-card"' in html
         assert 'id="integrated-html-frame"' in html
+        assert 'loadExecutionResultsFromHistory' in js
+        assert 'resolveHistoryResultContext' in js
+        assert 'ensureIntegratedWorkbenchViews' in js
+        assert 'get_results_for_execution' in js
         assert "get_primer_results_for_execution" in js
         assert "loadPrimerResultsFromHistory" in js
         assert "get_multiplex_results_for_execution" in js

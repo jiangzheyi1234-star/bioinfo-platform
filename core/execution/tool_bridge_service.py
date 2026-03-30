@@ -35,6 +35,8 @@ from core.execution.result_parsers import (
 from core.execution.result_parsers import (
     parse_primer_result_text as _parse_primer_result_text,
 )
+from core.execution.single_tool_result_parsers import parse_fastp_json, parse_prokka_stats_text
+from core.execution.single_tool_view_builder import build_artifact_result_view, build_single_tool_view
 from core.execution.workbench_view_builders import build_multiplex_view, build_primer_view
 
 if TYPE_CHECKING:
@@ -1526,6 +1528,39 @@ class ToolBridgeService:
             }
         return {"status": "ok", "view": view}
 
+    def get_results_for_execution(self, execution_id: str) -> dict:
+        normalized_id = str(execution_id or "").strip()
+        if not normalized_id:
+            return {"status": "error", "message": "execution_id 不能为空"}
+
+        try:
+            execution_row = self._get_execution_result_row(normalized_id)
+            if execution_row is None:
+                return {"status": "error", "message": "未找到对应任务记录"}
+            if execution_row["status"] != "completed":
+                return {"status": "error", "message": "该任务尚未完成，当前只能查看状态"}
+
+            tool_id = str(execution_row["tool_id"] or "")
+            if tool_id == "primer_design":
+                return self.get_primer_results_for_execution(normalized_id)
+            if tool_id == "multiplex_primer_panel":
+                return self.get_multiplex_results_for_execution(normalized_id)
+            if tool_id == "fastp":
+                return self.get_fastp_results_for_execution(normalized_id)
+            if tool_id in ("centrifuge", "kraken2", *_DETECTION_WORKFLOW_ORDER):
+                return self.get_targeted_seq_results_for_execution(normalized_id)
+
+            view = self._build_single_tool_view_for_execution(normalized_id)
+            if view is None:
+                return {
+                    "status": "error",
+                    "message": f"工具 {tool_id} 暂无可展示的结果视图，请先查看结果文件。",
+                }
+            return {"status": "ok", "view": view}
+        except Exception as exc:
+            logger.exception("Failed to build results for execution %s", normalized_id)
+            return {"status": "error", "message": str(exc)}
+
     def get_primer_results_for_execution(self, execution_id: str) -> dict:
         view = self.get_primer_view_for_execution(execution_id)
         if view is None:
@@ -1573,6 +1608,38 @@ class ToolBridgeService:
             return {"status": "error", "message": "未打开项目"}
         ssh = self._get_ssh_service()
         return self._execution_status_service.get_execution_remote_status(execution_id, pm, ssh)
+
+    def _get_execution_result_row(self, execution_id: str):
+        normalized_id = str(execution_id or "").strip()
+        if not normalized_id:
+            return None
+        pm = self._get_project_manager()
+        if pm is None or pm.current_project is None:
+            return None
+        try:
+            return pm.db.execute(
+                """
+                SELECT e.execution_id, e.tool_id, e.sample_id, e.parameters, e.status,
+                       e.created_at, e.completed_at, e.tool_version, s.name AS sample_name
+                FROM executions e
+                LEFT JOIN samples s ON s.sample_id = e.sample_id
+                WHERE e.execution_id = ?
+                LIMIT 1
+                """,
+                (normalized_id,),
+            ).fetchone()
+        except Exception:
+            logger.exception("Failed to query execution result row: %s", normalized_id)
+            return None
+
+    @staticmethod
+    def _format_execution_time(timestamp: Any) -> str:
+        if timestamp in (None, ""):
+            return ""
+        try:
+            return datetime.datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ""
 
     def _get_cached_remote_status(self, execution_id: str, local_status: str) -> dict[str, Any] | None:
         return self._execution_status_service._get_cached_remote_status(execution_id, local_status)
@@ -1763,10 +1830,135 @@ class ToolBridgeService:
             return None
         return self._build_targeted_seq_view_for_execution(target_eid)
 
+    def _build_single_tool_view_for_execution(self, execution_id: str) -> dict | None:
+        execution_row = self._get_execution_result_row(execution_id)
+        if execution_row is None:
+            return None
+
+        tool_id = str(execution_row["tool_id"] or "").strip()
+        if not tool_id:
+            raise RuntimeError(f"执行记录缺少 tool_id: {execution_id}")
+        if tool_id == "prokka":
+            return self._build_prokka_view_for_execution(execution_id, execution_row)
+
+        descriptor = self.get_tool_descriptor(tool_id)
+        if not descriptor:
+            raise RuntimeError(f"工具描述符不存在: {tool_id}")
+
+        artifacts = self.list_local_execution_artifacts(str(execution_row["execution_id"] or ""))
+        artifacts = self._normalize_artifacts(artifacts)
+        if not artifacts:
+            raise RuntimeError(f"执行结果缺少工件清单: tool={tool_id}, execution_id={execution_id}")
+
+        manifest = self._load_manifest(str(execution_row["execution_id"] or ""))
+        remote_result_dir = str((manifest or {}).get("output_dir") or "").strip()
+        sample_name = str(execution_row["sample_name"] or execution_row["sample_id"] or "")
+        completed_at = execution_row["completed_at"] or execution_row["created_at"]
+        params = self.safe_json_loads(execution_row["parameters"] or "")
+        parameter_items = [
+            {"label": str(key), "value": str(value)}
+            for key, value in params.items()
+            if value not in ("", None)
+        ]
+
+        return build_artifact_result_view(
+            feature_id=tool_id,
+            tool_ids=[tool_id],
+            title=str(descriptor.get("name") or tool_id),
+            description=str(descriptor.get("description") or f"{tool_id} 结果"),
+            status={
+                "state": "completed",
+                "label": "结果已就绪",
+                "detail": "当前工具尚未声明结构化结果面板，以下展示已同步结果文件。",
+            },
+            artifacts=artifacts,
+            parameters=parameter_items,
+            sample_name=sample_name,
+            execution_id=str(execution_row["execution_id"] or ""),
+            updated_at=self._format_execution_time(completed_at),
+            tool_version=str(execution_row["tool_version"] or ""),
+            remote_result_dir=remote_result_dir,
+        )
+
+    def _build_prokka_view_for_execution(self, execution_id: str, execution_row: Any | None = None) -> dict | None:
+        row = execution_row or self._get_execution_result_row(execution_id)
+        if row is None:
+            return None
+        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(str(row["execution_id"] or "")))
+        if not artifacts:
+            raise RuntimeError(f"Prokka 执行结果缺少工件清单: {execution_id}")
+
+        sample_id = str(row["sample_id"] or "")
+        stats_name = f"{sample_id}.prokka.txt"
+        stats_text = self._read_local_artifact_text(artifacts, stats_name)
+        if not stats_text:
+            raise RuntimeError(f"Prokka 结果缺少主统计文件: {stats_name}")
+        stats = parse_prokka_stats_text(stats_text)
+        if not stats:
+            raise RuntimeError(f"Prokka 统计文件无法解析: {stats_name}")
+
+        descriptor = self.get_tool_descriptor("prokka")
+        if not descriptor:
+            raise RuntimeError("工具描述符不存在: prokka")
+
+        manifest = self._load_manifest(str(row["execution_id"] or ""))
+        remote_result_dir = str((manifest or {}).get("output_dir") or "").strip()
+        params = self.safe_json_loads(row["parameters"] or "")
+        parameter_items = [
+            {"label": str(key), "value": str(value)}
+            for key, value in params.items()
+            if value not in ("", None)
+        ]
+        table_columns = [
+            {"key": "organism", "label": "物种"},
+            {"key": "contigs", "label": "Contigs"},
+            {"key": "bases", "label": "Bases"},
+            {"key": "cds", "label": "CDS"},
+            {"key": "rrna", "label": "rRNA"},
+            {"key": "trna", "label": "tRNA"},
+        ]
+        table_rows = [
+            {
+                "organism": stats.get("organism", sample_id or "-"),
+                "contigs": stats.get("contigs", "-"),
+                "bases": stats.get("bases", "-"),
+                "cds": stats.get("cds", "-"),
+                "rrna": stats.get("rrna", "-"),
+                "trna": stats.get("trna", "-"),
+            }
+        ]
+        completed_at = row["completed_at"] or row["created_at"]
+        return build_single_tool_view(
+            feature_id="prokka",
+            tool_ids=["prokka"],
+            title=str(descriptor.get("name") or "Prokka"),
+            description=str(descriptor.get("description") or "快速原核基因组注释结果"),
+            status={
+                "state": "completed",
+                "label": "结果已就绪",
+                "detail": "注释统计和主要产物已同步到本地。",
+            },
+            summary=[
+                {"label": "CDS", "value": stats.get("cds", "-"), "tone": "primary"},
+                {"label": "rRNA", "value": stats.get("rrna", "-"), "tone": "info"},
+                {"label": "tRNA", "value": stats.get("trna", "-"), "tone": "info"},
+                {"label": "Contigs", "value": stats.get("contigs", "-"), "tone": "success"},
+            ],
+            columns=table_columns,
+            rows=table_rows,
+            artifacts=artifacts,
+            parameters=parameter_items,
+            table_title="注释统计",
+            table_subtitle="Prokka 输出的主要注释统计摘要。",
+            sample_name=str(row["sample_name"] or sample_id),
+            execution_id=str(row["execution_id"] or ""),
+            updated_at=self._format_execution_time(completed_at),
+            tool_version=str(row["tool_version"] or ""),
+            remote_result_dir=remote_result_dir,
+        )
+
     def _build_fastp_view_for_execution(self, execution_id: str) -> dict | None:
         """从 fastp 已完成的 execution 构建 QC 结果 view，展示在未知样品检测卡片中。"""
-        import json as _json
-
         normalized_id = str(execution_id or "").strip()
         if not normalized_id:
             return None
@@ -1794,23 +1986,28 @@ class ToolBridgeService:
             return None
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        local_json = results_dir / "fastp.json"
+        json_name = f"{sample_id}.fastp.json"
+        html_name = f"{sample_id}.fastp.html"
+        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_id))
+        json_artifact = self._artifact_by_name(artifacts, json_name)
+        html_artifact = self._artifact_by_name(artifacts, html_name)
+        local_json = Path(str((json_artifact or {}).get("local_path") or results_dir / json_name))
+
         if not local_json.exists():
             ssh = self._get_ssh_service()
             if ssh is None or not getattr(ssh, "is_connected", False):
                 return None
             try:
-                ssh.download(f"{remote_dir}/fastp.json", str(local_json))
+                ssh.download(f"{remote_dir}/{json_name}", str(local_json))
             except Exception as exc:
-                logger.warning("下载 fastp.json 失败: %s", exc)
+                logger.warning("下载 %s 失败: %s", json_name, exc)
                 return None
 
         if not local_json.exists():
             return None
 
         try:
-            with open(local_json, encoding="utf-8") as f:
-                fastp_data = _json.load(f)
+            fastp_data = parse_fastp_json(local_json)
         except Exception:
             return None
 
@@ -1830,35 +2027,36 @@ class ToolBridgeService:
         too_many_n = filtering.get("too_many_N_reads", 0)
 
         pct_pass = f"{passed / total_before * 100:.1f}%" if total_before > 0 else "—"
-
-        view = {
-            "tool_ids": ["fastp"],
-            "title": "fastp 质控报告",
-            "description": f"样品 {sample_id} 的 QC 质控统计。",
-            "table_title": "质控过滤统计",
-            "table_subtitle": "fastp 接头去除 + 低质量过滤详情。",
-            "status": {
+        execution_row = self._get_execution_result_row(normalized_id)
+        sample_name = sample_id
+        completed_at = ""
+        tool_version = ""
+        if execution_row is not None:
+            sample_name = str(execution_row["sample_name"] or sample_id)
+            completed_at = self._format_execution_time(execution_row["completed_at"] or execution_row["created_at"])
+            tool_version = str(execution_row["tool_version"] or "")
+        return build_single_tool_view(
+            feature_id="fastp",
+            tool_ids=["fastp"],
+            title="fastp 质控报告",
+            description=f"样品 {sample_id} 的 QC 质控统计。",
+            status={
                 "state": "completed",
                 "label": "QC 完成",
                 "detail": f"通过率 {pct_pass}，Q30 {q30_after:.1%}",
             },
-            "parameters": [
-                {"label": "输入", "value": f"双端 FASTQ ({total_before:,} reads)"},
-                {"label": "输出", "value": f"清洁 reads ({total_after:,} reads)"},
-                {"label": "工具", "value": "fastp"},
-            ],
-            "summary": [
+            summary=[
                 {"label": "原始 Reads", "value": f"{total_before:,}", "tone": "primary"},
                 {"label": "通过 QC", "value": f"{total_after:,} ({pct_pass})", "tone": "success"},
                 {"label": "Q30 (过滤后)", "value": f"{q30_after:.2%}", "tone": "info"},
                 {"label": "GC 含量", "value": f"{gc_after:.2%}", "tone": "info"},
             ],
-            "columns": [
+            columns=[
                 {"key": "metric", "label": "指标"},
                 {"key": "before", "label": "过滤前"},
                 {"key": "after", "label": "过滤后"},
             ],
-            "rows": [
+            rows=[
                 {"metric": "总 Reads", "before": f"{total_before:,}", "after": f"{total_after:,}"},
                 {"metric": "Q30", "before": f"{q30_before:.2%}", "after": f"{q30_after:.2%}"},
                 {"metric": "GC 含量", "before": f"{before.get('gc_content', 0):.2%}", "after": f"{gc_after:.2%}"},
@@ -1867,22 +2065,33 @@ class ToolBridgeService:
                 {"metric": "高 N Reads", "before": "—", "after": f"{too_many_n:,}"},
                 {"metric": "通过率", "before": "—", "after": pct_pass},
             ],
-            "artifacts": [
+            artifacts=[
                 {
-                    "name": "fastp.json",
-                    "remote_path": f"{remote_dir}/fastp.json",
+                    "name": json_name,
+                    "remote_path": f"{remote_dir}/{json_name}",
                     "local_path": str(local_json),
                     "available": True,
                 },
                 {
-                    "name": "fastp.html",
-                    "remote_path": f"{remote_dir}/fastp.html",
-                    "local_path": "",
-                    "available": False,
+                    "name": html_name,
+                    "remote_path": f"{remote_dir}/{html_name}",
+                    "local_path": str((html_artifact or {}).get("local_path") or ""),
+                    "available": bool((html_artifact or {}).get("available")),
                 },
             ],
-        }
-        return view
+            parameters=[
+                {"label": "输入", "value": f"双端 FASTQ ({total_before:,} reads)"},
+                {"label": "输出", "value": f"清洁 reads ({total_after:,} reads)"},
+                {"label": "工具", "value": "fastp"},
+            ],
+            table_title="质控过滤统计",
+            table_subtitle="fastp 接头去除 + 低质量过滤详情。",
+            sample_name=sample_name,
+            execution_id=normalized_id,
+            updated_at=completed_at,
+            tool_version=tool_version,
+            remote_result_dir=remote_dir,
+        )
 
     def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | None:
         """从 execution 记录构建靶向测序结果 view（含饼图 + 表格 + 报告）。"""
