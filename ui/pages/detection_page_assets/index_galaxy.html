@@ -170,6 +170,15 @@
 
                         <div class="integrated-main-layout">
                             <div class="integrated-primary-column">
+                                <div class="detail-card chart-card" id="integrated-html-card" style="display:none;">
+                                    <div class="card-title-row">
+                                        <h4 id="html-preview-title">HTML 预览</h4>
+                                        <button class="btn-secondary" id="html-open-btn" type="button" style="display:none;">在系统中打开</button>
+                                    </div>
+                                    <div id="integrated-html-empty" class="integrated-input-empty" style="display:none;">暂无可预览的 HTML 结果。</div>
+                                    <iframe id="integrated-html-frame" title="HTML preview" style="width:100%;height:520px;border:none;border-radius:12px;background:#fff;display:none;"></iframe>
+                                </div>
+
                                 <div class="detail-card chart-card" id="integrated-chart-card" style="display:none;">
                                     <div class="card-title-row"><h4 id="chart-card-title">图表</h4></div>
                                     <div id="integrated-chart-container" style="width:100%;min-height:360px;"></div>
