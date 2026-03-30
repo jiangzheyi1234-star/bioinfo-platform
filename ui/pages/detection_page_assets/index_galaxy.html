@@ -155,7 +155,7 @@
 
                 <section class="integrated-content">
                     <div class="integrated-empty-state" id="integrated-empty-state">
-                        <div class="empty-emoji">🧪</div>
+                        <div class="empty-mark">Workbench</div>
                         <h3>选择左侧功能开始查看</h3>
                         <p>当前已接入引物设计，其他能力会按同一工作台布局持续接入。</p>
                     </div>
@@ -197,6 +197,14 @@
                                         </table>
                                     </div>
                                 </div>
+
+                                <div class="detail-card compact-detail-card" id="integrated-sections-card" style="display:none;">
+                                    <div class="card-title-row compact-title-row">
+                                        <h4>工作流分段</h4>
+                                        <span class="card-badge">sections</span>
+                                    </div>
+                                    <div id="integrated-sections-list"></div>
+                                </div>
                             </div>
 
                             <div class="integrated-side-column">
@@ -228,6 +236,14 @@
                                     <div class="side-section-body collapsed" id="artifact-list-wrap">
                                         <ul class="artifact-list" id="artifact-list"></ul>
                                     </div>
+                                </div>
+
+                                <div class="detail-card compact-detail-card">
+                                    <div class="card-title-row compact-title-row">
+                                        <h4>运行追溯</h4>
+                                        <span class="card-badge">provenance</span>
+                                    </div>
+                                    <div id="integrated-provenance-list"></div>
                                 </div>
                             </div>
                         </div>

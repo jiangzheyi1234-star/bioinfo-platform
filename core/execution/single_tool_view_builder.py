@@ -10,38 +10,22 @@ from core.execution.single_tool_view_schema import (
     SingleToolView,
     SummaryItem,
     TableView,
+    ViewSection,
     ViewStatus,
 )
 
 
-def build_single_tool_view(
-    *,
-    feature_id: str,
-    tool_ids: list[str],
-    title: str,
-    description: str,
-    status: dict[str, Any],
-    summary: list[dict[str, Any]] | None = None,
-    charts: list[dict[str, Any]] | None = None,
-    columns: list[dict[str, str]] | None = None,
-    rows: list[dict[str, Any]] | None = None,
-    artifacts: list[dict[str, Any]] | None = None,
-    parameters: list[dict[str, str]] | None = None,
-    table_title: str = "",
-    table_subtitle: str = "",
-    sample_name: str = "",
-    execution_id: str = "",
-    updated_at: str = "",
-    tool_version: str = "",
-    remote_result_dir: str = "",
-    command_preview: str = "",
-) -> dict[str, Any]:
-    status_model = ViewStatus(
-        state=str(status.get("state", "") or ""),
-        label=str(status.get("label", "") or ""),
-        detail=str(status.get("detail", "") or ""),
+def _coerce_status(status: dict[str, Any] | None) -> ViewStatus:
+    payload = status or {}
+    return ViewStatus(
+        state=str(payload.get("state", "") or ""),
+        label=str(payload.get("label", "") or ""),
+        detail=str(payload.get("detail", "") or ""),
     )
-    summary_models = [
+
+
+def _coerce_summary(summary: list[dict[str, Any]] | None) -> list[SummaryItem]:
+    return [
         SummaryItem(
             label=str(item.get("label", "") or ""),
             value=str(item.get("value", "") or ""),
@@ -49,61 +33,255 @@ def build_single_tool_view(
         )
         for item in (summary or [])
     ]
-    table_model = TableView(
-        title=table_title,
-        subtitle=table_subtitle,
-        columns=list(columns or []),
-        rows=list(rows or []),
+
+
+def _coerce_table(
+    *,
+    table: dict[str, Any] | None = None,
+    table_title: str = "",
+    table_subtitle: str = "",
+    columns: list[dict[str, str]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
+) -> TableView:
+    payload = table or {}
+    return TableView(
+        title=str(payload.get("title") or table_title or ""),
+        subtitle=str(payload.get("subtitle") or table_subtitle or ""),
+        columns=list(payload.get("columns") or columns or []),
+        rows=list(payload.get("rows") or rows or []),
     )
+
+
+def _coerce_provenance(
+    *,
+    provenance: dict[str, Any] | None = None,
+    execution_id: str = "",
+    parameters: list[dict[str, Any]] | None = None,
+    tool_version: str = "",
+    remote_result_dir: str = "",
+    local_result_dir: str = "",
+    command_preview: str = "",
+) -> ProvenanceInfo:
+    payload = provenance or {}
+    return ProvenanceInfo(
+        execution_id=str(payload.get("execution_id") or execution_id or ""),
+        parameters=list(payload.get("parameters") or parameters or []),
+        tool_version=str(payload.get("tool_version") or tool_version or ""),
+        remote_result_dir=str(payload.get("remote_result_dir") or remote_result_dir or ""),
+        local_result_dir=str(payload.get("local_result_dir") or local_result_dir or ""),
+        command_preview=str(payload.get("command_preview") or command_preview or ""),
+    )
+
+
+def build_view_section(
+    *,
+    section_id: str,
+    title: str,
+    archetype: str,
+    summary: list[dict[str, Any]] | None = None,
+    charts: list[dict[str, Any]] | None = None,
+    table: dict[str, Any] | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    section = ViewSection(
+        section_id=section_id,
+        title=title,
+        archetype=archetype,
+        summary=_coerce_summary(summary),
+        charts=list(charts or []),
+        table=_coerce_table(table=table),
+        artifacts=list(artifacts or []),
+        provenance=_coerce_provenance(provenance=provenance),
+    )
+    return section.to_dict()
+
+
+def section_from_view(
+    view: dict[str, Any],
+    *,
+    section_id: str,
+    title: str | None = None,
+    archetype: str | None = None,
+) -> dict[str, Any]:
+    table_payload = view.get("table") if isinstance(view.get("table"), dict) else {}
+    return build_view_section(
+        section_id=section_id,
+        title=str(title or view.get("title") or section_id),
+        archetype=str(archetype or view.get("archetype") or ""),
+        summary=list(view.get("summary") or []),
+        charts=list(view.get("charts") or []),
+        table={
+            "title": str(table_payload.get("title") or ""),
+            "subtitle": str(table_payload.get("subtitle") or ""),
+            "columns": list(table_payload.get("columns") or []),
+            "rows": list(table_payload.get("rows") or []),
+        },
+        artifacts=list(view.get("artifacts") or []),
+        provenance=dict(view.get("provenance") or {}),
+    )
+
+
+def build_single_tool_view(
+    *,
+    feature_id: str,
+    tool_id: str | None = None,
+    archetype: str = "",
+    tool_ids: list[str] | None = None,
+    title: str,
+    description: str,
+    status: dict[str, Any],
+    summary: list[dict[str, Any]] | None = None,
+    charts: list[dict[str, Any]] | None = None,
+    table: dict[str, Any] | None = None,
+    columns: list[dict[str, str]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
+    provenance: dict[str, Any] | None = None,
+    parameters: list[dict[str, Any]] | None = None,
+    sections: list[dict[str, Any]] | None = None,
+    table_title: str = "",
+    table_subtitle: str = "",
+    sample_name: str = "",
+    execution_id: str = "",
+    updated_at: str = "",
+    tool_version: str = "",
+    remote_result_dir: str = "",
+    local_result_dir: str = "",
+    command_preview: str = "",
+) -> dict[str, Any]:
+    normalized_tool_id = str(tool_id or (tool_ids[0] if tool_ids else feature_id) or feature_id)
+    table_model = _coerce_table(
+        table=table,
+        table_title=table_title,
+        table_subtitle=table_subtitle,
+        columns=columns,
+        rows=rows,
+    )
+    provenance_model = _coerce_provenance(
+        provenance=provenance,
+        execution_id=execution_id,
+        parameters=parameters,
+        tool_version=tool_version,
+        remote_result_dir=remote_result_dir,
+        local_result_dir=local_result_dir,
+        command_preview=command_preview,
+    )
+    section_models = [
+        ViewSection(
+            section_id=str(item.get("section_id") or ""),
+            title=str(item.get("title") or ""),
+            archetype=str(item.get("archetype") or ""),
+            summary=_coerce_summary(list(item.get("summary") or [])),
+            charts=list(item.get("charts") or []),
+            table=_coerce_table(table=dict(item.get("table") or {})),
+            artifacts=list(item.get("artifacts") or []),
+            provenance=_coerce_provenance(provenance=dict(item.get("provenance") or {})),
+        )
+        for item in (sections or [])
+    ]
+
     view = SingleToolView(
-        feature_id=feature_id,
-        tool_ids=list(tool_ids or [feature_id]),
+        feature_id=str(feature_id),
+        tool_id=normalized_tool_id,
+        archetype=str(archetype or ""),
         title=title,
         description=description,
-        status=status_model,
+        status=_coerce_status(status),
         hero=HeroInfo(
             sample_name=sample_name,
             execution_id=execution_id,
             updated_at=updated_at,
             primary_action="view_result",
         ),
-        summary=summary_models,
+        summary=_coerce_summary(summary),
         charts=list(charts or []),
         table=table_model,
         artifacts=list(artifacts or []),
-        provenance=ProvenanceInfo(
-            parameters=list(parameters or []),
-            tool_version=tool_version,
-            remote_result_dir=remote_result_dir,
-            command_preview=command_preview,
-        ),
-        parameters=list(parameters or []),
-        table_title=table_title,
-        table_subtitle=table_subtitle,
-        columns=list(columns or []),
-        rows=list(rows or []),
+        provenance=provenance_model,
+        sections=section_models,
+        tool_ids=list(tool_ids or [normalized_tool_id]),
     )
     return view.to_dict()
 
 
-def build_artifact_result_view(
+def normalize_result_view(
+    view: dict[str, Any],
     *,
     feature_id: str,
-    tool_ids: list[str],
-    title: str,
-    description: str,
-    status: dict[str, Any],
-    artifacts: list[dict[str, Any]],
-    parameters: list[dict[str, str]] | None = None,
+    tool_id: str,
+    archetype: str,
+    title: str | None = None,
+    description: str | None = None,
     sample_name: str = "",
     execution_id: str = "",
     updated_at: str = "",
     tool_version: str = "",
     remote_result_dir: str = "",
+    local_result_dir: str = "",
+    command_preview: str = "",
+    sections: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    normalized_sections = sections if sections is not None else list(view.get("sections") or [])
+    raw_table = view.get("table") if isinstance(view.get("table"), dict) else {}
+    raw_provenance = view.get("provenance") if isinstance(view.get("provenance"), dict) else {}
+    charts = list(view.get("charts") or [])
+    if not charts and isinstance(view.get("chart"), dict):
+        charts = [dict(view["chart"])]
+
+    return build_single_tool_view(
+        feature_id=feature_id,
+        tool_id=tool_id,
+        archetype=archetype,
+        tool_ids=list(view.get("tool_ids") or [tool_id]),
+        title=str(title or view.get("title") or feature_id),
+        description=str(description or view.get("description") or ""),
+        status=dict(view.get("status") or {"state": "", "label": "", "detail": ""}),
+        summary=list(view.get("summary") or []),
+        charts=charts,
+        table={
+            "title": str(raw_table.get("title") or view.get("table_title") or ""),
+            "subtitle": str(raw_table.get("subtitle") or view.get("table_subtitle") or ""),
+            "columns": list(raw_table.get("columns") or view.get("columns") or []),
+            "rows": list(raw_table.get("rows") or view.get("rows") or []),
+        },
+        artifacts=list(view.get("artifacts") or []),
+        provenance={
+            "execution_id": str(raw_provenance.get("execution_id") or execution_id or view.get("execution_id") or ""),
+            "parameters": list(raw_provenance.get("parameters") or view.get("parameters") or []),
+            "tool_version": str(raw_provenance.get("tool_version") or tool_version or view.get("tool_version") or ""),
+            "remote_result_dir": str(raw_provenance.get("remote_result_dir") or remote_result_dir or view.get("remote_result_dir") or ""),
+            "local_result_dir": str(raw_provenance.get("local_result_dir") or local_result_dir or ""),
+            "command_preview": str(raw_provenance.get("command_preview") or command_preview or view.get("command_preview") or ""),
+        },
+        sections=normalized_sections,
+        sample_name=str(view.get("hero", {}).get("sample_name") or sample_name or ""),
+        execution_id=str(view.get("hero", {}).get("execution_id") or execution_id or ""),
+        updated_at=str(view.get("hero", {}).get("updated_at") or updated_at or ""),
+    )
+
+
+def build_artifact_result_view(
+    *,
+    feature_id: str,
+    tool_id: str | None = None,
+    archetype: str = "artifact_collection",
+    tool_ids: list[str],
+    title: str,
+    description: str,
+    status: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+    parameters: list[dict[str, Any]] | None = None,
+    sample_name: str = "",
+    execution_id: str = "",
+    updated_at: str = "",
+    tool_version: str = "",
+    remote_result_dir: str = "",
+    local_result_dir: str = "",
 ) -> dict[str, Any]:
     summary = [
         {
-            "label": "结果文件",
+            "label": "已同步文件",
             "value": str(len([item for item in artifacts if item.get("available")])),
             "tone": "primary",
         },
@@ -115,6 +293,8 @@ def build_artifact_result_view(
     ]
     return build_single_tool_view(
         feature_id=feature_id,
+        tool_id=tool_id or feature_id,
+        archetype=archetype,
         tool_ids=tool_ids,
         title=title,
         description=description,
@@ -123,10 +303,11 @@ def build_artifact_result_view(
         artifacts=artifacts,
         parameters=parameters,
         table_title="结果文件",
-        table_subtitle="当前工具未声明结构化结果表，以下展示已同步产物。",
+        table_subtitle="当前工具以结果产物为主，以下展示已同步到本地的文件与目录。",
         sample_name=sample_name,
         execution_id=execution_id,
         updated_at=updated_at,
         tool_version=tool_version,
         remote_result_dir=remote_result_dir,
+        local_result_dir=local_result_dir,
     )

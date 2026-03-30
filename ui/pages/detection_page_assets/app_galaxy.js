@@ -254,7 +254,8 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 });
 
 function getIntegratedToolId(feature, view) {
-    return (view && view.tool_ids && view.tool_ids[0])
+    return (view && view.tool_id)
+        || (view && view.tool_ids && view.tool_ids[0])
         || (feature && feature.tool_ids && feature.tool_ids[0])
         || null;
 }
@@ -1003,6 +1004,7 @@ function renderIntegratedFeature(feature, view) {
     const emptyState = document.getElementById('integrated-empty-state');
     const detail = document.getElementById('integrated-detail');
     const statusChip = document.getElementById('integrated-status-chip');
+    const table = (view && view.table && typeof view.table === 'object') ? view.table : {};
 
     if (!feature || !view) {
         if (emptyState) emptyState.style.display = 'flex';
@@ -1013,7 +1015,7 @@ function renderIntegratedFeature(feature, view) {
 
     if (emptyState) emptyState.style.display = 'none';
     if (detail) detail.style.display = 'flex';
-    if (statusChip) statusChip.textContent = feature.badge || '已选择';
+    if (statusChip) statusChip.textContent = view?.status?.label || feature.badge || '已选择';
 
     document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
     document.getElementById('feature-description').textContent = view.description || '';
@@ -1025,18 +1027,20 @@ function renderIntegratedFeature(feature, view) {
     renderIntegratedRunEntry(feature, view);
     renderSummaryGrid(view.summary || []);
     renderArtifactList(view.artifacts || []);
+    renderIntegratedProvenance(view.provenance || {}, view.hero || {});
+    renderIntegratedSections(view.sections || []);
     renderIntegratedHtmlPreview(view.artifacts || []);
-    renderIntegratedTable(view.columns || [], view.rows || []);
+    renderIntegratedTable(table.columns || view.columns || [], table.rows || view.rows || []);
     renderIntegratedChart(view.charts || view.chart || null);
 
     // 动态更新表标题和 badge
     const resultsTitle = document.getElementById('results-card-title');
-    if (resultsTitle) resultsTitle.textContent = view.table_title || '分析结果';
+    if (resultsTitle) resultsTitle.textContent = table.title || view.table_title || '分析结果';
     const resultsBadge = document.getElementById('results-card-badge');
     if (resultsBadge) resultsBadge.textContent = view.table_badge || (view.artifacts && view.artifacts[0] ? view.artifacts[0].name : '');
 
     const subtitleEl = document.getElementById('results-card-subtitle');
-    if (subtitleEl) subtitleEl.textContent = view.table_subtitle || '分析结果将在此处展示。';
+    if (subtitleEl) subtitleEl.textContent = table.subtitle || view.table_subtitle || '分析结果将在此处展示。';
 }
 
 function renderIntegratedRunEntry(feature, view) {
@@ -1159,7 +1163,7 @@ function renderArtifactList(artifacts) {
         const btn = document.createElement('div');
         btn.className = 'pdf-report-btn';
         btn.innerHTML = `
-            <span class="pdf-icon">📄</span>
+            <span class="pdf-icon">PDF</span>
             <span class="pdf-label">导出 PDF 检测报告</span>
         `;
         btn.addEventListener('click', function() {
@@ -1192,6 +1196,78 @@ function renderArtifactList(artifacts) {
         }
         container.appendChild(li);
     });
+}
+
+function renderIntegratedProvenance(provenance, hero = {}) {
+    const container = document.getElementById('integrated-provenance-list');
+    if (!container) {
+        return;
+    }
+
+    const items = [];
+    const executionId = String(provenance?.execution_id || hero?.execution_id || '').trim();
+    const updatedAt = String(hero?.updated_at || '').trim();
+    const toolVersion = String(provenance?.tool_version || '').trim();
+    const remoteDir = String(provenance?.remote_result_dir || '').trim();
+    const localDir = String(provenance?.local_result_dir || '').trim();
+    const params = Array.isArray(provenance?.parameters) ? provenance.parameters : [];
+
+    if (executionId) items.push({ label: 'Execution ID', value: executionId });
+    if (updatedAt) items.push({ label: '完成时间', value: updatedAt });
+    if (toolVersion) items.push({ label: '工具版本', value: toolVersion });
+    if (remoteDir) items.push({ label: '远端结果目录', value: remoteDir });
+    if (localDir) items.push({ label: '本地结果目录', value: localDir });
+    params.slice(0, 8).forEach(item => {
+        items.push({ label: item.label || '参数', value: String(item.value ?? '') });
+    });
+
+    if (items.length === 0) {
+        container.innerHTML = '<div class="integrated-input-empty">暂无运行追溯信息。</div>';
+        return;
+    }
+
+    container.innerHTML = items.map(item => `
+        <div class="integrated-input-item">
+            <div class="integrated-input-label">${escapeHtml(item.label || '')}</div>
+            <div class="integrated-input-desc">${escapeHtml(item.value || '')}</div>
+        </div>
+    `).join('');
+}
+
+function renderIntegratedSections(sections) {
+    const card = document.getElementById('integrated-sections-card');
+    const container = document.getElementById('integrated-sections-list');
+    if (!card || !container) {
+        return;
+    }
+
+    const normalizedSections = Array.isArray(sections) ? sections : [];
+    if (normalizedSections.length === 0) {
+        card.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    card.style.display = 'block';
+    container.innerHTML = normalizedSections.map(section => {
+        const summary = Array.isArray(section?.summary) ? section.summary : [];
+        const table = section?.table && typeof section.table === 'object' ? section.table : {};
+        const artifacts = Array.isArray(section?.artifacts) ? section.artifacts : [];
+        return `
+            <div class="integrated-input-item">
+                <div class="integrated-input-label-row">
+                    <span class="integrated-input-label">${escapeHtml(section?.title || section?.section_id || 'section')}</span>
+                    <span class="integrated-input-required">${escapeHtml(section?.archetype || '')}</span>
+                </div>
+                <div class="integrated-input-desc">
+                    ${escapeHtml(summary.slice(0, 3).map(item => `${item.label}: ${item.value}`).join(' | ') || '无摘要')}
+                </div>
+                <div class="integrated-input-desc">
+                    ${escapeHtml(`表格 ${Array.isArray(table?.rows) ? table.rows.length : 0} 行 | 文件 ${artifacts.length} 个`)}
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function openLocalArtifact(localPath) {
@@ -2221,7 +2297,7 @@ const HISTORY_RESULT_CONTEXTS = {
         unavailableMessage: '未知样品检测结果加载接口不可用',
     },
     fastp: {
-        featureId: 'unknown_sample_detection',
+        featureId: 'fastp',
         bridgeMethod: 'get_fastp_results_for_execution',
         loadingMessage: '正在加载 fastp QC 结果...',
         successMessage: '已加载 fastp 质控结果',
@@ -2243,23 +2319,56 @@ function ensureIntegratedWorkbenchViews() {
     return integratedWorkbench.views;
 }
 
-function ensureIntegratedWorkbenchFeature(featureId, view) {
+function getIntegratedWorkbenchFeature(featureId) {
+    ensureIntegratedWorkbenchViews();
+    return (integratedWorkbench.features || []).find(feature => feature && feature.id === featureId) || null;
+}
+
+function clearIntegratedTemporaryFeatures(exceptFeatureId = '') {
+    ensureIntegratedWorkbenchViews();
+    const preservedId = String(exceptFeatureId || '').trim();
+    integratedWorkbench.features = (integratedWorkbench.features || []).filter(feature => {
+        if (!feature || !feature.temporary) {
+            return true;
+        }
+        return preservedId && feature.id === preservedId;
+    });
+}
+
+function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
     if (!featureId) {
-        return;
+        return false;
     }
     ensureIntegratedWorkbenchViews();
-    const exists = (integratedWorkbench.features || []).some(feature => feature && feature.id === featureId);
-    if (exists) {
-        return;
+    const temporary = Boolean(options.temporary);
+    const existingIndex = (integratedWorkbench.features || []).findIndex(feature => feature && feature.id === featureId);
+
+    if (temporary) {
+        clearIntegratedTemporaryFeatures(featureId);
     }
+
+    if (existingIndex >= 0) {
+        const current = integratedWorkbench.features[existingIndex] || {};
+        integratedWorkbench.features[existingIndex] = {
+            ...current,
+            id: featureId,
+            name: String(view?.title || current.name || featureId),
+            description: String(view?.description || current.description || ''),
+            status: current.status || 'active',
+            temporary: Boolean(current.temporary) || temporary,
+        };
+        return false;
+    }
+
     integratedWorkbench.features.push({
         id: featureId,
         name: String(view?.title || featureId),
         badge: '',
         description: String(view?.description || ''),
-        status: 'active'
+        status: 'active',
+        temporary,
     });
-    renderIntegratedFeatureList();
+    return true;
 }
 
 function parseHistoryParameters(record) {
@@ -2280,7 +2389,12 @@ function resolveHistoryResultContext(record) {
         const workflow = String(params.workflow || '').trim();
         return workflow === 'unknown_detection'
             ? HISTORY_RESULT_CONTEXTS.unknown_sample_detection
-            : HISTORY_RESULT_CONTEXTS.targeted_sequencing;
+            : {
+                ...HISTORY_RESULT_CONTEXTS.targeted_sequencing,
+                featureId: toolId,
+                loadingMessage: `正在加载 ${toolId} 分类结果...`,
+                successMessage: `已加载 ${toolId} 分类结果`,
+            };
     }
 
     return HISTORY_RESULT_CONTEXTS[toolId] || {
@@ -2327,10 +2441,10 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
 
             const views = ensureIntegratedWorkbenchViews();
             const featureId = String(
-                payload.view.feature_id
+                context.featureId
+                || payload.view.feature_id
                 || payload.view.view_id
                 || payload.view.tool_id
-                || context.featureId
                 || ''
             ).trim();
             if (!featureId) {
@@ -2339,10 +2453,19 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
             }
 
             views[featureId] = payload.view;
-            ensureIntegratedWorkbenchFeature(featureId, payload.view);
             pendingIntegratedFeatureId = featureId;
+            const existingFeature = getIntegratedWorkbenchFeature(featureId);
+            const featureChanged = upsertIntegratedHistoryFeature(
+                featureId,
+                payload.view,
+                { temporary: !existingFeature },
+            );
             switchTab('integrated');
-            selectIntegratedFeature(featureId);
+            if (featureChanged) {
+                renderIntegratedFeatureList();
+            } else {
+                selectIntegratedFeature(featureId);
+            }
             showNotice(payload.message || successMessage, 'success');
         } catch (error) {
             console.error(`Failed to parse history results via ${fallbackMethod || 'get_results_for_execution'}:`, error);
