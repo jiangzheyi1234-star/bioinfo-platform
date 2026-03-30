@@ -658,6 +658,13 @@ class TestDetectionIntegratedWorkbench:
         assert 'renderIntegratedSections' in js
         assert 'temporary' in js
         assert 'get_results_for_execution' in js
+        assert "function switchTab(tab)" in js
+        assert "function activateTab(tab)" in js
+        assert "function switchTab(tab, options = {})" not in js
+        assert "loadIntegratedWorkbench(forceIntegratedRefresh);" not in js
+        assert "activateTab(tab);" in js
+        assert "switchTab('integrated');" in js
+        assert "renderIntegratedWorkbench();" in js
         assert "Primary history result loader failed" not in js
         assert "retrying via" not in js
         assert "bridgeMethod" not in js

@@ -199,7 +199,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     document.querySelectorAll('.tab-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
             const tab = btn.dataset.tab;
-            switchTab(tab);
+            activateTab(tab);
         });
     });
 
@@ -787,13 +787,7 @@ function switchTab(tab) {
         target.classList.add('active');
     }
 
-    // 切换到历史标签时加载数据
-    if (tab === 'history') {
-        loadHistory();
-    }
-
     if (tab === 'integrated') {
-        loadIntegratedWorkbench(true);
         // ECharts resize on tab switch
         if (_integratedChartInstances && _integratedChartInstances.length) {
             setTimeout(function() {
@@ -806,6 +800,19 @@ function switchTab(tab) {
                 });
             }, 100);
         }
+    }
+}
+
+function activateTab(tab) {
+    switchTab(tab);
+
+    if (tab === 'history') {
+        loadHistory();
+        return;
+    }
+
+    if (tab === 'integrated') {
+        loadIntegratedWorkbench();
     }
 }
 
@@ -2444,7 +2451,7 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
         );
         switchTab('integrated');
         if (featureChanged) {
-            renderIntegratedFeatureList();
+            renderIntegratedWorkbench();
         } else {
             selectIntegratedFeature(featureId);
         }

@@ -623,34 +623,6 @@ class ToolBridgeService:
         row = pm.db.execute(query, tuple(tool_ids)).fetchone()
         return dict(row) if row else None
 
-    def find_registered_output(self, execution_id: str, basename: str) -> str:
-        registry = self._get_data_registry()
-        if registry is not None:
-            for item in registry.find_by_execution(execution_id):
-                if Path(item.file_path).name == basename:
-                    return item.file_path
-
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return ""
-
-        row = pm.db.execute(
-            """
-            SELECT d.file_path
-            FROM execution_io ei
-            JOIN data_items d ON d.data_id = ei.data_id
-            WHERE ei.execution_id = ?
-              AND ei.direction = 'output'
-            ORDER BY d.created_at DESC
-            """,
-            (execution_id,),
-        ).fetchall()
-        for item in row:
-            file_path = str(item["file_path"])
-            if Path(file_path).name == basename:
-                return file_path
-        return ""
-
     def find_execution_input(self, execution_id: str, data_type: str = "") -> str:
         pm = self._get_project_manager()
         if pm is None or pm.current_project is None:
@@ -878,33 +850,6 @@ class ToolBridgeService:
     def _summarize_row_count(rows: list[dict[str, Any]], *, label: str) -> list[dict[str, str]]:
         return [{"label": label, "value": str(len(rows)), "tone": "primary"}]
 
-    def _summarize_metric_rows(
-        self,
-        rows: list[dict[str, Any]],
-        *,
-        preferred_keys: list[str] | list[tuple[str, str, str]] | None = None,
-        metrics: dict[str, Any] | None = None,
-    ) -> list[dict[str, str]]:
-        if metrics:
-            candidates = [(str(key), str(key), "info") for key in metrics.keys()]
-            summary = summarize_table_row(metrics, candidates[:4])
-            if summary:
-                return summary
-
-        if rows and preferred_keys:
-            if preferred_keys and isinstance(preferred_keys[0], tuple):
-                return summarize_table_row(rows[0], list(preferred_keys))
-            summary: list[dict[str, str]] = []
-            lowered = {str(key).lower(): value for key, value in rows[0].items()}
-            for key in preferred_keys:
-                value = lowered.get(str(key).lower())
-                if value in ("", None):
-                    continue
-                summary.append({"label": str(key), "value": str(value), "tone": "info"})
-            if summary:
-                return summary
-        return []
-
     def _remote_cache_key(self, tool_id: str, remote_result_dir: str) -> str:
         return self._artifact_store.remote_cache_key(tool_id, remote_result_dir)
 
@@ -920,7 +865,10 @@ class ToolBridgeService:
         )
 
     def list_local_execution_artifacts(self, execution_id: str) -> list[dict]:
-        return self._artifact_store.list_local_execution_artifacts(execution_id)
+        normalized_execution_id = str(execution_id or "").strip()
+        if not normalized_execution_id:
+            return []
+        return self._artifact_store.list_local_execution_artifacts(normalized_execution_id)
 
     def _persist_execution_artifacts(
         self,
@@ -1034,6 +982,15 @@ class ToolBridgeService:
         if row is None or str(row["tool_id"] or "") != "primer_design":
             return None
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_execution_id))
+        description = (
+            "用途：基于本地已同步的 primer 结果展示推荐引物、靶区位置与产物信息。"
+            "\n实现：仅读取当前项目内缓存的结果工件，不在结果展示阶段触发远端查询。"
+        )
+        status = {
+            "state": "completed",
+            "label": "结果可用",
+            "detail": "已从本地结果缓存加载 primer 产物，可直接查看与导出。",
+        }
         if not artifacts:
             return None
         ctx = self._build_view_common_context(row, artifacts)
@@ -1069,15 +1026,8 @@ class ToolBridgeService:
         return self._build_primer_view_from_artifacts(
             artifacts=artifacts,
             remote_result_dir=ctx["remote_result_dir"],
-            description=(
-                "用途：基于本地已同步的 primer 结果展示推荐引物、靶区位置与产物信息。"
-                "\n实现：仅读取当前项目内缓存的结果工件，不在结果展示阶段触发远端查询。"
-            ),
-            status={
-                "state": "completed",
-                "label": "结果可用",
-                "detail": "已从本地结果缓存加载 primer 产物，可直接查看与导出。",
-            },
+            description=description,
+            status=status,
             parameters=parameters,
         )
 
@@ -1132,6 +1082,15 @@ class ToolBridgeService:
         if row is None or str(row["tool_id"] or "") != "multiplex_primer_panel":
             return None
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_execution_id))
+        description = (
+            "用途：用于查看本地已同步的多重引物池结果、合成清单与相关评分。"
+            "\n实现：仅消费当前项目中的本地结果工件，不在结果展示阶段访问远端环境。"
+        )
+        status = {
+            "state": "completed",
+            "label": "结果可用",
+            "detail": "已从本地结果缓存加载 multiplex 产物。",
+        }
         if not artifacts:
             return None
         ctx = self._build_view_common_context(row, artifacts)
@@ -1149,15 +1108,8 @@ class ToolBridgeService:
         return self._build_multiplex_view_from_artifacts(
             artifacts=artifacts,
             remote_result_dir=ctx["remote_result_dir"],
-            description=(
-                "用途：用于查看本地已同步的多重引物池结果、合成清单与相关评分。"
-                "\n实现：仅消费当前项目中的本地结果工件，不在结果展示阶段访问远端环境。"
-            ),
-            status={
-                "state": "completed",
-                "label": "结果可用",
-                "detail": "已从本地结果缓存加载 multiplex 产物。",
-            },
+            description=description,
+            status=status,
             parameters=parameters,
         )
 
@@ -1197,26 +1149,6 @@ class ToolBridgeService:
         except Exception:
             logger.exception("Failed to get descriptor for %s", tool_id)
             return {}
-
-    def _require_tool_descriptor(self, tool_id: str) -> dict[str, Any]:
-        descriptor = self.get_tool_descriptor(tool_id)
-        if not descriptor:
-            raise RuntimeError(f"工具描述符不存在: {tool_id}")
-        return descriptor
-
-    @staticmethod
-    def _resolve_tool_archetype(tool_id: str) -> str:
-        normalized_tool_id = str(tool_id or "").strip()
-        archetype = _TOOL_ARCHETYPES.get(normalized_tool_id)
-        if not archetype:
-            raise RuntimeError(f"未配置结果 archetype: {normalized_tool_id}")
-        return archetype
-
-    def _require_tool_descriptor(self, tool_id: str) -> dict:
-        descriptor = self.get_tool_descriptor(tool_id)
-        if not descriptor:
-            raise RuntimeError(f"工具描述符不存在: {tool_id}")
-        return descriptor
 
     @staticmethod
     def _parse_execution_parameters(raw: str, *, execution_id: str, tool_id: str) -> dict[str, Any]:
@@ -1734,66 +1666,6 @@ class ToolBridgeService:
             logger.exception("Failed to build results for execution %s", normalized_id)
             return {"status": "error", "message": str(exc)}
 
-    def _build_result_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
-        tool_id = str(execution_row["tool_id"] or "").strip()
-        if not tool_id:
-            raise RuntimeError(f"执行记录缺少 tool_id: execution_id={execution_id}")
-
-        feature_id = self._resolve_result_feature_id(execution_id, tool_id)
-        archetype = self._resolve_tool_archetype(feature_id, tool_id, execution_id)
-
-        if archetype == "workflow_product":
-            return self._build_workflow_product_view_for_execution(
-                execution_id=execution_id,
-                execution_row=execution_row,
-                feature_id=feature_id,
-            )
-        if archetype == "qc_report" and tool_id == "fastp":
-            view = self._build_fastp_view_for_execution(execution_id)
-            if view is None:
-                raise RuntimeError(f"fastp 结果缺失: tool_id={tool_id}, execution_id={execution_id}")
-            return view
-        if archetype == "annotation_table" and tool_id == "prokka":
-            view = self._build_prokka_view_for_execution(execution_id, execution_row)
-            if view is None:
-                raise RuntimeError(f"Prokka 结果缺失: tool_id={tool_id}, execution_id={execution_id}")
-            return view
-        if archetype == "taxonomy_profile" and tool_id in ("kraken2", "centrifuge"):
-            legacy_view = self._build_targeted_seq_view_for_execution(execution_id)
-            if legacy_view is None:
-                raise RuntimeError(f"分类结果缺失: tool_id={tool_id}, execution_id={execution_id}")
-            return self._normalize_execution_view(
-                legacy_view,
-                feature_id=feature_id,
-                tool_id=tool_id,
-                archetype=archetype,
-                execution_row=execution_row,
-            )
-        if archetype == "html_report":
-            return self._build_html_report_view_for_execution(execution_id, execution_row, feature_id, tool_id)
-        if archetype == "artifact_collection":
-            return self._build_artifact_collection_view_for_execution(execution_id, execution_row, feature_id, tool_id)
-        return self._build_descriptor_driven_view_for_execution(
-            execution_id=execution_id,
-            execution_row=execution_row,
-            feature_id=feature_id,
-            tool_id=tool_id,
-            archetype=archetype,
-        )
-
-    def _resolve_result_feature_id(self, execution_id: str, tool_id: str) -> str:
-        workflow_id = self._resolve_detection_workflow_id_for_execution(execution_id)
-        if workflow_id is not None:
-            return workflow_id
-        return tool_id
-
-    @staticmethod
-    def _resolve_tool_archetype(feature_id: str, tool_id: str, execution_id: str) -> str:
-        archetype = _TOOL_ARCHETYPES.get(feature_id) or _TOOL_ARCHETYPES.get(tool_id)
-        if not archetype:
-            raise RuntimeError(f"未识别的结果 archetype: tool_id={tool_id}, execution_id={execution_id}")
-        return archetype
-
     def _require_tool_descriptor(self, tool_id: str) -> dict:
         descriptor = self.get_tool_descriptor(tool_id)
         if not descriptor:
@@ -1842,35 +1714,6 @@ class ToolBridgeService:
             "local_result_dir": local_result_dir,
             "parameters": self._build_parameter_items(execution_row["parameters"], execution_id),
         }
-
-    def _normalize_execution_view(
-        self,
-        view: dict[str, Any],
-        *,
-        feature_id: str,
-        tool_id: str,
-        archetype: str,
-        execution_row: Any,
-        title: str | None = None,
-        description: str | None = None,
-        sections: list[dict[str, Any]] | None = None,
-    ) -> dict:
-        context = self._build_execution_result_context(execution_row)
-        return normalize_result_view(
-            view,
-            feature_id=feature_id,
-            tool_id=tool_id,
-            archetype=archetype,
-            title=title,
-            description=description,
-            sample_name=context["sample_name"],
-            execution_id=context["execution_id"],
-            updated_at=context["updated_at"],
-            tool_version=context["tool_version"],
-            remote_result_dir=context["remote_result_dir"],
-            local_result_dir=context["local_result_dir"],
-            sections=sections,
-        )
 
     @staticmethod
     def _descriptor_data_source_name(view_config: dict[str, Any], sample_id: str) -> str:
@@ -2115,220 +1958,6 @@ class ToolBridgeService:
             remote_result_dir=context["remote_result_dir"],
             local_result_dir=context["local_result_dir"],
         )
-
-    def _build_html_report_view_for_execution(
-        self,
-        execution_id: str,
-        execution_row: Any,
-        feature_id: str,
-        tool_id: str,
-    ) -> dict:
-        descriptor = self._require_tool_descriptor(tool_id)
-        context = self._build_execution_result_context(execution_row)
-        artifacts = context["artifacts"]
-        html_artifact = self._find_result_artifact(
-            artifacts,
-            descriptor,
-            context["sample_id"],
-            preferred_view_types=("html",),
-            allowed_suffixes=(".html",),
-        )
-        if html_artifact is None:
-            raise RuntimeError(f"HTML 结果缺失: tool_id={tool_id}, execution_id={execution_id}")
-        return build_single_tool_view(
-            feature_id=feature_id,
-            tool_id=tool_id,
-            archetype="html_report",
-            tool_ids=[tool_id],
-            title=str(descriptor.get("name") or tool_id),
-            description=str(descriptor.get("description") or f"{tool_id} HTML 结果"),
-            status={"state": "completed", "label": "结果已就绪", "detail": "主 HTML 报告已同步到本地。"},
-            summary=[
-                {"label": "HTML 报告", "value": str(html_artifact.get("name") or ""), "tone": "primary"},
-                {"label": "结果文件", "value": str(len([item for item in artifacts if item.get("available")])), "tone": "info"},
-            ],
-            table={
-                "title": "结果文件",
-                "subtitle": "点击右侧文件列表或下方 HTML 预览查看结果。",
-                "columns": [],
-                "rows": [],
-            },
-            artifacts=artifacts,
-            parameters=context["parameters"],
-            sample_name=context["sample_name"],
-            execution_id=execution_id,
-            updated_at=context["updated_at"],
-            tool_version=context["tool_version"],
-            remote_result_dir=context["remote_result_dir"],
-            local_result_dir=context["local_result_dir"],
-        )
-
-    def _build_artifact_collection_view_for_execution(
-        self,
-        execution_id: str,
-        execution_row: Any,
-        feature_id: str,
-        tool_id: str,
-    ) -> dict:
-        descriptor = self._require_tool_descriptor(tool_id)
-        context = self._build_execution_result_context(execution_row)
-        return build_artifact_result_view(
-            feature_id=feature_id,
-            tool_id=tool_id,
-            archetype="artifact_collection",
-            tool_ids=[tool_id],
-            title=str(descriptor.get("name") or tool_id),
-            description=str(descriptor.get("description") or f"{tool_id} 结果"),
-            status={
-                "state": "completed",
-                "label": "结果已就绪",
-                "detail": "当前工具以文件和目录产物为主，以下展示可直接追溯的结果文件。",
-            },
-            artifacts=context["artifacts"],
-            parameters=context["parameters"],
-            sample_name=context["sample_name"],
-            execution_id=execution_id,
-            updated_at=context["updated_at"],
-            tool_version=context["tool_version"],
-            remote_result_dir=context["remote_result_dir"],
-            local_result_dir=context["local_result_dir"],
-        )
-
-    def _build_workflow_product_view_for_execution(
-        self,
-        *,
-        execution_id: str,
-        execution_row: Any,
-        feature_id: str,
-    ) -> dict:
-        descriptor = self._require_tool_descriptor(feature_id)
-        tool_id = str(execution_row["tool_id"] or "").strip()
-        if feature_id == "primer_design":
-            legacy_view = self.get_primer_view_for_execution(execution_id)
-            if legacy_view is None:
-                raise RuntimeError(f"引物设计结果缺失: execution_id={execution_id}")
-            return self._normalize_execution_view(
-                legacy_view,
-                feature_id=feature_id,
-                tool_id=feature_id,
-                archetype="workflow_product",
-                execution_row=execution_row,
-                title=str(descriptor.get("name") or feature_id),
-                description=str(descriptor.get("description") or ""),
-                sections=[
-                    section_from_view(
-                        self._normalize_execution_view(
-                            legacy_view,
-                            feature_id=feature_id,
-                            tool_id=feature_id,
-                            archetype="annotation_table",
-                            execution_row=execution_row,
-                        ),
-                        section_id="primer_result",
-                        title="产品结果",
-                        archetype="annotation_table",
-                    )
-                ],
-            )
-        if feature_id == "multiplex_primer_panel":
-            legacy_view = self.get_multiplex_view_for_execution(execution_id)
-            if legacy_view is None:
-                raise RuntimeError(f"多重引物结果缺失: execution_id={execution_id}")
-            return self._normalize_execution_view(
-                legacy_view,
-                feature_id=feature_id,
-                tool_id=feature_id,
-                archetype="workflow_product",
-                execution_row=execution_row,
-                title=str(descriptor.get("name") or feature_id),
-                description=str(descriptor.get("description") or ""),
-                sections=[
-                    section_from_view(
-                        self._normalize_execution_view(
-                            legacy_view,
-                            feature_id=feature_id,
-                            tool_id=feature_id,
-                            archetype="annotation_table",
-                            execution_row=execution_row,
-                        ),
-                        section_id="multiplex_result",
-                        title="产品结果",
-                        archetype="annotation_table",
-                    )
-                ],
-            )
-
-        taxonomy_legacy = self._build_targeted_seq_view_for_execution(execution_id)
-        if taxonomy_legacy is None:
-            raise RuntimeError(f"工作流分类结果缺失: tool_id={tool_id}, execution_id={execution_id}")
-        taxonomy_view = self._normalize_execution_view(
-            taxonomy_legacy,
-            feature_id=feature_id,
-            tool_id=tool_id,
-            archetype="taxonomy_profile",
-            execution_row=execution_row,
-        )
-        sections = [section_from_view(taxonomy_view, section_id="taxonomy", title="分类结果", archetype="taxonomy_profile")]
-        fastp_view = self._build_fastp_view_from_artifacts(execution_row, feature_id="fastp")
-        if fastp_view is not None:
-            sections.insert(0, section_from_view(fastp_view, section_id="fastp", title="质控结果", archetype="qc_report"))
-
-        summary = []
-        if fastp_view is not None:
-            summary.extend(list(fastp_view.get("summary") or [])[:2])
-        summary.extend(list(taxonomy_view.get("summary") or [])[:3])
-
-        context = self._build_execution_result_context(execution_row)
-        workflow_view = build_single_tool_view(
-            feature_id=feature_id,
-            tool_id=feature_id,
-            archetype="workflow_product",
-            tool_ids=[feature_id],
-            title=str(descriptor.get("name") or feature_id),
-            description=str(descriptor.get("description") or ""),
-            status=dict(taxonomy_view.get("status") or {"state": "completed", "label": "结果已就绪", "detail": ""}),
-            summary=summary,
-            charts=list(taxonomy_view.get("charts") or []),
-            table=dict(taxonomy_view.get("table") or {}),
-            artifacts=list(taxonomy_view.get("artifacts") or []),
-            provenance={
-                "execution_id": context["execution_id"],
-                "parameters": context["parameters"],
-                "tool_version": context["tool_version"],
-                "remote_result_dir": context["remote_result_dir"],
-                "local_result_dir": context["local_result_dir"],
-            },
-            sections=sections,
-            sample_name=context["sample_name"],
-            execution_id=context["execution_id"],
-            updated_at=context["updated_at"],
-        )
-        if feature_id == "unknown_sample_detection":
-            workflow_view["columns"] = copy.deepcopy(_DETECTION_WORKFLOW_SPECS[feature_id]["view"].get("columns", []))
-            workflow_view["table"]["columns"] = list(workflow_view["columns"])
-            total_reads = 0
-            for item in workflow_view.get("summary", []):
-                if "Reads" not in str(item.get("label") or ""):
-                    continue
-                try:
-                    total_reads = int(str(item.get("value") or "0").replace(",", "").split("(")[0].strip())
-                    break
-                except ValueError:
-                    total_reads = 0
-            for row_data in workflow_view.get("rows", []):
-                if "rpm" not in row_data:
-                    if total_reads > 0:
-                        try:
-                            raw_reads = int(str(row_data.get("reads", "0")).replace(",", ""))
-                            row_data["rpm"] = f"{raw_reads / total_reads * 1_000_000:,.1f}"
-                        except (TypeError, ValueError):
-                            row_data["rpm"] = "—"
-                    else:
-                        row_data["rpm"] = "—"
-                row_data.setdefault("category", "—")
-                row_data.setdefault("source", "Centrifuge")
-            workflow_view["table"]["rows"] = list(workflow_view["rows"])
-        return workflow_view
 
     def get_execution_remote_status(self, execution_id: str) -> dict:
         pm = self._get_project_manager()
@@ -2660,47 +2289,6 @@ class ToolBridgeService:
             local_result_dir=ctx["local_result_dir"],
         )
 
-    def _adapt_legacy_view_to_single_schema(
-        self,
-        *,
-        execution_row: Any,
-        archetype: str,
-        legacy_view: dict[str, Any],
-        title: str,
-        description: str,
-        sections: list[dict[str, Any]] | None = None,
-    ) -> dict:
-        tool_id = str(execution_row["tool_id"] or "")
-        artifacts = self._normalize_artifacts(legacy_view.get("artifacts") or self.list_local_execution_artifacts(str(execution_row["execution_id"] or "")))
-        ctx = self._build_view_common_context(execution_row, artifacts)
-        charts = legacy_view.get("charts")
-        if charts is None and legacy_view.get("chart") is not None:
-            charts = [legacy_view["chart"]]
-        return build_single_tool_view(
-            feature_id=tool_id,
-            tool_id=tool_id,
-            archetype=archetype,
-            tool_ids=list(legacy_view.get("tool_ids") or [tool_id]),
-            title=title,
-            description=description,
-            status=legacy_view.get("status") or {"state": "completed", "label": "结果已就绪", "detail": ""},
-            summary=list(legacy_view.get("summary") or []),
-            charts=list(charts or []),
-            columns=list(legacy_view.get("columns") or []),
-            rows=list(legacy_view.get("rows") or []),
-            artifacts=artifacts,
-            parameters=list(legacy_view.get("parameters") or ctx["parameters"]),
-            table_title=str(legacy_view.get("table_title") or "分析结果"),
-            table_subtitle=str(legacy_view.get("table_subtitle") or ""),
-            sample_name=ctx["sample_name"],
-            execution_id=ctx["execution_id"],
-            updated_at=ctx["updated_at"],
-            tool_version=ctx["tool_version"],
-            remote_result_dir=str(legacy_view.get("remote_result_dir") or ctx["remote_result_dir"]),
-            local_result_dir=ctx["local_result_dir"],
-            sections=sections or [],
-        )
-
     def _build_qc_report_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
         tool_id = str(execution_row["tool_id"] or "")
         if tool_id == "fastp":
@@ -2784,68 +2372,72 @@ class ToolBridgeService:
             f"未支持的 workflow_product: tool={execution_row['tool_id']}, feature_id={resolved_feature_id}, execution_id={execution_id}"
         )
 
-    def _build_primer_workflow_view_for_execution(self, execution_id: str) -> dict:
+    def _build_single_section_workflow_view(
+        self,
+        execution_id: str,
+        *,
+        feature_id: str,
+        source_view: dict[str, Any],
+        section_id: str,
+    ) -> dict:
         row = self._get_execution_result_row(execution_id)
         if row is None:
-            raise RuntimeError(f"未找到 primer_design 执行记录: {execution_id}")
-        legacy_view = self.get_primer_view_for_execution(execution_id)
-        if legacy_view is None:
-            raise RuntimeError(f"引物设计结果不可用: execution_id={execution_id}")
-        descriptor = self._require_tool_descriptor("primer_design")
-        return self._normalize_execution_view(
-            legacy_view,
-            feature_id="primer_design",
-            tool_id="primer_design",
+            raise RuntimeError(f"未找到执行记录: {execution_id}")
+        descriptor = self._require_tool_descriptor(feature_id)
+        context = self._build_execution_result_context(row)
+        normalize_kwargs = {
+            "sample_name": context["sample_name"],
+            "execution_id": context["execution_id"],
+            "updated_at": context["updated_at"],
+            "tool_version": context["tool_version"],
+            "remote_result_dir": context["remote_result_dir"],
+            "local_result_dir": context["local_result_dir"],
+        }
+        section_view = normalize_result_view(
+            source_view,
+            feature_id=feature_id,
+            tool_id=feature_id,
+            archetype="annotation_table",
+            **normalize_kwargs,
+        )
+        return normalize_result_view(
+            source_view,
+            feature_id=feature_id,
+            tool_id=feature_id,
             archetype="workflow_product",
-            execution_row=row,
-            title=str(descriptor.get("name") or "primer_design"),
-            description=str(descriptor.get("description") or "病原体引物设计结果"),
+            title=str(descriptor.get("name") or feature_id),
+            description=str(descriptor.get("description") or f"{feature_id} 工作流结果"),
             sections=[
                 section_from_view(
-                    self._normalize_execution_view(
-                        legacy_view,
-                        feature_id="primer_design",
-                        tool_id="primer_design",
-                        archetype="annotation_table",
-                        execution_row=row,
-                    ),
-                    section_id="primer_result",
+                    section_view,
+                    section_id=section_id,
                     title="产品结果",
                     archetype="annotation_table",
                 )
             ],
+            **normalize_kwargs,
+        )
+
+    def _build_primer_workflow_view_for_execution(self, execution_id: str) -> dict:
+        primer_view = self.get_primer_view_for_execution(execution_id)
+        if primer_view is None:
+            raise RuntimeError(f"引物设计结果不可用: execution_id={execution_id}")
+        return self._build_single_section_workflow_view(
+            execution_id,
+            feature_id="primer_design",
+            source_view=primer_view,
+            section_id="primer_result",
         )
 
     def _build_multiplex_workflow_view_for_execution(self, execution_id: str) -> dict:
-        row = self._get_execution_result_row(execution_id)
-        if row is None:
-            raise RuntimeError(f"未找到 multiplex_primer_panel 执行记录: {execution_id}")
-        legacy_view = self.get_multiplex_view_for_execution(execution_id)
-        if legacy_view is None:
+        multiplex_view = self.get_multiplex_view_for_execution(execution_id)
+        if multiplex_view is None:
             raise RuntimeError(f"多重引物池结果不可用: execution_id={execution_id}")
-        descriptor = self._require_tool_descriptor("multiplex_primer_panel")
-        return self._normalize_execution_view(
-            legacy_view,
+        return self._build_single_section_workflow_view(
+            execution_id,
             feature_id="multiplex_primer_panel",
-            tool_id="multiplex_primer_panel",
-            archetype="workflow_product",
-            execution_row=row,
-            title=str(descriptor.get("name") or "multiplex_primer_panel"),
-            description=str(descriptor.get("description") or "多重引物池设计结果"),
-            sections=[
-                section_from_view(
-                    self._normalize_execution_view(
-                        legacy_view,
-                        feature_id="multiplex_primer_panel",
-                        tool_id="multiplex_primer_panel",
-                        archetype="annotation_table",
-                        execution_row=row,
-                    ),
-                    section_id="multiplex_result",
-                    title="产品结果",
-                    archetype="annotation_table",
-                )
-            ],
+            source_view=multiplex_view,
+            section_id="multiplex_result",
         )
 
     def _build_fastp_section_from_artifacts(
@@ -2907,88 +2499,6 @@ class ToolBridgeService:
             local_result_dir=ctx["local_result_dir"],
         )
         return section_from_view(section_view, section_id="qc", title="QC 质控", archetype="qc_report")
-
-    def _build_detection_workflow_result_view(self, execution_id: str, execution_row: Any) -> dict:
-        tool_id = str(execution_row["tool_id"] or "")
-        spec = _DETECTION_WORKFLOW_SPECS.get(tool_id)
-        if spec is None:
-            raise RuntimeError(f"未找到 workflow 规格定义: tool={tool_id}, execution_id={execution_id}")
-
-        taxonomy_view = self._build_targeted_seq_view_for_execution(execution_id)
-        if taxonomy_view is None:
-            raise RuntimeError(f"工作流分类结果不可用: tool={tool_id}, execution_id={execution_id}")
-
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(str(execution_row["execution_id"] or "")))
-        ctx = self._build_view_common_context(execution_row, artifacts)
-        sections: list[dict[str, Any]] = []
-        fastp_section = self._build_fastp_section_from_artifacts(
-            sample_id=ctx["sample_id"],
-            artifacts=artifacts,
-            ctx=ctx,
-        )
-        if fastp_section is not None:
-            sections.append(fastp_section)
-        sections.append(
-            section_from_view(
-                taxonomy_view,
-                section_id="taxonomy",
-                title="分类结果",
-                archetype="taxonomy_profile",
-            )
-        )
-
-        workflow_view = normalize_result_view(
-            taxonomy_view,
-            feature_id=tool_id,
-            tool_id=tool_id,
-            archetype="workflow_product",
-            title=str(spec["view"].get("title") or taxonomy_view.get("title") or tool_id),
-            description=str(spec["view"].get("description") or taxonomy_view.get("description") or ""),
-            sample_name=ctx["sample_name"],
-            execution_id=ctx["execution_id"],
-            updated_at=ctx["updated_at"],
-            tool_version=ctx["tool_version"],
-            remote_result_dir=ctx["remote_result_dir"],
-            local_result_dir=ctx["local_result_dir"],
-            sections=sections,
-        )
-        workflow_view["tool_ids"] = [tool_id]
-        workflow_view["parameters"] = list(spec["view"].get("parameters") or []) + list(ctx["parameters"])
-        workflow_view["provenance"]["parameters"] = workflow_view["parameters"]
-        workflow_view["title"] = str(spec["view"].get("title") or workflow_view["title"])
-        workflow_view["description"] = str(spec["view"].get("description") or workflow_view["description"])
-        workflow_view["table_title"] = str(spec["view"].get("table_title") or workflow_view.get("table_title") or "分析结果")
-        workflow_view["table_subtitle"] = str(spec["view"].get("table_subtitle") or workflow_view.get("table_subtitle") or "")
-        workflow_view["table"]["title"] = workflow_view["table_title"]
-        workflow_view["table"]["subtitle"] = workflow_view["table_subtitle"]
-
-        if tool_id == "unknown_sample_detection":
-            workflow_view["columns"] = copy.deepcopy(spec["view"].get("columns", []))
-            workflow_view["table"]["columns"] = list(workflow_view["columns"])
-            total_reads = 0
-            for item in workflow_view.get("summary", []):
-                if "Reads" not in str(item.get("label") or ""):
-                    continue
-                try:
-                    total_reads = int(str(item.get("value") or "0").replace(",", "").split("(")[0].strip())
-                    break
-                except ValueError:
-                    total_reads = 0
-            for row_data in workflow_view.get("rows", []):
-                if "rpm" not in row_data:
-                    if total_reads > 0:
-                        try:
-                            raw_reads = int(str(row_data.get("reads", "0")).replace(",", ""))
-                            row_data["rpm"] = f"{raw_reads / total_reads * 1_000_000:,.1f}"
-                        except (TypeError, ValueError):
-                            row_data["rpm"] = "—"
-                    else:
-                        row_data["rpm"] = "—"
-                row_data.setdefault("category", "—")
-                row_data.setdefault("source", "Centrifuge")
-            workflow_view["table"]["rows"] = list(workflow_view["rows"])
-
-        return workflow_view
 
     def _build_prokka_view_for_execution(self, execution_id: str, execution_row: Any | None = None) -> dict | None:
         row = execution_row or self._get_execution_result_row(execution_id)
@@ -3529,63 +3039,6 @@ class ToolBridgeService:
             workflow_view["table"]["rows"] = list(workflow_view["rows"])
 
         return workflow_view
-
-    def _build_primer_workflow_view_for_execution(self, execution_id: str) -> dict:
-        legacy_view = self.get_primer_view_for_execution(execution_id)
-        row = self._get_execution_result_row(execution_id)
-        if row is None or legacy_view is None:
-            raise RuntimeError(f"未能读取 primer_design 结果: execution_id={execution_id}")
-        return self._adapt_legacy_view_to_single_schema(
-            execution_row=row,
-            archetype="workflow_product",
-            legacy_view=legacy_view,
-            title=str(legacy_view.get("title") or "病原体引物设计"),
-            description=str(legacy_view.get("description") or "病原体引物设计结果"),
-            sections=[
-                {
-                    "section_id": "primer",
-                    "title": "引物结果",
-                    "archetype": "workflow_product",
-                    "summary": legacy_view.get("summary", []),
-                    "table": {
-                        "title": legacy_view.get("table_title", "引物结果"),
-                        "subtitle": legacy_view.get("table_subtitle", ""),
-                        "columns": legacy_view.get("columns", []),
-                        "rows": legacy_view.get("rows", []),
-                    },
-                    "artifacts": legacy_view.get("artifacts", []),
-                }
-            ],
-        )
-
-    def _build_multiplex_workflow_view_for_execution(self, execution_id: str) -> dict:
-        legacy_view = self.get_multiplex_view_for_execution(execution_id)
-        row = self._get_execution_result_row(execution_id)
-        if row is None or legacy_view is None:
-            raise RuntimeError(f"未能读取 multiplex_primer_panel 结果: execution_id={execution_id}")
-        return self._adapt_legacy_view_to_single_schema(
-            execution_row=row,
-            archetype="workflow_product",
-            legacy_view=legacy_view,
-            title=str(legacy_view.get("title") or "多重引物池设计"),
-            description=str(legacy_view.get("description") or "多重引物池设计结果"),
-            sections=[
-                {
-                    "section_id": "multiplex",
-                    "title": "池化结果",
-                    "archetype": "workflow_product",
-                    "summary": legacy_view.get("summary", []),
-                    "charts": [legacy_view["chart"]] if legacy_view.get("chart") else [],
-                    "table": {
-                        "title": legacy_view.get("table_title", "池化结果"),
-                        "subtitle": legacy_view.get("table_subtitle", ""),
-                        "columns": legacy_view.get("columns", []),
-                        "rows": legacy_view.get("rows", []),
-                    },
-                    "artifacts": legacy_view.get("artifacts", []),
-                }
-            ],
-        )
 
     def _generate_targeted_seq_report(
         self,
