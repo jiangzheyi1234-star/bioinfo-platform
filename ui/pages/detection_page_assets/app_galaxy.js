@@ -2266,7 +2266,6 @@ function filterHistoryRecords(query) {
 const HISTORY_RESULT_CONTEXTS = {
     primer_design: {
         featureId: 'primer_design',
-        bridgeMethod: 'get_primer_results_for_execution',
         loadingMessage: '正在加载引物结果...',
         successMessage: '已加载该次引物设计结果',
         errorMessage: '任务结果读取失败',
@@ -2274,7 +2273,6 @@ const HISTORY_RESULT_CONTEXTS = {
     },
     multiplex_primer_panel: {
         featureId: 'multiplex_primer_panel',
-        bridgeMethod: 'get_multiplex_results_for_execution',
         loadingMessage: '正在加载 multiplex 结果...',
         successMessage: '已加载该次 multiplex 结果',
         errorMessage: 'Multiplex 结果读取失败',
@@ -2282,7 +2280,6 @@ const HISTORY_RESULT_CONTEXTS = {
     },
     targeted_sequencing: {
         featureId: 'targeted_sequencing',
-        bridgeMethod: 'get_targeted_seq_results_for_execution',
         loadingMessage: '正在加载靶向测序结果...',
         successMessage: '已加载靶向测序分析结果',
         errorMessage: '靶向测序结果读取失败',
@@ -2290,7 +2287,6 @@ const HISTORY_RESULT_CONTEXTS = {
     },
     unknown_sample_detection: {
         featureId: 'unknown_sample_detection',
-        bridgeMethod: 'get_targeted_seq_results_for_execution',
         loadingMessage: '正在加载未知样品检测结果...',
         successMessage: '已加载检测结果',
         errorMessage: '检测结果读取失败',
@@ -2298,7 +2294,6 @@ const HISTORY_RESULT_CONTEXTS = {
     },
     fastp: {
         featureId: 'fastp',
-        bridgeMethod: 'get_fastp_results_for_execution',
         loadingMessage: '正在加载 fastp QC 结果...',
         successMessage: '已加载 fastp 质控结果',
         errorMessage: 'fastp 结果读取失败',
@@ -2399,7 +2394,6 @@ function resolveHistoryResultContext(record) {
 
     return HISTORY_RESULT_CONTEXTS[toolId] || {
         featureId: toolId,
-        bridgeMethod: '',
         loadingMessage: `正在加载 ${toolId || '任务'} 结果...`,
         successMessage: '已加载任务结果',
         errorMessage: '任务结果读取失败',
@@ -2412,14 +2406,9 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
         return;
     }
 
-    const directLoader = bridge && typeof bridge.get_results_for_execution === 'function'
+    const loader = bridge && typeof bridge.get_results_for_execution === 'function'
         ? bridge.get_results_for_execution.bind(bridge)
         : null;
-    const fallbackMethod = String(context.bridgeMethod || '').trim();
-    const fallbackLoader = !directLoader && fallbackMethod && bridge && typeof bridge[fallbackMethod] === 'function'
-        ? bridge[fallbackMethod].bind(bridge)
-        : null;
-    const loader = directLoader || fallbackLoader;
 
     if (!loader) {
         showNotice(context.unavailableMessage || '任务结果加载接口不可用');
@@ -2431,6 +2420,38 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
     const errorMessage = context.errorMessage || '任务结果读取失败';
     showNotice(loadingMessage, 'warning', 10000);
 
+    const applyPayload = function(payload) {
+        const views = ensureIntegratedWorkbenchViews();
+        const featureId = String(
+            context.featureId
+            || payload.view.feature_id
+            || payload.view.view_id
+            || payload.view.tool_id
+            || ''
+        ).trim();
+        if (!featureId) {
+            showNotice(payload.message || errorMessage);
+            return false;
+        }
+
+        views[featureId] = payload.view;
+        pendingIntegratedFeatureId = featureId;
+        const existingFeature = getIntegratedWorkbenchFeature(featureId);
+        const featureChanged = upsertIntegratedHistoryFeature(
+            featureId,
+            payload.view,
+            { temporary: !existingFeature },
+        );
+        switchTab('integrated');
+        if (featureChanged) {
+            renderIntegratedFeatureList();
+        } else {
+            selectIntegratedFeature(featureId);
+        }
+        showNotice(payload.message || successMessage, 'success');
+        return true;
+    };
+
     loader(executionId, function(json) {
         try {
             const payload = JSON.parse(json || '{}');
@@ -2439,60 +2460,12 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
                 return;
             }
 
-            const views = ensureIntegratedWorkbenchViews();
-            const featureId = String(
-                context.featureId
-                || payload.view.feature_id
-                || payload.view.view_id
-                || payload.view.tool_id
-                || ''
-            ).trim();
-            if (!featureId) {
-                showNotice(payload.message || errorMessage);
-                return;
-            }
-
-            views[featureId] = payload.view;
-            pendingIntegratedFeatureId = featureId;
-            const existingFeature = getIntegratedWorkbenchFeature(featureId);
-            const featureChanged = upsertIntegratedHistoryFeature(
-                featureId,
-                payload.view,
-                { temporary: !existingFeature },
-            );
-            switchTab('integrated');
-            if (featureChanged) {
-                renderIntegratedFeatureList();
-            } else {
-                selectIntegratedFeature(featureId);
-            }
-            showNotice(payload.message || successMessage, 'success');
+            applyPayload(payload);
         } catch (error) {
-            console.error(`Failed to parse history results via ${fallbackMethod || 'get_results_for_execution'}:`, error);
+            console.error('Failed to parse history results via get_results_for_execution:', error);
             showNotice(errorMessage);
         }
     });
-}
-
-// 渲染执行历史
-function loadPrimerResultsFromHistory(executionId) {
-    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.primer_design);
-}
-
-function loadMultiplexResultsFromHistory(executionId) {
-    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.multiplex_primer_panel);
-}
-
-function loadTargetedSeqResultsFromHistory(executionId) {
-    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.targeted_sequencing);
-}
-
-function loadDetectionResultsFromHistory(executionId) {
-    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.unknown_sample_detection);
-}
-
-function loadFastpResultsFromHistory(executionId) {
-    loadExecutionResultsFromHistory(executionId, HISTORY_RESULT_CONTEXTS.fastp);
 }
 
 function buildExecutionRemoteStatusHtml(data) {
