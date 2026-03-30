@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from core.data.project_manager import ProjectManager
@@ -352,6 +353,58 @@ def test_primer_view_for_execution_does_not_touch_ssh(tmp_path: Path, monkeypatc
     pm.close()
 
 
+def test_primer_view_for_execution_requires_canonical_artifacts(tmp_path: Path):
+    pm = _build_project_manager(tmp_path)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_primer", "primer sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "exec_primer_recover",
+            "smp_primer",
+            "primer_design",
+            "1.0",
+            json.dumps({"mode": "quick"}),
+            "completed",
+            "manual",
+            1.0,
+            2.0,
+        ),
+    )
+    pm.db.execute(
+        "INSERT INTO data_items (data_id, sample_id, file_path, data_type, tier, produced_by, created_at, metadata) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "dat_primer_final2",
+            "smp_primer",
+            "/remote/project/intermediate/smp_primer/primer_design_exec_primer_recover/primer_result_final_2.txt",
+            "tsv",
+            "intermediate",
+            "exec_primer_recover",
+            2.0,
+            "{}",
+        ),
+    )
+    pm.db.execute(
+        "INSERT INTO execution_io (execution_id, data_id, direction) VALUES (?, ?, ?)",
+        ("exec_primer_recover", "dat_primer_final2", "output"),
+    )
+    pm.db.commit()
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=_build_plugin_registry())
+
+    view = service.get_primer_view_for_execution("exec_primer_recover")
+
+    assert view is None
+    pm.close()
+
+
 def test_multiplex_view_for_execution_does_not_touch_ssh(tmp_path: Path, monkeypatch):
     pm = _build_project_manager(tmp_path)
     pm.db.execute(
@@ -559,6 +612,19 @@ def test_get_results_for_execution_dispatches_kraken2_to_targeted(monkeypatch):
     assert payload["view"]["archetype"] == "taxonomy_profile"
 
 
+def test_tool_bridge_service_keeps_single_definition_for_core_result_builders():
+    source = Path("core/execution/tool_bridge_service.py").read_text(encoding="utf-8")
+    for name in (
+        "_require_tool_descriptor",
+        "_build_result_view_for_execution",
+        "_build_html_report_view_for_execution",
+        "_build_artifact_collection_view_for_execution",
+        "_build_detection_workflow_result_view",
+    ):
+        matches = re.findall(r"^\s*def\s+" + re.escape(name) + r"\s*\(", source, flags=re.MULTILINE)
+        assert len(matches) == 1, f"{name} should have exactly one active definition"
+
+
 def test_get_results_for_execution_builds_fastp_without_ssh(tmp_path: Path):
     pm = _build_project_manager(tmp_path)
     pm.db.execute(
@@ -755,6 +821,21 @@ def test_registered_plugins_have_result_archetype_mapping():
     assert mapped["wastewater_metagenomics_basic"] == "workflow_product"
     assert mapped["metabat2"] == "artifact_collection"
     assert mapped["krona"] == "html_report"
+
+
+def test_tool_bridge_service_result_builders_are_defined_once():
+    source = Path("core/execution/tool_bridge_service.py").read_text(encoding="utf-8")
+
+    for function_name in (
+        "_build_result_view_for_execution",
+        "_build_artifact_collection_view_for_execution",
+        "_build_html_report_view_for_execution",
+        "_build_detection_workflow_result_view",
+        "_build_primer_workflow_view_for_execution",
+        "_build_multiplex_workflow_view_for_execution",
+        "_summarize_metric_rows",
+    ):
+        assert source.count(f"def {function_name}(") == 1, function_name
 
 
 def test_get_results_for_execution_builds_quast_quality_view(tmp_path: Path):

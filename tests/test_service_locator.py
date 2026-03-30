@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import pytest
 
-from core.data.project_manager import ProjectInfo, _SCHEMA_SQL
+from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 from core.service_locator import ServiceLocator
 
 
@@ -64,6 +64,9 @@ class ImmediateTaskRunner:
 
 
 class _FakeSignal:
+    def connect(self, callback: Any) -> None:
+        return None
+
     def disconnect(self, callback: Any) -> None:
         return None
 
@@ -162,6 +165,33 @@ class TestServiceLocatorProjectSwitch:
         assert locator.data_registry is not None
         assert locator.tool_engine is not None
 
+    def test_project_opened_signal_triggers_registry_rebuild(self, tmp_path) -> None:
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
+        )
+        project_id = pm.create_project("open hook", "signal test")
+
+        locator = ServiceLocator(
+            plugins_dir=plugins_dir,
+            project_manager=pm,  # type: ignore[arg-type]
+        )
+        locator.initialize()
+
+        calls: list[str] = []
+        original = locator._rebuild_registry_and_engine
+        locator._rebuild_registry_and_engine = lambda: calls.append(project_id)  # type: ignore[assignment]
+
+        pm.open_project(project_id)
+
+        assert calls == [project_id]
+
+        locator._rebuild_registry_and_engine = original  # type: ignore[assignment]
+        locator.shutdown()
 
 class TestServiceLocatorSignalChain:
     def test_execution_context_registration(self, tmp_path) -> None:
