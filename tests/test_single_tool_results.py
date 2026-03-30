@@ -1332,6 +1332,56 @@ def test_get_results_for_execution_builds_krona_html_view(tmp_path: Path):
     pm.close()
 
 
+def test_get_results_for_execution_rejects_missing_html_artifact(tmp_path: Path):
+    pm = _build_project_manager(tmp_path)
+    registry = _build_plugin_registry()
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_html_missing", "html missing sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("exec_krona_missing", "smp_html_missing", "krona", "2.8", "{}", "completed", "manual", 1.0, 2.0),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_krona_missing"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = results_dir / "notes.txt"
+    txt_path.write_text("not html", encoding="utf-8")
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_krona_missing",
+                "tool_id": "krona",
+                "output_dir": "/remote/krona_missing",
+                "artifacts": [
+                    {
+                        "name": "notes.txt",
+                        "remote_path": "/remote/krona_missing/notes.txt",
+                        "local_path": str(txt_path),
+                        "available": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=registry)
+    payload = service.get_results_for_execution("exec_krona_missing")
+
+    assert payload["status"] == "error"
+    assert "HTML 结果缺失" in payload["message"]
+    pm.close()
+
+
 def test_get_results_for_execution_builds_artifact_collection_view(tmp_path: Path):
     pm = _build_project_manager(tmp_path)
     registry = _build_plugin_registry()
@@ -1380,6 +1430,56 @@ def test_get_results_for_execution_builds_artifact_collection_view(tmp_path: Pat
     assert payload["status"] == "ok"
     assert payload["view"]["archetype"] == "artifact_collection"
     assert payload["view"]["summary"][0]["label"] == "已同步文件"
+    pm.close()
+
+
+def test_get_results_for_execution_rejects_invalid_execution_parameters(tmp_path: Path):
+    pm = _build_project_manager(tmp_path)
+    registry = _build_plugin_registry()
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_bins_bad_json", "bins bad json", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("exec_bins_bad_json", "smp_bins_bad_json", "metabat2", "2.15", "{bad json", "completed", "manual", 1.0, 2.0),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_bins_bad_json"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    bin_path = results_dir / "bin.1.fa"
+    bin_path.write_text(">bin1\nATGC\n", encoding="utf-8")
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_bins_bad_json",
+                "tool_id": "metabat2",
+                "output_dir": "/remote/metabat2",
+                "artifacts": [
+                    {
+                        "name": "bin.1.fa",
+                        "remote_path": "/remote/metabat2/bin.1.fa",
+                        "local_path": str(bin_path),
+                        "available": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=registry)
+    payload = service.get_results_for_execution("exec_bins_bad_json")
+
+    assert payload["status"] == "error"
+    assert "执行参数 JSON 解析失败" in payload["message"]
     pm.close()
 
 
