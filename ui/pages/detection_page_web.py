@@ -252,6 +252,11 @@ class ToolBridge(QObject):
         return json.dumps(result, ensure_ascii=False)
 
     @pyqtSlot(str, result=str)
+    def get_results_for_execution(self, execution_id: str) -> str:
+        result = self._service.get_results_for_execution(execution_id)
+        return json.dumps(result, ensure_ascii=False)
+
+    @pyqtSlot(str, result=str)
     def get_primer_results_for_execution(self, execution_id: str) -> str:
         result = self._service.get_primer_results_for_execution(execution_id)
         return json.dumps(result, ensure_ascii=False)
