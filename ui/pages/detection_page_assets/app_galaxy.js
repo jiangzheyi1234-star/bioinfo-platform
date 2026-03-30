@@ -15,6 +15,11 @@ let _echartsLoadRequested = false;
 const remoteStatusLoading = new Set();
 let _helpTooltipBound = false;
 let _activeHelpTooltip = null;
+const DETECTION_WORKFLOW_TOOL_IDS = [
+    'unknown_sample_detection',
+    'wastewater_metagenomics_basic',
+    'animal_metagenomics_basic',
+];
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -1020,6 +1025,7 @@ function renderIntegratedFeature(feature, view) {
     renderIntegratedRunEntry(feature, view);
     renderSummaryGrid(view.summary || []);
     renderArtifactList(view.artifacts || []);
+    renderIntegratedHtmlPreview(view.artifacts || []);
     renderIntegratedTable(view.columns || [], view.rows || []);
     renderIntegratedChart(view.charts || view.chart || null);
 
@@ -1212,6 +1218,62 @@ function openLocalArtifact(localPath) {
     });
 }
 
+function localPathToFileUrl(localPath) {
+    const raw = String(localPath || '').trim();
+    if (!raw) {
+        return '';
+    }
+    const normalized = raw.replace(/\\/g, '/');
+    if (/^[a-zA-Z]:\//.test(normalized)) {
+        return `file:///${encodeURI(normalized)}`;
+    }
+    if (normalized.startsWith('/')) {
+        return `file://${encodeURI(normalized)}`;
+    }
+    return encodeURI(normalized);
+}
+
+function renderIntegratedHtmlPreview(artifacts) {
+    const card = document.getElementById('integrated-html-card');
+    const frame = document.getElementById('integrated-html-frame');
+    const empty = document.getElementById('integrated-html-empty');
+    const titleEl = document.getElementById('html-preview-title');
+    const openBtn = document.getElementById('html-open-btn');
+
+    if (!card || !frame || !empty || !titleEl || !openBtn) {
+        return;
+    }
+
+    const htmlArtifact = (artifacts || []).find(item => (
+        item
+        && item.available
+        && item.local_path
+        && typeof item.name === 'string'
+        && item.name.toLowerCase().endsWith('.html')
+    ));
+
+    if (!htmlArtifact) {
+        card.style.display = 'none';
+        frame.style.display = 'none';
+        frame.src = 'about:blank';
+        openBtn.style.display = 'none';
+        empty.style.display = 'none';
+        return;
+    }
+
+    const fileUrl = localPathToFileUrl(htmlArtifact.local_path);
+    card.style.display = 'block';
+    titleEl.textContent = htmlArtifact.name || 'HTML 预览';
+    frame.style.display = fileUrl ? 'block' : 'none';
+    frame.src = fileUrl || 'about:blank';
+    empty.style.display = fileUrl ? 'none' : 'block';
+    empty.textContent = fileUrl ? '' : 'HTML 文件已同步，但当前无法生成预览地址。';
+    openBtn.style.display = 'inline-flex';
+    openBtn.onclick = function() {
+        openLocalArtifact(htmlArtifact.local_path);
+    };
+}
+
 function renderIntegratedTable(columns, rows) {
     const head = document.getElementById('integrated-table-head');
     const body = document.getElementById('integrated-table-body');
@@ -1372,7 +1434,43 @@ function renderIntegratedChart(chartInput, retryCount = 0) {
         const chartType = chartData.type || 'pie';
         let option = {};
 
-        if (chartType === 'abundance_bar') {
+        if (chartType === 'funnel') {
+            option = {
+                tooltip: {
+                    trigger: 'item',
+                    formatter: function(params) {
+                        return `${params.name}<br/>Reads: ${Number(params.value || 0).toLocaleString()}`;
+                    }
+                },
+                series: [{
+                    type: 'funnel',
+                    left: '10%',
+                    top: 20,
+                    bottom: 20,
+                    width: '80%',
+                    minSize: '30%',
+                    maxSize: '100%',
+                    sort: 'descending',
+                    gap: 4,
+                    label: {
+                        show: true,
+                        position: 'inside',
+                        formatter: function(params) {
+                            return `${params.name}\n${Number(params.value || 0).toLocaleString()}`;
+                        }
+                    },
+                    itemStyle: {
+                        borderColor: '#fff',
+                        borderWidth: 1,
+                    },
+                    data: chartData.data.map((item, i) => ({
+                        name: item.name,
+                        value: item.value,
+                        itemStyle: { color: ['#0ea5e9', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444'][i % 5] }
+                    })),
+                }]
+            };
+        } else if (chartType === 'abundance_bar') {
             const sorted = chartData.data.slice().sort((a, b) => (b.reads || 0) - (a.reads || 0));
             const names = sorted.map(d => d.name);
             const reads = sorted.map(d => d.reads || 0);
@@ -1463,6 +1561,25 @@ function renderIntegratedChart(chartInput, retryCount = 0) {
                         itemStyle: { color: '#f59e0b' }
                     }
                 ]
+            };
+        } else if (chartType === 'sunburst') {
+            option = {
+                tooltip: {
+                    trigger: 'item',
+                    formatter: function(params) {
+                        const value = params && params.value != null ? `${params.value}%` : '-';
+                        return `${params.name}<br/>占比: ${value}`;
+                    }
+                },
+                series: [{
+                    type: 'sunburst',
+                    radius: [0, '92%'],
+                    sort: null,
+                    emphasis: { focus: 'ancestor' },
+                    data: chartData.data,
+                    label: { rotate: 'radial', fontSize: 10 },
+                    levels: [{}, { r0: '0%', r: '28%' }, { r0: '28%', r: '58%' }, { r0: '58%', r: '92%' }],
+                }]
             };
         } else if (chartType === 'bar') {
             const names = chartData.data.map(d => d.name);
@@ -2207,11 +2324,12 @@ function loadDetectionResultsFromHistory(executionId) {
                 integratedWorkbench.views = {};
             }
 
-            integratedWorkbench.views.unknown_sample_detection = payload.view;
-            pendingIntegratedFeatureId = 'unknown_sample_detection';
+            const featureId = String(payload.view.feature_id || payload.view.view_id || 'unknown_sample_detection');
+            integratedWorkbench.views[featureId] = payload.view;
+            pendingIntegratedFeatureId = featureId;
             switchTab('integrated');
-            selectIntegratedFeature('unknown_sample_detection');
-            showNotice('已加载未知样品检测结果', 'success');
+            selectIntegratedFeature(featureId);
+            showNotice(`已加载${payload.view.title || '检测'}结果`, 'success');
         } catch (e) {
             console.error('Failed to parse detection results:', e);
             showNotice('检测结果解析失败');
@@ -2512,7 +2630,7 @@ function renderHistory(history) {
                 loadMultiplexResultsFromHistory(record.execution_id);
             };
             actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'completed' && record.tool_id === 'unknown_sample_detection') {
+        } else if (record.status === 'completed' && DETECTION_WORKFLOW_TOOL_IDS.includes(record.tool_id)) {
             const viewBtn = document.createElement('button');
             viewBtn.className = 'task-action-btn btn-view';
             viewBtn.textContent = '查看结果';

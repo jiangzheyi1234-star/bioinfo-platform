@@ -324,6 +324,98 @@ class TestDetectionIntegratedWorkbench:
         assert "multiplex_primer_panel" in feature_ids
         assert payload["views"]["multiplex_primer_panel"]["tool_ids"] == ["multiplex_primer_panel"]
 
+    def test_tool_bridge_exposes_metagenomics_features(self):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        service = ToolBridgeService()
+        payload = service.get_integrated_workbench_config()
+
+        feature_ids = [item["id"] for item in payload["features"]]
+        assert "wastewater_metagenomics_basic" in feature_ids
+        assert "animal_metagenomics_basic" in feature_ids
+        assert payload["views"]["wastewater_metagenomics_basic"]["tool_ids"] == ["wastewater_metagenomics_basic"]
+        assert payload["views"]["animal_metagenomics_basic"]["tool_ids"] == ["animal_metagenomics_basic"]
+
+    def test_targeted_results_route_detection_workflow_view(self, monkeypatch, tmp_path: Path):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
+        )
+        project_id = pm.create_project("route metagenomics")
+        pm.open_project(project_id)
+        pm.db.execute(
+            "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+            ("smp_meta", "meta", "test", "{}"),
+        )
+        pm.db.execute(
+            "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("exec_meta", "smp_meta", "wastewater_metagenomics_basic", "1.0", "{}", "completed", "manual", 1.0),
+        )
+        pm.db.commit()
+
+        class _Locator:
+            project_manager = pm
+
+        service = ToolBridgeService(service_locator=_Locator())
+        monkeypatch.setattr(
+            service,
+            "_build_detection_workflow_view_for_execution",
+            lambda workflow_id, execution_id: {"feature_id": workflow_id, "execution_id": execution_id},
+        )
+
+        payload = service.get_targeted_seq_results_for_execution("exec_meta")
+
+        assert payload["status"] == "ok"
+        assert payload["view"]["feature_id"] == "wastewater_metagenomics_basic"
+        assert payload["view"]["execution_id"] == "exec_meta"
+        pm.close()
+
+    def test_tool_bridge_parses_bracken_rows(self, tmp_path: Path):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        tsv_path = tmp_path / "demo.bracken.tsv"
+        tsv_path.write_text(
+            "name\ttaxonomy_id\ttaxonomy_lvl\tkraken_assigned_reads\tadded_reads\tnew_est_reads\tfraction_total_reads\n"
+            "Escherichia coli\t562\tS\t10\t5\t20\t0.40\n"
+            "Klebsiella pneumoniae\t573\tS\t8\t2\t12\t0.24\n",
+            encoding="utf-8",
+        )
+
+        rows = ToolBridgeService._parse_bracken_abundance_rows(tsv_path)
+
+        assert rows[0]["name"] == "Escherichia coli"
+        assert rows[0]["reads"] == "20"
+        assert rows[0]["percentage"] == "40.00%"
+
+    def test_tool_bridge_builds_read_flow_chart(self, tmp_path: Path):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        fastp_json = tmp_path / "fastp.json"
+        fastp_json.write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "before_filtering": {"total_reads": 1000},
+                        "after_filtering": {"total_reads": 800},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        chart = ToolBridgeService._build_read_flow_chart(
+            fastp_json,
+            {"total_reads": 700, "classified_reads": 500, "unclassified_reads": 200},
+        )
+
+        assert chart is not None
+        assert chart["type"] == "funnel"
+        assert [item["name"] for item in chart["data"]] == ["原始 Reads", "QC 后", "送分类 Reads", "已分类", "未分类"]
+
     def test_history_query_does_not_reconcile_running_execution(self, tmp_path: Path):
         from core.execution.tool_bridge_service import ToolBridgeService
 
@@ -540,12 +632,20 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-run-btn"' in html
         assert 'id="integrated-input-list"' in html
         assert 'id="integrated-table-body"' in html
+        assert 'id="integrated-html-card"' in html
+        assert 'id="integrated-html-frame"' in html
         assert "get_primer_results_for_execution" in js
         assert "loadPrimerResultsFromHistory" in js
         assert "get_multiplex_results_for_execution" in js
         assert "loadMultiplexResultsFromHistory" in js
         assert "get_targeted_seq_results_for_execution" in js
         assert "loadTargetedSeqResultsFromHistory" in js
+        assert "renderIntegratedHtmlPreview" in js
+        assert "localPathToFileUrl" in js
+        assert "chartType === 'sunburst'" in js
+        assert "chartType === 'funnel'" in js
+        assert "wastewater_metagenomics_basic" in js
+        assert "animal_metagenomics_basic" in js
         assert "需要输入文件" in js
 
 

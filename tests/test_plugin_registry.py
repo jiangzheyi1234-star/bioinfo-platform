@@ -396,11 +396,12 @@ class TestRealToolYaml:
         return reg
 
     def test_scan_real_plugins(self, real_registry: PluginRegistry) -> None:
-        """项目应包含 31 个真实插件。"""
-        assert real_registry.plugin_count == 31
+        """项目应包含 33 个真实插件。"""
+        assert real_registry.plugin_count == 33
         ids = set(real_registry.list_all_ids())
         # Phase 1 原始 4 个
         assert {"fastp", "kraken2", "hostile", "blastn"}.issubset(ids)
+        assert {"unknown_sample_detection", "wastewater_metagenomics_basic", "animal_metagenomics_basic"}.issubset(ids)
         # 组装页面下线后保留的核心扩展工具
         assert {"metabat2", "maxbin2", "concoct", "das_tool", "checkm2",
                 "busco", "gtdbtk", "prokka", "bakta", "eggnog"}.issubset(ids)
@@ -411,7 +412,7 @@ class TestRealToolYaml:
         assert {"abricate", "semibin2", "gunc", "prodigal", "metaphlan", "centrifuge"}.issubset(ids)
 
     def test_real_categories(self, real_registry: PluginRegistry) -> None:
-        """真实插件应分布在 10 个分类中。"""
+        """真实插件应分布在主要功能分类中。"""
         assert len(real_registry.list_by_category("qc")) == 1
         assert len(real_registry.list_by_category("taxonomy")) == 5    # kraken2 + gtdbtk + bracken + metaphlan + centrifuge
         assert len(real_registry.list_by_category("host_removal")) == 1
@@ -422,6 +423,8 @@ class TestRealToolYaml:
         assert len(real_registry.list_by_category("amr")) == 3         # rgi + amrfinderplus + abricate
         assert len(real_registry.list_by_category("mobile_elements")) == 3  # genomad + integron_finder + isescan
         assert len(real_registry.list_by_category("visualization")) == 1  # krona
+        assert len(real_registry.list_by_category("primer")) == 2
+        assert len(real_registry.list_by_category("detection")) == 3
 
     @pytest.mark.parametrize("tool_id", ["fastp", "kraken2", "hostile", "blastn"])
     def test_real_descriptor_structure(self, real_registry: PluginRegistry, tool_id: str) -> None:
