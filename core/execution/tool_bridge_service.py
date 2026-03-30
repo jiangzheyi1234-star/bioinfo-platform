@@ -498,8 +498,8 @@ class ToolBridgeService:
         return _parse_build_multiplex_columns(rows)
 
     @staticmethod
-    def _parse_bracken_abundance_rows(tsv_path: Path, top_n: int = 20) -> list[dict[str, str]]:
-        if not tsv_path.exists():
+    def _parse_bracken_abundance_rows(tsv_path: Path | None, top_n: int = 20) -> list[dict[str, str]]:
+        if tsv_path is None or not tsv_path.exists():
             return []
         try:
             with tsv_path.open("r", encoding="utf-8", newline="") as fh:
@@ -1000,7 +1000,7 @@ class ToolBridgeService:
         if not execution:
             return None
         try:
-            return self._build_primer_workflow_view_for_execution(execution["execution_id"])
+            return self._build_result_view_for_execution(str(execution["execution_id"] or ""), execution)
         except Exception:
             logger.exception("Failed to build live primer workflow view: %s", execution["execution_id"])
             return None
@@ -1030,76 +1030,55 @@ class ToolBridgeService:
         normalized_execution_id = str(execution_id or "").strip()
         if not normalized_execution_id:
             return None
-        artifacts = self.list_local_execution_artifacts(normalized_execution_id)
-
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
+        row = self._get_execution_result_row(normalized_execution_id)
+        if row is None or str(row["tool_id"] or "") != "primer_design":
             return None
-
-        self.normalize_project_remote_base(pm)
-
-        try:
-            row = pm.db.execute(
-                """
-                SELECT tool_id, sample_id
-                FROM executions
-                WHERE execution_id = ?
-                LIMIT 1
-                """,
-                (normalized_execution_id,),
-            ).fetchone()
-        except Exception:
-            logger.exception("Failed to query execution %s", normalized_execution_id)
-            return None
-
-        if not row or row["tool_id"] != "primer_design":
-            return None
-
-        remote_dir = f"{pm.current_project.remote_base}/intermediate/{row['sample_id']}/primer_design_{normalized_execution_id}"
+        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_execution_id))
         if not artifacts:
             return None
-
-        exec_row = pm.db.execute(
-            """
-            SELECT e.parameters, e.created_at, e.completed_at, e.tool_id, s.name AS sample_name
-            FROM executions e
-            LEFT JOIN samples s ON s.sample_id = e.sample_id
-            WHERE e.execution_id = ?
-            LIMIT 1
-            """,
-            (normalized_execution_id,),
-        ).fetchone()
-        params = self.safe_json_loads(exec_row["parameters"] if exec_row else "")
-        mode = params.get("mode", "quick")
-        ts = (exec_row["completed_at"] if exec_row else None) or (exec_row["created_at"] if exec_row else None) or time.time()
+        ctx = self._build_view_common_context(row, artifacts)
+        parameters = [
+            {
+                "label": "任务 ID",
+                "value": normalized_execution_id,
+                "description": "当前本地结果对应的执行记录 ID。",
+            },
+            {
+                "label": "主结果",
+                "value": "primer_result_final_2.txt",
+                "description": "主结果文件，包含推荐引物对及位点信息。",
+            },
+        ]
+        if ctx["remote_result_dir"]:
+            parameters.insert(
+                0,
+                {
+                    "label": "结果目录",
+                    "value": ctx["remote_result_dir"],
+                    "description": "执行时记录的远端结果目录；结果展示优先使用本地已同步工件。",
+                },
+            )
+        if ctx["local_result_dir"]:
+            parameters.append(
+                {
+                    "label": "本地结果目录",
+                    "value": ctx["local_result_dir"],
+                    "description": "当前项目中缓存该次执行结果的本地目录。",
+                }
+            )
         return self._build_primer_view_from_artifacts(
             artifacts=artifacts,
-                        remote_result_dir=remote_dir,
+            remote_result_dir=ctx["remote_result_dir"],
             description=(
-                "用途：将病原体靶向引物集合优化为可同池扩增的多重引物池，输出可交付的池方案与合成清单。"
-                "\n实现：基于候选引物进行迭代替换优化，并按交叉二聚体、Tm 一致性、扩增子长度差异与覆盖校验综合筛选。"
+                "用途：基于本地已同步的 primer 结果展示推荐引物、靶区位置与产物信息。"
+                "\n实现：仅读取当前项目内缓存的结果工件，不在结果展示阶段触发远端查询。"
             ),
             status={
                 "state": "completed",
                 "label": "结果可用",
-                "detail": "流程已完成：已生成 multiplex_panel、synthesis_order、validation_report，可直接查看与交付。",
-            },            parameters=[
-                {
-                    "label": "结果目录",
-                    "value": remote_dir,
-                    "description": "Multiplex 任务在服务器端的结果目录，用于加载该次任务产物。",
-                },
-                {
-                    "label": "主结果",
-                    "value": "multiplex_panel.txt",
-                    "description": "主结果文件，包含入池引物对及相关评分信息。",
-                },
-                {
-                    "label": "合成订单",
-                    "value": "synthesis_order.txt",
-                    "description": "合成下单文件，用于导出引物采购/合成名单。",
-                },
-            ],
+                "detail": "已从本地结果缓存加载 primer 产物，可直接查看与导出。",
+            },
+            parameters=parameters,
         )
 
     def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
@@ -1140,7 +1119,7 @@ class ToolBridgeService:
         if not execution:
             return None
         try:
-            return self._build_multiplex_workflow_view_for_execution(execution["execution_id"])
+            return self._build_result_view_for_execution(str(execution["execution_id"] or ""), execution)
         except Exception:
             logger.exception("Failed to build live multiplex workflow view: %s", execution["execution_id"])
             return None
@@ -1149,54 +1128,37 @@ class ToolBridgeService:
         normalized_execution_id = str(execution_id or "").strip()
         if not normalized_execution_id:
             return None
-        artifacts = self.list_local_execution_artifacts(normalized_execution_id)
-
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
+        row = self._get_execution_result_row(normalized_execution_id)
+        if row is None or str(row["tool_id"] or "") != "multiplex_primer_panel":
             return None
-
-        self.normalize_project_remote_base(pm)
-
-        try:
-            row = pm.db.execute(
-                """
-                SELECT tool_id, sample_id
-                FROM executions
-                WHERE execution_id = ?
-                LIMIT 1
-                """,
-                (normalized_execution_id,),
-            ).fetchone()
-        except Exception:
-            logger.exception("Failed to query execution %s", normalized_execution_id)
-            return None
-
-        if not row or row["tool_id"] != "multiplex_primer_panel":
-            return None
-
-        remote_dir = (
-            f"{pm.current_project.remote_base}/intermediate/"
-            f"{row['sample_id']}/multiplex_primer_panel_{normalized_execution_id}"
-        )
+        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_execution_id))
         if not artifacts:
             return None
-
+        ctx = self._build_view_common_context(row, artifacts)
+        parameters = [{"label": "任务 ID", "value": normalized_execution_id}]
+        if ctx["remote_result_dir"]:
+            parameters.insert(0, {"label": "结果目录", "value": ctx["remote_result_dir"]})
+        if ctx["local_result_dir"]:
+            parameters.append({"label": "本地结果目录", "value": ctx["local_result_dir"]})
+        parameters.extend(
+            [
+                {"label": "主结果", "value": "multiplex_panel.txt"},
+                {"label": "合成订单", "value": "synthesis_order.txt"},
+            ]
+        )
         return self._build_multiplex_view_from_artifacts(
             artifacts=artifacts,
-            remote_result_dir=remote_dir,
+            remote_result_dir=ctx["remote_result_dir"],
             description=(
-                "用途：用于靶向病原体多重 PCR 方案设计，输出可直接用于实验与交付的池化结果和合成清单。"
-                "\n实现：流程内自动执行候选引物合并、迭代优化、交叉二聚体评估、扩增子冲突检查以及 Tm/GC 一致性校验。"
+                "用途：用于查看本地已同步的多重引物池结果、合成清单与相关评分。"
+                "\n实现：仅消费当前项目中的本地结果工件，不在结果展示阶段访问远端环境。"
             ),
             status={
                 "state": "completed",
                 "label": "结果可用",
-                "detail": "从历史任务加载的多重引物池结果。",
+                "detail": "已从本地结果缓存加载 multiplex 产物。",
             },
-            parameters=[
-                {"label": "任务 ID", "value": normalized_execution_id},
-                {"label": "主结果", "value": "multiplex_panel.txt"},
-            ],
+            parameters=parameters,
         )
 
     def get_tools(self) -> list[dict]:
@@ -1729,15 +1691,6 @@ class ToolBridgeService:
         live_primer_view = self.get_live_primer_design_view()
         if live_primer_view is not None:
             views["primer_design"] = live_primer_view
-        else:
-            default_remote_view = self.build_primer_view_from_result_dir(self.get_default_primer_result_dir())
-            if default_remote_view is not None:
-                default_remote_view["status"] = {
-                    "state": "completed",
-                    "label": "已加载默认远程结果",
-                    "detail": "未找到历史执行记录，已自动读取服务器默认 primer 结果目录。",
-                }
-                views["primer_design"] = default_remote_view
 
         live_multiplex_view = self.get_live_multiplex_primer_panel_view()
         if live_multiplex_view is not None:
@@ -1779,47 +1732,6 @@ class ToolBridgeService:
             return {"status": "ok", "view": view}
         except Exception as exc:
             logger.exception("Failed to build results for execution %s", normalized_id)
-            return {"status": "error", "message": str(exc)}
-
-    def get_primer_results_for_execution(self, execution_id: str) -> dict:
-        try:
-            row = self._get_execution_result_row(execution_id)
-            if row is None or str(row["tool_id"] or "") != "primer_design":
-                return {"status": "error", "message": "未找到对应的引物设计任务"}
-            return {"status": "ok", "view": self._build_workflow_product_view_for_execution(execution_id, row)}
-        except Exception as exc:
-            logger.exception("Failed to load primer results for execution %s", execution_id)
-            return {"status": "error", "message": str(exc)}
-
-    def get_multiplex_results_for_execution(self, execution_id: str) -> dict:
-        try:
-            row = self._get_execution_result_row(execution_id)
-            if row is None or str(row["tool_id"] or "") != "multiplex_primer_panel":
-                return {"status": "error", "message": "未找到对应的多重引物池任务"}
-            return {"status": "ok", "view": self._build_workflow_product_view_for_execution(execution_id, row)}
-        except Exception as exc:
-            logger.exception("Failed to load multiplex results for execution %s", execution_id)
-            return {"status": "error", "message": str(exc)}
-
-    def get_targeted_seq_results_for_execution(self, execution_id: str) -> dict:
-        try:
-            row = self._get_execution_result_row(execution_id)
-            if row is None:
-                return {"status": "error", "message": "未找到对应任务记录"}
-            return {"status": "ok", "view": self._build_result_view_for_execution(execution_id, row)}
-        except Exception as exc:
-            logger.exception("Failed to load taxonomy/workflow results for execution %s", execution_id)
-            return {"status": "error", "message": str(exc)}
-
-    def get_fastp_results_for_execution(self, execution_id: str) -> dict:
-        """从 fastp 已完成的 execution 构建 QC 结果 view。"""
-        try:
-            row = self._get_execution_result_row(execution_id)
-            if row is None or str(row["tool_id"] or "") != "fastp":
-                return {"status": "error", "message": "未找到对应的 fastp 任务"}
-            return {"status": "ok", "view": self._build_qc_report_view_for_execution(execution_id, row)}
-        except Exception as exc:
-            logger.exception("Failed to load fastp results for execution %s", execution_id)
             return {"status": "error", "message": str(exc)}
 
     def _build_result_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
@@ -2523,10 +2435,13 @@ class ToolBridgeService:
         row = self._get_execution_result_row(execution_id)
         if row is None:
             return None
-        workflow_row = dict(row)
-        workflow_row["tool_id"] = workflow_id
         try:
-            return self._build_detection_workflow_result_view(execution_id, workflow_row)
+            view = self._build_result_view_for_execution(execution_id, row)
+            if str(view.get("feature_id") or "") != workflow_id:
+                raise RuntimeError(
+                    f"workflow 结果路由不匹配: expected={workflow_id}, actual={view.get('feature_id')}, execution_id={execution_id}"
+                )
+            return view
         except Exception:
             logger.exception("Failed to build detection workflow result view: %s / %s", workflow_id, execution_id)
             return None
@@ -2617,7 +2532,14 @@ class ToolBridgeService:
 
         if target_eid is None:
             return None
-        return self._build_targeted_seq_view_for_execution(target_eid)
+        try:
+            row = self._get_execution_result_row(target_eid)
+            if row is None:
+                return None
+            return self._build_result_view_for_execution(target_eid, row)
+        except Exception:
+            logger.exception("Failed to build live targeted sequencing view: %s", target_eid)
+            return None
 
     def _build_result_view_for_execution(self, execution_id: str, execution_row: Any | None = None) -> dict:
         row = execution_row or self._get_execution_result_row(execution_id)
@@ -3272,31 +3194,18 @@ class ToolBridgeService:
         normalized_id = str(execution_id or "").strip()
         if not normalized_id:
             return None
-
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
+        execution_row = self._get_execution_result_row(normalized_id)
+        if execution_row is None:
             return None
-        self.normalize_project_remote_base(pm)
-
-        try:
-            row = pm.db.execute(
-                "SELECT tool_id, sample_id FROM executions WHERE execution_id = ? LIMIT 1",
-                (normalized_id,),
-            ).fetchone()
-        except Exception:
-            logger.exception("Failed to query execution %s", normalized_id)
+        if str(execution_row["tool_id"] or "") not in _TARGETED_RESULT_TOOL_IDS:
             return None
-
-        if not row or row["tool_id"] not in _TARGETED_RESULT_TOOL_IDS:
-            return None
-
-        tool_id = row["tool_id"]
-        sample_id = row["sample_id"]
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_id))
         if not artifacts:
             return None
-        ctx = self._build_view_common_context(self._get_execution_result_row(normalized_id), artifacts)
-        remote_dir = ctx["remote_result_dir"] or f"{pm.current_project.remote_base}/intermediate/{sample_id}/{tool_id}_{normalized_id}"
+        ctx = self._build_view_common_context(execution_row, artifacts)
+        tool_id = ctx["tool_id"]
+        sample_id = ctx["sample_id"]
+        remote_dir = ctx["remote_result_dir"]
 
         kreport_name = f"{sample_id}.kreport"
         coverage_depth_name = f"{sample_id}.coverage_depth.tsv"

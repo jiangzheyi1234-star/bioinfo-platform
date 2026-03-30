@@ -75,6 +75,46 @@ def test_get_results_for_execution_dispatches_fastp(monkeypatch):
     assert payload["view"]["archetype"] == "qc_report"
 
 
+def test_live_primer_view_uses_unified_result_builder(monkeypatch):
+    service = ToolBridgeService()
+    monkeypatch.setattr(
+        service,
+        "find_latest_completed_execution",
+        lambda tool_ids: {"execution_id": "exec_primer", "tool_id": "primer_design", "status": "completed"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_result_view_for_execution",
+        lambda execution_id, row: {"feature_id": "primer_design", "archetype": "workflow_product", "hero": {"execution_id": execution_id}},
+    )
+
+    view = service.get_live_primer_design_view()
+
+    assert view is not None
+    assert view["hero"]["execution_id"] == "exec_primer"
+    assert view["archetype"] == "workflow_product"
+
+
+def test_live_detection_workflow_view_uses_unified_result_builder(monkeypatch):
+    service = ToolBridgeService()
+    monkeypatch.setattr(
+        service,
+        "_get_execution_result_row",
+        lambda execution_id: {"execution_id": execution_id, "tool_id": "centrifuge", "status": "completed"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_result_view_for_execution",
+        lambda execution_id, row: {"feature_id": "unknown_sample_detection", "archetype": "workflow_product", "hero": {"execution_id": execution_id}},
+    )
+
+    view = service._build_detection_workflow_view_for_execution("unknown_sample_detection", "exec_detection")
+
+    assert view is not None
+    assert view["feature_id"] == "unknown_sample_detection"
+    assert view["hero"]["execution_id"] == "exec_detection"
+
+
 def test_get_results_for_execution_builds_prokka_view(tmp_path: Path):
     pm = _build_project_manager(tmp_path)
     registry = _build_plugin_registry()
@@ -236,13 +276,235 @@ def test_fastp_view_uses_sample_scoped_artifact_names(tmp_path: Path):
     class _Locator:
         project_manager = pm
 
-    service = ToolBridgeService(service_locator=_Locator())
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=_build_plugin_registry())
     view = service._build_fastp_view_for_execution("exec_fastp")
 
     assert view is not None
     assert view["artifacts"][0]["name"] == "smp_fastp.fastp.json"
     assert view["artifacts"][1]["name"] == "smp_fastp.fastp.html"
     assert view["artifacts"][1]["available"] is True
+    pm.close()
+
+
+def test_primer_view_for_execution_does_not_touch_ssh(tmp_path: Path, monkeypatch):
+    pm = _build_project_manager(tmp_path)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_primer", "primer sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "exec_primer",
+            "smp_primer",
+            "primer_design",
+            "1.0",
+            json.dumps({"mode": "quick"}),
+            "completed",
+            "manual",
+            1.0,
+            2.0,
+        ),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_primer"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    primer_path = results_dir / "primer_result_final_2.txt"
+    primer_path.write_text("Virus_A\tregion_1\tAAA\tTTT\t10-120\tATGC\n", encoding="utf-8")
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_primer",
+                "tool_id": "primer_design",
+                "output_dir": "/remote/primer_design/exec_primer",
+                "artifacts": [
+                    {
+                        "name": "primer_result_final_2.txt",
+                        "remote_path": "/remote/primer_design/exec_primer/primer_result_final_2.txt",
+                        "local_path": str(primer_path),
+                        "available": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=_build_plugin_registry())
+    monkeypatch.setattr(
+        service,
+        "normalize_project_remote_base",
+        lambda pm: (_ for _ in ()).throw(AssertionError("primer live/result view 不应触发 SSH")),
+    )
+
+    view = service.get_primer_view_for_execution("exec_primer")
+
+    assert view is not None
+    assert view["rows"][0]["pathogen"] == "Virus_A"
+    assert view["remote_result_dir"] == "/remote/primer_design/exec_primer"
+    pm.close()
+
+
+def test_multiplex_view_for_execution_does_not_touch_ssh(tmp_path: Path, monkeypatch):
+    pm = _build_project_manager(tmp_path)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_mux", "mux sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "exec_mux",
+            "smp_mux",
+            "multiplex_primer_panel",
+            "1.0",
+            "{}",
+            "completed",
+            "manual",
+            1.0,
+            2.0,
+        ),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_mux"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    panel_path = results_dir / "multiplex_panel.txt"
+    panel_path.write_text(
+        "pathogen\tregion_id\tforward_primer\treverse_primer\ttm_f\ttm_r\tgc_f\tgc_r\tamplicon_length\tpool_score\n"
+        "Virus_A\tregion_1\tAAA\tTTT\t58.1\t58.3\t45\t47\t150\tpass\n",
+        encoding="utf-8",
+    )
+    synthesis_path = results_dir / "synthesis_order.txt"
+    synthesis_path.write_text("Virus_A\tAAA\tTTT\n", encoding="utf-8")
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_mux",
+                "tool_id": "multiplex_primer_panel",
+                "output_dir": "/remote/multiplex/exec_mux",
+                "artifacts": [
+                    {
+                        "name": "multiplex_panel.txt",
+                        "remote_path": "/remote/multiplex/exec_mux/multiplex_panel.txt",
+                        "local_path": str(panel_path),
+                        "available": True,
+                    },
+                    {
+                        "name": "synthesis_order.txt",
+                        "remote_path": "/remote/multiplex/exec_mux/synthesis_order.txt",
+                        "local_path": str(synthesis_path),
+                        "available": True,
+                    },
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=_build_plugin_registry())
+    monkeypatch.setattr(
+        service,
+        "normalize_project_remote_base",
+        lambda pm: (_ for _ in ()).throw(AssertionError("multiplex live/result view 不应触发 SSH")),
+    )
+
+    view = service.get_multiplex_view_for_execution("exec_mux")
+
+    assert view is not None
+    assert view["rows"][0]["pathogen"] == "Virus_A"
+    assert view["remote_result_dir"] == "/remote/multiplex/exec_mux"
+    pm.close()
+
+
+def test_targeted_seq_view_for_execution_does_not_touch_ssh(tmp_path: Path, monkeypatch):
+    pm = _build_project_manager(tmp_path)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_tax", "taxonomy sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "exec_tax",
+            "smp_tax",
+            "kraken2",
+            "2.1.3",
+            "{}",
+            "completed",
+            "manual",
+            1.0,
+            2.0,
+        ),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_tax"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    kreport_path = results_dir / "smp_tax.kreport"
+    kreport_path.write_text(
+        "\n".join(
+            [
+                "99.98\t787758\t787758\tU\t0\tunclassified",
+                "0.02\t119\t0\tR\t1\troot",
+                "0.02\t119\t0\tR1\t131567\tcellular organisms",
+                "0.02\t119\t0\tD\t2759\tEukaryota",
+                "0.01\t96\t0\tK\t4751\tFungi",
+                "0.01\t96\t96\tS\t4932\tSaccharomyces cerevisiae",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_tax",
+                "tool_id": "kraken2",
+                "output_dir": "/remote/kraken2/exec_tax",
+                "artifacts": [
+                    {
+                        "name": "smp_tax.kreport",
+                        "remote_path": "/remote/kraken2/exec_tax/smp_tax.kreport",
+                        "local_path": str(kreport_path),
+                        "available": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=_build_plugin_registry())
+    monkeypatch.setattr(
+        service,
+        "normalize_project_remote_base",
+        lambda pm: (_ for _ in ()).throw(AssertionError("targeted live/result view 不应触发 SSH")),
+    )
+
+    view = service._build_targeted_seq_view_for_execution("exec_tax")
+
+    assert view is not None
+    assert view["provenance"]["remote_result_dir"] == "/remote/kraken2/exec_tax"
+    assert view["table"]["rows"]
     pm.close()
 
 
