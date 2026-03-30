@@ -26,6 +26,12 @@ from core.data.database_service import DatabaseService
 from core.data.execution_query_service import ExecutionQueryService
 from core.execution.artifact_store import ArtifactStore
 from core.execution.execution_status_service import ExecutionStatusService
+from core.execution.tool_bridge_specs import (
+    DETECTION_WORKFLOW_ORDER,
+    DETECTION_WORKFLOW_SPECS,
+    TARGETED_RESULT_TOOL_IDS,
+    build_integrated_workbench_config,
+)
 from core.execution.result_parsers import (
     build_multiplex_columns as _parse_build_multiplex_columns,
 )
@@ -56,151 +62,6 @@ if TYPE_CHECKING:
     from core.service_locator import ServiceLocator
 
 logger = logging.getLogger(__name__)
-
-
-_DETECTION_WORKFLOW_SPECS: dict[str, dict[str, Any]] = {
-    "unknown_sample_detection": {
-        "feature": {
-            "id": "unknown_sample_detection",
-            "name": "未知样品检测",
-            "badge": "mNGS",
-            "description": "二代宏基因组鸟枪法测序 → fastp 质控 → hostile 去宿主 → Centrifuge 分类 + BLAST 补充鉴定 → PDF 检测报告。",
-            "status": "active",
-        },
-        "view": {
-            "feature_id": "unknown_sample_detection",
-            "tool_ids": ["unknown_sample_detection"],
-            "title": "未知样品病原体检测 (mNGS)",
-            "description": "二代宏基因组鸟枪法测序全流程：fastp 质控 → hostile 去宿主 → Centrifuge 分类 → BLAST 补充鉴定 → 合并结果 PDF 报告。",
-            "table_title": "检出微生物列表",
-            "table_subtitle": "按 Reads 数降序排列，包含细菌、病毒、真菌、寄生虫等各类微生物。",
-            "status": {
-                "state": "ready",
-                "label": "等待运行",
-                "detail": "提交二代宏基因组双端 FASTQ 后，系统自动执行 QC → 去宿主 → 分类 → 报告全流程。",
-            },
-            "parameters": [
-                {"label": "输入", "value": "二代宏基因组双端 FASTQ (PE150)"},
-                {"label": "质控", "value": "fastp 接头去除 + 低质量过滤"},
-                {"label": "去宿主", "value": "hostile (human-t2t-hla)"},
-                {"label": "分类引擎", "value": "Centrifuge + HPVC 数据库"},
-                {"label": "补充鉴定", "value": "BLAST + core_nt (未分类 reads)"},
-                {"label": "输出", "value": "物种表 + 饼图 + PDF 检测报告"},
-            ],
-            "summary": [
-                {"label": "原始 Reads", "value": "—", "tone": "primary"},
-                {"label": "QC 后", "value": "—", "tone": "info"},
-                {"label": "去宿主后", "value": "—", "tone": "info"},
-                {"label": "宿主占比", "value": "—", "tone": "warning"},
-                {"label": "已分类", "value": "—", "tone": "success"},
-                {"label": "物种数", "value": "—", "tone": "success"},
-                {"label": "Top 物种", "value": "—", "tone": "accent"},
-            ],
-            "columns": [
-                {"key": "rank", "label": "#"},
-                {"key": "name", "label": "微生物名称"},
-                {"key": "category", "label": "类型"},
-                {"key": "reads", "label": "Reads"},
-                {"key": "rpm", "label": "RPM"},
-                {"key": "percentage", "label": "相对丰度 (%)"},
-                {"key": "source", "label": "检出来源"},
-            ],
-            "rows": [],
-            "artifacts": [],
-        },
-        "legacy_workflow": "unknown_detection",
-    },
-    "wastewater_metagenomics_basic": {
-        "feature": {
-            "id": "wastewater_metagenomics_basic",
-            "name": "废水宏基因组基础分析",
-            "badge": "ENV",
-            "description": "面向废水监测的读长宏基因组闭环：fastp → 可选 hostile → Kraken2 → Bracken → Krona。",
-            "status": "active",
-        },
-        "view": {
-            "feature_id": "wastewater_metagenomics_basic",
-            "tool_ids": ["wastewater_metagenomics_basic"],
-            "title": "废水宏基因组基础分析",
-            "description": "面向废水监测的 read-based 宏基因组分析：fastp 质控 → 可选 hostile 去宿主 → Kraken2 分类 → Bracken 丰度重估计 → Krona 可视化。",
-            "table_title": "废水样本微生物组成",
-            "table_subtitle": "基于 Kraken2/Bracken 的读长分类结果，按丰度降序排列。",
-            "status": {
-                "state": "ready",
-                "label": "等待运行",
-                "detail": "提交双端 FASTQ 后，系统自动完成 QC、分类、丰度重估计与 Krona 输出。",
-            },
-            "parameters": [
-                {"label": "输入", "value": "废水样本双端 FASTQ"},
-                {"label": "质控", "value": "fastp"},
-                {"label": "可选去宿主", "value": "hostile (可关闭)"},
-                {"label": "分类/丰度", "value": "Kraken2 + Bracken"},
-                {"label": "输出", "value": "kreport + Bracken 表 + Krona HTML"},
-            ],
-            "summary": [
-                {"label": "总 Reads", "value": "—", "tone": "primary"},
-                {"label": "已分类", "value": "—", "tone": "info"},
-                {"label": "物种数", "value": "—", "tone": "success"},
-                {"label": "Top 物种", "value": "—", "tone": "accent"},
-            ],
-            "columns": [
-                {"key": "rank", "label": "序号"},
-                {"key": "name", "label": "微生物名称"},
-                {"key": "reads", "label": "Reads 数"},
-                {"key": "percentage", "label": "占比 (%)"},
-            ],
-            "rows": [],
-            "artifacts": [],
-        },
-    },
-    "animal_metagenomics_basic": {
-        "feature": {
-            "id": "animal_metagenomics_basic",
-            "name": "动物源宏基因组基础分析",
-            "badge": "Animal",
-            "description": "面向动物样本的读长宏基因组闭环：fastp → hostile → Kraken2 → Bracken → Krona。",
-            "status": "active",
-        },
-        "view": {
-            "feature_id": "animal_metagenomics_basic",
-            "tool_ids": ["animal_metagenomics_basic"],
-            "title": "动物源宏基因组基础分析",
-            "description": "面向动物所病原筛查的 read-based 宏基因组分析：fastp 质控 → hostile 宿主去除 → Kraken2 分类 → Bracken 丰度重估计 → Krona 可视化。",
-            "table_title": "动物样本微生物组成",
-            "table_subtitle": "基于 Kraken2/Bracken 的读长分类结果，适用于动物源样本的基础检出与丰度查看。",
-            "status": {
-                "state": "ready",
-                "label": "等待运行",
-                "detail": "提交双端 FASTQ 与宿主索引后，系统自动完成 QC、去宿主、分类、丰度重估计与 Krona 输出。",
-            },
-            "parameters": [
-                {"label": "输入", "value": "动物样本双端 FASTQ"},
-                {"label": "质控", "value": "fastp"},
-                {"label": "宿主去除", "value": "hostile (宿主索引必填)"},
-                {"label": "分类/丰度", "value": "Kraken2 + Bracken"},
-                {"label": "输出", "value": "kreport + Bracken 表 + Krona HTML"},
-            ],
-            "summary": [
-                {"label": "总 Reads", "value": "—", "tone": "primary"},
-                {"label": "已分类", "value": "—", "tone": "info"},
-                {"label": "物种数", "value": "—", "tone": "success"},
-                {"label": "Top 物种", "value": "—", "tone": "accent"},
-            ],
-            "columns": [
-                {"key": "rank", "label": "序号"},
-                {"key": "name", "label": "微生物名称"},
-                {"key": "reads", "label": "Reads 数"},
-                {"key": "percentage", "label": "占比 (%)"},
-            ],
-            "rows": [],
-            "artifacts": [],
-        },
-    },
-}
-_DETECTION_WORKFLOW_ORDER = tuple(_DETECTION_WORKFLOW_SPECS)
-_KRAKEN_MNGS_WORKFLOW_IDS = ("wastewater_metagenomics_basic", "animal_metagenomics_basic")
-_TARGETED_RESULT_TOOL_IDS = ("centrifuge", "kraken2", *_DETECTION_WORKFLOW_ORDER)
-_WORKFLOW_PRODUCT_TOOL_IDS = (*_DETECTION_WORKFLOW_ORDER, "primer_design", "multiplex_primer_panel")
 _TOOL_ARCHETYPES: dict[str, str] = {
     "fastp": "qc_report",
     "hostile": "qc_report",
@@ -236,6 +97,7 @@ _TOOL_ARCHETYPES: dict[str, str] = {
     "primer_design": "workflow_product",
     "multiplex_primer_panel": "workflow_product",
 }
+_WORKFLOW_PRODUCT_TOOL_IDS = (*DETECTION_WORKFLOW_ORDER, "primer_design", "multiplex_primer_panel")
 _QUALITY_SUMMARY_KEYS: dict[str, list[tuple[str, str, str]]] = {
     "quast": [("Contigs", "# contigs", "primary"), ("总长度", "Total length", "info"), ("N50", "N50", "success")],
     "checkm2": [("Completeness", "Completeness", "success"), ("Contamination", "Contamination", "warning"), ("GC", "GC_Content", "info")],
@@ -316,174 +178,7 @@ class ToolBridgeService:
 
     @staticmethod
     def base_integrated_workbench_config() -> dict:
-        return {
-            "title": "集成分析工作台",
-            "subtitle": "集中承载多个分析能力，统一查看流程状态与分析结果。",
-            "features": [
-                {
-                    "id": "primer_design",
-                    "name": "病原体引物设计",
-                    "badge": "",
-                    "description": "上传病原体基因组，自动筛选保守特异靶点并设计引物对，输出每病原体的推荐引物。",
-                    "status": "active",
-                },
-                {
-                    "id": "targeted_sequencing",
-                    "name": "靶向测序分析",
-                    "badge": "tNGS",
-                    "description": "纳米孔靶向扩增测序 → Centrifuge + HPVC 快速鉴定，输出病原体物种组成表与检测报告。",
-                    "status": "active",
-                },
-                {
-                    "id": "unknown_sample_detection",
-                    "name": "未知样品检测",
-                    "badge": "mNGS",
-                    "description": "二代宏基因组鸟枪法测序 → fastp 质控 → hostile 去宿主 → Centrifuge 分类 + BLAST 补充鉴定 → PDF 检测报告。",
-                    "status": "active",
-                },
-                {
-                    "id": "target_screening",
-                    "name": "基因组分析",
-                    "badge": "",
-                    "description": "按同一工作台布局接入基因组分析能力。",
-                    "status": "placeholder",
-                },
-            ],
-            "views": {
-                "primer_design": {
-                    "tool_ids": ["primer_design"],
-                    "title": "病原体引物设计",
-                    "description": "上传病原体基因组序列，系统自动完成保守靶点筛选、特异性过滤和候选引物设计，最终输出每病原体的推荐引物对。",
-                    "status": {
-                        "state": "ready",
-                        "label": "结果已就绪",
-                        "detail": "支持查看推荐结果，并可继续接入远程任务执行链路。",
-                    },
-                    "parameters": [
-                        {"label": "输入", "value": "病原体基因组 FASTA"},
-                        {"label": "靶点筛选", "value": "保守性 + 特异性"},
-                        {"label": "输出", "value": "每病原体首选引物对"},
-                    ],
-                    "summary": [
-                        {"label": "目标病原体", "value": "5", "tone": "primary"},
-                        {"label": "候选引物对", "value": "18", "tone": "info"},
-                        {"label": "通过二聚体过滤", "value": "9", "tone": "success"},
-                        {"label": "最终推荐", "value": "5", "tone": "accent"},
-                    ],
-                    "columns": [
-                        {"key": "pathogen", "label": "病原体"},
-                        {"key": "region_id", "label": "区域 ID"},
-                        {"key": "forward_primer", "label": "Forward Primer"},
-                        {"key": "reverse_primer", "label": "Reverse Primer"},
-                        {"key": "position", "label": "位置"},
-                        {"key": "amplicon", "label": "扩增子"},
-                    ],
-                    "rows": [
-                        {
-                            "pathogen": "Mycobacterium tuberculosis",
-                            "region_id": "MTB_region_01",
-                            "forward_primer": "AGTGACCGTTCGATGATGAC",
-                            "reverse_primer": "CTTGATCGGCTTCTTCAGGT",
-                            "position": "1520-1688",
-                            "amplicon": "169 bp",
-                        },
-                        {
-                            "pathogen": "Influenza A virus",
-                            "region_id": "FLUA_region_02",
-                            "forward_primer": "TGGACTAGCGAAAGCAGGTA",
-                            "reverse_primer": "CACCTTGTCTTTGCCAGTTC",
-                            "position": "845-1016",
-                            "amplicon": "172 bp",
-                        },
-                        {
-                            "pathogen": "Rubella virus",
-                            "region_id": "RUB_region_01",
-                            "forward_primer": "GGATGGTGATGACACCAAGA",
-                            "reverse_primer": "TTCCACCTTGAGGTTGTTGA",
-                            "position": "221-373",
-                            "amplicon": "153 bp",
-                        },
-                    ],
-                    "artifacts": [
-                        {"name": "primer_result_final_2.txt", "remote_path": "", "local_path": "", "available": False},
-                        {"name": "primer_result_final.txt", "remote_path": "", "local_path": "", "available": False},
-                        {"name": "dimer_score.txt", "remote_path": "", "local_path": "", "available": False},
-                        {"name": "运行日志 / 原始结果包", "remote_path": "", "local_path": "", "available": False},
-                    ],
-                },
-                "targeted_sequencing": {
-                    "tool_ids": ["centrifuge", "kraken2"],
-                    "title": "靶向测序分析 (tNGS)",
-                    "description": "上传纳米孔靶向扩增测序 FASTQ，Centrifuge + HPVC 数据库快速鉴定病原体组成。",
-                    "table_title": "病原体物种组成",
-                    "table_subtitle": "运行 Centrifuge 分析后，物种组成表将在此呈现。",
-                    "status": {
-                        "state": "ready",
-                        "label": "等待运行",
-                        "detail": "使用 HPVC 病原体数据库，上传 FASTQ 文件后即可开始分析。",
-                    },
-                    "parameters": [
-                        {"label": "输入", "value": "纳米孔靶向扩增 FASTQ"},
-                        {"label": "分析引擎", "value": "Centrifuge + HPVC"},
-                        {"label": "输出", "value": "病原体物种表 + 饼图 + TXT 报告"},
-                    ],
-                    "summary": [
-                        {"label": "总 Reads", "value": "—", "tone": "primary"},
-                        {"label": "已分类", "value": "—", "tone": "info"},
-                        {"label": "物种数", "value": "—", "tone": "success"},
-                        {"label": "Top 物种", "value": "—", "tone": "accent"},
-                    ],
-                    "columns": [
-                        {"key": "rank", "label": "#"},
-                        {"key": "name", "label": "物种名称"},
-                        {"key": "reads", "label": "Reads"},
-                        {"key": "percentage", "label": "占比 (%)"},
-                    ],
-                    "rows": [],
-                    "artifacts": [],
-                },
-                "unknown_sample_detection": {
-                    "tool_ids": ["unknown_sample_detection"],
-                    "title": "未知样品病原体检测 (mNGS)",
-                    "description": "二代宏基因组鸟枪法测序全流程：fastp 质控 → hostile 去宿主 → Centrifuge 分类 → BLAST 补充鉴定 → 合并结果 PDF 报告。",
-                    "table_title": "检出微生物列表",
-                    "table_subtitle": "按 Reads 数降序排列，包含细菌、病毒、真菌、寄生虫等各类微生物。",
-                    "status": {
-                        "state": "ready",
-                        "label": "等待运行",
-                        "detail": "提交二代宏基因组双端 FASTQ 后，系统自动执行 QC → 去宿主 → 分类 → 报告全流程。",
-                    },
-                    "parameters": [
-                        {"label": "输入", "value": "二代宏基因组双端 FASTQ (PE150)"},
-                        {"label": "质控", "value": "fastp 接头去除 + 低质量过滤"},
-                        {"label": "去宿主", "value": "hostile (human-t2t-hla)"},
-                        {"label": "分类引擎", "value": "Centrifuge + HPVC 数据库"},
-                        {"label": "补充鉴定", "value": "BLAST + core_nt (未分类 reads)"},
-                        {"label": "输出", "value": "物种表 + 饼图 + PDF 检测报告"},
-                    ],
-                    "summary": [
-                        {"label": "原始 Reads", "value": "—", "tone": "primary"},
-                        {"label": "QC 后", "value": "—", "tone": "info"},
-                        {"label": "去宿主后", "value": "—", "tone": "info"},
-                        {"label": "宿主占比", "value": "—", "tone": "warning"},
-                        {"label": "已分类", "value": "—", "tone": "success"},
-                        {"label": "物种数", "value": "—", "tone": "success"},
-                        {"label": "Top 物种", "value": "—", "tone": "accent"},
-                    ],
-                    "columns": [
-                        {"key": "rank", "label": "#"},
-                        {"key": "name", "label": "微生物名称"},
-                        {"key": "category", "label": "类型"},
-                        {"key": "reads", "label": "Reads"},
-                        {"key": "rpm", "label": "RPM"},
-                        {"key": "percentage", "label": "相对丰度 (%)"},
-                        {"key": "source", "label": "检出来源"},
-                    ],
-                    "rows": [],
-                    "artifacts": [],
-                },
-            },
-        }
+        return build_integrated_workbench_config()
 
     @staticmethod
     def parse_primer_result_text(content: str) -> list[dict[str, str]]:
@@ -811,32 +506,6 @@ class ToolBridgeService:
                 return artifact
         return None
 
-    def _build_view_common_context(
-        self,
-        execution_row: Any,
-        artifacts: list[dict],
-    ) -> dict[str, Any]:
-        execution_id = str(execution_row["execution_id"] or "")
-        tool_id = str(execution_row["tool_id"] or "")
-        manifest = self._load_manifest(execution_id)
-        return {
-            "execution_id": execution_id,
-            "tool_id": tool_id,
-            "sample_id": str(execution_row["sample_id"] or ""),
-            "sample_name": str(execution_row["sample_name"] or execution_row["sample_id"] or ""),
-            "updated_at": self._format_execution_time(execution_row["completed_at"] or execution_row["created_at"]),
-            "tool_version": str(execution_row["tool_version"] or ""),
-            "remote_result_dir": str((manifest or {}).get("output_dir") or "").strip(),
-            "local_result_dir": self._local_result_dir_for_execution(execution_id, artifacts),
-            "parameters": self._parameter_items_from_dict(
-                self._parse_execution_parameters(
-                    execution_row["parameters"] or "",
-                    execution_id=execution_id,
-                    tool_id=tool_id,
-                )
-            ),
-        }
-
     @staticmethod
     def _parse_table_file(path: Path) -> tuple[list[dict[str, str]], list[dict[str, Any]], dict[str, Any]]:
         payload = parse_generic_result_table(path)
@@ -993,7 +662,7 @@ class ToolBridgeService:
         }
         if not artifacts:
             return None
-        ctx = self._build_view_common_context(row, artifacts)
+        ctx = self._build_execution_result_context(row, artifacts)
         parameters = [
             {
                 "label": "任务 ID",
@@ -1093,7 +762,7 @@ class ToolBridgeService:
         }
         if not artifacts:
             return None
-        ctx = self._build_view_common_context(row, artifacts)
+        ctx = self._build_execution_result_context(row, artifacts)
         parameters = [{"label": "任务 ID", "value": normalized_execution_id}]
         if ctx["remote_result_dir"]:
             parameters.insert(0, {"label": "结果目录", "value": ctx["remote_result_dir"]})
@@ -1628,7 +1297,7 @@ class ToolBridgeService:
         if live_multiplex_view is not None:
             views["multiplex_primer_panel"] = live_multiplex_view
 
-        for workflow_id in _DETECTION_WORKFLOW_ORDER:
+        for workflow_id in DETECTION_WORKFLOW_ORDER:
             live_detection_view = self._get_live_detection_workflow_view(workflow_id)
             if live_detection_view is not None:
                 views[workflow_id] = live_detection_view
@@ -1694,25 +1363,43 @@ class ToolBridgeService:
             if value not in ("", None)
         ]
 
-    def _build_execution_result_context(self, execution_row: Any) -> dict[str, Any]:
+    def _build_execution_result_context(
+        self,
+        execution_row: Any,
+        artifacts: list[dict] | None = None,
+    ) -> dict[str, Any]:
         execution_id = str(execution_row["execution_id"] or "")
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(execution_id))
+        tool_id = str(execution_row["tool_id"] or "")
+        artifacts = self._normalize_artifacts(artifacts or self.list_local_execution_artifacts(execution_id))
         if not artifacts:
             raise RuntimeError(
-                f"执行结果缺少工件清单: tool={execution_row['tool_id']}, execution_id={execution_id}"
+                f"执行结果缺少工件清单: tool={tool_id}, execution_id={execution_id}"
             )
         manifest = self._load_manifest(execution_id) or {}
-        local_result_dir = str(self._execution_results_dir(execution_id) or "")
         return {
             "execution_id": execution_id,
+            "tool_id": tool_id,
             "sample_id": str(execution_row["sample_id"] or ""),
             "sample_name": str(execution_row["sample_name"] or execution_row["sample_id"] or ""),
             "updated_at": self._format_execution_time(execution_row["completed_at"] or execution_row["created_at"]),
             "tool_version": str(execution_row["tool_version"] or ""),
             "artifacts": artifacts,
             "remote_result_dir": str(manifest.get("output_dir") or "").strip(),
-            "local_result_dir": local_result_dir,
-            "parameters": self._build_parameter_items(execution_row["parameters"], execution_id),
+            "local_result_dir": self._local_result_dir_for_execution(execution_id, artifacts),
+            "parameters": self._parameter_items_from_dict(
+                self._parse_execution_parameters_strict(execution_row["parameters"], execution_id)
+            ),
+        }
+
+    @staticmethod
+    def _normalize_result_view_kwargs(context: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "sample_name": context["sample_name"],
+            "execution_id": context["execution_id"],
+            "updated_at": context["updated_at"],
+            "tool_version": context["tool_version"],
+            "remote_result_dir": context["remote_result_dir"],
+            "local_result_dir": context["local_result_dir"],
         }
 
     @staticmethod
@@ -2013,8 +1700,8 @@ class ToolBridgeService:
             (idx for idx, feature in enumerate(features) if feature.get("id") == "target_screening"),
             len(features),
         )
-        for workflow_id in _DETECTION_WORKFLOW_ORDER:
-            spec = _DETECTION_WORKFLOW_SPECS[workflow_id]
+        for workflow_id in DETECTION_WORKFLOW_ORDER:
+            spec = DETECTION_WORKFLOW_SPECS[workflow_id]
             if not any(feature.get("id") == workflow_id for feature in features):
                 features.insert(placeholder_index, copy.deepcopy(spec["feature"]))
                 placeholder_index += 1
@@ -2042,7 +1729,7 @@ class ToolBridgeService:
             return None
 
         tool_id = str(row["tool_id"] or "")
-        if tool_id in _DETECTION_WORKFLOW_ORDER:
+        if tool_id in DETECTION_WORKFLOW_ORDER:
             return tool_id
 
         if tool_id not in ("centrifuge", "kraken2"):
@@ -2052,13 +1739,13 @@ class ToolBridgeService:
             params = json.loads(row["parameters"] or "{}")
         except Exception:
             params = {}
-        legacy_workflow = _DETECTION_WORKFLOW_SPECS["unknown_sample_detection"].get("legacy_workflow")
+        legacy_workflow = DETECTION_WORKFLOW_SPECS["unknown_sample_detection"].get("legacy_workflow")
         if params.get("workflow") == legacy_workflow:
             return "unknown_sample_detection"
         return None
 
     def _build_detection_workflow_view_for_execution(self, workflow_id: str, execution_id: str) -> dict | None:
-        spec = _DETECTION_WORKFLOW_SPECS.get(workflow_id)
+        spec = DETECTION_WORKFLOW_SPECS.get(workflow_id)
         if spec is None:
             return None
         row = self._get_execution_result_row(execution_id)
@@ -2080,7 +1767,7 @@ class ToolBridgeService:
         if pm is None or pm.current_project is None:
             return None
 
-        spec = _DETECTION_WORKFLOW_SPECS.get(workflow_id)
+        spec = DETECTION_WORKFLOW_SPECS.get(workflow_id)
         if spec is None:
             return None
 
@@ -2200,25 +1887,29 @@ class ToolBridgeService:
             f"未支持的结果 archetype: tool={tool_id}, feature_id={feature_id}, archetype={archetype}, execution_id={execution_id}"
         )
 
-    def _build_artifact_collection_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
-        descriptor = self._require_tool_descriptor(str(execution_row["tool_id"] or ""))
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(str(execution_row["execution_id"] or "")))
-        if not artifacts:
-            raise RuntimeError(
-                f"执行结果缺少工件清单: tool={execution_row['tool_id']}, execution_id={execution_id}"
-            )
-        ctx = self._build_view_common_context(execution_row, artifacts)
+    def _build_artifact_backed_view_for_execution(
+        self,
+        execution_row: Any,
+        *,
+        archetype: str,
+        description: str,
+        status_detail: str,
+    ) -> dict:
+        tool_id = str(execution_row["tool_id"] or "")
+        descriptor = self._require_tool_descriptor(tool_id)
+        ctx = self._build_execution_result_context(execution_row)
+        artifacts = ctx["artifacts"]
         return build_artifact_result_view(
-            feature_id=ctx["tool_id"],
-            tool_id=ctx["tool_id"],
-            archetype="artifact_collection",
-            tool_ids=[ctx["tool_id"]],
-            title=str(descriptor.get("name") or ctx["tool_id"]),
-            description=str(descriptor.get("description") or f"{ctx['tool_id']} 结果"),
+            feature_id=tool_id,
+            tool_id=tool_id,
+            archetype=archetype,
+            tool_ids=[tool_id],
+            title=str(descriptor.get("name") or tool_id),
+            description=description,
             status={
                 "state": "completed",
                 "label": "结果已就绪",
-                "detail": "该工具以文件集结果为主，以下展示已同步产物。",
+                "detail": status_detail,
             },
             artifacts=artifacts,
             parameters=ctx["parameters"],
@@ -2228,6 +1919,16 @@ class ToolBridgeService:
             tool_version=ctx["tool_version"],
             remote_result_dir=ctx["remote_result_dir"],
             local_result_dir=ctx["local_result_dir"],
+        )
+
+    def _build_artifact_collection_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
+        tool_id = str(execution_row["tool_id"] or "")
+        descriptor = self._require_tool_descriptor(tool_id)
+        return self._build_artifact_backed_view_for_execution(
+            execution_row,
+            archetype="artifact_collection",
+            description=str(descriptor.get("description") or f"{tool_id} 结果"),
+            status_detail="该工具以文件集结果为主，以下展示已同步产物。",
         )
 
     def _build_generic_table_view_for_execution(
@@ -2245,7 +1946,7 @@ class ToolBridgeService:
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(execution_id))
         if not artifacts:
             raise RuntimeError(f"执行结果缺少工件清单: tool={tool_id}, execution_id={execution_id}")
-        ctx = self._build_view_common_context(execution_row, artifacts)
+        ctx = self._build_execution_result_context(execution_row, artifacts)
 
         artifact = self._artifact_from_result_views(
             descriptor,
@@ -2307,26 +2008,21 @@ class ToolBridgeService:
     def _build_html_report_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
         tool_id = str(execution_row["tool_id"] or "")
         descriptor = self._require_tool_descriptor(tool_id)
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(str(execution_row["execution_id"] or "")))
-        if not artifacts:
-            raise RuntimeError(f"执行结果缺少工件清单: tool={tool_id}, execution_id={execution_id}")
-        ctx = self._build_view_common_context(execution_row, artifacts)
-        return build_artifact_result_view(
-            feature_id=tool_id,
-            tool_id=tool_id,
+        ctx = self._build_execution_result_context(execution_row)
+        html_artifact = self._find_result_artifact(
+            ctx["artifacts"],
+            descriptor,
+            ctx["sample_id"],
+            preferred_view_types=("html", "krona"),
+            allowed_suffixes=(".html",),
+        )
+        if html_artifact is None:
+            raise RuntimeError(f"HTML 结果缺失: tool={tool_id}, execution_id={execution_id}")
+        return self._build_artifact_backed_view_for_execution(
+            execution_row,
             archetype="html_report",
-            tool_ids=[tool_id],
-            title=str(descriptor.get("name") or tool_id),
             description=str(descriptor.get("description") or f"{tool_id} HTML 报告"),
-            status={"state": "completed", "label": "结果已就绪", "detail": "已同步主 HTML 报告，可在页面预览或在系统中打开。"},
-            artifacts=artifacts,
-            parameters=ctx["parameters"],
-            sample_name=ctx["sample_name"],
-            execution_id=ctx["execution_id"],
-            updated_at=ctx["updated_at"],
-            tool_version=ctx["tool_version"],
-            remote_result_dir=ctx["remote_result_dir"],
-            local_result_dir=ctx["local_result_dir"],
+            status_detail="已同步主 HTML 报告，可在页面预览或在系统中打开。",
         )
 
     def _build_annotation_table_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
@@ -2366,7 +2062,7 @@ class ToolBridgeService:
             return self._build_primer_workflow_view_for_execution(execution_id)
         if resolved_feature_id == "multiplex_primer_panel":
             return self._build_multiplex_workflow_view_for_execution(execution_id)
-        if resolved_feature_id in _DETECTION_WORKFLOW_ORDER:
+        if resolved_feature_id in DETECTION_WORKFLOW_ORDER:
             return self._build_detection_workflow_result_view(execution_id, execution_row, feature_id=resolved_feature_id)
         raise RuntimeError(
             f"未支持的 workflow_product: tool={execution_row['tool_id']}, feature_id={resolved_feature_id}, execution_id={execution_id}"
@@ -2385,14 +2081,7 @@ class ToolBridgeService:
             raise RuntimeError(f"未找到执行记录: {execution_id}")
         descriptor = self._require_tool_descriptor(feature_id)
         context = self._build_execution_result_context(row)
-        normalize_kwargs = {
-            "sample_name": context["sample_name"],
-            "execution_id": context["execution_id"],
-            "updated_at": context["updated_at"],
-            "tool_version": context["tool_version"],
-            "remote_result_dir": context["remote_result_dir"],
-            "local_result_dir": context["local_result_dir"],
-        }
+        normalize_kwargs = self._normalize_result_view_kwargs(context)
         section_view = normalize_result_view(
             source_view,
             feature_id=feature_id,
@@ -2440,66 +2129,6 @@ class ToolBridgeService:
             section_id="multiplex_result",
         )
 
-    def _build_fastp_section_from_artifacts(
-        self,
-        *,
-        sample_id: str,
-        artifacts: list[dict[str, Any]],
-        ctx: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        json_name = f"{sample_id}.fastp.json"
-        local_json = self._local_artifact_path(artifacts, json_name)
-        if local_json is None:
-            return None
-        fastp_data = parse_fastp_json(local_json)
-        summary = fastp_data.get("summary", {})
-        before = summary.get("before_filtering", {})
-        after = summary.get("after_filtering", {})
-        total_before = int(before.get("total_reads", 0) or 0)
-        total_after = int(after.get("total_reads", 0) or 0)
-        q30_after = float(after.get("q30_rate", 0) or 0)
-        gc_after = float(after.get("gc_content", 0) or 0)
-        pct_pass = f"{(total_after / total_before * 100):.1f}%" if total_before > 0 else "—"
-        html_name = f"{sample_id}.fastp.html"
-        section_view = build_single_tool_view(
-            feature_id="fastp",
-            tool_id="fastp",
-            archetype="qc_report",
-            tool_ids=["fastp"],
-            title="fastp 质控",
-            description="工作流内置的 fastp 质控结果。",
-            status={"state": "completed", "label": "QC 完成", "detail": f"通过率 {pct_pass}"},
-            summary=[
-                {"label": "原始 Reads", "value": f"{total_before:,}", "tone": "primary"},
-                {"label": "通过 QC", "value": f"{total_after:,} ({pct_pass})", "tone": "success"},
-                {"label": "Q30", "value": f"{q30_after:.2%}", "tone": "info"},
-                {"label": "GC", "value": f"{gc_after:.2%}", "tone": "info"},
-            ],
-            columns=[
-                {"key": "metric", "label": "指标"},
-                {"key": "value", "label": "值"},
-            ],
-            rows=[
-                {"metric": "原始 Reads", "value": f"{total_before:,}"},
-                {"metric": "过滤后 Reads", "value": f"{total_after:,}"},
-                {"metric": "Q30", "value": f"{q30_after:.2%}"},
-                {"metric": "GC", "value": f"{gc_after:.2%}"},
-            ],
-            artifacts=[
-                artifact
-                for artifact in artifacts
-                if str(artifact.get("name") or "") in {json_name, html_name}
-            ],
-            parameters=ctx["parameters"],
-            sample_name=ctx["sample_name"],
-            execution_id=ctx["execution_id"],
-            updated_at=ctx["updated_at"],
-            tool_version=ctx["tool_version"],
-            remote_result_dir=ctx["remote_result_dir"],
-            local_result_dir=ctx["local_result_dir"],
-        )
-        return section_from_view(section_view, section_id="qc", title="QC 质控", archetype="qc_report")
-
     def _build_prokka_view_for_execution(self, execution_id: str, execution_row: Any | None = None) -> dict | None:
         row = execution_row or self._get_execution_result_row(execution_id)
         if row is None:
@@ -2518,7 +2147,7 @@ class ToolBridgeService:
             raise RuntimeError(f"Prokka 统计文件无法解析: {stats_name}")
 
         descriptor = self._require_tool_descriptor("prokka")
-        ctx = self._build_view_common_context(row, artifacts)
+        ctx = self._build_execution_result_context(row, artifacts)
         table_columns = [
             {"key": "organism", "label": "物种"},
             {"key": "contigs", "label": "Contigs"},
@@ -2589,98 +2218,26 @@ class ToolBridgeService:
             return None
         if not row or row["tool_id"] != "fastp":
             return None
-
-        sample_id = row["sample_id"]
-        json_name = f"{sample_id}.fastp.json"
-        html_name = f"{sample_id}.fastp.html"
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_id))
-        if not artifacts:
+        execution_row = self._get_execution_result_row(normalized_id)
+        if execution_row is None:
             return None
-        ctx = self._build_view_common_context(self._get_execution_result_row(normalized_id), artifacts)
-        remote_dir = ctx["remote_result_dir"]
-        html_artifact = self._artifact_by_name(artifacts, html_name)
-        local_json = self._local_artifact_path(artifacts, json_name)
-        if local_json is None:
-            return None
-
-        fastp_data = parse_fastp_json(local_json)
-
-        summary = fastp_data.get("summary", {})
-        before = summary.get("before_filtering", {})
-        after = summary.get("after_filtering", {})
-        filtering = fastp_data.get("filtering_result", {})
-
-        total_before = before.get("total_reads", 0)
-        total_after = after.get("total_reads", 0)
-        q30_before = before.get("q30_rate", 0)
-        q30_after = after.get("q30_rate", 0)
-        gc_after = after.get("gc_content", 0)
-        passed = filtering.get("passed_filter_reads", 0)
-        low_quality = filtering.get("low_quality_reads", 0)
-        too_short = filtering.get("too_short_reads", 0)
-        too_many_n = filtering.get("too_many_N_reads", 0)
-
-        pct_pass = f"{passed / total_before * 100:.1f}%" if total_before > 0 else "—"
-        return build_single_tool_view(
+        base_view = self._build_fastp_view_from_artifacts(
+            execution_row,
             feature_id="fastp",
-            tool_id="fastp",
-            archetype="qc_report",
-            tool_ids=["fastp"],
-            title="fastp 质控报告",
-            description=f"样品 {sample_id} 的 QC 质控统计。",
-            status={
-                "state": "completed",
-                "label": "QC 完成",
-                "detail": f"通过率 {pct_pass}，Q30 {q30_after:.1%}",
-            },
-            summary=[
-                {"label": "原始 Reads", "value": f"{total_before:,}", "tone": "primary"},
-                {"label": "通过 QC", "value": f"{total_after:,} ({pct_pass})", "tone": "success"},
-                {"label": "Q30 (过滤后)", "value": f"{q30_after:.2%}", "tone": "info"},
-                {"label": "GC 含量", "value": f"{gc_after:.2%}", "tone": "info"},
-            ],
-            columns=[
-                {"key": "metric", "label": "指标"},
-                {"key": "before", "label": "过滤前"},
-                {"key": "after", "label": "过滤后"},
-            ],
-            rows=[
-                {"metric": "总 Reads", "before": f"{total_before:,}", "after": f"{total_after:,}"},
-                {"metric": "Q30", "before": f"{q30_before:.2%}", "after": f"{q30_after:.2%}"},
-                {"metric": "GC 含量", "before": f"{before.get('gc_content', 0):.2%}", "after": f"{gc_after:.2%}"},
-                {"metric": "低质量 Reads", "before": "—", "after": f"{low_quality:,}"},
-                {"metric": "过短 Reads", "before": "—", "after": f"{too_short:,}"},
-                {"metric": "高 N Reads", "before": "—", "after": f"{too_many_n:,}"},
-                {"metric": "通过率", "before": "—", "after": pct_pass},
-            ],
-            artifacts=[
-                {
-                    "name": json_name,
-                    "remote_path": str((self._artifact_by_name(artifacts, json_name) or {}).get("remote_path") or f"{remote_dir}/{json_name}"),
-                    "local_path": str(local_json),
-                    "available": True,
-                },
-                {
-                    "name": html_name,
-                    "remote_path": str((html_artifact or {}).get("remote_path") or f"{remote_dir}/{html_name}"),
-                    "local_path": str((html_artifact or {}).get("local_path") or ""),
-                    "available": bool((html_artifact or {}).get("available")),
-                },
-            ],
-            parameters=[
-                {"label": "输入", "value": f"双端 FASTQ ({total_before:,} reads)"},
-                {"label": "输出", "value": f"清洁 reads ({total_after:,} reads)"},
-                {"label": "工具", "value": "fastp"},
-            ] + ctx["parameters"],
+            include_context_parameters=False,
             table_title="质控过滤统计",
             table_subtitle="fastp 接头去除 + 低质量过滤详情。",
-            sample_name=ctx["sample_name"],
-            execution_id=ctx["execution_id"],
-            updated_at=ctx["updated_at"],
-            tool_version=ctx["tool_version"],
-            remote_result_dir=remote_dir,
-            local_result_dir=ctx["local_result_dir"],
         )
+        if base_view is None:
+            return None
+        original_reads = next((item["value"] for item in base_view["summary"] if item["label"] == "原始 Reads"), "—")
+        passed_reads = next((item["value"] for item in base_view["summary"] if item["label"] == "通过 QC"), "—")
+        base_view["parameters"] = [
+            {"label": "输入", "value": f"双端 FASTQ ({original_reads} reads)"},
+            {"label": "输出", "value": f"清洁 reads ({passed_reads})"},
+            {"label": "工具", "value": "fastp"},
+        ] + list(base_view.get("provenance", {}).get("parameters") or [])
+        return base_view
 
     def _build_taxonomy_profile_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
         tool_id = str(execution_row["tool_id"] or "")
@@ -2697,6 +2254,103 @@ class ToolBridgeService:
             table_subtitle="已从分类结果文件构建结果表。",
         )
 
+    def _resolve_targeted_seq_local_paths(
+        self,
+        sample_id: str,
+        artifacts: list[dict[str, Any]],
+    ) -> dict[str, Path | None]:
+        suffixes = {
+            "kreport": ".kreport",
+            "coverage_depth": ".coverage_depth.tsv",
+            "amplicon_performance": ".amplicon_performance.tsv",
+            "fastp_json": ".fastp.json",
+            "bracken": ".bracken.tsv",
+            "bracken_kreport": ".bracken.kreport",
+            "krona": ".krona.html",
+        }
+        return {
+            key: self._local_artifact_path(artifacts, f"{sample_id}{suffix}")
+            for key, suffix in suffixes.items()
+        }
+
+    @staticmethod
+    def _build_targeted_seq_abundance_payload(
+        chart_data: dict[str, Any],
+        bracken_rows: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], str]:
+        if bracken_rows:
+            return (
+                [
+                    {
+                        "name": row["name"],
+                        "reads": int(row["reads"].replace(",", "")),
+                        "value": float(row["percentage"].rstrip("%")),
+                    }
+                    for row in bracken_rows
+                ],
+                "Bracken 丰度 (Top 20)",
+            )
+        return list(chart_data.get("data", [])[:20]), "物种丰度 (Top 20)"
+
+    @staticmethod
+    def _build_targeted_seq_table_payload(
+        chart_data: dict[str, Any],
+        bracken_rows: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, str]], str, str]:
+        if bracken_rows:
+            return (
+                bracken_rows,
+                [
+                    {"key": "rank", "label": "序号"},
+                    {"key": "name", "label": "物种名称"},
+                    {"key": "reads", "label": "Bracken Reads"},
+                    {"key": "percentage", "label": "相对丰度 (%)"},
+                ],
+                "Bracken 丰度结果",
+                "优先展示 Bracken 重估后的物种丰度结果。",
+            )
+        rows = [
+            {
+                "rank": str(i),
+                "name": item["name"],
+                "reads": f'{item.get("reads", 0):,}',
+                "percentage": f'{item["value"]:.2f}%',
+            }
+            for i, item in enumerate(chart_data.get("data", []), 1)
+        ]
+        return (
+            rows,
+            [
+                {"key": "rank", "label": "序号"},
+                {"key": "name", "label": "病原体名称"},
+                {"key": "reads", "label": "Reads 数"},
+                {"key": "percentage", "label": "占比 (%)"},
+            ],
+            "病原体物种组成",
+            "基于 kreport 解析的物种组成，按丰度降序排列。",
+        )
+
+    @staticmethod
+    def _build_targeted_seq_summary(summary_data: dict[str, Any]) -> list[dict[str, Any]]:
+        total = summary_data["total_reads"]
+        classified = summary_data["classified_reads"]
+        pct = f"{classified / total * 100:.1f}%" if total > 0 else "0%"
+        return [
+            {"label": "总 Reads", "value": f"{total:,}", "tone": "primary"},
+            {"label": "已分类", "value": f"{classified:,} ({pct})", "tone": "info"},
+            {"label": "物种数", "value": str(summary_data["species_count"]), "tone": "success"},
+            {"label": "Top 物种", "value": summary_data["top_species"], "tone": "accent"},
+        ]
+
+    @staticmethod
+    def _append_chart_if_present(charts: list[dict[str, Any]], chart: dict[str, Any], *, title: str | None = None) -> None:
+        if not chart.get("data"):
+            return
+        if title is not None:
+            charts.append({"type": chart.get("type"), "title": title, "data": chart.get("data", [])})
+            return
+        charts.append(chart)
+
     def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | None:
         """从 execution 记录构建 taxonomy profile 结果 view（纯本地 artifact 读路径）。"""
         from core.pipeline.chart_data_parser import ChartDataParser
@@ -2707,60 +2361,35 @@ class ToolBridgeService:
         execution_row = self._get_execution_result_row(normalized_id)
         if execution_row is None:
             return None
-        if str(execution_row["tool_id"] or "") not in _TARGETED_RESULT_TOOL_IDS:
+        if str(execution_row["tool_id"] or "") not in TARGETED_RESULT_TOOL_IDS:
             return None
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_id))
         if not artifacts:
             return None
-        ctx = self._build_view_common_context(execution_row, artifacts)
+        ctx = self._build_execution_result_context(execution_row, artifacts)
         tool_id = ctx["tool_id"]
         sample_id = ctx["sample_id"]
         remote_dir = ctx["remote_result_dir"]
-
-        kreport_name = f"{sample_id}.kreport"
-        coverage_depth_name = f"{sample_id}.coverage_depth.tsv"
-        amplicon_perf_name = f"{sample_id}.amplicon_performance.tsv"
-        fastp_json_name = f"{sample_id}.fastp.json"
-        bracken_name = f"{sample_id}.bracken.tsv"
-        bracken_kreport_name = f"{sample_id}.bracken.kreport"
-        krona_name = f"{sample_id}.krona.html"
-        local_kreport = self._local_artifact_path(artifacts, kreport_name)
+        local_paths = self._resolve_targeted_seq_local_paths(sample_id, artifacts)
+        local_kreport = local_paths["kreport"]
         if local_kreport is None:
             return None
-        local_coverage_depth = self._local_artifact_path(artifacts, coverage_depth_name)
-        local_amplicon_perf = self._local_artifact_path(artifacts, amplicon_perf_name)
-        local_fastp_json = self._local_artifact_path(artifacts, fastp_json_name)
-        local_bracken = self._local_artifact_path(artifacts, bracken_name)
-        local_bracken_kreport = self._local_artifact_path(artifacts, bracken_kreport_name)
-        local_krona = self._local_artifact_path(artifacts, krona_name)
 
         chart_data = ChartDataParser.parse_kreport(str(local_kreport))
         sunburst_chart = ChartDataParser.parse_kreport_tree(str(local_kreport))
         summary_data = ChartDataParser.parse_kreport_summary(str(local_kreport))
-        bracken_rows = self._parse_bracken_abundance_rows(local_bracken)
+        bracken_rows = self._parse_bracken_abundance_rows(local_paths["bracken"])
         read_flow_chart = self._build_read_flow_chart(
-            local_fastp_json,
+            local_paths["fastp_json"],
             summary_data,
         )
         coverage_chart = {"type": "coverage_depth", "title": "Coverage Depth", "data": []}
         amplicon_chart = {"type": "amplicon_performance", "title": "Amplicon Performance", "data": []}
-        if local_coverage_depth is not None:
-            coverage_chart = ChartDataParser.parse_coverage_depth(str(local_coverage_depth))
-        if local_amplicon_perf is not None:
-            amplicon_chart = ChartDataParser.parse_amplicon_performance(str(local_amplicon_perf))
-
-        abundance_bar_data = chart_data.get("data", [])[:20]
-        abundance_bar_title = "物种丰度 (Top 20)"
-        if bracken_rows:
-            abundance_bar_data = [
-                {
-                    "name": row["name"],
-                    "reads": int(row["reads"].replace(",", "")),
-                    "value": float(row["percentage"].rstrip("%")),
-                }
-                for row in bracken_rows
-            ]
-            abundance_bar_title = "Bracken 丰度 (Top 20)"
+        if local_paths["coverage_depth"] is not None:
+            coverage_chart = ChartDataParser.parse_coverage_depth(str(local_paths["coverage_depth"]))
+        if local_paths["amplicon_performance"] is not None:
+            amplicon_chart = ChartDataParser.parse_amplicon_performance(str(local_paths["amplicon_performance"]))
+        abundance_bar_data, abundance_bar_title = self._build_targeted_seq_abundance_payload(chart_data, bracken_rows)
 
         charts = [
             {
@@ -2776,60 +2405,11 @@ class ToolBridgeService:
         ]
         if read_flow_chart is not None:
             charts.insert(0, read_flow_chart)
-        if sunburst_chart.get("data"):
-            charts.append(sunburst_chart)
-        if coverage_chart.get("data"):
-            charts.append({
-                "type": "coverage_depth",
-                "title": "Coverage Depth",
-                "data": coverage_chart.get("data", []),
-            })
-        if amplicon_chart.get("data"):
-            charts.append({
-                "type": "amplicon_performance",
-                "title": "Amplicon Performance",
-                "data": amplicon_chart.get("data", []),
-            })
-
-        # 构建表格行
-        rows = []
-        for i, item in enumerate(chart_data.get("data", []), 1):
-            rows.append({
-                "rank": str(i),
-                "name": item["name"],
-                "reads": f'{item.get("reads", 0):,}',
-                "percentage": f'{item["value"]:.2f}%',
-            })
-        columns = [
-            {"key": "rank", "label": "序号"},
-            {"key": "name", "label": "病原体名称"},
-            {"key": "reads", "label": "Reads 数"},
-            {"key": "percentage", "label": "占比 (%)"},
-        ]
-        table_title = "病原体物种组成"
-        table_subtitle = "基于 kreport 解析的物种组成，按丰度降序排列。"
-        if bracken_rows:
-            rows = bracken_rows
-            columns = [
-                {"key": "rank", "label": "序号"},
-                {"key": "name", "label": "物种名称"},
-                {"key": "reads", "label": "Bracken Reads"},
-                {"key": "percentage", "label": "相对丰度 (%)"},
-            ]
-            table_title = "Bracken 丰度结果"
-            table_subtitle = "优先展示 Bracken 重估后的物种丰度结果。"
-
-        # 摘要卡片
-        total = summary_data["total_reads"]
-        classified = summary_data["classified_reads"]
-        unclassified = summary_data["unclassified_reads"]
-        pct = f"{classified / total * 100:.1f}%" if total > 0 else "0%"
-        summary = [
-            {"label": "总 Reads", "value": f"{total:,}", "tone": "primary"},
-            {"label": "已分类", "value": f"{classified:,} ({pct})", "tone": "info"},
-            {"label": "物种数", "value": str(summary_data["species_count"]), "tone": "success"},
-            {"label": "Top 物种", "value": summary_data["top_species"], "tone": "accent"},
-        ]
+        self._append_chart_if_present(charts, sunburst_chart)
+        self._append_chart_if_present(charts, coverage_chart, title="Coverage Depth")
+        self._append_chart_if_present(charts, amplicon_chart, title="Amplicon Performance")
+        rows, columns, table_title, table_subtitle = self._build_targeted_seq_table_payload(chart_data, bracken_rows)
+        summary = self._build_targeted_seq_summary(summary_data)
 
         classifier_label = "Centrifuge" if tool_id in ("centrifuge", "unknown_sample_detection") else "Kraken2"
         return build_single_tool_view(
@@ -2856,7 +2436,15 @@ class ToolBridgeService:
             local_result_dir=ctx["local_result_dir"],
         )
 
-    def _build_fastp_view_from_artifacts(self, execution_row: Any, *, feature_id: str = "fastp") -> dict | None:
+    def _build_fastp_view_from_artifacts(
+        self,
+        execution_row: Any,
+        *,
+        feature_id: str = "fastp",
+        include_context_parameters: bool = True,
+        table_title: str | None = None,
+        table_subtitle: str | None = None,
+    ) -> dict | None:
         execution_id = str(execution_row["execution_id"] or "")
         sample_id = str(execution_row["sample_id"] or "")
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(execution_id))
@@ -2869,7 +2457,7 @@ class ToolBridgeService:
         if local_json is None:
             return None
 
-        ctx = self._build_view_common_context(execution_row, artifacts)
+        ctx = self._build_execution_result_context(execution_row, artifacts)
         remote_dir = ctx["remote_result_dir"]
         html_artifact = self._artifact_by_name(artifacts, html_name)
         fastp_data = parse_fastp_json(local_json)
@@ -2937,23 +2525,55 @@ class ToolBridgeService:
             ],
             provenance={
                 "execution_id": ctx["execution_id"],
-                "parameters": ctx["parameters"],
+                "parameters": list(ctx["parameters"]),
                 "tool_version": ctx["tool_version"],
                 "remote_result_dir": remote_dir,
                 "local_result_dir": ctx["local_result_dir"],
             },
+            parameters=list(ctx["parameters"]) if include_context_parameters else [],
+            table_title=table_title or "分析结果",
+            table_subtitle=table_subtitle or "",
             sample_name=ctx["sample_name"],
             execution_id=ctx["execution_id"],
             updated_at=ctx["updated_at"],
         )
+
+    @staticmethod
+    def _infer_total_reads_from_summary(summary: list[dict[str, Any]]) -> int:
+        for item in summary:
+            if "Reads" not in str(item.get("label") or ""):
+                continue
+            try:
+                return int(str(item.get("value") or "0").replace(",", "").split("(")[0].strip())
+            except ValueError:
+                continue
+        return 0
+
+    def _finalize_unknown_detection_table(self, workflow_view: dict[str, Any], spec: dict[str, Any]) -> None:
+        workflow_view["table"]["columns"] = copy.deepcopy(spec.get("view", {}).get("columns", []))
+        workflow_view["columns"] = list(workflow_view["table"]["columns"])
+        total_reads = self._infer_total_reads_from_summary(list(workflow_view.get("summary") or []))
+        for row_data in workflow_view.get("rows", []):
+            if "rpm" not in row_data:
+                if total_reads > 0:
+                    try:
+                        raw_reads = int(str(row_data.get("reads", "0")).replace(",", ""))
+                        row_data["rpm"] = f"{raw_reads / total_reads * 1_000_000:,.1f}"
+                    except (TypeError, ValueError):
+                        row_data["rpm"] = "—"
+                else:
+                    row_data["rpm"] = "—"
+            row_data.setdefault("category", "—")
+            row_data.setdefault("source", "Centrifuge")
+        workflow_view["table"]["rows"] = list(workflow_view["rows"])
 
     def _build_detection_workflow_result_view(self, execution_id: str, execution_row: Any, *, feature_id: str) -> dict:
         tool_id = str(execution_row["tool_id"] or "")
         artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(execution_id))
         if not artifacts:
             raise RuntimeError(f"执行结果缺少工件清单: tool={tool_id}, execution_id={execution_id}")
-        ctx = self._build_view_common_context(execution_row, artifacts)
-        spec = _DETECTION_WORKFLOW_SPECS.get(feature_id, {})
+        ctx = self._build_execution_result_context(execution_row, artifacts)
+        spec = DETECTION_WORKFLOW_SPECS.get(feature_id, {})
 
         fastp_view = self._build_fastp_view_from_artifacts(execution_row, feature_id="fastp")
         taxonomy_view = self._build_targeted_seq_view_for_execution(execution_id)
@@ -2964,12 +2584,7 @@ class ToolBridgeService:
             feature_id=feature_id,
             tool_id=tool_id,
             archetype="taxonomy_profile",
-            sample_name=ctx["sample_name"],
-            execution_id=ctx["execution_id"],
-            updated_at=ctx["updated_at"],
-            tool_version=ctx["tool_version"],
-            remote_result_dir=ctx["remote_result_dir"],
-            local_result_dir=ctx["local_result_dir"],
+            **self._normalize_result_view_kwargs(ctx),
         )
 
         descriptor = self._require_tool_descriptor(feature_id)
@@ -3013,30 +2628,7 @@ class ToolBridgeService:
         workflow_view["parameters"] = list(workflow_view["provenance"]["parameters"])
 
         if feature_id == "unknown_sample_detection":
-            workflow_view["table"]["columns"] = copy.deepcopy(spec.get("view", {}).get("columns", []))
-            workflow_view["columns"] = list(workflow_view["table"]["columns"])
-            total_reads = 0
-            for item in workflow_view.get("summary", []):
-                if "Reads" not in str(item.get("label") or ""):
-                    continue
-                try:
-                    total_reads = int(str(item.get("value") or "0").replace(",", "").split("(")[0].strip())
-                    break
-                except ValueError:
-                    total_reads = 0
-            for row_data in workflow_view.get("rows", []):
-                if "rpm" not in row_data:
-                    if total_reads > 0:
-                        try:
-                            raw_reads = int(str(row_data.get("reads", "0")).replace(",", ""))
-                            row_data["rpm"] = f"{raw_reads / total_reads * 1_000_000:,.1f}"
-                        except (TypeError, ValueError):
-                            row_data["rpm"] = "—"
-                    else:
-                        row_data["rpm"] = "—"
-                row_data.setdefault("category", "—")
-                row_data.setdefault("source", "Centrifuge")
-            workflow_view["table"]["rows"] = list(workflow_view["rows"])
+            self._finalize_unknown_detection_table(workflow_view, spec)
 
         return workflow_view
 
