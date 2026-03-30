@@ -363,15 +363,20 @@ class TestDetectionIntegratedWorkbench:
         service = ToolBridgeService(service_locator=_Locator())
         monkeypatch.setattr(
             service,
-            "_build_detection_workflow_view_for_execution",
-            lambda workflow_id, execution_id: {"feature_id": workflow_id, "execution_id": execution_id},
+            "_build_workflow_product_view_for_execution",
+            lambda execution_id, row=None, execution_row=None, feature_id=None: {
+                "feature_id": "wastewater_metagenomics_basic",
+                "archetype": "workflow_product",
+                "hero": {"execution_id": execution_id},
+            },
         )
 
         payload = service.get_targeted_seq_results_for_execution("exec_meta")
 
         assert payload["status"] == "ok"
         assert payload["view"]["feature_id"] == "wastewater_metagenomics_basic"
-        assert payload["view"]["execution_id"] == "exec_meta"
+        assert payload["view"]["hero"]["execution_id"] == "exec_meta"
+        assert payload["view"]["archetype"] == "workflow_product"
         pm.close()
 
     def test_tool_bridge_parses_bracken_rows(self, tmp_path: Path):
@@ -511,18 +516,25 @@ class TestDetectionIntegratedWorkbench:
         service = ToolBridgeService()
         monkeypatch.setattr(
             service,
-            "get_primer_view_for_execution",
-            lambda execution_id: {
+            "_get_execution_result_row",
+            lambda execution_id: {"execution_id": execution_id, "tool_id": "primer_design"},
+        )
+        monkeypatch.setattr(
+            service,
+            "_build_workflow_product_view_for_execution",
+            lambda execution_id, row: {
                 "title": "history primer",
-                "rows": [{"pathogen": "Virus_H"}],
-                "remote_result_dir": f"/remote/{execution_id}",
+                "feature_id": "primer_design",
+                "archetype": "workflow_product",
+                "hero": {"execution_id": execution_id},
             },
         )
 
         payload = service.get_primer_results_for_execution("exec_abc123")
 
         assert payload["status"] == "ok"
-        assert payload["view"]["remote_result_dir"] == "/remote/exec_abc123"
+        assert payload["view"]["hero"]["execution_id"] == "exec_abc123"
+        assert payload["view"]["archetype"] == "workflow_product"
 
     def test_tool_bridge_lists_local_execution_artifacts(self, tmp_path: Path):
         from core.data.project_manager import ProjectManager
@@ -573,18 +585,25 @@ class TestDetectionIntegratedWorkbench:
         service = ToolBridgeService()
         monkeypatch.setattr(
             service,
-            "get_multiplex_view_for_execution",
-            lambda execution_id: {
+            "_get_execution_result_row",
+            lambda execution_id: {"execution_id": execution_id, "tool_id": "multiplex_primer_panel"},
+        )
+        monkeypatch.setattr(
+            service,
+            "_build_workflow_product_view_for_execution",
+            lambda execution_id, row: {
                 "title": "history multiplex",
-                "rows": [{"pathogen": "Virus_M"}],
-                "remote_result_dir": f"/remote/{execution_id}",
+                "feature_id": "multiplex_primer_panel",
+                "archetype": "workflow_product",
+                "hero": {"execution_id": execution_id},
             },
         )
 
         payload = service.get_multiplex_results_for_execution("exec_mux123")
 
         assert payload["status"] == "ok"
-        assert payload["view"]["remote_result_dir"] == "/remote/exec_mux123"
+        assert payload["view"]["hero"]["execution_id"] == "exec_mux123"
+        assert payload["view"]["archetype"] == "workflow_product"
 
     def test_tool_bridge_normalizes_legacy_project_remote_base(self):
         from core.execution.tool_bridge_service import ToolBridgeService
@@ -634,9 +653,18 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-table-body"' in html
         assert 'id="integrated-html-card"' in html
         assert 'id="integrated-html-frame"' in html
+        assert 'id="integrated-sections-card"' in html
+        assert 'id="integrated-sections-list"' in html
+        assert 'id="integrated-provenance-list"' in html
         assert 'loadExecutionResultsFromHistory' in js
         assert 'resolveHistoryResultContext' in js
         assert 'ensureIntegratedWorkbenchViews' in js
+        assert 'getIntegratedWorkbenchFeature' in js
+        assert 'clearIntegratedTemporaryFeatures' in js
+        assert 'upsertIntegratedHistoryFeature' in js
+        assert 'renderIntegratedProvenance' in js
+        assert 'renderIntegratedSections' in js
+        assert 'temporary' in js
         assert 'get_results_for_execution' in js
         assert "get_primer_results_for_execution" in js
         assert "loadPrimerResultsFromHistory" in js
@@ -651,6 +679,13 @@ class TestDetectionIntegratedWorkbench:
         assert "wastewater_metagenomics_basic" in js
         assert "animal_metagenomics_basic" in js
         assert "需要输入文件" in js
+
+        context_priority = js.find("context.featureId")
+        payload_priority = js.find("payload.view.feature_id")
+        assert context_priority != -1
+        assert payload_priority != -1
+        assert context_priority < payload_priority
+        assert "featureId: 'fastp'" in js
 
 
 class TestHomePageFlows:

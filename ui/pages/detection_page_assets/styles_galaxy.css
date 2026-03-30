@@ -641,8 +641,15 @@ header {
     color: #57606a;
 }
 
-.empty-emoji {
-    font-size: 36px;
+.empty-mark {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0f4c81;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .integrated-detail {
@@ -1331,6 +1338,35 @@ header {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.provenance-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+}
+
+.provenance-list li {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #f6f8fa;
+    border: 1px solid #e6edf3;
+}
+
+.provenance-label {
+    color: #57606a;
+    font-size: 11px;
+    margin-bottom: 4px;
+}
+
+.provenance-value {
+    color: #24292f;
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-all;
 }
 
 .artifact-list li {
