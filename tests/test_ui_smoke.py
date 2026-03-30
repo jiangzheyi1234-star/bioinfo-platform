@@ -283,7 +283,7 @@ class TestDetectionIntegratedWorkbench:
         assert payload["views"]["primer_design"]["title"] == "实时引物结果"
         assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_A"
 
-    def test_tool_bridge_falls_back_to_default_remote_result_dir(self, monkeypatch):
+    def test_tool_bridge_does_not_fall_back_to_default_remote_result_dir(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         service = ToolBridgeService()
@@ -291,28 +291,20 @@ class TestDetectionIntegratedWorkbench:
         monkeypatch.setattr(
             service,
             "get_default_primer_result_dir",
-            lambda: "/remote/default/primer_design/my_result",
+            lambda: (_ for _ in ()).throw(AssertionError("不应读取默认远程结果目录")),
         )
         monkeypatch.setattr(
             service,
             "build_primer_view_from_result_dir",
-            lambda remote_dir: {
-                "title": "默认远程结果",
-                "description": f"来自 {remote_dir}",
-                "status": {"state": "completed", "label": "已加载远程结果", "detail": "默认目录"},
-                "parameters": [{"label": "结果目录", "value": remote_dir}],
-                "summary": [{"label": "目标病原体", "value": "1", "tone": "primary"}],
-                "columns": [{"key": "pathogen", "label": "病原体"}],
-                "rows": [{"pathogen": "Virus_Default"}],
-                "artifacts": [f"{remote_dir}/primer_result_final_2.txt"],
-                "remote_result_dir": remote_dir,
-            },
+            lambda remote_dir: (_ for _ in ()).throw(AssertionError("不应自动构建默认远程结果")),
         )
 
         payload = service.get_integrated_workbench_config()
 
-        assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_Default"
-        assert payload["views"]["primer_design"]["remote_result_dir"] == "/remote/default/primer_design/my_result"
+        primer_view = payload["views"]["primer_design"]
+
+        assert primer_view["status"]["label"] != "已加载默认远程结果"
+        assert primer_view.get("remote_result_dir") not in {"/remote/default/primer_design/my_result"}
 
     def test_tool_bridge_exposes_multiplex_feature(self):
         from core.execution.tool_bridge_service import ToolBridgeService
@@ -371,7 +363,7 @@ class TestDetectionIntegratedWorkbench:
             },
         )
 
-        payload = service.get_targeted_seq_results_for_execution("exec_meta")
+        payload = service.get_results_for_execution("exec_meta")
 
         assert payload["status"] == "ok"
         assert payload["view"]["feature_id"] == "wastewater_metagenomics_basic"
@@ -510,18 +502,18 @@ class TestDetectionIntegratedWorkbench:
         assert payload["status"] == "ok"
         assert payload["view"]["remote_result_dir"] == "/remote/primer_job/my_result"
 
-    def test_tool_bridge_returns_primer_results_for_execution(self, monkeypatch):
+    def test_tool_bridge_routes_primer_results_through_unified_entry(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         service = ToolBridgeService()
         monkeypatch.setattr(
             service,
             "_get_execution_result_row",
-            lambda execution_id: {"execution_id": execution_id, "tool_id": "primer_design"},
+            lambda execution_id: {"execution_id": execution_id, "tool_id": "primer_design", "status": "completed"},
         )
         monkeypatch.setattr(
             service,
-            "_build_workflow_product_view_for_execution",
+            "_build_result_view_for_execution",
             lambda execution_id, row: {
                 "title": "history primer",
                 "feature_id": "primer_design",
@@ -530,7 +522,7 @@ class TestDetectionIntegratedWorkbench:
             },
         )
 
-        payload = service.get_primer_results_for_execution("exec_abc123")
+        payload = service.get_results_for_execution("exec_abc123")
 
         assert payload["status"] == "ok"
         assert payload["view"]["hero"]["execution_id"] == "exec_abc123"
@@ -579,18 +571,18 @@ class TestDetectionIntegratedWorkbench:
         assert artifacts[0]["name"] == "primer_result_final_2.txt"
         assert artifacts[0]["available"] is True
 
-    def test_tool_bridge_returns_multiplex_results_for_execution(self, monkeypatch):
+    def test_tool_bridge_routes_multiplex_results_through_unified_entry(self, monkeypatch):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         service = ToolBridgeService()
         monkeypatch.setattr(
             service,
             "_get_execution_result_row",
-            lambda execution_id: {"execution_id": execution_id, "tool_id": "multiplex_primer_panel"},
+            lambda execution_id: {"execution_id": execution_id, "tool_id": "multiplex_primer_panel", "status": "completed"},
         )
         monkeypatch.setattr(
             service,
-            "_build_workflow_product_view_for_execution",
+            "_build_result_view_for_execution",
             lambda execution_id, row: {
                 "title": "history multiplex",
                 "feature_id": "multiplex_primer_panel",
@@ -599,7 +591,7 @@ class TestDetectionIntegratedWorkbench:
             },
         )
 
-        payload = service.get_multiplex_results_for_execution("exec_mux123")
+        payload = service.get_results_for_execution("exec_mux123")
 
         assert payload["status"] == "ok"
         assert payload["view"]["hero"]["execution_id"] == "exec_mux123"
@@ -666,12 +658,9 @@ class TestDetectionIntegratedWorkbench:
         assert 'renderIntegratedSections' in js
         assert 'temporary' in js
         assert 'get_results_for_execution' in js
-        assert "get_primer_results_for_execution" in js
-        assert "loadPrimerResultsFromHistory" in js
-        assert "get_multiplex_results_for_execution" in js
-        assert "loadMultiplexResultsFromHistory" in js
-        assert "get_targeted_seq_results_for_execution" in js
-        assert "loadTargetedSeqResultsFromHistory" in js
+        assert "Primary history result loader failed" not in js
+        assert "retrying via" not in js
+        assert "bridgeMethod" not in js
         assert "renderIntegratedHtmlPreview" in js
         assert "localPathToFileUrl" in js
         assert "chartType === 'sunburst'" in js

@@ -257,26 +257,6 @@ class ToolBridge(QObject):
         return json.dumps(result, ensure_ascii=False)
 
     @pyqtSlot(str, result=str)
-    def get_primer_results_for_execution(self, execution_id: str) -> str:
-        result = self._service.get_primer_results_for_execution(execution_id)
-        return json.dumps(result, ensure_ascii=False)
-
-    @pyqtSlot(str, result=str)
-    def get_multiplex_results_for_execution(self, execution_id: str) -> str:
-        result = self._service.get_multiplex_results_for_execution(execution_id)
-        return json.dumps(result, ensure_ascii=False)
-
-    @pyqtSlot(str, result=str)
-    def get_targeted_seq_results_for_execution(self, execution_id: str) -> str:
-        result = self._service.get_targeted_seq_results_for_execution(execution_id)
-        return json.dumps(result, ensure_ascii=False)
-
-    @pyqtSlot(str, result=str)
-    def get_fastp_results_for_execution(self, execution_id: str) -> str:
-        result = self._service.get_fastp_results_for_execution(execution_id)
-        return json.dumps(result, ensure_ascii=False)
-
-    @pyqtSlot(str, result=str)
     def get_execution_remote_status(self, execution_id: str) -> str:
         result = self._service.get_execution_remote_status(execution_id)
         return json.dumps(result, ensure_ascii=False)
