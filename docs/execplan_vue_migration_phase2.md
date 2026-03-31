@@ -40,6 +40,8 @@ The following must remain unchanged in Phase 2:
   - history search and record list
   - integrated feature sidebar
   - simple feature detail summary
+  - completed execution preview metadata loaded through
+    `get_results_for_execution()`
 - bridge wrappers for history and workbench config loading
 - store ownership for history state, notice state, and workbench selection
 - callback-driven shell refresh after `window._onRunResult` and
@@ -57,6 +59,8 @@ Phase 2 is only complete if:
 - callback compatibility remains intact
 - run/complete callbacks can refresh history and workbench state without
   renaming any callback entrypoint
+- completed executions can hydrate a read-only workbench preview without taking
+  ownership of the full legacy result renderer
 
 ## Rollback
 
