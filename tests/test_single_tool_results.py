@@ -290,6 +290,8 @@ def test_fastp_view_uses_sample_scoped_artifact_names(tmp_path: Path):
     view = service._build_fastp_view_for_execution("exec_fastp")
 
     assert view is not None
+    assert view["charts"][0]["type"] == "bar"
+    assert view["charts"][0]["title"] == "fastp 质控统计"
     assert view["artifacts"][0]["name"] == "smp_fastp.fastp.json"
     assert view["artifacts"][1]["name"] == "smp_fastp.fastp.html"
     assert view["artifacts"][1]["available"] is True

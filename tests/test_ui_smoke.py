@@ -668,10 +668,12 @@ class TestDetectionIntegratedWorkbench:
         assert 'data-result-tab="files"' in html
         assert 'data-result-tab="provenance"' in html
         assert 'id="integrated-table-body"' in html
+        assert 'id="integrated-table-card"' in html
         assert 'id="integrated-html-card"' in html
         assert 'id="integrated-html-frame"' in html
         assert 'id="integrated-sections-card"' in html
         assert 'id="integrated-sections-list"' in html
+        assert 'id="integrated-files-card"' in html
         assert 'id="integrated-provenance-list"' in html
         assert 'loadExecutionResultsFromHistory' in js
         assert 'resolveHistoryResultContext' in js
@@ -690,6 +692,16 @@ class TestDetectionIntegratedWorkbench:
         assert 'getPreferredIntegratedViewSource' in js
         assert 'getDefaultIntegratedResultTab' in js
         assert 'hasIntegratedResultContent' in js
+        assert 'INTEGRATED_ARCHETYPE_VIEWER_STRATEGIES' in js
+        assert 'INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE' in js
+        assert 'getIntegratedViewerStrategy' in js
+        assert 'buildIntegratedViewerState' in js
+        assert "'table-first'" in js
+        assert "'chart-first'" in js
+        assert "'html-first'" in js
+        assert "'files-first'" in js
+        assert "qc_report: ['chart', 'files']" in js
+        assert "const availableArtifact = normalizedArtifacts.find" in js
         assert 'syncIntegratedWorkbenchProjectScope' in js
         assert 'clearIntegratedExecutionCache' in js
         assert 'activeIntegratedProjectId' in js
@@ -723,10 +735,11 @@ class TestDetectionIntegratedWorkbench:
         assert "renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult })" in js
         assert "selectIntegratedFeature(featureId, { sourceMode: 'history' });" in js
         assert "当前 execution 未提供表格结果。" in js
+        assert "主 viewer 策略为" in js
+        assert "要求 ${strategy.mode} 主 viewer" in js
         assert "selectedIntegratedViewSource === 'history'" in js
         assert "restoreIntegratedExecutionFeatures();" in js
-        assert "if (artifacts.length > 0) {" in js
-        assert "return 'files';" in js
+        assert "return viewerState.primaryTab;" in js
         assert "nextWorkbench?.project_id" in js
         assert "clearIntegratedExecutionCache();" in js
 

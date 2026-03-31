@@ -26,6 +26,24 @@ const DETECTION_WORKFLOW_TOOL_IDS = [
     'wastewater_metagenomics_basic',
     'animal_metagenomics_basic',
 ];
+const INTEGRATED_ARCHETYPE_VIEWER_STRATEGIES = {
+    annotation_table: 'table-first',
+    quality_assessment: 'table-first',
+    html_report: 'html-first',
+    artifact_collection: 'files-first',
+    qc_report: 'chart-first',
+    taxonomy_profile: 'chart-first',
+    workflow_product: 'chart-first',
+};
+const INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE = {
+    annotation_table: ['table', 'files'],
+    quality_assessment: ['table'],
+    html_report: ['html'],
+    artifact_collection: ['files'],
+    qc_report: ['chart', 'files'],
+    taxonomy_profile: ['chart', 'table', 'files'],
+    workflow_product: ['sections'],
+};
 
 console.log('=== Galaxy Style Detection Page ===');
 
@@ -696,26 +714,105 @@ function switchIntegratedResultTab(tabName) {
     });
 }
 
-function hasIntegratedResultContent(view) {
+function getIntegratedTablePayload(view) {
     const table = (view && view.table && typeof view.table === 'object') ? view.table : {};
-    const tableRows = Array.isArray(table.rows) ? table.rows : (Array.isArray(view?.rows) ? view.rows : []);
-    if (tableRows.length > 0) {
-        return true;
-    }
+    return {
+        table,
+        columns: Array.isArray(table.columns) ? table.columns : (Array.isArray(view?.columns) ? view.columns : []),
+        rows: Array.isArray(table.rows) ? table.rows : (Array.isArray(view?.rows) ? view.rows : []),
+    };
+}
 
-    const charts = Array.isArray(view?.charts) ? view.charts : (view?.chart ? [view.chart] : []);
-    if (charts.some(chart => chart && Array.isArray(chart.data) && chart.data.length > 0)) {
-        return true;
-    }
+function getIntegratedCharts(chartInput) {
+    return Array.isArray(chartInput) ? chartInput : (chartInput ? [chartInput] : []);
+}
 
-    const artifacts = Array.isArray(view?.artifacts) ? view.artifacts : [];
-    return artifacts.some(item => (
+function hasIntegratedChartData(chartInput) {
+    return getIntegratedCharts(chartInput).some(chart => {
+        if (!chart || typeof chart !== 'object') {
+            return false;
+        }
+        if (Array.isArray(chart.data) && chart.data.length > 0) {
+            return true;
+        }
+        return Array.isArray(chart.series) && chart.series.some(series => Array.isArray(series?.data) && series.data.length > 0);
+    });
+}
+
+function getIntegratedHtmlArtifact(artifacts) {
+    const normalizedArtifacts = Array.isArray(artifacts) ? artifacts : [];
+    const availableArtifact = normalizedArtifacts.find(item => (
         item
         && item.available
         && item.local_path
         && typeof item.name === 'string'
         && item.name.toLowerCase().endsWith('.html')
     ));
+    if (availableArtifact) {
+        return availableArtifact;
+    }
+    return normalizedArtifacts.find(item => (
+        item
+        && typeof item.name === 'string'
+        && item.name.toLowerCase().endsWith('.html')
+    )) || null;
+}
+
+function getIntegratedViewerStrategy(view) {
+    const archetype = String(view?.archetype || '').trim();
+    const mode = INTEGRATED_ARCHETYPE_VIEWER_STRATEGIES[archetype] || 'table-first';
+    const primaryViewer = mode.replace('-first', '');
+    return {
+        archetype,
+        mode,
+        primaryViewer,
+        requiredViewers: Array.isArray(INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE[archetype])
+            ? INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE[archetype]
+            : [],
+    };
+}
+
+function buildIntegratedViewerState(view) {
+    const artifacts = Array.isArray(view?.artifacts) ? view.artifacts : [];
+    const tablePayload = getIntegratedTablePayload(view);
+    const htmlArtifact = getIntegratedHtmlArtifact(artifacts);
+    const strategy = getIntegratedViewerStrategy(view);
+    const availability = {
+        table: tablePayload.columns.length > 0 && tablePayload.rows.length > 0,
+        chart: hasIntegratedChartData(view?.charts || view?.chart || null),
+        html: Boolean(htmlArtifact && htmlArtifact.available && htmlArtifact.local_path),
+        files: artifacts.some(item => item && item.available && (item.local_path || item.remote_path)),
+        sections: Array.isArray(view?.sections) && view.sections.length > 0,
+    };
+    const viewerErrors = {};
+    strategy.requiredViewers.forEach(function(viewer) {
+        if (availability[viewer]) {
+            return;
+        }
+        viewerErrors[viewer] = `当前结果 archetype=${strategy.archetype || 'unknown'} 要求 ${strategy.mode} 主 viewer，但 execution 未提供${viewer}数据。`;
+    });
+    return {
+        strategy,
+        availability,
+        viewerErrors,
+        table: tablePayload,
+        htmlArtifact,
+        primaryTab: strategy.primaryViewer === 'files' ? 'files' : 'result',
+    };
+}
+
+function hasIntegratedResultContent(view) {
+    const tablePayload = getIntegratedTablePayload(view);
+    if (tablePayload.rows.length > 0) {
+        return true;
+    }
+
+    if (hasIntegratedChartData(view?.charts || view?.chart || null)) {
+        return true;
+    }
+
+    const artifacts = Array.isArray(view?.artifacts) ? view.artifacts : [];
+    return Boolean(getIntegratedHtmlArtifact(artifacts));
 }
 
 function getDefaultIntegratedResultTab(view, options = {}) {
@@ -724,14 +821,8 @@ function getDefaultIntegratedResultTab(view, options = {}) {
         return 'overview';
     }
 
-    const artifacts = Array.isArray(view?.artifacts) ? view.artifacts : [];
-    if (hasIntegratedResultContent(view)) {
-        return 'result';
-    }
-    if (artifacts.length > 0) {
-        return 'files';
-    }
-    return 'overview';
+    const viewerState = buildIntegratedViewerState(view);
+    return viewerState.primaryTab;
 }
 
 function setSectionCollapsed(targetId, collapsed) {
@@ -1165,7 +1256,7 @@ function renderIntegratedFeature(feature, view, options = {}) {
     const statusChip = document.getElementById('integrated-status-chip');
     const stateDetail = document.getElementById('feature-state-detail');
     const kicker = document.getElementById('feature-kicker');
-    const table = (view && view.table && typeof view.table === 'object') ? view.table : {};
+    const viewerState = buildIntegratedViewerState(view);
     const sourceMode = String(options.sourceMode || selectedIntegratedViewSource || 'workflow').trim() || 'workflow';
     const isHistoryResult = sourceMode === 'history';
 
@@ -1180,14 +1271,14 @@ function renderIntegratedFeature(feature, view, options = {}) {
     if (emptyState) emptyState.style.display = 'none';
     if (detail) detail.style.display = 'flex';
     if (statusChip) statusChip.textContent = view?.status?.label || feature.badge || '已选择';
-    if (kicker) kicker.textContent = isHistoryResult ? 'Result Shell' : 'Workflow Entry';
+    if (kicker) kicker.textContent = isHistoryResult ? `Result Shell · ${viewerState.strategy.mode}` : 'Workflow Entry';
 
     document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
     document.getElementById('feature-description').textContent = view.description || '';
     if (stateDetail) {
         const executionId = String(view?.provenance?.execution_id || view?.hero?.execution_id || '').trim();
         stateDetail.textContent = isHistoryResult
-            ? `当前为统一结果壳视图${executionId ? `，execution_id: ${executionId}` : ''}。`
+            ? `当前为统一结果壳视图，主 viewer 策略为 ${viewerState.strategy.mode}${executionId ? `，execution_id: ${executionId}` : ''}。`
             : String(view?.status?.detail || '可从这里查看输入要求，并继续提交新的运行。');
     }
 
@@ -1198,22 +1289,27 @@ function renderIntegratedFeature(feature, view, options = {}) {
 
     renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult });
     renderSummaryGrid(view.summary || []);
-    renderArtifactList(view.artifacts || []);
+    renderArtifactList(view.artifacts || [], { requiredMessage: viewerState.viewerErrors.files || '' });
     renderIntegratedProvenance(view.provenance || {}, view.hero || {});
-    renderIntegratedSections(view.sections || []);
-    renderIntegratedHtmlPreview(view.artifacts || []);
-    renderIntegratedTable(table.columns || view.columns || [], table.rows || view.rows || []);
-    renderIntegratedChart(view.charts || view.chart || null);
+    renderIntegratedSections(view.sections || [], { requiredMessage: viewerState.viewerErrors.sections || '' });
+    renderIntegratedHtmlPreview(view.artifacts || [], { requiredMessage: viewerState.viewerErrors.html || '' });
+    renderIntegratedTable(viewerState.table.columns || [], viewerState.table.rows || [], { requiredMessage: viewerState.viewerErrors.table || '' });
+    renderIntegratedChart(view.charts || view.chart || null, { requiredMessage: viewerState.viewerErrors.chart || '' });
     switchIntegratedResultTab(getDefaultIntegratedResultTab(view, { sourceMode }));
 
     // 动态更新表标题和 badge
     const resultsTitle = document.getElementById('results-card-title');
-    if (resultsTitle) resultsTitle.textContent = table.title || view.table_title || '分析结果';
+    if (resultsTitle) resultsTitle.textContent = viewerState.table.table.title || view.table_title || '分析结果';
     const resultsBadge = document.getElementById('results-card-badge');
-    if (resultsBadge) resultsBadge.textContent = view.table_badge || (view.artifacts && view.artifacts[0] ? view.artifacts[0].name : '');
+    if (resultsBadge) resultsBadge.textContent = view.table_badge || viewerState.strategy.mode;
 
     const subtitleEl = document.getElementById('results-card-subtitle');
-    if (subtitleEl) subtitleEl.textContent = table.subtitle || view.table_subtitle || '分析结果将在此处展示。';
+    if (subtitleEl) {
+        subtitleEl.textContent = viewerState.viewerErrors[viewerState.strategy.primaryViewer]
+            || viewerState.table.table.subtitle
+            || view.table_subtitle
+            || '分析结果将在此处展示。';
+    }
 }
 
 function renderIntegratedRunEntry(feature, view, options = {}) {
@@ -1333,16 +1429,21 @@ function renderSummaryGrid(summaryItems) {
     });
 }
 
-function renderArtifactList(artifacts) {
+function renderArtifactList(artifacts, options = {}) {
     const container = document.getElementById('artifact-list');
     if (!container) {
         return;
     }
 
+    const normalizedArtifacts = Array.isArray(artifacts) ? artifacts : [];
     container.innerHTML = '';
+    if (!normalizedArtifacts.length) {
+        container.innerHTML = `<li class="artifact-item unavailable"><div class="artifact-main"><span class="artifact-name">${escapeHtml(options.requiredMessage || '暂无结果文件。')}</span><span class="artifact-state">缺失</span></div></li>`;
+        return;
+    }
 
     // PDF 报告醒目按钮（置顶）
-    const pdfArtifact = artifacts.find(a => a && a.is_pdf_report && a.available && a.local_path);
+    const pdfArtifact = normalizedArtifacts.find(a => a && a.is_pdf_report && a.available && a.local_path);
     if (pdfArtifact) {
         const btn = document.createElement('div');
         btn.className = 'pdf-report-btn';
@@ -1356,7 +1457,19 @@ function renderArtifactList(artifacts) {
         container.appendChild(btn);
     }
 
-    artifacts.forEach(item => {
+    if (options.requiredMessage) {
+        const li = document.createElement('li');
+        li.className = 'artifact-item unavailable';
+        li.innerHTML = `
+            <div class="artifact-main">
+                <span class="artifact-name">${escapeHtml(options.requiredMessage)}</span>
+                <span class="artifact-state">缺失</span>
+            </div>
+        `;
+        container.appendChild(li);
+    }
+
+    normalizedArtifacts.forEach(item => {
         const li = document.createElement('li');
         if (typeof item === 'string') {
             li.textContent = item;
@@ -1418,7 +1531,7 @@ function renderIntegratedProvenance(provenance, hero = {}) {
     `).join('');
 }
 
-function renderIntegratedSections(sections) {
+function renderIntegratedSections(sections, options = {}) {
     const card = document.getElementById('integrated-sections-card');
     const container = document.getElementById('integrated-sections-list');
     if (!card || !container) {
@@ -1429,7 +1542,7 @@ function renderIntegratedSections(sections) {
     card.style.display = 'block';
     card.dataset.panelVisible = '1';
     if (normalizedSections.length === 0) {
-        container.innerHTML = '<div class="integrated-input-empty">Overview 暂无 section 内容。</div>';
+        container.innerHTML = `<div class="${options.requiredMessage ? 'task-error-banner' : 'integrated-input-empty'}">${escapeHtml(options.requiredMessage || 'Overview 暂无 section 内容。')}</div>`;
         return;
     }
 
@@ -1438,8 +1551,8 @@ function renderIntegratedSections(sections) {
         const table = section?.table && typeof section.table === 'object' ? section.table : {};
         const artifacts = Array.isArray(section?.artifacts) ? section.artifacts : [];
         return `
-            <div class="integrated-input-item">
-                <div class="integrated-input-label-row">
+            <div class="integrated-input-item" style="margin-bottom:12px;">
+                <div class="integrated-input-label-row" style="align-items:flex-start;">
                     <span class="integrated-input-label">${escapeHtml(section?.title || section?.section_id || 'section')}</span>
                     <span class="integrated-input-required">${escapeHtml(section?.archetype || '')}</span>
                 </div>
@@ -1493,7 +1606,7 @@ function localPathToFileUrl(localPath) {
     return encodeURI(normalized);
 }
 
-function renderIntegratedHtmlPreview(artifacts) {
+function renderIntegratedHtmlPreview(artifacts, options = {}) {
     const card = document.getElementById('integrated-html-card');
     const frame = document.getElementById('integrated-html-frame');
     const empty = document.getElementById('integrated-html-empty');
@@ -1504,21 +1617,17 @@ function renderIntegratedHtmlPreview(artifacts) {
         return;
     }
 
-    const htmlArtifact = (artifacts || []).find(item => (
-        item
-        && item.available
-        && item.local_path
-        && typeof item.name === 'string'
-        && item.name.toLowerCase().endsWith('.html')
-    ));
+    const htmlArtifact = getIntegratedHtmlArtifact(artifacts || []);
+    const htmlReady = Boolean(htmlArtifact && htmlArtifact.available && htmlArtifact.local_path);
 
-    if (!htmlArtifact) {
-        card.dataset.panelVisible = '0';
-        card.style.display = 'none';
+    if (!htmlReady) {
+        card.dataset.panelVisible = options.requiredMessage ? '1' : '0';
+        card.style.display = options.requiredMessage ? 'block' : 'none';
         frame.style.display = 'none';
         frame.src = 'about:blank';
         openBtn.style.display = 'none';
-        empty.style.display = 'none';
+        empty.style.display = options.requiredMessage ? 'block' : 'none';
+        empty.textContent = options.requiredMessage || '';
         return;
     }
 
@@ -1536,9 +1645,10 @@ function renderIntegratedHtmlPreview(artifacts) {
     };
 }
 
-function renderIntegratedTable(columns, rows) {
+function renderIntegratedTable(columns, rows, options = {}) {
     const head = document.getElementById('integrated-table-head');
     const body = document.getElementById('integrated-table-body');
+    const card = document.getElementById('integrated-table-card');
     if (!head || !body) {
         return;
     }
@@ -1552,8 +1662,13 @@ function renderIntegratedTable(columns, rows) {
     const table = head.closest('table');
     if (table) table.classList.toggle('wide-table', columns.length > 6);
 
+    if (card) {
+        const shouldShow = columns.length > 0 || rows.length > 0 || Boolean(options.requiredMessage);
+        card.dataset.panelVisible = shouldShow ? '1' : '0';
+    }
+
     if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">当前 execution 未提供表格结果。</td></tr>`;
+        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">${escapeHtml(options.requiredMessage || '当前 execution 未提供表格结果。')}</td></tr>`;
         return;
     }
 
@@ -1637,7 +1752,7 @@ function ensureEchartsLoaded() {
     document.head.appendChild(script);
 }
 
-function renderIntegratedChart(chartInput, retryCount = 0) {
+function renderIntegratedChart(chartInput, options = {}, retryCount = 0) {
     const card = document.getElementById('integrated-chart-card');
     const container = document.getElementById('integrated-chart-container');
     const titleEl = document.getElementById('chart-card-title');
@@ -1649,11 +1764,14 @@ function renderIntegratedChart(chartInput, retryCount = 0) {
 
     disposeIntegratedCharts();
 
-    const charts = Array.isArray(chartInput) ? chartInput : (chartInput ? [chartInput] : []);
-    const validCharts = charts.filter(c => c && Array.isArray(c.data) && c.data.length > 0);
+    const charts = getIntegratedCharts(chartInput);
+    const validCharts = charts.filter(hasIntegratedChartData);
     if (!validCharts.length) {
-        if (card) card.dataset.panelVisible = '0';
-        if (card) card.style.display = 'none';
+        if (card) card.dataset.panelVisible = options.requiredMessage ? '1' : '0';
+        if (card) card.style.display = options.requiredMessage ? 'block' : 'none';
+        if (container) {
+            container.innerHTML = `<div class="${options.requiredMessage ? 'task-error-banner' : 'integrated-input-empty'}">${escapeHtml(options.requiredMessage || '暂无图表数据。')}</div>`;
+        }
         return;
     }
 
@@ -1666,7 +1784,7 @@ function renderIntegratedChart(chartInput, retryCount = 0) {
             if (retryCount < 20) {
                 container.innerHTML = '<div class="integrated-input-empty">Loading chart engine...</div>';
                 _integratedChartRetryTimer = window.setTimeout(function() {
-                    renderIntegratedChart(chartInput, retryCount + 1);
+                    renderIntegratedChart(chartInput, options, retryCount + 1);
                 }, 250);
             } else {
                 container.innerHTML = '<div class="integrated-input-empty">Chart engine unavailable (echarts not loaded).</div>';
@@ -1846,25 +1964,42 @@ function renderIntegratedChart(chartInput, retryCount = 0) {
                 }]
             };
         } else if (chartType === 'bar') {
-            const names = chartData.data.map(d => d.name);
-            const values = chartData.data.map(d => d.value);
-            const colors = chartData.data.map(d => {
-                if (d.status === 'suboptimal') return '#f59e0b';
-                if (d.status === 'no_candidate') return '#ef4444';
-                return '#3b82f6';
-            });
-            option = {
-                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                grid: { left: '22%', right: '8%', top: 20, bottom: 30 },
-                xAxis: { type: 'value', name: 'bp', axisLabel: { fontSize: 10 } },
-                yAxis: { type: 'category', data: names, inverse: true, axisLabel: { fontSize: 10, width: 140, overflow: 'truncate' } },
-                series: [{
-                    type: 'bar',
-                    data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
-                    barMaxWidth: 18,
-                    label: { show: true, position: 'right', formatter: '{c} bp', fontSize: 10, color: '#64748b' },
-                }]
-            };
+            if (Array.isArray(chartData.series) && Array.isArray(chartData.categories)) {
+                option = {
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    legend: { top: 0, textStyle: { fontSize: 10 } },
+                    grid: { left: '8%', right: '5%', top: 36, bottom: 40 },
+                    xAxis: { type: 'category', data: chartData.categories, axisLabel: { fontSize: 10, interval: 0 } },
+                    yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
+                    series: chartData.series.map(series => ({
+                        name: series.name || 'Series',
+                        type: 'bar',
+                        data: Array.isArray(series.data) ? series.data : [],
+                        itemStyle: { color: series.color || '#3b82f6' },
+                        barMaxWidth: 28,
+                    })),
+                };
+            } else {
+                const names = chartData.data.map(d => d.name);
+                const values = chartData.data.map(d => d.value);
+                const colors = chartData.data.map(d => {
+                    if (d.status === 'suboptimal') return '#f59e0b';
+                    if (d.status === 'no_candidate') return '#ef4444';
+                    return '#3b82f6';
+                });
+                option = {
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    grid: { left: '22%', right: '8%', top: 20, bottom: 30 },
+                    xAxis: { type: 'value', name: 'bp', axisLabel: { fontSize: 10 } },
+                    yAxis: { type: 'category', data: names, inverse: true, axisLabel: { fontSize: 10, width: 140, overflow: 'truncate' } },
+                    series: [{
+                        type: 'bar',
+                        data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
+                        barMaxWidth: 18,
+                        label: { show: true, position: 'right', formatter: '{c} bp', fontSize: 10, color: '#64748b' },
+                    }]
+                };
+            }
         } else {
             option = {
                 tooltip: {

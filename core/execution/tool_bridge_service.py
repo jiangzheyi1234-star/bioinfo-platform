@@ -56,6 +56,7 @@ from core.execution.single_tool_view_builder import (
     section_from_view,
 )
 from core.execution.workbench_view_builders import build_multiplex_view, build_primer_view
+from core.pipeline.chart_data_parser import ChartDataParser
 
 if TYPE_CHECKING:
     from core.plugins.plugin_registry import PluginRegistry
@@ -2481,6 +2482,7 @@ class ToolBridgeService:
         too_many_n = int(filtering.get("too_many_N_reads", 0) or 0)
 
         pct_pass = f"{passed / total_before * 100:.1f}%" if total_before > 0 else "—"
+        fastp_chart = ChartDataParser.parse_fastp_json(str(local_json))
         return build_single_tool_view(
             feature_id=feature_id,
             tool_id="fastp",
@@ -2499,6 +2501,7 @@ class ToolBridgeService:
                 {"label": "Q30 (过滤后)", "value": f"{q30_after:.2%}", "tone": "info"},
                 {"label": "GC 含量", "value": f"{gc_after:.2%}", "tone": "info"},
             ],
+            charts=[fastp_chart],
             columns=[
                 {"key": "metric", "label": "指标"},
                 {"key": "before", "label": "过滤前"},
