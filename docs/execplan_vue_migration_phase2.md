@@ -42,6 +42,8 @@ The following must remain unchanged in Phase 2:
   - simple feature detail summary
 - bridge wrappers for history and workbench config loading
 - store ownership for history state, notice state, and workbench selection
+- callback-driven shell refresh after `window._onRunResult` and
+  `window._onExecutionUpdate`
 
 ## Validation
 
@@ -53,6 +55,8 @@ Phase 2 is only complete if:
 - selecting a feature updates Vue state without touching the legacy result
   renderer contract
 - callback compatibility remains intact
+- run/complete callbacks can refresh history and workbench state without
+  renaming any callback entrypoint
 
 ## Rollback
 
