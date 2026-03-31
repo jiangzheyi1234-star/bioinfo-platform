@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from core.execution.execution_backend import CommandBackend, ExecutionBackend
 from core.execution.command_builder import CommandBuilder
 from core.execution.task_runner import TaskRunner
 from core.execution.workflow_uploader import get_local_workflow_dir, upload_workflow
@@ -48,17 +49,22 @@ class ExecutionPreparer(QObject):
     def __init__(
         self,
         ssh_service: Any,
+        backend: ExecutionBackend | None = None,
         max_threads: int = 3,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._ssh = ssh_service
+        self._backend = backend or CommandBackend()
         self._task_runner = TaskRunner(max_threads=max_threads, parent=self)
         self._task_runner.task_succeeded.connect(self._on_task_succeeded)
         self._task_runner.task_failed.connect(self._on_task_failed)
 
     def set_ssh_service(self, ssh_service: Any) -> None:
         self._ssh = ssh_service
+
+    def set_backend(self, backend: ExecutionBackend) -> None:
+        self._backend = backend
 
     def prepare(self, request: PreparationRequest) -> None:
         self._task_runner.submit(self._prepare, request, task_id=request.execution_id)
@@ -67,7 +73,7 @@ class ExecutionPreparer(QObject):
         return self._task_runner.wait_for_done(timeout_ms)
 
     def _prepare(self, request: PreparationRequest) -> PreparationResult:
-        return prepare_execution(self._ssh, request)
+        return self._backend.prepare(self._ssh, request)
 
     def _on_task_succeeded(self, execution_id: str, result: object) -> None:
         self.preparation_succeeded.emit(execution_id, result)

@@ -488,6 +488,9 @@ class TestToolEngineCallbacks:
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert manifest["execution_id"] == exec_id
+        assert manifest["artifacts"][0]["artifact_type"] in {"html", "binary", "json", "tsv", "text", "fasta", "archive"}
+        assert manifest["artifacts"][0]["display_role"]
+        assert manifest["artifacts"][0]["viewer_hint"]
         assert ssh.downloads
 
     def test_on_completed_emits_signal(self, engine: ToolEngine, registry: DataRegistry, sample_id: str) -> None:
