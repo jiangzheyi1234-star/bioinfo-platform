@@ -7,6 +7,8 @@ let selectedIntegratedFeatureId = null;
 let pendingIntegratedFeatureId = null;
 let databaseResources = [];
 let historyRecords = [];
+let pendingHistoryExecutionId = null;
+let pendingHistoryExecutionOptions = null;
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
 let integratedRunModalContext = null;
@@ -2206,9 +2208,21 @@ function onRunResult(result) {
     }
 
     if (result.status === 'ok') {
+        const executionId = String(result.execution_id || '').trim();
+        if (!executionId) {
+            showNotice('任务已提交，但缺少 execution_id，无法自动定位');
+            loadHistory();
+            loadIntegratedWorkbench(true);
+            return;
+        }
+
         showNotice(result.message || '任务已提交', 'success');
-        loadHistory();
         loadIntegratedWorkbench(true);
+        openExecution(executionId, {
+            status: 'pending',
+            fetchRemoteStatus: false,
+            noticeMessage: '已定位到新提交任务，请在运行历史查看状态',
+        });
         return;
     }
 
@@ -2268,6 +2282,39 @@ function filterHistoryRecords(query) {
         ].join(' ').toLowerCase();
         return haystack.includes(keyword);
     });
+}
+
+function normalizeExecutionStatus(status) {
+    return String(status || '').trim().toLowerCase();
+}
+
+function findHistoryRecord(executionId) {
+    const normalizedId = String(executionId || '').trim();
+    if (!normalizedId) {
+        return null;
+    }
+    return historyRecords.find(record => String(record?.execution_id || '').trim() === normalizedId) || null;
+}
+
+function focusHistoryExecution(executionId, options = {}) {
+    const normalizedId = String(executionId || '').trim();
+    if (!normalizedId) {
+        showNotice('execution_id 不能为空');
+        return;
+    }
+
+    const historySearch = document.getElementById('history-search');
+    if (historySearch && String(historySearch.value || '').trim()) {
+        historySearch.value = '';
+    }
+
+    pendingHistoryExecutionId = normalizedId;
+    pendingHistoryExecutionOptions = {
+        expand: options.expand !== false,
+        fetchRemoteStatus: options.fetchRemoteStatus !== false,
+        noticeMessage: String(options.noticeMessage || '').trim(),
+    };
+    activateTab('history');
 }
 
 const HISTORY_RESULT_CONTEXTS = {
@@ -2475,6 +2522,39 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
     });
 }
 
+function openExecution(executionId, context = {}) {
+    const normalizedId = String(executionId || '').trim();
+    if (!normalizedId) {
+        showNotice('任务提交成功，但缺少 execution_id，无法自动定位');
+        return;
+    }
+
+    const record = context.record || findHistoryRecord(normalizedId);
+    const status = normalizeExecutionStatus(
+        context.status
+        || context.local_status
+        || record?.status
+    );
+
+    if (status === 'completed') {
+        loadExecutionResultsFromHistory(
+            normalizedId,
+            context.resultContext || resolveHistoryResultContext(record || {}),
+        );
+        return;
+    }
+
+    const shouldFetchRemoteStatus = typeof context.fetchRemoteStatus === 'boolean'
+        ? context.fetchRemoteStatus
+        : (status === 'running' || status === 'failed');
+
+    focusHistoryExecution(normalizedId, {
+        expand: true,
+        fetchRemoteStatus: shouldFetchRemoteStatus,
+        noticeMessage: context.noticeMessage || '',
+    });
+}
+
 function buildExecutionRemoteStatusHtml(data) {
     const remoteStatusRaw = String(data.remote_status || '').toUpperCase();
     const localStatusRaw = String(data.local_status || '').toLowerCase();
@@ -2632,6 +2712,10 @@ function formatDetailCell(record) {
 function renderHistory(history) {
     const container = document.getElementById('history-container');
     container.innerHTML = '';
+    const pendingExecutionId = String(pendingHistoryExecutionId || '').trim();
+    const pendingOptions = pendingHistoryExecutionOptions || {};
+    let focusedRow = null;
+    let focusedRemoteStatusRequested = false;
 
     if (history.length === 0) {
         container.innerHTML = `
@@ -2647,6 +2731,7 @@ function renderHistory(history) {
     history.forEach(record => {
         const row = document.createElement('div');
         row.className = 'task-row';
+        row.dataset.executionId = String(record.execution_id || '');
 
         const statusText = getStatusText(record.status);
         const statusClass = getStatusClass(record.status);
@@ -2719,17 +2804,21 @@ function renderHistory(history) {
             viewBtn.textContent = '查看结果';
             viewBtn.onclick = function(e) {
                 e.preventDefault();
-                loadExecutionResultsFromHistory(record.execution_id, resultContext || {});
+                e.stopPropagation();
+                openExecution(record.execution_id, {
+                    record,
+                    resultContext: resultContext || {},
+                });
             };
             actionsContainer.appendChild(viewBtn);
-        } else if (record.status === 'running') {
+        } else {
             const statusBtn = document.createElement('button');
             statusBtn.className = 'task-action-btn btn-view';
             statusBtn.textContent = '查看状态';
             statusBtn.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                toggleExecutionRemoteStatus(record.execution_id, row);
+                openExecution(record.execution_id, { record });
             };
             actionsContainer.appendChild(statusBtn);
         }
@@ -2748,7 +2837,42 @@ function renderHistory(history) {
         }
 
         container.appendChild(row);
+
+        if (pendingExecutionId && row.dataset.executionId === pendingExecutionId) {
+            focusedRow = row;
+            if (pendingOptions.expand !== false) {
+                row.classList.add('expanded');
+            }
+            if (pendingOptions.fetchRemoteStatus !== false) {
+                focusedRemoteStatusRequested = true;
+            }
+        }
     });
+
+    if (focusedRow) {
+        setTimeout(function() {
+            try {
+                focusedRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            } catch (_) {
+                // ignore
+            }
+        }, 0);
+
+        if (pendingOptions.noticeMessage) {
+            showNotice(pendingOptions.noticeMessage, 'success', 2800);
+        }
+
+        if (focusedRemoteStatusRequested) {
+            toggleExecutionRemoteStatus(pendingExecutionId, focusedRow);
+        }
+
+        pendingHistoryExecutionId = null;
+        pendingHistoryExecutionOptions = null;
+    } else if (pendingExecutionId) {
+        showNotice(`未找到对应任务记录: ${pendingExecutionId}`);
+        pendingHistoryExecutionId = null;
+        pendingHistoryExecutionOptions = null;
+    }
 }
 
 // 获取状态文本
