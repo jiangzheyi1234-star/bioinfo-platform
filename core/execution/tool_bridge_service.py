@@ -1229,6 +1229,10 @@ class ToolBridgeService:
 
     def get_integrated_workbench_config(self) -> dict:
         config = self.base_integrated_workbench_config()
+        pm = self._get_project_manager()
+        project = getattr(pm, "current_project", None) if pm is not None else None
+        config["project_id"] = str(getattr(project, "project_id", "") or "").strip()
+        config["project_name"] = str(getattr(project, "name", "") or "").strip()
         features = config.setdefault("features", [])
         views = config.setdefault("views", {})
         self._ensure_detection_workbench_entries(features, views)
