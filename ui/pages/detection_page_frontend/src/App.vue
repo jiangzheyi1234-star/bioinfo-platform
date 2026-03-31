@@ -18,6 +18,14 @@
 
     <TopTabs :active-tab="uiStore.activeTab" @change="setActiveTab" />
     <InlineNotice :message="uiStore.notice.message" :tone="uiStore.notice.tone" />
+    <BridgeHealthPanel
+      :host="bridgeState.host"
+      :ready="bridgeState.ready"
+      :connected-at="bridgeState.connectedAt"
+      :last-run-at="bridgeState.lastRunAt"
+      :last-execution-at="bridgeState.lastExecutionAt"
+      :error="bridgeState.error"
+    />
 
     <section v-if="uiStore.activeTab === 'history'" class="content-grid">
       <HistoryPanel
@@ -72,6 +80,7 @@
 import { computed, inject, onMounted, watch } from 'vue';
 import TopTabs from './components/TopTabs.vue';
 import InlineNotice from './components/InlineNotice.vue';
+import BridgeHealthPanel from './components/BridgeHealthPanel.vue';
 import HistoryPanel from './components/HistoryPanel.vue';
 import WorkbenchPanel from './components/WorkbenchPanel.vue';
 import { historyStore } from './stores/historyStore';
@@ -122,10 +131,13 @@ async function handleHistorySelect(record) {
   selectHistoryExecution(record?.execution_id);
   if (normalizeHistoryStatus(record?.status) === 'completed') {
     const matchedFeatureId = syncWorkbenchSelectionFromHistory(record);
-    await loadExecutionResultPreview(record?.execution_id, {
+    const preview = await loadExecutionResultPreview(record?.execution_id, {
       record,
       activate: !matchedFeatureId,
     });
+    if (preview?.featureId) {
+      setActiveTab('integrated');
+    }
   }
 }
 

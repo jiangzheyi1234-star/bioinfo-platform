@@ -14,6 +14,7 @@ function attachCompatibilityCallbacks() {
   window._onRunResult = (payload) => {
     bridgeStore.lastRunPayload = payload || null;
     bridgeStore.lastRunResult = JSON.stringify(payload || {});
+    bridgeStore.lastRunAt = new Date().toLocaleString();
     if (payload?.message) {
       setNotice(payload.message, payload?.status === 'failed' ? 'error' : 'success');
     }
@@ -22,6 +23,7 @@ function attachCompatibilityCallbacks() {
   window._onExecutionUpdate = (payload) => {
     bridgeStore.lastExecutionPayload = payload || null;
     bridgeStore.lastExecutionUpdate = JSON.stringify(payload || {});
+    bridgeStore.lastExecutionAt = new Date().toLocaleString();
     if (payload?.message) {
       const tone = payload?.status === 'failed' ? 'error' : 'info';
       setNotice(payload.message, tone);
@@ -43,6 +45,7 @@ export function initBridge() {
     bridgeStore.bridge = bridge || null;
     bridgeStore.ready = Boolean(bridge);
     bridgeStore.host = 'qt';
+    bridgeStore.connectedAt = new Date().toLocaleString();
     bridgeStore.methods = normalizeMethods(bridge);
     window.bridge = bridge;
   });
