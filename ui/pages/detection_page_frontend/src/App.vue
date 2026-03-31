@@ -75,10 +75,11 @@ import InlineNotice from './components/InlineNotice.vue';
 import HistoryPanel from './components/HistoryPanel.vue';
 import WorkbenchPanel from './components/WorkbenchPanel.vue';
 import { historyStore } from './stores/historyStore';
-import { loadHistoryRecords, normalizeHistoryStatus, selectHistoryExecution, setHistorySearchText } from './stores/historyActions';
+import { normalizeHistoryStatus, selectHistoryExecution, setHistorySearchText } from './stores/historyActions';
 import { uiStore, setActiveTab, setNotice } from './stores/uiStore';
 import { workbenchStore } from './stores/workbenchStore';
-import { loadWorkbenchConfig, selectWorkbenchFeature, syncWorkbenchSelectionFromHistory } from './stores/workbenchActions';
+import { selectWorkbenchFeature, syncWorkbenchSelectionFromHistory } from './stores/workbenchActions';
+import { reloadReadOnlyShell, syncFromExecutionUpdate, syncFromRunPayload } from './stores/runtimeSync';
 
 const bridgeState = inject('bridgeState');
 
@@ -114,10 +115,7 @@ async function reloadReadOnlyData() {
   if (!bridgeState?.ready) {
     return;
   }
-  await Promise.all([
-    loadHistoryRecords(),
-    loadWorkbenchConfig(true),
-  ]);
+  await reloadReadOnlyShell();
 }
 
 function handleHistorySelect(record) {
@@ -145,5 +143,27 @@ watch(
     }
   },
   { immediate: false },
+);
+
+watch(
+  () => bridgeState?.lastRunPayload,
+  async (payload) => {
+    if (!payload || !bridgeState?.ready) {
+      return;
+    }
+    await syncFromRunPayload(payload);
+  },
+  { deep: false },
+);
+
+watch(
+  () => bridgeState?.lastExecutionPayload,
+  async (payload) => {
+    if (!payload || !bridgeState?.ready) {
+      return;
+    }
+    await syncFromExecutionUpdate(payload);
+  },
+  { deep: false },
 );
 </script>
