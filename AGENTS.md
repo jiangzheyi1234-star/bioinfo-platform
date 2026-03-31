@@ -51,8 +51,7 @@
 - 复杂特性、跨文件重构、长时程任务默认使用 `ExecPlan` 工作流：
   `Plan -> Edit -> Run tools -> Observe -> Repair -> Update docs -> Repeat`。
 - 执行前必须先读取对应计划文档；若仓库内已有任务专属计划文档，则该文档优先作为唯一执行事实来源。
-- Phase 4（结果工作台 Data Cockpit 视觉重设）默认入口为：
-  `docs/phase4/Plan.md`。
+- 任务完成后应清理过期的阶段性计划/记忆文档，避免残留失效入口。
 - ExecPlan 必须保持自包含、活文档、可恢复；每完成一个 milestone 立即运行对应验证，失败先修复，不允许带着失败进入下一 milestone。
 ## 用户偏好
 
