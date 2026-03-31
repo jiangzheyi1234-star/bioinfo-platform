@@ -69,6 +69,45 @@ def test_get_execution_remote_status_uses_aggregated_status_block(tmp_path: Path
     pm.close()
 
 
+def test_get_execution_remote_status_without_ssh_returns_local_status(tmp_path: Path) -> None:
+    pm = ProjectManager(
+        projects_root=tmp_path / "projects",
+        index_path=tmp_path / "projects.json",
+        last_project_path=tmp_path / "last_project.txt",
+    )
+    project_id = pm.create_project("status offline project")
+    pm.open_project(project_id)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_offline", "offline", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, parameters, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("exec_offline", "smp_offline", "fastp", "{}", "running", time.time()),
+    )
+    pm.db.commit()
+
+    class _DisconnectedSSH:
+        is_connected = False
+
+        def run(self, cmd: str, timeout: int = 10):  # pragma: no cover - should not be called
+            raise AssertionError("SSH run should not be called when disconnected")
+
+    class _Locator:
+        project_manager = pm
+        ssh_service = _DisconnectedSSH()
+
+    service = ToolBridgeService(service_locator=_Locator())
+    payload = service.get_execution_remote_status("exec_offline")
+
+    assert payload["status"] == "ok"
+    assert payload["message"] == "SSH 未连接，仅显示本地状态"
+    assert payload["data"]["local_status"] == "running"
+    assert payload["data"]["ssh_connected"] is False
+    pm.close()
+
+
 def test_get_execution_remote_status_uses_cache_within_ttl(tmp_path: Path) -> None:
     pm = ProjectManager(
         projects_root=tmp_path / "projects",
