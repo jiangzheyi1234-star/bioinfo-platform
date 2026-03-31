@@ -2002,8 +2002,39 @@ function renderIntegratedChart(chartInput, options = {}, retryCount = 0) {
                     sort: null,
                     emphasis: { focus: 'ancestor' },
                     data: chartData.data,
-                    label: { rotate: 'radial', fontSize: 10 },
-                    levels: [{}, { r0: '0%', r: '28%' }, { r0: '28%', r: '58%' }, { r0: '58%', r: '92%' }],
+                    minAngle: 2,
+                    labelLayout: { hideOverlap: true },
+                    label: {
+                        rotate: 'tangential',
+                        fontSize: 10,
+                        overflow: 'truncate',
+                        width: 96,
+                        formatter: function(params) {
+                            const value = Number(params?.value || 0);
+                            const depth = Number(params?.treePathInfo?.length || 0);
+                            if (depth >= 4 && value < 3) return '';
+                            if (depth >= 3 && value < 1.2) return '';
+                            return params.name || '';
+                        }
+                    },
+                    levels: [
+                        {},
+                        {
+                            r0: '0%',
+                            r: '28%',
+                            label: { rotate: 0, fontSize: 13 }
+                        },
+                        {
+                            r0: '28%',
+                            r: '58%',
+                            label: { rotate: 'tangential', fontSize: 11 }
+                        },
+                        {
+                            r0: '58%',
+                            r: '92%',
+                            label: { rotate: 'tangential', fontSize: 9 }
+                        }
+                    ],
                 }]
             };
         } else if (chartType === 'bar') {
