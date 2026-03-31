@@ -9,6 +9,8 @@
 - [Windows Codex + WSL UTF-8 指南](./WINDOWS_CODEX_WSL_UTF8.md)
 - [测试守护规则](./TEST_GUARDRAILS.md)
 - [结果工作台 2026 分阶段改造方案](./结果工作台2026分阶段改造方案.md)
+- [Phase 4 ExecPlan](./phase4/Plan.md)
+- [Phase 5 ExecPlan](./phase5/Plan.md)
 
 ## 说明
 

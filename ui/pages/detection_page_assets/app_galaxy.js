@@ -1263,14 +1263,21 @@ function renderIntegratedFeature(feature, view, options = {}) {
     if (!feature || !view) {
         if (emptyState) emptyState.style.display = 'flex';
         if (detail) detail.style.display = 'none';
-        if (statusChip) statusChip.textContent = '待选择功能';
+        if (statusChip) {
+            statusChip.textContent = '待选择功能';
+            statusChip.dataset.status = 'pending';
+        }
         if (stateDetail) stateDetail.textContent = '请选择左侧功能或通过运行历史进入结果。';
         return;
     }
 
     if (emptyState) emptyState.style.display = 'none';
     if (detail) detail.style.display = 'flex';
-    if (statusChip) statusChip.textContent = view?.status?.label || feature.badge || '已选择';
+    if (detail) detail.dataset.sourceMode = sourceMode;
+    if (statusChip) {
+        statusChip.textContent = view?.status?.label || feature.badge || '已选择';
+        statusChip.dataset.status = String(view?.status?.state || (isHistoryResult ? 'completed' : 'pending')).trim() || 'pending';
+    }
     if (kicker) kicker.textContent = isHistoryResult ? `Result Shell · ${viewerState.strategy.mode}` : 'Workflow Entry';
 
     document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
@@ -1551,8 +1558,8 @@ function renderIntegratedSections(sections, options = {}) {
         const table = section?.table && typeof section.table === 'object' ? section.table : {};
         const artifacts = Array.isArray(section?.artifacts) ? section.artifacts : [];
         return `
-            <div class="integrated-input-item" style="margin-bottom:12px;">
-                <div class="integrated-input-label-row" style="align-items:flex-start;">
+            <div class="integrated-input-item integrated-section-item">
+                <div class="integrated-input-label-row integrated-section-header">
                     <span class="integrated-input-label">${escapeHtml(section?.title || section?.section_id || 'section')}</span>
                     <span class="integrated-input-required">${escapeHtml(section?.archetype || '')}</span>
                 </div>
@@ -2906,12 +2913,12 @@ function buildExecutionRemoteStatusHtml(data) {
 
     const screenText = data.screen_running == null ? '-' : (data.screen_running ? 'running' : 'not found');
     const logTail = escapeHtml(String(data.log_tail || '').trim());
-    const logBlock = logTail ? `<pre class="task-details-pre" style="margin-top:8px;max-height:180px;overflow:auto;">${logTail}</pre>` : '';
+    const logBlock = logTail ? `<pre class="task-details-pre task-details-pre-scroll">${logTail}</pre>` : '';
     return `
-        <div class="task-error-banner" style="background:#eef6ff;border-color:#bfdbfe;color:#1e3a8a;">
+        <div class="task-error-banner task-info-banner">
             服务器状态: ${escapeHtml(serverRuntimeStatus)} ｜ 远端状态: ${escapeHtml(String(data.remote_status || '-'))} ｜ screen: ${escapeHtml(screenText)} ｜ 心跳: ${escapeHtml(heartbeatAge)} ｜ exit_code: ${escapeHtml(String(data.exit_code || '-'))}
         </div>
-        <pre class="task-details-pre" style="margin-top:8px;">${escapeHtml(JSON.stringify({
+        <pre class="task-details-pre task-details-pre-offset">${escapeHtml(JSON.stringify({
             execution_id: data.execution_id,
             tool_id: data.tool_id,
             sample_id: data.sample_id,
@@ -3025,7 +3032,7 @@ function formatDetailCell(record) {
         const short = errMsg.length > 30 ? errMsg.substring(0, 30) + '…' : errMsg;
         return `<span class="error-hint" title="${escapeHtml(errMsg)}">${escapeHtml(short)}</span>`;
     } else if (record.status === 'running') {
-        return '<span style="color:#0d6efd;">运行中...</span>';
+        return '<span class="history-running-text">运行中...</span>';
     }
     return '-';
 }
