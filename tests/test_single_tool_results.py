@@ -52,6 +52,15 @@ def test_get_results_for_execution_rejects_non_completed(tmp_path: Path):
     pm.close()
 
 
+def test_get_results_for_execution_returns_error_without_project() -> None:
+    service = ToolBridgeService()
+
+    payload = service.get_results_for_execution("exec_missing_project")
+
+    assert payload["status"] == "error"
+    assert payload["message"] == "未找到对应任务记录"
+
+
 def test_get_results_for_execution_dispatches_fastp(monkeypatch):
     service = ToolBridgeService()
     monkeypatch.setattr(
@@ -1430,6 +1439,70 @@ def test_get_results_for_execution_builds_artifact_collection_view(tmp_path: Pat
     assert payload["status"] == "ok"
     assert payload["view"]["archetype"] == "artifact_collection"
     assert payload["view"]["summary"][0]["label"] == "已同步文件"
+    pm.close()
+
+
+def test_get_results_for_execution_builds_artifact_collection_without_sample_join(tmp_path: Path):
+    pm = _build_project_manager(tmp_path)
+    registry = _build_plugin_registry()
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_bins_missing", "bins missing sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("exec_bins_missing_sample", "smp_bins_missing", "metabat2", "2.15", "{}", "completed", "manual", 1.0, 2.0),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_bins_missing_sample"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    bin_path = results_dir / "bin.1.fa"
+    bin_path.write_text(">bin1\nATGC\n", encoding="utf-8")
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_bins_missing_sample",
+                "tool_id": "metabat2",
+                "output_dir": "/remote/metabat2",
+                "artifacts": [
+                    {
+                        "name": "bin.1.fa",
+                        "remote_path": "/remote/metabat2/bin.1.fa",
+                        "local_path": str(bin_path),
+                        "available": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=registry)
+    monkeypatch_row = {
+        "execution_id": "exec_bins_missing_sample",
+        "sample_id": "smp_bins_missing",
+        "sample_name": None,
+        "tool_id": "metabat2",
+        "tool_version": "2.15",
+        "parameters": "{}",
+        "status": "completed",
+        "created_at": 1.0,
+        "completed_at": 2.0,
+    }
+    service._get_execution_result_row = lambda execution_id: dict(monkeypatch_row, execution_id=execution_id)
+    payload = service.get_results_for_execution("exec_bins_missing_sample")
+
+    assert payload["status"] == "ok"
+    assert payload["view"]["archetype"] == "artifact_collection"
+    assert payload["view"]["hero"]["sample_name"] == "smp_bins_missing"
+    assert payload["view"]["provenance"]["execution_id"] == "exec_bins_missing_sample"
     pm.close()
 
 
