@@ -8,7 +8,10 @@
 - [远端 conda（无 sudo）](./ops/remote-conda-no-sudo.md)
 - [Windows Codex + WSL UTF-8 指南](./WINDOWS_CODEX_WSL_UTF8.md)
 - [测试守护规则](./TEST_GUARDRAILS.md)
+- [结果工作台 2026 分阶段改造方案](./结果工作台2026分阶段改造方案.md)
 
 ## 说明
 
 - 长期维护文档优先放在 `docs/` 根目录或 `docs/ops/`。
+- “结果工作台 / execution / history / results” 主题仅保留一份主方案文档：
+  `结果工作台2026分阶段改造方案.md`。
