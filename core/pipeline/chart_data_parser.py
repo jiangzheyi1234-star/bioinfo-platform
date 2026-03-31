@@ -241,8 +241,8 @@ class ChartDataParser:
               "data": [...]   # ECharts sunburst 格式
             }
         """
-        RANK_ORDER = {"D": 0, "P": 1, "C": 2, "O": 3, "F": 4, "G": 5, "S": 6}
-        nodes: list[dict] = []
+        relevant_ranks = {"D", "P", "C"}
+        nodes: list[dict[str, Any]] = []
 
         try:
             lines = Path(kreport_path).read_text(encoding="utf-8").splitlines()
@@ -251,11 +251,11 @@ class ChartDataParser:
             return ChartDataParser._empty_chart("物种分类层级")
 
         for line in lines:
-            parts = line.strip().split("\t")
+            parts = line.rstrip("\n").split("\t")
             if len(parts) < 6:
                 continue
-            pct_str, _, _, rank, taxid, name = parts[:6]
-            if rank not in RANK_ORDER:
+            pct_str, _, _, rank, taxid, raw_name = parts[:6]
+            if rank not in relevant_ranks:
                 continue
             try:
                 pct = float(pct_str.strip())
@@ -263,15 +263,15 @@ class ChartDataParser:
                 continue
             if pct < 0.1:
                 continue
+            indent = len(raw_name) - len(raw_name.lstrip(" "))
             nodes.append({
-                "name": name.strip().lstrip(),
+                "name": raw_name.strip(),
                 "value": round(pct, 3),
                 "rank": rank,
                 "taxid": taxid,
-                "depth": RANK_ORDER[rank],
+                "indent": indent,
             })
 
-        # 简单层级组装（仅到属级）：按 depth 归组
         if not nodes:
             return ChartDataParser._empty_chart("物种分类层级")
 
@@ -365,35 +365,39 @@ class ChartDataParser:
 # ── 辅助函数 ─────────────────────────────────────────────────────
 
 
-def _build_sunburst_tree(nodes: list[dict]) -> list[dict]:
-    """将扁平节点列表组装为 ECharts sunburst 树结构（简化版）"""
-    # 按深度分组
-    by_depth: dict[int, list[dict]] = {}
-    for n in nodes:
-        by_depth.setdefault(n["depth"], []).append(n)
+def _build_sunburst_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按 kreport 缩进恢复真实层级，仅保留 Domain → Phylum → Class。"""
+    roots: list[dict[str, Any]] = []
+    stack: list[tuple[int, dict[str, Any]]] = []
 
-    if not by_depth:
-        return []
+    for node in nodes:
+        item: dict[str, Any] = {
+            "name": node["name"],
+            "value": node["value"],
+            "children": [],
+        }
+        indent = int(node.get("indent", 0))
 
-    # 只取前三层（Domain → Phylum → Class）
-    depths = sorted(by_depth.keys())[:3]
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
 
-    # 根节点（Domain 层）
-    roots: list[dict] = []
-    for root_node in by_depth.get(depths[0], []):
-        item: dict = {"name": root_node["name"], "value": root_node["value"], "children": []}
-        # 子层（Phylum）
-        if len(depths) > 1:
-            for child_node in by_depth.get(depths[1], []):
-                child: dict = {"name": child_node["name"], "value": child_node["value"], "children": []}
-                # 孙层（Class）
-                if len(depths) > 2:
-                    for gc in by_depth.get(depths[2], []):
-                        child["children"].append({
-                            "name": gc["name"],
-                            "value": gc["value"],
-                        })
-                item["children"].append(child)
-        roots.append(item)
+        if stack:
+            parent = stack[-1][1]
+            parent.setdefault("children", []).append(item)
+        else:
+            roots.append(item)
 
+        stack.append((indent, item))
+
+    for root in roots:
+        _prune_empty_children(root)
     return roots
+
+
+def _prune_empty_children(node: dict[str, Any]) -> None:
+    children = node.get("children", [])
+    if not children:
+        node.pop("children", None)
+        return
+    for child in children:
+        _prune_empty_children(child)
