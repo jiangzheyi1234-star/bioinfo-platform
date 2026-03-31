@@ -36,11 +36,25 @@ class ToolBridge(QObject):
 
         sl = self._get_service_locator()
         self._service = ToolBridgeService(service_locator=sl, plugin_registry=plugin_registry)
+        self._service_locator = sl
+        self._bind_execution_signals()
 
     def _get_service_locator(self):
         if self.main_window and hasattr(self.main_window, "service_locator"):
             return self.main_window.service_locator
         return None
+
+    def _bind_execution_signals(self) -> None:
+        if self._service_locator is None:
+            return
+        try:
+            self._service_locator.execution_completed.connect(self._on_execution_completed)
+        except Exception:
+            logger.exception("连接 execution_completed 失败")
+        try:
+            self._service_locator.execution_failed.connect(self._on_execution_failed)
+        except Exception:
+            logger.exception("连接 execution_failed 失败")
 
     @pyqtSlot(result=str)
     def get_tools(self) -> str:
@@ -230,6 +244,45 @@ class ToolBridge(QObject):
             self.web_view.page().runJavaScript(js)
         except Exception:
             logger.exception("发送 JS 回调失败")
+
+    def _send_execution_update(self, payload: dict) -> None:
+        if self.web_view is None:
+            return
+        try:
+            update_json = json.dumps(payload, ensure_ascii=False)
+            js = (
+                "if (typeof window._onExecutionUpdate === 'function') "
+                "{ window._onExecutionUpdate(" + update_json + "); }"
+            )
+            self.web_view.page().runJavaScript(js)
+        except Exception:
+            logger.exception("发送 execution update 回调失败")
+
+    @pyqtSlot(str)
+    def _on_execution_completed(self, execution_id: str) -> None:
+        normalized_id = str(execution_id or "").strip()
+        if not normalized_id:
+            return
+        self._send_execution_update(
+            {
+                "status": "completed",
+                "execution_id": normalized_id,
+                "message": "任务已完成，正在刷新结果工作台",
+            }
+        )
+
+    @pyqtSlot(str, str)
+    def _on_execution_failed(self, execution_id: str, error: str) -> None:
+        normalized_id = str(execution_id or "").strip()
+        if not normalized_id:
+            return
+        self._send_execution_update(
+            {
+                "status": "failed",
+                "execution_id": normalized_id,
+                "message": str(error or "").strip() or "任务执行失败",
+            }
+        )
 
     @pyqtSlot(result=str)
     def get_execution_history(self) -> str:
