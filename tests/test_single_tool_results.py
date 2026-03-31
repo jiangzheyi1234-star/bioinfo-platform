@@ -849,6 +849,12 @@ def test_tool_bridge_service_result_builders_are_defined_once():
         assert source.count(f"def {function_name}(") == 1, function_name
 
 
+def test_tool_bridge_service_core_result_seam_modules_are_externalized():
+    assert ToolBridgeService._build_qc_report_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_fastp_view_from_artifacts.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_targeted_seq_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+
+
 def test_get_results_for_execution_builds_quast_quality_view(tmp_path: Path):
     pm = _build_project_manager(tmp_path)
     registry = _build_plugin_registry()
