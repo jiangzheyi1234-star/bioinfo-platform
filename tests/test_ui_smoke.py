@@ -328,6 +328,27 @@ class TestDetectionIntegratedWorkbench:
         assert payload["views"]["wastewater_metagenomics_basic"]["tool_ids"] == ["wastewater_metagenomics_basic"]
         assert payload["views"]["animal_metagenomics_basic"]["tool_ids"] == ["animal_metagenomics_basic"]
 
+    def test_tool_bridge_includes_active_project_scope_in_integrated_config(self, tmp_path: Path):
+        from core.execution.tool_bridge_service import ToolBridgeService
+
+        pm = ProjectManager(
+            projects_root=tmp_path / "projects",
+            index_path=tmp_path / "projects.json",
+            last_project_path=tmp_path / "last_project.txt",
+        )
+        project_id = pm.create_project("scope project")
+        pm.open_project(project_id)
+
+        class _Locator:
+            project_manager = pm
+
+        service = ToolBridgeService(service_locator=_Locator())
+        payload = service.get_integrated_workbench_config()
+
+        assert payload["project_id"] == project_id
+        assert payload["project_name"] == "scope project"
+        pm.close()
+
     def test_targeted_results_route_detection_workflow_view(self, monkeypatch, tmp_path: Path):
         from core.execution.tool_bridge_service import ToolBridgeService
 
@@ -642,6 +663,10 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-run-card"' in html
         assert 'id="integrated-run-btn"' in html
         assert 'id="integrated-input-list"' in html
+        assert 'data-result-tab="overview"' in html
+        assert 'data-result-tab="result"' in html
+        assert 'data-result-tab="files"' in html
+        assert 'data-result-tab="provenance"' in html
         assert 'id="integrated-table-body"' in html
         assert 'id="integrated-html-card"' in html
         assert 'id="integrated-html-frame"' in html
@@ -656,6 +681,19 @@ class TestDetectionIntegratedWorkbench:
         assert 'upsertIntegratedHistoryFeature' in js
         assert 'renderIntegratedProvenance' in js
         assert 'renderIntegratedSections' in js
+        assert 'initializeIntegratedResultTabs' in js
+        assert 'switchIntegratedResultTab' in js
+        assert 'integratedExecutionViews' in js
+        assert 'selectedIntegratedViewSource' in js
+        assert 'restoreIntegratedExecutionFeatures' in js
+        assert 'resolveIntegratedViewSource' in js
+        assert 'getPreferredIntegratedViewSource' in js
+        assert 'getDefaultIntegratedResultTab' in js
+        assert 'hasIntegratedResultContent' in js
+        assert 'syncIntegratedWorkbenchProjectScope' in js
+        assert 'clearIntegratedExecutionCache' in js
+        assert 'activeIntegratedProjectId' in js
+        assert '__displaySource' in js
         assert 'temporary' in js
         assert 'get_results_for_execution' in js
         assert "function switchTab(tab)" in js
@@ -675,6 +713,22 @@ class TestDetectionIntegratedWorkbench:
         assert "wastewater_metagenomics_basic" in js
         assert "animal_metagenomics_basic" in js
         assert "需要输入文件" in js
+        assert "record.status === 'completed'" in js
+        assert "record.status === 'running'" in js
+        assert "record.status === 'failed'" in js
+        assert "status: 'pending'" in js
+        assert "fetchRemoteStatus: false" in js
+        assert "viewBtn.textContent = '查看结果'" in js
+        assert "statusBtn.textContent = '查看状态'" in js
+        assert "renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult })" in js
+        assert "selectIntegratedFeature(featureId, { sourceMode: 'history' });" in js
+        assert "当前 execution 未提供表格结果。" in js
+        assert "selectedIntegratedViewSource === 'history'" in js
+        assert "restoreIntegratedExecutionFeatures();" in js
+        assert "if (artifacts.length > 0) {" in js
+        assert "return 'files';" in js
+        assert "nextWorkbench?.project_id" in js
+        assert "clearIntegratedExecutionCache();" in js
 
         context_priority = js.find("context.featureId")
         payload_priority = js.find("payload.view.feature_id")
@@ -682,6 +736,15 @@ class TestDetectionIntegratedWorkbench:
         assert payload_priority != -1
         assert context_priority < payload_priority
         assert "featureId: 'fastp'" in js
+
+    def test_detection_history_empty_state_and_sample_fallback(self):
+        js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+
+        assert "history.length === 0" in js
+        assert "暂无任务记录" in js
+        assert "record.sample_name || record.sample_id || '-'" in js
+        assert "record.status === 'completed' ? '查看结果' : '查看状态'" not in js
+        assert "请通过右侧「执行入口」上传 FASTQ 文件并运行分析" not in js
 
 
 class TestHomePageFlows:

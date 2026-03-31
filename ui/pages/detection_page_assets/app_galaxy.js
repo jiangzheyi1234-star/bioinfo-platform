@@ -9,6 +9,10 @@ let databaseResources = [];
 let historyRecords = [];
 let pendingHistoryExecutionId = null;
 let pendingHistoryExecutionOptions = null;
+let pendingIntegratedViewSource = '';
+let selectedIntegratedViewSource = 'workflow';
+let activeIntegratedProjectId = '';
+const integratedExecutionViews = {};
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
 let integratedRunModalContext = null;
@@ -252,6 +256,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
         integratedRunBtn.addEventListener('click', openIntegratedRunEntry);
     }
     initializeIntegratedSectionToggles();
+    initializeIntegratedResultTabs();
     bindHelpTooltipInteractions();
 });
 
@@ -663,6 +668,72 @@ function initializeIntegratedSectionToggles() {
     });
 }
 
+function initializeIntegratedResultTabs() {
+    document.querySelectorAll('.integrated-result-tab').forEach(function(btn) {
+        if (btn.dataset.bound === '1') {
+            return;
+        }
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function() {
+            const tab = String(btn.dataset.resultTab || '').trim();
+            if (!tab) {
+                return;
+            }
+            switchIntegratedResultTab(tab);
+        });
+    });
+}
+
+function switchIntegratedResultTab(tabName) {
+    const activeTab = String(tabName || 'overview').trim() || 'overview';
+    document.querySelectorAll('.integrated-result-tab').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.resultTab === activeTab);
+    });
+    document.querySelectorAll('.result-tab-panel').forEach(function(panel) {
+        const shouldShow = panel.classList.contains(`result-tab-${activeTab}`);
+        const panelVisible = panel.dataset.panelVisible !== '0';
+        panel.style.display = shouldShow && panelVisible ? '' : 'none';
+    });
+}
+
+function hasIntegratedResultContent(view) {
+    const table = (view && view.table && typeof view.table === 'object') ? view.table : {};
+    const tableRows = Array.isArray(table.rows) ? table.rows : (Array.isArray(view?.rows) ? view.rows : []);
+    if (tableRows.length > 0) {
+        return true;
+    }
+
+    const charts = Array.isArray(view?.charts) ? view.charts : (view?.chart ? [view.chart] : []);
+    if (charts.some(chart => chart && Array.isArray(chart.data) && chart.data.length > 0)) {
+        return true;
+    }
+
+    const artifacts = Array.isArray(view?.artifacts) ? view.artifacts : [];
+    return artifacts.some(item => (
+        item
+        && item.available
+        && item.local_path
+        && typeof item.name === 'string'
+        && item.name.toLowerCase().endsWith('.html')
+    ));
+}
+
+function getDefaultIntegratedResultTab(view, options = {}) {
+    const sourceMode = String(options.sourceMode || 'workflow').trim() || 'workflow';
+    if (sourceMode !== 'history') {
+        return 'overview';
+    }
+
+    const artifacts = Array.isArray(view?.artifacts) ? view.artifacts : [];
+    if (hasIntegratedResultContent(view)) {
+        return 'result';
+    }
+    if (artifacts.length > 0) {
+        return 'files';
+    }
+    return 'overview';
+}
+
 function setSectionCollapsed(targetId, collapsed) {
     const body = document.getElementById(targetId);
     if (!body) {
@@ -928,7 +999,10 @@ function loadIntegratedWorkbench(forceRefresh = false) {
 
     bridge.get_integrated_workbench_config(function(json) {
         try {
-            integratedWorkbench = JSON.parse(json);
+            const nextWorkbench = JSON.parse(json);
+            syncIntegratedWorkbenchProjectScope(nextWorkbench);
+            integratedWorkbench = nextWorkbench;
+            restoreIntegratedExecutionFeatures();
             renderIntegratedWorkbench();
         } catch (e) {
             console.error('Failed to parse integrated workbench config:', e);
@@ -936,10 +1010,71 @@ function loadIntegratedWorkbench(forceRefresh = false) {
     });
 }
 
+function clearIntegratedExecutionCache() {
+    Object.keys(integratedExecutionViews).forEach(function(featureId) {
+        delete integratedExecutionViews[featureId];
+    });
+    pendingIntegratedFeatureId = null;
+    pendingIntegratedViewSource = '';
+    selectedIntegratedViewSource = 'workflow';
+}
+
+function syncIntegratedWorkbenchProjectScope(nextWorkbench) {
+    const nextProjectId = String(nextWorkbench?.project_id || '').trim();
+    if (activeIntegratedProjectId && nextProjectId !== activeIntegratedProjectId) {
+        clearIntegratedExecutionCache();
+    }
+    activeIntegratedProjectId = nextProjectId;
+}
+
+function restoreIntegratedExecutionFeatures() {
+    if (!integratedWorkbench) {
+        return;
+    }
+
+    Object.keys(integratedExecutionViews).forEach(function(featureId) {
+        const view = integratedExecutionViews[featureId];
+        if (!view || getIntegratedWorkbenchFeature(featureId)) {
+            return;
+        }
+        upsertIntegratedHistoryFeature(featureId, view, { temporary: true });
+    });
+}
+
+function resolveIntegratedViewSource(featureId, requestedSource = 'workflow') {
+    const preferredSource = String(requestedSource || 'workflow').trim() || 'workflow';
+    const hasBaseView = Boolean(integratedWorkbench && integratedWorkbench.views && integratedWorkbench.views[featureId]);
+    const hasExecutionView = Boolean(integratedExecutionViews[featureId]);
+
+    if (preferredSource === 'history' && hasExecutionView) {
+        return 'history';
+    }
+    if (!hasBaseView && hasExecutionView) {
+        return 'history';
+    }
+    return preferredSource;
+}
+
+function getPreferredIntegratedViewSource(featureId) {
+    if (pendingIntegratedViewSource) {
+        return resolveIntegratedViewSource(featureId, pendingIntegratedViewSource);
+    }
+    if (
+        selectedIntegratedFeatureId === featureId
+        && selectedIntegratedViewSource === 'history'
+        && integratedExecutionViews[featureId]
+    ) {
+        return 'history';
+    }
+    return resolveIntegratedViewSource(featureId, 'workflow');
+}
+
 function renderIntegratedWorkbench() {
     if (!integratedWorkbench) {
         return;
     }
+
+    restoreIntegratedExecutionFeatures();
 
     const title = document.getElementById('integrated-title');
     const subtitle = document.getElementById('integrated-subtitle');
@@ -988,52 +1123,80 @@ function renderIntegratedWorkbench() {
         preferredFeature = features.find(feature => feature.status === 'active') || features[0];
     }
     if (preferredFeature) {
-        selectIntegratedFeature(preferredFeature.id);
+        const sourceMode = getPreferredIntegratedViewSource(preferredFeature.id);
+        selectIntegratedFeature(preferredFeature.id, { sourceMode });
     }
     pendingIntegratedFeatureId = null;
+    pendingIntegratedViewSource = '';
 }
 
-function selectIntegratedFeature(featureId) {
+function getIntegratedFeatureView(featureId, sourceMode = 'workflow') {
+    if (!integratedWorkbench) {
+        return null;
+    }
+    const preferredSource = String(sourceMode || 'workflow').trim() || 'workflow';
+    if (preferredSource === 'history' && integratedExecutionViews[featureId]) {
+        return integratedExecutionViews[featureId];
+    }
+    return (integratedWorkbench.views || {})[featureId] || integratedExecutionViews[featureId] || null;
+}
+
+function selectIntegratedFeature(featureId, options = {}) {
     if (!integratedWorkbench) {
         return;
     }
 
+    const sourceMode = resolveIntegratedViewSource(featureId, options.sourceMode || 'workflow');
     selectedIntegratedFeatureId = featureId;
+    selectedIntegratedViewSource = sourceMode;
     document.querySelectorAll('.integrated-feature-item').forEach(item => {
         item.classList.toggle('active', item.dataset.featureId === featureId);
     });
 
     const features = integratedWorkbench.features || [];
     const feature = features.find(item => item.id === featureId);
-    const view = (integratedWorkbench.views || {})[featureId];
-    renderIntegratedFeature(feature, view);
+    const view = getIntegratedFeatureView(featureId, sourceMode);
+    renderIntegratedFeature(feature, view, { sourceMode });
 }
 
-function renderIntegratedFeature(feature, view) {
+function renderIntegratedFeature(feature, view, options = {}) {
     const emptyState = document.getElementById('integrated-empty-state');
     const detail = document.getElementById('integrated-detail');
     const statusChip = document.getElementById('integrated-status-chip');
+    const stateDetail = document.getElementById('feature-state-detail');
+    const kicker = document.getElementById('feature-kicker');
     const table = (view && view.table && typeof view.table === 'object') ? view.table : {};
+    const sourceMode = String(options.sourceMode || selectedIntegratedViewSource || 'workflow').trim() || 'workflow';
+    const isHistoryResult = sourceMode === 'history';
 
     if (!feature || !view) {
         if (emptyState) emptyState.style.display = 'flex';
         if (detail) detail.style.display = 'none';
         if (statusChip) statusChip.textContent = '待选择功能';
+        if (stateDetail) stateDetail.textContent = '请选择左侧功能或通过运行历史进入结果。';
         return;
     }
 
     if (emptyState) emptyState.style.display = 'none';
     if (detail) detail.style.display = 'flex';
     if (statusChip) statusChip.textContent = view?.status?.label || feature.badge || '已选择';
+    if (kicker) kicker.textContent = isHistoryResult ? 'Result Shell' : 'Workflow Entry';
 
     document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
     document.getElementById('feature-description').textContent = view.description || '';
+    if (stateDetail) {
+        const executionId = String(view?.provenance?.execution_id || view?.hero?.execution_id || '').trim();
+        stateDetail.textContent = isHistoryResult
+            ? `当前为统一结果壳视图${executionId ? `，execution_id: ${executionId}` : ''}。`
+            : String(view?.status?.detail || '可从这里查看输入要求，并继续提交新的运行。');
+    }
 
     initializeIntegratedSectionToggles();
+    initializeIntegratedResultTabs();
     setSectionCollapsed('integrated-run-body', true);
     setSectionCollapsed('artifact-list-wrap', true);
 
-    renderIntegratedRunEntry(feature, view);
+    renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult });
     renderSummaryGrid(view.summary || []);
     renderArtifactList(view.artifacts || []);
     renderIntegratedProvenance(view.provenance || {}, view.hero || {});
@@ -1041,6 +1204,7 @@ function renderIntegratedFeature(feature, view) {
     renderIntegratedHtmlPreview(view.artifacts || []);
     renderIntegratedTable(table.columns || view.columns || [], table.rows || view.rows || []);
     renderIntegratedChart(view.charts || view.chart || null);
+    switchIntegratedResultTab(getDefaultIntegratedResultTab(view, { sourceMode }));
 
     // 动态更新表标题和 badge
     const resultsTitle = document.getElementById('results-card-title');
@@ -1052,7 +1216,7 @@ function renderIntegratedFeature(feature, view) {
     if (subtitleEl) subtitleEl.textContent = table.subtitle || view.table_subtitle || '分析结果将在此处展示。';
 }
 
-function renderIntegratedRunEntry(feature, view) {
+function renderIntegratedRunEntry(feature, view, options = {}) {
     const card = document.getElementById('integrated-run-card');
     const hint = document.getElementById('integrated-run-hint');
     const list = document.getElementById('integrated-input-list');
@@ -1060,6 +1224,11 @@ function renderIntegratedRunEntry(feature, view) {
     const runBtn = document.getElementById('integrated-run-btn');
 
     if (!card || !hint || !list || !badge || !runBtn) {
+        return;
+    }
+
+    if (options.hidden) {
+        card.style.display = 'none';
         return;
     }
 
@@ -1146,8 +1315,14 @@ function renderSummaryGrid(summaryItems) {
         return;
     }
 
+    const items = Array.isArray(summaryItems) ? summaryItems : [];
+    if (!items.length) {
+        container.innerHTML = '<div class="integrated-input-empty">Overview 暂无 summary 信息。</div>';
+        return;
+    }
+
     container.innerHTML = '';
-    summaryItems.forEach(item => {
+    items.forEach(item => {
         const card = document.createElement('div');
         card.className = `summary-card tone-${item.tone || 'default'}`;
         card.innerHTML = `
@@ -1251,13 +1426,13 @@ function renderIntegratedSections(sections) {
     }
 
     const normalizedSections = Array.isArray(sections) ? sections : [];
+    card.style.display = 'block';
+    card.dataset.panelVisible = '1';
     if (normalizedSections.length === 0) {
-        card.style.display = 'none';
-        container.innerHTML = '';
+        container.innerHTML = '<div class="integrated-input-empty">Overview 暂无 section 内容。</div>';
         return;
     }
 
-    card.style.display = 'block';
     container.innerHTML = normalizedSections.map(section => {
         const summary = Array.isArray(section?.summary) ? section.summary : [];
         const table = section?.table && typeof section.table === 'object' ? section.table : {};
@@ -1338,6 +1513,7 @@ function renderIntegratedHtmlPreview(artifacts) {
     ));
 
     if (!htmlArtifact) {
+        card.dataset.panelVisible = '0';
         card.style.display = 'none';
         frame.style.display = 'none';
         frame.src = 'about:blank';
@@ -1347,6 +1523,7 @@ function renderIntegratedHtmlPreview(artifacts) {
     }
 
     const fileUrl = localPathToFileUrl(htmlArtifact.local_path);
+    card.dataset.panelVisible = '1';
     card.style.display = 'block';
     titleEl.textContent = htmlArtifact.name || 'HTML 预览';
     frame.style.display = fileUrl ? 'block' : 'none';
@@ -1376,7 +1553,7 @@ function renderIntegratedTable(columns, rows) {
     if (table) table.classList.toggle('wide-table', columns.length > 6);
 
     if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">暂无结果 — 请通过右侧「执行入口」上传 FASTQ 文件并运行分析</td></tr>`;
+        body.innerHTML = `<tr><td colspan="${columns.length || 1}" class="empty-row">当前 execution 未提供表格结果。</td></tr>`;
         return;
     }
 
@@ -1475,10 +1652,12 @@ function renderIntegratedChart(chartInput, retryCount = 0) {
     const charts = Array.isArray(chartInput) ? chartInput : (chartInput ? [chartInput] : []);
     const validCharts = charts.filter(c => c && Array.isArray(c.data) && c.data.length > 0);
     if (!validCharts.length) {
+        if (card) card.dataset.panelVisible = '0';
         if (card) card.style.display = 'none';
         return;
     }
 
+    if (card) card.dataset.panelVisible = '1';
     if (card) card.style.display = 'block';
     if (titleEl) titleEl.textContent = validCharts.length > 1 ? '图表视图' : (validCharts[0].title || '图表');
     if (!container || typeof echarts === 'undefined') {
@@ -2401,8 +2580,8 @@ function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
         integratedWorkbench.features[existingIndex] = {
             ...current,
             id: featureId,
-            name: String(view?.title || current.name || featureId),
-            description: String(view?.description || current.description || ''),
+            name: String(current.name || view?.title || featureId),
+            description: String(current.description || view?.description || ''),
             status: current.status || 'active',
             temporary: Boolean(current.temporary) || temporary,
         };
@@ -2488,8 +2667,15 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
             return false;
         }
 
-        views[featureId] = payload.view;
+        if (!getIntegratedWorkbenchFeature(featureId)) {
+            views[featureId] = payload.view;
+        }
+        integratedExecutionViews[featureId] = {
+            ...payload.view,
+            __displaySource: 'history',
+        };
         pendingIntegratedFeatureId = featureId;
+        pendingIntegratedViewSource = 'history';
         const existingFeature = getIntegratedWorkbenchFeature(featureId);
         const featureChanged = upsertIntegratedHistoryFeature(
             featureId,
@@ -2500,7 +2686,7 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
         if (featureChanged) {
             renderIntegratedWorkbench();
         } else {
-            selectIntegratedFeature(featureId);
+            selectIntegratedFeature(featureId, { sourceMode: 'history' });
         }
         showNotice(payload.message || successMessage, 'success');
         return true;
