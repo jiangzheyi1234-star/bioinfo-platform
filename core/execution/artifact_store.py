@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class ArtifactStore:
+    _ARTIFACT_TYPES = {"html", "json", "tsv", "text", "fasta", "archive", "binary"}
+    _DISPLAY_ROLES = {"primary_result", "supporting_result", "download", "report", "provenance"}
+    _VIEWER_HINTS = {"html", "table", "text", "json", "download"}
+
     def __init__(self, project_dir_getter: Callable[[], Path | None], manifest_name: str = "artifacts_manifest.json"):
         self._project_dir_getter = project_dir_getter
         self._manifest_name = manifest_name
@@ -58,9 +62,76 @@ class ArtifactStore:
                     "local_path": local_path,
                     "available": available,
                     "error": str(item.get("error") or "").strip(),
+                    **ArtifactStore._normalize_artifact_metadata(item),
                 }
             )
         return normalized
+
+    @classmethod
+    def infer_artifact_metadata(cls, artifact_name: str) -> dict[str, str]:
+        name = str(artifact_name or "").strip()
+        lower_name = name.lower()
+        suffixes = Path(lower_name).suffixes
+        suffix = suffixes[-1] if suffixes else ""
+
+        artifact_type = "binary"
+        viewer_hint = "download"
+        display_role = "download"
+
+        if suffix == ".html":
+            artifact_type = "html"
+            viewer_hint = "html"
+            display_role = "report" if "report" in lower_name else "primary_result"
+        elif suffix == ".json":
+            artifact_type = "json"
+            viewer_hint = "json"
+            display_role = "supporting_result"
+        elif suffix in {".tsv", ".csv"}:
+            artifact_type = "tsv"
+            viewer_hint = "table"
+            display_role = "primary_result" if any(token in lower_name for token in ("result", "summary", "table")) else "supporting_result"
+        elif suffix in {".txt", ".log"}:
+            artifact_type = "text"
+            viewer_hint = "text"
+            display_role = "primary_result" if "result" in lower_name else "supporting_result"
+        elif suffix in {".fa", ".fna", ".faa", ".fasta", ".fas"}:
+            artifact_type = "fasta"
+            viewer_hint = "download"
+            display_role = "download"
+        elif suffix in {".zip", ".tar", ".gz", ".bz2", ".xz"}:
+            artifact_type = "archive"
+            viewer_hint = "download"
+            display_role = "download"
+
+        if any(token in lower_name for token in ("provenance", "manifest", "metadata")):
+            display_role = "provenance"
+            viewer_hint = "json" if artifact_type == "json" else viewer_hint
+
+        return {
+            "artifact_type": artifact_type,
+            "display_role": display_role,
+            "viewer_hint": viewer_hint,
+        }
+
+    @classmethod
+    def _normalize_artifact_metadata(cls, item: dict[str, Any]) -> dict[str, str]:
+        inferred = cls.infer_artifact_metadata(str(item.get("name") or ""))
+        artifact_type = str(item.get("artifact_type") or inferred["artifact_type"]).strip()
+        display_role = str(item.get("display_role") or inferred["display_role"]).strip()
+        viewer_hint = str(item.get("viewer_hint") or inferred["viewer_hint"]).strip()
+
+        if artifact_type not in cls._ARTIFACT_TYPES:
+            raise RuntimeError(f"Invalid artifact_type for artifact={item.get('name') or ''}: {artifact_type}")
+        if display_role not in cls._DISPLAY_ROLES:
+            raise RuntimeError(f"Invalid display_role for artifact={item.get('name') or ''}: {display_role}")
+        if viewer_hint not in cls._VIEWER_HINTS:
+            raise RuntimeError(f"Invalid viewer_hint for artifact={item.get('name') or ''}: {viewer_hint}")
+
+        return {
+            "artifact_type": artifact_type,
+            "display_role": display_role,
+            "viewer_hint": viewer_hint,
+        }
 
     @staticmethod
     def artifact_by_name(artifacts: list[dict], name: str) -> dict | None:
@@ -209,6 +280,7 @@ class ArtifactStore:
             available = bool(item.get("available"))
             copied_path = ""
             error = str(item.get("error") or "").strip()
+            metadata = self._normalize_artifact_metadata(item)
             if name and local_path and available and Path(local_path).exists():
                 src = Path(local_path)
                 dst = results_dir / name
@@ -228,6 +300,7 @@ class ArtifactStore:
                 "remote_path": str(item.get("remote_path") or "").strip(),
                 "local_path": copied_path,
                 "available": bool(copied_path) and Path(copied_path).exists(),
+                **metadata,
             }
             if error:
                 persisted_item["error"] = error

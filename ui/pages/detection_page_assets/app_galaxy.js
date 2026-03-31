@@ -740,7 +740,16 @@ function hasIntegratedChartData(chartInput) {
 }
 
 function getIntegratedHtmlArtifact(artifacts) {
-    const normalizedArtifacts = Array.isArray(artifacts) ? artifacts : [];
+    const normalizedArtifacts = sortIntegratedArtifacts(Array.isArray(artifacts) ? artifacts : []);
+    const hintedHtmlArtifact = normalizedArtifacts.find(item => (
+        item
+        && item.available
+        && item.local_path
+        && item.viewer_hint === 'html'
+    ));
+    if (hintedHtmlArtifact) {
+        return hintedHtmlArtifact;
+    }
     const availableArtifact = normalizedArtifacts.find(item => (
         item
         && item.available
@@ -756,6 +765,33 @@ function getIntegratedHtmlArtifact(artifacts) {
         && typeof item.name === 'string'
         && item.name.toLowerCase().endsWith('.html')
     )) || null;
+}
+
+function getArtifactPriority(item) {
+    if (!item || typeof item !== 'object') {
+        return 999;
+    }
+    const role = String(item.display_role || '').trim();
+    const hint = String(item.viewer_hint || '').trim();
+    if (role === 'primary_result' && hint === 'html') return 0;
+    if (role === 'report' && hint === 'html') return 1;
+    if (role === 'primary_result' && hint === 'table') return 2;
+    if (role === 'supporting_result') return 3;
+    if (role === 'provenance') return 4;
+    if (role === 'download') return 5;
+    return 6;
+}
+
+function sortIntegratedArtifacts(artifacts) {
+    const normalizedArtifacts = Array.isArray(artifacts) ? artifacts.slice() : [];
+    normalizedArtifacts.sort(function(a, b) {
+        const scoreDiff = getArtifactPriority(a) - getArtifactPriority(b);
+        if (scoreDiff !== 0) {
+            return scoreDiff;
+        }
+        return String(a?.name || '').localeCompare(String(b?.name || ''));
+    });
+    return normalizedArtifacts;
 }
 
 function getIntegratedViewerStrategy(view) {
@@ -1442,7 +1478,7 @@ function renderArtifactList(artifacts, options = {}) {
         return;
     }
 
-    const normalizedArtifacts = Array.isArray(artifacts) ? artifacts : [];
+    const normalizedArtifacts = sortIntegratedArtifacts(Array.isArray(artifacts) ? artifacts : []);
     container.innerHTML = '';
     if (!normalizedArtifacts.length) {
         container.innerHTML = `<li class="artifact-item unavailable"><div class="artifact-main"><span class="artifact-name">${escapeHtml(options.requiredMessage || '暂无结果文件。')}</span><span class="artifact-state">缺失</span></div></li>`;

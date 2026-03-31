@@ -1393,6 +1393,59 @@ def test_get_results_for_execution_rejects_missing_html_artifact(tmp_path: Path)
     pm.close()
 
 
+def test_get_results_for_execution_rejects_invalid_artifact_metadata(tmp_path: Path):
+    pm = _build_project_manager(tmp_path)
+    registry = _build_plugin_registry()
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_bad_meta", "bad metadata sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("exec_bad_meta", "smp_bad_meta", "krona", "2.8", "{}", "completed", "manual", 1.0, 2.0),
+    )
+    pm.db.commit()
+
+    results_dir = pm.current_project_dir / "results" / "exec_bad_meta"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    html_path = results_dir / "report.html"
+    html_path.write_text("<html><body>bad</body></html>", encoding="utf-8")
+    (results_dir / "artifacts_manifest.json").write_text(
+        json.dumps(
+            {
+                "execution_id": "exec_bad_meta",
+                "tool_id": "krona",
+                "output_dir": "/remote/bad_meta",
+                "artifacts": [
+                    {
+                        "name": "report.html",
+                        "remote_path": "/remote/bad_meta/report.html",
+                        "local_path": str(html_path),
+                        "available": True,
+                        "artifact_type": "html",
+                        "display_role": "primary_result",
+                        "viewer_hint": "browser",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=registry)
+    payload = service.get_results_for_execution("exec_bad_meta")
+
+    assert payload["status"] == "error"
+    assert "Invalid viewer_hint" in payload["message"]
+    pm.close()
+
+
 def test_get_results_for_execution_builds_artifact_collection_view(tmp_path: Path):
     pm = _build_project_manager(tmp_path)
     registry = _build_plugin_registry()
