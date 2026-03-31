@@ -46,6 +46,14 @@
 - 圆角浮层必须加 `NoDropShadowWindowHint`，参考 `ui/widgets/project_selector.py`。
 - 图标必须用 `qtawesome`，禁止 Unicode emoji 充当产品图标。
 
+## ExecPlans
+
+- 复杂特性、跨文件重构、长时程任务默认使用 `ExecPlan` 工作流：
+  `Plan -> Edit -> Run tools -> Observe -> Repair -> Update docs -> Repeat`。
+- 执行前必须先读取对应计划文档；若仓库内已有任务专属计划文档，则该文档优先作为唯一执行事实来源。
+- Phase 4（结果工作台 Data Cockpit 视觉重设）默认入口为：
+  `docs/phase4/Plan.md`。
+- ExecPlan 必须保持自包含、活文档、可恢复；每完成一个 milestone 立即运行对应验证，失败先修复，不允许带着失败进入下一 milestone。
 ## 用户偏好
 
 - **提交**：必须给 commit hash + 标题 + 变更摘要 + 文件清单。
@@ -56,3 +64,4 @@
 
 最近完成：数据库管理系统 3 日计划（Task 1-7）✅ — 472 passed, 7 skipped
 当前：等待下一任务
+

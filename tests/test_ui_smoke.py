@@ -657,6 +657,7 @@ class TestDetectionIntegratedWorkbench:
     def test_detection_asset_contains_integrated_console_markup(self):
         html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
         js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
 
         assert 'id="tab-integrated"' in html
         assert 'id="integrated-feature-list"' in html
@@ -671,10 +672,13 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-table-card"' in html
         assert 'id="integrated-html-card"' in html
         assert 'id="integrated-html-frame"' in html
+        assert 'class="integrated-html-frame"' in html
         assert 'id="integrated-sections-card"' in html
         assert 'id="integrated-sections-list"' in html
         assert 'id="integrated-files-card"' in html
         assert 'id="integrated-provenance-list"' in html
+        assert 'history-empty-row' in html
+        assert 'integrated-chart-stage' in html
         assert 'loadExecutionResultsFromHistory' in js
         assert 'resolveHistoryResultContext' in js
         assert 'ensureIntegratedWorkbenchViews' in js
@@ -737,11 +741,22 @@ class TestDetectionIntegratedWorkbench:
         assert "当前 execution 未提供表格结果。" in js
         assert "主 viewer 策略为" in js
         assert "要求 ${strategy.mode} 主 viewer" in js
+        assert "statusChip.dataset.status" in js
+        assert "history-running-text" in js
+        assert "task-info-banner" in js
+        assert "integrated-section-item" in js
         assert "selectedIntegratedViewSource === 'history'" in js
         assert "restoreIntegratedExecutionFeatures();" in js
         assert "return viewerState.primaryTab;" in js
         assert "nextWorkbench?.project_id" in js
         assert "clearIntegratedExecutionCache();" in js
+        assert "--state-running-fg" in css
+        assert "--state-completed-fg" in css
+        assert ".integrated-status-chip[data-status=\"completed\"]" in css
+        assert ".summary-card.tone-success" in css
+        assert ".history-empty-row" in css
+        assert ".integrated-chart-stage" in css
+        assert ".task-info-banner" in css
 
         context_priority = js.find("context.featureId")
         payload_priority = js.find("payload.view.feature_id")
