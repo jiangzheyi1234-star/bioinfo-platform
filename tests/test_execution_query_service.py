@@ -5,6 +5,7 @@ import time
 
 from core.data.execution_query_service import ExecutionQueryService
 from core.data.project_manager import _SCHEMA_SQL
+from core.execution.tool_bridge_service import ToolBridgeService
 
 
 def _setup_conn() -> sqlite3.Connection:
@@ -52,3 +53,8 @@ def test_archive_execution_rejects_running() -> None:
     assert result["status"] == "error"
     conn.close()
 
+
+def test_tool_bridge_get_execution_history_returns_empty_without_project() -> None:
+    service = ToolBridgeService()
+
+    assert service.get_execution_history() == []
