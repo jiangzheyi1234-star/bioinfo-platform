@@ -12,7 +12,7 @@ from config import get_config
 from core.data.data_registry import DataRegistry
 from core.environment.h2o_env_paths import is_managed_conda_executable
 from core.data.project_manager import ProjectManager
-from core.execution.command_builder import CommandBuilder
+from core.execution.execution_backend import BackendDispatchResult, CommandBackend, ExecutionBackend
 from core.execution.execution_preparer import ExecutionPreparer, PreparationRequest, PreparationResult
 from core.execution.job_dispatcher import JobDispatcher
 from core.execution.job_queue import JobQueue
@@ -52,7 +52,8 @@ class ServiceLocator(QObject):
         self._project_manager = project_manager or ProjectManager()
         self._job_queue = JobQueue()
         self._job_dispatcher = JobDispatcher()
-        self._execution_preparer = ExecutionPreparer(self._ssh or _NullSSH(), parent=self)
+        self._execution_backend: ExecutionBackend = CommandBackend()
+        self._execution_preparer = ExecutionPreparer(self._ssh or _NullSSH(), backend=self._execution_backend, parent=self)
         self._task_runner = TaskRunner(max_threads=3, parent=self)
         self._retry_manager = RetryManager(retry_callback=self._retry_execution)
         self._data_registry: Optional[DataRegistry] = None
@@ -107,6 +108,7 @@ class ServiceLocator(QObject):
     def ssh_service(self, ssh: SSHService) -> None:
         self._ssh = ssh
         self._execution_preparer.set_ssh_service(ssh)
+        self._execution_preparer.set_backend(self._execution_backend)
         if self._data_registry is not None:
             self._rebuild_engine()
         self.ssh_changed.emit(ssh is not None)
@@ -295,21 +297,23 @@ class ServiceLocator(QObject):
         if not ctx:
             raise RuntimeError(f"执行上下文丢失: {execution_id}")
 
-        command = ctx["command"]
-        task_dir = ctx["task_dir"]
-        job_id = f"h2o_{execution_id}"
-        wrapped = CommandBuilder.wrap(command, job_id, task_dir)
-
-        JobDispatcher.submit(
-            ssh_service=ssh,
-            wrapped_script=wrapped,
+        prepared_result = PreparationResult(
             execution_id=execution_id,
-            task_dir=task_dir,
+            command=ctx["command"],
+            descriptor=ctx["descriptor"],
+            sample_id=ctx["sample_id"],
+            output_dir=ctx["output_dir"],
+            task_dir=ctx["task_dir"],
+        )
+        dispatch_result = self._execution_backend.dispatch(
+            execution_id=execution_id,
+            prepared_result=prepared_result,
+            ssh_service=ssh,
         )
         return {
-            "execution_id": execution_id,
-            "job_id": job_id,
-            "task_dir": task_dir,
+            "execution_id": dispatch_result.execution_id,
+            "job_id": dispatch_result.job_id,
+            "task_dir": dispatch_result.task_dir,
         }
 
     def _on_dispatch_submitted(self, execution_id: str, payload: object) -> None:
@@ -329,16 +333,19 @@ class ServiceLocator(QObject):
             self._on_failed(execution_id, "任务派发结果无效")
             return
 
-        job_id = payload["job_id"]
-        task_dir = payload["task_dir"]
-        self._job_dispatcher.start_waiting(
-            ssh_service=ssh,
+        dispatch_result = BackendDispatchResult(
             execution_id=execution_id,
-            job_id=job_id,
-            task_dir=task_dir,
+            job_id=payload["job_id"],
+            task_dir=payload["task_dir"],
         )
-        self._task_dirs[execution_id] = task_dir
-        logger.info("Task dispatched: %s -> screen %s", execution_id, job_id)
+        self._execution_backend.start_waiting(
+            execution_id=execution_id,
+            dispatch_result=dispatch_result,
+            ssh_service=ssh,
+            job_dispatcher=self._job_dispatcher,
+        )
+        self._task_dirs[execution_id] = dispatch_result.task_dir
+        logger.info("Task dispatched: %s -> screen %s", execution_id, dispatch_result.job_id)
 
     def _on_dispatch_failed(self, execution_id: str, error: str) -> None:
         if self._shutting_down:
