@@ -16,16 +16,16 @@ import csv
 import datetime
 import json
 import logging
-import shlex
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.data.database_service import DatabaseService
-from core.data.execution_query_service import ExecutionQueryService
 from core.execution.artifact_store import ArtifactStore
 from core.execution.execution_status_service import ExecutionStatusService
+from core.execution.tool_bridge_artifacts import ToolBridgeArtifactHelper
+from core.execution.tool_bridge_history import ToolBridgeHistoryHelper
 from core.execution.tool_bridge_specs import (
     DETECTION_WORKFLOW_ORDER,
     DETECTION_WORKFLOW_SPECS,
@@ -54,6 +54,52 @@ from core.execution.single_tool_view_builder import (
     build_single_tool_view,
     normalize_result_view,
     section_from_view,
+)
+from core.execution.tool_bridge_execution_ops import (
+    _descriptor_consumes_database_var as _tb_descriptor_consumes_database_var,
+    _get_superseded_running_execution_ids as _tb_get_superseded_running_execution_ids,
+    _parameter_items_from_dict as _tb_parameter_items_from_dict,
+    _parse_execution_parameters as _tb_parse_execution_parameters,
+    _resolve_result_archetype as _tb_resolve_result_archetype,
+    _strict_json_loads as _tb_strict_json_loads,
+    build_database_paths as _tb_build_database_paths,
+    count_remote_lines as _tb_count_remote_lines,
+    delete_execution_history as _tb_delete_execution_history,
+    ensure_sample_id as _tb_ensure_sample_id,
+    execute_tool as _tb_execute_tool,
+    extract_database_paths as _tb_extract_database_paths,
+    extract_run_params as _tb_extract_run_params,
+    find_execution_input as _tb_find_execution_input,
+    find_latest_completed_execution as _tb_find_latest_completed_execution,
+    get_default_primer_result_dir as _tb_get_default_primer_result_dir,
+    get_execution_history as _tb_get_execution_history,
+    get_latest_sample_id as _tb_get_latest_sample_id,
+    get_tool_descriptor as _tb_get_tool_descriptor,
+    get_tools as _tb_get_tools,
+    import_inputs as _tb_import_inputs,
+    normalize_project_remote_base as _tb_normalize_project_remote_base,
+    read_remote_file as _tb_read_remote_file,
+    safe_json_loads as _tb_safe_json_loads,
+    set_plugin_registry as _tb_set_plugin_registry,
+    set_service_locator as _tb_set_service_locator,
+    validate_required_databases as _tb_validate_required_databases,
+)
+from core.execution.tool_bridge_workbench_ops import (
+    _build_detection_workflow_view_for_execution as _tb_build_detection_workflow_view_for_execution,
+    _build_multiplex_view_from_artifacts as _tb_build_multiplex_view_from_artifacts,
+    _build_primer_view_from_artifacts as _tb_build_primer_view_from_artifacts,
+    _ensure_detection_workbench_entries as _tb_ensure_detection_workbench_entries,
+    _get_live_detection_workflow_view as _tb_get_live_detection_workflow_view,
+    _get_live_targeted_seq_view as _tb_get_live_targeted_seq_view,
+    _get_live_unknown_sample_detection_view as _tb_get_live_unknown_sample_detection_view,
+    build_multiplex_view_from_result_dir as _tb_build_multiplex_view_from_result_dir,
+    build_primer_view_from_result_dir as _tb_build_primer_view_from_result_dir,
+    get_integrated_workbench_config as _tb_get_integrated_workbench_config,
+    get_live_multiplex_primer_panel_view as _tb_get_live_multiplex_primer_panel_view,
+    get_live_primer_design_view as _tb_get_live_primer_design_view,
+    get_multiplex_view_for_execution as _tb_get_multiplex_view_for_execution,
+    get_primer_view_for_execution as _tb_get_primer_view_for_execution,
+    get_remote_primer_results as _tb_get_remote_primer_results,
 )
 from core.execution.workbench_view_builders import build_multiplex_view, build_primer_view
 from core.pipeline.chart_data_parser import ChartDataParser
@@ -140,6 +186,49 @@ class ToolBridgeService:
       - 执行历史查询
     """
 
+    set_service_locator = _tb_set_service_locator
+    set_plugin_registry = _tb_set_plugin_registry
+    find_latest_completed_execution = _tb_find_latest_completed_execution
+    find_execution_input = _tb_find_execution_input
+    read_remote_file = _tb_read_remote_file
+    count_remote_lines = _tb_count_remote_lines
+    safe_json_loads = staticmethod(_tb_safe_json_loads)
+    _strict_json_loads = staticmethod(_tb_strict_json_loads)
+    get_default_primer_result_dir = _tb_get_default_primer_result_dir
+    _build_primer_view_from_artifacts = _tb_build_primer_view_from_artifacts
+    _build_multiplex_view_from_artifacts = _tb_build_multiplex_view_from_artifacts
+    get_live_primer_design_view = _tb_get_live_primer_design_view
+    build_primer_view_from_result_dir = _tb_build_primer_view_from_result_dir
+    get_primer_view_for_execution = _tb_get_primer_view_for_execution
+    build_multiplex_view_from_result_dir = _tb_build_multiplex_view_from_result_dir
+    get_live_multiplex_primer_panel_view = _tb_get_live_multiplex_primer_panel_view
+    get_multiplex_view_for_execution = _tb_get_multiplex_view_for_execution
+    get_tools = _tb_get_tools
+    get_tool_descriptor = _tb_get_tool_descriptor
+    _parse_execution_parameters = staticmethod(_tb_parse_execution_parameters)
+    _parameter_items_from_dict = staticmethod(_tb_parameter_items_from_dict)
+    _resolve_result_archetype = staticmethod(_tb_resolve_result_archetype)
+    execute_tool = _tb_execute_tool
+    normalize_project_remote_base = _tb_normalize_project_remote_base
+    _descriptor_consumes_database_var = staticmethod(_tb_descriptor_consumes_database_var)
+    get_latest_sample_id = _tb_get_latest_sample_id
+    build_database_paths = _tb_build_database_paths
+    ensure_sample_id = _tb_ensure_sample_id
+    import_inputs = _tb_import_inputs
+    extract_run_params = staticmethod(_tb_extract_run_params)
+    extract_database_paths = staticmethod(_tb_extract_database_paths)
+    validate_required_databases = staticmethod(_tb_validate_required_databases)
+    get_execution_history = _tb_get_execution_history
+    _get_superseded_running_execution_ids = staticmethod(_tb_get_superseded_running_execution_ids)
+    delete_execution_history = _tb_delete_execution_history
+    get_integrated_workbench_config = _tb_get_integrated_workbench_config
+    get_remote_primer_results = _tb_get_remote_primer_results
+    _ensure_detection_workbench_entries = _tb_ensure_detection_workbench_entries
+    _build_detection_workflow_view_for_execution = _tb_build_detection_workflow_view_for_execution
+    _get_live_detection_workflow_view = _tb_get_live_detection_workflow_view
+    _get_live_unknown_sample_detection_view = _tb_get_live_unknown_sample_detection_view
+    _get_live_targeted_seq_view = _tb_get_live_targeted_seq_view
+
     def __init__(
         self,
         service_locator: ServiceLocator | None = None,
@@ -170,12 +259,8 @@ class ToolBridgeService:
         self._remote_status_cache = self._execution_status_service.cache
         self._database_service = DatabaseService()
         self._artifact_store = ArtifactStore(self._get_current_project_dir, manifest_name=self._manifest_name)
-
-    def set_service_locator(self, sl: ServiceLocator | None) -> None:
-        self._service_locator = sl
-
-    def set_plugin_registry(self, pr: PluginRegistry | None) -> None:
-        self._plugin_registry = pr
+        self._artifact_helper = ToolBridgeArtifactHelper(self)
+        self._history_helper = ToolBridgeHistoryHelper(self)
 
     @staticmethod
     def base_integrated_workbench_config() -> dict:
@@ -302,179 +387,40 @@ class ToolBridgeService:
             return None
         return getattr(self._service_locator, "tool_engine", None)
 
-    def find_latest_completed_execution(self, tool_ids: list[str]) -> dict | None:
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None or not tool_ids:
-            return None
-
-        placeholders = ",".join("?" for _ in tool_ids)
-        query = (
-            "SELECT e.execution_id, e.tool_id, e.sample_id, e.parameters, e.created_at, "
-            "e.completed_at, s.name AS sample_name "
-            "FROM executions e "
-            "LEFT JOIN samples s ON s.sample_id = e.sample_id "
-            f"WHERE e.status = 'completed' AND e.tool_id IN ({placeholders}) "
-            "ORDER BY COALESCE(e.completed_at, e.created_at) DESC LIMIT 1"
-        )
-        row = pm.db.execute(query, tuple(tool_ids)).fetchone()
-        return dict(row) if row else None
-
-    def find_execution_input(self, execution_id: str, data_type: str = "") -> str:
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return ""
-
-        query = (
-            "SELECT d.file_path "
-            "FROM execution_io ei "
-            "JOIN data_items d ON d.data_id = ei.data_id "
-            "WHERE ei.execution_id = ? AND ei.direction = 'input' "
-        )
-        params: list[str] = [execution_id]
-        if data_type:
-            query += "AND d.data_type = ? "
-            params.append(data_type)
-        query += "ORDER BY d.created_at ASC LIMIT 1"
-
-        row = pm.db.execute(query, tuple(params)).fetchone()
-        return str(row["file_path"]) if row else ""
-
-    def read_remote_file(self, file_path: str) -> str:
-        if not file_path:
-            return ""
-
-        ssh = self._get_ssh_service()
-        if ssh is None or not getattr(ssh, "is_connected", False):
-            return ""
-
-        try:
-            rc, out, _ = ssh.run(f"cat {shlex.quote(file_path)} 2>/dev/null", timeout=15)
-            if rc == 0:
-                return out
-        except Exception:
-            logger.exception("读取远端文件失败: %s", file_path)
-        return ""
-
-    def count_remote_lines(self, file_path: str) -> int | None:
-        if not file_path:
-            return None
-
-        ssh = self._get_ssh_service()
-        if ssh is None or not getattr(ssh, "is_connected", False):
-            return None
-
-        try:
-            rc, out, _ = ssh.run(f"wc -l < {shlex.quote(file_path)} 2>/dev/null", timeout=10)
-            if rc == 0:
-                return int((out or "0").strip())
-        except Exception:
-            logger.exception("统计远端文件行数失败: %s", file_path)
-        return None
-
-    @staticmethod
-    def safe_json_loads(raw: str) -> dict:
-        if not raw:
-            return {}
-        try:
-            data = json.loads(raw)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
-
-    @staticmethod
-    def _strict_json_loads(raw: str, *, context: str) -> dict[str, Any]:
-        if not raw:
-            return {}
-        try:
-            data = json.loads(raw)
-        except Exception as exc:
-            raise RuntimeError(f"{context} JSON 解析失败") from exc
-        if not isinstance(data, dict):
-            raise RuntimeError(f"{context} 必须是 JSON object")
-        return data
-
-    def get_default_primer_result_dir(self) -> str:
-        default_root = ""
-
-        try:
-            from config import get_config
-
-            runtime_cfg = get_config().get("runtime", {})
-            configured_root = str(runtime_cfg.get("primer_result_root", "") or "").strip()
-            if configured_root:
-                default_root = configured_root.rstrip("/")
-        except Exception:
-            logger.debug("无法从配置读取 runtime.primer_result_root，回退到插件默认值")
-
-        if self._plugin_registry is not None:
-            try:
-                desc = self._plugin_registry.get_descriptor("primer_design")
-                for param in desc.get("parameters", []):
-                    if param.get("name") == "workflow_root":
-                        configured_root = str(param.get("default") or "").strip()
-                        if configured_root and not default_root:
-                            default_root = configured_root.rstrip("/")
-                        break
-            except Exception:
-                logger.debug("无法从 primer_design 插件描述符读取 workflow_root，使用默认结果目录")
-
-        if default_root:
-            return f"{default_root.rstrip('/')}/my_result"
-        return "my_result"
-
     def _get_current_project_dir(self) -> Path | None:
-        pm = self._get_project_manager()
-        if pm is None:
-            return None
-        project_dir = getattr(pm, "current_project_dir", None)
-        return Path(project_dir) if project_dir else None
+        return self._artifact_helper._get_current_project_dir()
 
     def _execution_results_dir(self, execution_id: str) -> Path | None:
-        project_dir = self._get_current_project_dir()
-        if project_dir is None or not execution_id:
-            return None
-        return project_dir / "results" / execution_id
+        return self._artifact_helper._execution_results_dir(execution_id)
 
     def _manifest_path(self, cache_key: str) -> Path | None:
-        return self._artifact_store.manifest_path(cache_key)
+        return self._artifact_helper._manifest_path(cache_key)
 
     def _load_manifest(self, cache_key: str) -> dict | None:
-        return self._artifact_store.load_manifest(cache_key)
+        return self._artifact_helper._load_manifest(cache_key)
 
     def _normalize_artifacts(self, artifacts: list[dict] | None) -> list[dict]:
-        return self._artifact_store.normalize_artifacts(artifacts)
+        return self._artifact_helper._normalize_artifacts(artifacts)
 
     def _artifact_by_name(self, artifacts: list[dict], name: str) -> dict | None:
-        return self._artifact_store.artifact_by_name(artifacts, name)
+        return self._artifact_helper._artifact_by_name(artifacts, name)
 
     def _local_artifact_path(self, artifacts: list[dict], name: str) -> Path | None:
-        artifact = self._artifact_by_name(artifacts, name)
-        if artifact is None:
-            return None
-        local_path = str(artifact.get("local_path") or "").strip()
-        if not local_path:
-            return None
-        path = Path(local_path)
-        return path if path.exists() else None
+        return self._artifact_helper._local_artifact_path(artifacts, name)
 
     def _read_local_artifact_text(self, artifacts: list[dict], name: str) -> str:
-        return self._artifact_store.read_local_artifact_text(artifacts, name)
+        return self._artifact_helper._read_local_artifact_text(artifacts, name)
 
     def _count_local_artifact_lines(self, artifacts: list[dict], name: str) -> int | None:
-        return self._artifact_store.count_local_artifact_lines(artifacts, name)
+        return self._artifact_helper._count_local_artifact_lines(artifacts, name)
 
     @staticmethod
     def _available_artifacts(artifacts: list[dict]) -> list[dict]:
-        return [artifact for artifact in artifacts if artifact.get("available")]
+        return ToolBridgeArtifactHelper._available_artifacts(artifacts)
 
     @staticmethod
     def _local_result_dir_for_execution(execution_id: str, artifacts: list[dict]) -> str:
-        for artifact in artifacts:
-            local_path = str(artifact.get("local_path") or "").strip()
-            if not local_path:
-                continue
-            return str(Path(local_path).parent)
-        return ""
+        return ToolBridgeArtifactHelper._local_result_dir_for_execution(execution_id, artifacts)
 
     def _artifact_from_result_views(
         self,
@@ -484,61 +430,36 @@ class ToolBridgeService:
         sample_id: str = "",
         preferred_types: tuple[str, ...] = (),
     ) -> dict[str, Any] | None:
-        result_views = list(descriptor.get("result_views", []) or [])
-        for view in result_views:
-            if preferred_types and str(view.get("type") or "").strip() not in preferred_types:
-                continue
-            data_source = str(view.get("data_source") or "").strip().replace("{sample_id}", sample_id)
-            if not data_source:
-                continue
-            artifact = self._artifact_by_name(artifacts, Path(data_source).name)
-            if artifact and artifact.get("available"):
-                return artifact
-        return None
+        return self._artifact_helper._artifact_from_result_views(
+            descriptor,
+            artifacts,
+            sample_id=sample_id,
+            preferred_types=preferred_types,
+        )
 
     @staticmethod
     def _first_available_artifact_with_suffix(artifacts: list[dict], suffixes: tuple[str, ...]) -> dict[str, Any] | None:
-        normalized_suffixes = tuple(item.lower() for item in suffixes)
-        for artifact in artifacts:
-            if not artifact.get("available"):
-                continue
-            name = str(artifact.get("name") or "").lower()
-            if name.endswith(normalized_suffixes):
-                return artifact
-        return None
+        return ToolBridgeArtifactHelper._first_available_artifact_with_suffix(artifacts, suffixes)
 
     @staticmethod
     def _parse_table_file(path: Path) -> tuple[list[dict[str, str]], list[dict[str, Any]], dict[str, Any]]:
-        payload = parse_generic_result_table(path)
-        return (
-            list(payload.get("columns") or []),
-            list(payload.get("rows") or []),
-            dict(payload.get("metrics") or {}),
-        )
+        return ToolBridgeArtifactHelper._parse_table_file(path)
 
     @staticmethod
     def _summarize_row_count(rows: list[dict[str, Any]], *, label: str) -> list[dict[str, str]]:
-        return [{"label": label, "value": str(len(rows)), "tone": "primary"}]
+        return ToolBridgeArtifactHelper._summarize_row_count(rows, label=label)
 
     def _remote_cache_key(self, tool_id: str, remote_result_dir: str) -> str:
-        return self._artifact_store.remote_cache_key(tool_id, remote_result_dir)
+        return self._artifact_helper._remote_cache_key(tool_id, remote_result_dir)
 
     def _remote_file_exists(self, ssh: Any, remote_path: str) -> bool:
-        return self._artifact_store.remote_file_exists(ssh, remote_path)
+        return self._artifact_helper._remote_file_exists(ssh, remote_path)
 
     def _cache_remote_artifacts(self, tool_id: str, remote_result_dir: str) -> list[dict]:
-        return self._artifact_store.cache_remote_artifacts(
-            tool_id=tool_id,
-            remote_result_dir=remote_result_dir,
-            result_artifact_names=self._result_artifact_names,
-            ssh=self._get_ssh_service(),
-        )
+        return self._artifact_helper._cache_remote_artifacts(tool_id, remote_result_dir)
 
     def list_local_execution_artifacts(self, execution_id: str) -> list[dict]:
-        normalized_execution_id = str(execution_id or "").strip()
-        if not normalized_execution_id:
-            return []
-        return self._artifact_store.list_local_execution_artifacts(normalized_execution_id)
+        return self._artifact_helper.list_local_execution_artifacts(execution_id)
 
     def _persist_execution_artifacts(
         self,
@@ -547,781 +468,15 @@ class ToolBridgeService:
         output_dir: str,
         artifacts: list[dict],
     ) -> list[dict]:
-        """Persist downloaded artifacts under results/<execution_id>/ and write manifest."""
-        return self._artifact_store.persist_execution_artifacts(
-            execution_id=execution_id,
-            tool_id=tool_id,
-            output_dir=output_dir,
-            artifacts=artifacts,
+        return self._artifact_helper._persist_execution_artifacts(
+            execution_id,
+            tool_id,
+            output_dir,
+            artifacts,
         )
 
     def download_execution_artifacts(self, execution_id: str) -> list[dict]:
-        return self.list_local_execution_artifacts(execution_id)
-
-    def _build_primer_view_from_artifacts(
-        self,
-        artifacts: list[dict],
-        remote_result_dir: str,
-        description: str,
-        status: dict,
-        parameters: list[dict],
-    ) -> dict | None:
-        base = self.base_integrated_workbench_config()["views"]["primer_design"]
-        primer_result_text = self._read_local_artifact_text(artifacts, "primer_result_final_2.txt")
-        parsed_rows = self.parse_primer_result_text(primer_result_text)
-        if not parsed_rows:
-            return None
-
-        all_candidates_count = self._count_local_artifact_lines(artifacts, "primer_result.txt") or len(parsed_rows)
-        filtered_count = self._count_local_artifact_lines(artifacts, "primer_result_final.txt") or len(parsed_rows)
-        dimer_count = self._count_local_artifact_lines(artifacts, "dimer_score.txt") or len(parsed_rows)
-        return build_primer_view(
-            base_view=base,
-            primer_result_final_2_text=primer_result_text,
-            all_candidates_count=all_candidates_count,
-            filtered_count=filtered_count,
-            dimer_count=dimer_count,
-            description=description,
-            status=status,
-            parameters=parameters,
-            artifacts=artifacts,
-            remote_result_dir=remote_result_dir,
-        )
-
-    def _build_multiplex_view_from_artifacts(
-        self,
-        artifacts: list[dict],
-        remote_result_dir: str,
-        description: str,
-        status: dict,
-        parameters: list[dict],
-    ) -> dict | None:
-        multiplex_text = self._read_local_artifact_text(artifacts, "multiplex_panel.txt")
-        parsed_rows = self.parse_multiplex_result_text(multiplex_text)
-        if not parsed_rows:
-            return None
-        synthesis_count = self._count_local_artifact_lines(artifacts, "synthesis_order.txt")
-        optimization_count = self._count_local_artifact_lines(artifacts, "optimization_log.txt")
-        return build_multiplex_view(
-            multiplex_panel_text=multiplex_text,
-            synthesis_count=synthesis_count,
-            optimization_count=optimization_count,
-            description=description,
-            status=status,
-            parameters=parameters,
-            artifacts=artifacts,
-            remote_result_dir=remote_result_dir,
-        )
-
-    def get_live_primer_design_view(self) -> dict | None:
-        execution = self.find_latest_completed_execution(["primer_design"])
-        if not execution:
-            return None
-        try:
-            return self._build_result_view_for_execution(str(execution["execution_id"] or ""), execution)
-        except Exception:
-            logger.exception("Failed to build live primer workflow view: %s", execution["execution_id"])
-            return None
-
-    def build_primer_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
-        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
-        if not normalized_dir:
-            return None
-        artifacts = self._cache_remote_artifacts("primer_design", normalized_dir)
-        return self._build_primer_view_from_artifacts(
-            artifacts=artifacts,
-            remote_result_dir=normalized_dir,
-            description=f"当前结果来自远程目录：{normalized_dir}",
-            status={
-                "state": "completed",
-                "label": "已加载远程结果",
-                "detail": "结果文件已同步到当前项目本地，并从本地结果构建视图。",
-            },
-            parameters=[
-                {"label": "结果目录", "value": normalized_dir},
-                {"label": "结果来源", "value": "远程目录同步到本地"},
-                {"label": "主文件", "value": "primer_result_final_2.txt"},
-            ],
-        )
-
-    def get_primer_view_for_execution(self, execution_id: str) -> dict | None:
-        normalized_execution_id = str(execution_id or "").strip()
-        if not normalized_execution_id:
-            return None
-        row = self._get_execution_result_row(normalized_execution_id)
-        if row is None or str(row["tool_id"] or "") != "primer_design":
-            return None
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_execution_id))
-        description = (
-            "用途：基于本地已同步的 primer 结果展示推荐引物、靶区位置与产物信息。"
-            "\n实现：仅读取当前项目内缓存的结果工件，不在结果展示阶段触发远端查询。"
-        )
-        status = {
-            "state": "completed",
-            "label": "结果可用",
-            "detail": "已从本地结果缓存加载 primer 产物，可直接查看与导出。",
-        }
-        if not artifacts:
-            return None
-        ctx = self._build_execution_result_context(row, artifacts)
-        parameters = [
-            {
-                "label": "任务 ID",
-                "value": normalized_execution_id,
-                "description": "当前本地结果对应的执行记录 ID。",
-            },
-            {
-                "label": "主结果",
-                "value": "primer_result_final_2.txt",
-                "description": "主结果文件，包含推荐引物对及位点信息。",
-            },
-        ]
-        if ctx["remote_result_dir"]:
-            parameters.insert(
-                0,
-                {
-                    "label": "结果目录",
-                    "value": ctx["remote_result_dir"],
-                    "description": "执行时记录的远端结果目录；结果展示优先使用本地已同步工件。",
-                },
-            )
-        if ctx["local_result_dir"]:
-            parameters.append(
-                {
-                    "label": "本地结果目录",
-                    "value": ctx["local_result_dir"],
-                    "description": "当前项目中缓存该次执行结果的本地目录。",
-                }
-            )
-        return self._build_primer_view_from_artifacts(
-            artifacts=artifacts,
-            remote_result_dir=ctx["remote_result_dir"],
-            description=description,
-            status=status,
-            parameters=parameters,
-        )
-
-    def build_multiplex_view_from_result_dir(self, remote_result_dir: str) -> dict | None:
-        normalized_dir = (remote_result_dir or "").strip().rstrip("/")
-        if not normalized_dir:
-            return None
-        artifacts = self._cache_remote_artifacts("multiplex_primer_panel", normalized_dir)
-        return self._build_multiplex_view_from_artifacts(
-            artifacts=artifacts,
-            remote_result_dir=normalized_dir,
-            description=f"查看最终多重引物池结果与相关报告：{normalized_dir}",
-            status={
-                "state": "completed",
-                "label": "结果可用",
-                "detail": "结果文件已同步到当前项目本地，可直接打开本地文件。",
-            },
-            parameters=[
-                {
-                    "label": "结果目录",
-                    "value": normalized_dir,
-                    "description": "指定要读取的远程结果目录，用于回显历史 multiplex 结果。",
-                },
-                {
-                    "label": "主结果",
-                    "value": "multiplex_panel.txt",
-                    "description": "主结果文件，展示入池引物与扩增子组合。",
-                },
-                {
-                    "label": "合成订单",
-                    "value": "synthesis_order.txt",
-                    "description": "合成订单文件，可直接用于合成委托。",
-                },
-            ],
-        )
-
-    def get_live_multiplex_primer_panel_view(self) -> dict | None:
-        execution = self.find_latest_completed_execution(["multiplex_primer_panel"])
-        if not execution:
-            return None
-        try:
-            return self._build_result_view_for_execution(str(execution["execution_id"] or ""), execution)
-        except Exception:
-            logger.exception("Failed to build live multiplex workflow view: %s", execution["execution_id"])
-            return None
-
-    def get_multiplex_view_for_execution(self, execution_id: str) -> dict | None:
-        normalized_execution_id = str(execution_id or "").strip()
-        if not normalized_execution_id:
-            return None
-        row = self._get_execution_result_row(normalized_execution_id)
-        if row is None or str(row["tool_id"] or "") != "multiplex_primer_panel":
-            return None
-        artifacts = self._normalize_artifacts(self.list_local_execution_artifacts(normalized_execution_id))
-        description = (
-            "用途：用于查看本地已同步的多重引物池结果、合成清单与相关评分。"
-            "\n实现：仅消费当前项目中的本地结果工件，不在结果展示阶段访问远端环境。"
-        )
-        status = {
-            "state": "completed",
-            "label": "结果可用",
-            "detail": "已从本地结果缓存加载 multiplex 产物。",
-        }
-        if not artifacts:
-            return None
-        ctx = self._build_execution_result_context(row, artifacts)
-        parameters = [{"label": "任务 ID", "value": normalized_execution_id}]
-        if ctx["remote_result_dir"]:
-            parameters.insert(0, {"label": "结果目录", "value": ctx["remote_result_dir"]})
-        if ctx["local_result_dir"]:
-            parameters.append({"label": "本地结果目录", "value": ctx["local_result_dir"]})
-        parameters.extend(
-            [
-                {"label": "主结果", "value": "multiplex_panel.txt"},
-                {"label": "合成订单", "value": "synthesis_order.txt"},
-            ]
-        )
-        return self._build_multiplex_view_from_artifacts(
-            artifacts=artifacts,
-            remote_result_dir=ctx["remote_result_dir"],
-            description=description,
-            status=status,
-            parameters=parameters,
-        )
-
-    def get_tools(self) -> list[dict]:
-        if not self._plugin_registry:
-            logger.warning("PluginRegistry not initialized")
-            return []
-
-        tools: list[dict] = []
-        try:
-            for tool_id in self._plugin_registry.list_all_ids():
-                desc = self._plugin_registry.get_descriptor(tool_id)
-                tools.append(
-                    {
-                        "id": tool_id,
-                        "name": desc.get("name", tool_id),
-                        "category": desc.get("category", "unknown"),
-                        "description": desc.get("description", ""),
-                        "version": desc.get("version", "unknown"),
-                        "inputs_count": len(desc.get("inputs", [])),
-                        "params_count": len(desc.get("parameters", [])),
-                        "db_count": len(desc.get("databases", [])),
-                    }
-                )
-        except Exception:
-            logger.exception("Failed to get tools")
-
-        return tools
-
-    def get_tool_descriptor(self, tool_id: str) -> dict:
-        if not self._plugin_registry:
-            logger.warning("PluginRegistry not initialized")
-            return {}
-
-        try:
-            return self._plugin_registry.get_descriptor(tool_id)
-        except Exception:
-            logger.exception("Failed to get descriptor for %s", tool_id)
-            return {}
-
-    @staticmethod
-    def _parse_execution_parameters(raw: str, *, execution_id: str, tool_id: str) -> dict[str, Any]:
-        text = str(raw or "").strip()
-        if not text:
-            return {}
-        try:
-            payload = json.loads(text)
-        except Exception as exc:
-            raise RuntimeError(f"执行参数不是合法 JSON: tool={tool_id}, execution_id={execution_id}") from exc
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"执行参数必须是对象: tool={tool_id}, execution_id={execution_id}")
-        return payload
-
-    @staticmethod
-    def _parameter_items_from_dict(params: dict[str, Any]) -> list[dict[str, str]]:
-        return [
-            {"label": str(key), "value": str(value)}
-            for key, value in params.items()
-            if value not in ("", None)
-        ]
-
-    @staticmethod
-    def _resolve_result_archetype(tool_id: str) -> str:
-        normalized = str(tool_id or "").strip()
-        if not normalized:
-            raise RuntimeError("执行记录缺少 tool_id")
-        archetype = _TOOL_ARCHETYPES.get(normalized)
-        if archetype is None:
-            raise RuntimeError(f"未定义结果 archetype: tool={normalized}")
-        return archetype
-
-    def execute_tool(self, tool_id: str, params: dict) -> ExecutionResult:
-        try:
-            if self._service_locator is None:
-                return ExecutionResult(status="error", message="服务未就绪")
-
-            # 没有项目时自动创建默认项目，触发 ToolEngine 初始化
-            pm = self._get_project_manager()
-            if pm is not None and pm.current_project is None:
-                self._ensure_default_project(pm)
-
-            # open_project 的信号可能已同步触发了 _rebuild_engine，
-            # 但以防万一（跨线程队列连接），手动确保 engine 就绪
-            tool_engine = self._get_tool_engine()
-            if tool_engine is None and pm is not None and pm.current_project is not None:
-                sl = self._service_locator
-                if hasattr(sl, "_rebuild_registry_and_engine"):
-                    sl._rebuild_registry_and_engine()
-                tool_engine = self._get_tool_engine()
-
-            if tool_engine is None:
-                return ExecutionResult(status="error", message="ToolEngine 未初始化，请先连接 SSH 或创建项目")
-
-            pm = self._get_project_manager()
-            if pm is None or pm.current_project is None:
-                return ExecutionResult(status="no_project", message="请先选择或创建项目")
-
-            if hasattr(pm, "backup_current_project"):
-                try:
-                    pm.backup_current_project(reason="before_run")
-                except Exception:
-                    logger.exception("Failed to backup project state before running %s", tool_id)
-
-            descriptor = self._plugin_registry.get_descriptor(tool_id)
-
-            sample_id = self.ensure_sample_id(pm, params, descriptor)
-            if not sample_id:
-                return ExecutionResult(status="no_sample", message="无法确定样本，请先创建项目样本")
-
-            self.normalize_project_remote_base(pm)
-            input_data_ids = self.import_inputs(pm, sample_id, descriptor, params)
-
-            run_params = self.extract_run_params(descriptor, params)
-            database_paths = self.build_database_paths(tool_id, descriptor)
-            database_paths.update(self.extract_database_paths(descriptor, params))
-            self.validate_required_databases(tool_id, descriptor, database_paths)
-
-            execution_id = tool_engine.execute(
-                tool_id=tool_id,
-                input_data_ids=input_data_ids,
-                parameters=run_params,
-                sample_id=sample_id,
-                triggered_by="manual",
-                database_paths=database_paths,
-            )
-
-            logger.info("工具已提交执行: tool=%s execution_id=%s sample=%s", tool_id, execution_id, sample_id)
-            return ExecutionResult(
-                status="ok",
-                execution_id=execution_id,
-                sample_id=sample_id,
-                message=f"任务已提交 ({execution_id[:16]}...)",
-            )
-
-        except ValueError as e:
-            logger.warning("execute_tool ValueError: %s", e)
-            return ExecutionResult(status="error", message=str(e))
-        except Exception:
-            logger.exception("Failed to start tool %s", tool_id)
-            return ExecutionResult(status="error", message="内部错误，请查看日志")
-
-    def normalize_project_remote_base(self, pm) -> None:
-        project = getattr(pm, "current_project", None)
-        if project is None:
-            return
-
-        project_id = str(getattr(project, "project_id", "") or "").strip()
-        current_remote_base = str(getattr(project, "remote_base", "") or "").strip()
-        if not project_id:
-            return
-
-        needs_fix = (
-            not current_remote_base
-            or current_remote_base.startswith("~")
-            or current_remote_base == "/h2ometa"
-            or current_remote_base.startswith("/h2ometa/")
-        )
-        if not needs_fix:
-            return
-
-        ssh = self._get_ssh_service()
-        if ssh is None or not getattr(ssh, "is_connected", False):
-            return
-
-        remote_home = ""
-        try:
-            rc, out, _ = ssh.run('printf "%s" "$HOME"', timeout=10)
-            if rc == 0:
-                remote_home = str(out or "").strip()
-        except Exception:
-            logger.exception("Failed to resolve remote HOME for project %s", project_id)
-
-        if not remote_home or remote_home == "/":
-            return
-
-        normalized = f"{remote_home.rstrip('/')}/.h2ometa/projects/{project_id}"
-        project.remote_base = normalized
-
-        try:
-            if hasattr(pm, "update_current_project_remote_base"):
-                pm.update_current_project_remote_base(normalized)
-            elif hasattr(pm, "_index") and project_id in pm._index:
-                pm._index[project_id]["remote_base"] = normalized
-                save_index = getattr(pm, "_save_index", None)
-                if callable(save_index):
-                    save_index()
-        except Exception:
-            logger.exception("Failed to persist normalized remote_base for project %s", project_id)
-
-    @staticmethod
-    def _descriptor_consumes_database_var(tool_id: str, descriptor: dict, param_name: str, db_id: str) -> None:
-        command_template = str(descriptor.get("command_template", "") or "")
-        marker = f"{{{{ {param_name} }}}}"
-        compact_marker = f"{{{{{param_name}}}}}"
-        if marker in command_template or compact_marker in command_template:
-            return
-        raise ValueError(
-            f"工具 {tool_id} 声明了数据库绑定但命令模板未消费该变量: "
-            f"db_id={db_id}, param={param_name}"
-        )
-
-    def get_latest_sample_id(self, pm) -> str:
-        try:
-            db = pm.db
-            cursor = db.cursor()
-            cursor.execute("SELECT sample_id FROM samples ORDER BY rowid DESC LIMIT 1")
-            row = cursor.fetchone()
-            if row:
-                return row[0]
-        except Exception:
-            logger.exception("查询最近样本 ID 失败")
-        return ""
-
-    def build_database_paths(self, tool_id: str, descriptor: dict | None = None) -> dict:
-        from config import get_config
-
-        if self._plugin_registry is None:
-            raise ValueError(f"工具 {tool_id} 无法解析数据库绑定: 插件注册表未初始化")
-
-        cfg = get_config()
-        db_cfg = cfg.get("databases", {}) if isinstance(cfg.get("databases", {}), dict) else {}
-        db_root = str(db_cfg.get("db_root", "") or "").strip()
-        overrides = db_cfg.get("overrides", {})
-        if not isinstance(overrides, dict):
-            overrides = {}
-
-        desc = descriptor or self._plugin_registry.get_descriptor(tool_id)
-        db_decls = desc.get("databases", [])
-        if not isinstance(db_decls, list):
-            raise ValueError(f"工具 {tool_id} 的 databases 声明格式错误")
-
-        paths: dict[str, str] = {}
-        for decl in db_decls:
-            if not isinstance(decl, dict):
-                raise ValueError(f"工具 {tool_id} 的数据库声明格式错误: {decl!r}")
-
-            db_id = str(decl.get("id", "")).strip()
-            param_name = str(decl.get("param_name", "")).strip()
-            if not db_id:
-                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 id")
-            if not param_name:
-                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 param_name: db_id={db_id}")
-            self._descriptor_consumes_database_var(tool_id, desc, param_name, db_id)
-
-            info = self._database_service.get_info(db_id)
-            if info is None:
-                raise ValueError(f"工具 {tool_id} 引用未注册数据库: db_id={db_id}")
-
-            resolved = self._database_service.resolve_binding_value(db_id, db_root, overrides=overrides)
-            if resolved:
-                paths[param_name] = resolved
-                logger.debug(
-                    "数据库路径已匹配(binding): tool=%s, db_id=%s → %s=%s",
-                    tool_id,
-                    db_id,
-                    param_name,
-                    resolved,
-                )
-
-        return paths
-
-    def ensure_sample_id(self, pm, params: dict, descriptor: dict) -> str:
-        explicit_sample_id = str(params.get("__sample_id", "")).strip()
-        if explicit_sample_id:
-            return explicit_sample_id
-
-        registry = self._get_data_registry()
-        if registry is None:
-            return ""
-
-        sample_name = str(params.get("__sample_name", "")).strip()
-        if not sample_name:
-            for inp in descriptor.get("inputs", []):
-                path = str(params.get(inp.get("name", ""), "")).strip()
-                if path:
-                    sample_name = Path(path).stem
-                    break
-        if not sample_name:
-            sample_name = f"detection_{time.strftime('%Y%m%d_%H%M%S')}"
-
-        sample_metadata: dict[str, str] = {}
-        for inp in descriptor.get("inputs", []):
-            input_name = str(inp.get("name", "")).strip()
-            path = str(params.get(input_name, "")).strip()
-            if not path:
-                continue
-            sample_metadata[f"input_{input_name}"] = path
-
-        return registry.add_sample(
-            sample_name,
-            source="detection_page",
-            metadata=sample_metadata,
-        )
-
-    def import_inputs(self, pm, sample_id: str, descriptor: dict, params: dict) -> list[str]:
-        registry = self._get_data_registry()
-        ssh = self._get_ssh_service()
-        if registry is None or ssh is None or not getattr(ssh, "is_connected", False):
-            raise ValueError("数据注册器或 SSH 未就绪")
-
-        from core.data.data_importer import DataImporter
-
-        importer = DataImporter(ssh_service=ssh, registry=registry)
-        input_data_ids: list[str] = []
-
-        for inp in descriptor.get("inputs", []):
-            name = str(inp.get("name", ""))
-            required = bool(inp.get("required", True))
-            input_path = str(params.get(name, "")).strip()
-
-            if not input_path:
-                if required:
-                    raise ValueError(f"缺少必需输入: {name}")
-                continue
-
-            if input_path.startswith("/"):
-                data_id = registry.register_input(
-                    file_path=input_path,
-                    sample_id=sample_id,
-                    data_type=str(inp.get("type", "unknown")),
-                    tier="intermediate",
-                    metadata={"source": "remote_upstream", "input_name": name},
-                )
-                input_data_ids.append(data_id)
-                continue
-
-            data_id = importer.import_file(
-                local_path=input_path,
-                sample_id=sample_id,
-                data_type=str(inp.get("type", "unknown")),
-                project_remote_base=pm.current_project.remote_base,
-            )
-            input_data_ids.append(data_id)
-
-        return input_data_ids
-
-    @staticmethod
-    def extract_run_params(descriptor: dict, params: dict) -> dict:
-        run_params: dict = {}
-        for p in descriptor.get("parameters", []):
-            name = str(p.get("name", ""))
-            if name and name in params:
-                run_params[name] = params[name]
-        return run_params
-
-    @staticmethod
-    def extract_database_paths(descriptor: dict, params: dict) -> dict:
-        db_paths: dict = {}
-        for decl in descriptor.get("databases", []):
-            var_name = str(decl.get("param_name", "")).strip()
-            if not var_name:
-                continue
-
-            value = str(params.get(var_name, "")).strip()
-            if value:
-                db_paths[var_name] = value
-
-        return db_paths
-
-    @staticmethod
-    def validate_required_databases(tool_id: str, descriptor: dict, database_paths: dict) -> None:
-        for decl in descriptor.get("databases", []):
-            if not isinstance(decl, dict):
-                raise ValueError(f"工具 {tool_id} 的数据库声明格式错误: {decl!r}")
-            if not bool(decl.get("required", False)):
-                continue
-            db_id = str(decl.get("id", "")).strip()
-            var_name = str(decl.get("param_name", "")).strip()
-            if not db_id:
-                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 id")
-            if not var_name:
-                raise ValueError(f"工具 {tool_id} 的数据库声明缺少 param_name: db_id={db_id}")
-            if not str(database_paths.get(var_name, "")).strip():
-                raise ValueError(f"工具 {tool_id} 缺少必需数据库: db_id={db_id}, param={var_name}")
-
-    def get_execution_history(self) -> list[dict]:
-        pm = self._get_project_manager()
-        if not pm or not pm.current_project:
-            return []
-
-        try:
-            db = pm.db
-            superseded_ids = self._get_superseded_running_execution_ids(db)
-            query_service = ExecutionQueryService(db)
-            rows = query_service.get_execution_history_for_ui(limit=50)
-            history = []
-            for row in rows:
-                execution_id = row["execution_id"]
-                status = row["status"]
-                error = row["error"]
-                if execution_id in superseded_ids and status == "running":
-                    status = "failed"
-                    error = error or "Superseded by a later completed execution"
-
-                history.append(
-                    {
-                        "execution_id": execution_id,
-                        "sample_id": row["sample_id"],
-                        "sample_name": row["sample_name"],
-                        "tool_id": row["tool_id"],
-                        "status": status,
-                        "parameters": row["parameters"],
-                        "created_at": row["created_at"],
-                        "completed_at": row["completed_at"],
-                        "error": error,
-                    }
-                )
-            return history
-        except Exception:
-            logger.exception("Failed to get execution history")
-            return []
-
-    @staticmethod
-    def _get_superseded_running_execution_ids(db) -> set[str]:
-        rows = db.execute(
-            """
-            SELECT older.execution_id
-            FROM executions AS older
-            WHERE older.status = 'running'
-              AND older.archived_at IS NULL
-              AND EXISTS (
-                SELECT 1
-                FROM executions AS newer
-                WHERE newer.tool_id = older.tool_id
-                  AND newer.sample_id = older.sample_id
-                  AND newer.status = 'completed'
-                  AND newer.archived_at IS NULL
-                  AND newer.created_at > older.created_at
-              )
-            """
-        ).fetchall()
-        return {row[0] for row in rows}
-
-    def delete_execution_history(self, execution_id: str) -> dict[str, str]:
-        pm = self._get_project_manager()
-        if not pm or not pm.current_project:
-            return {"status": "error", "message": "请先打开项目"}
-
-        try:
-            query_service = ExecutionQueryService(pm.db)
-            result = query_service.archive_execution(execution_id, now=time.time())
-            if result.get("status") == "ok":
-                logger.info("任务历史已归档: %s", execution_id)
-            return result
-        except Exception:
-            logger.exception("Failed to delete execution history: %s", execution_id)
-            return {"status": "error", "message": "删除任务记录失败"}
-
-    def get_integrated_workbench_config(self) -> dict:
-        config = self.base_integrated_workbench_config()
-        pm = self._get_project_manager()
-        project = getattr(pm, "current_project", None) if pm is not None else None
-        config["project_id"] = str(getattr(project, "project_id", "") or "").strip()
-        config["project_name"] = str(getattr(project, "name", "") or "").strip()
-        features = config.setdefault("features", [])
-        views = config.setdefault("views", {})
-        self._ensure_detection_workbench_entries(features, views)
-
-        for feature in features:
-            if feature.get("id") == "primer_design":
-                feature["name"] = "病原体引物设计"
-                feature["description"] = "上传病原体基因组，自动筛选保守特异靶点并设计引物对，输出每病原体的推荐引物。"
-
-        primer_view = views.get("primer_design")
-        if isinstance(primer_view, dict):
-            primer_view["title"] = "病原体引物设计"
-            primer_view["description"] = "上传病原体基因组序列，系统自动完成保守靶点筛选、特异性过滤和候选引物设计，最终输出每病原体的推荐引物对。"
-
-        if not any(feature.get("id") == "multiplex_primer_panel" for feature in features):
-            features.insert(
-                1,
-                {
-                    "id": "multiplex_primer_panel",
-                    "name": "多重引物池设计",
-                    "badge": "",
-                    "description": "一体化完成候选引物生成与多重引物池优化，自动消解交叉二聚体冲突并输出池结果与合成订单。",
-                    "status": "active",
-                },
-            )
-
-        views.setdefault(
-            "multiplex_primer_panel",
-            {
-                "tool_ids": ["multiplex_primer_panel"],
-                "title": "多重引物池设计",
-                "description": "用途：用于靶向病原体多重 PCR 方案设计，输出可直接用于实验与交付的池化结果和合成清单。\n实现：流程内自动执行候选引物合并、迭代优化、交叉二聚体评估、扩增子冲突检查、Tm/GC 一致性检查和覆盖验证。",
-                "status": {
-                    "state": "ready",
-                    "label": "等待运行",
-                    "detail": "系统按你的流程自动执行 16 个步骤（候选生成→池优化→冲突评估→最终报告），完成后可直接查看 multiplex_panel 与 synthesis_order。",
-                },
-                "parameters": [
-                    {"label": "输入", "value": "病原体序列（流程内自动生成候选引物）", "description": "你只需提供病原体序列，系统会在流程内自动完成候选引物设计并进入多重池优化。"},
-                    {"label": "约束", "value": "cross-dimer / Tm / amplicon length", "description": "联合约束引物间互作、退火温度一致性和扩增子长度范围。"},
-                    {"label": "输出", "value": "multiplex_panel.txt / synthesis_order.txt", "description": "输出最终入池方案与可直接使用的合成订单。"},
-                    {"label": "优化轮次", "value": "运行后生成", "description": "表示算法迭代优化的次数，用于消解冲突并满足约束；该值由实际任务日志统计。"},
-                ],
-                "summary": [
-                    {"label": "入池病原体", "value": "0/0", "tone": "primary"},
-                    {"label": "订单条目", "value": "0", "tone": "primary"},
-                    {"label": "质量", "value": "-", "tone": "accent"},
-                    {"label": "优化轮次", "value": "ready", "tone": "accent"},
-                ],
-                "columns": self._build_multiplex_columns([]),
-                "rows": [],
-                "artifacts": [
-                    "multiplex_panel.txt",
-                    "synthesis_order.txt",
-                    "pool_cross_dimer.txt",
-                    "optimization_log.txt",
-                ],
-            },
-        )
-
-        live_primer_view = self.get_live_primer_design_view()
-        if live_primer_view is not None:
-            views["primer_design"] = live_primer_view
-
-        live_multiplex_view = self.get_live_multiplex_primer_panel_view()
-        if live_multiplex_view is not None:
-            views["multiplex_primer_panel"] = live_multiplex_view
-
-        for workflow_id in DETECTION_WORKFLOW_ORDER:
-            live_detection_view = self._get_live_detection_workflow_view(workflow_id)
-            if live_detection_view is not None:
-                views[workflow_id] = live_detection_view
-
-        # 靶向测序分析 — 自动加载最新完成的 centrifuge/kraken2 结果
-        live_targeted_view = self._get_live_targeted_seq_view()
-        if live_targeted_view is not None:
-            views["targeted_sequencing"] = live_targeted_view
-
-        return config
-
-    def get_remote_primer_results(self, remote_result_dir: str) -> dict:
-        view = self.build_primer_view_from_result_dir(remote_result_dir)
-        if view is None:
-            return {
-                "status": "error",
-                "message": "未能从该远程目录读取 primer_result_final_2.txt，请检查 SSH 连接和目录路径。",
-            }
-        return {"status": "ok", "view": view}
+        return self._artifact_helper.download_execution_artifacts(execution_id)
 
     def get_results_for_execution(self, execution_id: str) -> dict:
         normalized_id = str(execution_id or "").strip()
@@ -1348,53 +503,17 @@ class ToolBridgeService:
 
     @staticmethod
     def _parse_execution_parameters_strict(raw: Any, execution_id: str) -> dict[str, Any]:
-        if raw in ("", None):
-            return {}
-        if isinstance(raw, dict):
-            return dict(raw)
-        try:
-            data = json.loads(str(raw))
-        except Exception as exc:
-            raise RuntimeError(f"执行参数 JSON 解析失败: execution_id={execution_id}") from exc
-        if not isinstance(data, dict):
-            raise RuntimeError(f"执行参数必须是对象: execution_id={execution_id}")
-        return data
+        return ToolBridgeArtifactHelper._parse_execution_parameters_strict(raw, execution_id)
 
     def _build_parameter_items(self, raw_parameters: Any, execution_id: str) -> list[dict[str, str]]:
-        params = self._parse_execution_parameters_strict(raw_parameters, execution_id)
-        return [
-            {"label": str(key), "value": str(value)}
-            for key, value in params.items()
-            if value not in ("", None)
-        ]
+        return self._artifact_helper._build_parameter_items(raw_parameters, execution_id)
 
     def _build_execution_result_context(
         self,
         execution_row: Any,
         artifacts: list[dict] | None = None,
     ) -> dict[str, Any]:
-        execution_id = str(execution_row["execution_id"] or "")
-        tool_id = str(execution_row["tool_id"] or "")
-        artifacts = self._normalize_artifacts(artifacts or self.list_local_execution_artifacts(execution_id))
-        if not artifacts:
-            raise RuntimeError(
-                f"执行结果缺少工件清单: tool={tool_id}, execution_id={execution_id}"
-            )
-        manifest = self._load_manifest(execution_id) or {}
-        return {
-            "execution_id": execution_id,
-            "tool_id": tool_id,
-            "sample_id": str(execution_row["sample_id"] or ""),
-            "sample_name": str(execution_row["sample_name"] or execution_row["sample_id"] or ""),
-            "updated_at": self._format_execution_time(execution_row["completed_at"] or execution_row["created_at"]),
-            "tool_version": str(execution_row["tool_version"] or ""),
-            "artifacts": artifacts,
-            "remote_result_dir": str(manifest.get("output_dir") or "").strip(),
-            "local_result_dir": self._local_result_dir_for_execution(execution_id, artifacts),
-            "parameters": self._parameter_items_from_dict(
-                self._parse_execution_parameters_strict(execution_row["parameters"], execution_id)
-            ),
-        }
+        return self._artifact_helper._build_execution_result_context(execution_row, artifacts)
 
     @staticmethod
     def _normalize_result_view_kwargs(context: dict[str, Any]) -> dict[str, Any]:
@@ -1652,67 +771,24 @@ class ToolBridgeService:
         )
 
     def get_execution_remote_status(self, execution_id: str) -> dict:
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return {"status": "error", "message": "未打开项目"}
-        ssh = self._get_ssh_service()
-        return self._execution_status_service.get_execution_remote_status(execution_id, pm, ssh)
+        return self._history_helper.get_execution_remote_status(execution_id)
 
     def _get_execution_result_row(self, execution_id: str):
-        normalized_id = str(execution_id or "").strip()
-        if not normalized_id:
-            return None
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return None
-        try:
-            return pm.db.execute(
-                """
-                SELECT e.execution_id, e.tool_id, e.sample_id, e.parameters, e.status,
-                       e.created_at, e.completed_at, e.tool_version, s.name AS sample_name
-                FROM executions e
-                LEFT JOIN samples s ON s.sample_id = e.sample_id
-                WHERE e.execution_id = ?
-                LIMIT 1
-                """,
-                (normalized_id,),
-            ).fetchone()
-        except Exception:
-            logger.exception("Failed to query execution result row: %s", normalized_id)
-            return None
+        return self._history_helper._get_execution_result_row(execution_id)
 
     @staticmethod
     def _format_execution_time(timestamp: Any) -> str:
-        if timestamp in (None, ""):
-            return ""
-        try:
-            return datetime.datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            return ""
+        return ToolBridgeArtifactHelper._format_execution_time(timestamp)
 
     def _get_cached_remote_status(self, execution_id: str, local_status: str) -> dict[str, Any] | None:
-        return self._execution_status_service._get_cached_remote_status(execution_id, local_status)
+        return self._history_helper._get_cached_remote_status(execution_id, local_status)
 
     def _set_cached_remote_status(self, execution_id: str, data: dict[str, Any]) -> None:
-        self._execution_status_service._set_cached_remote_status(execution_id, data)
+        self._history_helper._set_cached_remote_status(execution_id, data)
 
     @staticmethod
     def _parse_remote_status_block(output: str) -> dict[str, str]:
-        return ExecutionStatusService.parse_remote_status_block(output)
-
-    def _ensure_detection_workbench_entries(self, features: list[dict], views: dict[str, dict]) -> None:
-        placeholder_index = next(
-            (idx for idx, feature in enumerate(features) if feature.get("id") == "target_screening"),
-            len(features),
-        )
-        for workflow_id in DETECTION_WORKFLOW_ORDER:
-            spec = DETECTION_WORKFLOW_SPECS[workflow_id]
-            if not any(feature.get("id") == workflow_id for feature in features):
-                features.insert(placeholder_index, copy.deepcopy(spec["feature"]))
-                placeholder_index += 1
-            views.setdefault(workflow_id, copy.deepcopy(spec["view"]))
-            if isinstance(views.get(workflow_id), dict):
-                views[workflow_id].setdefault("feature_id", workflow_id)
+        return ToolBridgeHistoryHelper._parse_remote_status_block(output)
 
     def _resolve_detection_workflow_id_for_execution(self, execution_id: str) -> str | None:
         normalized_id = str(execution_id or "").strip()
@@ -1748,119 +824,6 @@ class ToolBridgeService:
         if params.get("workflow") == legacy_workflow:
             return "unknown_sample_detection"
         return None
-
-    def _build_detection_workflow_view_for_execution(self, workflow_id: str, execution_id: str) -> dict | None:
-        spec = DETECTION_WORKFLOW_SPECS.get(workflow_id)
-        if spec is None:
-            return None
-        row = self._get_execution_result_row(execution_id)
-        if row is None:
-            return None
-        try:
-            view = self._build_result_view_for_execution(execution_id, row)
-            if str(view.get("feature_id") or "") != workflow_id:
-                raise RuntimeError(
-                    f"workflow 结果路由不匹配: expected={workflow_id}, actual={view.get('feature_id')}, execution_id={execution_id}"
-                )
-            return view
-        except Exception:
-            logger.exception("Failed to build detection workflow result view: %s / %s", workflow_id, execution_id)
-            return None
-
-    def _get_live_detection_workflow_view(self, workflow_id: str) -> dict | None:
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return None
-
-        spec = DETECTION_WORKFLOW_SPECS.get(workflow_id)
-        if spec is None:
-            return None
-
-        target_eid = None
-        if workflow_id == "unknown_sample_detection":
-            try:
-                rows = pm.db.execute(
-                    "SELECT execution_id, tool_id, parameters FROM executions "
-                    "WHERE tool_id IN ('unknown_sample_detection', 'centrifuge', 'kraken2') "
-                    "AND status = 'completed' "
-                    "ORDER BY rowid DESC",
-                ).fetchall()
-            except Exception:
-                rows = []
-
-            for row in rows or []:
-                if row["tool_id"] == workflow_id:
-                    target_eid = row["execution_id"]
-                    break
-
-            if target_eid is None:
-                legacy_workflow = spec.get("legacy_workflow")
-                for row in rows or []:
-                    try:
-                        params = json.loads(row["parameters"] or "{}")
-                    except Exception:
-                        continue
-                    if params.get("workflow") == legacy_workflow:
-                        target_eid = row["execution_id"]
-                        break
-        else:
-            try:
-                row = pm.db.execute(
-                    "SELECT execution_id FROM executions WHERE tool_id = ? AND status = 'completed' ORDER BY rowid DESC LIMIT 1",
-                    (workflow_id,),
-                ).fetchone()
-            except Exception:
-                row = None
-            if row:
-                target_eid = row["execution_id"]
-
-        if target_eid is None:
-            return None
-        return self._build_detection_workflow_view_for_execution(workflow_id, target_eid)
-
-    def _get_live_unknown_sample_detection_view(self) -> dict | None:
-        return self._get_live_detection_workflow_view("unknown_sample_detection")
-
-    def _get_live_targeted_seq_view(self) -> dict | None:
-        """查找最新的 centrifuge/kraken2 已完成执行，构建靶向测序 view。
-
-        排除标记为 unknown_detection workflow 的 execution，
-        只加载靶向测序（无 workflow 标记 或 workflow=targeted）的结果。
-        """
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return None
-        try:
-            rows = pm.db.execute(
-                "SELECT execution_id, parameters FROM executions "
-                "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
-                "ORDER BY rowid DESC",
-            ).fetchall()
-        except Exception:
-            return None
-
-        import json as _json
-        target_eid = None
-        for r in (rows or []):
-            try:
-                params = _json.loads(r["parameters"] or "{}")
-            except Exception:
-                params = {}
-            wf = params.get("workflow", "")
-            if wf != "unknown_detection":
-                target_eid = r["execution_id"]
-                break
-
-        if target_eid is None:
-            return None
-        try:
-            row = self._get_execution_result_row(target_eid)
-            if row is None:
-                return None
-            return self._build_result_view_for_execution(target_eid, row)
-        except Exception:
-            logger.exception("Failed to build live targeted sequencing view: %s", target_eid)
-            return None
 
     def _build_result_view_for_execution(self, execution_id: str, execution_row: Any | None = None) -> dict:
         row = execution_row or self._get_execution_result_row(execution_id)
