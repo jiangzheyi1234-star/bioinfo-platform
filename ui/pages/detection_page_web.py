@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 from core.execution.tool_bridge_service import ToolBridgeService
 from ui.widgets.web_ui_host import create_local_web_ui_host
 from ui.widgets import styles
+from .detection_page_asset_paths import resolve_detection_page_html
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +378,7 @@ class DetectionPageWeb(QFrame):
             self.bridge = ToolBridge(plugin_registry, main_window, web_view=None)
             from core.utils import get_app_root
             assets_dir = get_app_root() / "ui" / "pages" / "detection_page_assets"
-            html_path = assets_dir / "index_galaxy.html"
+            html_path = resolve_detection_page_html(assets_dir)
             self.web_view, self.channel = create_local_web_ui_host(
                 parent=self,
                 bridge_name="bridge",
