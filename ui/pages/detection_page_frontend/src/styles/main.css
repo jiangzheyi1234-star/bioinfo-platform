@@ -316,6 +316,26 @@ input {
   line-height: 1.5;
 }
 
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.preview-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #d8e3f0;
+  border-radius: 12px;
+  background: #f7fbff;
+}
+
+.preview-label {
+  font-size: 12px;
+  color: #60748a;
+}
+
 .detail-pre {
   margin: 0;
   white-space: pre-wrap;
@@ -333,7 +353,8 @@ input {
 @media (max-width: 1200px) {
   .content-grid,
   .workbench-shell,
-  .detail-grid {
+  .detail-grid,
+  .preview-grid {
     grid-template-columns: 1fr;
   }
 

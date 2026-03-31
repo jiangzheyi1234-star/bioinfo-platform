@@ -9,5 +9,8 @@ export const workbenchStore = reactive({
   selectedFeatureId: '',
   executionViews: {},
   loading: false,
+  previewLoading: false,
+  previewExecutionId: '',
+  previewError: '',
   error: '',
 });
