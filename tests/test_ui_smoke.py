@@ -710,6 +710,9 @@ class TestDetectionIntegratedWorkbench:
         assert 'clearIntegratedExecutionCache' in js
         assert 'activeIntegratedProjectId' in js
         assert '__displaySource' in js
+        assert '.task-list-header {' in css
+        assert 'grid-template-columns: var(--history-columns);' in css
+        assert 'gap: 12px;' in css
         assert 'temporary' in js
         assert 'get_results_for_execution' in js
         assert "function switchTab(tab)" in js
