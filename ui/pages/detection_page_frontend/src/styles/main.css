@@ -140,6 +140,21 @@ input {
   color: #11753f;
 }
 
+.inline-health-error {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff4f3;
+  border: 1px solid #f4c9c3;
+  color: #9b2c1f;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(340px, 1.2fr) minmax(300px, 0.8fr);
@@ -354,7 +369,8 @@ input {
   .content-grid,
   .workbench-shell,
   .detail-grid,
-  .preview-grid {
+  .preview-grid,
+  .health-grid {
     grid-template-columns: 1fr;
   }
 
