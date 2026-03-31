@@ -2079,7 +2079,7 @@ header {
 }
 
 .history-page {
-    --history-columns: minmax(82px, max-content) minmax(190px, 1fr) minmax(220px, 1.35fr) minmax(84px, max-content) minmax(62px, max-content) minmax(72px, max-content);
+    --history-columns: 108px minmax(210px, 1.1fr) minmax(280px, 1.45fr) 116px 70px 88px;
 }
 
 .history-table-card {
@@ -2087,10 +2087,10 @@ header {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    background: rgba(255, 255, 255, 0.94);
-    border: var(--card-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--card-shadow-1);
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(205, 217, 229, 0.92);
+    border-radius: 20px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
     overflow: hidden;
 }
 
@@ -2175,14 +2175,15 @@ header {
     display: grid;
     grid-template-columns: var(--history-columns);
     align-items: center;
-    padding: 0 16px;
-    height: 38px;
-    border-bottom: 1px solid #eceff3;
-    color: var(--text-subtle);
-    font-size: var(--font-size-caption);
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    background: #f8fbfe;
+    padding: 10px 24px 8px 24px;
+    min-height: 32px;
+    gap: 16px;
+    border-bottom: 1px solid rgba(232, 238, 245, 0.85);
+    color: #8b9bb1;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0;
+    background: rgba(250, 252, 255, 0.92);
     position: sticky;
     top: 0;
     z-index: 2;
@@ -2191,20 +2192,20 @@ header {
 .col-indicator { display: none; }
 .col-status { min-width: 0; }
 .col-tool { min-width: 0; }
-.col-sample { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
+.col-sample { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .col-params { display: none; }
 .col-time { min-width: 0; text-align: left; }
 .col-duration { min-width: 0; text-align: left; }
-.col-actions { min-width: 0; text-align: right; }
+.col-actions { min-width: 0; text-align: right; justify-self: end; }
 
 .col-status-wrap {
     min-width: 0;
 }
 
 .task-row {
-    border-bottom: 1px solid #eef2f6;
+    border-bottom: 1px solid #edf2f7;
     background-color: transparent;
-    transition: background-color 0.18s ease, box-shadow 0.18s ease;
+    transition: background-color 0.18s ease;
 }
 
 .task-row:last-child {
@@ -2212,22 +2213,21 @@ header {
 }
 
 .task-row:hover {
-    background-color: rgba(247, 251, 255, 0.86);
+    background-color: rgba(248, 250, 252, 0.92);
 }
 
 .task-row.expanded {
-    background-color: rgba(247, 251, 255, 0.96);
-    border-bottom: 1px solid #e8edf3;
-    box-shadow: inset 0 1px 0 rgba(23, 128, 212, 0.04), inset 0 -1px 0 rgba(23, 128, 212, 0.04);
+    background-color: rgba(247, 250, 253, 0.96);
+    border-bottom: 1px solid #e7edf4;
 }
 
 .task-summary {
     display: grid;
     grid-template-columns: var(--history-columns);
     align-items: center;
-    padding: 0 16px;
-    min-height: 60px;
-    gap: 12px;
+    padding: 0 24px;
+    min-height: 72px;
+    gap: 16px;
     cursor: pointer;
 }
 
@@ -2240,15 +2240,15 @@ header {
 .status-inline {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     min-width: 0;
-    font-size: var(--font-size-caption);
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 600;
     color: var(--state-pending-fg);
-    padding: 6px 10px;
+    padding: 0;
     border-radius: 999px;
-    background: var(--state-pending-bg);
-    border: 1px solid var(--state-pending-border);
+    background: transparent;
+    border: none;
 }
 
 /* Dots */
@@ -2261,8 +2261,6 @@ header {
 
 .status-inline.completed {
     color: var(--state-completed-fg);
-    background: var(--state-completed-bg);
-    border-color: var(--state-completed-border);
 }
 
 .status-inline.completed .status-dot {
@@ -2271,8 +2269,6 @@ header {
 
 .status-inline.failed {
     color: var(--state-failed-fg);
-    background: var(--state-failed-bg);
-    border-color: var(--state-failed-border);
 }
 
 .status-inline.failed .status-dot {
@@ -2281,8 +2277,6 @@ header {
 
 .status-inline.running {
     color: var(--state-running-fg);
-    background: var(--state-running-bg);
-    border-color: var(--state-running-border);
 }
 
 .status-inline.running .status-dot {
@@ -2320,7 +2314,7 @@ header {
 }
 
 .tool-primary {
-    font-size: var(--font-size-body-sm);
+    font-size: 15px;
     font-weight: 700;
     color: var(--text-strong);
     line-height: 1.25;
@@ -2331,7 +2325,7 @@ header {
 }
 
 .tool-secondary {
-    font-size: var(--font-size-caption);
+    font-size: 12px;
     color: var(--text-subtle);
     margin-top: 2px;
     font-family: inherit;
@@ -2341,7 +2335,7 @@ header {
 }
 
 .val-sample {
-    font-size: var(--font-size-caption);
+    font-size: 13px;
     color: var(--text-muted);
     font-family: inherit;
     line-height: 1.3;
@@ -2359,90 +2353,96 @@ header {
     display: flex;
     align-items: center;
     min-height: 18px;
+    justify-self: start;
 }
 
 .time-primary {
-    font-size: var(--font-size-caption);
+    font-size: 13px;
     color: var(--text-strong);
     font-weight: 600;
     white-space: nowrap;
 }
 
 .val-duration {
-    font-size: var(--font-size-caption);
+    font-size: 13px;
     color: var(--text-muted);
     white-space: nowrap;
+    justify-self: start;
 }
 
 /* Actions */
 .task-actions {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
     justify-content: flex-end;
-    width: max-content;
-    margin-left: auto;
+    min-width: 72px;
+    margin-left: 0;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(6px);
-    transition: opacity 0.15s ease, transform 0.15s ease;
+    transition: opacity 0.15s ease;
 }
 
 .task-row:hover .task-actions,
 .task-row.expanded .task-actions {
     opacity: 1;
     pointer-events: auto;
-    transform: translateX(0);
 }
 
 .task-action-btn {
     color: var(--text-muted);
     background: transparent;
     border: 1px solid transparent;
-    font-size: var(--font-size-caption);
+    font-size: 13px;
     font-weight: 600;
-    padding: 5px 10px;
-    border-radius: 999px;
+    padding: 2px 0;
+    border-radius: 0;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease, opacity 0.15s ease;
     white-space: nowrap;
     font-family: inherit;
 }
 
 .task-action-btn:hover {
-    background-color: rgba(255, 255, 255, 0.88);
+    background-color: transparent;
     color: var(--text-strong);
-    border-color: var(--border-soft);
+    border-color: transparent;
 }
 
 .btn-view {
-    color: var(--state-running-fg);
-    background: var(--state-running-bg);
-    border: 1px solid var(--state-running-border);
+    color: #2563eb;
+    background: transparent;
+    border: none;
     text-decoration: none;
     font-weight: 700;
+    padding: 2px 0;
 }
 
 .btn-view:hover {
-    background: #ffffff;
-    border-color: var(--state-running-border);
+    background: transparent;
+    border-color: transparent;
     color: #0f5ea7;
     text-decoration: none;
 }
 
 .btn-delete {
-    min-width: 30px;
-    height: 30px;
-    padding: 0 8px;
+    min-width: auto;
+    height: auto;
+    padding: 2px 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-subtle);
+    color: #98a6b8;
+    border-radius: 0;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.82;
 }
 
 .btn-delete:hover {
     color: var(--state-failed-fg);
-    background: var(--state-failed-bg);
-    border-color: var(--state-failed-border);
+    background: transparent;
+    border-color: transparent;
 }
 
 .task-running-hint {
@@ -2461,9 +2461,9 @@ header {
 /* Details Panel */
 .task-details {
     display: none;
-    background: linear-gradient(180deg, #fbfdff 0%, #f7fbff 100%);
-    border-top: 1px dashed #e9edf2;
-    padding: 16px 18px 18px 18px;
+    background: #fafcff;
+    border-top: 1px solid #edf2f7;
+    padding: 12px 24px 18px 24px;
 }
 
 .task-row.expanded .task-details {
@@ -2535,12 +2535,14 @@ header {
 
 @media (max-width: 1280px) {
     .history-page {
-        --history-columns: minmax(76px, max-content) minmax(168px, 1fr) minmax(176px, 1.15fr) minmax(78px, max-content) minmax(54px, max-content) minmax(66px, max-content);
+        --history-columns: 96px minmax(164px, 1fr) minmax(196px, 1.15fr) 108px 62px 76px;
     }
 
     .task-summary,
     .task-list-header {
-        gap: 8px;
+        gap: 12px;
+        padding-left: 18px;
+        padding-right: 18px;
     }
 }
 
