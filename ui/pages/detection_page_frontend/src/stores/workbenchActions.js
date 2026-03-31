@@ -1,7 +1,7 @@
 import { workbenchStore } from './workbenchStore';
 import { historyStore } from './historyStore';
 import { setActiveTab, setNotice } from './uiStore';
-import { getIntegratedWorkbenchConfig } from '../bridge/api';
+import { getIntegratedWorkbenchConfig, getResultsForExecution } from '../bridge/api';
 
 function normalizeFeatureId(value) {
   return String(value || '').trim();
@@ -16,6 +16,40 @@ function resolveFeatureIdFromRecord(record) {
     return toolId;
   }
   return toolId;
+}
+
+function resolveFeatureIdFromView(view, fallbackRecord = null) {
+  const fromView = String(
+    view?.feature_id
+    || view?.view_id
+    || view?.tool_id
+    || ''
+  ).trim();
+  if (fromView) {
+    return fromView;
+  }
+  return resolveFeatureIdFromRecord(fallbackRecord);
+}
+
+function ensureExecutionFeature(featureId, view) {
+  const normalizedId = normalizeFeatureId(featureId);
+  if (!normalizedId) {
+    return;
+  }
+  const existing = workbenchStore.features.find((item) => String(item?.id || '').trim() === normalizedId);
+  if (existing) {
+    return;
+  }
+  workbenchStore.features = [
+    ...workbenchStore.features,
+    {
+      id: normalizedId,
+      name: String(view?.title || normalizedId),
+      description: String(view?.description || ''),
+      status: 'active',
+      temporary: true,
+    },
+  ];
 }
 
 export async function loadWorkbenchConfig(forceRefresh = false) {
@@ -57,12 +91,62 @@ export function selectWorkbenchFeature(featureId) {
 export function syncWorkbenchSelectionFromHistory(record) {
   const featureId = resolveFeatureIdFromRecord(record);
   if (!featureId) {
-    return;
+    return '';
   }
   const matched = workbenchStore.features.find((item) => String(item?.id || '').trim() === featureId);
   if (!matched) {
-    return;
+    return '';
   }
   historyStore.selectedExecutionId = String(record?.execution_id || '').trim();
   selectWorkbenchFeature(featureId);
+  return featureId;
+}
+
+export async function loadExecutionResultPreview(executionId, options = {}) {
+  const normalizedExecutionId = String(executionId || '').trim();
+  if (!normalizedExecutionId) {
+    return null;
+  }
+
+  workbenchStore.previewLoading = true;
+  workbenchStore.previewExecutionId = normalizedExecutionId;
+  workbenchStore.previewError = '';
+
+  try {
+    const json = await getResultsForExecution(normalizedExecutionId);
+    const payload = JSON.parse(json || '{}');
+    if (payload?.status !== 'ok' || !payload?.view) {
+      throw new Error(payload?.message || '任务结果读取失败');
+    }
+
+    const featureId = resolveFeatureIdFromView(payload.view, options.record || null);
+    if (!featureId) {
+      throw new Error('任务结果缺少 feature_id/view_id/tool_id');
+    }
+
+    ensureExecutionFeature(featureId, payload.view);
+    workbenchStore.executionViews = {
+      ...workbenchStore.executionViews,
+      [featureId]: {
+        ...payload.view,
+        __displaySource: 'history',
+      },
+    };
+
+    if (options.activate !== false) {
+      historyStore.selectedExecutionId = normalizedExecutionId;
+      selectWorkbenchFeature(featureId);
+    }
+
+    return {
+      featureId,
+      view: payload.view,
+    };
+  } catch (error) {
+    workbenchStore.previewError = String(error?.message || error || '任务结果读取失败');
+    setNotice(workbenchStore.previewError, 'error');
+    throw error;
+  } finally {
+    workbenchStore.previewLoading = false;
+  }
 }

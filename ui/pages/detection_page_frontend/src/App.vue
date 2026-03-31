@@ -78,7 +78,7 @@ import { historyStore } from './stores/historyStore';
 import { normalizeHistoryStatus, selectHistoryExecution, setHistorySearchText } from './stores/historyActions';
 import { uiStore, setActiveTab, setNotice } from './stores/uiStore';
 import { workbenchStore } from './stores/workbenchStore';
-import { selectWorkbenchFeature, syncWorkbenchSelectionFromHistory } from './stores/workbenchActions';
+import { loadExecutionResultPreview, selectWorkbenchFeature, syncWorkbenchSelectionFromHistory } from './stores/workbenchActions';
 import { reloadReadOnlyShell, syncFromExecutionUpdate, syncFromRunPayload } from './stores/runtimeSync';
 
 const bridgeState = inject('bridgeState');
@@ -118,10 +118,14 @@ async function reloadReadOnlyData() {
   await reloadReadOnlyShell();
 }
 
-function handleHistorySelect(record) {
+async function handleHistorySelect(record) {
   selectHistoryExecution(record?.execution_id);
   if (normalizeHistoryStatus(record?.status) === 'completed') {
-    syncWorkbenchSelectionFromHistory(record);
+    const matchedFeatureId = syncWorkbenchSelectionFromHistory(record);
+    await loadExecutionResultPreview(record?.execution_id, {
+      record,
+      activate: !matchedFeatureId,
+    });
   }
 }
 

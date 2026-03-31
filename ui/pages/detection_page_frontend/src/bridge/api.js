@@ -45,3 +45,7 @@ export function getExecutionHistory() {
 export function getIntegratedWorkbenchConfig() {
   return invokeBridge('get_integrated_workbench_config');
 }
+
+export function getResultsForExecution(executionId) {
+  return invokeBridge('get_results_for_execution', String(executionId || '').trim());
+}

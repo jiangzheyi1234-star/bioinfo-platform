@@ -1,7 +1,7 @@
 import { historyStore } from './historyStore';
 import { loadHistoryRecords, normalizeHistoryStatus, selectHistoryExecution } from './historyActions';
 import { setActiveTab } from './uiStore';
-import { loadWorkbenchConfig, syncWorkbenchSelectionFromHistory } from './workbenchActions';
+import { loadExecutionResultPreview, loadWorkbenchConfig, syncWorkbenchSelectionFromHistory } from './workbenchActions';
 
 function findHistoryRecord(executionId) {
   const targetId = String(executionId || '').trim();
@@ -44,7 +44,11 @@ export async function syncFromExecutionUpdate(payload) {
   }
 
   if (normalizeHistoryStatus(record.status) === 'completed') {
-    syncWorkbenchSelectionFromHistory(record);
+    const matchedFeatureId = syncWorkbenchSelectionFromHistory(record);
+    await loadExecutionResultPreview(executionId, {
+      record,
+      activate: !matchedFeatureId,
+    });
     return;
   }
 

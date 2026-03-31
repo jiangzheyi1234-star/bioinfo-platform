@@ -59,6 +59,28 @@
         </article>
       </div>
 
+      <div v-if="selectedExecutionView" class="detail-card">
+        <h4>Execution 结果摘要</h4>
+        <div class="preview-grid">
+          <div class="preview-item">
+            <span class="preview-label">Archetype</span>
+            <strong>{{ selectedExecutionView.archetype || 'unknown' }}</strong>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Summary</span>
+            <strong>{{ executionSummaryCount }}</strong>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Charts</span>
+            <strong>{{ executionChartCount }}</strong>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Artifacts</span>
+            <strong>{{ executionArtifactCount }}</strong>
+          </div>
+        </div>
+      </div>
+
       <div class="detail-card">
         <h4>当前 feature 原始信息</h4>
         <pre class="detail-pre">{{ JSON.stringify(selectedFeature || {}, null, 2) }}</pre>
@@ -111,6 +133,14 @@ const selectedFeature = computed(() => {
   return props.features.find((item) => String(item?.id || '') === props.selectedFeatureId) || null;
 });
 
+const selectedExecutionView = computed(() => {
+  const featureId = String(props.selectedFeatureId || '').trim();
+  if (!featureId) {
+    return null;
+  }
+  return props.executionViews?.[featureId] || null;
+});
+
 const selectedViewSummary = computed(() => {
   const featureId = String(props.selectedFeatureId || '').trim();
   if (!featureId) {
@@ -133,5 +163,23 @@ const selectedRecordSummary = computed(() => {
     return '当前未从运行历史定位 execution';
   }
   return `${props.selectedExecutionRecord.tool_id || '-'} · ${props.selectedExecutionRecord.execution_id || '-'}`;
+});
+
+const executionSummaryCount = computed(() => {
+  return Array.isArray(selectedExecutionView.value?.summary)
+    ? selectedExecutionView.value.summary.length
+    : 0;
+});
+
+const executionChartCount = computed(() => {
+  return Array.isArray(selectedExecutionView.value?.charts)
+    ? selectedExecutionView.value.charts.length
+    : 0;
+});
+
+const executionArtifactCount = computed(() => {
+  return Array.isArray(selectedExecutionView.value?.artifacts)
+    ? selectedExecutionView.value.artifacts.length
+    : 0;
 });
 </script>
