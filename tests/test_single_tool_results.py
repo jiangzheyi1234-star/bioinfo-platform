@@ -850,9 +850,29 @@ def test_tool_bridge_service_result_builders_are_defined_once():
 
 
 def test_tool_bridge_service_core_result_seam_modules_are_externalized():
+    assert ToolBridgeService._build_result_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_workflow_product_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_artifact_collection_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_html_report_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
     assert ToolBridgeService._build_qc_report_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_detection_workflow_result_view.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_primer_workflow_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+    assert ToolBridgeService._build_multiplex_workflow_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
     assert ToolBridgeService._build_fastp_view_from_artifacts.__module__ == "core.execution.tool_bridge_result_views"
     assert ToolBridgeService._build_targeted_seq_view_for_execution.__module__ == "core.execution.tool_bridge_result_views"
+
+
+def test_tool_bridge_service_workbench_seam_modules_are_externalized():
+    assert ToolBridgeService._build_primer_view_from_artifacts.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService.get_live_primer_design_view.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService.get_primer_view_for_execution.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService.get_live_multiplex_primer_panel_view.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService.get_multiplex_view_for_execution.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService.get_integrated_workbench_config.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService._ensure_detection_workbench_entries.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService._get_live_detection_workflow_view.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService._get_live_unknown_sample_detection_view.__module__ == "core.execution.tool_bridge_workbench_ops"
+    assert ToolBridgeService._get_live_targeted_seq_view.__module__ == "core.execution.tool_bridge_workbench_ops"
 
 
 def test_get_results_for_execution_builds_quast_quality_view(tmp_path: Path):

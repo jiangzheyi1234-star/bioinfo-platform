@@ -11,15 +11,13 @@
 
 from __future__ import annotations
 
-import copy
 import csv
 import datetime
 import json
 import logging
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from core.data.database_service import DatabaseService
 from core.execution.artifact_store import ArtifactStore
@@ -41,12 +39,7 @@ from core.execution.result_parsers import (
 from core.execution.result_parsers import (
     parse_primer_result_text as _parse_primer_result_text,
 )
-from core.execution.single_tool_result_parsers import (
-    parse_busco_summary_text,
-    parse_generic_result_table,
-    parse_json_object,
-    summarize_table_row,
-)
+from core.execution.single_tool_result_parsers import parse_generic_result_table, summarize_table_row
 from core.execution.single_tool_view_builder import build_single_tool_view
 from core.execution.tool_bridge_execution_ops import (
     _descriptor_consumes_database_var as _tb_descriptor_consumes_database_var,
@@ -121,9 +114,6 @@ from core.execution.tool_bridge_workbench_ops import (
     get_primer_view_for_execution as _tb_get_primer_view_for_execution,
     get_remote_primer_results as _tb_get_remote_primer_results,
 )
-from core.execution.workbench_view_builders import build_multiplex_view, build_primer_view
-from core.pipeline.chart_data_parser import ChartDataParser
-
 if TYPE_CHECKING:
     from core.plugins.plugin_registry import PluginRegistry
     from core.service_locator import ServiceLocator
