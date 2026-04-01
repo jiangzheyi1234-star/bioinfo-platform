@@ -738,6 +738,33 @@ class TestDetectionIntegratedWorkbench:
         assert 'gap: 12px;' in css
         assert 'temporary' in js
         assert 'get_results_for_execution' in js
+
+    def test_result_shell_overrides_use_module_interfaces(self):
+        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        override_js = Path("ui/pages/detection_page_assets/result_shell_overrides.js").read_text(encoding="utf-8")
+        history_loader_js = Path("ui/pages/detection_page_assets/results/history_result_loader.js").read_text(encoding="utf-8")
+        js = app_js
+
+        assert "global.renderSummaryGrid" not in override_js
+        assert "global.renderIntegratedSections" not in override_js
+        assert "global.renderIntegratedProvenance" not in override_js
+        assert "global.openExecution" not in override_js
+        assert "resultViewerRenderers.renderSummaryGrid" in override_js
+        assert "resultViewerRenderers.renderIntegratedSections" in override_js
+        assert "historyResultLoader.openExecutionWithRuntime" in override_js
+        assert "configureRuntime" in history_loader_js
+        assert "openExecutionWithRuntime" in history_loader_js
+        assert "window.HistoryResultLoader.configureRuntime" in app_js
+        assert "function renderSummaryGrid(" not in app_js
+        assert "function renderArtifactList(" not in app_js
+        assert "function renderIntegratedProvenance(" not in app_js
+        assert "function renderIntegratedSections(" not in app_js
+        assert "function resolveIntegratedViewSource(" not in app_js
+        assert "function getPreferredIntegratedViewSource(" not in app_js
+        assert "function getIntegratedFeatureView(" not in app_js
+        assert "function loadExecutionResultsFromHistory(" not in app_js
+        assert "function openExecution(" not in app_js
+        assert "window.HistoryResultLoader.openExecutionWithRuntime" in app_js
         assert "function switchTab(tab)" in js
         assert "function activateTab(tab)" in js
         assert "function switchTab(tab, options = {})" not in js

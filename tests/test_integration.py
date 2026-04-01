@@ -22,6 +22,7 @@ import yaml
 
 from core.data.data_importer import DataImporter
 from core.data.data_registry import DataRegistry
+from core.environment.h2o_env_paths import H2O_CONDA_EXE
 from core.plugins.plugin_registry import PluginRegistry
 from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 from core.execution.command_builder import CommandBuilder
@@ -206,6 +207,7 @@ def engine(
         project_manager=pm,
         data_registry=data_registry,
         job_queue=queue,
+        conda_executable=H2O_CONDA_EXE,
     )
 
 

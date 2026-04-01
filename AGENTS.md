@@ -1,6 +1,14 @@
 # Persistent Agent Notes
 ## ⚠️ 最高优先级
 失败必须大声抛出，禁止 silent fallback，禁止保留已删除字段的任何兜底引用。
+
+## Codex Git 基线（必须复用）
+
+1. 在 Codex / 当前 PowerShell agent 环境内执行 Git 操作时，禁止直接调用 `git ...`、`git.exe ...`、`where.exe git` 等普通外部进程链路。
+2. 必须统一走仓库脚本 `scripts/codex_git.ps1`，示例：`& .\scripts\codex_git.ps1 status`。
+3. `scripts/codex_git.ps1` 负责 `.NET ProcessStartInfo` 启动、`safe.directory` 注入，以及 `WSL_UTF8=1`、`PYTHONUTF8=1` 环境设置；禁止在其他脚本里各自复制一套 Git 启动兜底。
+4. 若 `scripts/codex_git.ps1` 执行失败，必须直接抛错并暴露 stderr/exit code，禁止 silent fallback 到其他未验证调用方式。
+
 ## SSH 访问基线（必须复用）
 
 1. 优先通过 ServiceLocator 复用 `core/remote/ssh_service.py`。

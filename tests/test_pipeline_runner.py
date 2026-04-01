@@ -12,6 +12,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.execution.command_builder import CommandBuilder
 from core.data.data_registry import DataRegistry
+from core.environment.h2o_env_paths import H2O_CONDA_EXE
 from core.pipeline.pipeline_runner import PipelineRunner, PipelineStage
 from core.data.project_manager import ProjectInfo, _SCHEMA_SQL
 
@@ -186,6 +187,7 @@ def engine(ssh, plugin_registry, db_conn, project, registry, queue):
         project_manager=pm,
         data_registry=registry,
         job_queue=queue,
+        conda_executable=H2O_CONDA_EXE,
     )
 
 

@@ -1,20 +1,15 @@
-"""H2OMeta UI 层 - 所有 UI 组件的入口
+"""H2OMeta UI 层入口。
 
-导入所有页面和 widget，方便跨模块使用。
+保持初始化轻量，避免仅导入 ``ui`` 时就拉起所有页面依赖。
 """
 
-# 页面导入 (从 ui.pages 导出的页面)
-from ui.pages import (
-    HomePage,
-    DetectionPageWeb,
-    SettingsPage,
-)
+from importlib import import_module
+from typing import Any
 
-# Widget 导入 (延迟导入由 main.py 负责，这里仅做类型提示)
+__all__ = ["HomePage", "DetectionPageWeb", "SettingsPage"]
 
-__all__ = [
-    # Pages
-    "HomePage",
-    "DetectionPageWeb",
-    "SettingsPage",
-]
+
+def __getattr__(name: str) -> Any:
+    if name in set(__all__):
+        return getattr(import_module("ui.pages"), name)
+    raise AttributeError(f"module 'ui' has no attribute {name!r}")

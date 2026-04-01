@@ -1,24 +1,19 @@
-"""Core 模块 — H2OMeta 核心功能
+"""Core 模块 — H2OMeta 核心功能。
 
-子包结构:
-  - execution/: 执行链 (ToolEngine, JobDispatcher, CommandBuilder...)
-  - data/: 数据管理 (DataRegistry, ProjectManager, DataImporter...)
-  - remote/: SSH 连接 (SSHService, SSHReconnector, StorageManager)
-  - pipeline/: 流程编排 (PipelineRunner, PipelineReconstructor, ProjectExporter)
-  - environment/: 环境管理 (env_detector, env_installer, ContainerDetector)
-  - plugins/: 插件系统 (PluginRegistry, TaskManager)
-
-使用示例:
-    from core.execution.tool_engine import ToolEngine
-    from core.data.data_registry import DataRegistry
-    from core.remote.ssh_service import SSHService
+保持包初始化轻量，避免仅导入 ``core`` 或 ``core.environment`` 时触发
+SSH / Paramiko / Qt 等重量级副作用。
 """
 
-from core.data.execution_cleaner import ExecutionCleaner, ExecutionDiskUsage
-from core import environment
+from importlib import import_module
+from typing import Any
 
-__all__ = [
-    "ExecutionCleaner",
-    "ExecutionDiskUsage",
-    "environment",
-]
+__all__ = ["ExecutionCleaner", "ExecutionDiskUsage", "environment"]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"ExecutionCleaner", "ExecutionDiskUsage"}:
+        module = import_module("core.data.execution_cleaner")
+        return getattr(module, name)
+    if name == "environment":
+        return import_module("core.environment")
+    raise AttributeError(f"module 'core' has no attribute {name!r}")

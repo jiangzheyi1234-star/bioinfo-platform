@@ -164,6 +164,12 @@ def _ensure_qapp():
     yield app
 
 
+@pytest.fixture(scope="session")
+def qapp(_ensure_qapp):
+    """pytest-qt compatibility fixture for environments without plugin autoload."""
+    return _ensure_qapp
+
+
 @pytest.fixture
 def tmp_dir(tmp_path: Path) -> Path:
     """返回一个每个测试独立的临时目录，测试结束后由 pytest 自动清理。"""

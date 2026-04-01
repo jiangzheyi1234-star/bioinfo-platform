@@ -7,6 +7,7 @@
         var resources = Array.isArray(options.resources) ? options.resources : [];
         var setHidden = options.setHidden;
         var escapeHtml = options.escapeHtml;
+        var onShowDetail = typeof options.onShowDetail === 'function' ? options.onShowDetail : null;
 
         if (!grid || !empty || typeof setHidden !== 'function' || typeof escapeHtml !== 'function') {
             return;
@@ -33,9 +34,17 @@
                 + '  <div class="database-resource-title">' + escapeHtml(item.name || '') + '</div>'
                 + '  <div class="database-resource-desc">' + escapeHtml(item.description || '暂无描述') + '</div>'
                 + '  <div class="database-resource-meta">' + escapeHtml(summary) + '</div>'
-                + '  <button class="ui-button ui-button--secondary ui-button--sm database-detail-btn" type="button" onclick="showDatabaseResourceDetail(' + index + ')">查看详情</button>'
+                + '  <button class="ui-button ui-button--secondary ui-button--sm database-detail-btn" type="button" data-resource-index="' + index + '">查看详情</button>'
                 + '</article>';
         }).join('');
+
+        if (onShowDetail) {
+            grid.querySelectorAll('.database-detail-btn').forEach(function(button) {
+                button.addEventListener('click', function() {
+                    onShowDetail(Number(button.getAttribute('data-resource-index')));
+                });
+            });
+        }
     }
 
     function buildDatabaseResourceDetail(item) {

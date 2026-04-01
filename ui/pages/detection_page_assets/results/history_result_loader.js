@@ -1,6 +1,8 @@
 (function(global) {
     'use strict';
 
+    var runtimeDependencies = null;
+
     var HISTORY_RESULT_CONTEXTS = {
         primer_design: {
             featureId: 'primer_design',
@@ -160,11 +162,60 @@
         }
     }
 
+    function configureRuntime(dependencies) {
+        runtimeDependencies = Object.assign({}, runtimeDependencies || {}, dependencies || {});
+    }
+
+    function getConfiguredRuntime() {
+        if (!runtimeDependencies) {
+            throw new Error('HistoryResultLoader runtime is not configured');
+        }
+        var requiredKeys = [
+            'bridgeResultsService',
+            'showNotice',
+            'findHistoryRecord',
+            'normalizeExecutionStatus',
+            'focusHistoryExecution',
+            'applyPayload',
+        ];
+        requiredKeys.forEach(function(key) {
+            if (typeof runtimeDependencies[key] !== 'function' && key !== 'bridgeResultsService') {
+                throw new Error('HistoryResultLoader runtime missing dependency: ' + key);
+            }
+        });
+        if (!runtimeDependencies.bridgeResultsService) {
+            throw new Error('HistoryResultLoader runtime missing dependency: bridgeResultsService');
+        }
+        return runtimeDependencies;
+    }
+
+    function openExecutionWithRuntime(executionId, context) {
+        var runtime = getConfiguredRuntime();
+        var normalizedContext = context || {};
+        return openExecution({
+            executionId: executionId,
+            record: normalizedContext.record,
+            status: normalizedContext.status,
+            local_status: normalizedContext.local_status,
+            resultContext: normalizedContext.resultContext,
+            fetchRemoteStatus: normalizedContext.fetchRemoteStatus,
+            noticeMessage: normalizedContext.noticeMessage,
+            bridgeResultsService: runtime.bridgeResultsService,
+            showNotice: runtime.showNotice,
+            findHistoryRecord: runtime.findHistoryRecord,
+            normalizeExecutionStatus: runtime.normalizeExecutionStatus,
+            focusHistoryExecution: runtime.focusHistoryExecution,
+            applyPayload: runtime.applyPayload,
+        });
+    }
+
     global.HistoryResultLoader = {
         HISTORY_RESULT_CONTEXTS: HISTORY_RESULT_CONTEXTS,
         parseHistoryParameters: parseHistoryParameters,
         resolveHistoryResultContext: resolveHistoryResultContext,
         loadExecutionResultsFromHistory: loadExecutionResultsFromHistory,
         openExecution: openExecution,
+        configureRuntime: configureRuntime,
+        openExecutionWithRuntime: openExecutionWithRuntime,
     };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
