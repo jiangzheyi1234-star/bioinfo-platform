@@ -25,6 +25,12 @@ if (!window.DatabasePanelRenderer || !window.HistoryPanelRenderer || !window.Int
 if (!window.HistoryResultLoader || !window.IntegratedWorkbenchSelection) {
     throw new Error('Result workbench modules are required for detection page bootstrapping');
 }
+if (!window.IntegratedRunModal) {
+    throw new Error('IntegratedRunModal module is required for detection page bootstrapping');
+}
+if (!window.DetectionPageHelpers) {
+    throw new Error('DetectionPageHelpers module is required for detection page bootstrapping');
+}
 const INTEGRATED_HISTORY_RESULT_LIMIT = window.IntegratedOpenResultsState.DEFAULT_MAX_OPEN_RESULTS;
 const integratedOpenResultsStore = window.IntegratedOpenResultsState.createStore({
     maxOpenResults: INTEGRATED_HISTORY_RESULT_LIMIT,
@@ -342,11 +348,36 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     const historySearch = document.getElementById('history-search');
     if (historySearch) {
         historySearch.addEventListener('input', function(e) {
-            renderHistoryPanelView(window.HistoryPanelRenderer.filterHistoryRecords({
-                query: String(e.target.value || ''),
-                historyRecords,
+            window.HistoryPanelRenderer.renderHistoryPanel({
+                container: document.getElementById('history-container'),
+                history: window.HistoryPanelRenderer.filterHistoryRecords({
+                    query: String(e.target.value || ''),
+                    historyRecords,
+                    allTools,
+                }),
                 allTools,
-            }));
+                pendingExecutionId: pendingHistoryExecutionId,
+                pendingOptions: pendingHistoryExecutionOptions || {},
+                escapeHtml,
+                resolveHistoryResultContext: function(record) {
+                    return window.HistoryResultLoader.resolveHistoryResultContext(record);
+                },
+                openExecution: function(executionId, context) {
+                    window.HistoryResultLoader.openExecutionWithRuntime(executionId, context);
+                },
+                deleteHistoryExecution,
+                toggleExecutionRemoteStatus,
+                showNotice,
+                onPendingResolved: function() {
+                    pendingHistoryExecutionId = null;
+                    pendingHistoryExecutionOptions = null;
+                },
+                onPendingMissing: function(executionId) {
+                    showNotice(`未找到对应任务记录: ${executionId}`);
+                    pendingHistoryExecutionId = null;
+                    pendingHistoryExecutionOptions = null;
+                },
+            });
         });
     }
     const clearIntegratedHistoryResultsBtn = document.getElementById('integrated-clear-history-results');
@@ -399,379 +430,7 @@ function openIntegratedRunEntry() {
         return;
     }
 
-    openIntegratedRunModal(feature, toolId);
-}
-
-function ensureIntegratedRunModal() {
-    let modal = document.getElementById('integrated-run-modal');
-    if (modal) {
-        return modal;
-    }
-
-    modal = document.createElement('div');
-    modal.id = 'integrated-run-modal';
-    modal.className = 'integrated-run-modal ui-modal';
-    modal.innerHTML = `
-        <div class="integrated-run-modal-backdrop ui-modal__backdrop" data-close="1"></div>
-        <div class="integrated-run-modal-card ui-modal__card" role="dialog" aria-modal="true" aria-labelledby="integrated-run-modal-title">
-            <div class="integrated-run-modal-header">
-                <h3 id="integrated-run-modal-title">Run Entry</h3>
-                <button class="integrated-run-modal-close" type="button" id="integrated-run-modal-close" aria-label="Close">&times;</button>
-            </div>
-            <div class="integrated-run-modal-body">
-                <div class="integrated-run-modal-line"><span>Feature</span><strong id="integrated-run-modal-feature">-</strong></div>
-                <div class="integrated-run-modal-line"><span>Tool</span><strong id="integrated-run-modal-tool">-</strong></div>
-                <div class="integrated-run-modal-line is-hidden" id="integrated-run-modal-tool-select-row">
-                    <span>分类工具</span>
-                    <div id="integrated-run-modal-tool-switch" class="integrated-tool-switch" role="group" aria-label="分类工具选择"></div>
-                </div>
-                <div class="integrated-run-modal-hint" id="integrated-run-modal-hint">Fill fields in this popup and submit directly, or open plugin workbench.</div>
-                <div class="integrated-run-modal-form" id="integrated-run-modal-form"></div>
-            </div>
-            <div class="integrated-run-modal-actions">
-                <button class="ui-button ui-button--secondary" type="button" id="integrated-run-modal-cancel">Cancel</button>
-                <button class="ui-button ui-button--secondary" type="button" id="integrated-run-modal-open-tools">Open Tools</button>
-                <button class="ui-button ui-button--primary" type="button" id="integrated-run-modal-confirm">Submit</button>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    modal.addEventListener('click', function(event) {
-        if (event.target && event.target.dataset && event.target.dataset.close === '1') {
-            closeIntegratedRunModal();
-        }
-    });
-
-    const closeBtn = document.getElementById('integrated-run-modal-close');
-    const cancelBtn = document.getElementById('integrated-run-modal-cancel');
-    const openToolsBtn = document.getElementById('integrated-run-modal-open-tools');
-    const confirmBtn = document.getElementById('integrated-run-modal-confirm');
-
-    if (closeBtn) closeBtn.addEventListener('click', closeIntegratedRunModal);
-    if (cancelBtn) cancelBtn.addEventListener('click', closeIntegratedRunModal);
-    if (openToolsBtn) openToolsBtn.addEventListener('click', goToIntegratedRunTool);
-    if (confirmBtn) confirmBtn.addEventListener('click', runIntegratedRunModal);
-
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            closeIntegratedRunModal();
-        }
-    });
-
-    return modal;
-}
-
-function openIntegratedRunModal(feature, toolId) {
-    const view = (integratedWorkbench && integratedWorkbench.views)
-        ? integratedWorkbench.views[feature?.id]
-        : null;
-    const toolIds = Array.isArray(view?.tool_ids) && view.tool_ids.length
-        ? view.tool_ids.slice()
-        : [toolId].filter(Boolean);
-    const activeToolId = toolIds.includes(toolId) ? toolId : (toolIds[0] || toolId);
-
-    integratedRunModalContext = {
-        featureId: feature?.id || '',
-        featureName: feature?.name || feature?.id || '',
-        toolId: activeToolId,
-        descriptor: null,
-        _descriptorSeq: 0,
-    };
-
-    const modal = ensureIntegratedRunModal();
-    const featureEl = document.getElementById('integrated-run-modal-feature');
-    const toolEl = document.getElementById('integrated-run-modal-tool');
-    const toolSelectRowEl = document.getElementById('integrated-run-modal-tool-select-row');
-    const toolSwitchEl = document.getElementById('integrated-run-modal-tool-switch');
-    const hintEl = document.getElementById('integrated-run-modal-hint');
-    const formEl = document.getElementById('integrated-run-modal-form');
-
-    if (featureEl) featureEl.textContent = integratedRunModalContext.featureName || '-';
-    if (toolEl) toolEl.textContent = activeToolId || '-';
-    if (hintEl) hintEl.textContent = 'Loading input requirements...';
-    if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Loading...</div>';
-
-    const applyDescriptor = function(descriptor, requestSeq) {
-        if (!integratedRunModalContext || requestSeq !== integratedRunModalContext._descriptorSeq) {
-            return;
-        }
-        integratedRunModalContext.descriptor = descriptor || {};
-        const inputCount = (descriptor.inputs || []).length;
-        const paramCount = (descriptor.parameters || []).length;
-        const dbCount = (descriptor.databases || []).length;
-        if (hintEl) {
-            hintEl.textContent = `Inputs ${inputCount}, Params ${paramCount}, Databases ${dbCount}.`; 
-        }
-        renderIntegratedRunModalForm(descriptor || {});
-    };
-
-    const fetchDescriptorForTool = function(nextToolId) {
-        if (!integratedRunModalContext) {
-            return;
-        }
-        integratedRunModalContext.toolId = nextToolId;
-        if (toolEl) toolEl.textContent = nextToolId || '-';
-        if (hintEl) hintEl.textContent = 'Loading input requirements...';
-        if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Loading...</div>';
-
-        integratedRunModalContext._descriptorSeq += 1;
-        const requestSeq = integratedRunModalContext._descriptorSeq;
-        const cached = toolDescriptorCache[nextToolId];
-        if (cached) {
-            applyDescriptor(cached, requestSeq);
-            return;
-        }
-        if (!(bridge && bridge.get_tool_descriptor)) {
-            if (requestSeq === integratedRunModalContext._descriptorSeq) {
-                if (hintEl) hintEl.textContent = 'Tool descriptor API unavailable.';
-                if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">API unavailable.</div>';
-            }
-            return;
-        }
-        bridgeToolsService.getToolDescriptor(nextToolId, function(json) {
-            try {
-                const descriptor = JSON.parse(json || '{}');
-                toolDescriptorCache[nextToolId] = descriptor;
-                applyDescriptor(descriptor, requestSeq);
-            } catch (e) {
-                if (requestSeq === integratedRunModalContext._descriptorSeq) {
-                    if (hintEl) hintEl.textContent = 'Failed to load requirements. Use Open Tools instead.';
-                    if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Parse failed.</div>';
-                }
-            }
-        }, function() {
-            if (requestSeq === integratedRunModalContext._descriptorSeq) {
-                if (hintEl) hintEl.textContent = 'Tool descriptor API unavailable.';
-                if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">API unavailable.</div>';
-            }
-        });
-    };
-
-    if (toolSelectRowEl && toolSwitchEl) {
-        if (toolIds.length > 1) {
-            setHidden(toolSelectRowEl, false);
-            toolSwitchEl.innerHTML = toolIds.map(id => {
-                const activeClass = id === activeToolId ? 'is-active' : '';
-                return `<button type="button" class="integrated-tool-switch-btn ${activeClass}" data-tool-id="${escapeHtml(id)}">${escapeHtml(id)}</button>`;
-            }).join('');
-            toolSwitchEl.querySelectorAll('.integrated-tool-switch-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const nextToolId = btn.getAttribute('data-tool-id') || '';
-                    if (!nextToolId || nextToolId === (integratedRunModalContext && integratedRunModalContext.toolId)) {
-                        return;
-                    }
-                    toolSwitchEl.querySelectorAll('.integrated-tool-switch-btn').forEach(item => item.classList.remove('is-active'));
-                    btn.classList.add('is-active');
-                    fetchDescriptorForTool(nextToolId);
-                });
-            });
-        } else {
-            setHidden(toolSelectRowEl, true);
-            toolSwitchEl.innerHTML = '';
-        }
-    }
-
-    fetchDescriptorForTool(activeToolId);
-
-    modal.classList.add('show');
-}
-
-function renderIntegratedRunModalForm(descriptor) {
-    const formEl = document.getElementById('integrated-run-modal-form');
-    if (!formEl) {
-        return;
-    }
-
-    const inputs = descriptor.inputs || [];
-    const parameters = descriptor.parameters || [];
-    const databases = descriptor.databases || [];
-    const parts = [];
-
-    if (inputs.length) {
-        parts.push('<div class="integrated-run-modal-group"><div class="integrated-run-modal-group-title">Inputs</div>');
-        inputs.forEach(input => {
-            const required = input.required !== false ? '<span class="integrated-input-required">Required</span>' : '';
-            const browseFilter = getInputBrowseFilter(input, descriptor || {});
-            const validator = getInputSelectionValidator(input, descriptor || {});
-            const id = `modal-input-${input.name}`;
-            parts.push(`
-                <div class="integrated-input-item">
-                    <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(input.label || input.name || 'Input')}</span>${required}</div>
-                    <div class="input-group">
-                        <input type="text" class="ui-field" id="${id}" placeholder="${escapeHtml(input.description || 'Select file')}" readonly>
-                        <button class="ui-button ui-button--secondary ui-button--sm form-browse-btn" type="button" onclick="browseFile('${id}', '${browseFilter}', '${validator}')">Browse...</button>
-                    </div>
-                </div>
-            `);
-        });
-        parts.push('</div>');
-    }
-
-    if (parameters.length) {
-        parts.push('<div class="integrated-run-modal-group"><div class="integrated-run-modal-group-title">Parameters</div>');
-        parameters.forEach(param => {
-            const id = `modal-param-${param.name}`;
-            const label = escapeHtml(param.label || param.name || 'Param');
-            const recommendedValue = getRecommendedValueFromUsage(descriptor, param.name);
-            const defaultValue = recommendedValue !== undefined
-                ? recommendedValue
-                : (param.default !== undefined ? param.default : '');
-            const tooltipText = buildParamTooltipText(param, descriptor);
-            const tooltipHtml = tooltipText
-                ? `<button type="button" class="help-icon-btn" aria-label="参数说明" aria-expanded="false" data-help-text="${escapeHtml(tooltipText)}" title="${escapeHtml(tooltipText)}">?</button>`
-                : '';
-            let inputHtml = '';
-            if (param.type === 'int' || param.type === 'integer') {
-                inputHtml = `<input type="number" class="ui-field" id="${id}" value="${defaultValue}" step="1">`;
-            } else if (param.type === 'float' || param.type === 'number') {
-                inputHtml = `<input type="number" class="ui-field" id="${id}" value="${defaultValue}" step="0.01">`;
-            } else if (param.type === 'bool' || param.type === 'boolean') {
-                inputHtml = `<select class="ui-field" id="${id}"><option value="true" ${defaultValue === true ? 'selected' : ''}>Yes</option><option value="false" ${defaultValue === false ? 'selected' : ''}>No</option></select>`;
-            } else {
-                inputHtml = `<input type="text" class="ui-field" id="${id}" value="${escapeHtml(String(defaultValue))}" placeholder="${escapeHtml(param.description || '')}">`;
-            }
-            const guide = getUsageGuideForParam(descriptor, param.name);
-            const helper = guide?.recommendation || param.description || '';
-            const helperHtml = helper
-                ? `<div class="integrated-param-help">${escapeHtml(String(helper))}</div>`
-                : '';
-            parts.push(`
-                <div class="integrated-input-item">
-                    <div class="integrated-input-label-row">
-                        <span class="integrated-input-label">${label}</span>
-                        ${tooltipHtml}
-                    </div>
-                    ${inputHtml}
-                    ${helperHtml}
-                </div>
-            `);
-        });
-        parts.push(buildUsagePresetsPanel(descriptor, 'integrated-modal'));
-        parts.push('</div>');
-    }
-
-    if (databases.length) {
-        parts.push('<div class="integrated-run-modal-group"><div class="integrated-run-modal-group-title">Databases</div>');
-        databases.forEach(db => {
-            const key = db.param_name || db.name;
-            const id = `modal-db-${key}`;
-            const required = db.required !== false ? '<span class="integrated-input-required">Required</span>' : '';
-            const scopeHtml = db.scope
-                ? `<div class="integrated-db-scope">${escapeHtml(db.scope)}</div>`
-                : '';
-            // 数据库路径由后端 build_database_paths 自动解析，此处仅展示提示
-            parts.push(`
-                <div class="integrated-input-item">
-                    <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(db.label || key)}</span>${required}</div>
-                    <input type="text" class="ui-field integrated-managed-field" id="${id}" value="" readonly placeholder="自动使用设置中配置的数据库路径">
-                </div>
-            `);
-        });
-        parts.push('</div>');
-    }
-
-    if (!parts.length) {
-        parts.push('<div class="integrated-input-empty">No declared inputs. You can submit directly.</div>');
-    }
-
-    formEl.innerHTML = parts.join('');
-    if (databases.length) {
-        databases.forEach(db => {
-            if (!db || !db.scope) return;
-            const key = db.param_name || db.name;
-            const id = `modal-db-${key}`;
-            const inputEl = document.getElementById(id);
-            if (!inputEl || !inputEl.parentElement) return;
-            const scopeDiv = document.createElement('div');
-            scopeDiv.className = 'integrated-db-scope';
-            scopeDiv.textContent = String(db.scope);
-            inputEl.parentElement.appendChild(scopeDiv);
-        });
-    }
-}
-
-function runIntegratedRunModal() {
-    if (!integratedRunModalContext || !integratedRunModalContext.toolId) {
-        return;
-    }
-
-    const toolId = integratedRunModalContext.toolId;
-    const descriptor = integratedRunModalContext.descriptor || {};
-    const params = {};
-
-    const inputs = descriptor.inputs || [];
-    for (const input of inputs) {
-        const value = document.getElementById(`modal-input-${input.name}`)?.value?.trim();
-        if (input.required !== false && !value) {
-            showNotice(`Missing required input: ${input.label || input.name}`, 'warning');
-            return;
-        }
-        if (value) params[input.name] = value;
-    }
-
-    const parameters = descriptor.parameters || [];
-    parameters.forEach(param => {
-        const element = document.getElementById(`modal-param-${param.name}`);
-        if (!element) return;
-        let value = element.value;
-        if (param.type === 'int' || param.type === 'integer') value = parseInt(value, 10);
-        else if (param.type === 'float' || param.type === 'number') value = parseFloat(value);
-        else if (param.type === 'bool' || param.type === 'boolean') value = value === 'true';
-        params[param.name] = value;
-    });
-
-    const databases = descriptor.databases || [];
-    for (const db of databases) {
-        const key = db.param_name || db.name;
-        const el = document.getElementById(`modal-db-${key}`);
-        const value = el?.value?.trim();
-        // readonly 空值 = 后端 build_database_paths 自动解析，跳过前端校验
-        if (el && el.readOnly && !value) continue;
-        if (db.required !== false && !value) {
-            showNotice(`Missing required database path: ${db.label || key}`, 'warning');
-            return;
-        }
-        if (value) params[key] = value;
-    }
-
-    const confirmBtn = document.getElementById('integrated-run-modal-confirm');
-    if (confirmBtn) {
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = 'Submitting...';
-    }
-
-    bridgeToolsService.runTool(toolId, JSON.stringify(params));
-    closeIntegratedRunModal();
-}
-
-function closeIntegratedRunModal() {
-    const modal = document.getElementById('integrated-run-modal');
-    if (modal) modal.classList.remove('show');
-    const confirmBtn = document.getElementById('integrated-run-modal-confirm');
-    if (confirmBtn) {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = 'Submit';
-    }
-}
-
-function goToIntegratedRunTool() {
-    if (!integratedRunModalContext || !integratedRunModalContext.toolId) {
-        closeIntegratedRunModal();
-        return;
-    }
-
-    const toolId = integratedRunModalContext.toolId;
-    closeIntegratedRunModal();
-
-    switchTab('tools');
-    selectTool(toolId);
-
-    const panel = document.getElementById('right-panel');
-    if (panel && panel.scrollIntoView) {
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    return window.IntegratedRunModal.openIntegratedRunModal(feature, toolId);
 }
 
 function initializeIntegratedSectionToggles() {
@@ -981,103 +640,6 @@ function setSectionCollapsed(targetId, collapsed) {
     }
 }
 
-function normalizePresetLabel(label) {
-    return String(label || '').toLowerCase();
-}
-
-function getRecommendedPreset(descriptor) {
-    const usage = descriptor?.usage || {};
-    const presets = Array.isArray(usage.presets) ? usage.presets : [];
-    if (!presets.length) {
-        return null;
-    }
-    const byId = presets.find(p => String(p?.id || '').toLowerCase() === 'standard');
-    if (byId) {
-        return byId;
-    }
-    const byLabel = presets.find(p => normalizePresetLabel(p?.label).includes('recommended'));
-    if (byLabel) {
-        return byLabel;
-    }
-    return presets[0];
-}
-
-function getUsageGuideForParam(descriptor, paramName) {
-    const guides = descriptor?.usage?.parameter_guide;
-    if (!Array.isArray(guides)) {
-        return null;
-    }
-    return guides.find(item => String(item?.name || '') === String(paramName || '')) || null;
-}
-
-function getRecommendedValueFromUsage(descriptor, paramName) {
-    const preset = getRecommendedPreset(descriptor);
-    if (!preset || !preset.params || typeof preset.params !== 'object') {
-        return undefined;
-    }
-    if (!Object.prototype.hasOwnProperty.call(preset.params, paramName)) {
-        return undefined;
-    }
-    return preset.params[paramName];
-}
-
-function buildParamTooltipText(param, descriptor) {
-    const parts = [];
-    if (param?.description) {
-        parts.push(String(param.description).trim());
-    }
-    if (Array.isArray(param?.range) && param.range.length === 2) {
-        parts.push(`范围: ${param.range[0]} ~ ${param.range[1]}`);
-    }
-    if (Array.isArray(param?.choices) && param.choices.length) {
-        parts.push(`可选: ${param.choices.join(', ')}`);
-    }
-    const guide = getUsageGuideForParam(descriptor, param?.name || '');
-    if (guide?.recommendation) {
-        parts.push(String(guide.recommendation).trim());
-    }
-    return parts.filter(Boolean).join('；');
-}
-
-function buildUsagePresetsPanel(descriptor, panelIdPrefix) {
-    const usage = descriptor?.usage || {};
-    const presets = Array.isArray(usage.presets) ? usage.presets : [];
-    if (!presets.length) {
-        return '';
-    }
-    const preferred = getRecommendedPreset(descriptor);
-    const listHtml = presets.map(preset => {
-        const params = (preset && typeof preset.params === 'object') ? preset.params : {};
-        const paramPairs = Object.keys(params).map(key => `${key}=${params[key]}`);
-        const presetLine = paramPairs.length ? paramPairs.join(', ') : '无显式参数';
-        const isRecommended = preferred && preset === preferred;
-        const badge = isRecommended ? '<span class="usage-preset-recommended">Recommended</span>' : '';
-        const notes = preset?.notes ? `<div class="usage-preset-notes">${escapeHtml(String(preset.notes))}</div>` : '';
-        return `
-            <div class="usage-preset-row">
-                <div class="usage-preset-head">
-                    <span class="usage-preset-label">${escapeHtml(String(preset?.label || preset?.id || 'preset'))}</span>
-                    ${badge}
-                </div>
-                <div class="usage-preset-params">${escapeHtml(presetLine)}</div>
-                ${notes}
-            </div>
-        `;
-    }).join('');
-
-    const hint = usage.when_to_use
-        ? `<div class="usage-presets-hint">${escapeHtml(String(usage.when_to_use))}</div>`
-        : '';
-
-    return `
-        <details class="usage-presets-panel" id="${escapeHtml(panelIdPrefix)}-usage-presets">
-            <summary>推荐预设与填写说明</summary>
-            ${hint}
-            <div class="usage-presets-list">${listHtml}</div>
-        </details>
-    `;
-}
-
 function switchTab(tab) {
     // 更新按钮状态
     document.querySelectorAll('.tab-btn').forEach(function(btn) {
@@ -1160,21 +722,20 @@ function scanLocalDatabaseFolder() {
                 resources: databaseResources,
                 setHidden,
                 escapeHtml,
+                onShowDetail: function(index) {
+                    const item = databaseResources[index];
+                    if (!item) {
+                        return;
+                    }
+                    const lines = window.DatabasePanelRenderer.buildDatabaseResourceDetail(item);
+                    showNotice(lines.join('\n'), 'success', 6000);
+                },
             });
             switchTab('database');
         });
     }, function(error) {
         showNotice(error && error.message ? error.message : '当前版本不支持数据库文件夹扫描', 'warning');
     });
-}
-
-function showDatabaseResourceDetail(index) {
-    const item = databaseResources[index];
-    if (!item) {
-        return;
-    }
-    const lines = window.DatabasePanelRenderer.buildDatabaseResourceDetail(item);
-    showNotice(lines.join('\n'), 'success', 6000);
 }
 
 function loadIntegratedWorkbench(forceRefresh = false) {
@@ -2261,11 +1822,11 @@ function renderParams(params) {
         group.className = 'form-group';
 
         const required = param.required !== false ? '<span class="required">*</span>' : '';
-        const recommendedValue = getRecommendedValueFromUsage(selectedDescriptor, param.name);
+        const recommendedValue = window.DetectionPageHelpers.getRecommendedValueFromUsage(selectedDescriptor, param.name);
         const defaultValue = recommendedValue !== undefined
             ? recommendedValue
             : (param.default !== undefined ? param.default : '');
-        const tooltipText = buildParamTooltipText(param, selectedDescriptor);
+        const tooltipText = window.DetectionPageHelpers.buildParamTooltipText(param, selectedDescriptor);
         const tooltipHtml = tooltipText
             ? `<button type="button" class="help-icon-btn" aria-label="参数说明" aria-expanded="false" data-help-text="${escapeHtml(tooltipText)}" title="${escapeHtml(tooltipText)}">?</button>`
             : '';
@@ -2286,7 +1847,7 @@ function renderParams(params) {
             inputHtml = `<input type="text" class="ui-field" id="param-${param.name}" value="${defaultValue}" placeholder="${param.description || ''}">`;
         }
 
-        const guide = getUsageGuideForParam(selectedDescriptor, param.name);
+        const guide = window.DetectionPageHelpers.getUsageGuideForParam(selectedDescriptor, param.name);
         const helper = guide?.recommendation || param.description || '';
         const helperHtml = helper ? `<div class="form-help">${escapeHtml(String(helper))}</div>` : '';
 
@@ -2304,7 +1865,7 @@ function renderParams(params) {
         container.appendChild(group);
     });
 
-    const usagePanelHtml = buildUsagePresetsPanel(selectedDescriptor || {}, 'tool-panel');
+    const usagePanelHtml = window.DetectionPageHelpers.buildUsagePresetsPanel(selectedDescriptor || {}, 'tool-panel', escapeHtml);
     if (usagePanelHtml) {
         const usageWrap = document.createElement('div');
         usageWrap.className = 'form-group';
@@ -2362,6 +1923,34 @@ function getInputSelectionValidator(input, descriptor) {
     }
     return '';
 }
+
+window.IntegratedRunModal.configureRuntime({
+    getIntegratedWorkbench: function() {
+        return integratedWorkbench;
+    },
+    getIntegratedRunModalContext: function() {
+        return integratedRunModalContext;
+    },
+    setIntegratedRunModalContext: function(nextContext) {
+        integratedRunModalContext = nextContext;
+    },
+    toolDescriptorCache,
+    bridgeToolsService,
+    getInputBrowseFilter,
+    getInputSelectionValidator,
+    getRecommendedValueFromUsage: window.DetectionPageHelpers.getRecommendedValueFromUsage,
+    buildParamTooltipText: window.DetectionPageHelpers.buildParamTooltipText,
+    getUsageGuideForParam: window.DetectionPageHelpers.getUsageGuideForParam,
+    buildUsagePresetsPanel: function(descriptor, panelIdPrefix) {
+        return window.DetectionPageHelpers.buildUsagePresetsPanel(descriptor, panelIdPrefix, escapeHtml);
+    },
+    showNotice,
+    escapeHtml,
+    setHidden,
+    switchTab,
+    selectTool,
+    bindHelpTooltipInteractions,
+});
 
 function isPrimerGenomesBundlePath(filePath) {
     const path = String(filePath || '').toLowerCase();
@@ -2565,11 +2154,36 @@ function loadHistory() {
             historyRecords = JSON.parse(json);
             console.log(`✓ Loaded ${historyRecords.length} execution records`);
             const historySearch = document.getElementById('history-search');
-            renderHistoryPanelView(window.HistoryPanelRenderer.filterHistoryRecords({
-                query: String(historySearch?.value || ''),
-                historyRecords,
+            window.HistoryPanelRenderer.renderHistoryPanel({
+                container: document.getElementById('history-container'),
+                history: window.HistoryPanelRenderer.filterHistoryRecords({
+                    query: String(historySearch?.value || ''),
+                    historyRecords,
+                    allTools,
+                }),
                 allTools,
-            }));
+                pendingExecutionId: pendingHistoryExecutionId,
+                pendingOptions: pendingHistoryExecutionOptions || {},
+                escapeHtml,
+                resolveHistoryResultContext: function(record) {
+                    return window.HistoryResultLoader.resolveHistoryResultContext(record);
+                },
+                openExecution: function(executionId, context) {
+                    window.HistoryResultLoader.openExecutionWithRuntime(executionId, context);
+                },
+                deleteHistoryExecution,
+                toggleExecutionRemoteStatus,
+                showNotice,
+                onPendingResolved: function() {
+                    pendingHistoryExecutionId = null;
+                    pendingHistoryExecutionOptions = null;
+                },
+                onPendingMissing: function(executionId) {
+                    showNotice(`未找到对应任务记录: ${executionId}`);
+                    pendingHistoryExecutionId = null;
+                    pendingHistoryExecutionOptions = null;
+                },
+            });
         } catch (e) {
             console.error('Failed to parse history:', e);
         }
@@ -2909,32 +2523,3 @@ function formatDetailCell(record) {
     }
     return '-';
 }
-
-const renderHistoryPanelView = function(history) {
-    window.HistoryPanelRenderer.renderHistoryPanel({
-        container: document.getElementById('history-container'),
-        history,
-        allTools,
-        pendingExecutionId: pendingHistoryExecutionId,
-        pendingOptions: pendingHistoryExecutionOptions || {},
-        escapeHtml,
-        resolveHistoryResultContext: function(record) {
-            return window.HistoryResultLoader.resolveHistoryResultContext(record);
-        },
-        openExecution: function(executionId, context) {
-            window.HistoryResultLoader.openExecutionWithRuntime(executionId, context);
-        },
-        deleteHistoryExecution,
-        toggleExecutionRemoteStatus,
-        showNotice,
-        onPendingResolved: function() {
-            pendingHistoryExecutionId = null;
-            pendingHistoryExecutionOptions = null;
-        },
-        onPendingMissing: function(executionId) {
-            showNotice(`未找到对应任务记录: ${executionId}`);
-            pendingHistoryExecutionId = null;
-            pendingHistoryExecutionOptions = null;
-        },
-    });
-};
