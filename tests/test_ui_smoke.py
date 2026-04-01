@@ -996,6 +996,9 @@ class TestDetectionIntegratedWorkbench:
         database_dialogs_py = Path("ui/pages/database_dialogs.py").read_text(encoding="utf-8")
         database_remote_ops_py = Path("ui/pages/database_remote_ops.py").read_text(encoding="utf-8")
         database_page_py = Path("ui/pages/database_page.py").read_text(encoding="utf-8")
+        tool_bridge_summary_builders_py = Path("core/execution/tool_bridge_summary_builders.py").read_text(
+            encoding="utf-8"
+        )
         tool_bridge_service_py = Path("core/execution/tool_bridge_service.py").read_text(encoding="utf-8")
         tool_bridge_types_py = Path("core/execution/tool_bridge_types.py").read_text(encoding="utf-8")
 
@@ -1005,6 +1008,7 @@ class TestDetectionIntegratedWorkbench:
         assert "from ui.pages.database_dialogs import _AsyncTaskWorker, DatabaseSettingsDialog, RemoteDirectoryPickerDialog" in database_page_py
         assert "from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin" in database_page_py
         assert "from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES" in tool_bridge_service_py
+        assert "from core.execution.tool_bridge_summary_builders import (" in tool_bridge_service_py
 
         assert "def _format_rate(" in linux_workers_py
         assert "def _safe_emit(" in linux_workers_py
@@ -1070,8 +1074,17 @@ class TestDetectionIntegratedWorkbench:
         assert "class ExecutionResult:" in tool_bridge_types_py
         assert "class PrimerView:" in tool_bridge_types_py
         assert "_TOOL_ARCHETYPES: dict[str, str] = {" in tool_bridge_types_py
+        assert "QUALITY_SUMMARY_KEYS: dict[str, list[tuple[str, str, str]]] = {" in tool_bridge_summary_builders_py
+        assert "def build_read_flow_chart(" in tool_bridge_summary_builders_py
+        assert "def summarize_metric_rows(" in tool_bridge_summary_builders_py
+        assert "def build_generic_summary(" in tool_bridge_summary_builders_py
+        assert "def build_taxonomy_charts(" in tool_bridge_summary_builders_py
         assert "class ExecutionResult:" not in tool_bridge_service_py
         assert "class PrimerView:" not in tool_bridge_service_py
+        assert "def _build_read_flow_chart(" in tool_bridge_service_py
+        assert "return _tb_build_read_flow_chart(" in tool_bridge_service_py
+        assert "return _tb_build_generic_summary(" in tool_bridge_service_py
+        assert "return _tb_build_taxonomy_charts(" in tool_bridge_service_py
 
     def test_detection_history_empty_state_and_sample_fallback(self):
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")

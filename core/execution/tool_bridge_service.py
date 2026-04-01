@@ -29,6 +29,15 @@ from core.execution.tool_bridge_specs import (
     TARGETED_RESULT_TOOL_IDS,
     build_integrated_workbench_config,
 )
+from core.execution.tool_bridge_summary_builders import (
+    QUALITY_SUMMARY_KEYS as _QUALITY_SUMMARY_KEYS,
+    build_generic_summary as _tb_build_generic_summary,
+    build_read_flow_chart as _tb_build_read_flow_chart,
+    build_taxonomy_charts as _tb_build_taxonomy_charts,
+    parse_float as _tb_parse_float,
+    row_lookup as _tb_row_lookup,
+    summarize_metric_rows as _tb_summarize_metric_rows,
+)
 from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES
 from core.execution.result_parsers import (
     build_multiplex_columns as _parse_build_multiplex_columns,
@@ -120,13 +129,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _WORKFLOW_PRODUCT_TOOL_IDS = (*DETECTION_WORKFLOW_ORDER, "primer_design", "multiplex_primer_panel")
-_QUALITY_SUMMARY_KEYS: dict[str, list[tuple[str, str, str]]] = {
-    "quast": [("Contigs", "# contigs", "primary"), ("总长度", "Total length", "info"), ("N50", "N50", "success")],
-    "checkm2": [("Completeness", "Completeness", "success"), ("Contamination", "Contamination", "warning"), ("GC", "GC_Content", "info")],
-    "gunc": [("Mapped Genes", "n_genes_mapped", "primary"), ("CSS", "clade_separation_score", "info"), ("Contamination", "contamination_portion", "warning")],
-}
-
-
 class ToolBridgeService:
     """工作台工具执行编排服务。
 
@@ -292,35 +294,7 @@ class ToolBridgeService:
 
     @staticmethod
     def _build_read_flow_chart(fastp_json_path: Path | None, kreport_summary: dict[str, Any]) -> dict[str, Any] | None:
-        stages: list[dict[str, Any]] = []
-        if fastp_json_path is not None and fastp_json_path.exists():
-            try:
-                payload = json.loads(fastp_json_path.read_text(encoding="utf-8"))
-                summary = payload.get("summary", {})
-                before = summary.get("before_filtering", {})
-                after = summary.get("after_filtering", {})
-                raw_reads = int(before.get("total_reads", 0) or 0)
-                qc_reads = int(after.get("total_reads", 0) or 0)
-                if raw_reads > 0:
-                    stages.append({"name": "原始 Reads", "value": raw_reads})
-                if qc_reads > 0:
-                    stages.append({"name": "QC 后", "value": qc_reads})
-            except Exception:
-                logger.exception("Failed to parse fastp summary for funnel chart: %s", fastp_json_path)
-
-        classified = int(kreport_summary.get("classified_reads", 0) or 0)
-        unclassified = int(kreport_summary.get("unclassified_reads", 0) or 0)
-        total = int(kreport_summary.get("total_reads", 0) or 0)
-        if total > 0:
-            stages.append({"name": "送分类 Reads", "value": total})
-        if classified > 0:
-            stages.append({"name": "已分类", "value": classified})
-        if unclassified > 0:
-            stages.append({"name": "未分类", "value": unclassified})
-
-        if len(stages) < 2:
-            return None
-        return {"type": "funnel", "title": "分析流程摘要", "data": stages}
+        return _tb_build_read_flow_chart(fastp_json_path, kreport_summary)
 
     def _get_project_manager(self):
         if self._service_locator is None:
@@ -532,20 +506,11 @@ class ToolBridgeService:
 
     @staticmethod
     def _parse_float(value: Any) -> float | None:
-        try:
-            text = str(value).strip().rstrip("%")
-            if not text:
-                return None
-            number = float(text)
-            if 0 <= number <= 1 and "fraction" in str(value):
-                return number * 100
-            return number
-        except Exception:
-            return None
+        return _tb_parse_float(value)
 
     @staticmethod
     def _row_lookup(row: dict[str, Any]) -> dict[str, Any]:
-        return {str(key).lower(): value for key, value in row.items()}
+        return _tb_row_lookup(row)
 
     def _summarize_metric_rows(
         self,
@@ -553,24 +518,7 @@ class ToolBridgeService:
         preferred_keys: list[str] | list[tuple[str, str, str]],
         metrics: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        if metrics:
-            metric_candidates = [(str(key), str(key), "info") for key in metrics.keys()]
-            summary = summarize_table_row(metrics, metric_candidates[:4])
-            if summary:
-                return summary
-        if not rows:
-            return []
-        first_row = self._row_lookup(rows[0])
-        summary = []
-        if preferred_keys and isinstance(preferred_keys[0], tuple):
-            return summarize_table_row(first_row, list(preferred_keys))[:4]
-        for key in preferred_keys:
-            key_text = str(key).lower()
-            if key_text not in first_row:
-                continue
-            label = str(key).upper() if key_text == "n50" else str(key).replace("_", " ").title()
-            summary.append({"label": label, "value": str(first_row[key_text]), "tone": "info"})
-        return summary[:4]
+        return _tb_summarize_metric_rows(rows, preferred_keys, metrics)
 
     def _build_generic_summary(
         self,
@@ -580,100 +528,10 @@ class ToolBridgeService:
         *,
         tool_id: str = "",
     ) -> list[dict[str, Any]]:
-        available_count = len([item for item in artifacts if item.get("available")])
-        if archetype == "taxonomy_profile":
-            first_row = rows[0] if rows else {}
-            lookup = self._row_lookup(first_row)
-            top_name = (
-                lookup.get("name")
-                or lookup.get("clade_name")
-                or lookup.get("taxonomy")
-                or lookup.get("classification")
-                or "—"
-            )
-            top_value = (
-                lookup.get("percentage")
-                or lookup.get("fraction_total_reads")
-                or lookup.get("relative_abundance")
-                or lookup.get("abundance")
-                or "—"
-            )
-            return [
-                {"label": "分类记录", "value": str(len(rows)), "tone": "primary"},
-                {"label": "Top 分类", "value": str(top_name), "tone": "accent"},
-                {"label": "Top 丰度", "value": str(top_value), "tone": "info"},
-                {"label": "结果文件", "value": str(available_count), "tone": "success"},
-            ]
-
-        if archetype == "quality_assessment":
-            summary = self._summarize_metric_rows(rows, _QUALITY_SUMMARY_KEYS.get(tool_id, []))
-            if summary:
-                summary.append({"label": "结果文件", "value": str(available_count), "tone": "info"})
-                return summary[:4]
-            return [
-                {"label": "质量记录", "value": str(len(rows)), "tone": "primary"},
-                {"label": "结果文件", "value": str(available_count), "tone": "info"},
-            ]
-
-        if archetype == "qc_report":
-            first_row = rows[0] if rows else {}
-            lookup = self._row_lookup(first_row)
-            preferred_keys = ("total_reads", "host_reads", "non_host_reads", "host_fraction")
-            summary = []
-            labels = {
-                "total_reads": "总 Reads",
-                "host_reads": "宿主 Reads",
-                "non_host_reads": "非宿主 Reads",
-                "host_fraction": "宿主占比",
-            }
-            for key in preferred_keys:
-                if key in lookup:
-                    summary.append({"label": labels[key], "value": str(lookup[key]), "tone": "info"})
-            if summary:
-                return summary[:4]
-            return [
-                {"label": "结果文件", "value": str(available_count), "tone": "primary"},
-                {"label": "统计记录", "value": str(len(rows)), "tone": "info"},
-            ]
-
-        if archetype == "annotation_table":
-            return [
-                {"label": "结果条目", "value": str(len(rows)), "tone": "primary"},
-                {"label": "结果文件", "value": str(available_count), "tone": "info"},
-            ]
-
-        return [
-            {"label": "结果文件", "value": str(available_count), "tone": "primary"},
-            {"label": "结果记录", "value": str(len(rows)), "tone": "info"},
-        ]
+        return _tb_build_generic_summary(archetype, rows, artifacts, tool_id=tool_id)
 
     def _build_taxonomy_charts(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if not rows:
-            return []
-        name_candidates = ("name", "clade_name", "taxonomy", "classification")
-        value_candidates = ("percentage", "fraction_total_reads", "relative_abundance", "abundance", "reads", "new_est_reads")
-        first_lookup = self._row_lookup(rows[0])
-        name_key = next((key for key in name_candidates if key in first_lookup), "")
-        value_key = next((key for key in value_candidates if key in first_lookup), "")
-        if not name_key or not value_key:
-            return []
-        chart_rows = []
-        for row in rows[:20]:
-            lookup = self._row_lookup(row)
-            numeric = self._parse_float(lookup.get(value_key))
-            if numeric is None:
-                continue
-            if "fraction" in value_key and numeric <= 1:
-                numeric *= 100
-            chart_rows.append(
-                {
-                    "name": str(lookup.get(name_key) or "—"),
-                    "value": round(numeric, 4),
-                }
-            )
-        if not chart_rows:
-            return []
-        return [{"type": "abundance_bar", "title": "分类丰度", "data": chart_rows}]
+        return _tb_build_taxonomy_charts(rows)
 
     def _build_descriptor_driven_view_for_execution(
         self,
