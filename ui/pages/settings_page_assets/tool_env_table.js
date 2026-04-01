@@ -51,7 +51,7 @@ function renderToolList(tools) {
     document.getElementById('tool-count').textContent = tools.length;
 
     if (tools.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty-row">未发现任何工具</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="tool-env-empty-row">未发现任何工具</td></tr>';
         return;
     }
 
@@ -73,10 +73,10 @@ function renderToolList(tools) {
                 '</span>' +
             '</td>' +
             '<td class="col-action action-cell">' +
-                '<button class="btn-install hidden" data-tool-id="' + tool.id + '">安装</button>' +
+                '<button class="ui-button ui-button--primary ui-button--sm ui-button--install is-hidden" data-tool-id="' + tool.id + '">安装</button>' +
             '</td>';
 
-        const btn = row.querySelector('.btn-install');
+        const btn = row.querySelector('[data-tool-id]');
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
             installTool(tool.id);
@@ -206,28 +206,28 @@ function updateToolStatus(toolId, status) {
         case 'ready':
             dot.classList.add('dot-ready');
             text.textContent = '就绪';
-            if (btn) btn.classList.add('hidden');
+            if (btn) btn.classList.add('is-hidden');
             break;
         case 'missing':
             dot.classList.add('dot-missing');
             text.textContent = '缺失';
-            if (btn) btn.classList.remove('hidden');
+            if (btn) btn.classList.remove('is-hidden');
             break;
         case 'checking':
             dot.classList.add('dot-checking');
             text.textContent = '检测中';
-            if (btn) btn.classList.add('hidden');
+            if (btn) btn.classList.add('is-hidden');
             break;
         case 'installing':
             dot.classList.add('dot-installing');
             text.textContent = '安装中';
-            if (btn) btn.classList.add('hidden');
+            if (btn) btn.classList.add('is-hidden');
             break;
         case 'pending':
         default:
             dot.classList.add('dot-pending');
             text.textContent = '待检测';
-            if (btn) btn.classList.add('hidden');
+            if (btn) btn.classList.add('is-hidden');
             break;
     }
 }

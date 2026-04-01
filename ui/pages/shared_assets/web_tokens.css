@@ -1,0 +1,56 @@
+:root {
+    --ui-color-canvas: #f3f7fb;
+    --ui-color-panel: #ffffff;
+    --ui-color-subtle: #f8fbff;
+    --ui-color-elevated: #fcfdff;
+    --ui-color-border: #d9e3ef;
+    --ui-color-border-strong: #bfd3ea;
+    --ui-color-text: #132238;
+    --ui-color-text-muted: #587086;
+    --ui-color-text-subtle: #7f8fa3;
+    --ui-color-accent: #1780d4;
+    --ui-color-accent-strong: #1370bf;
+    --ui-color-accent-soft: #e8f3fc;
+    --ui-color-success: #178a57;
+    --ui-color-success-soft: #e8f7ef;
+    --ui-color-warning: #a76217;
+    --ui-color-warning-soft: #fff4e6;
+    --ui-color-danger: #c93b34;
+    --ui-color-danger-soft: #fdeceb;
+    --ui-color-overlay: rgba(15, 23, 42, 0.42);
+    --ui-color-tooltip-bg: #0f172a;
+    --ui-color-tooltip-border: #334155;
+    --ui-color-tooltip-text: #f8fafc;
+
+    --ui-space-1: 8px;
+    --ui-space-2: 12px;
+    --ui-space-3: 16px;
+    --ui-space-4: 20px;
+    --ui-space-5: 24px;
+    --ui-space-6: 32px;
+
+    --ui-radius-sm: 10px;
+    --ui-radius-md: 14px;
+    --ui-radius-lg: 18px;
+    --ui-radius-xl: 22px;
+    --ui-radius-pill: 999px;
+
+    --ui-shadow-sm: 0 6px 18px rgba(15, 23, 42, 0.05);
+    --ui-shadow-md: 0 12px 26px rgba(15, 23, 42, 0.08);
+    --ui-shadow-lg: 0 18px 42px rgba(15, 23, 42, 0.12);
+
+    --ui-font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --ui-font-size-caption: 11px;
+    --ui-font-size-body-sm: 12px;
+    --ui-font-size-body: 13px;
+    --ui-font-size-label: 14px;
+    --ui-font-size-title: 18px;
+    --ui-font-size-hero: 24px;
+
+    --ui-z-base: 1;
+    --ui-z-sticky: 10;
+    --ui-z-overlay: 10000;
+    --ui-z-toast: 12000;
+
+    --ui-button-height: 42px;
+}
