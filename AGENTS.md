@@ -9,6 +9,12 @@
 3. `scripts/codex_git.ps1` 负责 `.NET ProcessStartInfo` 启动、`safe.directory` 注入，以及 `WSL_UTF8=1`、`PYTHONUTF8=1` 环境设置；禁止在其他脚本里各自复制一套 Git 启动兜底。
 4. 若 `scripts/codex_git.ps1` 执行失败，必须直接抛错并暴露 stderr/exit code，禁止 silent fallback 到其他未验证调用方式。
 
+## Codex 测试执行基线（必须复用）
+
+1. 在 Codex / 当前 PowerShell agent 环境内执行 Python 测试时，禁止直接调用 `python ...`、`pytest ...`，必须优先走仓库脚本 `scripts/codex_python.ps1` / `scripts/codex_pytest.ps1`。
+2. Codex 只负责当前环境内可直接完成的测试；其余受环境、系统依赖、外部运行时或本机配置限制的测试，统一由用户自行处理或在其他环境验证。
+3. 遇到当前 Codex 环境无法可靠执行的测试时，必须直接说明阻塞原因，禁止删测试、弱化断言或修改产品代码去迎合错误环境。
+
 ## SSH 访问基线（必须复用）
 
 1. 优先通过 ServiceLocator 复用 `core/remote/ssh_service.py`。

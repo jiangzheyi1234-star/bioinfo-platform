@@ -687,6 +687,8 @@ class TestDetectionIntegratedWorkbench:
         assert 'render/history_panel.js' in html
         assert 'render/integrated_sidebar.js' in html
         assert 'render/result_viewers.js' in html
+        assert 'render/run_modal.js' in html
+        assert 'utils/helpers.js' in html
         assert 'results/open_results_state.js' in html
         assert 'results/history_result_loader.js' in html
         assert 'results/workbench_selection.js' in html
@@ -743,6 +745,7 @@ class TestDetectionIntegratedWorkbench:
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
         override_js = Path("ui/pages/detection_page_assets/result_shell_overrides.js").read_text(encoding="utf-8")
         history_loader_js = Path("ui/pages/detection_page_assets/results/history_result_loader.js").read_text(encoding="utf-8")
+        database_panel_js = Path("ui/pages/detection_page_assets/render/database_panel.js").read_text(encoding="utf-8")
         js = app_js
 
         assert "global.renderSummaryGrid" not in override_js
@@ -755,6 +758,8 @@ class TestDetectionIntegratedWorkbench:
         assert "configureRuntime" in history_loader_js
         assert "openExecutionWithRuntime" in history_loader_js
         assert "window.HistoryResultLoader.configureRuntime" in app_js
+        assert "window.IntegratedRunModal.configureRuntime" in app_js
+        assert "window.DetectionPageHelpers" in app_js
         assert "function renderSummaryGrid(" not in app_js
         assert "function renderArtifactList(" not in app_js
         assert "function renderIntegratedProvenance(" not in app_js
@@ -764,7 +769,21 @@ class TestDetectionIntegratedWorkbench:
         assert "function getIntegratedFeatureView(" not in app_js
         assert "function loadExecutionResultsFromHistory(" not in app_js
         assert "function openExecution(" not in app_js
+        assert "function normalizePresetLabel(" not in app_js
+        assert "function getRecommendedPreset(" not in app_js
+        assert "function getUsageGuideForParam(" not in app_js
+        assert "function getRecommendedValueFromUsage(" not in app_js
+        assert "function buildParamTooltipText(" not in app_js
+        assert "function buildUsagePresetsPanel(" not in app_js
+        assert "renderHistoryPanelView" not in app_js
+        assert "showDatabaseResourceDetail" not in app_js
         assert "window.HistoryResultLoader.openExecutionWithRuntime" in app_js
+        assert "onShowDetail: function(index)" in app_js
+        assert "onclick=\"showDatabaseResourceDetail(" not in database_panel_js
+        assert "data-resource-index" in database_panel_js
+        assert "window.HistoryPanelRenderer.renderHistoryPanel({" in app_js
+        assert "function ensureIntegratedRunModal()" in app_js
+        assert "return window.IntegratedRunModal.ensureIntegratedRunModal();" in app_js
         assert "function switchTab(tab)" in js
         assert "function activateTab(tab)" in js
         assert "function switchTab(tab, options = {})" not in js
