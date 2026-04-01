@@ -722,10 +722,8 @@ header {
 }
 
 .detail-header-card {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 14px;
     padding: 16px;
     box-shadow: var(--card-shadow-hero);
@@ -839,12 +837,13 @@ header {
 
 .integrated-main-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.88fr);
+    grid-template-columns: minmax(0, 1fr) clamp(240px, 25%, 320px);
     gap: 12px;
-    align-items: stretch;
+    align-items: start;
     flex: 1;
     min-height: 0;
     width: 100%;
+    padding: 0 20px 20px;
 }
 
 .integrated-primary-column,
@@ -864,7 +863,7 @@ header {
     flex-direction: column;
     gap: 12px;
     position: sticky;
-    top: 8px;
+    top: 16px;
     max-width: none;
     width: 100%;
     align-self: start;
@@ -1779,7 +1778,7 @@ header {
     }
 
     .integrated-main-layout {
-        grid-template-columns: minmax(0, 1fr) 300px;
+        grid-template-columns: minmax(0, 1fr) clamp(220px, 22%, 280px);
     }
 
     .results-table-wrap {
@@ -1814,14 +1813,12 @@ header {
 
     /* 侧栏水平化后主内容区拥有全宽，保持双列布局 */
     .integrated-main-layout {
-        grid-template-columns: minmax(0, 1fr) 280px;
+        grid-template-columns: minmax(0, 1fr) 240px;
         min-height: 0;
     }
 
     .integrated-side-column {
         position: static;
-        top: auto;
-        align-self: start;
     }
 
     .integrated-loader-row {
@@ -1866,6 +1863,10 @@ header {
         order: -1;
     }
 
+    .detail-header-card {
+        grid-template-columns: 1fr;
+    }
+
     .integrated-loader-btn {
         width: 100%;
     }
@@ -1903,7 +1904,7 @@ header {
     }
 
     .integrated-table {
-        min-width: 920px;
+        min-width: 500px;
     }
 }
 
