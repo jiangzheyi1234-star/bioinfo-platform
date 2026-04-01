@@ -31,6 +31,9 @@ if (!window.IntegratedRunModal || !window.IntegratedChartRenderer) {
 if (!window.DetectionPageHelpers) {
     throw new Error('DetectionPageHelpers module is required for detection page bootstrapping');
 }
+if (!window.ToolPanelRenderer) {
+    throw new Error('ToolPanelRenderer module is required for detection page bootstrapping');
+}
 const INTEGRATED_HISTORY_RESULT_LIMIT = window.IntegratedOpenResultsState.DEFAULT_MAX_OPEN_RESULTS;
 const integratedOpenResultsStore = window.IntegratedOpenResultsState.createStore({
     maxOpenResults: INTEGRATED_HISTORY_RESULT_LIMIT,
@@ -324,7 +327,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     });
 
     // 加载工具列表
-    loadTools();
+    window.ToolPanelRenderer.loadTools();
 
     // 启动阶段避免重型同步请求阻塞 UI；仅在当前标签是 integrated 时延迟加载
     const activeTabBtn = document.querySelector('.tab-btn.active');
@@ -340,7 +343,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // 搜索功能
     document.getElementById('search').addEventListener('input', function(e) {
-        renderToolsList(e.target.value);
+        window.ToolPanelRenderer.renderToolsList(e.target.value);
     });
 
     // 刷新历史按钮
@@ -389,10 +392,14 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     }
 
     // 运行按钮
-    document.getElementById('run-btn').addEventListener('click', runTool);
+    document.getElementById('run-btn').addEventListener('click', function() {
+        window.ToolPanelRenderer.runTool();
+    });
 
     // 清空按钮
-    document.getElementById('clear-btn').addEventListener('click', clearForm);
+    document.getElementById('clear-btn').addEventListener('click', function() {
+        window.ToolPanelRenderer.clearForm();
+    });
 
     const databaseScanBtn = document.getElementById('database-scan-btn');
     if (databaseScanBtn) {
@@ -400,7 +407,9 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     }
 
     // Python 回调：运行结果
-    window._onRunResult = onRunResult;
+    window._onRunResult = function(result) {
+        window.ToolPanelRenderer.onRunResult(result);
+    };
     const integratedRunBtn = document.getElementById('integrated-run-btn');
     if (integratedRunBtn) {
         integratedRunBtn.addEventListener('click', openIntegratedRunEntry);
@@ -1208,315 +1217,6 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
-function loadTools() {
-    console.log('Loading tools...');
-    bridgeToolsService.loadTools(function(json) {
-        try {
-            allTools = JSON.parse(json);
-            console.log(`✓ Loaded ${allTools.length} tools`);
-            renderToolsList();
-        } catch (e) {
-            console.error('Failed to parse tools:', e);
-        }
-    }, function(error) {
-        console.error('Failed to load tools:', error);
-    });
-}
-
-function renderToolsList(searchQuery = '') {
-    const container = document.getElementById('tools-list');
-    container.innerHTML = '';
-
-    // 过滤工具
-    let filtered = allTools;
-
-    // 按搜索词过滤
-    if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        filtered = filtered.filter(tool => {
-            const searchText = `${tool.id} ${tool.name} ${tool.description}`.toLowerCase();
-            return searchText.includes(query);
-        });
-    }
-
-    // 更新计数
-    document.getElementById('count').textContent = `${filtered.length} tools`;
-
-    if (filtered.length === 0) {
-        container.innerHTML = '<div class="integrated-input-empty tools-empty-state">No tools found</div>';
-        return;
-    }
-
-    // 按分类分组
-    const grouped = {};
-    filtered.forEach(tool => {
-        const category = tool.category || 'unknown';
-        if (!grouped[category]) {
-            grouped[category] = [];
-        }
-        grouped[category].push(tool);
-    });
-
-    // 渲染分类组
-    Object.keys(grouped).sort().forEach(category => {
-        const group = createCategoryGroup(category, grouped[category]);
-        container.appendChild(group);
-    });
-}
-
-function createCategoryGroup(category, tools) {
-    const group = document.createElement('div');
-    group.className = 'category-group';
-
-    // 分类标题
-    const header = document.createElement('div');
-    header.className = 'category-header';
-    header.innerHTML = `
-        <span>${getCategoryName(category)}</span>
-        <span class="category-arrow">▼</span>
-    `;
-
-    // 点击折叠/展开
-    header.addEventListener('click', function() {
-        group.classList.toggle('collapsed');
-    });
-
-    // 工具列表
-    const toolsContainer = document.createElement('div');
-    toolsContainer.className = 'category-tools';
-
-    tools.forEach(tool => {
-        const item = createToolItem(tool);
-        toolsContainer.appendChild(item);
-    });
-
-    group.appendChild(header);
-    group.appendChild(toolsContainer);
-
-    return group;
-}
-
-function createToolItem(tool) {
-    const item = document.createElement('div');
-    item.className = 'tool-item';
-    item.dataset.toolId = tool.id;
-
-    item.innerHTML = `
-        <div class="tool-name">${tool.name}</div>
-        <div class="tool-desc">${tool.description || 'No description available'}</div>
-    `;
-
-    item.addEventListener('click', function() {
-        selectTool(tool.id);
-    });
-
-    return item;
-}
-
-function getCategoryName(category) {
-    const names = {
-        'qc': '质量控制 (QC)',
-        'host_removal': '宿主去除',
-        'taxonomy': '物种分类',
-        'binning': '分箱',
-        'quality': '质量评估',
-        'annotation': '功能注释',
-        'blast': '序列比对',
-        'unknown': '其他'
-    };
-    return names[category] || category.toUpperCase();
-}
-
-function selectTool(toolId) {
-    console.log('Selecting tool:', toolId);
-    selectedToolId = toolId;
-
-    // 更新列表选中状态
-    document.querySelectorAll('.tool-item').forEach(item => {
-        item.classList.remove('selected');
-    });
-    const item = document.querySelector(`[data-tool-id="${toolId}"]`);
-    if (item) {
-        item.classList.add('selected');
-    }
-
-    // 通知 Python
-    bridgeToolsService.selectTool(toolId);
-
-    // 获取工具详细信息
-    bridgeToolsService.getToolDescriptor(toolId, function(json) {
-        try {
-            selectedDescriptor = JSON.parse(json);
-            toolDescriptorCache[toolId] = selectedDescriptor;
-            console.log('Tool descriptor:', selectedDescriptor);
-            showToolPanel(selectedDescriptor);
-        } catch (e) {
-            console.error('Failed to parse descriptor:', e);
-        }
-    }, function(error) {
-        console.error('Failed to load descriptor:', error);
-    });
-}
-
-function showToolPanel(descriptor) {
-    // 隐藏占位符，显示内容
-    setHidden(document.querySelector('.panel-placeholder'), true);
-    setHidden(document.getElementById('panel-content'), false);
-
-    // 更新头部信息
-    document.getElementById('tool-name').textContent = descriptor.name || descriptor.id;
-    document.getElementById('tool-id').textContent = descriptor.id;
-    document.getElementById('tool-version').textContent = 'v' + (descriptor.version || 'unknown');
-    document.getElementById('tool-category').textContent = getCategoryName(descriptor.category || 'unknown');
-
-    // 渲染输入文件
-    renderInputs(descriptor.inputs || []);
-
-    // 渲染参数
-    renderParams(descriptor.parameters || []);
-
-    // 渲染数据库
-    if (descriptor.databases && descriptor.databases.length > 0) {
-        setHidden(document.getElementById('databases-section'), false);
-        renderDatabases(descriptor.databases);
-    } else {
-        setHidden(document.getElementById('databases-section'), true);
-    }
-}
-
-function renderInputs(inputs) {
-    const container = document.getElementById('inputs-container');
-    container.innerHTML = '';
-
-    if (inputs.length === 0) {
-        container.innerHTML = '<div class="integrated-input-empty">No input files required</div>';
-        return;
-    }
-
-    inputs.forEach(input => {
-        const group = document.createElement('div');
-        group.className = 'form-group';
-
-        const required = input.required !== false ? '<span class="required">*</span>' : '';
-        const browseFilter = getInputBrowseFilter(input, selectedDescriptor || {});
-        const validator = getInputSelectionValidator(input, selectedDescriptor || {});
-
-        group.innerHTML = `
-            <label class="form-label">
-                ${input.label || input.name}${required}
-            </label>
-            <div class="input-group">
-                <input type="text"
-                       class="ui-field"
-                       id="input-${input.name}"
-                       placeholder="${input.description || 'Select file...'}"
-                       readonly>
-                <button class="ui-button ui-button--secondary ui-button--sm form-browse-btn" onclick="browseFile('input-${input.name}', '${browseFilter}', '${validator}')">Browse...</button>
-            </div>
-            ${input.description ? `<div class="form-help">${input.description}</div>` : ''}
-        `;
-
-        container.appendChild(group);
-    });
-}
-
-function renderParams(params) {
-    const container = document.getElementById('params-container');
-    container.innerHTML = '';
-
-    if (params.length === 0) {
-        container.innerHTML = '<div class="integrated-input-empty">No parameters to configure</div>';
-        return;
-    }
-
-    params.forEach(param => {
-        const group = document.createElement('div');
-        group.className = 'form-group';
-
-        const required = param.required !== false ? '<span class="required">*</span>' : '';
-        const recommendedValue = window.DetectionPageHelpers.getRecommendedValueFromUsage(selectedDescriptor, param.name);
-        const defaultValue = recommendedValue !== undefined
-            ? recommendedValue
-            : (param.default !== undefined ? param.default : '');
-        const tooltipText = window.DetectionPageHelpers.buildParamTooltipText(param, selectedDescriptor);
-        const tooltipHtml = tooltipText
-            ? `<button type="button" class="help-icon-btn" aria-label="参数说明" aria-expanded="false" data-help-text="${escapeHtml(tooltipText)}" title="${escapeHtml(tooltipText)}">?</button>`
-            : '';
-
-        let inputHtml = '';
-        if (param.type === 'int' || param.type === 'integer') {
-            inputHtml = `<input type="number" class="ui-field" id="param-${param.name}" value="${defaultValue}" step="1">`;
-        } else if (param.type === 'float' || param.type === 'number') {
-            inputHtml = `<input type="number" class="ui-field" id="param-${param.name}" value="${defaultValue}" step="0.01">`;
-        } else if (param.type === 'bool' || param.type === 'boolean') {
-            inputHtml = `
-                <select class="ui-field" id="param-${param.name}">
-                    <option value="true" ${defaultValue === true ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${defaultValue === false ? 'selected' : ''}>No</option>
-                </select>
-            `;
-        } else {
-            inputHtml = `<input type="text" class="ui-field" id="param-${param.name}" value="${defaultValue}" placeholder="${param.description || ''}">`;
-        }
-
-        const guide = window.DetectionPageHelpers.getUsageGuideForParam(selectedDescriptor, param.name);
-        const helper = guide?.recommendation || param.description || '';
-        const helperHtml = helper ? `<div class="form-help">${escapeHtml(String(helper))}</div>` : '';
-
-        group.innerHTML = `
-            <div class="form-label-row">
-                <label class="form-label" for="param-${param.name}">
-                    ${param.label || param.name}${required}
-                </label>
-                ${tooltipHtml}
-            </div>
-            ${inputHtml}
-            ${helperHtml}
-        `;
-
-        container.appendChild(group);
-    });
-
-    const usagePanelHtml = window.DetectionPageHelpers.buildUsagePresetsPanel(selectedDescriptor || {}, 'tool-panel', escapeHtml);
-    if (usagePanelHtml) {
-        const usageWrap = document.createElement('div');
-        usageWrap.className = 'form-group';
-        usageWrap.innerHTML = usagePanelHtml;
-        container.appendChild(usageWrap);
-    }
-}
-
-function renderDatabases(databases) {
-    const container = document.getElementById('databases-container');
-    container.innerHTML = '';
-
-    databases.forEach(db => {
-        const group = document.createElement('div');
-        group.className = 'form-group';
-
-        const required = db.required !== false ? '<span class="required">*</span>' : '';
-        const defaultVal = db.default || '';
-
-        group.innerHTML = `
-            <label class="form-label">
-                ${db.label || (db.param_name || db.name)}${required}
-            </label>
-            <div class="input-group">
-                <input type="text"
-                       class="ui-field"
-                       id="db-${db.param_name || db.name}"
-                       placeholder="${db.description || '远端数据库路径...'}"
-                       title="${defaultVal}"
-                       value="${defaultVal}">
-                <button class="ui-button ui-button--secondary ui-button--sm form-browse-btn" onclick="browseRemoteFile('db-${db.param_name || db.name}')">Browse...</button>
-            </div>
-            ${db.description ? `<div class="form-help">${db.description}</div>` : ''}
-        `;
-
-        container.appendChild(group);
-    });
-}
-
 function getInputBrowseFilter(input, descriptor) {
     if (descriptor?.id === 'primer_design' && input?.name === 'genomes_bundle') {
         return 'Primer 输入文件 (*.zip *.tar *.tar.gz *.tgz *.fasta *.fna *.fa);;压缩包 (*.zip *.tar *.tar.gz *.tgz);;序列文件 (*.fasta *.fna *.fa)';
@@ -1560,7 +1260,9 @@ window.IntegratedRunModal.configureRuntime({
     escapeHtml,
     setHidden,
     switchTab,
-    selectTool,
+    selectTool: function(toolId) {
+        window.ToolPanelRenderer.selectTool(toolId);
+    },
     bindHelpTooltipInteractions,
 });
 
@@ -1584,6 +1286,47 @@ window.IntegratedChartRenderer.configureRuntime({
     },
 });
 
+window.ToolPanelRenderer.configureRuntime({
+    toolDescriptorCache,
+    bridgeToolsService,
+    escapeHtml,
+    setHidden,
+    showNotice,
+    bindHelpTooltipInteractions,
+    getInputBrowseFilter,
+    getInputSelectionValidator,
+    isPrimerGenomesBundlePath,
+    getSelectedDescriptor: function() {
+        return selectedDescriptor;
+    },
+    setSelectedDescriptor: function(nextDescriptor) {
+        selectedDescriptor = nextDescriptor;
+    },
+    getSelectedToolId: function() {
+        return selectedToolId;
+    },
+    setSelectedToolId: function(nextToolId) {
+        selectedToolId = nextToolId;
+    },
+    getAllTools: function() {
+        return allTools;
+    },
+    setAllTools: function(nextTools) {
+        allTools = Array.isArray(nextTools) ? nextTools : [];
+    },
+    getRecommendedValueFromUsage: window.DetectionPageHelpers.getRecommendedValueFromUsage,
+    buildParamTooltipText: window.DetectionPageHelpers.buildParamTooltipText,
+    getUsageGuideForParam: window.DetectionPageHelpers.getUsageGuideForParam,
+    buildUsagePresetsPanel: function(descriptor, panelIdPrefix) {
+        return window.DetectionPageHelpers.buildUsagePresetsPanel(descriptor, panelIdPrefix, escapeHtml);
+    },
+    loadHistory,
+    loadIntegratedWorkbench,
+    openExecutionWithRuntime: function(executionId, context) {
+        window.HistoryResultLoader.openExecutionWithRuntime(executionId, context);
+    },
+});
+
 function isPrimerGenomesBundlePath(filePath) {
     const path = String(filePath || '').toLowerCase();
     return path.endsWith('.zip')
@@ -1593,189 +1336,6 @@ function isPrimerGenomesBundlePath(filePath) {
         || path.endsWith('.fasta')
         || path.endsWith('.fna')
         || path.endsWith('.fa');
-}
-
-function browseRemoteFile(inputId) {
-    console.log('Browse remote file:', inputId);
-    bridgeToolsService.browseRemoteFile(inputId, function(rawResult) {
-        if (!rawResult) {
-            return;
-        }
-
-        let payload = null;
-        try {
-            payload = JSON.parse(rawResult);
-        } catch (e) {
-            payload = { path: rawResult, error: '' };
-        }
-
-        const filePath = String(payload?.path || '');
-        const errorMessage = String(payload?.error || '');
-
-        if (errorMessage) {
-            showNotice(errorMessage);
-            return;
-        }
-
-        if (filePath) {
-            const el = document.getElementById(inputId);
-            el.value = filePath;
-            el.title = filePath;
-        }
-    }, function(error) {
-        showNotice(error && error.message ? error.message : '远端文件选择接口不可用');
-    });
-}
-
-function browseFile(inputId, fileFilter = '所有文件 (*.*)', validator = '') {
-    console.log('Browse file:', inputId);
-    bridgeToolsService.browseFile(inputId, fileFilter, validator, function(rawResult) {
-        if (!rawResult) {
-            return;
-        }
-
-        let payload = null;
-        try {
-            payload = JSON.parse(rawResult);
-        } catch (e) {
-            payload = { path: rawResult, error: '' };
-        }
-
-        const filePath = String(payload?.path || '');
-        const errorMessage = String(payload?.error || '');
-
-        if (!filePath) {
-            return;
-        }
-
-        if (errorMessage) {
-            showNotice(errorMessage);
-            return;
-        }
-
-        if (validator === 'primer_genomes_bundle' && !isPrimerGenomesBundlePath(filePath)) {
-            showNotice('仅支持 .zip/.tar/.tar.gz/.tgz 或单个 .fasta/.fna/.fa 文件');
-            return;
-        }
-
-        document.getElementById(inputId).value = filePath;
-    }, function(error) {
-        showNotice(error && error.message ? error.message : '文件选择接口不可用');
-    });
-}
-
-function runTool() {
-    if (!selectedToolId || !selectedDescriptor) {
-        showNotice('请先选择工具', 'warning');
-        return;
-    }
-
-    console.log('Running tool:', selectedToolId);
-
-    const params = {};
-
-    const inputs = selectedDescriptor.inputs || [];
-    for (const input of inputs) {
-        const value = document.getElementById(`input-${input.name}`)?.value?.trim();
-        if (input.required !== false && !value) {
-            showNotice(`缺少必填输入: ${input.label || input.name}`, 'warning');
-            return;
-        }
-        if (value) {
-            params[input.name] = value;
-        }
-    }
-
-    const parameters = selectedDescriptor.parameters || [];
-    parameters.forEach(param => {
-        const element = document.getElementById(`param-${param.name}`);
-        if (element) {
-            let value = element.value;
-            if (param.type === 'int' || param.type === 'integer') {
-                value = parseInt(value, 10);
-            } else if (param.type === 'float' || param.type === 'number') {
-                value = parseFloat(value);
-            } else if (param.type === 'bool' || param.type === 'boolean') {
-                value = value === 'true';
-            }
-            params[param.name] = value;
-        }
-    });
-
-    const databases = selectedDescriptor.databases || [];
-    for (const db of databases) {
-        const key = db.param_name || db.name;
-        const value = document.getElementById(`db-${key}`)?.value?.trim();
-        if (db.required !== false && !value) {
-            showNotice(`缺少必填数据库路径: ${db.label || key}`, 'warning');
-            return;
-        }
-        if (value) {
-            params[key] = value;
-        }
-    }
-
-    console.log('Parameters:', params);
-
-    const runBtn = document.getElementById('run-btn');
-    if (runBtn) {
-        runBtn.disabled = true;
-        runBtn.textContent = '运行中...';
-    }
-
-    bridgeToolsService.runTool(selectedToolId, JSON.stringify(params));
-}
-
-function onRunResult(result) {
-    const runBtn = document.getElementById('run-btn');
-    if (runBtn) {
-        runBtn.disabled = false;
-        runBtn.textContent = '▶ 运行工具';
-    }
-
-    if (!result || !result.status) {
-        showNotice('运行结果未知');
-        return;
-    }
-
-    if (result.status === 'ok') {
-        const executionId = String(result.execution_id || '').trim();
-        if (!executionId) {
-            showNotice('任务已提交，但缺少 execution_id，无法自动定位');
-            loadHistory();
-            loadIntegratedWorkbench(true);
-            return;
-        }
-
-        showNotice(result.message || '任务已提交', 'success');
-        loadIntegratedWorkbench(true);
-        window.HistoryResultLoader.openExecutionWithRuntime(executionId, {
-            status: 'pending',
-            fetchRemoteStatus: false,
-            noticeMessage: '已定位到新提交任务，请在运行历史查看状态',
-        });
-        return;
-    }
-
-    if (result.status === 'no_project') {
-        showNotice(result.message || '请先选择项目', 'warning');
-        return;
-    }
-
-    if (result.status === 'no_sample') {
-        showNotice(result.message || '样本不存在', 'warning');
-        return;
-    }
-
-    showNotice(result.message || '任务提交失败');
-}
-function clearForm() {
-    // 清空所有输入
-    document.querySelectorAll('.ui-field').forEach(input => {
-        if (!input.readOnly) {
-            input.value = '';
-        }
-    });
 }
 
 // 加载执行历史

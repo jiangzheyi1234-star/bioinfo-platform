@@ -689,6 +689,7 @@ class TestDetectionIntegratedWorkbench:
         assert 'render/result_viewers.js' in html
         assert 'render/run_modal.js' in html
         assert 'render/chart_renderer.js' in html
+        assert 'render/tool_panel.js' in html
         assert 'utils/helpers.js' in html
         assert 'results/open_results_state.js' in html
         assert 'results/history_result_loader.js' in html
@@ -799,6 +800,29 @@ class TestDetectionIntegratedWorkbench:
         assert "window.IntegratedRunModal.openIntegratedRunModal(feature, toolId)" in app_js
         assert "window.IntegratedChartRenderer.configureRuntime" in app_js
         assert "window.IntegratedChartRenderer.resizeIntegratedCharts()" in app_js
+        assert "window.ToolPanelRenderer.configureRuntime" in app_js
+        assert "window.ToolPanelRenderer.loadTools()" in app_js
+        assert "window.ToolPanelRenderer.renderToolsList(e.target.value)" in app_js
+        assert "window.ToolPanelRenderer.runTool()" in app_js
+        assert "window.ToolPanelRenderer.onRunResult(result)" in app_js
+        assert "window.ToolPanelRenderer.clearForm()" in app_js
+        assert "selectTool: function(toolId)" in app_js
+        assert "window.ToolPanelRenderer.selectTool(toolId);" in app_js
+        assert "function loadTools(" not in app_js
+        assert "function renderToolsList(" not in app_js
+        assert "function createCategoryGroup(" not in app_js
+        assert "function createToolItem(" not in app_js
+        assert "function getCategoryName(" not in app_js
+        assert "function selectTool(" not in app_js
+        assert "function showToolPanel(" not in app_js
+        assert "function renderInputs(" not in app_js
+        assert "function renderParams(" not in app_js
+        assert "function renderDatabases(" not in app_js
+        assert "function browseRemoteFile(" not in app_js
+        assert "function browseFile(" not in app_js
+        assert "function runTool(" not in app_js
+        assert "function onRunResult(" not in app_js
+        assert "function clearForm(" not in app_js
         assert "function switchTab(tab)" in js
         assert "function activateTab(tab)" in js
         assert "function switchTab(tab, options = {})" not in js
