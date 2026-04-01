@@ -130,6 +130,9 @@
                         <div class="integrated-kicker">结果空间</div>
                         <h2 id="integrated-title">结果工作台</h2>
                         <p id="integrated-subtitle">按 execution 管理结果、文件和运行追溯。</p>
+                        <div class="integrated-sidebar-actions">
+                            <button class="ui-button ui-button--secondary ui-button--sm is-hidden" id="integrated-clear-history-results" type="button">清理未固定结果</button>
+                        </div>
                     </div>
                     <div class="integrated-feature-list" id="integrated-feature-list"></div>
                 </aside>
@@ -250,6 +253,16 @@
 
     </div>
     <script src="echarts.min.js"></script>
+    <script src="services/bridge_tools.js?v=20260401"></script>
+    <script src="services/bridge_history.js?v=20260401"></script>
+    <script src="services/bridge_results.js?v=20260401"></script>
+    <script src="render/database_panel.js?v=20260401"></script>
+    <script src="render/history_panel.js?v=20260401"></script>
+    <script src="render/integrated_sidebar.js?v=20260401"></script>
+    <script src="render/result_viewers.js?v=20260401"></script>
+    <script src="results/open_results_state.js?v=20260401"></script>
+    <script src="results/history_result_loader.js?v=20260401"></script>
+    <script src="results/workbench_selection.js?v=20260401"></script>
     <script src="app_galaxy.js?v=20260331"></script>
     <script src="result_shell_registry.js?v=20260331"></script>
     <script src="result_shell_overrides.js?v=20260331"></script>

@@ -557,6 +557,13 @@ header {
     line-height: 1.45;
 }
 
+.integrated-sidebar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-top: 10px;
+}
+
 .integrated-feature-list {
     padding: 10px;
     display: flex;
@@ -581,6 +588,10 @@ header {
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
+.integrated-feature-item[data-source-mode="history"] {
+    background: linear-gradient(180deg, #f9fcff 0%, #ffffff 100%);
+}
+
 .integrated-feature-item:hover {
     border-color: #9fd1ff;
     box-shadow: var(--card-shadow-1);
@@ -591,6 +602,10 @@ header {
     border-color: var(--state-running-border);
     background: linear-gradient(180deg, rgba(233, 243, 255, 0.95) 0%, #ffffff 100%);
     box-shadow: var(--card-shadow-2);
+}
+
+.integrated-feature-item.integrated-feature-item--pinned {
+    border-color: rgba(14, 116, 144, 0.42);
 }
 
 .integrated-feature-name {
@@ -627,6 +642,52 @@ header {
 
 .integrated-feature-badge {
     padding: 5px 10px;
+}
+
+.integrated-feature-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.integrated-feature-pin-badge {
+    background: var(--accent-100);
+    color: var(--accent-500);
+}
+
+.integrated-feature-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.integrated-feature-action {
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text-muted);
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.integrated-feature-action:hover {
+    color: var(--text-strong);
+    border-color: rgba(59, 130, 246, 0.32);
+    background: rgba(255, 255, 255, 1);
+}
+
+.integrated-feature-action.is-active {
+    color: var(--accent-500);
+    border-color: rgba(59, 130, 246, 0.4);
+    background: rgba(219, 234, 254, 0.74);
 }
 
 .integrated-content {
