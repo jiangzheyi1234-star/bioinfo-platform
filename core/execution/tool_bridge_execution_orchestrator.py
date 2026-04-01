@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def execute_tool(self, tool_id: str, params: dict):
-    from core.execution.tool_bridge_service import ExecutionResult
+    from core.execution.tool_bridge_types import ExecutionResult
 
     try:
         if self._service_locator is None:

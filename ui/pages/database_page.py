@@ -1,25 +1,18 @@
 from __future__ import annotations
 
 import logging
-import posixpath
-import shlex
 import time
 from typing import Callable, Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QObject, QPoint, QSize, Qt, QThread, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QSize, Qt, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -32,13 +25,15 @@ from config import get_config, save_config
 from core.data.database_service import DatabaseCheckResult, DatabaseInfo, DatabaseService, DatabaseStatus
 from core.remote.server_capabilities import ServerCapabilities
 from ui.page_base import BasePage
+from ui.pages.database_dialogs import _AsyncTaskWorker, DatabaseSettingsDialog, RemoteDirectoryPickerDialog
+from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin
 from ui.widgets.database_management_components import (
     DatabaseInstallDialog,
     DatabaseInstallMonitor,
     DatabaseItemCard,
     DatabaseStatusWorker,
 )
-from ui.widgets.styles import BUTTON_PRIMARY, BUTTON_SECONDARY, INPUT_LINEEDIT, PAGE_HEADER_TITLE
+from ui.widgets.styles import PAGE_HEADER_TITLE
 
 logger = logging.getLogger(__name__)
 
@@ -113,366 +108,8 @@ _SCROLL_BAR_GRAY = """
     }
 """
 
-# ────────────────────────────────────────────────────────────
-# Popover 公共样式  (shadcn/ui Popover 标准)
-# - 背景纯白，边框 neutral-300 (#D1D5DB)，无任何蓝色渗色
-# - 阴影参数与 ProjectSelectorMenu 一致
-# ────────────────────────────────────────────────────────────
-_POPOVER_PANEL_STYLE = """
-    QFrame#popoverPanel {{
-        background-color: #FFFFFF;
-        border: 1px solid #D1D5DB;
-        border-radius: 10px;
-    }}
-"""
 
-# 内部 QListWidget 样式（全部中性灰，不要蓝色）
-_POPOVER_LIST_STYLE = """
-    QListWidget {
-        border: 1px solid #E5E7EB;
-        border-radius: 6px;
-        background: #FFFFFF;
-        outline: none;
-        font-size: 13px;
-    }
-    QListWidget::item {
-        height: 30px;
-        padding: 2px 8px;
-        color: #111827;
-    }
-    QListWidget::item:hover {
-        background: #F3F4F6;
-    }
-    QListWidget::item:selected {
-        background: #E5E7EB;
-        color: #111827;
-    }
-"""
-
-# VS Code 风格的 Browse 按钮：极小宽、无图标、中性边框
-_BROWSE_BTN_STYLE = """
-    QPushButton {
-        background: #FFFFFF;
-        color: #374151;
-        border: 1px solid #D1D5DB;
-        border-radius: 6px;
-        padding: 0px 10px;
-        font-size: 13px;
-        min-width: 36px;
-        min-height: 36px;
-    }
-    QPushButton:hover {
-        background: #F9FAFB;
-        border-color: #9CA3AF;
-    }
-    QPushButton:pressed {
-        background: #F3F4F6;
-    }
-"""
-
-# 弹窗小标题文字
-_POPOVER_TITLE_STYLE = "font-size: 13px; font-weight: 600; color: #111827; background: transparent;"
-# 分隔线
-_POPOVER_DIVIDER_STYLE = "background: #E5E7EB; max-height: 1px; border: none;"
-
-
-def _make_popover_panel(parent=None) -> QFrame:
-    """shadcn/ui Popover 标准面板：纯白 + 中性灰边框 + 轻阴影。"""
-    panel = QFrame(parent)
-    panel.setObjectName("popoverPanel")
-    panel.setStyleSheet(_POPOVER_PANEL_STYLE)
-    shadow = QGraphicsDropShadowEffect(panel)
-    shadow.setBlurRadius(16)
-    shadow.setColor(QColor(0, 0, 0, 40))
-    shadow.setOffset(0, 4)
-    panel.setGraphicsEffect(shadow)
-    return panel
-
-
-class _AsyncTaskWorker(QObject):
-    """Run a callable inside QThread and emit result to UI thread."""
-
-    finished = pyqtSignal(object)
-    failed = pyqtSignal(str)
-
-    def __init__(self, task_fn: Callable[[], object]):
-        super().__init__()
-        self._task_fn = task_fn
-
-    @pyqtSlot()
-    def run(self) -> None:
-        try:
-            self.finished.emit(self._task_fn())
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
-class RemoteDirectoryPickerDialog(QDialog):
-    """VS Code 风格远程目录浏览弹窗。"""
-
-    def __init__(self, start_path: str, list_dirs_fn, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(
-            Qt.WindowType.Popup
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.NoDropShadowWindowHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(500, 400)
-        self._list_dirs_fn = list_dirs_fn
-        self._loading = False
-        self.selected_path = ""
-        self._current_path = ""
-        self._build_ui()
-        self._load_path(start_path or "~")
-
-    def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(0)
-
-        panel = _make_popover_panel()
-        root.addWidget(panel)
-
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        # — 标题
-        title = QLabel("选择目录")
-        title.setStyleSheet(_POPOVER_TITLE_STYLE)
-        layout.addWidget(title)
-
-        # — 分隔线
-        div = QFrame()
-        div.setStyleSheet(_POPOVER_DIVIDER_STYLE)
-        layout.addWidget(div)
-
-        # — 导航行
-        nav = QHBoxLayout()
-        nav.setSpacing(8)
-        self.up_btn = QPushButton("↑ 上级")
-        self.up_btn.setStyleSheet(_BROWSE_BTN_STYLE)
-        self.up_btn.clicked.connect(self._go_parent)
-        self.path_label = QLabel()
-        self.path_label.setStyleSheet("font-size: 12px; color: #6B7280; background: transparent;")
-        self.path_label.setWordWrap(False)
-        nav.addWidget(self.up_btn)
-        nav.addWidget(self.path_label, stretch=1)
-        layout.addLayout(nav)
-
-        # — 目录列表
-        self.dir_list = QListWidget()
-        self.dir_list.setStyleSheet(_POPOVER_LIST_STYLE)
-        self.dir_list.itemClicked.connect(self._open_child)
-        self.dir_list.itemDoubleClicked.connect(self._open_child)
-        self.dir_list.itemActivated.connect(self._open_child)
-        self.dir_list.currentItemChanged.connect(self._on_item_selected)
-        layout.addWidget(self.dir_list, stretch=1)
-
-        # — 当前选择提示
-        self.selected_label = QLabel("选择: ")
-        self.selected_label.setStyleSheet("font-size: 12px; color: #6B7280; background: transparent;")
-        layout.addWidget(self.selected_label)
-
-        # — 分隔线
-        div2 = QFrame()
-        div2.setStyleSheet(_POPOVER_DIVIDER_STYLE)
-        layout.addWidget(div2)
-
-        # — 操作按钮
-        foot = QHBoxLayout()
-        foot.addStretch()
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setStyleSheet(BUTTON_SECONDARY)
-        cancel_btn.clicked.connect(self.reject)
-        select_btn = QPushButton("选择此目录")
-        select_btn.setStyleSheet(BUTTON_PRIMARY)
-        select_btn.clicked.connect(self._accept_selected)
-        foot.addWidget(cancel_btn)
-        foot.addWidget(select_btn)
-        layout.addLayout(foot)
-
-    def _load_path(self, raw_path: str) -> None:
-        if self._loading:
-            return
-        self._loading = True
-        self.up_btn.setEnabled(False)
-        self.dir_list.setEnabled(False)
-        self.selected_label.setText("选择: 读取目录中...")
-
-        def _on_done(ok: bool, resolved: str, dirs: list[str], message: str) -> None:
-            self._loading = False
-            self.up_btn.setEnabled(True)
-            self.dir_list.setEnabled(True)
-            if not ok:
-                self.selected_label.setText(f"选择: {self.selected_path or self._current_path or '--'}")
-                QMessageBox.warning(self, "目录浏览", message)
-                return
-            self._current_path = resolved
-            self.selected_path = resolved
-            self.path_label.setText(resolved)
-            self.selected_label.setText(f"选择: {resolved}")
-            self.dir_list.clear()
-            for name in dirs:
-                item = QListWidgetItem(qta.icon("ph.folder", color="#9CA3AF"), name)
-                item.setData(Qt.ItemDataRole.UserRole, name)
-                self.dir_list.addItem(item)
-
-        self._list_dirs_fn(raw_path, _on_done)
-
-    def popup_at(self, anchor) -> None:
-        if anchor is None:
-            return
-        pop_w = self.sizeHint().width() or 500
-        x = anchor.mapToGlobal(QPoint(0, 0)).x() + anchor.width() - pop_w - 16
-        y = anchor.mapToGlobal(QPoint(0, anchor.height() + 6)).y()
-        screen = QApplication.screenAt(anchor.mapToGlobal(QPoint(0, 0))) or QApplication.primaryScreen()
-        if screen is not None:
-            geo = screen.availableGeometry()
-            x = max(geo.left(), min(x, geo.right() - pop_w))
-        self.move(QPoint(x, y))
-
-    def _go_parent(self) -> None:
-        if self._loading or not self._current_path:
-            return
-        parent = posixpath.dirname(self._current_path.rstrip("/")) or "/"
-        self._load_path(parent)
-
-    def _open_child(self, item: QListWidgetItem) -> None:
-        if self._loading:
-            return
-        name = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "").strip()
-        if not name:
-            return
-        self._load_path(posixpath.join(self._current_path, name))
-
-    def _on_item_selected(self, current: QListWidgetItem, _prev) -> None:
-        if current is None:
-            self.selected_path = self._current_path
-        else:
-            name = str(current.data(Qt.ItemDataRole.UserRole) or "").strip()
-            self.selected_path = posixpath.join(self._current_path, name) if name else self._current_path
-        self.selected_label.setText(f"选择: {self.selected_path}")
-
-    def _accept_selected(self) -> None:
-        self.selected_path = self.selected_path or self._current_path
-        if not self.selected_path:
-            QMessageBox.warning(self, "目录浏览", "请选择有效目录。")
-            return
-        self.accept()
-
-
-class DatabaseSettingsDialog(QDialog):
-    """shadcn/ui Popover 风格的数据库根目录设置弹窗。"""
-
-    def __init__(self, initial_path: str, info_fn, browse_fn, save_fn, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(
-            Qt.WindowType.Popup
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.NoDropShadowWindowHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedWidth(360)
-        self._info_fn = info_fn
-        self._browse_fn = browse_fn
-        self._save_fn = save_fn
-        self._build_ui()
-        self.path_edit.setText(initial_path)
-        self._set_busy(False)
-
-    def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(0)
-
-        panel = _make_popover_panel()
-        root.addWidget(panel)
-
-        content = QVBoxLayout(panel)
-        content.setContentsMargins(14, 14, 14, 14)
-        content.setSpacing(10)
-
-        # — 标题
-        title = QLabel("数据库根目录")
-        title.setStyleSheet(_POPOVER_TITLE_STYLE)
-        content.addWidget(title)
-
-        # — 分隔线
-        div = QFrame()
-        div.setStyleSheet(_POPOVER_DIVIDER_STYLE)
-        content.addWidget(div)
-
-        # — 输入行：路径框 + VS Code […] 按钮
-        row = QHBoxLayout()
-        row.setSpacing(6)
-        self.path_edit = QLineEdit()
-        self.path_edit.setStyleSheet(INPUT_LINEEDIT)
-        self.path_edit.setPlaceholderText("~/databases")
-        self.browse_btn = QPushButton("…")
-        self.browse_btn.setStyleSheet(_BROWSE_BTN_STYLE)
-        self.browse_btn.setFixedSize(36, 36)
-        self.browse_btn.setToolTip("浏览远程目录")
-        self.browse_btn.clicked.connect(self._on_browse)
-        row.addWidget(self.path_edit, stretch=1)
-        row.addWidget(self.browse_btn)
-        content.addLayout(row)
-
-        # — 操作按钮
-        foot = QHBoxLayout()
-        foot.addStretch()
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setStyleSheet(BUTTON_SECONDARY)
-        cancel_btn.clicked.connect(self.reject)
-        save_btn = QPushButton("保存")
-        save_btn.setStyleSheet(BUTTON_PRIMARY)
-        save_btn.clicked.connect(self._on_save)
-        self._save_btn = save_btn
-        self._cancel_btn = cancel_btn
-        foot.addWidget(cancel_btn)
-        foot.addWidget(save_btn)
-        content.addLayout(foot)
-
-    def _on_browse(self) -> None:
-        selected = self._browse_fn(self.path_edit.text().strip(), self.browse_btn)
-        if selected:
-            self.path_edit.setText(selected)
-
-    def _on_save(self) -> None:
-        self._set_busy(True)
-
-        def _on_done(success: bool) -> None:
-            self._set_busy(False)
-            if success:
-                self.accept()
-
-        started = self._save_fn(self.path_edit.text().strip(), _on_done)
-        if not started:
-            self._set_busy(False)
-
-    def _set_busy(self, busy: bool) -> None:
-        self.path_edit.setEnabled(not busy)
-        self.browse_btn.setEnabled(not busy)
-        self._cancel_btn.setEnabled(not busy)
-        self._save_btn.setEnabled(not busy)
-        self._save_btn.setText("处理中..." if busy else "保存")
-
-    def popup_at(self, anchor) -> None:
-        if anchor is None:
-            return
-        pop_w = self.sizeHint().width() or 360
-        anchor_tl = anchor.mapToGlobal(QPoint(0, 0))
-        x = anchor_tl.x() - pop_w - 8
-        y = anchor_tl.y() + anchor.height() + 6
-        screen = QApplication.screenAt(anchor_tl) or QApplication.primaryScreen()
-        if screen is not None:
-            geo = screen.availableGeometry()
-            x = max(geo.left(), min(x, geo.right() - pop_w))
-        self.move(QPoint(x, y))
-
-
-class DatabasePage(BasePage):
+class DatabasePage(DatabaseRemoteOpsMixin, BasePage):
     install_task_event = pyqtSignal(dict)
 
     def __init__(self):
@@ -600,9 +237,6 @@ class DatabasePage(BasePage):
         databases = cfg.get("databases", {})
         self._db_root_value = str(databases.get("db_root", "") or "")
 
-    def _get_db_root(self) -> str:
-        return str(self._db_root_value or "").strip()
-
     def _get_server_capabilities(self) -> tuple[ServerCapabilities | None, str]:
         window = self.window()
         locator = getattr(window, "service_locator", None)
@@ -648,43 +282,9 @@ class DatabasePage(BasePage):
     def _get_database_info(self, db_id: str) -> DatabaseInfo | None:
         return self._database_service.get_info(str(db_id or "").strip())
 
-    def _get_database_overrides(self) -> dict[str, str]:
-        cfg = get_config()
-        databases = cfg.get("databases", {})
-        if not isinstance(databases, dict):
-            return {}
-        overrides = databases.get("overrides", {})
-        if not isinstance(overrides, dict):
-            return {}
-        return {str(k): str(v) for k, v in overrides.items()}
-
-    def _get_database_install_target_path(self, db_id: str) -> str:
-        return self._database_service.resolve_binding_value(db_id, self._get_db_root())
-
     def _get_database_effective_path(self, db_id: str) -> str:
         return self._database_service.resolve_binding_value(
             db_id,
-            self._get_db_root(),
-            overrides=self._get_database_overrides(),
-        )
-
-    def _check_database_path_remote(self, info: DatabaseInfo, db_path: str) -> DatabaseCheckResult:
-        if info.builtin:
-            return DatabaseCheckResult(db_id=info.db_id, status=DatabaseStatus.UNKNOWN, message="builtin 数据库")
-
-        expanded = self._normalize_remote_path(self._expand_remote_path(str(db_path or "").strip()) or str(db_path or "").strip())
-        candidate = self._database_service.binding_value_from_storage_root(info.db_id, expanded)
-        return self._database_service.verify_integrity_at_path(
-            self._make_ssh_run_fn(),
-            info.db_id,
-            candidate,
-            require_status_file=False,
-        )
-
-    def _check_database_status(self, info: DatabaseInfo) -> DatabaseCheckResult:
-        return self._database_service.check_status(
-            self._make_ssh_run_fn(),
-            info.db_id,
             self._get_db_root(),
             overrides=self._get_database_overrides(),
         )
@@ -797,9 +397,6 @@ class DatabasePage(BasePage):
             return dialog.selected_path
         return ""
 
-    def _run_ssh(self, cmd: str, timeout: int = 10) -> tuple[int, str, str]:
-        return self._make_ssh_run_fn()(cmd, timeout)
-
     def _start_async_task(
         self,
         task_key: str,
@@ -839,108 +436,6 @@ class DatabasePage(BasePage):
         thread.wait(1500)
         thread.deleteLater()
 
-    def _list_remote_directories(self, raw_path: str) -> tuple[bool, str, list[str], str]:
-        resolved = self._expand_remote_path(raw_path)
-        if not resolved:
-            return False, "", [], f"无法解析远程路径: {raw_path}"
-        if not resolved.startswith("/"):
-            return False, "", [], f"目录必须是绝对路径: {resolved}"
-        resolved = self._normalize_remote_path(resolved)
-        qpath = shlex.quote(resolved)
-        rc_exists, _, _ = self._run_ssh(f"test -d {qpath}", 10)
-        if rc_exists != 0:
-            return False, "", [], f"目录不存在: {resolved}"
-        cmd = f"find {qpath} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' | LC_ALL=C sort"
-        rc, stdout, stderr = self._run_ssh(cmd, 12)
-        if rc != 0:
-            return False, "", [], f"读取目录失败: {stderr.strip() or resolved}"
-        dirs = [line.strip() for line in stdout.splitlines() if line.strip()]
-        return True, resolved, dirs, ""
-
-    def _list_remote_directories_async(self, raw_path: str, done_cb: Callable[[bool, str, list[str], str], None]) -> None:
-        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
-            done_cb(False, "", [], "请先连接 SSH，再浏览远程目录。")
-            return
-
-        started = self._start_async_task(
-            "db_list_dirs",
-            lambda: self._list_remote_directories(raw_path),
-            on_success=lambda payload: done_cb(*payload),
-            on_error=lambda err: done_cb(False, "", [], f"读取目录失败: {err}"),
-        )
-        if not started:
-            done_cb(False, "", [], "目录读取任务正在进行，请稍候重试。")
-
-    def _collect_db_root_info(self, raw_path: str) -> dict[str, str]:
-        if self._ssh_service is None or not getattr(self._ssh_service, "is_connected", False):
-            return {"resolved": "--"}
-        candidate = str(raw_path or "").strip() or "~"
-        resolved = self._expand_remote_path(candidate)
-        return {"resolved": resolved or "--"}
-
-    def _expand_remote_path(self, raw_path: str) -> str:
-        path = str(raw_path or "").strip()
-        if not path:
-            return ""
-        qpath = shlex.quote(path)
-        cmd = (
-            f"p={qpath}; "
-            'if [ "$p" = "~" ]; then printf "%s\\n" "$HOME"; '
-            'elif [ "${p#~/}" != "$p" ]; then printf "%s\\n" "$HOME/${p#~/}"; '
-            'else printf "%s\\n" "$p"; fi'
-        )
-        rc, stdout, _ = self._run_ssh(cmd, 10)
-        expanded = stdout.strip() if rc == 0 else ""
-        if expanded.startswith("~"):
-            home = self._get_remote_home()
-            if home:
-                expanded = home if expanded == "~" else f"{home}/{expanded[2:]}"
-        return expanded
-
-    def _get_remote_home(self) -> str:
-        rc, out, _ = self._run_ssh("printf '%s\\n' \"$HOME\"", 10)
-        home = out.strip() if rc == 0 else ""
-        return home if home.startswith("/") else ""
-
-    def _normalize_remote_path(self, resolved: str) -> str:
-        normalized = posixpath.normpath(str(resolved or "").strip())
-        if not normalized.startswith("/"):
-            return normalized
-        return normalized if normalized == "/" else normalized.rstrip("/")
-
-    def _validate_db_root_remote(self, raw_path: str, allow_create: bool = False) -> tuple[bool, str, str, bool]:
-        path = str(raw_path or "").strip()
-        if not path:
-            return False, "", "数据库根目录不能为空。", False
-        resolved = self._expand_remote_path(path)
-        if not resolved:
-            return False, "", f"无法解析远程路径: {path}", False
-        if not resolved.startswith("/"):
-            return False, "", f"数据库根目录必须是绝对路径，当前为: {resolved}", False
-        resolved = self._normalize_remote_path(resolved)
-        created = False
-        qroot = shlex.quote(resolved)
-        rc, _, _ = self._run_ssh(f"test -d {qroot}", 10)
-        if rc != 0:
-            if allow_create:
-                rc_create, _, err_create = self._run_ssh(f"mkdir -p {qroot}", 15)
-                if rc_create != 0:
-                    return False, "", f"目录不存在且无法自动创建: {resolved}\n错误: {err_create.strip() or '权限不足'}", False
-                created = True
-            else:
-                return False, "", f"目录不存在: {resolved}", False
-        rc_exec, _, _ = self._run_ssh(f"test -x {qroot}", 10)
-        if rc_exec != 0:
-            return False, "", f"目录不可进入(-x): {resolved}", created
-        rc_write, _, _ = self._run_ssh(f"test -w {qroot}", 10)
-        if rc_write != 0:
-            return False, "", self._build_permission_denied_message(resolved), created
-        probe = f"{qroot}/.h2ometa_write_probe"
-        rc_probe, _, err_probe = self._run_ssh(f"touch {probe} && rm -f {probe}", 10)
-        if rc_probe != 0:
-            return False, "", self._build_permission_denied_message(resolved, detail=err_probe.strip() or "写入探针失败"), created
-        return True, resolved, "", created
-
     @property
     def _empty_db_root_preference(self) -> str:
         cfg = get_config()
@@ -979,23 +474,6 @@ class DatabasePage(BasePage):
             return ""
         return ""
 
-    def _build_permission_denied_message(self, db_root: str, detail: str = "") -> str:
-        user = "your_user"
-        rc_user, stdout_user, _ = self._run_ssh("whoami", 10)
-        if rc_user == 0 and stdout_user.strip():
-            user = stdout_user.strip()
-        lines = [
-            f"当前 SSH 用户对目录无写权限: {db_root}",
-            "建议改用: ~/databases",
-            "如需继续使用该目录，请联系管理员执行：",
-            f"mkdir -p {db_root}",
-            f"chown {user}:{user} {db_root}",
-            f"chmod 775 {db_root}",
-        ]
-        if detail:
-            lines.append(f"详细错误: {detail}")
-        return "\n".join(lines)
-
     def set_active_client(self, client) -> None:
         self._ssh_client = client
         if client is None and self._ssh_service is None:
@@ -1018,15 +496,6 @@ class DatabasePage(BasePage):
         if self._ssh_service is not None or self._ssh_client is not None:
             self._refresh_all_status()
             self._recover_running_install_monitors()
-
-    def _make_ssh_run_fn(self):
-        ssh = self._ssh_service
-        if ssh is None:
-            raise RuntimeError("SSH service is not connected")
-
-        def _run(cmd: str, timeout: int = 15):
-            return ssh.run(cmd, timeout=timeout)
-        return _run
 
     def _cleanup_status_worker(self) -> None:
         if self._status_worker is not None and hasattr(self._status_worker, "cancel"):

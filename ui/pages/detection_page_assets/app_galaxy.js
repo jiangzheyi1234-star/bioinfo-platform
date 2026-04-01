@@ -19,10 +19,10 @@ if (!window.IntegratedOpenResultsState || typeof window.IntegratedOpenResultsSta
 if (!window.BridgeToolsService || !window.BridgeHistoryService || !window.BridgeResultsService) {
     throw new Error('Bridge service modules are required for detection page bootstrapping');
 }
-if (!window.DatabasePanelRenderer || !window.HistoryPanelRenderer || !window.HistoryStatusRenderer || !window.IntegratedSidebarRenderer || !window.ResultViewerRenderers) {
+if (!window.DetectionPageUiFeedback || !window.DatabasePanelRenderer || !window.HistoryPanelRenderer || !window.HistoryStatusRenderer || !window.IntegratedSidebarRenderer || !window.ResultViewerRenderers) {
     throw new Error('Render modules are required for detection page bootstrapping');
 }
-if (!window.HistoryResultLoader || !window.IntegratedWorkbenchSelection) {
+if (!window.HistoryResultLoader || !window.IntegratedWorkbenchSelection || !window.IntegratedWorkbenchStateManager) {
     throw new Error('Result workbench modules are required for detection page bootstrapping');
 }
 if (!window.IntegratedRunModal || !window.IntegratedChartRenderer) {
@@ -51,13 +51,10 @@ const bridgeResultsService = window.BridgeResultsService.createBridgeResultsServ
     getBridge: function() { return bridge; },
 });
 const toolDescriptorCache = {};
-let noticeHideTimer = null;
 let integratedRunModalContext = null;
 let _integratedChartRetryTimer = null;
 let _echartsLoadRequested = false;
 const remoteStatusLoading = new Set();
-let _helpTooltipBound = false;
-let _activeHelpTooltip = null;
 const DETECTION_WORKFLOW_TOOL_IDS = [
     'unknown_sample_detection',
     'wastewater_metagenomics_basic',
@@ -65,231 +62,14 @@ const DETECTION_WORKFLOW_TOOL_IDS = [
 ];
 console.log('=== Galaxy Style Detection Page ===');
 
+const showNotice = window.DetectionPageUiFeedback.showNotice;
+const bindHelpTooltipInteractions = window.DetectionPageUiFeedback.bindHelpTooltipInteractions;
+
 function setHidden(element, hidden) {
     if (!element) {
         return;
     }
     element.classList.toggle('is-hidden', Boolean(hidden));
-}
-
-function getIntegratedOpenResultsState() {
-    return integratedOpenResultsStore.getState();
-}
-
-function syncIntegratedExecutionViewsFromState(snapshot = getIntegratedOpenResultsState()) {
-    Object.keys(integratedExecutionViews).forEach(function(featureId) {
-        delete integratedExecutionViews[featureId];
-    });
-    Object.keys(snapshot.entitiesByKey || {}).forEach(function(featureId) {
-        integratedExecutionViews[featureId] = snapshot.entitiesByKey[featureId];
-    });
-    return snapshot;
-}
-
-function isIntegratedHistoryFeatureId(featureId) {
-    return getIntegratedOpenResultsState().openKeys.includes(String(featureId || '').trim());
-}
-
-function isIntegratedPinnedFeatureId(featureId) {
-    return getIntegratedOpenResultsState().pinnedKeys.includes(String(featureId || '').trim());
-}
-
-function syncIntegratedHistoryResultControls() {
-    const clearBtn = document.getElementById('integrated-clear-history-results');
-    if (!clearBtn) {
-        return;
-    }
-    const snapshot = getIntegratedOpenResultsState();
-    setHidden(clearBtn, snapshot.openKeys.length === 0);
-    clearBtn.disabled = snapshot.openKeys.length === 0 || snapshot.openKeys.every(function(key) {
-        return snapshot.pinnedKeys.includes(key);
-    });
-}
-
-function buildIntegratedHistoryResultKey(baseFeatureId, executionId) {
-    return window.IntegratedOpenResultsState.buildHistoryResultKey(baseFeatureId, executionId);
-}
-
-function getIntegratedHistoryFeatureLabel(view, fallbackFeatureId = '') {
-    const baseTitle = String(view?.title || fallbackFeatureId || '结果').trim() || '结果';
-    const sampleName = String(view?.hero?.sample_name || view?.hero?.sampleName || '').trim();
-    const executionId = String(view?.provenance?.execution_id || view?.hero?.execution_id || '').trim();
-    if (sampleName && executionId) {
-        return `${baseTitle} · ${sampleName} · ${executionId.slice(0, 8)}`;
-    }
-    if (sampleName) {
-        return `${baseTitle} · ${sampleName}`;
-    }
-    if (executionId) {
-        return `${baseTitle} · ${executionId.slice(0, 8)}`;
-    }
-    return baseTitle;
-}
-
-function rememberIntegratedExecutionView(resultKey, view) {
-    return syncIntegratedExecutionViewsFromState(
-        integratedOpenResultsStore.registerResult(resultKey, {
-            ...view,
-            __displaySource: 'history',
-        }),
-    );
-}
-
-function setIntegratedHistoryResultPinned(resultKey, pinned) {
-    return syncIntegratedExecutionViewsFromState(
-        integratedOpenResultsStore.setPinned(resultKey, pinned),
-    );
-}
-
-function setIntegratedHistoryResultActive(resultKey) {
-    return syncIntegratedExecutionViewsFromState(
-        integratedOpenResultsStore.setActive(resultKey),
-    );
-}
-
-function closeIntegratedHistoryResultState(resultKey, nextActiveKey = '') {
-    return syncIntegratedExecutionViewsFromState(
-        integratedOpenResultsStore.closeResult(resultKey, nextActiveKey),
-    );
-}
-
-function clearUnpinnedIntegratedHistoryResultState(nextActiveKey = '') {
-    return syncIntegratedExecutionViewsFromState(
-        integratedOpenResultsStore.clearUnpinned(nextActiveKey),
-    );
-}
-
-function ensureNoticeContainer() {
-    let container = document.getElementById('inline-notice-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'inline-notice-container';
-        container.className = 'inline-notice-container';
-        document.body.appendChild(container);
-    }
-
-    return container;
-}
-
-function showNotice(message, type = 'error', durationMs = 3600) {
-    const text = String(message || '').trim();
-    if (!text) {
-        return;
-    }
-
-    const container = ensureNoticeContainer();
-    const tone = type === 'success'
-        ? { noticeClass: 'ui-notice--success', icon: '✓' }
-        : type === 'warning'
-            ? { noticeClass: 'ui-notice--warning', icon: '⚠' }
-            : { noticeClass: 'ui-notice--danger', icon: 'ⓘ' };
-
-    container.innerHTML = `
-        <div role="alert" class="ui-notice ${tone.noticeClass}">
-            <div class="ui-notice-icon">${tone.icon}</div>
-            <div class="ui-notice-body">${escapeHtml(text)}</div>
-            <button type="button" class="ui-notice-close" onclick="dismissNotice()" aria-label="关闭">×</button>
-        </div>
-    `;
-
-    if (noticeHideTimer) {
-        clearTimeout(noticeHideTimer);
-    }
-    noticeHideTimer = setTimeout(dismissNotice, Math.max(1200, Number(durationMs) || 3600));
-}
-
-function dismissNotice() {
-    if (noticeHideTimer) {
-        clearTimeout(noticeHideTimer);
-        noticeHideTimer = null;
-    }
-    const container = document.getElementById('inline-notice-container');
-    if (container) {
-        container.innerHTML = '';
-    }
-}
-
-function closeHelpTooltip() {
-    if (!_activeHelpTooltip) {
-        return;
-    }
-    const trigger = _activeHelpTooltip.trigger;
-    if (trigger) {
-        trigger.setAttribute('aria-expanded', 'false');
-    }
-    try {
-        _activeHelpTooltip.node?.remove();
-    } catch (_) {
-        // ignore
-    }
-    _activeHelpTooltip = null;
-}
-
-function openHelpTooltip(triggerEl, text) {
-    closeHelpTooltip();
-    if (!triggerEl || !text) {
-        return;
-    }
-
-    const tip = document.createElement('div');
-    tip.className = 'help-tooltip-popover';
-    tip.setAttribute('role', 'tooltip');
-    tip.textContent = String(text);
-    document.body.appendChild(tip);
-
-    const rect = triggerEl.getBoundingClientRect();
-    const margin = 8;
-    const maxLeft = Math.max(8, window.innerWidth - tip.offsetWidth - 8);
-    const left = Math.min(Math.max(8, rect.left), maxLeft);
-    let top = rect.bottom + margin;
-    if (top + tip.offsetHeight > window.innerHeight - 8) {
-        top = Math.max(8, rect.top - tip.offsetHeight - margin);
-    }
-    tip.style.left = `${Math.round(left)}px`;
-    tip.style.top = `${Math.round(top)}px`;
-
-    triggerEl.setAttribute('aria-expanded', 'true');
-    _activeHelpTooltip = { trigger: triggerEl, node: tip };
-}
-
-function bindHelpTooltipInteractions() {
-    if (_helpTooltipBound) {
-        return;
-    }
-    _helpTooltipBound = true;
-
-    document.addEventListener('click', function(event) {
-        const target = event.target;
-        const trigger = target && target.closest ? target.closest('.help-icon-btn[data-help-text]') : null;
-        if (trigger) {
-            event.preventDefault();
-            event.stopPropagation();
-            const text = String(trigger.getAttribute('data-help-text') || '').trim();
-            if (!text) {
-                return;
-            }
-            if (_activeHelpTooltip && _activeHelpTooltip.trigger === trigger) {
-                closeHelpTooltip();
-                return;
-            }
-            openHelpTooltip(trigger, text);
-            return;
-        }
-
-        if (_activeHelpTooltip && _activeHelpTooltip.node && target && _activeHelpTooltip.node.contains(target)) {
-            return;
-        }
-        closeHelpTooltip();
-    });
-
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            closeHelpTooltip();
-        }
-    });
-
-    window.addEventListener('resize', closeHelpTooltip);
-    window.addEventListener('scroll', closeHelpTooltip, true);
 }
 
 // 初始化 QWebChannel
@@ -374,7 +154,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     const clearIntegratedHistoryResultsBtn = document.getElementById('integrated-clear-history-results');
     if (clearIntegratedHistoryResultsBtn) {
         clearIntegratedHistoryResultsBtn.addEventListener('click', function() {
-            clearIntegratedTemporaryFeatures({ clearAllUnpinned: true });
+            window.IntegratedWorkbenchStateManager.clearIntegratedTemporaryFeatures({ clearAllUnpinned: true });
             renderIntegratedWorkbench();
         });
     }
@@ -508,9 +288,9 @@ function loadIntegratedWorkbench(forceRefresh = false) {
     bridgeResultsService.loadIntegratedWorkbench(function(json) {
         try {
             const nextWorkbench = JSON.parse(json);
-            syncIntegratedWorkbenchProjectScope(nextWorkbench);
+            window.IntegratedWorkbenchStateManager.syncIntegratedWorkbenchProjectScope(nextWorkbench);
             integratedWorkbench = nextWorkbench;
-            restoreIntegratedExecutionFeatures();
+            window.IntegratedWorkbenchStateManager.restoreIntegratedExecutionFeatures();
             renderIntegratedWorkbench();
         } catch (e) {
             console.error('Failed to parse integrated workbench config:', e);
@@ -520,44 +300,13 @@ function loadIntegratedWorkbench(forceRefresh = false) {
     });
 }
 
-function clearIntegratedExecutionCache() {
-    syncIntegratedExecutionViewsFromState(integratedOpenResultsStore.reset());
-    pendingIntegratedFeatureId = null;
-    pendingIntegratedViewSource = '';
-    selectedIntegratedViewSource = 'workflow';
-    syncIntegratedHistoryResultControls();
-}
-
-function syncIntegratedWorkbenchProjectScope(nextWorkbench) {
-    const nextProjectId = String(nextWorkbench?.project_id || '').trim();
-    if (activeIntegratedProjectId && nextProjectId !== activeIntegratedProjectId) {
-        clearIntegratedExecutionCache();
-    }
-    activeIntegratedProjectId = nextProjectId;
-}
-
-function restoreIntegratedExecutionFeatures() {
-    if (!integratedWorkbench) {
-        return;
-    }
-
-    Object.keys(getIntegratedOpenResultsState().entitiesByKey || {}).forEach(function(featureId) {
-        const view = integratedExecutionViews[featureId];
-        if (!view || getIntegratedWorkbenchFeature(featureId)) {
-            return;
-        }
-        upsertIntegratedHistoryFeature(featureId, view, { temporary: true });
-    });
-    syncIntegratedHistoryResultControls();
-}
-
 function renderIntegratedWorkbench() {
     if (!integratedWorkbench) {
         return;
     }
 
-    restoreIntegratedExecutionFeatures();
-    const openResultsState = getIntegratedOpenResultsState();
+    window.IntegratedWorkbenchStateManager.restoreIntegratedExecutionFeatures();
+    const openResultsState = window.IntegratedWorkbenchStateManager.getIntegratedOpenResultsState();
 
     const title = document.getElementById('integrated-title');
     const subtitle = document.getElementById('integrated-subtitle');
@@ -579,20 +328,20 @@ function renderIntegratedWorkbench() {
         features,
         selectedFeatureId: selectedIntegratedFeatureId,
         isHistoryResult: function(featureId) {
-            return isIntegratedHistoryFeatureId(featureId);
+            return window.IntegratedWorkbenchStateManager.isIntegratedHistoryFeatureId(featureId);
         },
         isPinned: function(featureId) {
-            return isIntegratedPinnedFeatureId(featureId);
+            return window.IntegratedWorkbenchStateManager.isIntegratedPinnedFeatureId(featureId);
         },
         onSelect: function(featureId, options) {
             selectIntegratedFeature(featureId, options);
         },
         onPinToggle: function(featureId, pinned) {
-            setIntegratedHistoryResultPinned(featureId, pinned);
+            window.IntegratedWorkbenchStateManager.setIntegratedHistoryResultPinned(featureId, pinned);
             renderIntegratedWorkbench();
         },
         onClose: function(featureId) {
-            closeIntegratedHistoryFeature(featureId);
+            window.IntegratedWorkbenchStateManager.closeIntegratedHistoryFeature(featureId);
         },
         escapeHtml,
     });
@@ -616,7 +365,7 @@ function renderIntegratedWorkbench() {
     }
     pendingIntegratedFeatureId = null;
     pendingIntegratedViewSource = '';
-    syncIntegratedHistoryResultControls();
+    window.IntegratedWorkbenchStateManager.syncIntegratedHistoryResultControls();
 }
 
 function selectIntegratedFeature(featureId, options = {}) {
@@ -632,8 +381,8 @@ function selectIntegratedFeature(featureId, options = {}) {
     });
     selectedIntegratedFeatureId = featureId;
     selectedIntegratedViewSource = sourceMode;
-    if (sourceMode === 'history' && isIntegratedHistoryFeatureId(featureId)) {
-        setIntegratedHistoryResultActive(featureId);
+    if (sourceMode === 'history' && window.IntegratedWorkbenchStateManager.isIntegratedHistoryFeatureId(featureId)) {
+        window.IntegratedWorkbenchStateManager.setIntegratedHistoryResultActive(featureId);
     }
     document.querySelectorAll('.integrated-feature-item').forEach(item => {
         item.classList.toggle('active', item.dataset.featureId === featureId);
@@ -658,6 +407,10 @@ function escapeHtml(value) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+
+window.DetectionPageUiFeedback.configureRuntime({
+    escapeHtml,
+});
 
 function getInputBrowseFilter(input, descriptor) {
     if (descriptor?.id === 'primer_design' && input?.name === 'genomes_bundle') {
@@ -753,6 +506,53 @@ window.IntegratedWorkbenchRenderer.configureRuntime({
     },
     renderIntegratedChart: function(chartInput, options) {
         return window.IntegratedChartRenderer.renderIntegratedChart(chartInput, options);
+    },
+});
+
+window.IntegratedWorkbenchStateManager.configureRuntime({
+    integratedOpenResultsStore,
+    integratedExecutionViews,
+    integratedHistoryResultLimit: INTEGRATED_HISTORY_RESULT_LIMIT,
+    setHidden,
+    showNotice,
+    switchTab,
+    renderIntegratedWorkbench,
+    selectIntegratedFeature,
+    getIntegratedWorkbench: function() {
+        return integratedWorkbench;
+    },
+    setIntegratedWorkbench: function(nextWorkbench) {
+        integratedWorkbench = nextWorkbench;
+    },
+    getSelectedIntegratedFeatureId: function() {
+        return selectedIntegratedFeatureId;
+    },
+    setSelectedIntegratedFeatureId: function(nextFeatureId) {
+        selectedIntegratedFeatureId = nextFeatureId;
+    },
+    getPendingIntegratedFeatureId: function() {
+        return pendingIntegratedFeatureId;
+    },
+    setPendingIntegratedFeatureId: function(nextFeatureId) {
+        pendingIntegratedFeatureId = nextFeatureId;
+    },
+    getPendingIntegratedViewSource: function() {
+        return pendingIntegratedViewSource;
+    },
+    setPendingIntegratedViewSource: function(nextSource) {
+        pendingIntegratedViewSource = nextSource;
+    },
+    getSelectedIntegratedViewSource: function() {
+        return selectedIntegratedViewSource;
+    },
+    setSelectedIntegratedViewSource: function(nextSource) {
+        selectedIntegratedViewSource = nextSource;
+    },
+    getActiveIntegratedProjectId: function() {
+        return activeIntegratedProjectId;
+    },
+    setActiveIntegratedProjectId: function(nextProjectId) {
+        activeIntegratedProjectId = nextProjectId;
     },
 });
 
@@ -903,158 +703,6 @@ function focusHistoryExecution(executionId, options = {}) {
     activateTab('history');
 }
 
-function ensureIntegratedWorkbenchViews() {
-    if (!integratedWorkbench) {
-        integratedWorkbench = { views: {}, features: [] };
-    }
-    if (!integratedWorkbench.views) {
-        integratedWorkbench.views = {};
-    }
-    if (!integratedWorkbench.features) {
-        integratedWorkbench.features = [];
-    }
-    return integratedWorkbench.views;
-}
-
-function getIntegratedWorkbenchFeature(featureId) {
-    ensureIntegratedWorkbenchViews();
-    return (integratedWorkbench.features || []).find(feature => feature && feature.id === featureId) || null;
-}
-
-function removeIntegratedWorkbenchFeature(featureId) {
-    if (!integratedWorkbench) {
-        return;
-    }
-    ensureIntegratedWorkbenchViews();
-    integratedWorkbench.features = (integratedWorkbench.features || []).filter(function(feature) {
-        return feature && feature.id !== featureId;
-    });
-    if (integratedWorkbench.views && Object.prototype.hasOwnProperty.call(integratedWorkbench.views, featureId)) {
-        delete integratedWorkbench.views[featureId];
-    }
-}
-
-function closeIntegratedHistoryFeature(featureId, options = {}) {
-    const normalizedId = String(featureId || '').trim();
-    if (!normalizedId || !isIntegratedHistoryFeatureId(normalizedId)) {
-        return;
-    }
-
-    const nextSnapshot = closeIntegratedHistoryResultState(normalizedId, options.nextActiveKey || '');
-    removeIntegratedWorkbenchFeature(normalizedId);
-    if (pendingIntegratedFeatureId === normalizedId) {
-        pendingIntegratedFeatureId = nextSnapshot.activeKey || '';
-        pendingIntegratedViewSource = nextSnapshot.activeKey ? 'history' : '';
-    }
-    if (selectedIntegratedFeatureId === normalizedId) {
-        selectedIntegratedFeatureId = nextSnapshot.activeKey || null;
-        selectedIntegratedViewSource = nextSnapshot.activeKey ? 'history' : 'workflow';
-    }
-    renderIntegratedWorkbench();
-}
-
-function clearIntegratedTemporaryFeatures(options = {}) {
-    ensureIntegratedWorkbenchViews();
-    const normalizedOptions = typeof options === 'string'
-        ? { exceptFeatureId: options }
-        : (options || {});
-    const preservedId = String(normalizedOptions.exceptFeatureId || '').trim();
-    const snapshot = normalizedOptions.clearAllUnpinned
-        ? clearUnpinnedIntegratedHistoryResultState(preservedId)
-        : syncIntegratedExecutionViewsFromState(
-            integratedOpenResultsStore.trimOpenResults({
-                maxOpenResults: Number(normalizedOptions.maxCount) || INTEGRATED_HISTORY_RESULT_LIMIT,
-                keepKeys: preservedId ? [preservedId] : [],
-                keepActiveKey: preservedId || getIntegratedOpenResultsState().activeKey,
-            }),
-        );
-    const preservedKeys = new Set(snapshot.openKeys || []);
-    integratedWorkbench.features = (integratedWorkbench.features || []).filter(function(feature) {
-        if (!feature || !feature.temporary) {
-            return true;
-        }
-        return preservedKeys.has(feature.id);
-    });
-    if (!preservedKeys.has(String(selectedIntegratedFeatureId || '').trim())) {
-        selectedIntegratedFeatureId = snapshot.activeKey || null;
-        selectedIntegratedViewSource = snapshot.activeKey ? 'history' : selectedIntegratedViewSource;
-    }
-    syncIntegratedHistoryResultControls();
-}
-
-function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
-    if (!featureId) {
-        return false;
-    }
-    ensureIntegratedWorkbenchViews();
-    const temporary = Boolean(options.temporary);
-    const existingIndex = (integratedWorkbench.features || []).findIndex(feature => feature && feature.id === featureId);
-
-    if (temporary) {
-        clearIntegratedTemporaryFeatures({ exceptFeatureId: featureId, maxCount: INTEGRATED_HISTORY_RESULT_LIMIT });
-    }
-
-    if (existingIndex >= 0) {
-        const current = integratedWorkbench.features[existingIndex] || {};
-        integratedWorkbench.features[existingIndex] = {
-            ...current,
-            id: featureId,
-            name: temporary
-                ? getIntegratedHistoryFeatureLabel(view, featureId)
-                : String(current.name || view?.title || featureId),
-            description: String(current.description || view?.description || ''),
-            status: current.status || 'active',
-            temporary: Boolean(current.temporary) || temporary,
-        };
-        return false;
-    }
-
-    integratedWorkbench.features.push({
-        id: featureId,
-        name: temporary
-            ? getIntegratedHistoryFeatureLabel(view, featureId)
-            : String(view?.title || featureId),
-        badge: '',
-        description: String(view?.description || ''),
-        status: 'active',
-        temporary,
-    });
-    return true;
-}
-
-function applyIntegratedHistoryPayload(payload, resolvedExecutionId, resolvedContext) {
-    const errorMessage = resolvedContext.errorMessage || '任务结果读取失败';
-    ensureIntegratedWorkbenchViews();
-    const baseFeatureId = String(
-        resolvedContext.featureId
-        || payload.view.feature_id
-        || payload.view.view_id
-        || payload.view.tool_id
-        || ''
-    ).trim();
-    if (!baseFeatureId) {
-        showNotice(payload.message || errorMessage);
-        return false;
-    }
-    const featureId = buildIntegratedHistoryResultKey(baseFeatureId, resolvedExecutionId);
-    rememberIntegratedExecutionView(featureId, payload.view);
-    pendingIntegratedFeatureId = featureId;
-    pendingIntegratedViewSource = 'history';
-    const existingFeature = getIntegratedWorkbenchFeature(featureId);
-    const featureChanged = upsertIntegratedHistoryFeature(
-        featureId,
-        payload.view,
-        { temporary: !existingFeature || Boolean(existingFeature?.temporary) },
-    );
-    switchTab('integrated');
-    if (featureChanged) {
-        renderIntegratedWorkbench();
-    } else {
-        selectIntegratedFeature(featureId, { sourceMode: 'history' });
-    }
-    return true;
-}
-
 window.HistoryResultLoader.configureRuntime({
     bridgeResultsService,
     showNotice,
@@ -1066,7 +714,13 @@ window.HistoryResultLoader.configureRuntime({
     },
     normalizeExecutionStatus,
     focusHistoryExecution,
-    applyPayload: applyIntegratedHistoryPayload,
+    applyPayload: function(payload, resolvedExecutionId, resolvedContext) {
+        return window.IntegratedWorkbenchStateManager.applyIntegratedHistoryPayload(
+            payload,
+            resolvedExecutionId,
+            resolvedContext,
+        );
+    },
 });
 
 function formatDetailCell(record) {

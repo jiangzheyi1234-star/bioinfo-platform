@@ -208,7 +208,7 @@ def _parameter_items_from_dict(params: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _resolve_result_archetype(tool_id: str) -> str:
-    from core.execution.tool_bridge_service import _TOOL_ARCHETYPES
+    from core.execution.tool_bridge_types import _TOOL_ARCHETYPES
 
     normalized = str(tool_id or "").strip()
     if not normalized:
@@ -220,7 +220,7 @@ def _resolve_result_archetype(tool_id: str) -> str:
 
 
 def execute_tool(self, tool_id: str, params: dict):
-    from core.execution.tool_bridge_service import ExecutionResult
+    from core.execution.tool_bridge_types import ExecutionResult
 
     try:
         if self._service_locator is None:

@@ -1,5 +1,6 @@
 import core.execution.tool_bridge_service as tool_bridge_service_module
-from core.execution.tool_bridge_service import ExecutionResult, ToolBridgeService
+from core.execution.tool_bridge_service import ToolBridgeService
+from core.execution.tool_bridge_types import ExecutionResult
 
 
 def test_tool_bridge_service_execute_tool_comes_from_orchestrator_module():
