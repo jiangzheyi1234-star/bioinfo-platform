@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import csv
-import datetime
 import json
 import logging
 from pathlib import Path
@@ -28,6 +27,11 @@ from core.execution.tool_bridge_specs import (
     DETECTION_WORKFLOW_SPECS,
     TARGETED_RESULT_TOOL_IDS,
     build_integrated_workbench_config,
+)
+from core.execution.tool_bridge_report_gen import (
+    generate_detection_pdf as _tb_generate_detection_pdf,
+    generate_targeted_seq_report as _tb_generate_targeted_seq_report,
+    try_load_blast_results as _tb_try_load_blast_results,
 )
 from core.execution.tool_bridge_summary_builders import (
     QUALITY_SUMMARY_KEYS as _QUALITY_SUMMARY_KEYS,
@@ -818,64 +822,12 @@ class ToolBridgeService:
         *,
         classifier_name: str = "Classifier",
     ) -> Path | None:
-        """生成靶向测序病原体检测报告 .txt 文件（UTF-8 BOM）。"""
-        total = summary.get("total_reads", 0)
-        classified = summary.get("classified_reads", 0)
-        unclassified = summary.get("unclassified_reads", 0)
-        pct = f"{classified / total * 100:.1f}" if total > 0 else "0.0"
-        unpct = f"{unclassified / total * 100:.1f}" if total > 0 else "0.0"
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        lines = [
-            "=" * 52,
-            "        靶向测序病原体检测报告",
-            "=" * 52,
-            f"生成时间：{now}",
-            f"分类工具：{classifier_name}",
-            f"总 Reads：{total:,}",
-            f"已分类：{classified:,} ({pct}%)",
-            f"未分类：{unclassified:,} ({unpct}%)",
-            f"检出物种数：{summary.get('species_count', 0)}",
-        ]
-
-        # 域级别分布
-        domains = summary.get("domain_breakdown", [])
-        if domains:
-            lines.append("")
-            lines.append("域级别分布：")
-            for d in domains:
-                lines.append(f"  {d['name']:<20}{d['reads']:>10,}  ({d['percentage']:.2f}%)")
-
-        lines.extend([
-            "",
-            f"{'序号':<6}{'病原体名称':<30}{'Reads数':<12}{'占比(%)':<10}",
-            "-" * 58,
-        ])
-        for i, item in enumerate(species_list, 1):
-            name = item.get("name", "")
-            reads = item.get("reads", 0)
-            value = item.get("value", 0)
-            lines.append(f"{i:<6}{name:<30}{reads:<12,}{value:<10.2f}")
-
-        lines.extend([
-            "=" * 52,
-            "",
-            "注意事项：",
-            "  1. 本报告由 H2OMeta 平台自动生成，仅供科研参考。",
-            "  2. 低丰度物种（<1%）可能为环境或试剂污染，需结合阴性对照判断。",
-            "  3. 临床诊断需结合患者症状、流行病学史及其他实验室检测结果。",
-            "  4. 物种名称遵循 NCBI Taxonomy 命名体系。",
-        ])
-
-        report_path = output_dir / "targeted_seq_report.txt"
-        try:
-            report_path.write_text(
-                "\n".join(lines) + "\n", encoding="utf-8-sig",
-            )
-            return report_path
-        except Exception:
-            logger.exception("生成靶向测序报告失败: %s", report_path)
-            return None
+        return _tb_generate_targeted_seq_report(
+            summary,
+            species_list,
+            output_dir,
+            classifier_name=classifier_name,
+        )
 
     def _generate_detection_pdf(
         self,
@@ -888,79 +840,24 @@ class ToolBridgeService:
         *,
         classifier_name: str = "Classifier",
     ) -> Path | None:
-        """生成病原体检测 PDF 报告，尝试合并 BLAST 结果。"""
-        from core.pipeline.detection_merger import DetectionMerger
-        from core.pipeline.report_generator import ReportGenerator
-
-        # 尝试查找同样品的 BLAST 结果
-        blast_species = self._try_load_blast_results(sample_id, execution_id)
-
-        # 合并
-        merged = DetectionMerger.merge(
-            kreport_species, blast_species, classifier_name=classifier_name,
-        )
-        if not merged:
-            return None
-
-        # 获取项目/样品名
-        pm = self._get_project_manager()
-        project_name = ""
-        sample_name = sample_id
-        if pm and pm.current_project:
-            project_name = pm.current_project.name or ""
-            try:
-                row = pm.db.execute(
-                    "SELECT name FROM samples WHERE sample_id = ? LIMIT 1",
-                    (sample_id,),
-                ).fetchone()
-                if row:
-                    sample_name = row["name"] or sample_id
-            except Exception:
-                pass
-
-        analysis_method = f"{classifier_name} + BLASTn" if blast_species else classifier_name
-        pdf_path = output_dir / "detection_report.pdf"
-        return ReportGenerator.generate_detection_report(
-            species_list=merged,
-            summary=summary,
-            output_path=str(pdf_path),
-            project_name=project_name,
-            sample_name=sample_name,
-            analysis_method=analysis_method,
+        return _tb_generate_detection_pdf(
+            summary,
+            kreport_species,
+            output_dir,
+            remote_dir,
+            sample_id,
+            execution_id,
+            classifier_name=classifier_name,
+            get_project_manager=self._get_project_manager,
+            execution_results_dir=self._execution_results_dir,
         )
 
     def _try_load_blast_results(
         self, sample_id: str, current_exec_id: str,
     ) -> list[dict] | None:
-        """查找同样品最新的 blastn 执行结果，解析并返回。"""
-        from core.pipeline.blast_result_parser import BlastResultParser
-
-        pm = self._get_project_manager()
-        if pm is None or pm.current_project is None:
-            return None
-
-        try:
-            row = pm.db.execute(
-                "SELECT execution_id FROM executions "
-                "WHERE sample_id = ? AND tool_id = 'blastn' AND status = 'completed' "
-                "ORDER BY rowid DESC LIMIT 1",
-                (sample_id,),
-            ).fetchone()
-        except Exception:
-            return None
-
-        if not row:
-            return None
-
-        blast_exec_id = row["execution_id"]
-        results_dir = self._execution_results_dir(blast_exec_id)
-        if results_dir is None:
-            return None
-
-        # 查找 blast 结果 TSV
-        blast_tsv = results_dir / f"{sample_id}_blast.tsv"
-
-        if not blast_tsv.exists():
-            return None
-
-        return BlastResultParser.parse(str(blast_tsv))
+        return _tb_try_load_blast_results(
+            sample_id,
+            current_exec_id,
+            get_project_manager=self._get_project_manager,
+            execution_results_dir=self._execution_results_dir,
+        )

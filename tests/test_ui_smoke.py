@@ -999,6 +999,9 @@ class TestDetectionIntegratedWorkbench:
         tool_bridge_summary_builders_py = Path("core/execution/tool_bridge_summary_builders.py").read_text(
             encoding="utf-8"
         )
+        tool_bridge_report_gen_py = Path("core/execution/tool_bridge_report_gen.py").read_text(
+            encoding="utf-8"
+        )
         tool_bridge_service_py = Path("core/execution/tool_bridge_service.py").read_text(encoding="utf-8")
         tool_bridge_types_py = Path("core/execution/tool_bridge_types.py").read_text(encoding="utf-8")
 
@@ -1009,6 +1012,7 @@ class TestDetectionIntegratedWorkbench:
         assert "from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin" in database_page_py
         assert "from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES" in tool_bridge_service_py
         assert "from core.execution.tool_bridge_summary_builders import (" in tool_bridge_service_py
+        assert "from core.execution.tool_bridge_report_gen import (" in tool_bridge_service_py
 
         assert "def _format_rate(" in linux_workers_py
         assert "def _safe_emit(" in linux_workers_py
@@ -1079,12 +1083,18 @@ class TestDetectionIntegratedWorkbench:
         assert "def summarize_metric_rows(" in tool_bridge_summary_builders_py
         assert "def build_generic_summary(" in tool_bridge_summary_builders_py
         assert "def build_taxonomy_charts(" in tool_bridge_summary_builders_py
+        assert "def generate_targeted_seq_report(" in tool_bridge_report_gen_py
+        assert "def generate_detection_pdf(" in tool_bridge_report_gen_py
+        assert "def try_load_blast_results(" in tool_bridge_report_gen_py
         assert "class ExecutionResult:" not in tool_bridge_service_py
         assert "class PrimerView:" not in tool_bridge_service_py
         assert "def _build_read_flow_chart(" in tool_bridge_service_py
         assert "return _tb_build_read_flow_chart(" in tool_bridge_service_py
         assert "return _tb_build_generic_summary(" in tool_bridge_service_py
         assert "return _tb_build_taxonomy_charts(" in tool_bridge_service_py
+        assert "return _tb_generate_targeted_seq_report(" in tool_bridge_service_py
+        assert "return _tb_generate_detection_pdf(" in tool_bridge_service_py
+        assert "return _tb_try_load_blast_results(" in tool_bridge_service_py
 
     def test_detection_history_empty_state_and_sample_fallback(self):
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
