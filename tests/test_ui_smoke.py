@@ -992,6 +992,7 @@ class TestDetectionIntegratedWorkbench:
         linux_workers_py = Path("ui/widgets/linux_settings_workers.py").read_text(encoding="utf-8")
         linux_card_py = Path("ui/widgets/linux_settings_card.py").read_text(encoding="utf-8")
         linux_miniforge_py = Path("ui/widgets/linux_settings_miniforge.py").read_text(encoding="utf-8")
+        linux_tool_install_py = Path("ui/widgets/linux_settings_tool_install.py").read_text(encoding="utf-8")
         database_dialogs_py = Path("ui/pages/database_dialogs.py").read_text(encoding="utf-8")
         database_remote_ops_py = Path("ui/pages/database_remote_ops.py").read_text(encoding="utf-8")
         database_page_py = Path("ui/pages/database_page.py").read_text(encoding="utf-8")
@@ -1000,6 +1001,7 @@ class TestDetectionIntegratedWorkbench:
 
         assert "from ui.widgets.linux_settings_workers import (" in linux_card_py
         assert "from ui.widgets.linux_settings_miniforge import LinuxSettingsMiniforgeMixin, _is_test_mode" in linux_card_py
+        assert "from ui.widgets.linux_settings_tool_install import LinuxSettingsToolInstallMixin" in linux_card_py
         assert "from ui.pages.database_dialogs import _AsyncTaskWorker, DatabaseSettingsDialog, RemoteDirectoryPickerDialog" in database_page_py
         assert "from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin" in database_page_py
         assert "from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES" in tool_bridge_service_py
@@ -1022,6 +1024,12 @@ class TestDetectionIntegratedWorkbench:
         assert "def _start_miniforge_install_silent(" in linux_miniforge_py
         assert "def _on_miniforge_poll_finished(" in linux_miniforge_py
 
+        assert "class LinuxSettingsToolInstallMixin:" in linux_tool_install_py
+        assert "def _do_install_tool(" in linux_tool_install_py
+        assert "def _start_tool_install_submit(" in linux_tool_install_py
+        assert "def _on_recover_installs_finished(" in linux_tool_install_py
+        assert "def _on_tool_install_poll_finished(" in linux_tool_install_py
+
         assert "def _format_rate(" not in linux_card_py
         assert "def _safe_emit(" not in linux_card_py
         assert "def _normalize_env_paths(" not in linux_card_py
@@ -1036,6 +1044,10 @@ class TestDetectionIntegratedWorkbench:
         assert "def start_deploy(" not in linux_card_py
         assert "def _start_miniforge_install_silent(" not in linux_card_py
         assert "def _on_miniforge_poll_finished(" not in linux_card_py
+        assert "def _do_install_tool(" not in linux_card_py
+        assert "def _start_tool_install_submit(" not in linux_card_py
+        assert "def _on_recover_installs_finished(" not in linux_card_py
+        assert "def _on_tool_install_poll_finished(" not in linux_card_py
 
         assert "def _make_popover_panel(" in database_dialogs_py
         assert "class _AsyncTaskWorker(" in database_dialogs_py
