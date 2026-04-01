@@ -342,7 +342,11 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     const historySearch = document.getElementById('history-search');
     if (historySearch) {
         historySearch.addEventListener('input', function(e) {
-            renderHistory(filterHistoryRecords(String(e.target.value || '')));
+            renderHistoryPanelView(window.HistoryPanelRenderer.filterHistoryRecords({
+                query: String(e.target.value || ''),
+                historyRecords,
+                allTools,
+            }));
         });
     }
     const clearIntegratedHistoryResultsBtn = document.getElementById('integrated-clear-history-results');
@@ -1150,23 +1154,17 @@ function scanLocalDatabaseFolder() {
             if (currentDir) {
                 currentDir.textContent = `当前目录：${scanPayload.directory || dirPath}`;
             }
-            renderDatabaseResources(databaseResources);
+            window.DatabasePanelRenderer.renderDatabaseResources({
+                grid: document.getElementById('database-grid'),
+                empty: document.getElementById('database-empty-state'),
+                resources: databaseResources,
+                setHidden,
+                escapeHtml,
+            });
             switchTab('database');
         });
     }, function(error) {
         showNotice(error && error.message ? error.message : '当前版本不支持数据库文件夹扫描', 'warning');
-    });
-}
-
-function renderDatabaseResources(resources) {
-    const grid = document.getElementById('database-grid');
-    const empty = document.getElementById('database-empty-state');
-    window.DatabasePanelRenderer.renderDatabaseResources({
-        grid,
-        empty,
-        resources,
-        setHidden,
-        escapeHtml,
     });
 }
 
@@ -1231,26 +1229,6 @@ function restoreIntegratedExecutionFeatures() {
     syncIntegratedHistoryResultControls();
 }
 
-function resolveIntegratedViewSource(featureId, requestedSource = 'workflow') {
-    return window.IntegratedWorkbenchSelection.resolveIntegratedViewSource({
-        featureId,
-        requestedSource,
-        integratedWorkbench,
-        integratedExecutionViews,
-    });
-}
-
-function getPreferredIntegratedViewSource(featureId) {
-    return window.IntegratedWorkbenchSelection.getPreferredIntegratedViewSource({
-        featureId,
-        pendingIntegratedViewSource,
-        selectedIntegratedFeatureId,
-        selectedIntegratedViewSource,
-        integratedWorkbench,
-        integratedExecutionViews,
-    });
-}
-
 function renderIntegratedWorkbench() {
     if (!integratedWorkbench) {
         return;
@@ -1304,7 +1282,14 @@ function renderIntegratedWorkbench() {
         openResultsActiveKey: openResultsState.activeKey,
     });
     if (preferredFeature) {
-        const sourceMode = getPreferredIntegratedViewSource(preferredFeature.id);
+        const sourceMode = window.IntegratedWorkbenchSelection.getPreferredIntegratedViewSource({
+            featureId: preferredFeature.id,
+            pendingIntegratedViewSource,
+            selectedIntegratedFeatureId,
+            selectedIntegratedViewSource,
+            integratedWorkbench,
+            integratedExecutionViews,
+        });
         selectIntegratedFeature(preferredFeature.id, { sourceMode });
     }
     pendingIntegratedFeatureId = null;
@@ -1312,21 +1297,17 @@ function renderIntegratedWorkbench() {
     syncIntegratedHistoryResultControls();
 }
 
-function getIntegratedFeatureView(featureId, sourceMode = 'workflow') {
-    return window.IntegratedWorkbenchSelection.getIntegratedFeatureView({
-        featureId,
-        sourceMode,
-        integratedWorkbench,
-        integratedExecutionViews,
-    });
-}
-
 function selectIntegratedFeature(featureId, options = {}) {
     if (!integratedWorkbench) {
         return;
     }
 
-    const sourceMode = resolveIntegratedViewSource(featureId, options.sourceMode || 'workflow');
+    const sourceMode = window.IntegratedWorkbenchSelection.resolveIntegratedViewSource({
+        featureId,
+        requestedSource: options.sourceMode || 'workflow',
+        integratedWorkbench,
+        integratedExecutionViews,
+    });
     selectedIntegratedFeatureId = featureId;
     selectedIntegratedViewSource = sourceMode;
     if (sourceMode === 'history' && isIntegratedHistoryFeatureId(featureId)) {
@@ -1338,7 +1319,12 @@ function selectIntegratedFeature(featureId, options = {}) {
 
     const features = integratedWorkbench.features || [];
     const feature = features.find(item => item.id === featureId);
-    const view = getIntegratedFeatureView(featureId, sourceMode);
+    const view = window.IntegratedWorkbenchSelection.getIntegratedFeatureView({
+        featureId,
+        sourceMode,
+        integratedWorkbench,
+        integratedExecutionViews,
+    });
     renderIntegratedFeature(feature, view, { sourceMode });
 }
 
@@ -1387,10 +1373,33 @@ function renderIntegratedFeature(feature, view, options = {}) {
     setSectionCollapsed('artifact-list-wrap', true);
 
     renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult });
-    renderSummaryGrid(view.summary || []);
-    renderArtifactList(view.artifacts || [], { requiredMessage: viewerState.viewerErrors.files || '' });
-    renderIntegratedProvenance(view.provenance || {}, view.hero || {});
-    renderIntegratedSections(view.sections || [], { requiredMessage: viewerState.viewerErrors.sections || '' });
+    window.ResultViewerRenderers.renderSummaryGrid({
+        container: document.getElementById('summary-grid'),
+        summaryItems: view.summary || [],
+        escapeHtml,
+    });
+    window.ResultViewerRenderers.renderArtifactList({
+        container: document.getElementById('artifact-list'),
+        artifacts: view.artifacts || [],
+        requiredMessage: viewerState.viewerErrors.files || '',
+        sortIntegratedArtifacts,
+        openLocalArtifact,
+        escapeHtml,
+    });
+    window.ResultViewerRenderers.renderIntegratedProvenance({
+        container: document.getElementById('integrated-provenance-list'),
+        provenance: view.provenance || {},
+        hero: view.hero || {},
+        escapeHtml,
+    });
+    window.ResultViewerRenderers.renderIntegratedSections({
+        card: document.getElementById('integrated-sections-card'),
+        container: document.getElementById('integrated-sections-list'),
+        sections: view.sections || [],
+        requiredMessage: viewerState.viewerErrors.sections || '',
+        setHidden,
+        escapeHtml,
+    });
     renderIntegratedHtmlPreview(view.artifacts || [], { requiredMessage: viewerState.viewerErrors.html || '' });
     renderIntegratedTable(viewerState.table.columns || [], viewerState.table.rows || [], { requiredMessage: viewerState.viewerErrors.table || '' });
     renderIntegratedChart(view.charts || view.chart || null, { requiredMessage: viewerState.viewerErrors.chart || '' });
@@ -1506,45 +1515,6 @@ function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
             )}</div>
         </div>
     `).join('');
-}
-
-function renderSummaryGrid(summaryItems) {
-    window.ResultViewerRenderers.renderSummaryGrid({
-        container: document.getElementById('summary-grid'),
-        summaryItems,
-        escapeHtml,
-    });
-}
-
-function renderArtifactList(artifacts, options = {}) {
-    window.ResultViewerRenderers.renderArtifactList({
-        container: document.getElementById('artifact-list'),
-        artifacts,
-        requiredMessage: options.requiredMessage,
-        sortIntegratedArtifacts,
-        openLocalArtifact,
-        escapeHtml,
-    });
-}
-
-function renderIntegratedProvenance(provenance, hero = {}) {
-    window.ResultViewerRenderers.renderIntegratedProvenance({
-        container: document.getElementById('integrated-provenance-list'),
-        provenance,
-        hero,
-        escapeHtml,
-    });
-}
-
-function renderIntegratedSections(sections, options = {}) {
-    window.ResultViewerRenderers.renderIntegratedSections({
-        card: document.getElementById('integrated-sections-card'),
-        container: document.getElementById('integrated-sections-list'),
-        sections,
-        requiredMessage: options.requiredMessage,
-        setHidden,
-        escapeHtml,
-    });
 }
 
 function openLocalArtifact(localPath) {
@@ -2558,7 +2528,7 @@ function onRunResult(result) {
 
         showNotice(result.message || '任务已提交', 'success');
         loadIntegratedWorkbench(true);
-        openExecution(executionId, {
+        window.HistoryResultLoader.openExecutionWithRuntime(executionId, {
             status: 'pending',
             fetchRemoteStatus: false,
             noticeMessage: '已定位到新提交任务，请在运行历史查看状态',
@@ -2595,7 +2565,11 @@ function loadHistory() {
             historyRecords = JSON.parse(json);
             console.log(`✓ Loaded ${historyRecords.length} execution records`);
             const historySearch = document.getElementById('history-search');
-            renderHistory(filterHistoryRecords(String(historySearch?.value || '')));
+            renderHistoryPanelView(window.HistoryPanelRenderer.filterHistoryRecords({
+                query: String(historySearch?.value || ''),
+                historyRecords,
+                allTools,
+            }));
         } catch (e) {
             console.error('Failed to parse history:', e);
         }
@@ -2604,23 +2578,8 @@ function loadHistory() {
     });
 }
 
-function filterHistoryRecords(query) {
-    return window.HistoryPanelRenderer.filterHistoryRecords({
-        query,
-        historyRecords,
-        allTools,
-    });
-}
-
 function normalizeExecutionStatus(status) {
     return String(status || '').trim().toLowerCase();
-}
-
-function findHistoryRecord(executionId) {
-    return window.HistoryPanelRenderer.findHistoryRecord({
-        executionId,
-        historyRecords,
-    });
 }
 
 function focusHistoryExecution(executionId, options = {}) {
@@ -2763,100 +2722,52 @@ function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
     return true;
 }
 
-function parseHistoryParameters(record) {
-    return window.HistoryResultLoader.parseHistoryParameters(record);
+function applyIntegratedHistoryPayload(payload, resolvedExecutionId, resolvedContext) {
+    const errorMessage = resolvedContext.errorMessage || '任务结果读取失败';
+    ensureIntegratedWorkbenchViews();
+    const baseFeatureId = String(
+        resolvedContext.featureId
+        || payload.view.feature_id
+        || payload.view.view_id
+        || payload.view.tool_id
+        || ''
+    ).trim();
+    if (!baseFeatureId) {
+        showNotice(payload.message || errorMessage);
+        return false;
+    }
+    const featureId = buildIntegratedHistoryResultKey(baseFeatureId, resolvedExecutionId);
+    rememberIntegratedExecutionView(featureId, payload.view);
+    pendingIntegratedFeatureId = featureId;
+    pendingIntegratedViewSource = 'history';
+    const existingFeature = getIntegratedWorkbenchFeature(featureId);
+    const featureChanged = upsertIntegratedHistoryFeature(
+        featureId,
+        payload.view,
+        { temporary: !existingFeature || Boolean(existingFeature?.temporary) },
+    );
+    switchTab('integrated');
+    if (featureChanged) {
+        renderIntegratedWorkbench();
+    } else {
+        selectIntegratedFeature(featureId, { sourceMode: 'history' });
+    }
+    return true;
 }
 
-function resolveHistoryResultContext(record) {
-    return window.HistoryResultLoader.resolveHistoryResultContext(record);
-}
-
-function loadExecutionResultsFromHistory(executionId, context = {}) {
-    const applyPayload = function(payload, resolvedExecutionId, resolvedContext) {
-        const errorMessage = resolvedContext.errorMessage || '任务结果读取失败';
-        ensureIntegratedWorkbenchViews();
-        const baseFeatureId = String(
-            resolvedContext.featureId
-            || payload.view.feature_id
-            || payload.view.view_id
-            || payload.view.tool_id
-            || ''
-        ).trim();
-        if (!baseFeatureId) {
-            showNotice(payload.message || errorMessage);
-            return false;
-        }
-        const featureId = buildIntegratedHistoryResultKey(baseFeatureId, resolvedExecutionId);
-        rememberIntegratedExecutionView(featureId, payload.view);
-        pendingIntegratedFeatureId = featureId;
-        pendingIntegratedViewSource = 'history';
-        const existingFeature = getIntegratedWorkbenchFeature(featureId);
-        const featureChanged = upsertIntegratedHistoryFeature(
-            featureId,
-            payload.view,
-            { temporary: !existingFeature || Boolean(existingFeature?.temporary) },
-        );
-        switchTab('integrated');
-        if (featureChanged) {
-            renderIntegratedWorkbench();
-        } else {
-            selectIntegratedFeature(featureId, { sourceMode: 'history' });
-        }
-        return true;
-    };
-    window.HistoryResultLoader.loadExecutionResultsFromHistory({
-        executionId,
-        context,
-        bridgeResultsService,
-        showNotice,
-        applyPayload,
-    });
-}
-
-function openExecution(executionId, context = {}) {
-    window.HistoryResultLoader.openExecution({
-        executionId,
-        record: context.record,
-        status: context.status,
-        local_status: context.local_status,
-        resultContext: context.resultContext,
-        fetchRemoteStatus: context.fetchRemoteStatus,
-        noticeMessage: context.noticeMessage,
-        bridgeResultsService,
-        showNotice,
-        findHistoryRecord,
-        normalizeExecutionStatus,
-        focusHistoryExecution,
-        applyPayload: function(payload, resolvedExecutionId, resolvedContext) {
-            const featureId = buildIntegratedHistoryResultKey(
-                String(
-                    resolvedContext.featureId
-                    || payload.view.feature_id
-                    || payload.view.view_id
-                    || payload.view.tool_id
-                    || ''
-                ).trim(),
-                resolvedExecutionId,
-            );
-            rememberIntegratedExecutionView(featureId, payload.view);
-            pendingIntegratedFeatureId = featureId;
-            pendingIntegratedViewSource = 'history';
-            const existingFeature = getIntegratedWorkbenchFeature(featureId);
-            const featureChanged = upsertIntegratedHistoryFeature(
-                featureId,
-                payload.view,
-                { temporary: !existingFeature || Boolean(existingFeature?.temporary) },
-            );
-            switchTab('integrated');
-            if (featureChanged) {
-                renderIntegratedWorkbench();
-            } else {
-                selectIntegratedFeature(featureId, { sourceMode: 'history' });
-            }
-            return true;
-        },
-    });
-}
+window.HistoryResultLoader.configureRuntime({
+    bridgeResultsService,
+    showNotice,
+    findHistoryRecord: function(targetExecutionId) {
+        return window.HistoryPanelRenderer.findHistoryRecord({
+            executionId: targetExecutionId,
+            historyRecords,
+        });
+    },
+    normalizeExecutionStatus,
+    focusHistoryExecution,
+    applyPayload: applyIntegratedHistoryPayload,
+});
 
 function buildExecutionRemoteStatusHtml(data) {
     const remoteStatusRaw = String(data.remote_status || '').toUpperCase();
@@ -2986,10 +2897,6 @@ function deleteHistoryExecution(executionId) {
     });
 }
 
-function formatParamsSummary(paramsJson) {
-    return window.HistoryPanelRenderer.formatParamsSummary(paramsJson);
-}
-
 function formatDetailCell(record) {
     if (record.status === 'completed') {
         return `<a href="#" class="detail-link" data-exec-id="${record.execution_id}" data-tool-id="${record.tool_id}">查看</a>`;
@@ -3003,7 +2910,7 @@ function formatDetailCell(record) {
     return '-';
 }
 
-function renderHistory(history) {
+const renderHistoryPanelView = function(history) {
     window.HistoryPanelRenderer.renderHistoryPanel({
         container: document.getElementById('history-container'),
         history,
@@ -3011,8 +2918,12 @@ function renderHistory(history) {
         pendingExecutionId: pendingHistoryExecutionId,
         pendingOptions: pendingHistoryExecutionOptions || {},
         escapeHtml,
-        resolveHistoryResultContext,
-        openExecution,
+        resolveHistoryResultContext: function(record) {
+            return window.HistoryResultLoader.resolveHistoryResultContext(record);
+        },
+        openExecution: function(executionId, context) {
+            window.HistoryResultLoader.openExecutionWithRuntime(executionId, context);
+        },
         deleteHistoryExecution,
         toggleExecutionRemoteStatus,
         showNotice,
@@ -3026,30 +2937,4 @@ function renderHistory(history) {
             pendingHistoryExecutionOptions = null;
         },
     });
-}
-
-// 获取状态文本
-function getStatusText(status) {
-    return window.HistoryPanelRenderer.getStatusText(status);
-}
-
-function getStatusClass(status) {
-    return window.HistoryPanelRenderer.getStatusClass(status);
-}
-
-function formatExactTime(timestamp) {
-    return window.HistoryPanelRenderer.formatExactTime(timestamp);
-}
-
-function formatRelativeTime(timestamp) {
-    return window.HistoryPanelRenderer.formatRelativeTime(timestamp);
-}
-
-function formatDuration(seconds) {
-    return window.HistoryPanelRenderer.formatDuration(seconds);
-}
-
-function getDurationClass(seconds) {
-    return window.HistoryPanelRenderer.getDurationClass(seconds);
-}
-
+};

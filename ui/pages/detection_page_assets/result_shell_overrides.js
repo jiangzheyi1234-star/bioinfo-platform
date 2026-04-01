@@ -3,13 +3,35 @@
 
     var registryApi = global.ResultShellRegistry;
     if (!registryApi) {
-        return;
+        throw new Error('result_shell_overrides.js requires ResultShellRegistry');
     }
+    var resultViewerRenderers = requireModule('ResultViewerRenderers', [
+        'renderSummaryGrid',
+        'renderArtifactList',
+        'renderIntegratedProvenance',
+        'renderIntegratedSections'
+    ]);
+    var historyResultLoader = requireModule('HistoryResultLoader', [
+        'openExecutionWithRuntime'
+    ]);
 
     var originalRenderIntegratedTable = global.renderIntegratedTable;
     var originalRenderIntegratedChart = global.renderIntegratedChart;
-    var originalRenderArtifactList = global.renderArtifactList;
     var originalRenderIntegratedHtmlPreview = global.renderIntegratedHtmlPreview;
+    var originalRenderArtifactList = resultViewerRenderers.renderArtifactList;
+
+    function requireModule(name, methods) {
+        var moduleApi = global[name];
+        if (!moduleApi) {
+            throw new Error('result_shell_overrides.js requires ' + name);
+        }
+        asArray(methods).forEach(function(methodName) {
+            if (typeof moduleApi[methodName] !== 'function') {
+                throw new Error(name + '.' + methodName + ' is required by result_shell_overrides.js');
+            }
+        });
+        return moduleApi;
+    }
 
     function asArray(value) {
         return Array.isArray(value) ? value : [];
@@ -522,9 +544,15 @@
     };
 
     global.renderIntegratedFeature = renderFeatureReport;
-    global.renderSummaryGrid = renderSummarySection;
-    global.renderIntegratedSections = renderSectionsReport;
-    global.renderIntegratedProvenance = function() {};
+    resultViewerRenderers.renderSummaryGrid = function(options) {
+        renderSummarySection(options && options.summaryItems);
+    };
+    resultViewerRenderers.renderIntegratedSections = function(options) {
+        renderSectionsReport(options && options.sections, {
+            requiredMessage: text(options && options.requiredMessage, '')
+        });
+    };
+    resultViewerRenderers.renderIntegratedProvenance = function() {};
 
     global._onExecutionUpdate = function(payload) {
         var executionId = text(payload && payload.execution_id, '');
@@ -542,27 +570,23 @@
             if (typeof global.loadIntegratedWorkbench === 'function') {
                 global.loadIntegratedWorkbench(true);
             }
-            if (typeof global.openExecution === 'function') {
-                global.openExecution(executionId, {
-                    status: 'completed',
-                    noticeMessage: message || '任务已完成，结果报告页已自动刷新'
-                });
-                return;
-            }
+            historyResultLoader.openExecutionWithRuntime(executionId, {
+                status: 'completed',
+                noticeMessage: message || '任务已完成，结果报告页已自动刷新'
+            });
+            return;
         }
 
         if (status === 'failed') {
             if (typeof global.switchTab === 'function') {
                 global.switchTab('history');
             }
-            if (typeof global.openExecution === 'function') {
-                global.openExecution(executionId, {
-                    status: 'failed',
-                    fetchRemoteStatus: true,
-                    noticeMessage: message || '任务执行失败，请查看历史记录'
-                });
-                return;
-            }
+            historyResultLoader.openExecutionWithRuntime(executionId, {
+                status: 'failed',
+                fetchRemoteStatus: true,
+                noticeMessage: message || '任务执行失败，请查看历史记录'
+            });
+            return;
         }
 
         if (message && typeof global.showNotice === 'function') {
