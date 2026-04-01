@@ -7,6 +7,8 @@
     <meta http-equiv="Pragma" content="no-cache">
     <title>病原检测</title>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <link rel="stylesheet" href="../shared_assets/web_tokens.css?v=20260401">
+    <link rel="stylesheet" href="../shared_assets/web_components.css?v=20260401">
     <link rel="stylesheet" href="styles_galaxy.css?v=20260331">
     <link rel="stylesheet" href="result_shell_theme.css?v=20260331">
 </head>
@@ -40,7 +42,7 @@
                     <div class="placeholder-text">选择一个工具查看参数</div>
                 </div>
 
-                <div class="panel-content" id="panel-content" style="display:none;">
+                <div class="panel-content is-hidden" id="panel-content">
                     <div class="panel-header">
                         <h2 id="tool-name"></h2>
                         <div class="tool-meta">
@@ -58,13 +60,13 @@
                             <h3>参数</h3>
                             <div id="params-container"></div>
                         </div>
-                        <div class="form-section" id="databases-section" style="display:none;">
+                        <div class="form-section is-hidden" id="databases-section">
                             <h3>数据库</h3>
                             <div id="databases-container"></div>
                         </div>
                         <div class="form-actions">
-                            <button id="run-btn" class="btn-primary">▶ 运行工具</button>
-                            <button id="clear-btn" class="btn-secondary">清空</button>
+                            <button id="run-btn" class="ui-button ui-button--primary">▶ 运行工具</button>
+                            <button id="clear-btn" class="ui-button ui-button--secondary">清空</button>
                         </div>
                     </div>
                 </div>
@@ -88,7 +90,7 @@
                     <div class="placeholder-text">请选择一个本地文件夹开始扫描数据库资源</div>
                 </div>
 
-                <div class="database-grid" id="database-grid" style="display:none;"></div>
+                <div class="database-grid is-hidden" id="database-grid"></div>
             </div>
         </div>
 
@@ -139,7 +141,7 @@
                         <p>统一承接工具结果、工作流结果与执行追溯，形成稳定的 execution 旅程。</p>
                     </div>
 
-                    <div class="integrated-detail" id="integrated-detail" style="display:none;">
+                    <div class="integrated-detail is-hidden" id="integrated-detail">
                         <div class="detail-header-card">
                             <div class="detail-header-main">
                                 <div class="detail-kicker" id="feature-kicker">结果工作台</div>
@@ -148,7 +150,7 @@
                             </div>
                             <div class="feature-state-card">
                                 <div class="feature-state-label">状态</div>
-                                <div class="integrated-status-chip" id="integrated-status-chip">待选择</div>
+                                <div class="ui-badge integrated-status-chip" id="integrated-status-chip">待选择</div>
                                 <div class="feature-state-detail" id="feature-state-detail">请选择左侧功能或通过运行历史进入结果。</div>
                             </div>
                         </div>
@@ -162,16 +164,16 @@
 
                         <div class="integrated-main-layout">
                             <div class="integrated-primary-column">
-                                <div class="detail-card chart-card result-tab-panel result-tab-result" id="integrated-html-card" style="display:none;">
+                                <div class="detail-card chart-card result-tab-panel result-tab-result is-hidden" id="integrated-html-card">
                                     <div class="card-title-row">
                                         <h4 id="html-preview-title">HTML 预览</h4>
-                                        <button class="btn-secondary" id="html-open-btn" type="button" style="display:none;">在系统中打开</button>
+                                        <button class="ui-button ui-button--secondary ui-button--sm is-hidden" id="html-open-btn" type="button">在系统中打开</button>
                                     </div>
-                                    <div id="integrated-html-empty" class="integrated-input-empty" style="display:none;">暂无可预览的 HTML 结果。</div>
-                                    <iframe id="integrated-html-frame" class="integrated-html-frame" title="HTML preview" style="display:none;"></iframe>
+                                    <div id="integrated-html-empty" class="integrated-input-empty is-hidden">暂无可预览的 HTML 结果。</div>
+                                    <iframe id="integrated-html-frame" class="integrated-html-frame is-hidden" title="HTML preview"></iframe>
                                 </div>
 
-                                <div class="detail-card chart-card result-tab-panel result-tab-result" id="integrated-chart-card" style="display:none;">
+                                <div class="detail-card chart-card result-tab-panel result-tab-result is-hidden" id="integrated-chart-card">
                                     <div class="card-title-row"><h4 id="chart-card-title">图表</h4></div>
                                     <div id="integrated-chart-container" class="integrated-chart-stage"></div>
                                 </div>
@@ -179,7 +181,7 @@
                                 <div class="detail-card results-card result-tab-panel result-tab-result" id="integrated-table-card">
                                     <div class="card-title-row">
                                         <h4 id="results-card-title">分析结果</h4>
-                                        <span class="card-badge" id="results-card-badge">primer_result_final_2.txt</span>
+                                        <span class="ui-badge ui-badge--accent" id="results-card-badge">primer_result_final_2.txt</span>
                                     </div>
                                     <div class="results-card-subtitle" id="results-card-subtitle">分析结果将在此处展示。</div>
                                     <div class="results-table-wrap">
@@ -190,28 +192,28 @@
                                     </div>
                                 </div>
 
-                                <div class="detail-card compact-detail-card result-tab-panel result-tab-result result-tab-overview" id="integrated-sections-card" style="display:none;">
+                                <div class="detail-card compact-detail-card result-tab-panel result-tab-result result-tab-overview is-hidden" id="integrated-sections-card">
                                     <div class="card-title-row compact-title-row">
                                         <h4>结果分段</h4>
-                                        <span class="card-badge">sections</span>
+                                        <span class="ui-badge ui-badge--accent">sections</span>
                                     </div>
                                     <div id="integrated-sections-list"></div>
                                 </div>
                             </div>
 
                             <div class="integrated-side-column">
-                                <div class="detail-card compact-detail-card integrated-run-card integrated-context-workflow" id="integrated-run-card" style="display:none;">
+                                <div class="detail-card compact-detail-card integrated-run-card integrated-context-workflow is-hidden" id="integrated-run-card">
                                     <div class="card-title-row compact-title-row">
                                         <h4>工作流入口</h4>
                                         <div class="side-card-actions integrated-run-actions">
-                                            <span class="card-badge" id="integrated-run-badge">运行入口</span>
+                                            <span class="ui-badge ui-badge--accent" id="integrated-run-badge">运行入口</span>
                                             <button class="section-toggle-btn" data-target="integrated-run-body" type="button">展开</button>
                                         </div>
                                     </div>
                                     <div class="side-section-body collapsed" id="integrated-run-body">
                                         <div class="integrated-run-hint" id="integrated-run-hint"></div>
                                         <div class="integrated-input-list" id="integrated-input-list"></div>
-                                        <button class="btn-primary integrated-run-btn" id="integrated-run-btn" type="button">配置并运行</button>
+                                        <button class="ui-button ui-button--primary integrated-run-btn" id="integrated-run-btn" type="button">配置并运行</button>
                                     </div>
                                 </div>
 
@@ -221,7 +223,7 @@
                                     <div class="card-title-row compact-title-row">
                                         <h4>结果文件</h4>
                                         <div class="side-card-actions">
-                                            <span class="card-badge">files</span>
+                                            <span class="ui-badge ui-badge--accent">files</span>
                                             <button class="section-toggle-btn" data-target="artifact-list-wrap" type="button">展开</button>
                                         </div>
                                     </div>
@@ -233,7 +235,7 @@
                                 <div class="detail-card compact-detail-card result-tab-panel result-tab-provenance">
                                     <div class="card-title-row compact-title-row">
                                         <h4>运行追溯</h4>
-                                        <span class="card-badge">provenance</span>
+                                        <span class="ui-badge ui-badge--accent">provenance</span>
                                     </div>
                                     <div id="integrated-provenance-list"></div>
                                 </div>

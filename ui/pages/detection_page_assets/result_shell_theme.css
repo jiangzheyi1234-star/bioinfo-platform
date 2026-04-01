@@ -1,18 +1,18 @@
-:root {
-    --report-bg: #f7f9fc;
-    --report-panel: #ffffff;
-    --report-border: #dfe6ef;
-    --report-border-strong: #cad6e5;
-    --report-text: #1f2937;
-    --report-muted: #66768a;
-    --report-subtle: #8b99ab;
-    --report-accent: #2563eb;
-    --report-accent-soft: #eaf2ff;
-    --report-success: #1f8a4c;
-    --report-success-soft: #edf9f1;
-    --report-warning: #a15b0c;
-    --report-warning-soft: #fff6e8;
-    --report-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+.integrated-shell {
+    --report-bg: var(--ui-color-canvas);
+    --report-panel: var(--ui-color-panel);
+    --report-border: var(--ui-color-border);
+    --report-border-strong: var(--ui-color-border-strong);
+    --report-text: var(--ui-color-text);
+    --report-muted: var(--ui-color-text-muted);
+    --report-subtle: var(--ui-color-text-subtle);
+    --report-accent: var(--ui-color-accent);
+    --report-accent-soft: var(--ui-color-accent-soft);
+    --report-success: var(--ui-color-success);
+    --report-success-soft: var(--ui-color-success-soft);
+    --report-warning: var(--ui-color-warning);
+    --report-warning-soft: var(--ui-color-warning-soft);
+    --report-shadow: var(--ui-shadow-sm);
 }
 
 .integrated-shell {
@@ -219,9 +219,8 @@
     color: var(--report-text);
 }
 
-.card-badge {
+.ui-badge {
     padding: 3px 8px;
-    border-radius: 999px;
     border: 1px solid var(--report-border);
     background: #f1f5fb;
     color: var(--report-muted);

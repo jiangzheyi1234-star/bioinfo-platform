@@ -5,23 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>工具环境检测</title>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <link rel="stylesheet" href="../shared_assets/web_tokens.css">
+    <link rel="stylesheet" href="../shared_assets/web_components.css">
     <link rel="stylesheet" href="tool_env_table.css">
-    <style>html, body { background: transparent; }</style>
 </head>
 <body>
-    <div class="tool-env-card">
-        <div class="card-header" id="card-header">
-            <span class="title">工具环境检测 (<span id="tool-count">0</span> 个工具)</span>
-            <span class="summary" id="summary-text">未检测</span>
-            <span class="toggle-icon" id="toggle-icon">▼</span>
+    <div class="tool-env-card ui-card">
+        <div class="tool-env-header" id="card-header">
+            <span class="tool-env-title">工具环境检测 (<span id="tool-count">0</span> 个工具)</span>
+            <span class="ui-badge tool-env-summary" id="summary-text">未检测</span>
+            <span class="tool-env-toggle-icon" id="toggle-icon">▼</span>
         </div>
-        <div class="card-body" id="card-body">
-            <div class="toolbar">
-                <button class="btn-check" id="btn-check">一键检测</button>
-                <span class="status-text" id="status-text"></span>
+        <div class="tool-env-body" id="card-body">
+            <div class="tool-env-toolbar">
+                <button class="ui-button ui-button--success ui-button--sm" id="btn-check">一键检测</button>
+                <span class="tool-env-status-text" id="status-text"></span>
             </div>
-            <div class="table-scroll">
-                <table class="tool-table">
+            <div class="tool-env-table-scroll">
+                <table class="ui-table tool-env-table">
                     <thead>
                         <tr>
                             <th>工具</th>
@@ -32,7 +33,7 @@
                     </thead>
                     <tbody id="tool-tbody">
                         <tr>
-                            <td colspan="4" class="empty-row">加载中...</td>
+                            <td colspan="4" class="tool-env-empty-row">加载中...</td>
                         </tr>
                     </tbody>
                 </table>
