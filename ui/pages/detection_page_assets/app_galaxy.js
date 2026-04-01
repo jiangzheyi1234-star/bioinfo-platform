@@ -47,16 +47,19 @@ const INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE = {
 
 console.log('=== Galaxy Style Detection Page ===');
 
+function setHidden(element, hidden) {
+    if (!element) {
+        return;
+    }
+    element.classList.toggle('is-hidden', Boolean(hidden));
+}
+
 function ensureNoticeContainer() {
     let container = document.getElementById('inline-notice-container');
     if (!container) {
         container = document.createElement('div');
         container.id = 'inline-notice-container';
-        container.style.position = 'fixed';
-        container.style.top = '18px';
-        container.style.right = '18px';
-        container.style.zIndex = '9999';
-        container.style.pointerEvents = 'none';
+        container.className = 'inline-notice-container';
         document.body.appendChild(container);
     }
 
@@ -71,41 +74,16 @@ function showNotice(message, type = 'error', durationMs = 3600) {
 
     const container = ensureNoticeContainer();
     const tone = type === 'success'
-        ? { bg: '#ecfdf3', border: '#86efac', color: '#166534', icon: '✓' }
+        ? { noticeClass: 'ui-notice--success', icon: '✓' }
         : type === 'warning'
-            ? { bg: '#fffbeb', border: '#fcd34d', color: '#92400e', icon: '⚠' }
-            : { bg: '#fef2f2', border: '#fca5a5', color: '#991b1b', icon: 'ⓘ' };
+            ? { noticeClass: 'ui-notice--warning', icon: '⚠' }
+            : { noticeClass: 'ui-notice--danger', icon: 'ⓘ' };
 
     container.innerHTML = `
-        <div role="alert" style="
-            pointer-events: auto;
-            min-width: 320px;
-            max-width: 520px;
-            border-radius: 10px;
-            border: 1px solid ${tone.border};
-            background: ${tone.bg};
-            color: ${tone.color};
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
-            padding: 12px 14px;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            line-height: 1.5;
-            font-size: 13px;
-            white-space: pre-wrap;
-        ">
-            <div style="font-weight: 700; font-size: 15px; line-height: 1; margin-top: 2px;">${tone.icon}</div>
-            <div style="flex:1;">${escapeHtml(text)}</div>
-            <button type="button" style="
-                border: none;
-                background: transparent;
-                color: ${tone.color};
-                font-size: 16px;
-                font-weight: 700;
-                cursor: pointer;
-                line-height: 1;
-                padding: 0 2px;
-            " onclick="dismissNotice()" aria-label="关闭">×</button>
+        <div role="alert" class="ui-notice ${tone.noticeClass}">
+            <div class="ui-notice-icon">${tone.icon}</div>
+            <div class="ui-notice-body">${escapeHtml(text)}</div>
+            <button type="button" class="ui-notice-close" onclick="dismissNotice()" aria-label="关闭">×</button>
         </div>
     `;
 
@@ -309,10 +287,10 @@ function ensureIntegratedRunModal() {
 
     modal = document.createElement('div');
     modal.id = 'integrated-run-modal';
-    modal.className = 'integrated-run-modal';
+    modal.className = 'integrated-run-modal ui-modal';
     modal.innerHTML = `
-        <div class="integrated-run-modal-backdrop" data-close="1"></div>
-        <div class="integrated-run-modal-card" role="dialog" aria-modal="true" aria-labelledby="integrated-run-modal-title">
+        <div class="integrated-run-modal-backdrop ui-modal__backdrop" data-close="1"></div>
+        <div class="integrated-run-modal-card ui-modal__card" role="dialog" aria-modal="true" aria-labelledby="integrated-run-modal-title">
             <div class="integrated-run-modal-header">
                 <h3 id="integrated-run-modal-title">Run Entry</h3>
                 <button class="integrated-run-modal-close" type="button" id="integrated-run-modal-close" aria-label="Close">&times;</button>
@@ -320,7 +298,7 @@ function ensureIntegratedRunModal() {
             <div class="integrated-run-modal-body">
                 <div class="integrated-run-modal-line"><span>Feature</span><strong id="integrated-run-modal-feature">-</strong></div>
                 <div class="integrated-run-modal-line"><span>Tool</span><strong id="integrated-run-modal-tool">-</strong></div>
-                <div class="integrated-run-modal-line" id="integrated-run-modal-tool-select-row" style="display:none">
+                <div class="integrated-run-modal-line is-hidden" id="integrated-run-modal-tool-select-row">
                     <span>分类工具</span>
                     <div id="integrated-run-modal-tool-switch" class="integrated-tool-switch" role="group" aria-label="分类工具选择"></div>
                 </div>
@@ -328,9 +306,9 @@ function ensureIntegratedRunModal() {
                 <div class="integrated-run-modal-form" id="integrated-run-modal-form"></div>
             </div>
             <div class="integrated-run-modal-actions">
-                <button class="btn-secondary" type="button" id="integrated-run-modal-cancel">Cancel</button>
-                <button class="btn-secondary" type="button" id="integrated-run-modal-open-tools">Open Tools</button>
-                <button class="btn-primary" type="button" id="integrated-run-modal-confirm">Submit</button>
+                <button class="ui-button ui-button--secondary" type="button" id="integrated-run-modal-cancel">Cancel</button>
+                <button class="ui-button ui-button--secondary" type="button" id="integrated-run-modal-open-tools">Open Tools</button>
+                <button class="ui-button ui-button--primary" type="button" id="integrated-run-modal-confirm">Submit</button>
             </div>
         </div>
     `;
@@ -445,7 +423,7 @@ function openIntegratedRunModal(feature, toolId) {
 
     if (toolSelectRowEl && toolSwitchEl) {
         if (toolIds.length > 1) {
-            toolSelectRowEl.style.display = '';
+            setHidden(toolSelectRowEl, false);
             toolSwitchEl.innerHTML = toolIds.map(id => {
                 const activeClass = id === activeToolId ? 'is-active' : '';
                 return `<button type="button" class="integrated-tool-switch-btn ${activeClass}" data-tool-id="${escapeHtml(id)}">${escapeHtml(id)}</button>`;
@@ -462,7 +440,7 @@ function openIntegratedRunModal(feature, toolId) {
                 });
             });
         } else {
-            toolSelectRowEl.style.display = 'none';
+            setHidden(toolSelectRowEl, true);
             toolSwitchEl.innerHTML = '';
         }
     }
@@ -494,7 +472,7 @@ function renderIntegratedRunModalForm(descriptor) {
                 <div class="integrated-input-item">
                     <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(input.label || input.name || 'Input')}</span>${required}</div>
                     <div class="input-group">
-                        <input type="text" class="form-input" id="${id}" placeholder="${escapeHtml(input.description || 'Select file')}" readonly>
+                        <input type="text" class="ui-field" id="${id}" placeholder="${escapeHtml(input.description || 'Select file')}" readonly>
                         <button class="btn-browse" type="button" onclick="browseFile('${id}', '${browseFilter}', '${validator}')">Browse...</button>
                     </div>
                 </div>
@@ -518,13 +496,13 @@ function renderIntegratedRunModalForm(descriptor) {
                 : '';
             let inputHtml = '';
             if (param.type === 'int' || param.type === 'integer') {
-                inputHtml = `<input type="number" class="form-input" id="${id}" value="${defaultValue}" step="1">`;
+                inputHtml = `<input type="number" class="ui-field" id="${id}" value="${defaultValue}" step="1">`;
             } else if (param.type === 'float' || param.type === 'number') {
-                inputHtml = `<input type="number" class="form-input" id="${id}" value="${defaultValue}" step="0.01">`;
+                inputHtml = `<input type="number" class="ui-field" id="${id}" value="${defaultValue}" step="0.01">`;
             } else if (param.type === 'bool' || param.type === 'boolean') {
-                inputHtml = `<select class="form-input" id="${id}"><option value="true" ${defaultValue === true ? 'selected' : ''}>Yes</option><option value="false" ${defaultValue === false ? 'selected' : ''}>No</option></select>`;
+                inputHtml = `<select class="ui-field" id="${id}"><option value="true" ${defaultValue === true ? 'selected' : ''}>Yes</option><option value="false" ${defaultValue === false ? 'selected' : ''}>No</option></select>`;
             } else {
-                inputHtml = `<input type="text" class="form-input" id="${id}" value="${escapeHtml(String(defaultValue))}" placeholder="${escapeHtml(param.description || '')}">`;
+                inputHtml = `<input type="text" class="ui-field" id="${id}" value="${escapeHtml(String(defaultValue))}" placeholder="${escapeHtml(param.description || '')}">`;
             }
             const guide = getUsageGuideForParam(descriptor, param.name);
             const helper = guide?.recommendation || param.description || '';
@@ -559,7 +537,7 @@ function renderIntegratedRunModalForm(descriptor) {
             parts.push(`
                 <div class="integrated-input-item">
                     <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(db.label || key)}</span>${required}</div>
-                    <input type="text" class="form-input" id="${id}" value="" readonly placeholder="自动使用设置中配置的数据库路径" style="color:#6c757d;background:#f8f9fa;cursor:default">
+                    <input type="text" class="ui-field integrated-managed-field" id="${id}" value="" readonly placeholder="自动使用设置中配置的数据库路径">
                 </div>
             `);
         });
@@ -710,7 +688,7 @@ function switchIntegratedResultTab(tabName) {
     document.querySelectorAll('.result-tab-panel').forEach(function(panel) {
         const shouldShow = panel.classList.contains(`result-tab-${activeTab}`);
         const panelVisible = panel.dataset.panelVisible !== '0';
-        panel.style.display = shouldShow && panelVisible ? '' : 'none';
+        setHidden(panel, !(shouldShow && panelVisible));
     });
 }
 
@@ -1067,14 +1045,14 @@ function renderDatabaseResources(resources) {
     }
 
     if (!resources.length) {
-        grid.style.display = 'none';
+        setHidden(grid, true);
         grid.innerHTML = '';
-        empty.style.display = 'flex';
+        setHidden(empty, false);
         return;
     }
 
-    empty.style.display = 'none';
-    grid.style.display = 'grid';
+    setHidden(empty, true);
+    setHidden(grid, false);
     grid.innerHTML = resources.map(function(item, index) {
         const stats = item.stats || {};
         const summary = item.type === 'directory'
@@ -1087,7 +1065,7 @@ function renderDatabaseResources(resources) {
                 <div class="database-resource-title">${escapeHtml(item.name || '')}</div>
                 <div class="database-resource-desc">${escapeHtml(item.description || '暂无描述')}</div>
                 <div class="database-resource-meta">${escapeHtml(summary)}</div>
-                <button class="btn-secondary database-detail-btn" type="button" onclick="showDatabaseResourceDetail(${index})">查看详情</button>
+                <button class="ui-button ui-button--secondary ui-button--sm database-detail-btn" type="button" onclick="showDatabaseResourceDetail(${index})">查看详情</button>
             </article>
         `;
     }).join('');
@@ -1297,8 +1275,8 @@ function renderIntegratedFeature(feature, view, options = {}) {
     const isHistoryResult = sourceMode === 'history';
 
     if (!feature || !view) {
-        if (emptyState) emptyState.style.display = 'flex';
-        if (detail) detail.style.display = 'none';
+        setHidden(emptyState, false);
+        setHidden(detail, true);
         if (statusChip) {
             statusChip.textContent = '待选择功能';
             statusChip.dataset.status = 'pending';
@@ -1307,8 +1285,8 @@ function renderIntegratedFeature(feature, view, options = {}) {
         return;
     }
 
-    if (emptyState) emptyState.style.display = 'none';
-    if (detail) detail.style.display = 'flex';
+    setHidden(emptyState, true);
+    setHidden(detail, false);
     if (detail) detail.dataset.sourceMode = sourceMode;
     if (statusChip) {
         statusChip.textContent = view?.status?.label || feature.badge || '已选择';
@@ -1367,17 +1345,17 @@ function renderIntegratedRunEntry(feature, view, options = {}) {
     }
 
     if (options.hidden) {
-        card.style.display = 'none';
+        setHidden(card, true);
         return;
     }
 
     const toolId = getIntegratedToolId(feature, view);
     if (!toolId) {
-        card.style.display = 'none';
+        setHidden(card, true);
         return;
     }
 
-    card.style.display = 'flex';
+    setHidden(card, false);
     const supportedTools = Array.isArray(view?.tool_ids) ? view.tool_ids.filter(Boolean) : [];
     badge.textContent = toolId;
     hint.textContent = '在这里查看输入要求，点击右侧按钮可直接进入插件工作台配置输入文件并提交任务。';
@@ -1582,7 +1560,7 @@ function renderIntegratedSections(sections, options = {}) {
     }
 
     const normalizedSections = Array.isArray(sections) ? sections : [];
-    card.style.display = 'block';
+    setHidden(card, false);
     card.dataset.panelVisible = '1';
     if (normalizedSections.length === 0) {
         container.innerHTML = `<div class="${options.requiredMessage ? 'task-error-banner' : 'integrated-input-empty'}">${escapeHtml(options.requiredMessage || 'Overview 暂无 section 内容。')}</div>`;
@@ -1665,24 +1643,24 @@ function renderIntegratedHtmlPreview(artifacts, options = {}) {
 
     if (!htmlReady) {
         card.dataset.panelVisible = options.requiredMessage ? '1' : '0';
-        card.style.display = options.requiredMessage ? 'block' : 'none';
-        frame.style.display = 'none';
+        setHidden(card, !options.requiredMessage);
+        setHidden(frame, true);
         frame.src = 'about:blank';
-        openBtn.style.display = 'none';
-        empty.style.display = options.requiredMessage ? 'block' : 'none';
+        setHidden(openBtn, true);
+        setHidden(empty, !options.requiredMessage);
         empty.textContent = options.requiredMessage || '';
         return;
     }
 
     const fileUrl = localPathToFileUrl(htmlArtifact.local_path);
     card.dataset.panelVisible = '1';
-    card.style.display = 'block';
+    setHidden(card, false);
     titleEl.textContent = htmlArtifact.name || 'HTML 预览';
-    frame.style.display = fileUrl ? 'block' : 'none';
+    setHidden(frame, !fileUrl);
     frame.src = fileUrl || 'about:blank';
-    empty.style.display = fileUrl ? 'none' : 'block';
+    setHidden(empty, Boolean(fileUrl));
     empty.textContent = fileUrl ? '' : 'HTML 文件已同步，但当前无法生成预览地址。';
-    openBtn.style.display = 'inline-flex';
+    setHidden(openBtn, false);
     openBtn.onclick = function() {
         openLocalArtifact(htmlArtifact.local_path);
     };
@@ -1811,7 +1789,7 @@ function renderIntegratedChart(chartInput, options = {}, retryCount = 0) {
     const validCharts = charts.filter(hasIntegratedChartData);
     if (!validCharts.length) {
         if (card) card.dataset.panelVisible = options.requiredMessage ? '1' : '0';
-        if (card) card.style.display = options.requiredMessage ? 'block' : 'none';
+        setHidden(card, !options.requiredMessage);
         if (container) {
             container.innerHTML = `<div class="${options.requiredMessage ? 'task-error-banner' : 'integrated-input-empty'}">${escapeHtml(options.requiredMessage || '暂无图表数据。')}</div>`;
         }
@@ -1819,7 +1797,7 @@ function renderIntegratedChart(chartInput, options = {}, retryCount = 0) {
     }
 
     if (card) card.dataset.panelVisible = '1';
-    if (card) card.style.display = 'block';
+    setHidden(card, false);
     if (titleEl) titleEl.textContent = validCharts.length > 1 ? '图表视图' : (validCharts[0].title || '图表');
     if (!container || typeof echarts === 'undefined') {
         if (container && typeof echarts === 'undefined') {
@@ -2154,7 +2132,7 @@ function renderToolsList(searchQuery = '') {
     document.getElementById('count').textContent = `${filtered.length} tools`;
 
     if (filtered.length === 0) {
-        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #6c757d; font-size: 12px;">No tools found</div>';
+        container.innerHTML = '<div class="integrated-input-empty tools-empty-state">No tools found</div>';
         return;
     }
 
@@ -2269,8 +2247,8 @@ function selectTool(toolId) {
 
 function showToolPanel(descriptor) {
     // 隐藏占位符，显示内容
-    document.querySelector('.panel-placeholder').style.display = 'none';
-    document.getElementById('panel-content').style.display = 'flex';
+    setHidden(document.querySelector('.panel-placeholder'), true);
+    setHidden(document.getElementById('panel-content'), false);
 
     // 更新头部信息
     document.getElementById('tool-name').textContent = descriptor.name || descriptor.id;
@@ -2286,10 +2264,10 @@ function showToolPanel(descriptor) {
 
     // 渲染数据库
     if (descriptor.databases && descriptor.databases.length > 0) {
-        document.getElementById('databases-section').style.display = 'block';
+        setHidden(document.getElementById('databases-section'), false);
         renderDatabases(descriptor.databases);
     } else {
-        document.getElementById('databases-section').style.display = 'none';
+        setHidden(document.getElementById('databases-section'), true);
     }
 }
 
@@ -2298,7 +2276,7 @@ function renderInputs(inputs) {
     container.innerHTML = '';
 
     if (inputs.length === 0) {
-        container.innerHTML = '<div style="color: #6c757d; font-size: 13px;">No input files required</div>';
+        container.innerHTML = '<div class="integrated-input-empty">No input files required</div>';
         return;
     }
 
@@ -2316,7 +2294,7 @@ function renderInputs(inputs) {
             </label>
             <div class="input-group">
                 <input type="text"
-                       class="form-input"
+                       class="ui-field"
                        id="input-${input.name}"
                        placeholder="${input.description || 'Select file...'}"
                        readonly>
@@ -2334,7 +2312,7 @@ function renderParams(params) {
     container.innerHTML = '';
 
     if (params.length === 0) {
-        container.innerHTML = '<div style="color: #6c757d; font-size: 13px;">No parameters to configure</div>';
+        container.innerHTML = '<div class="integrated-input-empty">No parameters to configure</div>';
         return;
     }
 
@@ -2354,18 +2332,18 @@ function renderParams(params) {
 
         let inputHtml = '';
         if (param.type === 'int' || param.type === 'integer') {
-            inputHtml = `<input type="number" class="form-input" id="param-${param.name}" value="${defaultValue}" step="1">`;
+            inputHtml = `<input type="number" class="ui-field" id="param-${param.name}" value="${defaultValue}" step="1">`;
         } else if (param.type === 'float' || param.type === 'number') {
-            inputHtml = `<input type="number" class="form-input" id="param-${param.name}" value="${defaultValue}" step="0.01">`;
+            inputHtml = `<input type="number" class="ui-field" id="param-${param.name}" value="${defaultValue}" step="0.01">`;
         } else if (param.type === 'bool' || param.type === 'boolean') {
             inputHtml = `
-                <select class="form-input" id="param-${param.name}">
+                <select class="ui-field" id="param-${param.name}">
                     <option value="true" ${defaultValue === true ? 'selected' : ''}>Yes</option>
                     <option value="false" ${defaultValue === false ? 'selected' : ''}>No</option>
                 </select>
             `;
         } else {
-            inputHtml = `<input type="text" class="form-input" id="param-${param.name}" value="${defaultValue}" placeholder="${param.description || ''}">`;
+            inputHtml = `<input type="text" class="ui-field" id="param-${param.name}" value="${defaultValue}" placeholder="${param.description || ''}">`;
         }
 
         const guide = getUsageGuideForParam(selectedDescriptor, param.name);
@@ -2412,7 +2390,7 @@ function renderDatabases(databases) {
             </label>
             <div class="input-group">
                 <input type="text"
-                       class="form-input"
+                       class="ui-field"
                        id="db-${db.param_name || db.name}"
                        placeholder="${db.description || '远端数据库路径...'}"
                        title="${defaultVal}"
@@ -2628,7 +2606,7 @@ function onRunResult(result) {
 }
 function clearForm() {
     // 清空所有输入
-    document.querySelectorAll('.form-input').forEach(input => {
+    document.querySelectorAll('.ui-field').forEach(input => {
         if (!input.readOnly) {
             input.value = '';
         }

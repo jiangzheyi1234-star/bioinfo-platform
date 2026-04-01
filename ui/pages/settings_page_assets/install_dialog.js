@@ -63,7 +63,7 @@ function applySnapshot(raw) {
     }
 
     statusRow.textContent = snapshot.message || "";
-    statusRow.className = "status-row";
+    statusRow.className = "install-status-row";
     if (status === "DONE") {
         statusRow.classList.add("success");
     } else if (status === "FAILED") {
@@ -75,7 +75,7 @@ function applySnapshot(raw) {
     btnInstall.disabled = !Boolean(snapshot.primary_enabled);
 
     btnCancel.textContent = snapshot.secondary_label || "关闭";
-    btnCancel.style.display = snapshot.secondary_visible === false ? "none" : "";
+    btnCancel.classList.toggle("is-hidden", snapshot.secondary_visible === false);
 }
 
 function onPrimaryClick() {

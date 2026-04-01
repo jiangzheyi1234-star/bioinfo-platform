@@ -1,26 +1,18 @@
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-    background: #ffffff;
-    color: #24292f;
-    font-size: 13px;
+    font-family: var(--ui-font-family);
+    background: var(--ui-color-panel);
+    color: var(--ui-color-text);
+    font-size: var(--ui-font-size-body);
     -webkit-font-smoothing: antialiased;
 }
 
 .dialog-shell {
-    padding: 16px;
+    padding: var(--ui-space-3);
 }
 
-.info-block {
-    background: #f6f8fa;
-    border: 1px solid #d0d7de;
-    border-radius: 8px;
-    padding: 12px 14px;
+.install-dialog-panel,
+.install-progress-panel {
+    padding: var(--ui-space-2) 14px;
 }
 
 .info-row {
@@ -34,26 +26,19 @@ body {
     margin-top: 8px;
 }
 
-.info-label {
-    color: #57606a;
-    font-size: 12px;
+.install-dialog-label {
+    color: var(--ui-color-text-muted);
+    font-size: var(--ui-font-size-body-sm);
     line-height: 1.5;
 }
 
-.info-value {
-    color: #24292f;
-    font-size: 12px;
+.install-dialog-value {
+    color: var(--ui-color-text);
+    font-size: var(--ui-font-size-body-sm);
     line-height: 1.5;
 }
 
-.env-name {
-    display: inline-block;
-    font-family: "SF Mono", Consolas, monospace;
-    font-size: 11px;
-    background: #ddf4ff;
-    color: #0969da;
-    padding: 1px 6px;
-    border-radius: 999px;
+#conda-env {
     margin-right: 6px;
 }
 
@@ -62,15 +47,11 @@ body {
 }
 
 .db-warn {
-    color: #9a6700;
+    color: var(--ui-color-warning);
 }
 
-.progress-block {
+.install-progress-panel {
     margin-top: 12px;
-    padding: 12px 14px;
-    background: #f6f8fa;
-    border: 1px solid #d0d7de;
-    border-radius: 8px;
 }
 
 .progress-header {
@@ -83,26 +64,26 @@ body {
 .dot {
     width: 8px;
     height: 8px;
-    border-radius: 50%;
+    border-radius: var(--ui-radius-pill);
     flex-shrink: 0;
-    background: #8c959f;
+    background: var(--ui-color-text-subtle);
 }
 
 .dot.idle {
-    background: #8c959f;
+    background: var(--ui-color-text-subtle);
 }
 
 .dot.running {
-    background: #9c27b0;
+    background: #7c3aed;
     animation: pulse 1s infinite;
 }
 
 .dot.done {
-    background: #1a7f37;
+    background: var(--ui-color-success);
 }
 
 .dot.failed {
-    background: #cf222e;
+    background: var(--ui-color-danger);
 }
 
 @keyframes pulse {
@@ -110,15 +91,15 @@ body {
     50% { opacity: 0.35; }
 }
 
-.phase-text {
+.install-phase-text {
     flex: 1;
-    color: #57606a;
-    font-size: 12px;
+    color: var(--ui-color-text-muted);
+    font-size: var(--ui-font-size-body-sm);
 }
 
-.speed-text {
-    color: #8c959f;
-    font-size: 11px;
+.install-speed-text {
+    color: var(--ui-color-text-subtle);
+    font-size: var(--ui-font-size-caption);
     font-family: "SF Mono", Consolas, monospace;
 }
 
@@ -128,26 +109,26 @@ progress {
     appearance: none;
     border: none;
     background: #d8dee4;
-    border-radius: 999px;
+    border-radius: var(--ui-radius-pill);
     overflow: hidden;
 }
 
 progress::-webkit-progress-bar {
     background: #d8dee4;
-    border-radius: 999px;
+    border-radius: var(--ui-radius-pill);
 }
 
 progress::-webkit-progress-value {
-    background: #9c27b0;
-    border-radius: 999px;
+    background: var(--ui-color-accent);
+    border-radius: var(--ui-radius-pill);
     transition: width 0.25s ease;
 }
 
-.progress-pct {
+.install-progress-pct {
     margin-top: 6px;
     text-align: right;
-    color: #8c959f;
-    font-size: 11px;
+    color: var(--ui-color-text-subtle);
+    font-size: var(--ui-font-size-caption);
 }
 
 .log-block {
@@ -157,8 +138,8 @@ progress::-webkit-progress-value {
 details summary {
     list-style: none;
     cursor: pointer;
-    color: #57606a;
-    font-size: 12px;
+    color: var(--ui-color-text-muted);
+    font-size: var(--ui-font-size-body-sm);
     user-select: none;
 }
 
@@ -171,12 +152,12 @@ details[open] summary::before {
     content: "▼ ";
 }
 
-.log-area {
+.install-log-area {
     margin-top: 8px;
     background: #1f2937;
     color: #dbe4f0;
     font-family: "SF Mono", Consolas, monospace;
-    font-size: 11px;
+    font-size: var(--ui-font-size-caption);
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-all;
@@ -186,29 +167,29 @@ details[open] summary::before {
     overflow-y: auto;
 }
 
-.log-area::-webkit-scrollbar {
+.install-log-area::-webkit-scrollbar {
     width: 6px;
 }
 
-.log-area::-webkit-scrollbar-thumb {
+.install-log-area::-webkit-scrollbar-thumb {
     background: #4b5563;
     border-radius: 999px;
 }
 
-.status-row {
+.install-status-row {
     min-height: 18px;
     margin-top: 10px;
-    color: #57606a;
-    font-size: 12px;
+    color: var(--ui-color-text-muted);
+    font-size: var(--ui-font-size-body-sm);
 }
 
-.status-row.success {
-    color: #1a7f37;
+.install-status-row.success {
+    color: var(--ui-color-success);
     font-weight: 500;
 }
 
-.status-row.error {
-    color: #cf222e;
+.install-status-row.error {
+    color: var(--ui-color-danger);
 }
 
 .btn-row {
@@ -216,39 +197,4 @@ details[open] summary::before {
     justify-content: flex-end;
     gap: 8px;
     margin-top: 16px;
-}
-
-.btn {
-    border-radius: 6px;
-    border: 1px solid #d0d7de;
-    padding: 6px 16px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.btn-cancel {
-    background: #f6f8fa;
-    color: #24292f;
-}
-
-.btn-cancel:hover {
-    background: #eef2f6;
-}
-
-.btn-primary {
-    background: linear-gradient(to bottom, #1f6feb, #1158c7);
-    color: #ffffff;
-    border-color: #1158c7;
-}
-
-.btn-primary:hover:not(:disabled) {
-    box-shadow: 0 2px 6px rgba(31, 111, 235, 0.35);
-}
-
-.btn-primary:disabled {
-    background: #8c959f;
-    border-color: #8c959f;
-    cursor: not-allowed;
 }
