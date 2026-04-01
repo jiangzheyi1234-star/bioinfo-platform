@@ -2,6 +2,11 @@
 ## ⚠️ 最高优先级
 失败必须大声抛出，禁止 silent fallback，禁止保留已删除字段的任何兜底引用。
 
+## 测试约定
+
+1. `pytest` 统一由用户自行测试，Codex 不负责继续在当前 agent 环境内执行或兜底 `pytest`。
+2. Codex 不得为了“跑过测试”而删除测试、弱化断言，或修改产品代码去迎合错误测试环境。
+
 
 
 
@@ -69,4 +74,3 @@
 - **Windows UTF-8**：设 `WSL_UTF8=1` + `PYTHONUTF8=1`，参考 `scripts/codex_wsl_utf8_doctor.ps1`。
 
 ## 当前任务状态
-

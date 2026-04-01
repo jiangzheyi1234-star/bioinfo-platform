@@ -656,7 +656,18 @@ class TestDetectionIntegratedWorkbench:
 
     def test_detection_asset_contains_integrated_console_markup(self):
         html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
-        js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        chart_renderer_js = Path("ui/pages/detection_page_assets/render/chart_renderer.js").read_text(encoding="utf-8")
+        integrated_renderer_js = Path(
+            "ui/pages/detection_page_assets/render/integrated_workbench_renderer.js"
+        ).read_text(encoding="utf-8")
+        result_viewers_js = Path("ui/pages/detection_page_assets/render/result_viewers.js").read_text(
+            encoding="utf-8"
+        )
+        integrated_sidebar_js = Path(
+            "ui/pages/detection_page_assets/render/integrated_sidebar.js"
+        ).read_text(encoding="utf-8")
+        js = "\n".join([app_js, chart_renderer_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js])
         css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
 
         assert 'id="tab-integrated"' in html
@@ -685,11 +696,13 @@ class TestDetectionIntegratedWorkbench:
         assert 'services/bridge_results.js' in html
         assert 'render/database_panel.js' in html
         assert 'render/history_panel.js' in html
+        assert 'render/history_status.js' in html
         assert 'render/integrated_sidebar.js' in html
         assert 'render/result_viewers.js' in html
         assert 'render/run_modal.js' in html
         assert 'render/chart_renderer.js' in html
         assert 'render/tool_panel.js' in html
+        assert 'render/integrated_workbench_renderer.js' in html
         assert 'utils/helpers.js' in html
         assert 'results/open_results_state.js' in html
         assert 'results/history_result_loader.js' in html
@@ -745,10 +758,23 @@ class TestDetectionIntegratedWorkbench:
 
     def test_result_shell_overrides_use_module_interfaces(self):
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        chart_renderer_js = Path("ui/pages/detection_page_assets/render/chart_renderer.js").read_text(encoding="utf-8")
+        history_status_js = Path("ui/pages/detection_page_assets/render/history_status.js").read_text(encoding="utf-8")
+        integrated_renderer_js = Path(
+            "ui/pages/detection_page_assets/render/integrated_workbench_renderer.js"
+        ).read_text(encoding="utf-8")
+        result_viewers_js = Path("ui/pages/detection_page_assets/render/result_viewers.js").read_text(
+            encoding="utf-8"
+        )
+        integrated_sidebar_js = Path(
+            "ui/pages/detection_page_assets/render/integrated_sidebar.js"
+        ).read_text(encoding="utf-8")
         override_js = Path("ui/pages/detection_page_assets/result_shell_overrides.js").read_text(encoding="utf-8")
         history_loader_js = Path("ui/pages/detection_page_assets/results/history_result_loader.js").read_text(encoding="utf-8")
         database_panel_js = Path("ui/pages/detection_page_assets/render/database_panel.js").read_text(encoding="utf-8")
-        js = app_js
+        js = "\n".join(
+            [app_js, chart_renderer_js, history_status_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js]
+        )
 
         assert "global.renderSummaryGrid" not in override_js
         assert "global.renderIntegratedSections" not in override_js
@@ -799,6 +825,8 @@ class TestDetectionIntegratedWorkbench:
         assert "window.HistoryPanelRenderer.renderHistoryPanel({" in app_js
         assert "window.IntegratedRunModal.openIntegratedRunModal(feature, toolId)" in app_js
         assert "window.IntegratedChartRenderer.configureRuntime" in app_js
+        assert "window.IntegratedWorkbenchRenderer.configureRuntime" in app_js
+        assert "window.HistoryStatusRenderer.configureRuntime" in app_js
         assert "window.IntegratedChartRenderer.resizeIntegratedCharts()" in app_js
         assert "window.ToolPanelRenderer.configureRuntime" in app_js
         assert "window.ToolPanelRenderer.loadTools()" in app_js
@@ -823,6 +851,33 @@ class TestDetectionIntegratedWorkbench:
         assert "function runTool(" not in app_js
         assert "function onRunResult(" not in app_js
         assert "function clearForm(" not in app_js
+        assert "function getIntegratedToolId(" not in app_js
+        assert "function openIntegratedRunEntry(" not in app_js
+        assert "function initializeIntegratedSectionToggles(" not in app_js
+        assert "function initializeIntegratedResultTabs(" not in app_js
+        assert "function switchIntegratedResultTab(" not in app_js
+        assert "function getIntegratedTablePayload(" not in app_js
+        assert "function getIntegratedCharts(" not in app_js
+        assert "function hasIntegratedChartData(" not in app_js
+        assert "function getIntegratedHtmlArtifact(" not in app_js
+        assert "function getArtifactPriority(" not in app_js
+        assert "function sortIntegratedArtifacts(" not in app_js
+        assert "function getIntegratedViewerStrategy(" not in app_js
+        assert "function buildIntegratedViewerState(" not in app_js
+        assert "function hasIntegratedResultContent(" not in app_js
+        assert "function getDefaultIntegratedResultTab(" not in app_js
+        assert "function setSectionCollapsed(" not in app_js
+        assert "function renderIntegratedFeature(" not in app_js
+        assert "function renderIntegratedRunEntry(" not in app_js
+        assert "function updateIntegratedRunEntryFromDescriptor(" not in app_js
+        assert "function openLocalArtifact(" not in app_js
+        assert "function localPathToFileUrl(" not in app_js
+        assert "function renderIntegratedHtmlPreview(" not in app_js
+        assert "function renderIntegratedTable(" not in app_js
+        assert "function getIntegratedColumnCellClass(" not in app_js
+        assert "function buildExecutionRemoteStatusHtml(" not in app_js
+        assert "function toggleExecutionRemoteStatus(" not in app_js
+        assert "function deleteHistoryExecution(" not in app_js
         assert "function switchTab(tab)" in js
         assert "function activateTab(tab)" in js
         assert "function switchTab(tab, options = {})" not in js
