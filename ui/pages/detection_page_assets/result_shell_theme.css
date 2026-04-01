@@ -219,7 +219,7 @@
     color: var(--report-text);
 }
 
-.ui-badge {
+#tab-integrated .ui-badge {
     padding: 3px 8px;
     border: 1px solid var(--report-border);
     background: #f1f5fb;
