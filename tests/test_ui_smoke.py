@@ -938,6 +938,13 @@ def test_linux_settings_web_install_is_deferred(qapp, monkeypatch):
     card.close()
 
 
+def test_tool_env_table_install_button_selector_matches_markup():
+    js = Path("ui/pages/settings_page_assets/tool_env_table.js").read_text(encoding="utf-8")
+
+    assert "querySelector('.btn-install')" in js
+    assert 'class="btn-install ui-button ui-button--primary ui-button--sm ui-button--install is-hidden"' in js
+
+
 def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
