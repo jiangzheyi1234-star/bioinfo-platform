@@ -154,10 +154,23 @@
   - `app_galaxy.js` 中 notice 模板
   - `app_galaxy.js` 中 modal 显隐热点
   - `app_galaxy.js` 中输入控件与空状态模板
+- 检测页剩余基础按钮统一到 `ui-button`：
+  - `btn-browse` -> `form-browse-btn` + `ui-button`
+  - `database-scan-btn` -> `database-page-scan-btn` + `ui-button`
+  - `btn-refresh` -> `history-refresh-btn` + `ui-button`
+- 检测页剩余 badge 和状态芯片统一到 `ui-badge`
+- 检测页剩余通用搜索/输入框统一到 `ui-field`
+- 检测页结果主题对共享组件的覆盖边界收窄到 `#tab-integrated`
 
-## In Progress
+## Detection Page Layout Keepers
 
-- 检测页更广范围的基础类进一步统一到 `ui-*`
+- 保留为页面专属布局或业务结构：
+  - `history-table-card`
+  - `integrated-shell`
+  - `database-page`
+  - `history-page`
+  - `integrated-main-layout`
+- 以上类名不迁入共享层；共享层只负责基础组件和 token
 
 ## Pending
 
