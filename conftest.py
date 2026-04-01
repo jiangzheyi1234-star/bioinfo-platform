@@ -2,6 +2,12 @@
 
 import os
 import sys
+
+# 设置 Qt backend（在导入 PyQt 之前）
+if os.environ.get('QT_QPA_PLATFORM') is None:
+    # 默认使用 offscreen 避免 Wayland popup 问题
+    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+
 import tempfile
 import warnings
 from datetime import datetime
