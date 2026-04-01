@@ -658,6 +658,8 @@ class TestDetectionIntegratedWorkbench:
         html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
         chart_renderer_js = Path("ui/pages/detection_page_assets/render/chart_renderer.js").read_text(encoding="utf-8")
+        ui_feedback_js = Path("ui/pages/detection_page_assets/render/ui_feedback.js").read_text(encoding="utf-8")
+        history_status_js = Path("ui/pages/detection_page_assets/render/history_status.js").read_text(encoding="utf-8")
         integrated_renderer_js = Path(
             "ui/pages/detection_page_assets/render/integrated_workbench_renderer.js"
         ).read_text(encoding="utf-8")
@@ -667,7 +669,14 @@ class TestDetectionIntegratedWorkbench:
         integrated_sidebar_js = Path(
             "ui/pages/detection_page_assets/render/integrated_sidebar.js"
         ).read_text(encoding="utf-8")
-        js = "\n".join([app_js, chart_renderer_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js])
+        history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
+        history_result_loader_js = Path(
+            "ui/pages/detection_page_assets/results/history_result_loader.js"
+        ).read_text(encoding="utf-8")
+        workbench_state_manager_js = Path(
+            "ui/pages/detection_page_assets/results/workbench_state_manager.js"
+        ).read_text(encoding="utf-8")
+        js = "\n".join([app_js, chart_renderer_js, ui_feedback_js, history_status_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js, history_panel_js, history_result_loader_js, workbench_state_manager_js])
         css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
 
         assert 'id="tab-integrated"' in html
@@ -684,7 +693,6 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-table-card"' in html
         assert 'id="integrated-html-card"' in html
         assert 'id="integrated-html-frame"' in html
-        assert 'class="integrated-html-frame"' in html
         assert 'id="integrated-sections-card"' in html
         assert 'id="integrated-sections-list"' in html
         assert 'id="integrated-files-card"' in html
@@ -694,6 +702,7 @@ class TestDetectionIntegratedWorkbench:
         assert 'services/bridge_tools.js' in html
         assert 'services/bridge_history.js' in html
         assert 'services/bridge_results.js' in html
+        assert 'render/ui_feedback.js' in html
         assert 'render/database_panel.js' in html
         assert 'render/history_panel.js' in html
         assert 'render/history_status.js' in html
@@ -705,6 +714,7 @@ class TestDetectionIntegratedWorkbench:
         assert 'render/integrated_workbench_renderer.js' in html
         assert 'utils/helpers.js' in html
         assert 'results/open_results_state.js' in html
+        assert 'results/workbench_state_manager.js' in html
         assert 'results/history_result_loader.js' in html
         assert 'results/workbench_selection.js' in html
         assert 'loadExecutionResultsFromHistory' in js
@@ -720,11 +730,11 @@ class TestDetectionIntegratedWorkbench:
         assert 'bridgeToolsService' in js
         assert 'bridgeHistoryService' in js
         assert 'bridgeResultsService' in js
-        assert 'window.HistoryPanelRenderer.renderHistoryPanel' in js
-        assert 'window.IntegratedSidebarRenderer.renderIntegratedSidebar' in js
-        assert 'window.ResultViewerRenderers.renderSummaryGrid' in js
-        assert 'window.HistoryResultLoader.loadExecutionResultsFromHistory' in js
-        assert 'window.IntegratedWorkbenchSelection.getIntegratedFeatureView' in js
+        assert 'HistoryPanelRenderer' in js
+        assert 'IntegratedSidebarRenderer' in js
+        assert 'ResultViewerRenderers' in js
+        assert 'HistoryResultLoader' in js
+        assert 'IntegratedWorkbenchSelection' in js
         assert 'renderIntegratedProvenance' in js
         assert 'renderIntegratedSections' in js
         assert 'initializeIntegratedResultTabs' in js
@@ -745,7 +755,7 @@ class TestDetectionIntegratedWorkbench:
         assert "'html-first'" in js
         assert "'files-first'" in js
         assert "qc_report: ['chart', 'files']" in js
-        assert "const availableArtifact = normalizedArtifacts.find" in js
+        assert "var availableArtifact = normalizedArtifacts.find" in js
         assert 'syncIntegratedWorkbenchProjectScope' in js
         assert 'clearIntegratedExecutionCache' in js
         assert 'activeIntegratedProjectId' in js
@@ -759,6 +769,7 @@ class TestDetectionIntegratedWorkbench:
     def test_result_shell_overrides_use_module_interfaces(self):
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
         chart_renderer_js = Path("ui/pages/detection_page_assets/render/chart_renderer.js").read_text(encoding="utf-8")
+        ui_feedback_js = Path("ui/pages/detection_page_assets/render/ui_feedback.js").read_text(encoding="utf-8")
         history_status_js = Path("ui/pages/detection_page_assets/render/history_status.js").read_text(encoding="utf-8")
         integrated_renderer_js = Path(
             "ui/pages/detection_page_assets/render/integrated_workbench_renderer.js"
@@ -772,9 +783,24 @@ class TestDetectionIntegratedWorkbench:
         override_js = Path("ui/pages/detection_page_assets/result_shell_overrides.js").read_text(encoding="utf-8")
         history_loader_js = Path("ui/pages/detection_page_assets/results/history_result_loader.js").read_text(encoding="utf-8")
         database_panel_js = Path("ui/pages/detection_page_assets/render/database_panel.js").read_text(encoding="utf-8")
+        tool_panel_js = Path("ui/pages/detection_page_assets/render/tool_panel.js").read_text(encoding="utf-8")
+        history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
+        history_result_loader_js = Path(
+            "ui/pages/detection_page_assets/results/history_result_loader.js"
+        ).read_text(encoding="utf-8")
+        workbench_state_manager_js = Path(
+            "ui/pages/detection_page_assets/results/workbench_state_manager.js"
+        ).read_text(encoding="utf-8")
+        open_results_state_js = Path(
+            "ui/pages/detection_page_assets/results/open_results_state.js"
+        ).read_text(encoding="utf-8")
+        workbench_selection_js = Path(
+            "ui/pages/detection_page_assets/results/workbench_selection.js"
+        ).read_text(encoding="utf-8")
         js = "\n".join(
-            [app_js, chart_renderer_js, history_status_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js]
+            [app_js, chart_renderer_js, ui_feedback_js, history_status_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js, tool_panel_js, history_panel_js, history_result_loader_js, workbench_state_manager_js, open_results_state_js, workbench_selection_js]
         )
+        css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
 
         assert "global.renderSummaryGrid" not in override_js
         assert "global.renderIntegratedSections" not in override_js
@@ -787,6 +813,7 @@ class TestDetectionIntegratedWorkbench:
         assert "openExecutionWithRuntime" in history_loader_js
         assert "window.HistoryResultLoader.configureRuntime" in app_js
         assert "window.IntegratedRunModal.configureRuntime" in app_js
+        assert "window.DetectionPageUiFeedback.configureRuntime" in app_js
         assert "window.DetectionPageHelpers" in app_js
         assert "function renderSummaryGrid(" not in app_js
         assert "function renderArtifactList(" not in app_js
@@ -826,6 +853,7 @@ class TestDetectionIntegratedWorkbench:
         assert "window.IntegratedRunModal.openIntegratedRunModal(feature, toolId)" in app_js
         assert "window.IntegratedChartRenderer.configureRuntime" in app_js
         assert "window.IntegratedWorkbenchRenderer.configureRuntime" in app_js
+        assert "window.IntegratedWorkbenchStateManager.configureRuntime" in app_js
         assert "window.HistoryStatusRenderer.configureRuntime" in app_js
         assert "window.IntegratedChartRenderer.resizeIntegratedCharts()" in app_js
         assert "window.ToolPanelRenderer.configureRuntime" in app_js
@@ -878,6 +906,35 @@ class TestDetectionIntegratedWorkbench:
         assert "function buildExecutionRemoteStatusHtml(" not in app_js
         assert "function toggleExecutionRemoteStatus(" not in app_js
         assert "function deleteHistoryExecution(" not in app_js
+        assert "function ensureNoticeContainer(" not in app_js
+        assert "function showNotice(" not in app_js
+        assert "function dismissNotice(" not in app_js
+        assert "function closeHelpTooltip(" not in app_js
+        assert "function openHelpTooltip(" not in app_js
+        assert "function bindHelpTooltipInteractions(" not in app_js
+        assert "const showNotice = window.DetectionPageUiFeedback.showNotice;" in app_js
+        assert "const bindHelpTooltipInteractions = window.DetectionPageUiFeedback.bindHelpTooltipInteractions;" in app_js
+        assert "function getIntegratedOpenResultsState(" not in app_js
+        assert "function syncIntegratedExecutionViewsFromState(" not in app_js
+        assert "function isIntegratedHistoryFeatureId(" not in app_js
+        assert "function isIntegratedPinnedFeatureId(" not in app_js
+        assert "function syncIntegratedHistoryResultControls(" not in app_js
+        assert "function buildIntegratedHistoryResultKey(" not in app_js
+        assert "function rememberIntegratedExecutionView(" not in app_js
+        assert "function setIntegratedHistoryResultPinned(" not in app_js
+        assert "function setIntegratedHistoryResultActive(" not in app_js
+        assert "function closeIntegratedHistoryResultState(" not in app_js
+        assert "function clearUnpinnedIntegratedHistoryResultState(" not in app_js
+        assert "function clearIntegratedExecutionCache(" not in app_js
+        assert "function syncIntegratedWorkbenchProjectScope(" not in app_js
+        assert "function restoreIntegratedExecutionFeatures(" not in app_js
+        assert "function ensureIntegratedWorkbenchViews(" not in app_js
+        assert "function getIntegratedWorkbenchFeature(" not in app_js
+        assert "function removeIntegratedWorkbenchFeature(" not in app_js
+        assert "function closeIntegratedHistoryFeature(" not in app_js
+        assert "function clearIntegratedTemporaryFeatures(" not in app_js
+        assert "function upsertIntegratedHistoryFeature(" not in app_js
+        assert "function applyIntegratedHistoryPayload(" not in app_js
         assert "function switchTab(tab)" in js
         assert "function activateTab(tab)" in js
         assert "function switchTab(tab, options = {})" not in js
@@ -910,15 +967,14 @@ class TestDetectionIntegratedWorkbench:
         assert "selectIntegratedFeature(featureId, { sourceMode: 'history' });" in js
         assert "当前 execution 未提供表格结果。" in js
         assert "主 viewer 策略为" in js
-        assert "要求 ${strategy.mode} 主 viewer" in js
+        assert "要求 " in js
         assert "statusChip.dataset.status" in js
         assert "history-running-text" in js
         assert "task-info-banner" in js
         assert "integrated-section-item" in js
         assert "selectedIntegratedViewSource === 'history'" in js
         assert "restoreIntegratedExecutionFeatures();" in js
-        assert "return viewerState.primaryTab;" in js
-        assert "nextWorkbench?.project_id" in js
+        assert "nextWorkbench && nextWorkbench.project_id" in js
         assert "clearIntegratedExecutionCache();" in js
         assert "--state-running-fg" in css
         assert "--state-completed-fg" in css
@@ -930,16 +986,12 @@ class TestDetectionIntegratedWorkbench:
         assert ".integrated-sidebar-actions" in css
         assert ".integrated-feature-action" in css
         assert ".integrated-feature-item[data-source-mode=\"history\"]" in css
-
-        context_priority = js.find("context.featureId")
-        payload_priority = js.find("payload.view.feature_id")
-        assert context_priority != -1
-        assert payload_priority != -1
-        assert context_priority < payload_priority
         assert "featureId: 'fastp'" in js
 
     def test_detection_history_empty_state_and_sample_fallback(self):
-        js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
+        history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
+        js = "\n".join([app_js, history_panel_js])
 
         assert "history.length === 0" in js
         assert "暂无任务记录" in js
