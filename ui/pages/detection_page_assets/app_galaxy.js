@@ -25,8 +25,8 @@ if (!window.DatabasePanelRenderer || !window.HistoryPanelRenderer || !window.Int
 if (!window.HistoryResultLoader || !window.IntegratedWorkbenchSelection) {
     throw new Error('Result workbench modules are required for detection page bootstrapping');
 }
-if (!window.IntegratedRunModal) {
-    throw new Error('IntegratedRunModal module is required for detection page bootstrapping');
+if (!window.IntegratedRunModal || !window.IntegratedChartRenderer) {
+    throw new Error('Integrated modal/chart renderer modules are required for detection page bootstrapping');
 }
 if (!window.DetectionPageHelpers) {
     throw new Error('DetectionPageHelpers module is required for detection page bootstrapping');
@@ -657,17 +657,9 @@ function switchTab(tab) {
 
     if (tab === 'integrated') {
         // ECharts resize on tab switch
-        if (_integratedChartInstances && _integratedChartInstances.length) {
-            setTimeout(function() {
-                _integratedChartInstances.forEach(instance => {
-                    try {
-                        instance.resize();
-                    } catch (_) {
-                        // ignore
-                    }
-                });
-            }, 100);
-        }
+        setTimeout(function() {
+            window.IntegratedChartRenderer.resizeIntegratedCharts();
+        }, 100);
     }
 }
 
@@ -1207,386 +1199,6 @@ function getIntegratedColumnCellClass(columnKey) {
     return '';
 }
 
-let _integratedChartInstances = [];
-let _integratedChartResizeBound = false;
-
-function disposeIntegratedCharts() {
-    _integratedChartInstances.forEach(instance => {
-        try {
-            instance.dispose();
-        } catch (_) {
-            // ignore
-        }
-    });
-    _integratedChartInstances = [];
-}
-
-function getDomainColor(name) {
-    const text = String(name || '').toLowerCase();
-    if (text.includes('virus') || text.includes('viruses')) return '#ef4444';
-    if (text.includes('fungi') || text.includes('fungus')) return '#22c55e';
-    if (text.includes('bacteria')) return '#3b82f6';
-    if (text.includes('archaea')) return '#f59e0b';
-    return '#64748b';
-}
-
-function getChartDomain(item) {
-    const text = String(item?.name || '').toLowerCase();
-    if (text.includes('virus')) return 'Viruses';
-    if (text.includes('fung')) return 'Fungi';
-    if (text.includes('archaea')) return 'Archaea';
-    return 'Bacteria';
-}
-
-function ensureEchartsLoaded() {
-    if (typeof echarts !== 'undefined') {
-        return;
-    }
-    if (_echartsLoadRequested) {
-        return;
-    }
-    _echartsLoadRequested = true;
-
-    const script = document.createElement('script');
-    script.src = 'echarts.min.js';
-    script.async = false;
-    script.onload = function() {
-        console.log('echarts dynamically loaded');
-    };
-    script.onerror = function() {
-        console.error('Failed to load echarts.min.js');
-        showNotice('Failed to load local chart engine: echarts.min.js', 'error', 5000);
-    };
-    document.head.appendChild(script);
-}
-
-function renderIntegratedChart(chartInput, options = {}, retryCount = 0) {
-    const card = document.getElementById('integrated-chart-card');
-    const container = document.getElementById('integrated-chart-container');
-    const titleEl = document.getElementById('chart-card-title');
-
-    if (_integratedChartRetryTimer) {
-        clearTimeout(_integratedChartRetryTimer);
-        _integratedChartRetryTimer = null;
-    }
-
-    disposeIntegratedCharts();
-
-    const charts = getIntegratedCharts(chartInput);
-    const validCharts = charts.filter(hasIntegratedChartData);
-    if (!validCharts.length) {
-        if (card) card.dataset.panelVisible = options.requiredMessage ? '1' : '0';
-        setHidden(card, !options.requiredMessage);
-        if (container) {
-            container.innerHTML = `<div class="${options.requiredMessage ? 'task-error-banner' : 'integrated-input-empty'}">${escapeHtml(options.requiredMessage || '暂无图表数据。')}</div>`;
-        }
-        return;
-    }
-
-    if (card) card.dataset.panelVisible = '1';
-    setHidden(card, false);
-    if (titleEl) titleEl.textContent = validCharts.length > 1 ? '图表视图' : (validCharts[0].title || '图表');
-    if (!container || typeof echarts === 'undefined') {
-        if (container && typeof echarts === 'undefined') {
-            ensureEchartsLoaded();
-            if (retryCount < 20) {
-                container.innerHTML = '<div class="integrated-input-empty">Loading chart engine...</div>';
-                _integratedChartRetryTimer = window.setTimeout(function() {
-                    renderIntegratedChart(chartInput, options, retryCount + 1);
-                }, 250);
-            } else {
-                container.innerHTML = '<div class="integrated-input-empty">Chart engine unavailable (echarts not loaded).</div>';
-            }
-        }
-        return;
-    }
-
-    container.innerHTML = '';
-
-    validCharts.forEach((chartData, index) => {
-        const chartWrap = document.createElement('div');
-        chartWrap.className = 'integrated-chart-item';
-        const localTitle = document.createElement('div');
-        localTitle.className = 'integrated-chart-item-title';
-        localTitle.textContent = chartData.title || `图表 ${index + 1}`;
-        const chartDiv = document.createElement('div');
-        chartDiv.className = 'integrated-chart-item-canvas';
-        chartDiv.style.width = '100%';
-        const dynamicHeight = (chartData.type === 'abundance_bar' || chartData.type === 'amplicon_performance')
-            ? `${Math.min(Math.max(300, chartData.data.length * 22 + 90), 680)}px`
-            : '360px';
-        chartDiv.style.height = dynamicHeight;
-        chartWrap.appendChild(localTitle);
-        chartWrap.appendChild(chartDiv);
-        container.appendChild(chartWrap);
-
-        const instance = echarts.init(chartDiv);
-        const chartType = chartData.type || 'pie';
-        let option = {};
-
-        if (chartType === 'funnel') {
-            option = {
-                tooltip: {
-                    trigger: 'item',
-                    formatter: function(params) {
-                        return `${params.name}<br/>Reads: ${Number(params.value || 0).toLocaleString()}`;
-                    }
-                },
-                series: [{
-                    type: 'funnel',
-                    left: '10%',
-                    top: 20,
-                    bottom: 20,
-                    width: '80%',
-                    minSize: '30%',
-                    maxSize: '100%',
-                    sort: 'descending',
-                    gap: 4,
-                    label: {
-                        show: true,
-                        position: 'inside',
-                        formatter: function(params) {
-                            return `${params.name}\n${Number(params.value || 0).toLocaleString()}`;
-                        }
-                    },
-                    itemStyle: {
-                        borderColor: '#fff',
-                        borderWidth: 1,
-                    },
-                    data: chartData.data.map((item, i) => ({
-                        name: item.name,
-                        value: item.value,
-                        itemStyle: { color: ['#0ea5e9', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444'][i % 5] }
-                    })),
-                }]
-            };
-        } else if (chartType === 'abundance_bar') {
-            const sorted = chartData.data.slice().sort((a, b) => (b.reads || 0) - (a.reads || 0));
-            const names = sorted.map(d => d.name);
-            const reads = sorted.map(d => d.reads || 0);
-            const colors = sorted.map(d => getDomainColor(getChartDomain(d)));
-            option = {
-                tooltip: {
-                    trigger: 'axis',
-                    axisPointer: { type: 'shadow' },
-                    formatter: function(params) {
-                        const p = params && params[0] ? params[0] : null;
-                        if (!p) return '';
-                        const row = sorted[p.dataIndex] || {};
-                        const domain = getChartDomain(row);
-                        return `${row.name || '-'}<br/>Reads: ${(row.reads || 0).toLocaleString()}<br/>Domain: ${domain}`;
-                    }
-                },
-                grid: { left: '28%', right: '8%', top: 20, bottom: 30 },
-                xAxis: { type: 'value', axisLabel: { fontSize: 10 } },
-                yAxis: {
-                    type: 'category',
-                    data: names,
-                    inverse: true,
-                    axisLabel: { fontSize: 10, width: 220, overflow: 'truncate' }
-                },
-                series: [{
-                    type: 'bar',
-                    data: reads.map((value, i) => ({ value, itemStyle: { color: colors[i] } })),
-                    barMaxWidth: 18,
-                }]
-            };
-        } else if (chartType === 'coverage_depth') {
-            const seriesData = chartData.data.map(d => [d.position, d.depth]);
-            option = {
-                tooltip: {
-                    trigger: 'axis',
-                    formatter: function(params) {
-                        const p = params && params[0] ? params[0] : null;
-                        if (!p) return '';
-                        return `Position: ${p.value[0]}<br/>Depth: ${Number(p.value[1]).toFixed(2)}`;
-                    }
-                },
-                grid: { left: '8%', right: '5%', top: 20, bottom: 40 },
-                xAxis: { type: 'value', name: 'Position', axisLabel: { fontSize: 10 } },
-                yAxis: { type: 'value', name: 'Depth', axisLabel: { fontSize: 10 } },
-                series: [{
-                    type: 'line',
-                    showSymbol: false,
-                    smooth: true,
-                    lineStyle: { width: 1.5, color: '#2563eb' },
-                    areaStyle: { color: 'rgba(37,99,235,0.15)' },
-                    data: seriesData,
-                }]
-            };
-        } else if (chartType === 'amplicon_performance') {
-            const names = chartData.data.map(d => d.name);
-            const reads = chartData.data.map(d => d.reads || 0);
-            const breadth = chartData.data.map(d => d.breadth || 0);
-            option = {
-                tooltip: {
-                    trigger: 'axis',
-                    axisPointer: { type: 'shadow' },
-                    formatter: function(params) {
-                        const p1 = params.find(p => p.seriesName === 'Mean Depth');
-                        const p2 = params.find(p => p.seriesName === 'Breadth (%)');
-                        return `${params[0].axisValue}<br/>Mean Depth: ${p1 ? Number(p1.value).toFixed(2) : '-'}<br/>Breadth: ${p2 ? Number(p2.value).toFixed(2) : '-'}%`;
-                    }
-                },
-                legend: { top: 0, textStyle: { fontSize: 10 } },
-                grid: { left: '22%', right: '8%', top: 35, bottom: 30 },
-                xAxis: { type: 'value', axisLabel: { fontSize: 10 } },
-                yAxis: { type: 'category', data: names, inverse: true, axisLabel: { fontSize: 10, width: 200, overflow: 'truncate' } },
-                series: [
-                    {
-                        name: 'Mean Depth',
-                        type: 'bar',
-                        data: reads,
-                        barMaxWidth: 16,
-                        itemStyle: { color: '#0ea5e9' }
-                    },
-                    {
-                        name: 'Breadth (%)',
-                        type: 'line',
-                        xAxisIndex: 0,
-                        yAxisIndex: 0,
-                        data: breadth,
-                        symbolSize: 4,
-                        lineStyle: { color: '#f59e0b', width: 1.5 },
-                        itemStyle: { color: '#f59e0b' }
-                    }
-                ]
-            };
-        } else if (chartType === 'sunburst') {
-            option = {
-                tooltip: {
-                    trigger: 'item',
-                    formatter: function(params) {
-                        const value = params && params.value != null ? `${params.value}%` : '-';
-                        return `${params.name}<br/>占比: ${value}`;
-                    }
-                },
-                series: [{
-                    type: 'sunburst',
-                    radius: [0, '92%'],
-                    sort: null,
-                    emphasis: { focus: 'ancestor' },
-                    data: chartData.data,
-                    minAngle: 2,
-                    labelLayout: { hideOverlap: true },
-                    label: {
-                        rotate: 'tangential',
-                        fontSize: 10,
-                        overflow: 'truncate',
-                        width: 96,
-                        formatter: function(params) {
-                            const value = Number(params?.value || 0);
-                            const depth = Number(params?.treePathInfo?.length || 0);
-                            if (depth >= 4 && value < 3) return '';
-                            if (depth >= 3 && value < 1.2) return '';
-                            return params.name || '';
-                        }
-                    },
-                    levels: [
-                        {},
-                        {
-                            r0: '0%',
-                            r: '28%',
-                            label: { rotate: 0, fontSize: 13 }
-                        },
-                        {
-                            r0: '28%',
-                            r: '58%',
-                            label: { rotate: 'tangential', fontSize: 11 }
-                        },
-                        {
-                            r0: '58%',
-                            r: '92%',
-                            label: { rotate: 'tangential', fontSize: 9 }
-                        }
-                    ],
-                }]
-            };
-        } else if (chartType === 'bar') {
-            if (Array.isArray(chartData.series) && Array.isArray(chartData.categories)) {
-                option = {
-                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                    legend: { top: 0, textStyle: { fontSize: 10 } },
-                    grid: { left: '8%', right: '5%', top: 36, bottom: 40 },
-                    xAxis: { type: 'category', data: chartData.categories, axisLabel: { fontSize: 10, interval: 0 } },
-                    yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
-                    series: chartData.series.map(series => ({
-                        name: series.name || 'Series',
-                        type: 'bar',
-                        data: Array.isArray(series.data) ? series.data : [],
-                        itemStyle: { color: series.color || '#3b82f6' },
-                        barMaxWidth: 28,
-                    })),
-                };
-            } else {
-                const names = chartData.data.map(d => d.name);
-                const values = chartData.data.map(d => d.value);
-                const colors = chartData.data.map(d => {
-                    if (d.status === 'suboptimal') return '#f59e0b';
-                    if (d.status === 'no_candidate') return '#ef4444';
-                    return '#3b82f6';
-                });
-                option = {
-                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                    grid: { left: '22%', right: '8%', top: 20, bottom: 30 },
-                    xAxis: { type: 'value', name: 'bp', axisLabel: { fontSize: 10 } },
-                    yAxis: { type: 'category', data: names, inverse: true, axisLabel: { fontSize: 10, width: 140, overflow: 'truncate' } },
-                    series: [{
-                        type: 'bar',
-                        data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
-                        barMaxWidth: 18,
-                        label: { show: true, position: 'right', formatter: '{c} bp', fontSize: 10, color: '#64748b' },
-                    }]
-                };
-            }
-        } else {
-            option = {
-                tooltip: {
-                    trigger: 'item',
-                    formatter: function(params) {
-                        const reads = params.data.reads != null ? params.data.reads.toLocaleString() : '-';
-                        return `${params.name}<br/>占比: ${params.percent}%<br/>Reads: ${reads}`;
-                    }
-                },
-                series: [{
-                    type: 'pie',
-                    radius: ['30%', '65%'],
-                    center: ['50%', '50%'],
-                    data: chartData.data.map(d => ({ name: d.name, value: d.value, reads: d.reads || 0 })),
-                    label: { formatter: '{b}\n{d}%', fontSize: 11 },
-                    emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' } }
-                }]
-            };
-        }
-
-        instance.setOption(option);
-        _integratedChartInstances.push(instance);
-    });
-
-    if (!_integratedChartResizeBound) {
-        _integratedChartResizeBound = true;
-        const chartContainer = document.getElementById('integrated-chart-container');
-        if (chartContainer && typeof ResizeObserver !== 'undefined') {
-            const ro = new ResizeObserver(() => {
-                _integratedChartInstances.forEach(instance => {
-                    try { instance.resize(); } catch (_) {}
-                });
-            });
-            ro.observe(chartContainer);
-        }
-        // 保留 window resize 作为 fallback
-        window.addEventListener('resize', function() {
-            _integratedChartInstances.forEach(instance => {
-                try {
-                    instance.resize();
-                } catch (_) {
-                    // ignore
-                }
-            });
-        });
-    }
-}
-
 function escapeHtml(value) {
     return String(value)
         .replace(/&/g, '&amp;')
@@ -1950,6 +1562,26 @@ window.IntegratedRunModal.configureRuntime({
     switchTab,
     selectTool,
     bindHelpTooltipInteractions,
+});
+
+window.IntegratedChartRenderer.configureRuntime({
+    setHidden,
+    escapeHtml,
+    showNotice,
+    getIntegratedCharts,
+    hasIntegratedChartData,
+    getIntegratedChartRetryTimer: function() {
+        return _integratedChartRetryTimer;
+    },
+    setIntegratedChartRetryTimer: function(nextTimer) {
+        _integratedChartRetryTimer = nextTimer;
+    },
+    getEchartsLoadRequested: function() {
+        return _echartsLoadRequested;
+    },
+    setEchartsLoadRequested: function(nextValue) {
+        _echartsLoadRequested = Boolean(nextValue);
+    },
 });
 
 function isPrimerGenomesBundlePath(filePath) {

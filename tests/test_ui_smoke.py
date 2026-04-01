@@ -688,6 +688,7 @@ class TestDetectionIntegratedWorkbench:
         assert 'render/integrated_sidebar.js' in html
         assert 'render/result_viewers.js' in html
         assert 'render/run_modal.js' in html
+        assert 'render/chart_renderer.js' in html
         assert 'utils/helpers.js' in html
         assert 'results/open_results_state.js' in html
         assert 'results/history_result_loader.js' in html
@@ -775,6 +776,19 @@ class TestDetectionIntegratedWorkbench:
         assert "function getRecommendedValueFromUsage(" not in app_js
         assert "function buildParamTooltipText(" not in app_js
         assert "function buildUsagePresetsPanel(" not in app_js
+        assert "function ensureIntegratedRunModal(" not in app_js
+        assert "function openIntegratedRunModal(" not in app_js
+        assert "function renderIntegratedRunModalForm(" not in app_js
+        assert "function runIntegratedRunModal(" not in app_js
+        assert "function closeIntegratedRunModal(" not in app_js
+        assert "function goToIntegratedRunTool(" not in app_js
+        assert "function disposeIntegratedCharts(" not in app_js
+        assert "function getDomainColor(" not in app_js
+        assert "function getChartDomain(" not in app_js
+        assert "function ensureEchartsLoaded(" not in app_js
+        assert "function renderIntegratedChart(" not in app_js
+        assert "_integratedChartInstances" not in app_js
+        assert "_integratedChartResizeBound" not in app_js
         assert "renderHistoryPanelView" not in app_js
         assert "showDatabaseResourceDetail" not in app_js
         assert "window.HistoryResultLoader.openExecutionWithRuntime" in app_js
@@ -782,8 +796,9 @@ class TestDetectionIntegratedWorkbench:
         assert "onclick=\"showDatabaseResourceDetail(" not in database_panel_js
         assert "data-resource-index" in database_panel_js
         assert "window.HistoryPanelRenderer.renderHistoryPanel({" in app_js
-        assert "function ensureIntegratedRunModal()" in app_js
-        assert "return window.IntegratedRunModal.ensureIntegratedRunModal();" in app_js
+        assert "window.IntegratedRunModal.openIntegratedRunModal(feature, toolId)" in app_js
+        assert "window.IntegratedChartRenderer.configureRuntime" in app_js
+        assert "window.IntegratedChartRenderer.resizeIntegratedCharts()" in app_js
         assert "function switchTab(tab)" in js
         assert "function activateTab(tab)" in js
         assert "function switchTab(tab, options = {})" not in js
