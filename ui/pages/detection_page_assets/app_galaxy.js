@@ -13,6 +13,31 @@ let pendingIntegratedViewSource = '';
 let selectedIntegratedViewSource = 'workflow';
 let activeIntegratedProjectId = '';
 const integratedExecutionViews = {};
+if (!window.IntegratedOpenResultsState || typeof window.IntegratedOpenResultsState.createStore !== 'function') {
+    throw new Error('IntegratedOpenResultsState module is required for history multi-result workbench');
+}
+if (!window.BridgeToolsService || !window.BridgeHistoryService || !window.BridgeResultsService) {
+    throw new Error('Bridge service modules are required for detection page bootstrapping');
+}
+if (!window.DatabasePanelRenderer || !window.HistoryPanelRenderer || !window.IntegratedSidebarRenderer || !window.ResultViewerRenderers) {
+    throw new Error('Render modules are required for detection page bootstrapping');
+}
+if (!window.HistoryResultLoader || !window.IntegratedWorkbenchSelection) {
+    throw new Error('Result workbench modules are required for detection page bootstrapping');
+}
+const INTEGRATED_HISTORY_RESULT_LIMIT = window.IntegratedOpenResultsState.DEFAULT_MAX_OPEN_RESULTS;
+const integratedOpenResultsStore = window.IntegratedOpenResultsState.createStore({
+    maxOpenResults: INTEGRATED_HISTORY_RESULT_LIMIT,
+});
+const bridgeToolsService = window.BridgeToolsService.createBridgeToolsService({
+    getBridge: function() { return bridge; },
+});
+const bridgeHistoryService = window.BridgeHistoryService.createBridgeHistoryService({
+    getBridge: function() { return bridge; },
+});
+const bridgeResultsService = window.BridgeResultsService.createBridgeResultsService({
+    getBridge: function() { return bridge; },
+});
 const toolDescriptorCache = {};
 let noticeHideTimer = null;
 let integratedRunModalContext = null;
@@ -52,6 +77,93 @@ function setHidden(element, hidden) {
         return;
     }
     element.classList.toggle('is-hidden', Boolean(hidden));
+}
+
+function getIntegratedOpenResultsState() {
+    return integratedOpenResultsStore.getState();
+}
+
+function syncIntegratedExecutionViewsFromState(snapshot = getIntegratedOpenResultsState()) {
+    Object.keys(integratedExecutionViews).forEach(function(featureId) {
+        delete integratedExecutionViews[featureId];
+    });
+    Object.keys(snapshot.entitiesByKey || {}).forEach(function(featureId) {
+        integratedExecutionViews[featureId] = snapshot.entitiesByKey[featureId];
+    });
+    return snapshot;
+}
+
+function isIntegratedHistoryFeatureId(featureId) {
+    return getIntegratedOpenResultsState().openKeys.includes(String(featureId || '').trim());
+}
+
+function isIntegratedPinnedFeatureId(featureId) {
+    return getIntegratedOpenResultsState().pinnedKeys.includes(String(featureId || '').trim());
+}
+
+function syncIntegratedHistoryResultControls() {
+    const clearBtn = document.getElementById('integrated-clear-history-results');
+    if (!clearBtn) {
+        return;
+    }
+    const snapshot = getIntegratedOpenResultsState();
+    setHidden(clearBtn, snapshot.openKeys.length === 0);
+    clearBtn.disabled = snapshot.openKeys.length === 0 || snapshot.openKeys.every(function(key) {
+        return snapshot.pinnedKeys.includes(key);
+    });
+}
+
+function buildIntegratedHistoryResultKey(baseFeatureId, executionId) {
+    return window.IntegratedOpenResultsState.buildHistoryResultKey(baseFeatureId, executionId);
+}
+
+function getIntegratedHistoryFeatureLabel(view, fallbackFeatureId = '') {
+    const baseTitle = String(view?.title || fallbackFeatureId || '结果').trim() || '结果';
+    const sampleName = String(view?.hero?.sample_name || view?.hero?.sampleName || '').trim();
+    const executionId = String(view?.provenance?.execution_id || view?.hero?.execution_id || '').trim();
+    if (sampleName && executionId) {
+        return `${baseTitle} · ${sampleName} · ${executionId.slice(0, 8)}`;
+    }
+    if (sampleName) {
+        return `${baseTitle} · ${sampleName}`;
+    }
+    if (executionId) {
+        return `${baseTitle} · ${executionId.slice(0, 8)}`;
+    }
+    return baseTitle;
+}
+
+function rememberIntegratedExecutionView(resultKey, view) {
+    return syncIntegratedExecutionViewsFromState(
+        integratedOpenResultsStore.registerResult(resultKey, {
+            ...view,
+            __displaySource: 'history',
+        }),
+    );
+}
+
+function setIntegratedHistoryResultPinned(resultKey, pinned) {
+    return syncIntegratedExecutionViewsFromState(
+        integratedOpenResultsStore.setPinned(resultKey, pinned),
+    );
+}
+
+function setIntegratedHistoryResultActive(resultKey) {
+    return syncIntegratedExecutionViewsFromState(
+        integratedOpenResultsStore.setActive(resultKey),
+    );
+}
+
+function closeIntegratedHistoryResultState(resultKey, nextActiveKey = '') {
+    return syncIntegratedExecutionViewsFromState(
+        integratedOpenResultsStore.closeResult(resultKey, nextActiveKey),
+    );
+}
+
+function clearUnpinnedIntegratedHistoryResultState(nextActiveKey = '') {
+    return syncIntegratedExecutionViewsFromState(
+        integratedOpenResultsStore.clearUnpinned(nextActiveKey),
+    );
 }
 
 function ensureNoticeContainer() {
@@ -233,6 +345,13 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
             renderHistory(filterHistoryRecords(String(e.target.value || '')));
         });
     }
+    const clearIntegratedHistoryResultsBtn = document.getElementById('integrated-clear-history-results');
+    if (clearIntegratedHistoryResultsBtn) {
+        clearIntegratedHistoryResultsBtn.addEventListener('click', function() {
+            clearIntegratedTemporaryFeatures({ clearAllUnpinned: true });
+            renderIntegratedWorkbench();
+        });
+    }
 
     // 运行按钮
     document.getElementById('run-btn').addEventListener('click', runTool);
@@ -407,7 +526,7 @@ function openIntegratedRunModal(feature, toolId) {
             }
             return;
         }
-        bridge.get_tool_descriptor(nextToolId, function(json) {
+        bridgeToolsService.getToolDescriptor(nextToolId, function(json) {
             try {
                 const descriptor = JSON.parse(json || '{}');
                 toolDescriptorCache[nextToolId] = descriptor;
@@ -417,6 +536,11 @@ function openIntegratedRunModal(feature, toolId) {
                     if (hintEl) hintEl.textContent = 'Failed to load requirements. Use Open Tools instead.';
                     if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">Parse failed.</div>';
                 }
+            }
+        }, function() {
+            if (requestSeq === integratedRunModalContext._descriptorSeq) {
+                if (hintEl) hintEl.textContent = 'Tool descriptor API unavailable.';
+                if (formEl) formEl.innerHTML = '<div class="integrated-input-empty">API unavailable.</div>';
             }
         });
     };
@@ -614,7 +738,7 @@ function runIntegratedRunModal() {
         confirmBtn.textContent = 'Submitting...';
     }
 
-    bridge.run_tool(toolId, JSON.stringify(params));
+    bridgeToolsService.runTool(toolId, JSON.stringify(params));
     closeIntegratedRunModal();
 }
 
@@ -995,12 +1119,7 @@ function activateTab(tab) {
 }
 
 function scanLocalDatabaseFolder() {
-    if (!bridge || !bridge.browse_directory || !bridge.scan_local_database_resources) {
-        showNotice('当前版本不支持数据库文件夹扫描', 'warning');
-        return;
-    }
-
-    bridge.browse_directory(function(rawResult) {
+    bridgeResultsService.browseDirectory(function(rawResult) {
         let payload = null;
         try {
             payload = JSON.parse(rawResult);
@@ -1013,7 +1132,7 @@ function scanLocalDatabaseFolder() {
             return;
         }
 
-        bridge.scan_local_database_resources(dirPath, function(scanResult) {
+        bridgeResultsService.scanLocalDatabaseResources(dirPath, function(scanResult) {
             let scanPayload = null;
             try {
                 scanPayload = JSON.parse(scanResult);
@@ -1034,41 +1153,21 @@ function scanLocalDatabaseFolder() {
             renderDatabaseResources(databaseResources);
             switchTab('database');
         });
+    }, function(error) {
+        showNotice(error && error.message ? error.message : '当前版本不支持数据库文件夹扫描', 'warning');
     });
 }
 
 function renderDatabaseResources(resources) {
     const grid = document.getElementById('database-grid');
     const empty = document.getElementById('database-empty-state');
-    if (!grid || !empty) {
-        return;
-    }
-
-    if (!resources.length) {
-        setHidden(grid, true);
-        grid.innerHTML = '';
-        setHidden(empty, false);
-        return;
-    }
-
-    setHidden(empty, true);
-    setHidden(grid, false);
-    grid.innerHTML = resources.map(function(item, index) {
-        const stats = item.stats || {};
-        const summary = item.type === 'directory'
-            ? `FASTA ${stats.fasta_count || 0} · BLAST 索引 ${stats.blast_index_count || 0}`
-            : `大小 ${(Number(stats.size_bytes || 0) / 1024 / 1024).toFixed(2)} MB`;
-        const initial = escapeHtml(String(item.name || '?').slice(0, 1));
-        return `
-            <article class="database-resource-card">
-                <div class="database-resource-badge">${initial}</div>
-                <div class="database-resource-title">${escapeHtml(item.name || '')}</div>
-                <div class="database-resource-desc">${escapeHtml(item.description || '暂无描述')}</div>
-                <div class="database-resource-meta">${escapeHtml(summary)}</div>
-                <button class="ui-button ui-button--secondary ui-button--sm database-detail-btn" type="button" onclick="showDatabaseResourceDetail(${index})">查看详情</button>
-            </article>
-        `;
-    }).join('');
+    window.DatabasePanelRenderer.renderDatabaseResources({
+        grid,
+        empty,
+        resources,
+        setHidden,
+        escapeHtml,
+    });
 }
 
 function showDatabaseResourceDetail(index) {
@@ -1076,33 +1175,17 @@ function showDatabaseResourceDetail(index) {
     if (!item) {
         return;
     }
-    const stats = item.stats || {};
-    const lines = [
-        `名称: ${item.name || ''}`,
-        `类型: ${item.type || ''}`,
-        `路径: ${item.path || ''}`,
-        `说明: ${item.description || ''}`,
-    ];
-    if (item.type === 'directory') {
-        lines.push(`FASTA 文件数: ${stats.fasta_count || 0}`);
-        lines.push(`BLAST 索引数: ${stats.blast_index_count || 0}`);
-    } else if (typeof stats.size_bytes !== 'undefined') {
-        lines.push(`文件大小: ${(Number(stats.size_bytes || 0) / 1024 / 1024).toFixed(2)} MB`);
-    }
+    const lines = window.DatabasePanelRenderer.buildDatabaseResourceDetail(item);
     showNotice(lines.join('\n'), 'success', 6000);
 }
 
 function loadIntegratedWorkbench(forceRefresh = false) {
-    if (!bridge || !bridge.get_integrated_workbench_config) {
-        return;
-    }
-
     if (integratedWorkbench && !forceRefresh) {
         renderIntegratedWorkbench();
         return;
     }
 
-    bridge.get_integrated_workbench_config(function(json) {
+    bridgeResultsService.loadIntegratedWorkbench(function(json) {
         try {
             const nextWorkbench = JSON.parse(json);
             syncIntegratedWorkbenchProjectScope(nextWorkbench);
@@ -1112,16 +1195,17 @@ function loadIntegratedWorkbench(forceRefresh = false) {
         } catch (e) {
             console.error('Failed to parse integrated workbench config:', e);
         }
+    }, function(error) {
+        console.error('Failed to load integrated workbench:', error);
     });
 }
 
 function clearIntegratedExecutionCache() {
-    Object.keys(integratedExecutionViews).forEach(function(featureId) {
-        delete integratedExecutionViews[featureId];
-    });
+    syncIntegratedExecutionViewsFromState(integratedOpenResultsStore.reset());
     pendingIntegratedFeatureId = null;
     pendingIntegratedViewSource = '';
     selectedIntegratedViewSource = 'workflow';
+    syncIntegratedHistoryResultControls();
 }
 
 function syncIntegratedWorkbenchProjectScope(nextWorkbench) {
@@ -1137,41 +1221,34 @@ function restoreIntegratedExecutionFeatures() {
         return;
     }
 
-    Object.keys(integratedExecutionViews).forEach(function(featureId) {
+    Object.keys(getIntegratedOpenResultsState().entitiesByKey || {}).forEach(function(featureId) {
         const view = integratedExecutionViews[featureId];
         if (!view || getIntegratedWorkbenchFeature(featureId)) {
             return;
         }
         upsertIntegratedHistoryFeature(featureId, view, { temporary: true });
     });
+    syncIntegratedHistoryResultControls();
 }
 
 function resolveIntegratedViewSource(featureId, requestedSource = 'workflow') {
-    const preferredSource = String(requestedSource || 'workflow').trim() || 'workflow';
-    const hasBaseView = Boolean(integratedWorkbench && integratedWorkbench.views && integratedWorkbench.views[featureId]);
-    const hasExecutionView = Boolean(integratedExecutionViews[featureId]);
-
-    if (preferredSource === 'history' && hasExecutionView) {
-        return 'history';
-    }
-    if (!hasBaseView && hasExecutionView) {
-        return 'history';
-    }
-    return preferredSource;
+    return window.IntegratedWorkbenchSelection.resolveIntegratedViewSource({
+        featureId,
+        requestedSource,
+        integratedWorkbench,
+        integratedExecutionViews,
+    });
 }
 
 function getPreferredIntegratedViewSource(featureId) {
-    if (pendingIntegratedViewSource) {
-        return resolveIntegratedViewSource(featureId, pendingIntegratedViewSource);
-    }
-    if (
-        selectedIntegratedFeatureId === featureId
-        && selectedIntegratedViewSource === 'history'
-        && integratedExecutionViews[featureId]
-    ) {
-        return 'history';
-    }
-    return resolveIntegratedViewSource(featureId, 'workflow');
+    return window.IntegratedWorkbenchSelection.getPreferredIntegratedViewSource({
+        featureId,
+        pendingIntegratedViewSource,
+        selectedIntegratedFeatureId,
+        selectedIntegratedViewSource,
+        integratedWorkbench,
+        integratedExecutionViews,
+    });
 }
 
 function renderIntegratedWorkbench() {
@@ -1180,6 +1257,7 @@ function renderIntegratedWorkbench() {
     }
 
     restoreIntegratedExecutionFeatures();
+    const openResultsState = getIntegratedOpenResultsState();
 
     const title = document.getElementById('integrated-title');
     const subtitle = document.getElementById('integrated-subtitle');
@@ -1195,55 +1273,52 @@ function renderIntegratedWorkbench() {
         return;
     }
 
-    container.innerHTML = '';
     const features = integratedWorkbench.features || [];
-    features.forEach(feature => {
-        const item = document.createElement('button');
-        item.className = 'integrated-feature-item';
-        item.dataset.featureId = feature.id;
-        const badgeHtml = feature.badge
-            ? `<span class="ui-badge ui-badge--accent integrated-feature-badge">${escapeHtml(feature.badge)}</span>`
-            : '';
-        item.innerHTML = `
-            <div class="integrated-feature-main">
-                <div class="integrated-feature-name">${escapeHtml(feature.name || feature.id)}</div>
-                <div class="integrated-feature-desc">${escapeHtml(feature.description || '')}</div>
-            </div>
-            ${badgeHtml}
-        `;
-        item.addEventListener('click', function() {
-            selectIntegratedFeature(feature.id);
-        });
-        container.appendChild(item);
+    window.IntegratedSidebarRenderer.renderIntegratedSidebar({
+        container,
+        features,
+        selectedFeatureId: selectedIntegratedFeatureId,
+        isHistoryResult: function(featureId) {
+            return isIntegratedHistoryFeatureId(featureId);
+        },
+        isPinned: function(featureId) {
+            return isIntegratedPinnedFeatureId(featureId);
+        },
+        onSelect: function(featureId, options) {
+            selectIntegratedFeature(featureId, options);
+        },
+        onPinToggle: function(featureId, pinned) {
+            setIntegratedHistoryResultPinned(featureId, pinned);
+            renderIntegratedWorkbench();
+        },
+        onClose: function(featureId) {
+            closeIntegratedHistoryFeature(featureId);
+        },
+        escapeHtml,
     });
 
-    let preferredFeature = null;
-    if (pendingIntegratedFeatureId) {
-        preferredFeature = features.find(feature => feature.id === pendingIntegratedFeatureId) || null;
-    }
-    if (!preferredFeature && selectedIntegratedFeatureId) {
-        preferredFeature = features.find(feature => feature.id === selectedIntegratedFeatureId) || null;
-    }
-    if (!preferredFeature) {
-        preferredFeature = features.find(feature => feature.status === 'active') || features[0];
-    }
+    let preferredFeature = window.IntegratedWorkbenchSelection.pickPreferredFeature({
+        features,
+        pendingIntegratedFeatureId,
+        selectedIntegratedFeatureId,
+        openResultsActiveKey: openResultsState.activeKey,
+    });
     if (preferredFeature) {
         const sourceMode = getPreferredIntegratedViewSource(preferredFeature.id);
         selectIntegratedFeature(preferredFeature.id, { sourceMode });
     }
     pendingIntegratedFeatureId = null;
     pendingIntegratedViewSource = '';
+    syncIntegratedHistoryResultControls();
 }
 
 function getIntegratedFeatureView(featureId, sourceMode = 'workflow') {
-    if (!integratedWorkbench) {
-        return null;
-    }
-    const preferredSource = String(sourceMode || 'workflow').trim() || 'workflow';
-    if (preferredSource === 'history' && integratedExecutionViews[featureId]) {
-        return integratedExecutionViews[featureId];
-    }
-    return (integratedWorkbench.views || {})[featureId] || integratedExecutionViews[featureId] || null;
+    return window.IntegratedWorkbenchSelection.getIntegratedFeatureView({
+        featureId,
+        sourceMode,
+        integratedWorkbench,
+        integratedExecutionViews,
+    });
 }
 
 function selectIntegratedFeature(featureId, options = {}) {
@@ -1254,6 +1329,9 @@ function selectIntegratedFeature(featureId, options = {}) {
     const sourceMode = resolveIntegratedViewSource(featureId, options.sourceMode || 'workflow');
     selectedIntegratedFeatureId = featureId;
     selectedIntegratedViewSource = sourceMode;
+    if (sourceMode === 'history' && isIntegratedHistoryFeatureId(featureId)) {
+        setIntegratedHistoryResultActive(featureId);
+    }
     document.querySelectorAll('.integrated-feature-item').forEach(item => {
         item.classList.toggle('active', item.dataset.featureId === featureId);
     });
@@ -1376,7 +1454,7 @@ function renderIntegratedRunEntry(feature, view, options = {}) {
         return;
     }
 
-    bridge.get_tool_descriptor(toolId, function(json) {
+    bridgeToolsService.getToolDescriptor(toolId, function(json) {
         try {
             const descriptor = JSON.parse(json || '{}');
             toolDescriptorCache[toolId] = descriptor;
@@ -1386,6 +1464,10 @@ function renderIntegratedRunEntry(feature, view, options = {}) {
             if (selectedIntegratedFeatureId === feature?.id) {
                 list.innerHTML = '<div class="integrated-input-empty">输入要求解析失败。</div>';
             }
+        }
+    }, function() {
+        if (selectedIntegratedFeatureId === feature?.id) {
+            list.innerHTML = '<div class="integrated-input-empty">工具描述符不可用，暂时无法显示输入要求。</div>';
         }
     });
 }
@@ -1427,165 +1509,42 @@ function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
 }
 
 function renderSummaryGrid(summaryItems) {
-    const container = document.getElementById('summary-grid');
-    if (!container) {
-        return;
-    }
-
-    const items = Array.isArray(summaryItems) ? summaryItems : [];
-    if (!items.length) {
-        container.innerHTML = '<div class="integrated-input-empty">Overview 暂无 summary 信息。</div>';
-        return;
-    }
-
-    container.innerHTML = '';
-    items.forEach(item => {
-        const card = document.createElement('div');
-        card.className = `summary-card tone-${item.tone || 'default'}`;
-        card.innerHTML = `
-            <div class="summary-label">${escapeHtml(item.label || '')}</div>
-            <div class="summary-value">${escapeHtml(String(item.value ?? ''))}</div>
-        `;
-        container.appendChild(card);
+    window.ResultViewerRenderers.renderSummaryGrid({
+        container: document.getElementById('summary-grid'),
+        summaryItems,
+        escapeHtml,
     });
 }
 
 function renderArtifactList(artifacts, options = {}) {
-    const container = document.getElementById('artifact-list');
-    if (!container) {
-        return;
-    }
-
-    const normalizedArtifacts = sortIntegratedArtifacts(Array.isArray(artifacts) ? artifacts : []);
-    container.innerHTML = '';
-    if (!normalizedArtifacts.length) {
-        container.innerHTML = `<li class="artifact-item unavailable"><div class="artifact-main"><span class="artifact-name">${escapeHtml(options.requiredMessage || '暂无结果文件。')}</span><span class="artifact-state">缺失</span></div></li>`;
-        return;
-    }
-
-    // PDF 报告醒目按钮（置顶）
-    const pdfArtifact = normalizedArtifacts.find(a => a && a.is_pdf_report && a.available && a.local_path);
-    if (pdfArtifact) {
-        const btn = document.createElement('div');
-        btn.className = 'pdf-report-btn';
-        btn.innerHTML = `
-            <span class="pdf-icon">PDF</span>
-            <span class="pdf-label">导出 PDF 检测报告</span>
-        `;
-        btn.addEventListener('click', function() {
-            openLocalArtifact(pdfArtifact.local_path);
-        });
-        container.appendChild(btn);
-    }
-
-    if (options.requiredMessage) {
-        const li = document.createElement('li');
-        li.className = 'artifact-item unavailable';
-        li.innerHTML = `
-            <div class="artifact-main">
-                <span class="artifact-name">${escapeHtml(options.requiredMessage)}</span>
-                <span class="artifact-state">缺失</span>
-            </div>
-        `;
-        container.appendChild(li);
-    }
-
-    normalizedArtifacts.forEach(item => {
-        const li = document.createElement('li');
-        if (typeof item === 'string') {
-            li.textContent = item;
-            container.appendChild(li);
-            return;
-        }
-
-        const available = Boolean(item && item.available && item.local_path);
-        li.className = available ? 'artifact-item available' : 'artifact-item unavailable';
-        li.innerHTML = `
-            <div class="artifact-main">
-                <span class="artifact-name">${escapeHtml(item?.name || '未命名文件')}</span>
-                <span class="artifact-state">${available ? '已同步' : '不可用'}</span>
-            </div>
-            <div class="artifact-path">${escapeHtml(item?.local_path || item?.remote_path || '')}</div>
-        `;
-        if (available) {
-            li.addEventListener('click', function() {
-                openLocalArtifact(item.local_path);
-            });
-        }
-        container.appendChild(li);
+    window.ResultViewerRenderers.renderArtifactList({
+        container: document.getElementById('artifact-list'),
+        artifacts,
+        requiredMessage: options.requiredMessage,
+        sortIntegratedArtifacts,
+        openLocalArtifact,
+        escapeHtml,
     });
 }
 
 function renderIntegratedProvenance(provenance, hero = {}) {
-    const container = document.getElementById('integrated-provenance-list');
-    if (!container) {
-        return;
-    }
-
-    const items = [];
-    const executionId = String(provenance?.execution_id || hero?.execution_id || '').trim();
-    const updatedAt = String(hero?.updated_at || '').trim();
-    const toolVersion = String(provenance?.tool_version || '').trim();
-    const remoteDir = String(provenance?.remote_result_dir || '').trim();
-    const localDir = String(provenance?.local_result_dir || '').trim();
-    const params = Array.isArray(provenance?.parameters) ? provenance.parameters : [];
-
-    if (executionId) items.push({ label: 'Execution ID', value: executionId });
-    if (updatedAt) items.push({ label: '完成时间', value: updatedAt });
-    if (toolVersion) items.push({ label: '工具版本', value: toolVersion });
-    if (remoteDir) items.push({ label: '远端结果目录', value: remoteDir });
-    if (localDir) items.push({ label: '本地结果目录', value: localDir });
-    params.slice(0, 8).forEach(item => {
-        items.push({ label: item.label || '参数', value: String(item.value ?? '') });
+    window.ResultViewerRenderers.renderIntegratedProvenance({
+        container: document.getElementById('integrated-provenance-list'),
+        provenance,
+        hero,
+        escapeHtml,
     });
-
-    if (items.length === 0) {
-        container.innerHTML = '<div class="integrated-input-empty">暂无运行追溯信息。</div>';
-        return;
-    }
-
-    container.innerHTML = items.map(item => `
-        <div class="integrated-input-item">
-            <div class="integrated-input-label">${escapeHtml(item.label || '')}</div>
-            <div class="integrated-input-desc">${escapeHtml(item.value || '')}</div>
-        </div>
-    `).join('');
 }
 
 function renderIntegratedSections(sections, options = {}) {
-    const card = document.getElementById('integrated-sections-card');
-    const container = document.getElementById('integrated-sections-list');
-    if (!card || !container) {
-        return;
-    }
-
-    const normalizedSections = Array.isArray(sections) ? sections : [];
-    setHidden(card, false);
-    card.dataset.panelVisible = '1';
-    if (normalizedSections.length === 0) {
-        container.innerHTML = `<div class="${options.requiredMessage ? 'task-error-banner' : 'integrated-input-empty'}">${escapeHtml(options.requiredMessage || 'Overview 暂无 section 内容。')}</div>`;
-        return;
-    }
-
-    container.innerHTML = normalizedSections.map(section => {
-        const summary = Array.isArray(section?.summary) ? section.summary : [];
-        const table = section?.table && typeof section.table === 'object' ? section.table : {};
-        const artifacts = Array.isArray(section?.artifacts) ? section.artifacts : [];
-        return `
-            <div class="integrated-input-item integrated-section-item">
-                <div class="integrated-input-label-row integrated-section-header">
-                    <span class="integrated-input-label">${escapeHtml(section?.title || section?.section_id || 'section')}</span>
-                    <span class="integrated-input-required">${escapeHtml(section?.archetype || '')}</span>
-                </div>
-                <div class="integrated-input-desc">
-                    ${escapeHtml(summary.slice(0, 3).map(item => `${item.label}: ${item.value}`).join(' | ') || '无摘要')}
-                </div>
-                <div class="integrated-input-desc">
-                    ${escapeHtml(`表格 ${Array.isArray(table?.rows) ? table.rows.length : 0} 行 | 文件 ${artifacts.length} 个`)}
-                </div>
-            </div>
-        `;
-    }).join('');
+    window.ResultViewerRenderers.renderIntegratedSections({
+        card: document.getElementById('integrated-sections-card'),
+        container: document.getElementById('integrated-sections-list'),
+        sections,
+        requiredMessage: options.requiredMessage,
+        setHidden,
+        escapeHtml,
+    });
 }
 
 function openLocalArtifact(localPath) {
@@ -1594,12 +1553,7 @@ function openLocalArtifact(localPath) {
         showNotice('本地结果文件路径为空');
         return;
     }
-    if (!bridge || !bridge.open_local_file) {
-        showNotice('本地文件打开接口不可用');
-        return;
-    }
-
-    bridge.open_local_file(path, function(json) {
+    bridgeResultsService.openLocalFile(path, function(json) {
         try {
             const payload = JSON.parse(json || '{}');
             if (payload.status !== 'ok') {
@@ -1609,6 +1563,8 @@ function openLocalArtifact(localPath) {
             console.error('Failed to open local artifact:', error);
             showNotice('打开本地结果文件失败');
         }
+    }, function(error) {
+        showNotice(error && error.message ? error.message : '本地文件打开接口不可用');
     });
 }
 
@@ -2111,7 +2067,7 @@ function escapeHtml(value) {
 
 function loadTools() {
     console.log('Loading tools...');
-    bridge.get_tools(function(json) {
+    bridgeToolsService.loadTools(function(json) {
         try {
             allTools = JSON.parse(json);
             console.log(`✓ Loaded ${allTools.length} tools`);
@@ -2119,6 +2075,8 @@ function loadTools() {
         } catch (e) {
             console.error('Failed to parse tools:', e);
         }
+    }, function(error) {
+        console.error('Failed to load tools:', error);
     });
 }
 
@@ -2240,10 +2198,10 @@ function selectTool(toolId) {
     }
 
     // 通知 Python
-    bridge.select_tool(toolId);
+    bridgeToolsService.selectTool(toolId);
 
     // 获取工具详细信息
-    bridge.get_tool_descriptor(toolId, function(json) {
+    bridgeToolsService.getToolDescriptor(toolId, function(json) {
         try {
             selectedDescriptor = JSON.parse(json);
             toolDescriptorCache[toolId] = selectedDescriptor;
@@ -2252,6 +2210,8 @@ function selectTool(toolId) {
         } catch (e) {
             console.error('Failed to parse descriptor:', e);
         }
+    }, function(error) {
+        console.error('Failed to load descriptor:', error);
     });
 }
 
@@ -2446,7 +2406,7 @@ function isPrimerGenomesBundlePath(filePath) {
 
 function browseRemoteFile(inputId) {
     console.log('Browse remote file:', inputId);
-    bridge.browse_remote_file(inputId, function(rawResult) {
+    bridgeToolsService.browseRemoteFile(inputId, function(rawResult) {
         if (!rawResult) {
             return;
         }
@@ -2471,12 +2431,14 @@ function browseRemoteFile(inputId) {
             el.value = filePath;
             el.title = filePath;
         }
+    }, function(error) {
+        showNotice(error && error.message ? error.message : '远端文件选择接口不可用');
     });
 }
 
 function browseFile(inputId, fileFilter = '所有文件 (*.*)', validator = '') {
     console.log('Browse file:', inputId);
-    bridge.browse_file(inputId, fileFilter, validator, function(rawResult) {
+    bridgeToolsService.browseFile(inputId, fileFilter, validator, function(rawResult) {
         if (!rawResult) {
             return;
         }
@@ -2506,6 +2468,8 @@ function browseFile(inputId, fileFilter = '所有文件 (*.*)', validator = '') 
         }
 
         document.getElementById(inputId).value = filePath;
+    }, function(error) {
+        showNotice(error && error.message ? error.message : '文件选择接口不可用');
     });
 }
 
@@ -2568,7 +2532,7 @@ function runTool() {
         runBtn.textContent = '运行中...';
     }
 
-    bridge.run_tool(selectedToolId, JSON.stringify(params));
+    bridgeToolsService.runTool(selectedToolId, JSON.stringify(params));
 }
 
 function onRunResult(result) {
@@ -2626,9 +2590,7 @@ function clearForm() {
 // 加载执行历史
 function loadHistory() {
     console.log('Loading execution history...');
-    
-    // 调用 Python 获取执行历史
-    bridge.get_execution_history(function(json) {
+    bridgeHistoryService.loadExecutionHistory(function(json) {
         try {
             historyRecords = JSON.parse(json);
             console.log(`✓ Loaded ${historyRecords.length} execution records`);
@@ -2637,26 +2599,16 @@ function loadHistory() {
         } catch (e) {
             console.error('Failed to parse history:', e);
         }
+    }, function(error) {
+        console.error('Failed to load history:', error);
     });
 }
 
 function filterHistoryRecords(query) {
-    const keyword = String(query || '').trim().toLowerCase();
-    if (!keyword) {
-        return historyRecords;
-    }
-    return historyRecords.filter(record => {
-        const toolName = (allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id;
-        const haystack = [
-            record.execution_id,
-            record.tool_id,
-            toolName,
-            record.sample_name,
-            record.sample_id,
-            record.parameters,
-            record.status
-        ].join(' ').toLowerCase();
-        return haystack.includes(keyword);
+    return window.HistoryPanelRenderer.filterHistoryRecords({
+        query,
+        historyRecords,
+        allTools,
     });
 }
 
@@ -2665,11 +2617,10 @@ function normalizeExecutionStatus(status) {
 }
 
 function findHistoryRecord(executionId) {
-    const normalizedId = String(executionId || '').trim();
-    if (!normalizedId) {
-        return null;
-    }
-    return historyRecords.find(record => String(record?.execution_id || '').trim() === normalizedId) || null;
+    return window.HistoryPanelRenderer.findHistoryRecord({
+        executionId,
+        historyRecords,
+    });
 }
 
 function focusHistoryExecution(executionId, options = {}) {
@@ -2693,44 +2644,6 @@ function focusHistoryExecution(executionId, options = {}) {
     activateTab('history');
 }
 
-const HISTORY_RESULT_CONTEXTS = {
-    primer_design: {
-        featureId: 'primer_design',
-        loadingMessage: '正在加载引物结果...',
-        successMessage: '已加载该次引物设计结果',
-        errorMessage: '任务结果读取失败',
-        unavailableMessage: '任务结果加载接口不可用',
-    },
-    multiplex_primer_panel: {
-        featureId: 'multiplex_primer_panel',
-        loadingMessage: '正在加载 multiplex 结果...',
-        successMessage: '已加载该次 multiplex 结果',
-        errorMessage: 'Multiplex 结果读取失败',
-        unavailableMessage: 'Multiplex 结果加载接口不可用',
-    },
-    targeted_sequencing: {
-        featureId: 'targeted_sequencing',
-        loadingMessage: '正在加载靶向测序结果...',
-        successMessage: '已加载靶向测序分析结果',
-        errorMessage: '靶向测序结果读取失败',
-        unavailableMessage: '靶向测序结果加载接口不可用',
-    },
-    unknown_sample_detection: {
-        featureId: 'unknown_sample_detection',
-        loadingMessage: '正在加载未知样品检测结果...',
-        successMessage: '已加载检测结果',
-        errorMessage: '检测结果读取失败',
-        unavailableMessage: '未知样品检测结果加载接口不可用',
-    },
-    fastp: {
-        featureId: 'fastp',
-        loadingMessage: '正在加载 fastp QC 结果...',
-        successMessage: '已加载 fastp 质控结果',
-        errorMessage: 'fastp 结果读取失败',
-        unavailableMessage: 'fastp 结果加载接口不可用',
-    },
-};
-
 function ensureIntegratedWorkbenchViews() {
     if (!integratedWorkbench) {
         integratedWorkbench = { views: {}, features: [] };
@@ -2749,15 +2662,65 @@ function getIntegratedWorkbenchFeature(featureId) {
     return (integratedWorkbench.features || []).find(feature => feature && feature.id === featureId) || null;
 }
 
-function clearIntegratedTemporaryFeatures(exceptFeatureId = '') {
+function removeIntegratedWorkbenchFeature(featureId) {
+    if (!integratedWorkbench) {
+        return;
+    }
     ensureIntegratedWorkbenchViews();
-    const preservedId = String(exceptFeatureId || '').trim();
-    integratedWorkbench.features = (integratedWorkbench.features || []).filter(feature => {
+    integratedWorkbench.features = (integratedWorkbench.features || []).filter(function(feature) {
+        return feature && feature.id !== featureId;
+    });
+    if (integratedWorkbench.views && Object.prototype.hasOwnProperty.call(integratedWorkbench.views, featureId)) {
+        delete integratedWorkbench.views[featureId];
+    }
+}
+
+function closeIntegratedHistoryFeature(featureId, options = {}) {
+    const normalizedId = String(featureId || '').trim();
+    if (!normalizedId || !isIntegratedHistoryFeatureId(normalizedId)) {
+        return;
+    }
+
+    const nextSnapshot = closeIntegratedHistoryResultState(normalizedId, options.nextActiveKey || '');
+    removeIntegratedWorkbenchFeature(normalizedId);
+    if (pendingIntegratedFeatureId === normalizedId) {
+        pendingIntegratedFeatureId = nextSnapshot.activeKey || '';
+        pendingIntegratedViewSource = nextSnapshot.activeKey ? 'history' : '';
+    }
+    if (selectedIntegratedFeatureId === normalizedId) {
+        selectedIntegratedFeatureId = nextSnapshot.activeKey || null;
+        selectedIntegratedViewSource = nextSnapshot.activeKey ? 'history' : 'workflow';
+    }
+    renderIntegratedWorkbench();
+}
+
+function clearIntegratedTemporaryFeatures(options = {}) {
+    ensureIntegratedWorkbenchViews();
+    const normalizedOptions = typeof options === 'string'
+        ? { exceptFeatureId: options }
+        : (options || {});
+    const preservedId = String(normalizedOptions.exceptFeatureId || '').trim();
+    const snapshot = normalizedOptions.clearAllUnpinned
+        ? clearUnpinnedIntegratedHistoryResultState(preservedId)
+        : syncIntegratedExecutionViewsFromState(
+            integratedOpenResultsStore.trimOpenResults({
+                maxOpenResults: Number(normalizedOptions.maxCount) || INTEGRATED_HISTORY_RESULT_LIMIT,
+                keepKeys: preservedId ? [preservedId] : [],
+                keepActiveKey: preservedId || getIntegratedOpenResultsState().activeKey,
+            }),
+        );
+    const preservedKeys = new Set(snapshot.openKeys || []);
+    integratedWorkbench.features = (integratedWorkbench.features || []).filter(function(feature) {
         if (!feature || !feature.temporary) {
             return true;
         }
-        return preservedId && feature.id === preservedId;
+        return preservedKeys.has(feature.id);
     });
+    if (!preservedKeys.has(String(selectedIntegratedFeatureId || '').trim())) {
+        selectedIntegratedFeatureId = snapshot.activeKey || null;
+        selectedIntegratedViewSource = snapshot.activeKey ? 'history' : selectedIntegratedViewSource;
+    }
+    syncIntegratedHistoryResultControls();
 }
 
 function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
@@ -2769,7 +2732,7 @@ function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
     const existingIndex = (integratedWorkbench.features || []).findIndex(feature => feature && feature.id === featureId);
 
     if (temporary) {
-        clearIntegratedTemporaryFeatures(featureId);
+        clearIntegratedTemporaryFeatures({ exceptFeatureId: featureId, maxCount: INTEGRATED_HISTORY_RESULT_LIMIT });
     }
 
     if (existingIndex >= 0) {
@@ -2777,7 +2740,9 @@ function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
         integratedWorkbench.features[existingIndex] = {
             ...current,
             id: featureId,
-            name: String(current.name || view?.title || featureId),
+            name: temporary
+                ? getIntegratedHistoryFeatureLabel(view, featureId)
+                : String(current.name || view?.title || featureId),
             description: String(current.description || view?.description || ''),
             status: current.status || 'active',
             temporary: Boolean(current.temporary) || temporary,
@@ -2787,7 +2752,9 @@ function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
 
     integratedWorkbench.features.push({
         id: featureId,
-        name: String(view?.title || featureId),
+        name: temporary
+            ? getIntegratedHistoryFeatureLabel(view, featureId)
+            : String(view?.title || featureId),
         badge: '',
         description: String(view?.description || ''),
         status: 'active',
@@ -2797,87 +2764,37 @@ function upsertIntegratedHistoryFeature(featureId, view, options = {}) {
 }
 
 function parseHistoryParameters(record) {
-    try {
-        return typeof record?.parameters === 'string'
-            ? JSON.parse(record.parameters || '{}')
-            : (record?.parameters || {});
-    } catch (error) {
-        return {};
-    }
+    return window.HistoryResultLoader.parseHistoryParameters(record);
 }
 
 function resolveHistoryResultContext(record) {
-    const toolId = String(record?.tool_id || '').trim();
-    const params = parseHistoryParameters(record);
-
-    if (toolId === 'centrifuge' || toolId === 'kraken2') {
-        const workflow = String(params.workflow || '').trim();
-        return workflow === 'unknown_detection'
-            ? HISTORY_RESULT_CONTEXTS.unknown_sample_detection
-            : {
-                ...HISTORY_RESULT_CONTEXTS.targeted_sequencing,
-                featureId: toolId,
-                loadingMessage: `正在加载 ${toolId} 分类结果...`,
-                successMessage: `已加载 ${toolId} 分类结果`,
-            };
-    }
-
-    return HISTORY_RESULT_CONTEXTS[toolId] || {
-        featureId: toolId,
-        loadingMessage: `正在加载 ${toolId || '任务'} 结果...`,
-        successMessage: '已加载任务结果',
-        errorMessage: '任务结果读取失败',
-        unavailableMessage: '任务结果加载接口不可用',
-    };
+    return window.HistoryResultLoader.resolveHistoryResultContext(record);
 }
 
 function loadExecutionResultsFromHistory(executionId, context = {}) {
-    if (!executionId) {
-        return;
-    }
-
-    const loader = bridge && typeof bridge.get_results_for_execution === 'function'
-        ? bridge.get_results_for_execution.bind(bridge)
-        : null;
-
-    if (!loader) {
-        showNotice(context.unavailableMessage || '任务结果加载接口不可用');
-        return;
-    }
-
-    const loadingMessage = context.loadingMessage || '正在加载任务结果...';
-    const successMessage = context.successMessage || '已加载任务结果';
-    const errorMessage = context.errorMessage || '任务结果读取失败';
-    showNotice(loadingMessage, 'warning', 10000);
-
-    const applyPayload = function(payload) {
-        const views = ensureIntegratedWorkbenchViews();
-        const featureId = String(
-            context.featureId
+    const applyPayload = function(payload, resolvedExecutionId, resolvedContext) {
+        const errorMessage = resolvedContext.errorMessage || '任务结果读取失败';
+        ensureIntegratedWorkbenchViews();
+        const baseFeatureId = String(
+            resolvedContext.featureId
             || payload.view.feature_id
             || payload.view.view_id
             || payload.view.tool_id
             || ''
         ).trim();
-        if (!featureId) {
+        if (!baseFeatureId) {
             showNotice(payload.message || errorMessage);
             return false;
         }
-
-        if (!getIntegratedWorkbenchFeature(featureId)) {
-            views[featureId] = payload.view;
-        }
-        integratedExecutionViews[featureId] = {
-            ...payload.view,
-            __displaySource: 'history',
-        };
+        const featureId = buildIntegratedHistoryResultKey(baseFeatureId, resolvedExecutionId);
+        rememberIntegratedExecutionView(featureId, payload.view);
         pendingIntegratedFeatureId = featureId;
         pendingIntegratedViewSource = 'history';
         const existingFeature = getIntegratedWorkbenchFeature(featureId);
         const featureChanged = upsertIntegratedHistoryFeature(
             featureId,
             payload.view,
-            { temporary: !existingFeature },
+            { temporary: !existingFeature || Boolean(existingFeature?.temporary) },
         );
         switchTab('integrated');
         if (featureChanged) {
@@ -2885,56 +2802,59 @@ function loadExecutionResultsFromHistory(executionId, context = {}) {
         } else {
             selectIntegratedFeature(featureId, { sourceMode: 'history' });
         }
-        showNotice(payload.message || successMessage, 'success');
         return true;
     };
-
-    loader(executionId, function(json) {
-        try {
-            const payload = JSON.parse(json || '{}');
-            if (payload.status !== 'ok' || !payload.view) {
-                showNotice(payload.message || errorMessage);
-                return;
-            }
-
-            applyPayload(payload);
-        } catch (error) {
-            console.error('Failed to parse history results via get_results_for_execution:', error);
-            showNotice(errorMessage);
-        }
+    window.HistoryResultLoader.loadExecutionResultsFromHistory({
+        executionId,
+        context,
+        bridgeResultsService,
+        showNotice,
+        applyPayload,
     });
 }
 
 function openExecution(executionId, context = {}) {
-    const normalizedId = String(executionId || '').trim();
-    if (!normalizedId) {
-        showNotice('任务提交成功，但缺少 execution_id，无法自动定位');
-        return;
-    }
-
-    const record = context.record || findHistoryRecord(normalizedId);
-    const status = normalizeExecutionStatus(
-        context.status
-        || context.local_status
-        || record?.status
-    );
-
-    if (status === 'completed') {
-        loadExecutionResultsFromHistory(
-            normalizedId,
-            context.resultContext || resolveHistoryResultContext(record || {}),
-        );
-        return;
-    }
-
-    const shouldFetchRemoteStatus = typeof context.fetchRemoteStatus === 'boolean'
-        ? context.fetchRemoteStatus
-        : (status === 'running' || status === 'failed');
-
-    focusHistoryExecution(normalizedId, {
-        expand: true,
-        fetchRemoteStatus: shouldFetchRemoteStatus,
-        noticeMessage: context.noticeMessage || '',
+    window.HistoryResultLoader.openExecution({
+        executionId,
+        record: context.record,
+        status: context.status,
+        local_status: context.local_status,
+        resultContext: context.resultContext,
+        fetchRemoteStatus: context.fetchRemoteStatus,
+        noticeMessage: context.noticeMessage,
+        bridgeResultsService,
+        showNotice,
+        findHistoryRecord,
+        normalizeExecutionStatus,
+        focusHistoryExecution,
+        applyPayload: function(payload, resolvedExecutionId, resolvedContext) {
+            const featureId = buildIntegratedHistoryResultKey(
+                String(
+                    resolvedContext.featureId
+                    || payload.view.feature_id
+                    || payload.view.view_id
+                    || payload.view.tool_id
+                    || ''
+                ).trim(),
+                resolvedExecutionId,
+            );
+            rememberIntegratedExecutionView(featureId, payload.view);
+            pendingIntegratedFeatureId = featureId;
+            pendingIntegratedViewSource = 'history';
+            const existingFeature = getIntegratedWorkbenchFeature(featureId);
+            const featureChanged = upsertIntegratedHistoryFeature(
+                featureId,
+                payload.view,
+                { temporary: !existingFeature || Boolean(existingFeature?.temporary) },
+            );
+            switchTab('integrated');
+            if (featureChanged) {
+                renderIntegratedWorkbench();
+            } else {
+                selectIntegratedFeature(featureId, { sourceMode: 'history' });
+            }
+            return true;
+        },
     });
 }
 
@@ -2995,10 +2915,6 @@ function toggleExecutionRemoteStatus(executionId, rowEl) {
     if (!executionId || !rowEl) {
         return;
     }
-    if (!bridge || !bridge.get_execution_remote_status) {
-        showNotice('远端状态接口不可用');
-        return;
-    }
     if (remoteStatusLoading.has(executionId)) {
         showNotice('远端状态查询进行中...', 'warning', 2000);
         return;
@@ -3018,7 +2934,7 @@ function toggleExecutionRemoteStatus(executionId, rowEl) {
 
     showNotice('正在查询远端执行状态...', 'warning', 6000);
     remoteStatusLoading.add(executionId);
-    bridge.get_execution_remote_status(executionId, function(json) {
+    bridgeHistoryService.getExecutionRemoteStatus(executionId, function(json) {
         try {
             const payload = JSON.parse(json || '{}');
             if (payload.status !== 'ok' || !payload.data) {
@@ -3038,6 +2954,9 @@ function toggleExecutionRemoteStatus(executionId, rowEl) {
         } finally {
             remoteStatusLoading.delete(executionId);
         }
+    }, function(error) {
+        remoteStatusLoading.delete(executionId);
+        showNotice(error && error.message ? error.message : '远端状态接口不可用');
     });
 }
 
@@ -3045,15 +2964,11 @@ function deleteHistoryExecution(executionId) {
     if (!executionId) {
         return;
     }
-    if (!bridge || !bridge.delete_execution_history) {
-        showNotice('删除任务接口不可用');
-        return;
-    }
     if (!window.confirm('确定删除这条任务历史吗？\n仅从历史列表隐藏，不删除结果文件。')) {
         return;
     }
 
-    bridge.delete_execution_history(executionId, function(json) {
+    bridgeHistoryService.deleteExecutionHistory(executionId, function(json) {
         try {
             const payload = JSON.parse(json);
             if (payload.status !== 'ok') {
@@ -3066,17 +2981,13 @@ function deleteHistoryExecution(executionId) {
             console.error('Failed to parse delete execution result:', e);
             showNotice('删除任务记录失败');
         }
+    }, function(error) {
+        showNotice(error && error.message ? error.message : '删除任务接口不可用');
     });
 }
 
 function formatParamsSummary(paramsJson) {
-    if (!paramsJson) return '-';
-    try {
-        const params = typeof paramsJson === 'string' ? JSON.parse(paramsJson) : paramsJson;
-        const entries = Object.entries(params).filter(([k, v]) => v !== '' && v !== null && v !== undefined);
-        const summary = entries.slice(0, 3).map(([k, v]) => `${k}=${v}`).join(', ');
-        return summary || '-';
-    } catch (e) { return '-'; }
+    return window.HistoryPanelRenderer.formatParamsSummary(paramsJson);
 }
 
 function formatDetailCell(record) {
@@ -3093,239 +3004,52 @@ function formatDetailCell(record) {
 }
 
 function renderHistory(history) {
-    const container = document.getElementById('history-container');
-    container.innerHTML = '';
-    const pendingExecutionId = String(pendingHistoryExecutionId || '').trim();
-    const pendingOptions = pendingHistoryExecutionOptions || {};
-    let focusedRow = null;
-    let focusedRemoteStatusRequested = false;
-
-    if (history.length === 0) {
-        container.innerHTML = `
-            <div class="history-empty-state">
-                <div class="history-empty-icon">∅</div>
-                <div class="history-empty-title">暂无任务记录</div>
-                <div class="history-empty-desc">新的 Primer Design 或 Multiplex Panel Design 任务会在这里显示。</div>
-            </div>
-        `;
-        return;
-    }
-
-    history.forEach(record => {
-        const row = document.createElement('div');
-        row.className = 'task-row';
-        row.dataset.executionId = String(record.execution_id || '');
-
-        const statusText = getStatusText(record.status);
-        const statusClass = getStatusClass(record.status);
-
-        const duration = record.completed_at
-            ? formatDuration(record.completed_at - record.created_at)
-            : '-';
-        const durationClass = getDurationClass(record.completed_at ? (record.completed_at - record.created_at) : 0);
-
-        const paramsSummary = formatParamsSummary(record.parameters);
-
-        let prettyJson = '{}';
-        try {
-            const parsed = typeof record.parameters === 'string' ? JSON.parse(record.parameters) : record.parameters;
-            prettyJson = JSON.stringify(parsed, null, 4);
-        } catch(e) {
-            prettyJson = record.parameters || '';
-        }
-
-        const toolName = (allTools.find(t => t.id === record.tool_id) || {}).name || record.tool_id;
-        const sampleNameRaw = record.sample_name || record.sample_id || '-';
-        const sampleName = escapeHtml(sampleNameRaw);
-        const createdLabel = formatRelativeTime(record.created_at);
-        const exactTime = formatExactTime(record.created_at);
-        const hasDetails = record.status === 'failed' || prettyJson;
-
-        let detailsHtml = '';
-        if (record.status === 'failed' && record.error) {
-            detailsHtml += `<div class="task-error-banner">错误信息: ${escapeHtml(record.error)}</div>`;
-        }
-        detailsHtml += `<pre class="task-details-pre">${escapeHtml(prettyJson)}</pre>`;
-
-        row.innerHTML = `
-            <div class="task-summary" onclick="this.parentElement.classList.toggle('expanded')">
-                <div class="col-status-wrap task-status-combo">
-                    <span class="status-inline ${statusClass}">
-                        <span class="status-dot"></span>
-                        ${record.status === 'running' ? '<span class="status-spinner"></span>' : ''}
-                        <span>${statusText}</span>
-                    </span>
-                </div>
-                <div class="col-tool val-tool" title="${toolName}">
-                    <div class="tool-primary">${toolName}</div>
-                    <div class="tool-secondary">${escapeHtml(record.tool_id || '')}</div>
-                </div>
-                <div class="col-sample val-sample" title="${sampleName}">${sampleName}</div>
-                <div class="col-params val-params" title="${escapeHtml(prettyJson || paramsSummary)}">${escapeHtml(paramsSummary)}</div>
-                <div class="col-time val-time" title="${escapeHtml(exactTime)}">
-                    <div class="time-primary">${createdLabel}</div>
-                </div>
-                <div class="col-duration val-duration ${durationClass}">${duration}</div>
-                <div class="col-actions">
-                    <div class="task-actions" onclick="event.stopPropagation()">
-                        <!-- 动态插入按钮 -->
-                    </div>
-                </div>
-            </div>
-            <div class="task-details${hasDetails ? '' : ' empty'}">
-                ${detailsHtml}
-            </div>
-        `;
-
-        const actionsContainer = row.querySelector('.task-actions');
-
-        // 按钮逻辑
-        if (record.status === 'completed') {
-            const resultContext = resolveHistoryResultContext(record);
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'task-action-btn btn-view';
-            viewBtn.textContent = '查看结果';
-            viewBtn.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                openExecution(record.execution_id, {
-                    record,
-                    resultContext: resultContext || {},
-                });
-            };
-            actionsContainer.appendChild(viewBtn);
-        } else {
-            const statusBtn = document.createElement('button');
-            statusBtn.className = 'task-action-btn btn-view';
-            statusBtn.textContent = '查看状态';
-            statusBtn.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                openExecution(record.execution_id, { record });
-            };
-            actionsContainer.appendChild(statusBtn);
-        }
-
-        // 2. 完成或失败可删除
-        if (record.status === 'completed' || record.status === 'failed') {
-            const delBtn = document.createElement('button');
-            delBtn.className = 'task-action-btn btn-delete';
-            delBtn.setAttribute('title', '删除任务记录');
-            delBtn.textContent = '⌫';
-            delBtn.onclick = function(e) {
-                e.preventDefault();
-                deleteHistoryExecution(record.execution_id);
-            };
-            actionsContainer.appendChild(delBtn);
-        }
-
-        container.appendChild(row);
-
-        if (pendingExecutionId && row.dataset.executionId === pendingExecutionId) {
-            focusedRow = row;
-            if (pendingOptions.expand !== false) {
-                row.classList.add('expanded');
-            }
-            if (pendingOptions.fetchRemoteStatus !== false) {
-                focusedRemoteStatusRequested = true;
-            }
-        }
+    window.HistoryPanelRenderer.renderHistoryPanel({
+        container: document.getElementById('history-container'),
+        history,
+        allTools,
+        pendingExecutionId: pendingHistoryExecutionId,
+        pendingOptions: pendingHistoryExecutionOptions || {},
+        escapeHtml,
+        resolveHistoryResultContext,
+        openExecution,
+        deleteHistoryExecution,
+        toggleExecutionRemoteStatus,
+        showNotice,
+        onPendingResolved: function() {
+            pendingHistoryExecutionId = null;
+            pendingHistoryExecutionOptions = null;
+        },
+        onPendingMissing: function(executionId) {
+            showNotice(`未找到对应任务记录: ${executionId}`);
+            pendingHistoryExecutionId = null;
+            pendingHistoryExecutionOptions = null;
+        },
     });
-
-    if (focusedRow) {
-        setTimeout(function() {
-            try {
-                focusedRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            } catch (_) {
-                // ignore
-            }
-        }, 0);
-
-        if (pendingOptions.noticeMessage) {
-            showNotice(pendingOptions.noticeMessage, 'success', 2800);
-        }
-
-        if (focusedRemoteStatusRequested) {
-            toggleExecutionRemoteStatus(pendingExecutionId, focusedRow);
-        }
-
-        pendingHistoryExecutionId = null;
-        pendingHistoryExecutionOptions = null;
-    } else if (pendingExecutionId) {
-        showNotice(`未找到对应任务记录: ${pendingExecutionId}`);
-        pendingHistoryExecutionId = null;
-        pendingHistoryExecutionOptions = null;
-    }
 }
 
 // 获取状态文本
 function getStatusText(status) {
-    const statusMap = {
-        'pending': '等待中',
-        'running': '运行中',
-        'completed': '已完成',
-        'failed': '失败'
-    };
-    return statusMap[status] || status;
+    return window.HistoryPanelRenderer.getStatusText(status);
 }
 
 function getStatusClass(status) {
-    const statusMap = {
-        pending: 'pending',
-        running: 'running',
-        completed: 'completed',
-        failed: 'failed'
-    };
-    return statusMap[status] || 'unknown';
+    return window.HistoryPanelRenderer.getStatusClass(status);
 }
 
 function formatExactTime(timestamp) {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    return window.HistoryPanelRenderer.formatExactTime(timestamp);
 }
 
 function formatRelativeTime(timestamp) {
-    const nowSeconds = Date.now() / 1000;
-    const diff = Math.max(0, Math.round(nowSeconds - Number(timestamp || 0)));
-    if (diff < 60) {
-        return `${diff}秒前`;
-    }
-    if (diff < 3600) {
-        return `${Math.round(diff / 60)}分钟前`;
-    }
-
-    const date = new Date(timestamp * 1000);
-    const now = new Date();
-    const sameDay = date.toDateString() === now.toDateString();
-    if (sameDay) {
-        return `今天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    return `${date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })} ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+    return window.HistoryPanelRenderer.formatRelativeTime(timestamp);
 }
 
 function formatDuration(seconds) {
-    if (seconds < 60) {
-        return `${Math.round(seconds)}秒`;
-    } else if (seconds < 3600) {
-        return `${Math.round(seconds / 60)}分钟`;
-    } else {
-        return `${Math.round(seconds / 3600)}小时`;
-    }
+    return window.HistoryPanelRenderer.formatDuration(seconds);
 }
 
 function getDurationClass(seconds) {
-    if (!seconds || seconds < 3600) {
-        return 'duration-normal';
-    }
-    if (seconds < 3 * 3600) {
-        return 'duration-warn';
-    }
-    return 'duration-long';
+    return window.HistoryPanelRenderer.getDurationClass(seconds);
 }
 

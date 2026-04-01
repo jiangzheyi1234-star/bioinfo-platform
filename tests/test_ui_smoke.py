@@ -660,6 +660,7 @@ class TestDetectionIntegratedWorkbench:
         css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
 
         assert 'id="tab-integrated"' in html
+        assert 'id="integrated-clear-history-results"' in html
         assert 'id="integrated-feature-list"' in html
         assert 'id="integrated-run-card"' in html
         assert 'id="integrated-run-btn"' in html
@@ -679,12 +680,34 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-provenance-list"' in html
         assert 'history-empty-row' in html
         assert 'integrated-chart-stage' in html
+        assert 'services/bridge_tools.js' in html
+        assert 'services/bridge_history.js' in html
+        assert 'services/bridge_results.js' in html
+        assert 'render/database_panel.js' in html
+        assert 'render/history_panel.js' in html
+        assert 'render/integrated_sidebar.js' in html
+        assert 'render/result_viewers.js' in html
+        assert 'results/open_results_state.js' in html
+        assert 'results/history_result_loader.js' in html
+        assert 'results/workbench_selection.js' in html
         assert 'loadExecutionResultsFromHistory' in js
         assert 'resolveHistoryResultContext' in js
         assert 'ensureIntegratedWorkbenchViews' in js
         assert 'getIntegratedWorkbenchFeature' in js
         assert 'clearIntegratedTemporaryFeatures' in js
         assert 'upsertIntegratedHistoryFeature' in js
+        assert 'closeIntegratedHistoryFeature' in js
+        assert 'buildIntegratedHistoryResultKey' in js
+        assert 'INTEGRATED_HISTORY_RESULT_LIMIT' in js
+        assert 'integratedOpenResultsStore' in js
+        assert 'bridgeToolsService' in js
+        assert 'bridgeHistoryService' in js
+        assert 'bridgeResultsService' in js
+        assert 'window.HistoryPanelRenderer.renderHistoryPanel' in js
+        assert 'window.IntegratedSidebarRenderer.renderIntegratedSidebar' in js
+        assert 'window.ResultViewerRenderers.renderSummaryGrid' in js
+        assert 'window.HistoryResultLoader.loadExecutionResultsFromHistory' in js
+        assert 'window.IntegratedWorkbenchSelection.getIntegratedFeatureView' in js
         assert 'renderIntegratedProvenance' in js
         assert 'renderIntegratedSections' in js
         assert 'initializeIntegratedResultTabs' in js
@@ -739,6 +762,10 @@ class TestDetectionIntegratedWorkbench:
         assert "fetchRemoteStatus: false" in js
         assert "viewBtn.textContent = '查看结果'" in js
         assert "statusBtn.textContent = '查看状态'" in js
+        assert "data-action=\"pin\"" in js
+        assert "data-action=\"close\"" in js
+        assert "clearAllUnpinned" in js
+        assert "'::'" in js
         assert "renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult })" in js
         assert "selectIntegratedFeature(featureId, { sourceMode: 'history' });" in js
         assert "当前 execution 未提供表格结果。" in js
@@ -760,6 +787,9 @@ class TestDetectionIntegratedWorkbench:
         assert ".history-empty-row" in css
         assert ".integrated-chart-stage" in css
         assert ".task-info-banner" in css
+        assert ".integrated-sidebar-actions" in css
+        assert ".integrated-feature-action" in css
+        assert ".integrated-feature-item[data-source-mode=\"history\"]" in css
 
         context_priority = js.find("context.featureId")
         payload_priority = js.find("payload.view.feature_id")
