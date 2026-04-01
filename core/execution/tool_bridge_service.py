@@ -15,7 +15,6 @@ import csv
 import datetime
 import json
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +29,7 @@ from core.execution.tool_bridge_specs import (
     TARGETED_RESULT_TOOL_IDS,
     build_integrated_workbench_config,
 )
+from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES
 from core.execution.result_parsers import (
     build_multiplex_columns as _parse_build_multiplex_columns,
 )
@@ -119,71 +119,12 @@ if TYPE_CHECKING:
     from core.service_locator import ServiceLocator
 
 logger = logging.getLogger(__name__)
-_TOOL_ARCHETYPES: dict[str, str] = {
-    "fastp": "qc_report",
-    "hostile": "qc_report",
-    "kraken2": "taxonomy_profile",
-    "centrifuge": "taxonomy_profile",
-    "metaphlan": "taxonomy_profile",
-    "bracken": "taxonomy_profile",
-    "gtdbtk": "taxonomy_profile",
-    "krona": "html_report",
-    "prokka": "annotation_table",
-    "bakta": "annotation_table",
-    "prodigal": "annotation_table",
-    "eggnog": "annotation_table",
-    "blastn": "annotation_table",
-    "abricate": "annotation_table",
-    "amrfinderplus": "annotation_table",
-    "rgi": "annotation_table",
-    "integron_finder": "annotation_table",
-    "isescan": "annotation_table",
-    "genomad": "annotation_table",
-    "quast": "quality_assessment",
-    "busco": "quality_assessment",
-    "checkm2": "quality_assessment",
-    "gunc": "quality_assessment",
-    "concoct": "artifact_collection",
-    "das_tool": "artifact_collection",
-    "maxbin2": "artifact_collection",
-    "metabat2": "artifact_collection",
-    "semibin2": "artifact_collection",
-    "unknown_sample_detection": "workflow_product",
-    "wastewater_metagenomics_basic": "workflow_product",
-    "animal_metagenomics_basic": "workflow_product",
-    "primer_design": "workflow_product",
-    "multiplex_primer_panel": "workflow_product",
-}
 _WORKFLOW_PRODUCT_TOOL_IDS = (*DETECTION_WORKFLOW_ORDER, "primer_design", "multiplex_primer_panel")
 _QUALITY_SUMMARY_KEYS: dict[str, list[tuple[str, str, str]]] = {
     "quast": [("Contigs", "# contigs", "primary"), ("总长度", "Total length", "info"), ("N50", "N50", "success")],
     "checkm2": [("Completeness", "Completeness", "success"), ("Contamination", "Contamination", "warning"), ("GC", "GC_Content", "info")],
     "gunc": [("Mapped Genes", "n_genes_mapped", "primary"), ("CSS", "clade_separation_score", "info"), ("Contamination", "contamination_portion", "warning")],
 }
-@dataclass
-class ToolCheckResult:
-    tool_id: str
-    env_name: str
-    ok: bool
-
-
-@dataclass
-class ExecutionResult:
-    status: str
-    message: str = ""
-    execution_id: str = ""
-    sample_id: str = ""
-
-
-@dataclass
-class PrimerView:
-    description: str = ""
-    status: dict = field(default_factory=dict)
-    parameters: list = field(default_factory=list)
-    summary: list = field(default_factory=list)
-    rows: list = field(default_factory=list)
-    artifacts: list = field(default_factory=list)
-    remote_result_dir: str = ""
 
 
 class ToolBridgeService:

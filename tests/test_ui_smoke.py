@@ -988,6 +988,79 @@ class TestDetectionIntegratedWorkbench:
         assert ".integrated-feature-item[data-source-mode=\"history\"]" in css
         assert "featureId: 'fastp'" in js
 
+    def test_python_refactor_modules_extract_workers_and_dialogs(self):
+        linux_workers_py = Path("ui/widgets/linux_settings_workers.py").read_text(encoding="utf-8")
+        linux_card_py = Path("ui/widgets/linux_settings_card.py").read_text(encoding="utf-8")
+        linux_miniforge_py = Path("ui/widgets/linux_settings_miniforge.py").read_text(encoding="utf-8")
+        database_dialogs_py = Path("ui/pages/database_dialogs.py").read_text(encoding="utf-8")
+        database_remote_ops_py = Path("ui/pages/database_remote_ops.py").read_text(encoding="utf-8")
+        database_page_py = Path("ui/pages/database_page.py").read_text(encoding="utf-8")
+        tool_bridge_service_py = Path("core/execution/tool_bridge_service.py").read_text(encoding="utf-8")
+        tool_bridge_types_py = Path("core/execution/tool_bridge_types.py").read_text(encoding="utf-8")
+
+        assert "from ui.widgets.linux_settings_workers import (" in linux_card_py
+        assert "from ui.widgets.linux_settings_miniforge import LinuxSettingsMiniforgeMixin, _is_test_mode" in linux_card_py
+        assert "from ui.pages.database_dialogs import _AsyncTaskWorker, DatabaseSettingsDialog, RemoteDirectoryPickerDialog" in database_page_py
+        assert "from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin" in database_page_py
+        assert "from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES" in tool_bridge_service_py
+
+        assert "def _format_rate(" in linux_workers_py
+        assert "def _safe_emit(" in linux_workers_py
+        assert "def _normalize_env_paths(" in linux_workers_py
+        assert "def _tool_env_exists_in_paths(" in linux_workers_py
+        assert "class MiniforgeProbeWorker(" in linux_workers_py
+        assert "class MiniforgeBootstrapSubmitWorker(" in linux_workers_py
+        assert "class MiniforgePollWorker(" in linux_workers_py
+        assert "class EnvBatchCheckWorker(" in linux_workers_py
+        assert "class ToolInstallBatchPollWorker(" in linux_workers_py
+        assert "class ToolInstallSubmitWorker(" in linux_workers_py
+        assert "class RecoverInstallsWorker(" in linux_workers_py
+
+        assert "def _is_test_mode(" in linux_miniforge_py
+        assert "class LinuxSettingsMiniforgeMixin:" in linux_miniforge_py
+        assert "def start_deploy(" in linux_miniforge_py
+        assert "def _start_miniforge_install_silent(" in linux_miniforge_py
+        assert "def _on_miniforge_poll_finished(" in linux_miniforge_py
+
+        assert "def _format_rate(" not in linux_card_py
+        assert "def _safe_emit(" not in linux_card_py
+        assert "def _normalize_env_paths(" not in linux_card_py
+        assert "def _tool_env_exists_in_paths(" not in linux_card_py
+        assert "class MiniforgeProbeWorker(" not in linux_card_py
+        assert "class MiniforgeBootstrapSubmitWorker(" not in linux_card_py
+        assert "class MiniforgePollWorker(" not in linux_card_py
+        assert "class EnvBatchCheckWorker(" not in linux_card_py
+        assert "class ToolInstallBatchPollWorker(" not in linux_card_py
+        assert "class ToolInstallSubmitWorker(" not in linux_card_py
+        assert "class RecoverInstallsWorker(" not in linux_card_py
+        assert "def start_deploy(" not in linux_card_py
+        assert "def _start_miniforge_install_silent(" not in linux_card_py
+        assert "def _on_miniforge_poll_finished(" not in linux_card_py
+
+        assert "def _make_popover_panel(" in database_dialogs_py
+        assert "class _AsyncTaskWorker(" in database_dialogs_py
+        assert "class RemoteDirectoryPickerDialog(" in database_dialogs_py
+        assert "class DatabaseSettingsDialog(" in database_dialogs_py
+
+        assert "class DatabaseRemoteOpsMixin:" in database_remote_ops_py
+        assert "def _check_database_status(" in database_remote_ops_py
+        assert "def _validate_db_root_remote(" in database_remote_ops_py
+        assert "def _make_ssh_run_fn(" in database_remote_ops_py
+
+        assert "def _make_popover_panel(" not in database_page_py
+        assert "class _AsyncTaskWorker(" not in database_page_py
+        assert "class RemoteDirectoryPickerDialog(" not in database_page_py
+        assert "class DatabaseSettingsDialog(" not in database_page_py
+        assert "def _check_database_status(" not in database_page_py
+        assert "def _validate_db_root_remote(" not in database_page_py
+        assert "def _make_ssh_run_fn(" not in database_page_py
+
+        assert "class ExecutionResult:" in tool_bridge_types_py
+        assert "class PrimerView:" in tool_bridge_types_py
+        assert "_TOOL_ARCHETYPES: dict[str, str] = {" in tool_bridge_types_py
+        assert "class ExecutionResult:" not in tool_bridge_service_py
+        assert "class PrimerView:" not in tool_bridge_service_py
+
     def test_detection_history_empty_state_and_sample_fallback(self):
         app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
         history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
