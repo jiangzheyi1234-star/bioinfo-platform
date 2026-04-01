@@ -473,7 +473,7 @@ function renderIntegratedRunModalForm(descriptor) {
                     <div class="integrated-input-label-row"><span class="integrated-input-label">${escapeHtml(input.label || input.name || 'Input')}</span>${required}</div>
                     <div class="input-group">
                         <input type="text" class="ui-field" id="${id}" placeholder="${escapeHtml(input.description || 'Select file')}" readonly>
-                        <button class="btn-browse" type="button" onclick="browseFile('${id}', '${browseFilter}', '${validator}')">Browse...</button>
+                        <button class="ui-button ui-button--secondary ui-button--sm form-browse-btn" type="button" onclick="browseFile('${id}', '${browseFilter}', '${validator}')">Browse...</button>
                     </div>
                 </div>
             `);
@@ -1202,7 +1202,7 @@ function renderIntegratedWorkbench() {
         item.className = 'integrated-feature-item';
         item.dataset.featureId = feature.id;
         const badgeHtml = feature.badge
-            ? `<span class="integrated-feature-badge">${escapeHtml(feature.badge)}</span>`
+            ? `<span class="ui-badge ui-badge--accent integrated-feature-badge">${escapeHtml(feature.badge)}</span>`
             : '';
         item.innerHTML = `
             <div class="integrated-feature-main">
@@ -2298,7 +2298,7 @@ function renderInputs(inputs) {
                        id="input-${input.name}"
                        placeholder="${input.description || 'Select file...'}"
                        readonly>
-                <button class="btn-browse" onclick="browseFile('input-${input.name}', '${browseFilter}', '${validator}')">Browse...</button>
+                <button class="ui-button ui-button--secondary ui-button--sm form-browse-btn" onclick="browseFile('input-${input.name}', '${browseFilter}', '${validator}')">Browse...</button>
             </div>
             ${input.description ? `<div class="form-help">${input.description}</div>` : ''}
         `;
@@ -2395,7 +2395,7 @@ function renderDatabases(databases) {
                        placeholder="${db.description || '远端数据库路径...'}"
                        title="${defaultVal}"
                        value="${defaultVal}">
-                <button class="btn-browse" onclick="browseRemoteFile('db-${db.param_name || db.name}')">Browse...</button>
+                <button class="ui-button ui-button--secondary ui-button--sm form-browse-btn" onclick="browseRemoteFile('db-${db.param_name || db.name}')">Browse...</button>
             </div>
             ${db.description ? `<div class="form-help">${db.description}</div>` : ''}
         `;

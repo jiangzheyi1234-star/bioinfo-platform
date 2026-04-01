@@ -138,20 +138,6 @@ body {
     display: flex;
 }
 
-/* 状态标签 */
-.status-badge {
-    display: inline-block;
-    padding: 3px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-}
-
-.status-pending { background: var(--state-pending-bg); color: var(--state-pending-fg); }
-.status-running { background: var(--state-running-bg); color: var(--state-running-fg); }
-.status-completed { background: var(--state-completed-bg); color: var(--state-completed-fg); }
-.status-failed { background: var(--state-failed-bg); color: var(--state-failed-fg); }
-
 /* 左侧面板：工具列表（窄） */
 .left-panel {
     flex: 0 0 280px;
@@ -192,19 +178,12 @@ header {
     margin-bottom: 12px;
 }
 
-#search {
+.tool-search-input {
     width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #d0d7de;
-    border-radius: 6px;
-    font-size: 13px;
-    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-#search:focus {
-    outline: none;
+.tool-search-input:focus {
     border-color: var(--accent-500);
-    box-shadow: 0 0 0 3px rgba(9,105,218,0.1);
 }
 
 #count {
@@ -363,20 +342,15 @@ header {
     color: #57606a;
 }
 
-.database-scan-btn {
-    border: 1px solid #d0d7de;
-    background: #ffffff;
-    color: #24292f;
+.database-page-scan-btn {
     border-radius: 16px;
     padding: 20px 28px;
     min-width: 180px;
     font-size: 15px;
     font-weight: 700;
-    cursor: pointer;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 }
 
-.database-scan-btn:hover {
+.database-page-scan-btn:hover:not(:disabled) {
     border-color: #7dd3fc;
     color: #3B82F6;
 }
@@ -646,16 +620,13 @@ header {
     align-items: center;
     justify-content: center;
     white-space: nowrap;
-    border-radius: 999px;
     padding: 5px 10px;
     font-size: var(--font-size-caption);
     font-weight: 700;
 }
 
 .integrated-feature-badge {
-    color: var(--state-running-fg);
-    background: var(--state-running-bg);
-    border: 1px solid var(--state-running-border);
+    padding: 5px 10px;
 }
 
 .integrated-content {
@@ -1959,7 +1930,7 @@ header {
     min-width: 0;
 }
 
-.btn-browse {
+.form-browse-btn {
     white-space: nowrap;
 }
 
@@ -2077,25 +2048,19 @@ header {
     display: none;
 }
 
-.btn-refresh {
-    min-height: 36px;
+.history-refresh-btn {
     padding: 8px 14px;
-    background: rgba(255, 255, 255, 0.92);
-    border: var(--card-border);
-    border-radius: 999px;
     font-size: var(--font-size-body-sm);
     font-weight: 600;
-    cursor: pointer;
-    color: var(--text-muted);
-    transition: all 0.2s ease;
 }
 
-.btn-refresh:hover {
-    background: #ffffff;
+.history-refresh-btn:hover:not(:disabled) {
     color: var(--text-strong);
     border-color: var(--state-running-border);
-    box-shadow: var(--card-shadow-1);
-    transform: translateY(-1px);
+}
+
+.history-search-input {
+    width: 100%;
 }
 
 .history-body {
