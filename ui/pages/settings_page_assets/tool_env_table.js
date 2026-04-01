@@ -73,7 +73,7 @@ function renderToolList(tools) {
                 '</span>' +
             '</td>' +
             '<td class="col-action action-cell">' +
-                '<button class="ui-button ui-button--primary ui-button--sm ui-button--install is-hidden" data-tool-id="' + tool.id + '">安装</button>' +
+                '<button class="btn-install ui-button ui-button--primary ui-button--sm ui-button--install is-hidden" data-tool-id="' + tool.id + '">安装</button>' +
             '</td>';
 
         const btn = row.querySelector('[data-tool-id]');

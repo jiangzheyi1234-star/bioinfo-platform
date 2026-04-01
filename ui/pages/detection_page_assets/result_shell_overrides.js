@@ -32,6 +32,33 @@
             .replace(/'/g, '&#39;');
     }
 
+    function setHiddenCompat(element, hidden) {
+        if (!element) {
+            return;
+        }
+        element.classList.toggle('is-hidden', Boolean(hidden));
+    }
+
+    function setPanelVisible(element, visible) {
+        if (!element) {
+            return;
+        }
+        element.dataset.panelVisible = visible ? '1' : '0';
+        setHiddenCompat(element, !visible);
+    }
+
+    function isPanelVisible(element) {
+        return Boolean(element) && !element.classList.contains('is-hidden') && element.dataset.panelVisible !== '0';
+    }
+
+    function setReportMode(mode) {
+        var tab = document.getElementById('tab-integrated');
+        if (!tab) {
+            return;
+        }
+        tab.dataset.reportMode = text(mode, 'default');
+    }
+
     function inferSourceMode(view, options) {
         var explicit = text(options && options.sourceMode, '');
         if (explicit) {
@@ -107,7 +134,7 @@
             var issueStrip = document.createElement('div');
             issueStrip.id = 'result-report-issue-strip';
             issueStrip.className = 'result-report-issue-strip';
-            issueStrip.style.display = 'none';
+            setPanelVisible(issueStrip, false);
             headerCard.insertAdjacentElement('afterend', issueStrip);
         }
 
@@ -125,7 +152,7 @@
 
         var tabs = document.getElementById('integrated-result-tabs');
         if (tabs) {
-            tabs.style.display = 'none';
+            setPanelVisible(tabs, false);
         }
 
         var filesCard = document.getElementById('integrated-files-card');
@@ -150,10 +177,10 @@
             primaryColumn.appendChild(filesCard);
         }
         if (runCard) {
-            runCard.style.display = 'none';
+            setPanelVisible(runCard, false);
         }
         if (provenancePanel) {
-            provenancePanel.style.display = 'none';
+            setPanelVisible(provenancePanel, false);
         }
         if (staleMeta) {
             staleMeta.remove();
@@ -214,14 +241,14 @@
                     + '  <span class="report-meta-value">' + escapeHtmlCompat(item.value) + '</span>'
                     + '</span>';
             }).join('');
-            metaStrip.style.display = facts.length ? 'flex' : 'none';
+            setPanelVisible(metaStrip, facts.length > 0);
         }
         if (issueStrip) {
             if (!issues.length) {
-                issueStrip.style.display = 'none';
+                setPanelVisible(issueStrip, false);
                 issueStrip.textContent = '';
             } else {
-                issueStrip.style.display = 'block';
+                setPanelVisible(issueStrip, true);
                 issueStrip.textContent = '部分结果未完全生成，缺失内容已在对应区块标明。';
             }
         }
@@ -238,14 +265,12 @@
             return text(item && item.label, '') && text(item && item.value, '');
         });
         if (!items.length) {
-            card.style.display = 'none';
+            setPanelVisible(card, false);
             container.innerHTML = '';
-            card.dataset.panelVisible = '0';
             return;
         }
 
-        card.style.display = 'block';
-        card.dataset.panelVisible = '1';
+        setPanelVisible(card, true);
         container.innerHTML = items.slice(0, 6).map(function(item) {
             return ''
                 + '<article class="report-summary-card" data-tone="' + escapeHtmlCompat(text(item && item.tone, 'default')) + '">'
@@ -263,14 +288,12 @@
         }
         var normalizedSections = asArray(sections);
         if (!normalizedSections.length && !text(options && options.requiredMessage, '')) {
-            card.style.display = 'none';
-            card.dataset.panelVisible = '0';
+            setPanelVisible(card, false);
             container.innerHTML = '';
             return;
         }
 
-        card.style.display = 'block';
-        card.dataset.panelVisible = '1';
+        setPanelVisible(card, true);
 
         if (!normalizedSections.length) {
             container.innerHTML = '<div class="result-empty-block">' + escapeHtmlCompat(text(options && options.requiredMessage, '暂无分段结果。')) + '</div>';
@@ -328,7 +351,7 @@
         var entries = [];
 
         function pushCardEntry(card, title) {
-            if (!card || card.style.display === 'none' || card.dataset.panelVisible === '0') {
+            if (!isPanelVisible(card)) {
                 return;
             }
             var id = card.id || ('report-' + slugify(title, 'section'));
@@ -345,7 +368,7 @@
         pushCardEntry(scaffold.overviewCard, '总览');
         pushCardEntry(scaffold.tableCard, '结果表');
 
-        if (scaffold.chartCard && scaffold.chartCard.style.display !== 'none' && scaffold.chartCard.dataset.panelVisible !== '0') {
+        if (isPanelVisible(scaffold.chartCard)) {
             var chartItems = scaffold.chartCard.querySelectorAll('.integrated-chart-item');
             if (chartItems.length) {
                 chartItems.forEach(function(item, index) {
@@ -360,7 +383,7 @@
             }
         }
 
-        if (scaffold.sectionsCard && scaffold.sectionsCard.style.display !== 'none' && scaffold.sectionsCard.dataset.panelVisible !== '0') {
+        if (isPanelVisible(scaffold.sectionsCard)) {
             var flowItems = scaffold.sectionsCard.querySelectorAll('.report-flow-item');
             if (flowItems.length) {
                 flowItems.forEach(function(item, index) {
@@ -416,8 +439,9 @@
         }
 
         if (!feature || !view) {
-            emptyState.style.display = 'flex';
-            detail.style.display = 'none';
+            setReportMode('default');
+            setPanelVisible(emptyState, true);
+            setPanelVisible(detail, false);
             return;
         }
 
@@ -430,8 +454,9 @@
         var viewModel = registryApi.buildViewModel(view || {}, { sourceMode: sourceMode });
         var issueMap = buildIssueMap(viewModel.validation && viewModel.validation.issues);
 
-        emptyState.style.display = 'none';
-        detail.style.display = 'flex';
+        setReportMode('report');
+        setPanelVisible(emptyState, false);
+        setPanelVisible(detail, true);
         detail.dataset.sourceMode = sourceMode;
 
         renderHeader(viewModel, feature, sourceMode);

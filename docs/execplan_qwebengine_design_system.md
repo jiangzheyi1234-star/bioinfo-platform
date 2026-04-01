@@ -161,6 +161,10 @@
 - 检测页剩余 badge 和状态芯片统一到 `ui-badge`
 - 检测页剩余通用搜索/输入框统一到 `ui-field`
 - 检测页结果主题对共享组件的覆盖边界收窄到 `#tab-integrated`
+- 结果工作台显隐切换改为 class/data 驱动：
+  - `result_shell_overrides.js` 不再使用 `style.display`
+  - 统一使用 `is-hidden`、`data-panel-visible`、`data-report-mode`
+- 结果工作台主题层继续保留 report 专属视觉，但不再越界重定义全局基础组件默认皮肤
 
 ## Detection Page Layout Keepers
 
