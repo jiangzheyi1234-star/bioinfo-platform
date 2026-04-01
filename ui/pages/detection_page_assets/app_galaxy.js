@@ -2078,6 +2078,16 @@ function renderIntegratedChart(chartInput, options = {}, retryCount = 0) {
 
     if (!_integratedChartResizeBound) {
         _integratedChartResizeBound = true;
+        const chartContainer = document.getElementById('integrated-chart-container');
+        if (chartContainer && typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(() => {
+                _integratedChartInstances.forEach(instance => {
+                    try { instance.resize(); } catch (_) {}
+                });
+            });
+            ro.observe(chartContainer);
+        }
+        // 保留 window resize 作为 fallback
         window.addEventListener('resize', function() {
             _integratedChartInstances.forEach(instance => {
                 try {
