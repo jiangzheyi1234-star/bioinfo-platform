@@ -157,6 +157,7 @@ class TestMainWindowStartup:
                 qapp.processEvents()
         pm.close()
 
+    @pytest.mark.skip(reason="Wayland popup limitation in WSLg")
     def test_install_status_click_opens_task_panel(self, temp_main_window, qapp):
         window = temp_main_window
         window._on_install_task_event(
