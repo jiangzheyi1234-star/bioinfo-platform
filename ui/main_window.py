@@ -187,6 +187,7 @@ class MainWindow(QMainWindow):
 
         self._install_task_panel = InstallTaskPanel(self)
         self._install_task_controller.changed.connect(self._refresh_install_task_ui)
+        self._install_task_panel.locate_requested.connect(self._on_install_task_locate_requested)
         self._refresh_install_task_ui()
 
         linux_card = getattr(self.settings_page, "linux_card", None)
@@ -489,15 +490,43 @@ class MainWindow(QMainWindow):
         self._install_task_panel.set_tasks(self._install_task_controller.snapshot())
         self._install_task_panel.popup_at(self.status_bar.install_status_anchor())
 
-    def _on_install_task_locate_requested(self, source: str) -> None:
-        src = str(source or "").strip().lower()
+    def _on_install_task_locate_requested(self, payload: object) -> None:
+        task = payload if isinstance(payload, dict) else {"source": payload}
+        # 避免在 Popup 点击事件链中直接切页+开窗引发主线程卡顿；下一轮事件循环再处理。
+        QTimer.singleShot(0, lambda: self._locate_install_task(dict(task)))
+
+    def _locate_install_task(self, task: dict) -> None:
+        self._activate_main_window_for_navigation()
+        src = str(task.get("source", "") or "").strip().lower()
         if src == "db":
             self.sidebar.setCurrentRow(2)
+            if hasattr(self.database_page, "locate_install_task"):
+                try:
+                    self.database_page.locate_install_task(dict(task))
+                except Exception:
+                    logger.exception("Failed to locate database install task")
             return
         if src in {"bootstrap", "tool_env"}:
             self.sidebar.setCurrentRow(3)
+            linux_card = getattr(self.settings_page, "linux_card", None)
+            if linux_card is not None and hasattr(linux_card, "locate_install_task"):
+                try:
+                    linux_card.locate_install_task(dict(task))
+                except Exception:
+                    logger.exception("Failed to locate linux install task")
             return
-        logger.debug("Unknown install task source for locate: %s", source)
+        logger.debug("Unknown install task source for locate: %s", src)
+
+    def _activate_main_window_for_navigation(self) -> None:
+        try:
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                self.showNormal()
+            else:
+                self.show()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            logger.exception("Failed to activate main window before install-task navigation")
 
     def closeEvent(self, event) -> None:
         if self._install_task_panel is not None:

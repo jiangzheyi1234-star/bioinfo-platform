@@ -133,6 +133,37 @@ class LinuxSettingsCard(LinuxSettingsMiniforgeMixin, LinuxSettingsToolInstallMix
             return
         self.install_task_event.emit(payload)
 
+    def locate_install_task(self, task: dict) -> None:
+        source = str(task.get("source", "") or "").strip().lower()
+        if source == "bootstrap":
+            self._set_status("请在本页查看运行环境初始化状态。", self.STATUS_NEUTRAL)
+            return
+        if source != "tool_env":
+            return
+
+        tool_id = self._resolve_tool_id_from_task(task)
+        if not tool_id:
+            logger.warning("无法定位工具安装任务: %s", task)
+            self._set_status("未找到对应工具，无法打开安装窗口。", self.STATUS_ERROR)
+            return
+        self._on_install_from_web(tool_id)
+
+    def _resolve_tool_id_from_task(self, task: dict) -> str:
+        task_id = str(task.get("task_id", "") or "").strip()
+        if task_id.startswith("tool_env:"):
+            return str(task_id.split(":", 1)[1]).strip()
+
+        title = str(task.get("title", "") or "").strip()
+        if "·" in title:
+            display_name = title.split("·", 1)[1].strip()
+            if display_name:
+                for item in self._tools:
+                    name = str(item.get("name", "") or "").strip()
+                    if name == display_name:
+                        return str(item.get("id", "") or "").strip()
+
+        return ""
+
     def _tool_display_name(self, tool_id: str) -> str:
         clean_tool_id = str(tool_id or "").strip()
         tool = next((item for item in self._tools if item.get("id") == clean_tool_id), None)

@@ -83,15 +83,19 @@
             return;
         }
 
-        var detailsEl = rowEl.querySelector('.task-details');
-        if (!detailsEl) {
+        var detailsBodyEl = rowEl.querySelector('.task-details-card-body');
+        if (!detailsBodyEl) {
             return;
         }
 
-        var existing = detailsEl.querySelector('.remote-status-block');
+        var existing = detailsBodyEl.querySelector('.remote-status-block');
         if (existing) {
             existing.remove();
             rowEl.classList.remove('expanded');
+            var summaryEl = rowEl.querySelector('.task-summary');
+            if (summaryEl) {
+                summaryEl.setAttribute('aria-expanded', 'false');
+            }
             return;
         }
 
@@ -108,8 +112,12 @@
                 var block = document.createElement('div');
                 block.className = 'remote-status-block';
                 block.innerHTML = buildExecutionRemoteStatusHtml(payload.data);
-                detailsEl.prepend(block);
+                detailsBodyEl.prepend(block);
                 rowEl.classList.add('expanded');
+                var summaryEl = rowEl.querySelector('.task-summary');
+                if (summaryEl) {
+                    summaryEl.setAttribute('aria-expanded', 'true');
+                }
                 runtime.showNotice('远端状态已更新', 'success', 2500);
             } catch (e) {
                 console.error('Failed to parse remote status:', e);

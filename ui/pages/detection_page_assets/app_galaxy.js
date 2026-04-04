@@ -65,12 +65,22 @@ console.log('=== Galaxy Style Detection Page ===');
 const showNotice = window.DetectionPageUiFeedback.showNotice;
 const bindHelpTooltipInteractions = window.DetectionPageUiFeedback.bindHelpTooltipInteractions;
 
+function renderLinearIcons(root) {
+    if (!window.LinearIconRenderer || typeof window.LinearIconRenderer.renderDataIcons !== 'function') {
+        console.error('LinearIconRenderer module is unavailable');
+        return;
+    }
+    window.LinearIconRenderer.renderDataIcons(root || document);
+}
+
 function setHidden(element, hidden) {
     if (!element) {
         return;
     }
     element.classList.toggle('is-hidden', Boolean(hidden));
 }
+
+renderLinearIcons(document);
 
 // 初始化 QWebChannel
 new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -81,6 +91,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     bridge.tool_selected.connect(function(tool_id) {
         console.log('Tool selected from Python:', tool_id);
     });
+    renderLinearIcons(document);
 
     // 标签切换
     document.querySelectorAll('.tab-btn').forEach(function(btn) {

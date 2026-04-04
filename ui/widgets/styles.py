@@ -26,10 +26,10 @@ COLOR_SUCCESS_PRESSED = "#047857"    # Emerald 700
 COLOR_DANGER = "#EF4444"             # Red 500
 COLOR_WARNING = "#F59E0B"            # Amber 500
 
-# 背景色系 — 冰蓝层级
-COLOR_BG_APP = "#F0F8FF"             # 极淡冰蓝
+# 背景色系 — 中性白灰层级
+COLOR_BG_APP = "#F6F8FB"             # 全局页面底色（中性白灰）
 COLOR_BG_CARD = "#FFFFFF"            # 纯白卡片
-COLOR_BG_PAGE = "#F0F8FF"            # 同 APP 背景
+COLOR_BG_PAGE = "#F6F8FB"            # 页面背景
 COLOR_BG_BLANK = "transparent"
 COLOR_BG_SIDEBAR = "#FFFFFF"         # 白色侧边栏
 COLOR_BG_TERMINAL = "#071828"        # 终端深色（配套冰蓝）
@@ -41,8 +41,8 @@ COLOR_BORDER_INPUT = "#BAD4E8"       # 输入框边框
 COLOR_BORDER_FOCUS = "#0EA5E9"       # Sky 500
 
 # 选中态色系
-COLOR_SELECTION_BG = "#DBEAFE"       # Sky 100 偏蓝
-COLOR_SELECTION_HOVER = "#F0F8FF"    # 极淡冰蓝
+COLOR_SELECTION_BG = "#E9EEF5"       # 中性浅灰
+COLOR_SELECTION_HOVER = "#F4F6FA"    # 中性 hover
 
 # 文字色系
 COLOR_TEXT_TITLE = "#071828"         # 深冰蓝黑
@@ -55,11 +55,11 @@ COLOR_TEXT_DISABLED = "#7EB8D0"
 COLOR_TEXT_INTERPRET = "#0369A1"     # Sky 700
 
 # 侧边栏
-COLOR_BG_SIDEBAR_ITEM = "#EBF5FB"         # hover: 淡冰蓝
-COLOR_BG_SIDEBAR_SELECTED = "#DBEAFE"     # Sky 100
+COLOR_BG_SIDEBAR_ITEM = "#EEF2F7"         # hover: 中性浅灰
+COLOR_BG_SIDEBAR_SELECTED = "#E2E8F0"     # 选中: 中性灰
 
 # 按钮 & 交互
-COLOR_BG_BUTTON_HOVER = "#F0F8FF"
+COLOR_BG_BUTTON_HOVER = "#F4F6FA"
 COLOR_BG_BUTTON_CHECKED = "#0EA5E9"       # Sky 500
 
 # 表格 & 进度条
@@ -70,13 +70,13 @@ COLOR_BG_TABLE_GRIDLINE = "#D6EAF8"
 COLOR_BG_PROGRESS_CHUNK = "#0EA5E9"
 
 # 卡片高亮 & 解读区
-COLOR_BG_CARD_HIGHLIGHT = "#F5FBFF"
-COLOR_BG_CARD_INTERPRET = "#DBEAFE"
-COLOR_BG_INPUT_DISABLED = "#EBF5FB"
+COLOR_BG_CARD_HIGHLIGHT = "#F8FAFC"
+COLOR_BG_CARD_INTERPRET = "#EDF2F7"
+COLOR_BG_INPUT_DISABLED = "#F1F5F9"
 
 # 信息/警告区块
-COLOR_BG_INFO = "#DBEAFE"                 # Sky 100
-COLOR_BG_INFO_BORDER = "#BAE6FD"          # Sky 200
+COLOR_BG_INFO = "#EDF2F7"                 # 中性信息底
+COLOR_BG_INFO_BORDER = "#D8E0EA"          # 中性边框
 COLOR_BG_WARN = "#FFFBEB"                 # Amber 50
 COLOR_BG_WARN_TEXT = "#B45309"            # Amber 700
 
