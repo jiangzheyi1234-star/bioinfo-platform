@@ -38,38 +38,28 @@ def _coerce_summary(summary: list[dict[str, Any]] | None) -> list[SummaryItem]:
 def _coerce_table(
     *,
     table: dict[str, Any] | None = None,
-    table_title: str = "",
-    table_subtitle: str = "",
-    columns: list[dict[str, str]] | None = None,
-    rows: list[dict[str, Any]] | None = None,
 ) -> TableView:
     payload = table or {}
     return TableView(
-        title=str(payload.get("title") or table_title or ""),
-        subtitle=str(payload.get("subtitle") or table_subtitle or ""),
-        columns=list(payload.get("columns") or columns or []),
-        rows=list(payload.get("rows") or rows or []),
+        title=str(payload.get("title") or ""),
+        subtitle=str(payload.get("subtitle") or ""),
+        columns=list(payload.get("columns") or []),
+        rows=list(payload.get("rows") or []),
     )
 
 
 def _coerce_provenance(
     *,
     provenance: dict[str, Any] | None = None,
-    execution_id: str = "",
-    parameters: list[dict[str, Any]] | None = None,
-    tool_version: str = "",
-    remote_result_dir: str = "",
-    local_result_dir: str = "",
-    command_preview: str = "",
 ) -> ProvenanceInfo:
     payload = provenance or {}
     return ProvenanceInfo(
-        execution_id=str(payload.get("execution_id") or execution_id or ""),
-        parameters=list(payload.get("parameters") or parameters or []),
-        tool_version=str(payload.get("tool_version") or tool_version or ""),
-        remote_result_dir=str(payload.get("remote_result_dir") or remote_result_dir or ""),
-        local_result_dir=str(payload.get("local_result_dir") or local_result_dir or ""),
-        command_preview=str(payload.get("command_preview") or command_preview or ""),
+        execution_id=str(payload.get("execution_id") or ""),
+        parameters=list(payload.get("parameters") or []),
+        tool_version=str(payload.get("tool_version") or ""),
+        remote_result_dir=str(payload.get("remote_result_dir") or ""),
+        local_result_dir=str(payload.get("local_result_dir") or ""),
+        command_preview=str(payload.get("command_preview") or ""),
     )
 
 
@@ -134,39 +124,16 @@ def build_single_tool_view(
     summary: list[dict[str, Any]] | None = None,
     charts: list[dict[str, Any]] | None = None,
     table: dict[str, Any] | None = None,
-    columns: list[dict[str, str]] | None = None,
-    rows: list[dict[str, Any]] | None = None,
     artifacts: list[dict[str, Any]] | None = None,
     provenance: dict[str, Any] | None = None,
-    parameters: list[dict[str, Any]] | None = None,
     sections: list[dict[str, Any]] | None = None,
-    table_title: str = "",
-    table_subtitle: str = "",
     sample_name: str = "",
     execution_id: str = "",
     updated_at: str = "",
-    tool_version: str = "",
-    remote_result_dir: str = "",
-    local_result_dir: str = "",
-    command_preview: str = "",
 ) -> dict[str, Any]:
     normalized_tool_id = str(tool_id or (tool_ids[0] if tool_ids else feature_id) or feature_id)
-    table_model = _coerce_table(
-        table=table,
-        table_title=table_title,
-        table_subtitle=table_subtitle,
-        columns=columns,
-        rows=rows,
-    )
-    provenance_model = _coerce_provenance(
-        provenance=provenance,
-        execution_id=execution_id,
-        parameters=parameters,
-        tool_version=tool_version,
-        remote_result_dir=remote_result_dir,
-        local_result_dir=local_result_dir,
-        command_preview=command_preview,
-    )
+    table_model = _coerce_table(table=table)
+    provenance_model = _coerce_provenance(provenance=provenance)
     section_models = [
         ViewSection(
             section_id=str(item.get("section_id") or ""),
@@ -226,8 +193,6 @@ def normalize_result_view(
     raw_table = view.get("table") if isinstance(view.get("table"), dict) else {}
     raw_provenance = view.get("provenance") if isinstance(view.get("provenance"), dict) else {}
     charts = list(view.get("charts") or [])
-    if not charts and isinstance(view.get("chart"), dict):
-        charts = [dict(view["chart"])]
 
     return build_single_tool_view(
         feature_id=feature_id,
@@ -240,19 +205,19 @@ def normalize_result_view(
         summary=list(view.get("summary") or []),
         charts=charts,
         table={
-            "title": str(raw_table.get("title") or view.get("table_title") or ""),
-            "subtitle": str(raw_table.get("subtitle") or view.get("table_subtitle") or ""),
-            "columns": list(raw_table.get("columns") or view.get("columns") or []),
-            "rows": list(raw_table.get("rows") or view.get("rows") or []),
+            "title": str(raw_table.get("title") or ""),
+            "subtitle": str(raw_table.get("subtitle") or ""),
+            "columns": list(raw_table.get("columns") or []),
+            "rows": list(raw_table.get("rows") or []),
         },
         artifacts=list(view.get("artifacts") or []),
         provenance={
-            "execution_id": str(raw_provenance.get("execution_id") or execution_id or view.get("execution_id") or ""),
-            "parameters": list(raw_provenance.get("parameters") or view.get("parameters") or []),
-            "tool_version": str(raw_provenance.get("tool_version") or tool_version or view.get("tool_version") or ""),
-            "remote_result_dir": str(raw_provenance.get("remote_result_dir") or remote_result_dir or view.get("remote_result_dir") or ""),
+            "execution_id": str(raw_provenance.get("execution_id") or execution_id or ""),
+            "parameters": list(raw_provenance.get("parameters") or []),
+            "tool_version": str(raw_provenance.get("tool_version") or tool_version or ""),
+            "remote_result_dir": str(raw_provenance.get("remote_result_dir") or remote_result_dir or ""),
             "local_result_dir": str(raw_provenance.get("local_result_dir") or local_result_dir or ""),
-            "command_preview": str(raw_provenance.get("command_preview") or command_preview or view.get("command_preview") or ""),
+            "command_preview": str(raw_provenance.get("command_preview") or command_preview or ""),
         },
         sections=normalized_sections,
         sample_name=str(view.get("hero", {}).get("sample_name") or sample_name or ""),
@@ -300,14 +265,21 @@ def build_artifact_result_view(
         description=description,
         status=status,
         summary=summary,
+        table={
+            "title": "结果文件",
+            "subtitle": "当前工具以结果产物为主，以下展示已同步到本地的文件与目录。",
+            "columns": [],
+            "rows": [],
+        },
         artifacts=artifacts,
-        parameters=parameters,
-        table_title="结果文件",
-        table_subtitle="当前工具以结果产物为主，以下展示已同步到本地的文件与目录。",
+        provenance={
+            "execution_id": execution_id,
+            "parameters": list(parameters or []),
+            "tool_version": tool_version,
+            "remote_result_dir": remote_result_dir,
+            "local_result_dir": local_result_dir,
+        },
         sample_name=sample_name,
         execution_id=execution_id,
         updated_at=updated_at,
-        tool_version=tool_version,
-        remote_result_dir=remote_result_dir,
-        local_result_dir=local_result_dir,
     )

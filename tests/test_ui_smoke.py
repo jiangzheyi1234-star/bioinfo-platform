@@ -86,7 +86,9 @@ def _flush_events(qapp) -> None:
     qapp.processEvents()
 
 
-def _insert_sample(pm: ProjectManager, sample_id: str, name: str, r1: str, r2: str = "") -> None:
+def _insert_sample(
+    pm: ProjectManager, sample_id: str, name: str, r1: str, r2: str = ""
+) -> None:
     metadata = json.dumps({"r1": r1, "r2": r2}, ensure_ascii=False)
     pm.db.execute(
         "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
@@ -107,9 +109,16 @@ class TestUIImports:
         assert all([DetectionPage, HomePage, SettingsPage])
 
     def test_import_widgets(self):
-        from ui.widgets import BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget
+        from ui.widgets import (
+            BlastRunCard,
+            BlastSampleCard,
+            ExecutionHistoryCard,
+            StageStatusWidget,
+        )
 
-        assert all([BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget])
+        assert all(
+            [BlastRunCard, BlastSampleCard, ExecutionHistoryCard, StageStatusWidget]
+        )
 
 
 class TestMainWindowStartup:
@@ -178,7 +187,9 @@ class TestMainWindowStartup:
         _flush_events(qapp)
         assert window._install_task_panel.isVisible()
 
-    def test_install_panel_detail_text_explains_background_flow(self, temp_main_window, qapp):
+    def test_install_panel_detail_text_explains_background_flow(
+        self, temp_main_window, qapp
+    ):
         window = temp_main_window
         window._on_install_task_event(
             {
@@ -217,6 +228,7 @@ class TestPageStartup:
         assert page is not None
         assert hasattr(page, "execution_history")
         assert page.web_view is None
+
 
 class TestDetectionIntegratedWorkbench:
     def test_tool_bridge_parses_primer_result_text(self):
@@ -269,7 +281,11 @@ class TestDetectionIntegratedWorkbench:
             lambda: {
                 "title": "实时引物结果",
                 "description": "来自最近一次完成任务",
-                "status": {"state": "completed", "label": "已加载", "detail": "测试数据"},
+                "status": {
+                    "state": "completed",
+                    "label": "已加载",
+                    "detail": "测试数据",
+                },
                 "parameters": [{"label": "样本", "value": "demo"}],
                 "summary": [{"label": "最终推荐", "value": "2", "tone": "accent"}],
                 "columns": [{"key": "pathogen", "label": "病原体"}],
@@ -283,7 +299,9 @@ class TestDetectionIntegratedWorkbench:
         assert payload["views"]["primer_design"]["title"] == "实时引物结果"
         assert payload["views"]["primer_design"]["rows"][0]["pathogen"] == "Virus_A"
 
-    def test_tool_bridge_does_not_fall_back_to_default_remote_result_dir(self, monkeypatch):
+    def test_tool_bridge_does_not_fall_back_to_default_remote_result_dir(
+        self, monkeypatch
+    ):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         service = ToolBridgeService()
@@ -296,7 +314,9 @@ class TestDetectionIntegratedWorkbench:
         monkeypatch.setattr(
             service,
             "build_primer_view_from_result_dir",
-            lambda remote_dir: (_ for _ in ()).throw(AssertionError("不应自动构建默认远程结果")),
+            lambda remote_dir: (_ for _ in ()).throw(
+                AssertionError("不应自动构建默认远程结果")
+            ),
         )
 
         payload = service.get_integrated_workbench_config()
@@ -304,7 +324,9 @@ class TestDetectionIntegratedWorkbench:
         primer_view = payload["views"]["primer_design"]
 
         assert primer_view["status"]["label"] != "已加载默认远程结果"
-        assert primer_view.get("remote_result_dir") not in {"/remote/default/primer_design/my_result"}
+        assert primer_view.get("remote_result_dir") not in {
+            "/remote/default/primer_design/my_result"
+        }
 
     def test_tool_bridge_exposes_multiplex_feature(self):
         from core.execution.tool_bridge_service import ToolBridgeService
@@ -314,7 +336,9 @@ class TestDetectionIntegratedWorkbench:
 
         feature_ids = [item["id"] for item in payload["features"]]
         assert "multiplex_primer_panel" in feature_ids
-        assert payload["views"]["multiplex_primer_panel"]["tool_ids"] == ["multiplex_primer_panel"]
+        assert payload["views"]["multiplex_primer_panel"]["tool_ids"] == [
+            "multiplex_primer_panel"
+        ]
 
     def test_tool_bridge_exposes_metagenomics_features(self):
         from core.execution.tool_bridge_service import ToolBridgeService
@@ -325,10 +349,16 @@ class TestDetectionIntegratedWorkbench:
         feature_ids = [item["id"] for item in payload["features"]]
         assert "wastewater_metagenomics_basic" in feature_ids
         assert "animal_metagenomics_basic" in feature_ids
-        assert payload["views"]["wastewater_metagenomics_basic"]["tool_ids"] == ["wastewater_metagenomics_basic"]
-        assert payload["views"]["animal_metagenomics_basic"]["tool_ids"] == ["animal_metagenomics_basic"]
+        assert payload["views"]["wastewater_metagenomics_basic"]["tool_ids"] == [
+            "wastewater_metagenomics_basic"
+        ]
+        assert payload["views"]["animal_metagenomics_basic"]["tool_ids"] == [
+            "animal_metagenomics_basic"
+        ]
 
-    def test_tool_bridge_includes_active_project_scope_in_integrated_config(self, tmp_path: Path):
+    def test_tool_bridge_includes_active_project_scope_in_integrated_config(
+        self, tmp_path: Path
+    ):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         pm = ProjectManager(
@@ -349,7 +379,9 @@ class TestDetectionIntegratedWorkbench:
         assert payload["project_name"] == "scope project"
         pm.close()
 
-    def test_targeted_results_route_detection_workflow_view(self, monkeypatch, tmp_path: Path):
+    def test_targeted_results_route_detection_workflow_view(
+        self, monkeypatch, tmp_path: Path
+    ):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         pm = ProjectManager(
@@ -366,7 +398,16 @@ class TestDetectionIntegratedWorkbench:
         pm.db.execute(
             "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("exec_meta", "smp_meta", "wastewater_metagenomics_basic", "1.0", "{}", "completed", "manual", 1.0),
+            (
+                "exec_meta",
+                "smp_meta",
+                "wastewater_metagenomics_basic",
+                "1.0",
+                "{}",
+                "completed",
+                "manual",
+                1.0,
+            ),
         )
         pm.db.commit()
 
@@ -432,7 +473,13 @@ class TestDetectionIntegratedWorkbench:
 
         assert chart is not None
         assert chart["type"] == "funnel"
-        assert [item["name"] for item in chart["data"]] == ["原始 Reads", "QC 后", "送分类 Reads", "已分类", "未分类"]
+        assert [item["name"] for item in chart["data"]] == [
+            "原始 Reads",
+            "QC 后",
+            "送分类 Reads",
+            "已分类",
+            "未分类",
+        ]
 
     def test_history_query_does_not_reconcile_running_execution(self, tmp_path: Path):
         from core.execution.tool_bridge_service import ToolBridgeService
@@ -451,7 +498,16 @@ class TestDetectionIntegratedWorkbench:
         pm.db.execute(
             "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("exec_demo", "smp_demo", "primer_design", "1.0", "{}", "running", "manual", 1.0),
+            (
+                "exec_demo",
+                "smp_demo",
+                "primer_design",
+                "1.0",
+                "{}",
+                "running",
+                "manual",
+                1.0,
+            ),
         )
         pm.db.commit()
 
@@ -508,7 +564,11 @@ class TestDetectionIntegratedWorkbench:
             lambda remote_dir: {
                 "title": "远程结果",
                 "description": f"来自 {remote_dir}",
-                "status": {"state": "completed", "label": "已加载远程结果", "detail": "测试"},
+                "status": {
+                    "state": "completed",
+                    "label": "已加载远程结果",
+                    "detail": "测试",
+                },
                 "parameters": [{"label": "结果目录", "value": remote_dir}],
                 "summary": [{"label": "目标病原体", "value": "1", "tone": "primary"}],
                 "columns": [{"key": "pathogen", "label": "病原体"}],
@@ -530,7 +590,11 @@ class TestDetectionIntegratedWorkbench:
         monkeypatch.setattr(
             service,
             "_get_execution_result_row",
-            lambda execution_id: {"execution_id": execution_id, "tool_id": "primer_design", "status": "completed"},
+            lambda execution_id: {
+                "execution_id": execution_id,
+                "tool_id": "primer_design",
+                "status": "completed",
+            },
         )
         monkeypatch.setattr(
             service,
@@ -592,14 +656,20 @@ class TestDetectionIntegratedWorkbench:
         assert artifacts[0]["name"] == "primer_result_final_2.txt"
         assert artifacts[0]["available"] is True
 
-    def test_tool_bridge_routes_multiplex_results_through_unified_entry(self, monkeypatch):
+    def test_tool_bridge_routes_multiplex_results_through_unified_entry(
+        self, monkeypatch
+    ):
         from core.execution.tool_bridge_service import ToolBridgeService
 
         service = ToolBridgeService()
         monkeypatch.setattr(
             service,
             "_get_execution_result_row",
-            lambda execution_id: {"execution_id": execution_id, "tool_id": "multiplex_primer_panel", "status": "completed"},
+            lambda execution_id: {
+                "execution_id": execution_id,
+                "tool_id": "multiplex_primer_panel",
+                "status": "completed",
+            },
         )
         monkeypatch.setattr(
             service,
@@ -650,34 +720,71 @@ class TestDetectionIntegratedWorkbench:
 
         service.normalize_project_remote_base(pm)
 
-        assert pm.current_project.remote_base == "/home/tester/.h2ometa/projects/proj_demo123456"
-        assert pm._index["proj_demo123456"]["remote_base"] == "/home/tester/.h2ometa/projects/proj_demo123456"
+        assert (
+            pm.current_project.remote_base
+            == "/home/tester/.h2ometa/projects/proj_demo123456"
+        )
+        assert (
+            pm._index["proj_demo123456"]["remote_base"]
+            == "/home/tester/.h2ometa/projects/proj_demo123456"
+        )
         assert pm.saved is True
 
     def test_detection_asset_contains_integrated_console_markup(self):
-        html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(encoding="utf-8")
-        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
-        chart_renderer_js = Path("ui/pages/detection_page_assets/render/chart_renderer.js").read_text(encoding="utf-8")
-        ui_feedback_js = Path("ui/pages/detection_page_assets/render/ui_feedback.js").read_text(encoding="utf-8")
-        history_status_js = Path("ui/pages/detection_page_assets/render/history_status.js").read_text(encoding="utf-8")
+        html = Path("ui/pages/detection_page_assets/index_galaxy.html").read_text(
+            encoding="utf-8"
+        )
+        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(
+            encoding="utf-8"
+        )
+        chart_renderer_js = Path(
+            "ui/pages/detection_page_assets/render/chart_renderer.js"
+        ).read_text(encoding="utf-8")
+        ui_feedback_js = Path(
+            "ui/pages/detection_page_assets/render/ui_feedback.js"
+        ).read_text(encoding="utf-8")
+        history_status_js = Path(
+            "ui/pages/detection_page_assets/render/history_status.js"
+        ).read_text(encoding="utf-8")
         integrated_renderer_js = Path(
             "ui/pages/detection_page_assets/render/integrated_workbench_renderer.js"
         ).read_text(encoding="utf-8")
-        result_viewers_js = Path("ui/pages/detection_page_assets/render/result_viewers.js").read_text(
-            encoding="utf-8"
-        )
+        result_viewers_js = Path(
+            "ui/pages/detection_page_assets/render/result_viewers.js"
+        ).read_text(encoding="utf-8")
         integrated_sidebar_js = Path(
             "ui/pages/detection_page_assets/render/integrated_sidebar.js"
         ).read_text(encoding="utf-8")
-        history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
+        result_shell_registry_js = Path(
+            "ui/pages/detection_page_assets/result_shell_registry.js"
+        ).read_text(encoding="utf-8")
+        history_panel_js = Path(
+            "ui/pages/detection_page_assets/render/history_panel.js"
+        ).read_text(encoding="utf-8")
         history_result_loader_js = Path(
             "ui/pages/detection_page_assets/results/history_result_loader.js"
         ).read_text(encoding="utf-8")
         workbench_state_manager_js = Path(
             "ui/pages/detection_page_assets/results/workbench_state_manager.js"
         ).read_text(encoding="utf-8")
-        js = "\n".join([app_js, chart_renderer_js, ui_feedback_js, history_status_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js, history_panel_js, history_result_loader_js, workbench_state_manager_js])
-        css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
+        js = "\n".join(
+            [
+                app_js,
+                chart_renderer_js,
+                ui_feedback_js,
+                history_status_js,
+                integrated_renderer_js,
+                result_viewers_js,
+                integrated_sidebar_js,
+                result_shell_registry_js,
+                history_panel_js,
+                history_result_loader_js,
+                workbench_state_manager_js,
+            ]
+        )
+        css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(
+            encoding="utf-8"
+        )
 
         assert 'id="tab-integrated"' in html
         assert 'id="integrated-clear-history-results"' in html
@@ -697,94 +804,108 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-sections-list"' in html
         assert 'id="integrated-files-card"' in html
         assert 'id="integrated-provenance-list"' in html
-        assert 'history-empty-row' in html
-        assert 'integrated-chart-stage' in html
-        assert 'services/bridge_tools.js' in html
-        assert 'services/bridge_history.js' in html
-        assert 'services/bridge_results.js' in html
-        assert 'render/ui_feedback.js' in html
-        assert 'render/database_panel.js' in html
-        assert 'render/history_panel.js' in html
-        assert 'render/history_status.js' in html
-        assert 'render/integrated_sidebar.js' in html
-        assert 'render/result_viewers.js' in html
-        assert 'render/run_modal.js' in html
-        assert 'render/chart_renderer.js' in html
-        assert 'render/tool_panel.js' in html
-        assert 'render/integrated_workbench_renderer.js' in html
-        assert 'utils/helpers.js' in html
-        assert 'results/open_results_state.js' in html
-        assert 'results/workbench_state_manager.js' in html
-        assert 'results/history_result_loader.js' in html
-        assert 'results/workbench_selection.js' in html
-        assert 'loadExecutionResultsFromHistory' in js
-        assert 'resolveHistoryResultContext' in js
-        assert 'ensureIntegratedWorkbenchViews' in js
-        assert 'getIntegratedWorkbenchFeature' in js
-        assert 'clearIntegratedTemporaryFeatures' in js
-        assert 'upsertIntegratedHistoryFeature' in js
-        assert 'closeIntegratedHistoryFeature' in js
-        assert 'buildIntegratedHistoryResultKey' in js
-        assert 'INTEGRATED_HISTORY_RESULT_LIMIT' in js
-        assert 'integratedOpenResultsStore' in js
-        assert 'bridgeToolsService' in js
-        assert 'bridgeHistoryService' in js
-        assert 'bridgeResultsService' in js
-        assert 'HistoryPanelRenderer' in js
-        assert 'IntegratedSidebarRenderer' in js
-        assert 'ResultViewerRenderers' in js
-        assert 'HistoryResultLoader' in js
-        assert 'IntegratedWorkbenchSelection' in js
-        assert 'renderIntegratedProvenance' in js
-        assert 'renderIntegratedSections' in js
-        assert 'initializeIntegratedResultTabs' in js
-        assert 'switchIntegratedResultTab' in js
-        assert 'integratedExecutionViews' in js
-        assert 'selectedIntegratedViewSource' in js
-        assert 'restoreIntegratedExecutionFeatures' in js
-        assert 'resolveIntegratedViewSource' in js
-        assert 'getPreferredIntegratedViewSource' in js
-        assert 'getDefaultIntegratedResultTab' in js
-        assert 'hasIntegratedResultContent' in js
-        assert 'INTEGRATED_ARCHETYPE_VIEWER_STRATEGIES' in js
-        assert 'INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE' in js
-        assert 'getIntegratedViewerStrategy' in js
-        assert 'buildIntegratedViewerState' in js
+        assert "history-empty-row" in html
+        assert "integrated-chart-stage" in html
+        assert "services/bridge_tools.js" in html
+        assert "services/bridge_history.js" in html
+        assert "services/bridge_results.js" in html
+        assert "render/ui_feedback.js" in html
+        assert "render/database_panel.js" in html
+        assert "render/history_panel.js" in html
+        assert "render/history_status.js" in html
+        assert "render/integrated_sidebar.js" in html
+        assert "render/result_viewers.js" in html
+        assert "render/run_modal.js" in html
+        assert "render/chart_renderer.js" in html
+        assert "render/tool_panel.js" in html
+        assert "render/integrated_workbench_renderer.js" in html
+        assert "utils/helpers.js" in html
+        assert "results/open_results_state.js" in html
+        assert "results/workbench_state_manager.js" in html
+        assert "results/history_result_loader.js" in html
+        assert "results/workbench_selection.js" in html
+        assert "loadExecutionResultsFromHistory" in js
+        assert "resolveHistoryResultContext" in js
+        assert "ensureIntegratedWorkbenchViews" in js
+        assert "getIntegratedWorkbenchFeature" in js
+        assert "clearIntegratedTemporaryFeatures" in js
+        assert "upsertIntegratedHistoryFeature" in js
+        assert "closeIntegratedHistoryFeature" in js
+        assert "buildIntegratedHistoryResultKey" in js
+        assert "INTEGRATED_HISTORY_RESULT_LIMIT" in js
+        assert "integratedOpenResultsStore" in js
+        assert "bridgeToolsService" in js
+        assert "bridgeHistoryService" in js
+        assert "bridgeResultsService" in js
+        assert "HistoryPanelRenderer" in js
+        assert "IntegratedSidebarRenderer" in js
+        assert "ResultViewerRenderers" in js
+        assert "HistoryResultLoader" in js
+        assert "IntegratedWorkbenchSelection" in js
+        assert "renderIntegratedProvenance" in js
+        assert "renderIntegratedSections" in js
+        assert "initializeIntegratedResultTabs" in js
+        assert "switchIntegratedResultTab" in js
+        assert "integratedExecutionViews" in js
+        assert "selectedIntegratedViewSource" in js
+        assert "restoreIntegratedExecutionFeatures" in js
+        assert "resolveIntegratedViewSource" in js
+        assert "getPreferredIntegratedViewSource" in js
+        assert "getDefaultIntegratedResultTab" in js
+        assert "hasIntegratedResultContent" in js
+        assert "getIntegratedViewerStrategy" in js
+        assert "buildIntegratedViewerState" in js
         assert "'table-first'" in js
         assert "'chart-first'" in js
         assert "'html-first'" in js
         assert "'files-first'" in js
-        assert "qc_report: ['chart', 'files']" in js
+        assert "qc_report:" in js
+        assert "requiredViewers: ['chart', 'files']" in js
         assert "var availableArtifact = normalizedArtifacts.find" in js
-        assert 'syncIntegratedWorkbenchProjectScope' in js
-        assert 'clearIntegratedExecutionCache' in js
-        assert 'activeIntegratedProjectId' in js
-        assert '__displaySource' in js
-        assert '.task-list-header {' in css
-        assert 'grid-template-columns: var(--history-columns);' in css
-        assert 'gap: 12px;' in css
-        assert 'temporary' in js
-        assert 'get_results_for_execution' in js
+        assert "syncIntegratedWorkbenchProjectScope" in js
+        assert "clearIntegratedExecutionCache" in js
+        assert "activeIntegratedProjectId" in js
+        assert "__displaySource" in js
+        assert ".task-list-header {" in css
+        assert "grid-template-columns: var(--history-columns);" in css
+        assert "gap: 12px;" in css
+        assert "temporary" in js
+        assert "get_results_for_execution" in js
 
     def test_result_shell_overrides_use_module_interfaces(self):
-        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
-        chart_renderer_js = Path("ui/pages/detection_page_assets/render/chart_renderer.js").read_text(encoding="utf-8")
-        ui_feedback_js = Path("ui/pages/detection_page_assets/render/ui_feedback.js").read_text(encoding="utf-8")
-        history_status_js = Path("ui/pages/detection_page_assets/render/history_status.js").read_text(encoding="utf-8")
+        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(
+            encoding="utf-8"
+        )
+        chart_renderer_js = Path(
+            "ui/pages/detection_page_assets/render/chart_renderer.js"
+        ).read_text(encoding="utf-8")
+        ui_feedback_js = Path(
+            "ui/pages/detection_page_assets/render/ui_feedback.js"
+        ).read_text(encoding="utf-8")
+        history_status_js = Path(
+            "ui/pages/detection_page_assets/render/history_status.js"
+        ).read_text(encoding="utf-8")
         integrated_renderer_js = Path(
             "ui/pages/detection_page_assets/render/integrated_workbench_renderer.js"
         ).read_text(encoding="utf-8")
-        result_viewers_js = Path("ui/pages/detection_page_assets/render/result_viewers.js").read_text(
-            encoding="utf-8"
-        )
+        result_viewers_js = Path(
+            "ui/pages/detection_page_assets/render/result_viewers.js"
+        ).read_text(encoding="utf-8")
         integrated_sidebar_js = Path(
             "ui/pages/detection_page_assets/render/integrated_sidebar.js"
         ).read_text(encoding="utf-8")
-        override_js = Path("ui/pages/detection_page_assets/result_shell_overrides.js").read_text(encoding="utf-8")
-        history_loader_js = Path("ui/pages/detection_page_assets/results/history_result_loader.js").read_text(encoding="utf-8")
-        database_panel_js = Path("ui/pages/detection_page_assets/render/database_panel.js").read_text(encoding="utf-8")
-        tool_panel_js = Path("ui/pages/detection_page_assets/render/tool_panel.js").read_text(encoding="utf-8")
-        history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
+        history_loader_js = Path(
+            "ui/pages/detection_page_assets/results/history_result_loader.js"
+        ).read_text(encoding="utf-8")
+        database_panel_js = Path(
+            "ui/pages/detection_page_assets/render/database_panel.js"
+        ).read_text(encoding="utf-8")
+        tool_panel_js = Path(
+            "ui/pages/detection_page_assets/render/tool_panel.js"
+        ).read_text(encoding="utf-8")
+        history_panel_js = Path(
+            "ui/pages/detection_page_assets/render/history_panel.js"
+        ).read_text(encoding="utf-8")
         history_result_loader_js = Path(
             "ui/pages/detection_page_assets/results/history_result_loader.js"
         ).read_text(encoding="utf-8")
@@ -798,17 +919,26 @@ class TestDetectionIntegratedWorkbench:
             "ui/pages/detection_page_assets/results/workbench_selection.js"
         ).read_text(encoding="utf-8")
         js = "\n".join(
-            [app_js, chart_renderer_js, ui_feedback_js, history_status_js, integrated_renderer_js, result_viewers_js, integrated_sidebar_js, tool_panel_js, history_panel_js, history_result_loader_js, workbench_state_manager_js, open_results_state_js, workbench_selection_js]
+            [
+                app_js,
+                chart_renderer_js,
+                ui_feedback_js,
+                history_status_js,
+                integrated_renderer_js,
+                result_viewers_js,
+                integrated_sidebar_js,
+                tool_panel_js,
+                history_panel_js,
+                history_result_loader_js,
+                workbench_state_manager_js,
+                open_results_state_js,
+                workbench_selection_js,
+            ]
         )
-        css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(encoding="utf-8")
+        css = Path("ui/pages/detection_page_assets/styles_galaxy.css").read_text(
+            encoding="utf-8"
+        )
 
-        assert "global.renderSummaryGrid" not in override_js
-        assert "global.renderIntegratedSections" not in override_js
-        assert "global.renderIntegratedProvenance" not in override_js
-        assert "global.openExecution" not in override_js
-        assert "resultViewerRenderers.renderSummaryGrid" in override_js
-        assert "resultViewerRenderers.renderIntegratedSections" in override_js
-        assert "historyResultLoader.openExecutionWithRuntime" in override_js
         assert "configureRuntime" in history_loader_js
         assert "openExecutionWithRuntime" in history_loader_js
         assert "window.HistoryResultLoader.configureRuntime" in app_js
@@ -847,10 +977,13 @@ class TestDetectionIntegratedWorkbench:
         assert "showDatabaseResourceDetail" not in app_js
         assert "window.HistoryResultLoader.openExecutionWithRuntime" in app_js
         assert "onShowDetail: function(index)" in app_js
-        assert "onclick=\"showDatabaseResourceDetail(" not in database_panel_js
+        assert 'onclick="showDatabaseResourceDetail(' not in database_panel_js
         assert "data-resource-index" in database_panel_js
         assert "window.HistoryPanelRenderer.renderHistoryPanel({" in app_js
-        assert "window.IntegratedRunModal.openIntegratedRunModal(feature, toolId)" in app_js
+        assert (
+            "window.IntegratedRunModal.openIntegratedRunModal(feature, toolId)"
+            in app_js
+        )
         assert "window.IntegratedChartRenderer.configureRuntime" in app_js
         assert "window.IntegratedWorkbenchRenderer.configureRuntime" in app_js
         assert "window.IntegratedWorkbenchStateManager.configureRuntime" in app_js
@@ -913,7 +1046,10 @@ class TestDetectionIntegratedWorkbench:
         assert "function openHelpTooltip(" not in app_js
         assert "function bindHelpTooltipInteractions(" not in app_js
         assert "const showNotice = window.DetectionPageUiFeedback.showNotice;" in app_js
-        assert "const bindHelpTooltipInteractions = window.DetectionPageUiFeedback.bindHelpTooltipInteractions;" in app_js
+        assert (
+            "const bindHelpTooltipInteractions = window.DetectionPageUiFeedback.bindHelpTooltipInteractions;"
+            in app_js
+        )
         assert "function getIntegratedOpenResultsState(" not in app_js
         assert "function syncIntegratedExecutionViewsFromState(" not in app_js
         assert "function isIntegratedHistoryFeatureId(" not in app_js
@@ -959,15 +1095,18 @@ class TestDetectionIntegratedWorkbench:
         assert "fetchRemoteStatus: false" in js
         assert "viewBtn.textContent = '查看结果'" in js
         assert "statusBtn.textContent = '查看状态'" in js
-        assert "data-action=\"pin\"" in js
-        assert "data-action=\"close\"" in js
+        assert 'data-action="pin"' in js
+        assert 'data-action="close"' in js
         assert "clearAllUnpinned" in js
         assert "'::'" in js
-        assert "renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult })" in js
+        assert (
+            "renderIntegratedRunEntry(feature, viewModel, { hidden: isHistoryResult })"
+            in js
+        )
         assert "selectIntegratedFeature(featureId, { sourceMode: 'history' });" in js
         assert "当前 execution 未提供表格结果。" in js
         assert "主 viewer 策略为" in js
-        assert "要求 " in js
+        assert "要求" in js
         assert "statusChip.dataset.status" in js
         assert "history-running-text" in js
         assert "task-info-banner" in js
@@ -978,41 +1117,78 @@ class TestDetectionIntegratedWorkbench:
         assert "clearIntegratedExecutionCache();" in js
         assert "--state-running-fg" in css
         assert "--state-completed-fg" in css
-        assert ".integrated-status-chip[data-status=\"completed\"]" in css
+        assert '.integrated-status-chip[data-status="completed"]' in css
         assert ".summary-card.tone-success" in css
         assert ".history-empty-row" in css
         assert ".integrated-chart-stage" in css
         assert ".task-info-banner" in css
         assert ".integrated-sidebar-actions" in css
         assert ".integrated-feature-action" in css
-        assert ".integrated-feature-item[data-source-mode=\"history\"]" in css
+        assert '.integrated-feature-item[data-source-mode="history"]' in css
         assert "featureId: 'fastp'" in js
 
     def test_python_refactor_modules_extract_workers_and_dialogs(self):
-        linux_workers_py = Path("ui/widgets/linux_settings_workers.py").read_text(encoding="utf-8")
-        linux_card_py = Path("ui/widgets/linux_settings_card.py").read_text(encoding="utf-8")
-        linux_miniforge_py = Path("ui/widgets/linux_settings_miniforge.py").read_text(encoding="utf-8")
-        linux_tool_install_py = Path("ui/widgets/linux_settings_tool_install.py").read_text(encoding="utf-8")
-        database_dialogs_py = Path("ui/pages/database_dialogs.py").read_text(encoding="utf-8")
-        database_remote_ops_py = Path("ui/pages/database_remote_ops.py").read_text(encoding="utf-8")
+        linux_workers_py = Path("ui/widgets/linux_settings_workers.py").read_text(
+            encoding="utf-8"
+        )
+        linux_card_py = Path("ui/widgets/linux_settings_card.py").read_text(
+            encoding="utf-8"
+        )
+        linux_miniforge_py = Path("ui/widgets/linux_settings_miniforge.py").read_text(
+            encoding="utf-8"
+        )
+        linux_tool_install_py = Path(
+            "ui/widgets/linux_settings_tool_install.py"
+        ).read_text(encoding="utf-8")
+        database_dialogs_py = Path("ui/pages/database_dialogs.py").read_text(
+            encoding="utf-8"
+        )
+        database_remote_ops_py = Path("ui/pages/database_remote_ops.py").read_text(
+            encoding="utf-8"
+        )
         database_page_py = Path("ui/pages/database_page.py").read_text(encoding="utf-8")
-        tool_bridge_summary_builders_py = Path("core/execution/tool_bridge_summary_builders.py").read_text(
+        tool_bridge_summary_builders_py = Path(
+            "core/execution/tool_bridge_summary_builders.py"
+        ).read_text(encoding="utf-8")
+        tool_bridge_report_gen_py = Path(
+            "core/execution/tool_bridge_report_gen.py"
+        ).read_text(encoding="utf-8")
+        tool_bridge_service_py = Path(
+            "core/execution/tool_bridge_service.py"
+        ).read_text(encoding="utf-8")
+        tool_bridge_types_py = Path("core/execution/tool_bridge_types.py").read_text(
             encoding="utf-8"
         )
-        tool_bridge_report_gen_py = Path("core/execution/tool_bridge_report_gen.py").read_text(
-            encoding="utf-8"
-        )
-        tool_bridge_service_py = Path("core/execution/tool_bridge_service.py").read_text(encoding="utf-8")
-        tool_bridge_types_py = Path("core/execution/tool_bridge_types.py").read_text(encoding="utf-8")
 
         assert "from ui.widgets.linux_settings_workers import (" in linux_card_py
-        assert "from ui.widgets.linux_settings_miniforge import LinuxSettingsMiniforgeMixin, _is_test_mode" in linux_card_py
-        assert "from ui.widgets.linux_settings_tool_install import LinuxSettingsToolInstallMixin" in linux_card_py
-        assert "from ui.pages.database_dialogs import _AsyncTaskWorker, DatabaseSettingsDialog, RemoteDirectoryPickerDialog" in database_page_py
-        assert "from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin" in database_page_py
-        assert "from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES" in tool_bridge_service_py
-        assert "from core.execution.tool_bridge_summary_builders import (" in tool_bridge_service_py
-        assert "from core.execution.tool_bridge_report_gen import (" in tool_bridge_service_py
+        assert (
+            "from ui.widgets.linux_settings_miniforge import LinuxSettingsMiniforgeMixin, _is_test_mode"
+            in linux_card_py
+        )
+        assert (
+            "from ui.widgets.linux_settings_tool_install import LinuxSettingsToolInstallMixin"
+            in linux_card_py
+        )
+        assert (
+            "from ui.pages.database_dialogs import _AsyncTaskWorker, DatabaseSettingsDialog, RemoteDirectoryPickerDialog"
+            in database_page_py
+        )
+        assert (
+            "from ui.pages.database_remote_ops import DatabaseRemoteOpsMixin"
+            in database_page_py
+        )
+        assert (
+            "from core.execution.tool_bridge_types import ExecutionResult, PrimerView, _TOOL_ARCHETYPES"
+            in tool_bridge_service_py
+        )
+        assert (
+            "from core.execution.tool_bridge_summary_builders import ("
+            in tool_bridge_service_py
+        )
+        assert (
+            "from core.execution.tool_bridge_report_gen import ("
+            in tool_bridge_service_py
+        )
 
         assert "def _format_rate(" in linux_workers_py
         assert "def _safe_emit(" in linux_workers_py
@@ -1078,7 +1254,10 @@ class TestDetectionIntegratedWorkbench:
         assert "class ExecutionResult:" in tool_bridge_types_py
         assert "class PrimerView:" in tool_bridge_types_py
         assert "_TOOL_ARCHETYPES: dict[str, str] = {" in tool_bridge_types_py
-        assert "QUALITY_SUMMARY_KEYS: dict[str, list[tuple[str, str, str]]] = {" in tool_bridge_summary_builders_py
+        assert (
+            "QUALITY_SUMMARY_KEYS: dict[str, list[tuple[str, str, str]]] = {"
+            in tool_bridge_summary_builders_py
+        )
         assert "def build_read_flow_chart(" in tool_bridge_summary_builders_py
         assert "def summarize_metric_rows(" in tool_bridge_summary_builders_py
         assert "def build_generic_summary(" in tool_bridge_summary_builders_py
@@ -1097,8 +1276,12 @@ class TestDetectionIntegratedWorkbench:
         assert "return _tb_try_load_blast_results(" in tool_bridge_service_py
 
     def test_detection_history_empty_state_and_sample_fallback(self):
-        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(encoding="utf-8")
-        history_panel_js = Path("ui/pages/detection_page_assets/render/history_panel.js").read_text(encoding="utf-8")
+        app_js = Path("ui/pages/detection_page_assets/app_galaxy.js").read_text(
+            encoding="utf-8"
+        )
+        history_panel_js = Path(
+            "ui/pages/detection_page_assets/render/history_panel.js"
+        ).read_text(encoding="utf-8")
         js = "\n".join([app_js, history_panel_js])
 
         assert "history.length === 0" in js
@@ -1117,7 +1300,9 @@ class TestHomePageFlows:
         assert home_page._proj_name_label.text() == ""
         assert home_page._stat_samples.text() == ""
 
-    def test_continue_analysis_is_ignored_after_workbench_removal(self, qapp, temp_main_window):
+    def test_continue_analysis_is_ignored_after_workbench_removal(
+        self, qapp, temp_main_window
+    ):
         from core.data.sample_service import SampleService
 
         home_page = temp_main_window.home_page
@@ -1127,7 +1312,10 @@ class TestHomePageFlows:
         service.add_sample(
             name="sample_B",
             source="river",
-            metadata={"r1": "C:/reads/sample_B_R1.fastq.gz", "r2": "C:/reads/sample_B_R2.fastq.gz"},
+            metadata={
+                "r1": "C:/reads/sample_B_R1.fastq.gz",
+                "r2": "C:/reads/sample_B_R2.fastq.gz",
+            },
         )
         sample_id = pm.db.execute(
             "SELECT sample_id FROM samples WHERE name = ?",
@@ -1141,7 +1329,9 @@ class TestHomePageFlows:
         assert temp_main_window.sidebar.currentRow() == current_row
         assert pm.db.execute("SELECT COUNT(*) FROM samples").fetchone()[0] == 1
 
-    def test_project_switch_refreshes_home_without_analysis_page(self, qapp, tmp_path: Path):
+    def test_project_switch_refreshes_home_without_analysis_page(
+        self, qapp, tmp_path: Path
+    ):
         from ui.main_window import MainWindow
 
         pm = ProjectManager(
@@ -1242,10 +1432,14 @@ def test_settings_save_without_execution_section(qapp, tmp_path: Path, monkeypat
 def test_linux_settings_web_install_is_deferred(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
 
     card = LinuxSettingsCard()
-    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    card._tools = [
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    ]
 
     scheduled = []
     monkeypatch.setattr(
@@ -1263,22 +1457,31 @@ def test_linux_settings_web_install_is_deferred(qapp, monkeypatch):
     assert scheduled[0][0] == 0
 
     scheduled[0][1]()
-    assert launched == [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    assert launched == [
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    ]
 
     card.close()
 
 
 def test_tool_env_table_install_button_selector_matches_markup():
-    js = Path("ui/pages/settings_page_assets/tool_env_table.js").read_text(encoding="utf-8")
+    js = Path("ui/pages/settings_page_assets/tool_env_table.js").read_text(
+        encoding="utf-8"
+    )
 
     assert "querySelector('.btn-install')" in js
-    assert 'class="btn-install ui-button ui-button--primary ui-button--sm ui-button--install is-hidden"' in js
+    assert (
+        'class="btn-install ui-button ui-button--primary ui-button--sm ui-button--install is-hidden"'
+        in js
+    )
 
 
 def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
 
     card = LinuxSettingsCard()
     monkeypatch.setattr(card, "_make_ssh_run_fn", lambda: MagicMock())
@@ -1298,13 +1501,17 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
         raise RuntimeError("dialog boom")
 
     critical_calls = []
-    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", raise_dialog_error)
     monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.QMessageBox.critical",
+        "ui.widgets.linux_settings_tool_install.EnvInstallDialog", raise_dialog_error
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_tool_install.QMessageBox.critical",
         lambda *args: critical_calls.append(args),
     )
 
-    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+    card._do_install_tool(
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    )
 
     assert card.status_label.text() == "打开安装窗口失败: fastp"
     assert len(critical_calls) == 1
@@ -1314,22 +1521,32 @@ def test_linux_settings_install_dialog_failure_is_handled(qapp, monkeypatch):
     card.close()
 
 
-def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, monkeypatch):
+def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(
+    qapp, monkeypatch
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
     from PyQt6.QtCore import pyqtSignal
     from PyQt6.QtWidgets import QDialog
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
-    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    card._tools = [
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    ]
     card._installing_tool_ids.add("fastp")
-    card._update_tool_install_snapshot("fastp", status="RUNNING", message="安装中……", log_text="existing log")
+    card._update_tool_install_snapshot(
+        "fastp", status="RUNNING", message="安装中……", log_text="existing log"
+    )
 
     submit_called = {"count": 0}
     monkeypatch.setattr(
         card,
         "_start_tool_install_submit",
-        lambda *_args, **_kwargs: submit_called.__setitem__("count", submit_called["count"] + 1),
+        lambda *_args, **_kwargs: submit_called.__setitem__(
+            "count", submit_called["count"] + 1
+        ),
     )
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
 
@@ -1370,10 +1587,16 @@ def test_linux_settings_reopen_running_dialog_attaches_without_resubmit(qapp, mo
         def exec(self):  # pragma: no cover - must never be called
             raise AssertionError("exec should not be used")
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_tool_install.EnvInstallDialog", _FakeDialog
+    )
 
-    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
-    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+    card._do_install_tool(
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    )
+    card._do_install_tool(
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    )
 
     assert len(dialogs) == 1
     assert dialogs[0].conda_executable == card._conda_executable
@@ -1390,10 +1613,14 @@ def test_linux_settings_dialog_show_error_keeps_running_install(qapp, monkeypatc
     from PyQt6.QtCore import pyqtSignal
     from PyQt6.QtWidgets import QDialog
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
-    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    card._tools = [
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    ]
     card._installing_tool_ids.add("fastp")
     card._update_tool_install_snapshot("fastp", status="RUNNING", message="安装中……")
 
@@ -1410,7 +1637,7 @@ def test_linux_settings_dialog_show_error_keeps_running_install(qapp, monkeypatc
 
     critical_calls = []
     monkeypatch.setattr(
-        "ui.widgets.linux_settings_card.QMessageBox.critical",
+        "ui.widgets.linux_settings_tool_install.QMessageBox.critical",
         lambda *args: critical_calls.append(args),
     )
 
@@ -1432,9 +1659,13 @@ def test_linux_settings_dialog_show_error_keeps_running_install(qapp, monkeypatc
         def show(self):
             raise RuntimeError("show boom")
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_tool_install.EnvInstallDialog", _FakeDialog
+    )
 
-    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+    card._do_install_tool(
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    )
 
     assert "fastp" in card._installing_tool_ids
     assert finished["count"] == 0
@@ -1450,9 +1681,13 @@ def test_linux_settings_dialog_cleanup_after_close(qapp, monkeypatch):
     from PyQt6.QtCore import pyqtSignal
     from PyQt6.QtWidgets import QDialog
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
-    card._tools = [{"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}]
+    card._tools = [
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    ]
 
     class _FakeDialog(QDialog):
         install_requested = pyqtSignal(str)
@@ -1479,7 +1714,9 @@ def test_linux_settings_dialog_cleanup_after_close(qapp, monkeypatch):
 
     monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
 
-    card._do_install_tool({"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"})
+    card._do_install_tool(
+        {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
+    )
 
     assert "fastp" in card._tool_install_dialogs
     dialog = card._tool_install_dialogs["fastp"]

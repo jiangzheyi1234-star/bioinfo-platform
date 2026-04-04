@@ -100,10 +100,4 @@ class SingleToolView:
         payload["provenance"] = asdict(self.provenance)
         payload["sections"] = [section.to_dict() for section in self.sections]
         payload["tool_ids"] = list(self.tool_ids or [self.tool_id])
-        payload["table_title"] = self.table.title
-        payload["table_subtitle"] = self.table.subtitle
-        payload["columns"] = list(self.table.columns)
-        payload["rows"] = list(self.table.rows)
-        payload["parameters"] = list(self.provenance.parameters)
-        payload["chart"] = payload["charts"][0] if payload["charts"] else None
         return payload

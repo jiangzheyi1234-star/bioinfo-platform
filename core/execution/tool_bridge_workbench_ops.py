@@ -192,26 +192,33 @@ def get_integrated_workbench_config(self) -> dict:
                 "label": "等待运行",
                 "detail": "系统按你的流程自动执行 16 个步骤（候选生成→池优化→冲突评估→最终报告），完成后可直接查看 multiplex_panel 与 synthesis_order。",
             },
-            "parameters": [
-                {"label": "输入", "value": "病原体序列（流程内自动生成候选引物）", "description": "你只需提供病原体序列，系统会在流程内自动完成候选引物设计并进入多重池优化。"},
-                {"label": "约束", "value": "cross-dimer / Tm / amplicon length", "description": "联合约束引物间互作、退火温度一致性和扩增子长度范围。"},
-                {"label": "输出", "value": "multiplex_panel.txt / synthesis_order.txt", "description": "输出最终入池方案与可直接使用的合成订单。"},
-                {"label": "优化轮次", "value": "运行后生成", "description": "表示算法迭代优化的次数，用于消解冲突并满足约束；该值由实际任务日志统计。"},
-            ],
             "summary": [
                 {"label": "入池病原体", "value": "0/0", "tone": "primary"},
                 {"label": "订单条目", "value": "0", "tone": "primary"},
                 {"label": "质量", "value": "-", "tone": "accent"},
                 {"label": "优化轮次", "value": "ready", "tone": "accent"},
             ],
-            "columns": self._build_multiplex_columns([]),
-            "rows": [],
+            "table": {
+                "title": "分析结果",
+                "subtitle": "",
+                "columns": self._build_multiplex_columns([]),
+                "rows": [],
+            },
             "artifacts": [
                 "multiplex_panel.txt",
                 "synthesis_order.txt",
                 "pool_cross_dimer.txt",
                 "optimization_log.txt",
             ],
+            "charts": [],
+            "provenance": {
+                "parameters": [
+                    {"label": "输入", "value": "病原体序列（流程内自动生成候选引物）", "description": "你只需提供病原体序列，系统会在流程内自动完成候选引物设计并进入多重池优化。"},
+                    {"label": "约束", "value": "cross-dimer / Tm / amplicon length", "description": "联合约束引物间互作、退火温度一致性和扩增子长度范围。"},
+                    {"label": "输出", "value": "multiplex_panel.txt / synthesis_order.txt", "description": "输出最终入池方案与可直接使用的合成订单。"},
+                    {"label": "优化轮次", "value": "运行后生成", "description": "表示算法迭代优化的次数，用于消解冲突并满足约束；该值由实际任务日志统计。"},
+                ],
+            },
         },
     )
 
