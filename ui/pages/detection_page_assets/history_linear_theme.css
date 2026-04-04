@@ -64,22 +64,6 @@
     background: rgba(255, 255, 255, 0.95);
 }
 
-#tab-history .history-refresh-btn:disabled {
-    opacity: 0.78;
-    cursor: not-allowed;
-}
-
-#tab-history .history-refresh-btn.is-loading {
-    color: #334155;
-    border-color: #c8d1dc;
-    background: rgba(247, 250, 252, 0.96);
-}
-
-#tab-history .history-refresh-btn.is-loading .history-refresh-icon {
-    animation: history-refresh-spin-soft 1s linear infinite;
-    transform-origin: 50% 50%;
-}
-
 #tab-history .history-refresh-icon {
     width: 14px;
     height: 14px;
@@ -91,13 +75,7 @@
 #tab-history .history-refresh-icon svg {
     width: 14px;
     height: 14px;
-    display: block;
     stroke: currentColor;
-}
-
-@keyframes history-refresh-spin-soft {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
 }
 
 #tab-history .history-table-card {
@@ -134,7 +112,6 @@
     z-index: 4;
     min-height: 36px;
     padding: 10px 16px;
-    gap: 10px;
     border-bottom: 1px solid var(--history-linear-border);
     background: var(--history-surface-header);
     color: var(--history-text-subtle);

@@ -9,7 +9,7 @@
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <link rel="stylesheet" href="../shared_assets/web_tokens.css?v=20260401">
     <link rel="stylesheet" href="../shared_assets/web_components.css?v=20260401">
-    <link rel="stylesheet" href="styles_galaxy.css?v=20260405a">
+    <link rel="stylesheet" href="styles_galaxy.css?v=20260331">
     <link rel="stylesheet" href="result_shell_theme.css?v=20260331">
     <link rel="stylesheet" href="app_neutral_theme.css?v=20260404">
     <link rel="stylesheet" href="history_linear_theme.css?v=20260404b">
@@ -21,13 +21,13 @@
         <div class="tab-bar">
             <div class="tab-bar-inner">
                 <button class="tab-btn active" data-tab="tools">工具</button>
-                <button class="tab-btn tab-btn--legacy" data-tab="history">运行历史</button>
-                <button class="tab-btn tab-btn--legacy" data-tab="integrated">结果工作台</button>
+                <button class="tab-btn" data-tab="history">运行历史</button>
+                <button class="tab-btn" data-tab="integrated">结果工作台</button>
                 <button class="tab-btn" data-tab="database">数据库</button>
             </div>
         </div>
 
-        <!-- 病原检测工作区 -->
+        <!-- 插件工作台 -->
         <div class="tab-content active" id="tab-tools">
             <div class="left-panel">
                 <header>
@@ -38,100 +38,40 @@
                 <div class="tools-list" id="tools-list"></div>
             </div>
 
-            <div class="workspace-stage" id="workspace-stage">
-                <section class="workspace-main" id="workspace-main">
-                    <div class="workspace-main-toolbar">
-                        <div class="workspace-main-switch" role="tablist" aria-label="检测视图切换">
-                            <button
-                                class="workspace-main-switch-btn active"
-                                id="workspace-view-tools-btn"
-                                type="button"
-                                role="tab"
-                                aria-selected="true"
-                                data-workspace-view="tools"
-                            >
-                                工具配置
-                            </button>
-                            <button
-                                class="workspace-main-switch-btn"
-                                id="workspace-view-history-btn"
-                                type="button"
-                                role="tab"
-                                aria-selected="false"
-                                data-workspace-view="history"
-                            >
-                                运行历史
-                            </button>
+            <div class="right-panel" id="right-panel">
+                <div class="panel-placeholder" id="panel-placeholder">
+                    <div class="placeholder-mark">Tool</div>
+                    <div class="placeholder-text">选择一个工具查看参数</div>
+                </div>
+
+                <div class="panel-content is-hidden" id="panel-content">
+                    <div class="panel-header">
+                        <h2 id="tool-name"></h2>
+                        <div class="tool-meta">
+                            <span id="tool-id" class="meta-item"></span>
+                            <span id="tool-version" class="meta-item"></span>
+                            <span id="tool-category" class="meta-item"></span>
                         </div>
                     </div>
-
-                    <div class="workspace-main-content">
-                        <div class="workspace-main-view active" id="workspace-view-tools">
-                            <div class="right-panel" id="right-panel">
-                                <div class="panel-placeholder" id="panel-placeholder">
-                                    <div class="placeholder-mark">Tool</div>
-                                    <div class="placeholder-text">选择一个工具查看参数</div>
-                                </div>
-
-                                <div class="panel-content is-hidden" id="panel-content">
-                                    <div class="panel-header">
-                                        <h2 id="tool-name"></h2>
-                                        <div class="tool-meta">
-                                            <span id="tool-id" class="meta-item"></span>
-                                            <span id="tool-version" class="meta-item"></span>
-                                            <span id="tool-category" class="meta-item"></span>
-                                        </div>
-                                    </div>
-                                    <div class="panel-body">
-                                        <div class="form-section">
-                                            <h3>输入文件</h3>
-                                            <div id="inputs-container"></div>
-                                        </div>
-                                        <div class="form-section">
-                                            <h3>参数</h3>
-                                            <div id="params-container"></div>
-                                        </div>
-                                        <div class="form-section is-hidden" id="databases-section">
-                                            <h3>数据库</h3>
-                                            <div id="databases-container"></div>
-                                        </div>
-                                        <div class="form-actions">
-                                            <button id="run-btn" class="ui-button ui-button--primary">▶ 运行工具</button>
-                                            <button id="clear-btn" class="ui-button ui-button--secondary">清空</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                    <div class="panel-body">
+                        <div class="form-section">
+                            <h3>输入文件</h3>
+                            <div id="inputs-container"></div>
                         </div>
-
-                        <div class="workspace-main-view" id="workspace-view-history">
-                            <div class="workspace-history-mount" id="workspace-history-mount"></div>
+                        <div class="form-section">
+                            <h3>参数</h3>
+                            <div id="params-container"></div>
+                        </div>
+                        <div class="form-section is-hidden" id="databases-section">
+                            <h3>数据库</h3>
+                            <div id="databases-container"></div>
+                        </div>
+                        <div class="form-actions">
+                            <button id="run-btn" class="ui-button ui-button--primary">▶ 运行工具</button>
+                            <button id="clear-btn" class="ui-button ui-button--secondary">清空</button>
                         </div>
                     </div>
-                </section>
-
-                <section class="workspace-run-panel collapsed" id="workspace-run-panel" aria-label="当前运行与结果面板">
-                    <div class="workspace-run-panel-header">
-                        <div class="workspace-run-panel-title-group">
-                            <div class="workspace-run-panel-title">当前运行与结果</div>
-                            <div class="workspace-run-panel-subtitle">按 execution 查看状态、日志与结果</div>
-                        </div>
-                        <button class="ui-button ui-button--secondary ui-button--sm" id="workspace-run-panel-toggle" type="button" aria-expanded="false">
-                            展开
-                        </button>
-                    </div>
-                    <div class="workspace-run-panel-body" id="workspace-run-panel-body"></div>
-                </section>
-            </div>
-        </div>
-
-        <div class="workspace-detail-drawer is-hidden" id="workspace-detail-drawer" aria-hidden="true">
-            <div class="workspace-detail-drawer-header">
-                <div class="workspace-detail-drawer-title">详情</div>
-                <button class="ui-button ui-button--secondary ui-button--sm" id="workspace-detail-drawer-close" type="button">关闭</button>
-            </div>
-            <div class="workspace-detail-drawer-body" id="workspace-detail-drawer-body">
-                <div class="placeholder-text">选择任务或结果后将在此显示详情。</div>
+                </div>
             </div>
         </div>
 
@@ -160,21 +100,10 @@
             <div class="history-page">
                 <div class="history-toolbar">
                     <h2>任务历史</h2>
-                    <div class="history-toolbar-actions">
-                        <label class="history-status-filter-wrap" for="history-status-filter">
-                            <span class="history-status-filter-label">状态</span>
-                            <select class="ui-field history-status-filter" id="history-status-filter">
-                                <option value="all">全部</option>
-                                <option value="running">运行中</option>
-                                <option value="failed">失败</option>
-                                <option value="completed">已完成</option>
-                            </select>
-                        </label>
-                        <button class="ui-button ui-button--secondary ui-button--sm history-refresh-btn" id="btn-refresh" type="button" aria-busy="false">
-                            <span class="history-refresh-icon" data-icon="refresh-cw" data-icon-class="task-action-icon" data-icon-size="14" aria-hidden="true"></span>
-                            <span class="history-refresh-label">刷新</span>
-                        </button>
-                    </div>
+                    <button class="ui-button ui-button--secondary ui-button--sm history-refresh-btn" id="btn-refresh">
+                        <span class="history-refresh-icon" data-icon="refresh-cw" data-icon-class="task-action-icon" data-icon-size="14" aria-hidden="true"></span>
+                        <span>刷新</span>
+                    </button>
                 </div>
                 <div class="history-search-wrap">
                     <input class="ui-field history-search-input" id="history-search" type="text" placeholder="搜索任务..." />
@@ -348,7 +277,7 @@
     <script src="results/workbench_state_manager.js?v=20260401"></script>
     <script src="results/history_result_loader.js?v=20260401"></script>
     <script src="results/workbench_selection.js?v=20260401"></script>
-    <script src="app_galaxy.js?v=20260405a"></script>
+    <script src="app_galaxy.js?v=20260404b"></script>
     <script src="result_shell_registry.js?v=20260331"></script>
 </body>
 </html>
