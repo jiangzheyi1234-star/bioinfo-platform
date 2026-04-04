@@ -44,7 +44,7 @@
 }
 
 /* Integrated/result workspace */
-#tab-integrated .integrated-shell {
+#tab-integrated {
     background: linear-gradient(180deg, #f7f8fa 0%, #f4f6f9 100%);
 }
 

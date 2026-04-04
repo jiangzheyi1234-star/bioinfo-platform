@@ -62,9 +62,11 @@ let historyRefreshLoadingStartedAt = 0;
 let historyRefreshLoadingTimer = null;
 const WORKSPACE_MAIN_VIEW_STORAGE_KEY = 'detection.workspace.main_view.v1';
 const WORKSPACE_RUN_PANEL_STORAGE_KEY = 'detection.workspace.run_panel.v1';
+const WORKSPACE_TOOLS_SIDEBAR_STORAGE_KEY = 'detection.workspace.tools_sidebar.v1';
 const HISTORY_STATUS_FILTER_STORAGE_KEY = 'detection.workspace.history.status_filter.v1';
 let workspaceMainView = 'tools';
 let workspaceRunPanelExpanded = false;
+let workspaceToolsSidebarCollapsed = false;
 let workspaceLayoutInitialized = false;
 let historyStatusFilter = 'all';
 let activeHistoryExecutionId = '';
@@ -326,6 +328,18 @@ function setWorkspaceRunPanelExpanded(expanded, options = {}) {
     }
 }
 
+function setWorkspaceToolsSidebarCollapsed(collapsed, options = {}) {
+    const workspaceTab = requireElement('tab-tools');
+    const toggleBtn = requireElement('workspace-tools-sidebar-toggle');
+    workspaceToolsSidebarCollapsed = Boolean(collapsed);
+    workspaceTab.classList.toggle('workspace-tools-collapsed', workspaceToolsSidebarCollapsed);
+    toggleBtn.setAttribute('aria-pressed', workspaceToolsSidebarCollapsed ? 'true' : 'false');
+    toggleBtn.textContent = workspaceToolsSidebarCollapsed ? '展开工具栏' : '收起工具栏';
+    if (options.persist !== false) {
+        safeWriteStorage(WORKSPACE_TOOLS_SIDEBAR_STORAGE_KEY, workspaceToolsSidebarCollapsed ? '1' : '0');
+    }
+}
+
 function switchWorkspaceMainView(view, options = {}) {
     const normalizedView = view === 'history' ? 'history' : 'tools';
     workspaceMainView = normalizedView;
@@ -347,23 +361,11 @@ function switchWorkspaceMainView(view, options = {}) {
     }
 }
 
-function moveWorkspaceTabToMount(tabId, mountId) {
-    const tab = requireElement(tabId);
-    const mount = requireElement(mountId);
-    if (mount.contains(tab)) {
-        return;
-    }
-    mount.appendChild(tab);
-    tab.classList.add('workspace-embedded-tab');
-}
-
 function initializeDetectionWorkspaceLayout() {
     if (workspaceLayoutInitialized) {
         return;
     }
     workspaceLayoutInitialized = true;
-    moveWorkspaceTabToMount('tab-history', 'workspace-history-mount');
-    moveWorkspaceTabToMount('tab-integrated', 'workspace-run-panel-body');
 
     const viewButtons = document.querySelectorAll('.workspace-main-switch-btn[data-workspace-view]');
     viewButtons.forEach(function(btn) {
@@ -380,6 +382,10 @@ function initializeDetectionWorkspaceLayout() {
     runPanelToggle.addEventListener('click', function() {
         setWorkspaceRunPanelExpanded(!workspaceRunPanelExpanded);
     });
+    const toolsSidebarToggle = requireElement('workspace-tools-sidebar-toggle');
+    toolsSidebarToggle.addEventListener('click', function() {
+        setWorkspaceToolsSidebarCollapsed(!workspaceToolsSidebarCollapsed);
+    });
 
     const drawerCloseBtn = document.getElementById('workspace-detail-drawer-close');
     if (drawerCloseBtn) {
@@ -392,11 +398,13 @@ function initializeDetectionWorkspaceLayout() {
 
     const storedView = safeReadStorage(WORKSPACE_MAIN_VIEW_STORAGE_KEY);
     const storedPanel = safeReadStorage(WORKSPACE_RUN_PANEL_STORAGE_KEY);
+    const storedSidebarCollapsed = safeReadStorage(WORKSPACE_TOOLS_SIDEBAR_STORAGE_KEY);
     switchWorkspaceMainView(storedView === 'history' ? 'history' : 'tools', {
         refresh: storedView === 'history',
         historyOptions: { source: 'workspace-restore' },
     });
     setWorkspaceRunPanelExpanded(storedPanel === '1', { persist: false });
+    setWorkspaceToolsSidebarCollapsed(storedSidebarCollapsed === '1', { persist: false });
 }
 
 renderLinearIcons(document);
@@ -423,18 +431,6 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
 
     // 加载工具列表
     window.ToolPanelRenderer.loadTools();
-
-    // 启动阶段避免重型同步请求阻塞 UI；仅在当前标签是 integrated 时延迟加载
-    const activeTabBtn = document.querySelector('.tab-btn.active');
-    if (activeTabBtn && activeTabBtn.dataset.tab === 'integrated') {
-        setTimeout(function() {
-            try {
-                loadIntegratedWorkbench();
-            } catch (e) {
-                console.error('Deferred loadIntegratedWorkbench failed:', e);
-            }
-        }, 0);
-    }
 
     // 搜索功能
     document.getElementById('search').addEventListener('input', function(e) {
@@ -504,7 +500,7 @@ function switchTab(tab, options = {}) {
     });
 
     // 更新内容区状态
-    document.querySelectorAll('.tab-content:not(.workspace-embedded-tab)').forEach(function(content) {
+    document.querySelectorAll('.tab-content').forEach(function(content) {
         content.classList.remove('active');
     });
     const target = document.getElementById('tab-' + tab);

@@ -1,6 +1,6 @@
 /* History Page Linear + Handcrafted Theme (2026-04-04) */
 
-#tab-history .history-page {
+#tab-history {
     --history-typo-font-family: "Geist", "Geist Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
     --history-typo-mono-family: "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Courier New", monospace;
     --history-typo-title-size: 20px;
@@ -29,9 +29,9 @@
     gap: 14px;
 }
 
-#tab-history .history-page,
-#tab-history .history-page button,
-#tab-history .history-page input {
+#tab-history,
+#tab-history button,
+#tab-history input {
     font-family: var(--history-typo-font-family);
 }
 
@@ -377,7 +377,7 @@
 }
 
 @media (max-width: 1280px) {
-    #tab-history .history-page {
+    #tab-history {
         --history-columns: 88px minmax(108px, 0.84fr) minmax(118px, 0.92fr) 100px 58px 70px;
     }
 
