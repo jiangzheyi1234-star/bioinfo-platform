@@ -427,7 +427,8 @@
             runtime.openExecutionWithRuntime(executionId, {
                 status: 'pending',
                 fetchRemoteStatus: false,
-                noticeMessage: '已定位到新提交任务，请在运行历史查看状态',
+                keepMainView: true,
+                noticeMessage: '已定位到新提交任务，可在运行历史视图查看状态',
             });
             return;
         }

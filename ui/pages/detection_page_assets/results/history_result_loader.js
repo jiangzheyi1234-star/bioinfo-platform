@@ -158,6 +158,7 @@
                 expand: true,
                 fetchRemoteStatus: shouldFetchRemoteStatus,
                 noticeMessage: options.noticeMessage || '',
+                keepMainView: options.keepMainView === true,
             });
         }
     }
@@ -200,6 +201,7 @@
             resultContext: normalizedContext.resultContext,
             fetchRemoteStatus: normalizedContext.fetchRemoteStatus,
             noticeMessage: normalizedContext.noticeMessage,
+            keepMainView: normalizedContext.keepMainView,
             bridgeResultsService: runtime.bridgeResultsService,
             showNotice: runtime.showNotice,
             findHistoryRecord: runtime.findHistoryRecord,
