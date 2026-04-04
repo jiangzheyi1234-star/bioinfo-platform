@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -55,6 +54,7 @@ QPushButton:hover {
 
 class InstallTaskPanel(QDialog):
     """状态栏安装段点击后展示的任务面板（只读）。"""
+    locate_requested = pyqtSignal(dict)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -173,7 +173,7 @@ class InstallTaskPanel(QDialog):
             title.setStyleSheet("font-size: 13px; color: #0F172A; background: transparent; font-weight: 600;")
             detail_btn = QPushButton("详情")
             detail_btn.setStyleSheet(_ACTION_BTN_STYLE)
-            detail_btn.clicked.connect(lambda _=False, payload=dict(task): self._show_task_detail(payload))
+            detail_btn.clicked.connect(lambda _=False, payload=dict(task): self._locate_task(payload))
 
             title_row.addWidget(badge)
             title_row.addWidget(title, 1)
@@ -191,9 +191,9 @@ class InstallTaskPanel(QDialog):
 
         self._content_layout.addStretch()
 
-    def _show_task_detail(self, task: dict) -> None:
-        title = self._compact_title(str(task.get("title", task.get("task_id", "")) or "安装任务"))
-        QMessageBox.information(self, f"{title} 详情", self._build_task_detail_text(task))
+    def _locate_task(self, task: dict) -> None:
+        self.hide()
+        self.locate_requested.emit(dict(task))
 
     @classmethod
     def _build_task_detail_text(cls, task: dict) -> str:

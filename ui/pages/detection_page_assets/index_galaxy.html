@@ -11,6 +11,8 @@
     <link rel="stylesheet" href="../shared_assets/web_components.css?v=20260401">
     <link rel="stylesheet" href="styles_galaxy.css?v=20260331">
     <link rel="stylesheet" href="result_shell_theme.css?v=20260331">
+    <link rel="stylesheet" href="app_neutral_theme.css?v=20260404">
+    <link rel="stylesheet" href="history_linear_theme.css?v=20260404b">
 </head>
 <body>
     <div class="main-container">
@@ -98,7 +100,10 @@
             <div class="history-page">
                 <div class="history-toolbar">
                     <h2>任务历史</h2>
-                    <button class="ui-button ui-button--secondary ui-button--sm history-refresh-btn" id="btn-refresh">↻ 刷新</button>
+                    <button class="ui-button ui-button--secondary ui-button--sm history-refresh-btn" id="btn-refresh">
+                        <span class="history-refresh-icon" data-icon="refresh-cw" data-icon-class="task-action-icon" data-icon-size="14" aria-hidden="true"></span>
+                        <span>刷新</span>
+                    </button>
                 </div>
                 <div class="history-search-wrap">
                     <input class="ui-field history-search-input" id="history-search" type="text" placeholder="搜索任务..." />
@@ -254,11 +259,11 @@
     </div>
     <script src="echarts.min.js"></script>
     <script src="services/bridge_tools.js?v=20260401"></script>
-    <script src="services/bridge_history.js?v=20260401"></script>
+    <script src="services/bridge_history.js?v=20260404b"></script>
     <script src="services/bridge_results.js?v=20260401"></script>
     <script src="render/ui_feedback.js?v=20260401"></script>
     <script src="render/database_panel.js?v=20260401"></script>
-    <script src="render/history_panel.js?v=20260401"></script>
+    <script src="render/history_panel.js?v=20260404b"></script>
     <script src="render/history_status.js?v=20260401"></script>
     <script src="render/integrated_sidebar.js?v=20260401"></script>
     <script src="render/result_viewers.js?v=20260401"></script>
@@ -266,12 +271,13 @@
     <script src="render/chart_renderer.js?v=20260401"></script>
     <script src="render/tool_panel.js?v=20260401"></script>
     <script src="render/integrated_workbench_renderer.js?v=20260401"></script>
+    <script src="utils/linear_icon_renderer.js?v=20260404b"></script>
     <script src="utils/helpers.js?v=20260401"></script>
     <script src="results/open_results_state.js?v=20260401"></script>
     <script src="results/workbench_state_manager.js?v=20260401"></script>
     <script src="results/history_result_loader.js?v=20260401"></script>
     <script src="results/workbench_selection.js?v=20260401"></script>
-    <script src="app_galaxy.js?v=20260331"></script>
+    <script src="app_galaxy.js?v=20260404b"></script>
     <script src="result_shell_registry.js?v=20260331"></script>
 </body>
 </html>

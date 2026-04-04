@@ -93,6 +93,24 @@
         }) || null;
     }
 
+    function getDeleteIconMarkup() {
+        var iconRenderer = global.LinearIconRenderer;
+        if (!iconRenderer || typeof iconRenderer.createIcon !== 'function') {
+            return '<span class="task-action-icon-fallback" aria-hidden="true">×</span>';
+        }
+        try {
+            return iconRenderer.createIcon('trash-2', {
+                className: 'task-action-icon',
+                size: 15,
+                strokeWidth: 1.9,
+                ariaHidden: true,
+            });
+        } catch (error) {
+            console.error('Failed to render delete icon:', error);
+            return '<span class="task-action-icon-fallback" aria-hidden="true">×</span>';
+        }
+    }
+
     function renderHistoryPanel(options) {
         var container = options.container;
         var history = Array.isArray(options.history) ? options.history : [];
@@ -150,7 +168,7 @@
             detailsHtml += '<pre class="task-details-pre">' + escapeHtml(prettyJson) + '</pre>';
 
             row.innerHTML = ''
-                + '<div class="task-summary" onclick="this.parentElement.classList.toggle(\'expanded\')">'
+                + '<div class="task-summary" role="button" tabindex="0" aria-expanded="false">'
                 + '  <div class="col-status-wrap task-status-combo">'
                 + '    <span class="status-inline ' + statusClass + '">'
                 + '      <span class="status-dot"></span>'
@@ -166,11 +184,42 @@
                 + '  <div class="col-params val-params" title="' + escapeHtml(prettyJson || paramsSummary) + '">' + escapeHtml(paramsSummary) + '</div>'
                 + '  <div class="col-time val-time" title="' + escapeHtml(exactTime) + '"><div class="time-primary">' + createdLabel + '</div></div>'
                 + '  <div class="col-duration val-duration ' + durationClass + '">' + duration + '</div>'
-                + '  <div class="col-actions"><div class="task-actions" onclick="event.stopPropagation()"></div></div>'
+                + '  <div class="col-actions"><div class="task-actions"></div></div>'
                 + '</div>'
-                + '<div class="task-details' + (hasDetails ? '' : ' empty') + '">' + detailsHtml + '</div>';
+                + '<div class="task-details' + (hasDetails ? '' : ' empty') + '">'
+                + '  <div class="task-details-inner">'
+                + '    <div class="task-details-card">'
+                + '      <div class="task-details-card-body">' + detailsHtml + '</div>'
+                + '    </div>'
+                + '  </div>'
+                + '</div>';
+
+            var summaryEl = row.querySelector('.task-summary');
+            var toggleExpanded = function() {
+                if (!hasDetails) {
+                    return;
+                }
+                row.classList.toggle('expanded');
+                if (summaryEl) {
+                    summaryEl.setAttribute('aria-expanded', row.classList.contains('expanded') ? 'true' : 'false');
+                }
+            };
+            if (summaryEl) {
+                summaryEl.addEventListener('click', toggleExpanded);
+                summaryEl.addEventListener('keydown', function(event) {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleExpanded();
+                    }
+                });
+            }
 
             var actionsContainer = row.querySelector('.task-actions');
+            if (actionsContainer) {
+                actionsContainer.addEventListener('click', function(event) {
+                    event.stopPropagation();
+                });
+            }
             if (record.status === 'completed') {
                 var resultContext = typeof options.resolveHistoryResultContext === 'function'
                     ? options.resolveHistoryResultContext(record)
@@ -204,7 +253,8 @@
                 var delBtn = document.createElement('button');
                 delBtn.className = 'task-action-btn btn-delete';
                 delBtn.setAttribute('title', '删除任务记录');
-                delBtn.textContent = '⌫';
+                delBtn.setAttribute('aria-label', '删除任务记录');
+                delBtn.innerHTML = getDeleteIconMarkup();
                 delBtn.onclick = function(event) {
                     event.preventDefault();
                     if (typeof options.deleteHistoryExecution === 'function') {
@@ -220,6 +270,9 @@
                 focusedRow = row;
                 if (pendingOptions.expand !== false) {
                     row.classList.add('expanded');
+                    if (summaryEl) {
+                        summaryEl.setAttribute('aria-expanded', 'true');
+                    }
                 }
                 if (pendingOptions.fetchRemoteStatus !== false) {
                     focusedRemoteStatusRequested = true;

@@ -47,12 +47,12 @@ _SECONDARY_ICON_STYLE = """
         font-size: 12px;
     }
     QPushButton:hover {
-        background: #EFF6FF;
-        color: #0EA5E9;
-        border-color: #BFDBFE;
+        background: #EEF2F7;
+        color: #334155;
+        border-color: #CBD5E1;
     }
     QPushButton:pressed {
-        background: #DBEAFE;
+        background: #E2E8F0;
     }
 """
 
@@ -80,7 +80,7 @@ class DatabaseItemCard(QFrame):
                 border-radius: 12px;
             }
             QFrame:hover {
-                border: 1px solid #BFDBFE;
+                border: 1px solid #CBD5E1;
             }
             """
         )

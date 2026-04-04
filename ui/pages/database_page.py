@@ -58,11 +58,11 @@ _GHOST_BTN_STYLE = """
         font-size: 13px;
     }
     QPushButton:hover {
-        background: #DBEAFE;
-        color: #0EA5E9;
+        background: #EEF2F7;
+        color: #334155;
     }
     QPushButton:pressed {
-        background: #BFDBFE;
+        background: #E2E8F0;
     }
 """
 
@@ -188,12 +188,12 @@ class DatabasePage(DatabaseRemoteOpsMixin, BasePage):
                 margin-right: 6px;
             }
             QTabBar::tab:selected {
-                color: #0EA5E9;
+                color: #334155;
                 font-weight: 700;
-                border-bottom: 2px solid #3B82F6;
+                border-bottom: 2px solid #94A3B8;
             }
             QTabBar::tab:hover:!selected {
-                color: #0284C7;
+                color: #475569;
             }
             """
         )
@@ -565,6 +565,29 @@ class DatabasePage(DatabaseRemoteOpsMixin, BasePage):
         except Exception as exc:
             logger.exception("install_confirm_click_error db_id=%s error=%s", db_id, exc)
             QMessageBox.warning(self, "数据库安装", f"打开安装窗口失败: {exc}")
+
+    def locate_install_task(self, task: dict) -> None:
+        db_id = self._extract_db_id_from_task(task)
+        if not db_id:
+            logger.debug("无法从安装任务中解析数据库 ID: %s", task)
+            return
+        dialog = self._dialogs.get(db_id)
+        if dialog is not None:
+            if dialog.isMinimized():
+                dialog.showNormal()
+            else:
+                dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+        self._on_install_clicked(db_id)
+
+    @staticmethod
+    def _extract_db_id_from_task(task: dict) -> str:
+        task_id = str(task.get("task_id", "") or "").strip()
+        if task_id.startswith("db:"):
+            return str(task_id.split(":", 1)[1]).strip()
+        return ""
 
     def _submit_install_async(self, db_id: str, mirror_index: int) -> None:
         try:
