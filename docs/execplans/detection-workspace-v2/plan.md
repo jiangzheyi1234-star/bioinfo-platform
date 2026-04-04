@@ -23,8 +23,15 @@
 - `node --check ui/pages/detection_page_assets/render/tool_panel.js`
 
 ## M3: Legacy Result Page Removal
-- [ ] 完全下线独立“结果工作台”导航入口。
-- [ ] 清理旧路由与重复渲染链。
+- [x] 完全下线独立“结果工作台”导航入口。
+- [x] 清理旧路由与重复渲染链。
+
+### M3 Verification
+- `node --check ui/pages/detection_page_assets/app_galaxy.js`
+- `node --check ui/pages/detection_page_assets/render/run_modal.js`
+- `node --check ui/pages/detection_page_assets/render/tool_panel.js`
+- `node --check ui/pages/detection_page_assets/results/workbench_state_manager.js`
+- `node --check ui/pages/detection_page_assets/results/history_result_loader.js`
 
 ## Rollback Notes
-- 保留旧 `tab-history` / `tab-integrated` DOM 与渲染器，失败时可通过恢复顶部入口快速回退。
+- 顶部 legacy 入口已下线，回退需恢复 `index_galaxy.html` 的 legacy 顶部按钮与独立 tab-content 结构。
