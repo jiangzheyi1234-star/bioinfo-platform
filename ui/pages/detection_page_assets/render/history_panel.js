@@ -18,12 +18,12 @@
     }
 
     function getStatusText(status) {
-        var statusMap = { pending: '等待中', running: '运行中', completed: '已完成', failed: '失败' };
+        var statusMap = { pending: '等待中', running: '运行中', retrying: '重试中', completed: '已完成', failed: '失败' };
         return statusMap[status] || status;
     }
 
     function getStatusClass(status) {
-        var statusMap = { pending: 'pending', running: 'running', completed: 'completed', failed: 'failed' };
+        var statusMap = { pending: 'pending', running: 'running', retrying: 'running', completed: 'completed', failed: 'failed' };
         return statusMap[status] || 'unknown';
     }
 
@@ -64,12 +64,53 @@
         return 'duration-long';
     }
 
+    function normalizeHistoryStatus(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function normalizeStatusFilter(value) {
+        var normalized = normalizeHistoryStatus(value);
+        return normalized === 'running' || normalized === 'failed' || normalized === 'completed'
+            ? normalized
+            : 'all';
+    }
+
+    function sortHistoryRecords(historyRecords) {
+        return historyRecords.slice().sort(function(left, right) {
+            var leftTime = Number(left && left.created_at || 0);
+            var rightTime = Number(right && right.created_at || 0);
+            if (rightTime !== leftTime) {
+                return rightTime - leftTime;
+            }
+            var leftId = String(left && left.execution_id || '');
+            var rightId = String(right && right.execution_id || '');
+            return rightId.localeCompare(leftId, 'zh-CN');
+        });
+    }
+
+    function matchesStatusFilter(record, statusFilter) {
+        if (statusFilter === 'all') {
+            return true;
+        }
+        var normalizedStatus = normalizeHistoryStatus(record && record.status);
+        if (statusFilter === 'running') {
+            return normalizedStatus === 'running' || normalizedStatus === 'retrying';
+        }
+        return normalizedStatus === statusFilter;
+    }
+
     function filterHistoryRecords(options) {
         var query = String(options.query || '').trim().toLowerCase();
+        var statusFilter = normalizeStatusFilter(options.statusFilter);
         var historyRecords = Array.isArray(options.historyRecords) ? options.historyRecords : [];
         var allTools = Array.isArray(options.allTools) ? options.allTools : [];
-        if (!query) return historyRecords;
         return historyRecords.filter(function(record) {
+            if (!matchesStatusFilter(record, statusFilter)) {
+                return false;
+            }
+            if (!query) {
+                return true;
+            }
             var toolName = (allTools.find(function(tool) { return tool.id === record.tool_id; }) || {}).name || record.tool_id;
             var haystack = [
                 record.execution_id,
@@ -118,6 +159,8 @@
         var escapeHtml = options.escapeHtml;
         var pendingExecutionId = String(options.pendingExecutionId || '').trim();
         var pendingOptions = options.pendingOptions || {};
+        var activeExecutionId = String(options.activeExecutionId || '').trim();
+        var emptyState = options.emptyState || null;
 
         if (!container || typeof escapeHtml !== 'function') {
             return;
@@ -128,11 +171,19 @@
         var focusedRemoteStatusRequested = false;
 
         if (history.length === 0) {
+            var emptyTitle = '暂无任务记录';
+            var emptyDesc = '新的 Primer Design 或 Multiplex Panel Design 任务会在这里显示。';
+            if (emptyState && typeof emptyState.title === 'string' && emptyState.title.trim()) {
+                emptyTitle = emptyState.title.trim();
+            }
+            if (emptyState && typeof emptyState.description === 'string' && emptyState.description.trim()) {
+                emptyDesc = emptyState.description.trim();
+            }
             container.innerHTML = ''
                 + '<div class="history-empty-state">'
                 + '  <div class="history-empty-icon">∅</div>'
-                + '  <div class="history-empty-title">暂无任务记录</div>'
-                + '  <div class="history-empty-desc">新的 Primer Design 或 Multiplex Panel Design 任务会在这里显示。</div>'
+                + '  <div class="history-empty-title">' + escapeHtml(emptyTitle) + '</div>'
+                + '  <div class="history-empty-desc">' + escapeHtml(emptyDesc) + '</div>'
                 + '</div>';
             return;
         }
@@ -141,6 +192,9 @@
             var row = document.createElement('div');
             row.className = 'task-row';
             row.dataset.executionId = String(record.execution_id || '');
+            if (activeExecutionId && row.dataset.executionId === activeExecutionId) {
+                row.classList.add('active');
+            }
 
             var statusText = getStatusText(record.status);
             var statusClass = getStatusClass(record.status);
@@ -172,7 +226,7 @@
                 + '  <div class="col-status-wrap task-status-combo">'
                 + '    <span class="status-inline ' + statusClass + '">'
                 + '      <span class="status-dot"></span>'
-                + (record.status === 'running' ? '<span class="status-spinner"></span>' : '')
+                + ((record.status === 'running' || record.status === 'retrying') ? '<span class="status-spinner"></span>' : '')
                 + '      <span>' + statusText + '</span>'
                 + '    </span>'
                 + '  </div>'
@@ -204,11 +258,20 @@
                     summaryEl.setAttribute('aria-expanded', row.classList.contains('expanded') ? 'true' : 'false');
                 }
             };
+            var triggerExecutionOpen = function() {
+                if (typeof options.onRowExecutionClick === 'function') {
+                    options.onRowExecutionClick(record);
+                }
+            };
             if (summaryEl) {
-                summaryEl.addEventListener('click', toggleExpanded);
+                summaryEl.addEventListener('click', function() {
+                    triggerExecutionOpen();
+                    toggleExpanded();
+                });
                 summaryEl.addEventListener('keydown', function(event) {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
+                        triggerExecutionOpen();
                         toggleExpanded();
                     }
                 });
@@ -231,7 +294,11 @@
                     event.preventDefault();
                     event.stopPropagation();
                     if (typeof options.openExecution === 'function') {
-                        options.openExecution(record.execution_id, { record: record, resultContext: resultContext || {} });
+                        options.openExecution(record.execution_id, {
+                            record: record,
+                            resultContext: resultContext || {},
+                            keepMainView: true,
+                        });
                     }
                 };
                 actionsContainer.appendChild(viewBtn);
@@ -243,7 +310,10 @@
                     event.preventDefault();
                     event.stopPropagation();
                     if (typeof options.openExecution === 'function') {
-                        options.openExecution(record.execution_id, { record: record });
+                        options.openExecution(record.execution_id, {
+                            record: record,
+                            keepMainView: true,
+                        });
                     }
                 };
                 actionsContainer.appendChild(statusBtn);
@@ -308,6 +378,8 @@
         formatRelativeTime: formatRelativeTime,
         formatDuration: formatDuration,
         getDurationClass: getDurationClass,
+        normalizeStatusFilter: normalizeStatusFilter,
+        sortHistoryRecords: sortHistoryRecords,
         filterHistoryRecords: filterHistoryRecords,
         findHistoryRecord: findHistoryRecord,
         renderHistoryPanel: renderHistoryPanel,

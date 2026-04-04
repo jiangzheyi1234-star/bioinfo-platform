@@ -394,6 +394,9 @@
         var toolId = context.toolId;
         closeIntegratedRunModal();
         runtime.switchTab('tools');
+        if (typeof runtime.switchWorkspaceMainView === 'function') {
+            runtime.switchWorkspaceMainView('tools', { refresh: false });
+        }
         runtime.selectTool(toolId);
 
         var panel = document.getElementById('right-panel');
