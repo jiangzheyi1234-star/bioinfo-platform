@@ -1712,7 +1712,9 @@ def test_linux_settings_dialog_cleanup_after_close(qapp, monkeypatch):
         def activateWindow(self):
             return None
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_tool_install.EnvInstallDialog", _FakeDialog
+    )
 
     card._do_install_tool(
         {"id": "fastp", "name": "fastp", "install_cmd": "conda create -n fastp_env -y"}
