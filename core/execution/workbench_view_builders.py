@@ -31,16 +31,29 @@ def build_primer_view(
     view = copy.deepcopy(base_view)
     view["description"] = description
     view["status"] = status
-    view["parameters"] = parameters
+    view.setdefault("provenance", {})
+    view["provenance"]["parameters"] = list(parameters)
     view["summary"] = [
         {"label": "目标病原体", "value": str(len(rows)), "tone": "primary"},
         {"label": "候选引物对", "value": str(all_candidates_count), "tone": "info"},
         {"label": "通过二聚体过滤", "value": str(filtered_count), "tone": "success"},
         {"label": "二聚体分析记录", "value": str(dimer_count), "tone": "accent"},
     ]
-    view["rows"] = rows
+    existing_table = view.get("table") if isinstance(view.get("table"), dict) else {}
+    view["table"] = {
+        "title": str(existing_table.get("title") or "分析结果"),
+        "subtitle": str(existing_table.get("subtitle") or ""),
+        "columns": list(existing_table.get("columns") or []),
+        "rows": rows,
+    }
     view["artifacts"] = artifacts
-    view["remote_result_dir"] = remote_result_dir
+    view["charts"] = list(view.get("charts") or [])
+    view["provenance"]["remote_result_dir"] = remote_result_dir
+    view.pop("parameters", None)
+    view.pop("columns", None)
+    view.pop("rows", None)
+    view.pop("chart", None)
+    view.pop("remote_result_dir", None)
     return view
 
 
@@ -167,11 +180,17 @@ def build_multiplex_view(
         "title": "多重引物池设计",
         "description": description,
         "status": status,
-        "parameters": parameter_items,
+        "charts": [chart_data] if chart_data else [],
         "summary": summary,
-        "columns": build_multiplex_columns(rows),
-        "rows": rows,
-        "chart": chart_data,
+        "table": {
+            "title": "分析结果",
+            "subtitle": "",
+            "columns": build_multiplex_columns(rows),
+            "rows": rows,
+        },
         "artifacts": artifacts,
-        "remote_result_dir": remote_result_dir,
+        "provenance": {
+            "parameters": parameter_items,
+            "remote_result_dir": remote_result_dir,
+        },
     }

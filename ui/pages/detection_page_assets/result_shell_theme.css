@@ -13,9 +13,6 @@
     --report-warning: var(--ui-color-warning);
     --report-warning-soft: var(--ui-color-warning-soft);
     --report-shadow: var(--ui-shadow-sm);
-}
-
-.integrated-shell {
     background: #f5f7fb;
 }
 
@@ -367,4 +364,3 @@
     border-radius: 8px;
     border-color: #e6edf5;
 }
-

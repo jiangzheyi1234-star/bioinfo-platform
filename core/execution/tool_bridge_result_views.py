@@ -105,7 +105,7 @@ def _build_generic_table_view_for_execution(
     archetype: str,
     summary_keys: list[str] | list[tuple[str, str, str]] | None = None,
     row_count_label: str = "结果条目",
-    table_subtitle: str = "",
+    result_table_note: str = "",
 ) -> dict:
     tool_id = str(execution_row["tool_id"] or "")
     execution_id = str(execution_row["execution_id"] or "")
@@ -143,18 +143,23 @@ def _build_generic_table_view_for_execution(
         description=str(descriptor.get("description") or f"{tool_id} 结果"),
         status={"state": "completed", "label": "结果已就绪", "detail": "已加载结构化结果表。"},
         summary=summary,
-        columns=columns,
-        rows=rows,
+        table={
+            "title": str((descriptor.get("result_views") or [{}])[0].get("title") or "分析结果"),
+            "subtitle": result_table_note or f"已从 {artifact.get('name')} 构建结果表。",
+            "columns": columns,
+            "rows": rows,
+        },
         artifacts=artifacts,
-        parameters=ctx["parameters"],
-        table_title=str((descriptor.get("result_views") or [{}])[0].get("title") or "分析结果"),
-        table_subtitle=table_subtitle or f"已从 {artifact.get('name')} 构建结果表。",
+        provenance={
+            "execution_id": ctx["execution_id"],
+            "parameters": list(ctx["parameters"]),
+            "tool_version": ctx["tool_version"],
+            "remote_result_dir": ctx["remote_result_dir"],
+            "local_result_dir": ctx["local_result_dir"],
+        },
         sample_name=ctx["sample_name"],
         execution_id=ctx["execution_id"],
         updated_at=ctx["updated_at"],
-        tool_version=ctx["tool_version"],
-        remote_result_dir=ctx["remote_result_dir"],
-        local_result_dir=ctx["local_result_dir"],
     )
 
 
@@ -170,7 +175,7 @@ def _build_qc_report_view_for_execution(self, execution_id: str, execution_row: 
         archetype="qc_report",
         summary_keys=["total_reads", "host_reads", "non_host_reads", "host_fraction"],
         row_count_label="QC 指标",
-        table_subtitle="已从结果文件构建 QC / 去宿主结果表。",
+        result_table_note="已从结果文件构建 QC / 去宿主结果表。",
     )
 
 
@@ -207,7 +212,7 @@ def _build_annotation_table_view_for_execution(self, execution_id: str, executio
         archetype="annotation_table",
         summary_keys=["name", "gene", "product", "contig", "query_id"],
         row_count_label="注释条目",
-        table_subtitle="已从结果文件构建注释 / 命中结果表。",
+        result_table_note="已从结果文件构建注释 / 命中结果表。",
     )
 
 
@@ -218,7 +223,7 @@ def _build_quality_assessment_view_for_execution(self, execution_id: str, execut
         archetype="quality_assessment",
         summary_keys=self._QUALITY_SUMMARY_KEYS.get(tool_id, []),
         row_count_label="质量指标",
-        table_subtitle="已从质量评估文件构建结果表。",
+        result_table_note="已从质量评估文件构建结果表。",
     )
 
 
@@ -360,18 +365,23 @@ def _build_prokka_view_for_execution(self, execution_id: str, execution_row: Any
             {"label": "tRNA", "value": stats.get("trna", "-"), "tone": "info"},
             {"label": "Contigs", "value": stats.get("contigs", "-"), "tone": "success"},
         ],
-        columns=table_columns,
-        rows=table_rows,
+        table={
+            "title": "注释统计",
+            "subtitle": "Prokka 输出的主要注释统计摘要。",
+            "columns": table_columns,
+            "rows": table_rows,
+        },
         artifacts=artifacts,
-        parameters=ctx["parameters"],
-        table_title="注释统计",
-        table_subtitle="Prokka 输出的主要注释统计摘要。",
+        provenance={
+            "execution_id": ctx["execution_id"],
+            "parameters": list(ctx["parameters"]),
+            "tool_version": ctx["tool_version"],
+            "remote_result_dir": ctx["remote_result_dir"],
+            "local_result_dir": ctx["local_result_dir"],
+        },
         sample_name=ctx["sample_name"],
         execution_id=ctx["execution_id"],
         updated_at=ctx["updated_at"],
-        tool_version=ctx["tool_version"],
-        remote_result_dir=ctx["remote_result_dir"],
-        local_result_dir=ctx["local_result_dir"],
     )
 
 
@@ -401,14 +411,15 @@ def _build_fastp_view_for_execution(self, execution_id: str) -> dict | None:
         execution_row,
         feature_id="fastp",
         include_context_parameters=False,
-        table_title="质控过滤统计",
-        table_subtitle="fastp 接头去除 + 低质量过滤详情。",
+        result_table_name="质控过滤统计",
+        result_table_note="fastp 接头去除 + 低质量过滤详情。",
     )
     if base_view is None:
         return None
     original_reads = next((item["value"] for item in base_view["summary"] if item["label"] == "原始 Reads"), "—")
     passed_reads = next((item["value"] for item in base_view["summary"] if item["label"] == "通过 QC"), "—")
-    base_view["parameters"] = [
+    base_view.setdefault("provenance", {})
+    base_view["provenance"]["parameters"] = [
         {"label": "输入", "value": f"双端 FASTQ ({original_reads} reads)"},
         {"label": "输出", "value": f"清洁 reads ({passed_reads})"},
         {"label": "工具", "value": "fastp"},
@@ -428,7 +439,7 @@ def _build_taxonomy_profile_view_for_execution(self, execution_id: str, executio
         archetype="taxonomy_profile",
         summary_keys=["name", "abundance", "relative_abundance", "fraction_total_reads"],
         row_count_label="分类条目",
-        table_subtitle="已从分类结果文件构建结果表。",
+        result_table_note="已从分类结果文件构建结果表。",
     )
 
 
@@ -586,7 +597,7 @@ def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | No
     self._append_chart_if_present(charts, sunburst_chart)
     self._append_chart_if_present(charts, coverage_chart, title="Coverage Depth")
     self._append_chart_if_present(charts, amplicon_chart, title="Amplicon Performance")
-    rows, columns, table_title, table_subtitle = self._build_targeted_seq_table_payload(chart_data, bracken_rows)
+    rows, columns, result_table_name, result_table_note = self._build_targeted_seq_table_payload(chart_data, bracken_rows)
     summary = self._build_targeted_seq_summary(summary_data)
 
     classifier_label = "Centrifuge" if tool_id in ("centrifuge", "unknown_sample_detection") else "Kraken2"
@@ -600,18 +611,23 @@ def _build_targeted_seq_view_for_execution(self, execution_id: str) -> dict | No
         status={"state": "completed", "label": "分析完成", "detail": "已加载分类图表和结果表。"},
         summary=summary,
         charts=charts,
-        columns=columns,
-        rows=rows,
+        table={
+            "title": result_table_name,
+            "subtitle": result_table_note,
+            "columns": columns,
+            "rows": rows,
+        },
         artifacts=self._available_artifacts(artifacts),
-        parameters=ctx["parameters"],
-        table_title=table_title,
-        table_subtitle=table_subtitle,
+        provenance={
+            "execution_id": ctx["execution_id"],
+            "parameters": list(ctx["parameters"]),
+            "tool_version": ctx["tool_version"],
+            "remote_result_dir": remote_dir,
+            "local_result_dir": ctx["local_result_dir"],
+        },
         sample_name=ctx["sample_name"],
         execution_id=ctx["execution_id"],
         updated_at=ctx["updated_at"],
-        tool_version=ctx["tool_version"],
-        remote_result_dir=remote_dir,
-        local_result_dir=ctx["local_result_dir"],
     )
 
 
@@ -621,8 +637,8 @@ def _build_fastp_view_from_artifacts(
     *,
     feature_id: str = "fastp",
     include_context_parameters: bool = True,
-    table_title: str | None = None,
-    table_subtitle: str | None = None,
+    result_table_name: str | None = None,
+    result_table_note: str | None = None,
 ) -> dict | None:
     execution_id = str(execution_row["execution_id"] or "")
     sample_id = str(execution_row["sample_id"] or "")
@@ -676,20 +692,24 @@ def _build_fastp_view_from_artifacts(
             {"label": "GC 含量", "value": f"{gc_after:.2%}", "tone": "info"},
         ],
         charts=[fastp_chart],
-        columns=[
-            {"key": "metric", "label": "指标"},
-            {"key": "before", "label": "过滤前"},
-            {"key": "after", "label": "过滤后"},
-        ],
-        rows=[
-            {"metric": "总 Reads", "before": f"{total_before:,}", "after": f"{total_after:,}"},
-            {"metric": "Q30", "before": f"{q30_before:.2%}", "after": f"{q30_after:.2%}"},
-            {"metric": "GC 含量", "before": f"{float(before.get('gc_content', 0) or 0):.2%}", "after": f"{gc_after:.2%}"},
-            {"metric": "低质量 Reads", "before": "—", "after": f"{low_quality:,}"},
-            {"metric": "过短 Reads", "before": "—", "after": f"{too_short:,}"},
-            {"metric": "高 N Reads", "before": "—", "after": f"{too_many_n:,}"},
-            {"metric": "通过率", "before": "—", "after": pct_pass},
-        ],
+        table={
+            "title": result_table_name or "分析结果",
+            "subtitle": result_table_note or "",
+            "columns": [
+                {"key": "metric", "label": "指标"},
+                {"key": "before", "label": "过滤前"},
+                {"key": "after", "label": "过滤后"},
+            ],
+            "rows": [
+                {"metric": "总 Reads", "before": f"{total_before:,}", "after": f"{total_after:,}"},
+                {"metric": "Q30", "before": f"{q30_before:.2%}", "after": f"{q30_after:.2%}"},
+                {"metric": "GC 含量", "before": f"{float(before.get('gc_content', 0) or 0):.2%}", "after": f"{gc_after:.2%}"},
+                {"metric": "低质量 Reads", "before": "—", "after": f"{low_quality:,}"},
+                {"metric": "过短 Reads", "before": "—", "after": f"{too_short:,}"},
+                {"metric": "高 N Reads", "before": "—", "after": f"{too_many_n:,}"},
+                {"metric": "通过率", "before": "—", "after": pct_pass},
+            ],
+        },
         artifacts=[
             {
                 "name": json_name,
@@ -706,14 +726,11 @@ def _build_fastp_view_from_artifacts(
         ],
         provenance={
             "execution_id": ctx["execution_id"],
-            "parameters": list(ctx["parameters"]),
+            "parameters": list(ctx["parameters"]) if include_context_parameters else [],
             "tool_version": ctx["tool_version"],
             "remote_result_dir": remote_dir,
             "local_result_dir": ctx["local_result_dir"],
         },
-        parameters=list(ctx["parameters"]) if include_context_parameters else [],
-        table_title=table_title or "分析结果",
-        table_subtitle=table_subtitle or "",
         sample_name=ctx["sample_name"],
         execution_id=ctx["execution_id"],
         updated_at=ctx["updated_at"],
@@ -732,10 +749,9 @@ def _infer_total_reads_from_summary(self, summary: list[dict[str, Any]]) -> int:
 
 
 def _finalize_unknown_detection_table(self, workflow_view: dict[str, Any], spec: dict[str, Any]) -> None:
-    workflow_view["table"]["columns"] = copy.deepcopy(spec.get("view", {}).get("columns", []))
-    workflow_view["columns"] = list(workflow_view["table"]["columns"])
+    workflow_view["table"]["columns"] = copy.deepcopy(spec.get("view", {}).get("table", {}).get("columns", []))
     total_reads = self._infer_total_reads_from_summary(list(workflow_view.get("summary") or []))
-    for row_data in workflow_view.get("rows", []):
+    for row_data in workflow_view["table"].get("rows", []):
         if "rpm" not in row_data:
             if total_reads > 0:
                 try:
@@ -747,7 +763,7 @@ def _finalize_unknown_detection_table(self, workflow_view: dict[str, Any], spec:
                 row_data["rpm"] = "—"
         row_data.setdefault("category", "—")
         row_data.setdefault("source", "Centrifuge")
-    workflow_view["table"]["rows"] = list(workflow_view["rows"])
+    workflow_view["table"]["rows"] = list(workflow_view["table"].get("rows") or [])
 
 
 def _build_detection_workflow_result_view(self, execution_id: str, execution_row: Any, *, feature_id: str) -> dict:
@@ -794,7 +810,7 @@ def _build_detection_workflow_result_view(self, execution_id: str, execution_row
         artifacts=artifacts,
         provenance={
             "execution_id": ctx["execution_id"],
-            "parameters": list(spec.get("view", {}).get("parameters") or []) + list(ctx["parameters"]),
+            "parameters": list(spec.get("view", {}).get("provenance", {}).get("parameters") or []) + list(ctx["parameters"]),
             "tool_version": ctx["tool_version"],
             "remote_result_dir": ctx["remote_result_dir"],
             "local_result_dir": ctx["local_result_dir"],
@@ -804,11 +820,8 @@ def _build_detection_workflow_result_view(self, execution_id: str, execution_row
         updated_at=ctx["updated_at"],
         sections=sections,
     )
-    workflow_view["table"]["title"] = str(spec.get("view", {}).get("table_title") or workflow_view["table"].get("title") or "分析结果")
-    workflow_view["table"]["subtitle"] = str(spec.get("view", {}).get("table_subtitle") or workflow_view["table"].get("subtitle") or "")
-    workflow_view["table_title"] = workflow_view["table"]["title"]
-    workflow_view["table_subtitle"] = workflow_view["table"]["subtitle"]
-    workflow_view["parameters"] = list(workflow_view["provenance"]["parameters"])
+    workflow_view["table"]["title"] = str(spec.get("view", {}).get("table", {}).get("title") or workflow_view["table"].get("title") or "分析结果")
+    workflow_view["table"]["subtitle"] = str(spec.get("view", {}).get("table", {}).get("subtitle") or workflow_view["table"].get("subtitle") or "")
 
     if feature_id == "unknown_sample_detection":
         self._finalize_unknown_detection_table(workflow_view, spec)

@@ -27,8 +27,8 @@
 
     function hasTableData(view) {
         var table = view && view.table && typeof view.table === 'object' ? view.table : {};
-        var columns = asArray(table.columns).length > 0 || asArray(view && view.columns).length > 0;
-        var rows = asArray(table.rows).length > 0 || asArray(view && view.rows).length > 0;
+        var columns = asArray(table.columns).length > 0;
+        var rows = asArray(table.rows).length > 0;
         return columns && rows;
     }
 
@@ -119,7 +119,7 @@
 
     function getAvailability(view) {
         return {
-            chart: hasChartData(view && (view.charts || view.chart)),
+            chart: hasChartData(view && view.charts),
             table: hasTableData(view),
             files: hasArtifacts(view),
             sections: hasSections(view),
@@ -175,6 +175,9 @@
 
         return {
             sourceMode: sourceMode,
+            archetype: validation.archetype,
+            toolId: nonEmptyString(view && view.tool_id),
+            toolIds: asArray(view && view.tool_ids),
             validation: validation,
             strategy: {
                 archetype: validation.archetype,
@@ -187,17 +190,12 @@
             label: registration.label,
             tone: registration.tone,
             summary: asArray(view && view.summary),
-            charts: asArray(view && view.charts).length ? asArray(view && view.charts) : (view && view.chart ? [view.chart] : []),
+            charts: asArray(view && view.charts),
             sections: asArray(view && view.sections),
             artifacts: asArray(view && view.artifacts),
             table: view && typeof view.table === 'object'
                 ? view.table
-                : {
-                    title: nonEmptyString(view && view.table_title),
-                    subtitle: nonEmptyString(view && view.table_subtitle),
-                    columns: asArray(view && view.columns),
-                    rows: asArray(view && view.rows)
-                },
+                : { title: '', subtitle: '', columns: [], rows: [] },
             hero: {
                 sampleName: nonEmptyString(hero.sample_name),
                 executionId: nonEmptyString(hero.execution_id) || nonEmptyString(provenance.execution_id),

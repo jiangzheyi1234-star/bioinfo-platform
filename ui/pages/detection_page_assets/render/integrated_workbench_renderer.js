@@ -2,25 +2,6 @@
     'use strict';
 
     var runtimeDependencies = null;
-    var INTEGRATED_ARCHETYPE_VIEWER_STRATEGIES = {
-        annotation_table: 'table-first',
-        quality_assessment: 'table-first',
-        html_report: 'html-first',
-        artifact_collection: 'files-first',
-        qc_report: 'chart-first',
-        taxonomy_profile: 'chart-first',
-        workflow_product: 'chart-first',
-    };
-    var INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE = {
-        annotation_table: ['table', 'files'],
-        quality_assessment: ['table'],
-        html_report: ['html'],
-        artifact_collection: ['files'],
-        qc_report: ['chart', 'files'],
-        taxonomy_profile: ['chart', 'table', 'files'],
-        workflow_product: ['sections'],
-    };
-
     function configureRuntime(dependencies) {
         runtimeDependencies = Object.assign({}, runtimeDependencies || {}, dependencies || {});
     }
@@ -32,9 +13,16 @@
         return runtimeDependencies;
     }
 
+    function getResultShellRegistry() {
+        if (!global.ResultShellRegistry) {
+            throw new Error('IntegratedWorkbenchRenderer requires ResultShellRegistry');
+        }
+        return global.ResultShellRegistry;
+    }
+
     function getIntegratedToolId(feature, view) {
-        return (view && view.tool_id)
-            || (view && view.tool_ids && view.tool_ids[0])
+        return (view && (view.toolId || view.tool_id))
+            || (view && ((view.toolIds && view.toolIds[0]) || (view.tool_ids && view.tool_ids[0])))
             || (feature && feature.tool_ids && feature.tool_ids[0])
             || null;
     }
@@ -111,8 +99,8 @@
         var table = (view && view.table && typeof view.table === 'object') ? view.table : {};
         return {
             table: table,
-            columns: Array.isArray(table.columns) ? table.columns : (Array.isArray(view && view.columns) ? view.columns : []),
-            rows: Array.isArray(table.rows) ? table.rows : (Array.isArray(view && view.rows) ? view.rows : []),
+            columns: Array.isArray(table.columns) ? table.columns : [],
+            rows: Array.isArray(table.rows) ? table.rows : [],
         };
     }
 
@@ -190,16 +178,15 @@
     }
 
     function getIntegratedViewerStrategy(view) {
+        var registration = getResultShellRegistry().getRegistration(view && view.archetype);
         var archetype = String(view && view.archetype || '').trim();
-        var mode = INTEGRATED_ARCHETYPE_VIEWER_STRATEGIES[archetype] || 'table-first';
+        var mode = String(registration.mode || 'table-first').trim() || 'table-first';
         var primaryViewer = mode.replace('-first', '');
         return {
             archetype: archetype,
             mode: mode,
             primaryViewer: primaryViewer,
-            requiredViewers: Array.isArray(INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE[archetype])
-                ? INTEGRATED_REQUIRED_VIEWERS_BY_ARCHETYPE[archetype]
-                : [],
+            requiredViewers: Array.isArray(registration.requiredViewers) ? registration.requiredViewers.slice() : [],
         };
     }
 
@@ -208,9 +195,10 @@
         var tablePayload = getIntegratedTablePayload(view);
         var htmlArtifact = getIntegratedHtmlArtifact(artifacts);
         var strategy = getIntegratedViewerStrategy(view);
+        var validation = getResultShellRegistry().validateView(view || {});
         var availability = {
             table: tablePayload.columns.length > 0 && tablePayload.rows.length > 0,
-            chart: hasIntegratedChartData((view && view.charts) || (view && view.chart) || null),
+            chart: hasIntegratedChartData(view && view.charts),
             html: Boolean(htmlArtifact && htmlArtifact.available && htmlArtifact.local_path),
             files: artifacts.some(function(item) {
                 return item && item.available && (item.local_path || item.remote_path);
@@ -218,15 +206,17 @@
             sections: Array.isArray(view && view.sections) && view.sections.length > 0,
         };
         var viewerErrors = {};
-        strategy.requiredViewers.forEach(function(viewer) {
-            if (availability[viewer]) {
-                return;
-            }
-            viewerErrors[viewer] = '当前结果 archetype=' + (strategy.archetype || 'unknown') + ' 要求 ' + strategy.mode + ' 主 viewer，但 execution 未提供' + viewer + '数据。';
+        validation.issues.forEach(function(issue) {
+            if (issue.indexOf('viewer=chart') >= 0) viewerErrors.chart = issue;
+            if (issue.indexOf('viewer=table') >= 0) viewerErrors.table = issue;
+            if (issue.indexOf('viewer=files') >= 0) viewerErrors.files = issue;
+            if (issue.indexOf('viewer=html') >= 0) viewerErrors.html = issue;
+            if (issue.indexOf('viewer=sections') >= 0) viewerErrors.sections = issue;
         });
         return {
             strategy: strategy,
             availability: availability,
+            validation: validation,
             viewerErrors: viewerErrors,
             table: tablePayload,
             htmlArtifact: htmlArtifact,
@@ -239,7 +229,7 @@
         if (tablePayload.rows.length > 0) {
             return true;
         }
-        if (hasIntegratedChartData((view && view.charts) || (view && view.chart) || null)) {
+        if (hasIntegratedChartData(view && view.charts)) {
             return true;
         }
         return Boolean(getIntegratedHtmlArtifact(Array.isArray(view && view.artifacts) ? view.artifacts : []));
@@ -274,9 +264,10 @@
         var statusChip = document.getElementById('integrated-status-chip');
         var stateDetail = document.getElementById('feature-state-detail');
         var kicker = document.getElementById('feature-kicker');
-        var viewerState = buildIntegratedViewerState(view);
         var sourceMode = String(options && options.sourceMode || runtime.getSelectedIntegratedViewSource() || 'workflow').trim() || 'workflow';
         var isHistoryResult = sourceMode === 'history';
+        var viewModel = view ? getResultShellRegistry().buildViewModel(view, { sourceMode: sourceMode }) : null;
+        var viewerState = buildIntegratedViewerState(viewModel);
 
         if (!feature || !view) {
             runtime.setHidden(emptyState, false);
@@ -297,20 +288,20 @@
             detail.dataset.sourceMode = sourceMode;
         }
         if (statusChip) {
-            statusChip.textContent = (view && view.status && view.status.label) || feature.badge || '已选择';
-            statusChip.dataset.status = String((view && view.status && view.status.state) || (isHistoryResult ? 'completed' : 'pending')).trim() || 'pending';
+            statusChip.textContent = (viewModel && viewModel.status && viewModel.status.label) || feature.badge || '已选择';
+            statusChip.dataset.status = String((viewModel && viewModel.status && viewModel.status.state) || (isHistoryResult ? 'completed' : 'pending')).trim() || 'pending';
         }
         if (kicker) {
             kicker.textContent = isHistoryResult ? 'Result Shell · ' + viewerState.strategy.mode : 'Workflow Entry';
         }
 
-        document.getElementById('feature-title').textContent = view.title || feature.name || feature.id;
-        document.getElementById('feature-description').textContent = view.description || '';
+        document.getElementById('feature-title').textContent = viewModel.title || feature.name || feature.id;
+        document.getElementById('feature-description').textContent = viewModel.description || '';
         if (stateDetail) {
-            var executionId = String((view && view.provenance && view.provenance.execution_id) || (view && view.hero && view.hero.execution_id) || '').trim();
+            var executionId = String((viewModel && viewModel.provenance && viewModel.provenance.execution_id) || (viewModel && viewModel.hero && viewModel.hero.executionId) || '').trim();
             stateDetail.textContent = isHistoryResult
                 ? '当前为统一结果壳视图，主 viewer 策略为 ' + viewerState.strategy.mode + (executionId ? '，execution_id: ' + executionId : '') + '。'
-                : String((view && view.status && view.status.detail) || '可从这里查看输入要求，并继续提交新的运行。');
+                : String((viewModel && viewModel.status && viewModel.status.detail) || '可从这里查看输入要求，并继续提交新的运行。');
         }
 
         initializeIntegratedSectionToggles();
@@ -318,15 +309,15 @@
         setSectionCollapsed('integrated-run-body', true);
         setSectionCollapsed('artifact-list-wrap', true);
 
-        renderIntegratedRunEntry(feature, view, { hidden: isHistoryResult });
+        renderIntegratedRunEntry(feature, viewModel, { hidden: isHistoryResult });
         global.ResultViewerRenderers.renderSummaryGrid({
             container: document.getElementById('summary-grid'),
-            summaryItems: view.summary || [],
+            summaryItems: viewModel.summary || [],
             escapeHtml: runtime.escapeHtml,
         });
         global.ResultViewerRenderers.renderArtifactList({
             container: document.getElementById('artifact-list'),
-            artifacts: view.artifacts || [],
+            artifacts: viewModel.artifacts || [],
             requiredMessage: viewerState.viewerErrors.files || '',
             sortIntegratedArtifacts: sortIntegratedArtifacts,
             openLocalArtifact: openLocalArtifact,
@@ -334,37 +325,36 @@
         });
         global.ResultViewerRenderers.renderIntegratedProvenance({
             container: document.getElementById('integrated-provenance-list'),
-            provenance: view.provenance || {},
-            hero: view.hero || {},
+            provenance: viewModel.provenance || {},
+            hero: viewModel.hero || {},
             escapeHtml: runtime.escapeHtml,
         });
         global.ResultViewerRenderers.renderIntegratedSections({
             card: document.getElementById('integrated-sections-card'),
             container: document.getElementById('integrated-sections-list'),
-            sections: view.sections || [],
+            sections: viewModel.sections || [],
             requiredMessage: viewerState.viewerErrors.sections || '',
             setHidden: runtime.setHidden,
             escapeHtml: runtime.escapeHtml,
         });
-        renderIntegratedHtmlPreview(view.artifacts || [], { requiredMessage: viewerState.viewerErrors.html || '' });
+        renderIntegratedHtmlPreview(viewModel.artifacts || [], { requiredMessage: viewerState.viewerErrors.html || '' });
         renderIntegratedTable(viewerState.table.columns || [], viewerState.table.rows || [], { requiredMessage: viewerState.viewerErrors.table || '' });
-        runtime.renderIntegratedChart(view.charts || view.chart || null, { requiredMessage: viewerState.viewerErrors.chart || '' });
-        switchIntegratedResultTab(getDefaultIntegratedResultTab(view, { sourceMode: sourceMode }));
+        runtime.renderIntegratedChart(viewModel.charts || [], { requiredMessage: viewerState.viewerErrors.chart || '' });
+        switchIntegratedResultTab(getDefaultIntegratedResultTab(viewModel, { sourceMode: sourceMode }));
 
         var resultsTitle = document.getElementById('results-card-title');
         if (resultsTitle) {
-            resultsTitle.textContent = viewerState.table.table.title || view.table_title || '分析结果';
+            resultsTitle.textContent = viewerState.table.table.title || '分析结果';
         }
         var resultsBadge = document.getElementById('results-card-badge');
         if (resultsBadge) {
-            resultsBadge.textContent = view.table_badge || viewerState.strategy.mode;
+            resultsBadge.textContent = viewerState.strategy.mode;
         }
 
         var subtitleEl = document.getElementById('results-card-subtitle');
         if (subtitleEl) {
             subtitleEl.textContent = viewerState.viewerErrors[viewerState.strategy.primaryViewer]
                 || viewerState.table.table.subtitle
-                || view.table_subtitle
                 || '分析结果将在此处展示。';
         }
     }

@@ -563,14 +563,14 @@ class ToolBridgeService:
             allowed_suffixes=(".tsv", ".csv", ".txt", ".json"),
         )
         table_payload = {"columns": [], "rows": []}
-        table_title = str(descriptor.get("name") or tool_id)
+        result_table_name = str(descriptor.get("name") or tool_id)
         if table_artifact is not None:
             local_path = str(table_artifact.get("local_path") or "").strip()
             if local_path:
                 table_payload = parse_generic_result_table(Path(local_path))
             for view_config in descriptor.get("result_views") or []:
                 if self._descriptor_data_source_name(view_config, sample_id) == str(table_artifact.get("name") or ""):
-                    table_title = str(view_config.get("title") or table_title)
+                    result_table_name = str(view_config.get("title") or result_table_name)
                     break
         charts = self._build_taxonomy_charts(table_payload["rows"]) if archetype == "taxonomy_profile" else []
         return build_single_tool_view(
@@ -588,19 +588,22 @@ class ToolBridgeService:
             summary=self._build_generic_summary(archetype, table_payload["rows"], artifacts, tool_id=tool_id),
             charts=charts,
             table={
-                "title": table_title,
+                "title": result_table_name,
                 "subtitle": f"当前结果来自 {str(table_artifact.get('name') or '结构化产物')}" if table_artifact else "未发现结构化结果表，已保留结果文件。",
                 "columns": table_payload["columns"],
                 "rows": table_payload["rows"],
             },
             artifacts=artifacts,
-            parameters=context["parameters"],
+            provenance={
+                "execution_id": execution_id,
+                "parameters": list(context["parameters"]),
+                "tool_version": context["tool_version"],
+                "remote_result_dir": context["remote_result_dir"],
+                "local_result_dir": context["local_result_dir"],
+            },
             sample_name=context["sample_name"],
             execution_id=execution_id,
             updated_at=context["updated_at"],
-            tool_version=context["tool_version"],
-            remote_result_dir=context["remote_result_dir"],
-            local_result_dir=context["local_result_dir"],
         )
 
     def get_execution_remote_status(self, execution_id: str) -> dict:
@@ -687,7 +690,7 @@ class ToolBridgeService:
         archetype: str,
         summary_keys: list[str] | list[tuple[str, str, str]] | None = None,
         row_count_label: str = "结果条目",
-        table_subtitle: str = "",
+        result_table_note: str = "",
     ) -> dict:
         return _tb_build_generic_table_view_for_execution(
             self,
@@ -695,7 +698,7 @@ class ToolBridgeService:
             archetype=archetype,
             summary_keys=summary_keys,
             row_count_label=row_count_label,
-            table_subtitle=table_subtitle,
+            result_table_note=result_table_note,
         )
 
     def _build_qc_report_view_for_execution(self, execution_id: str, execution_row: Any) -> dict:
@@ -792,16 +795,16 @@ class ToolBridgeService:
         *,
         feature_id: str = "fastp",
         include_context_parameters: bool = True,
-        table_title: str | None = None,
-        table_subtitle: str | None = None,
+        result_table_name: str | None = None,
+        result_table_note: str | None = None,
     ) -> dict | None:
         return _tb_build_fastp_view_from_artifacts(
             self,
             execution_row,
             feature_id=feature_id,
             include_context_parameters=include_context_parameters,
-            table_title=table_title,
-            table_subtitle=table_subtitle,
+            result_table_name=result_table_name,
+            result_table_note=result_table_note,
         )
 
     @staticmethod
