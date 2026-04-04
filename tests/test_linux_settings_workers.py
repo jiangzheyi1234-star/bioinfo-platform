@@ -10,7 +10,9 @@ def test_start_singleton_worker_cleans_thread_attrs_after_finish(qapp, monkeypat
     from ui.widgets.linux_settings_card import LinuxSettingsCard
     from ui.workers.base_worker import launch_worker
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
 
     finished = {"count": 0}
@@ -32,12 +34,18 @@ def test_start_singleton_worker_cleans_thread_attrs_after_finish(qapp, monkeypat
         "_dummy_thread",
         "_dummy_worker",
         _DummyWorker(),
-        on_finished=lambda payload: finished.__setitem__("count", finished["count"] + int(payload.get("ok", False))),
+        on_finished=lambda payload: finished.__setitem__(
+            "count", finished["count"] + int(payload.get("ok", False))
+        ),
     )
 
     for _ in range(50):
         qapp.processEvents()
-        if finished["count"] == 1 and not hasattr(card, "_dummy_thread") and not hasattr(card, "_dummy_worker"):
+        if (
+            finished["count"] == 1
+            and not hasattr(card, "_dummy_thread")
+            and not hasattr(card, "_dummy_worker")
+        ):
             break
         time.sleep(0.01)
 
@@ -50,9 +58,15 @@ def test_start_singleton_worker_cleans_thread_attrs_after_finish(qapp, monkeypat
 def test_launch_worker_rejects_duplicate_running_thread(qapp, monkeypatch):
     from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
     from ui.widgets.linux_settings_card import LinuxSettingsCard
-    from ui.workers.base_worker import BaseCancellableWorker, launch_worker, request_worker_stop
+    from ui.workers.base_worker import (
+        BaseCancellableWorker,
+        launch_worker,
+        request_worker_stop,
+    )
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
 
     class _BlockingWorker(BaseCancellableWorker):
@@ -112,7 +126,9 @@ def test_env_batch_check_worker_uses_ssh_run_fn(monkeypatch):
         assert err == ""
         return [], ["/home/user/.h2ometa/conda/envs/demo"]
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.check_all_envs", fake_check_all_envs)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.check_all_envs", fake_check_all_envs
+    )
 
     worker = EnvBatchCheckWorker(
         ssh_run_fn=lambda cmd, timeout=30: (0, "ok", ""),
@@ -127,7 +143,9 @@ def test_env_batch_check_worker_uses_ssh_run_fn(monkeypatch):
     assert done_payload == [["/home/user/.h2ometa/conda/envs/demo"]]
 
 
-def test_make_ssh_run_fn_fails_fast_when_service_missing_and_never_calls_legacy_client(qapp):
+def test_make_ssh_run_fn_fails_fast_when_service_missing_and_never_calls_legacy_client(
+    qapp,
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     card = LinuxSettingsCard()
@@ -135,7 +153,9 @@ def test_make_ssh_run_fn_fails_fast_when_service_missing_and_never_calls_legacy_
     called = {"exec": 0}
 
     class _LegacyClient:
-        def exec_command(self, cmd, timeout=10):  # pragma: no cover - should never execute
+        def exec_command(
+            self, cmd, timeout=10
+        ):  # pragma: no cover - should never execute
             called["exec"] += 1
             raise AssertionError("legacy exec_command must not be used")
 
@@ -176,9 +196,21 @@ def test_get_existing_env_paths_main_thread_asserts(qapp, monkeypatch):
 
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "{}", ""))})())
+    card.set_ssh_service(
+        type(
+            "S",
+            (),
+            {
+                "is_connected": True,
+                "run": staticmethod(lambda cmd, timeout=10: (0, "{}", "")),
+            },
+        )()
+    )
 
-    with pytest.raises(AssertionError, match="_get_existing_env_paths\\(\\) performs SSH and must not run on the main thread"):
+    with pytest.raises(
+        AssertionError,
+        match="_get_existing_env_paths\\(\\) performs SSH and must not run on the main thread",
+    ):
         card._get_existing_env_paths()
 
 
@@ -187,7 +219,16 @@ def test_get_existing_env_paths_off_main_thread_uses_batch_checker(qapp, monkeyp
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
     card = LinuxSettingsCard()
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "{}", ""))})())
+    card.set_ssh_service(
+        type(
+            "S",
+            (),
+            {
+                "is_connected": True,
+                "run": staticmethod(lambda cmd, timeout=10: (0, "{}", "")),
+            },
+        )()
+    )
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
 
     called = {"count": 0}
@@ -199,7 +240,10 @@ def test_get_existing_env_paths_off_main_thread_uses_batch_checker(qapp, monkeyp
         return {"/home/user/.h2ometa/conda/envs/a"}
 
     monkeypatch.setattr(module.QThread, "isMainThread", staticmethod(lambda: False))
-    monkeypatch.setattr("ui.widgets.linux_settings_card.get_existing_env_paths", fake_get_existing_env_paths)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.get_existing_env_paths",
+        fake_get_existing_env_paths,
+    )
     paths = card._get_existing_env_paths()
 
     assert called["count"] == 1
@@ -219,7 +263,9 @@ def test_set_values_rejects_non_managed_conda_path(qapp):
 def test_check_miniforge_exists_marks_deployed_when_probe_returns_ok(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._miniforge_probe_inflight = True
 
@@ -236,10 +282,14 @@ def test_check_miniforge_exists_marks_deployed_when_probe_returns_ok(qapp, monke
     assert saved["count"] == 1
 
 
-def test_check_miniforge_exists_marks_missing_when_probe_returns_missing(qapp, monkeypatch):
+def test_check_miniforge_exists_marks_missing_when_probe_returns_missing(
+    qapp, monkeypatch
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._miniforge_probe_inflight = True
     card._conda_executable = "~/.h2ometa/conda/bin/conda"
@@ -261,19 +311,33 @@ def test_set_ssh_service_only_schedules_probe_once_per_connection(qapp, monkeypa
     import ui.widgets.linux_settings_card as module
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     monkeypatch.setattr(module, "_is_test_mode", lambda: False)
-    monkeypatch.setattr(module.QTimer, "singleShot", lambda _delay, callback: callback())
+    monkeypatch.setattr(
+        module.QTimer, "singleShot", lambda _delay, callback: callback()
+    )
     card = LinuxSettingsCard()
 
     calls = {"count": 0}
     monkeypatch.setattr(
         card,
         "_check_miniforge_exists",
-        lambda: (calls.__setitem__("count", calls["count"] + 1), setattr(card, "_miniforge_probe_completed", True)),
+        lambda: (
+            calls.__setitem__("count", calls["count"] + 1),
+            setattr(card, "_miniforge_probe_completed", True),
+        ),
     )
 
-    service = type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})()
+    service = type(
+        "S",
+        (),
+        {
+            "is_connected": True,
+            "run": staticmethod(lambda cmd, timeout=10: (0, "", "")),
+        },
+    )()
     card.set_ssh_service(service)
     card.set_ssh_service(service)
 
@@ -293,7 +357,9 @@ def test_miniforge_poll_worker_probe_status_uses_bootstrap_helpers():
             return 1, "", ""
         raise AssertionError(f"unexpected cmd: {cmd}")
 
-    worker = MiniforgePollWorker(fake_run, "~/.h2ometa/runtime/miniforge_bootstrap", "probe_status")
+    worker = MiniforgePollWorker(
+        fake_run, "~/.h2ometa/runtime/miniforge_bootstrap", "probe_status"
+    )
     payloads = []
     worker.finished.connect(lambda payload: payloads.append(payload))
     worker.run()
@@ -322,7 +388,9 @@ def test_miniforge_poll_worker_reads_failure_log():
             return 0, "tail log", ""
         raise AssertionError(f"unexpected cmd: {cmd}")
 
-    worker = MiniforgePollWorker(fake_run, "~/.h2ometa/runtime/miniforge_bootstrap", "read_failure_log", "boom")
+    worker = MiniforgePollWorker(
+        fake_run, "~/.h2ometa/runtime/miniforge_bootstrap", "read_failure_log", "boom"
+    )
     payloads = []
     worker.finished.connect(lambda payload: payloads.append(payload))
     worker.run()
@@ -338,20 +406,39 @@ def test_miniforge_poll_worker_reads_failure_log():
     assert commands and "tail -n 40" in commands[0][0]
 
 
-def test_poll_miniforge_status_starts_once_and_deduplicates_background_worker(qapp, monkeypatch):
+def test_poll_miniforge_status_starts_once_and_deduplicates_background_worker(
+    qapp, monkeypatch
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._miniforge_installing = True
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+    card.set_ssh_service(
+        type(
+            "S",
+            (),
+            {
+                "is_connected": True,
+                "run": staticmethod(lambda cmd, timeout=10: (0, "", "")),
+            },
+        )()
+    )
 
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.miniforge_bootstrap.check_status",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not probe on main thread")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("must not probe on main thread")
+        ),
     )
     started = []
-    monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.append((operation, reason)))
+    monkeypatch.setattr(
+        card,
+        "_start_miniforge_poll_job",
+        lambda operation, reason="": started.append((operation, reason)),
+    )
 
     card._poll_miniforge_status()
     card._poll_miniforge_status()
@@ -360,18 +447,30 @@ def test_poll_miniforge_status_starts_once_and_deduplicates_background_worker(qa
     assert started == [("probe_status", "")]
 
 
-def test_on_miniforge_poll_finished_running_dead_session_but_fresh_heartbeat_keeps_running(qapp, monkeypatch):
+def test_on_miniforge_poll_finished_running_dead_session_but_fresh_heartbeat_keeps_running(
+    qapp, monkeypatch
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._miniforge_installing = True
     card._miniforge_polling = True
 
     failed = {"count": 0}
     scheduled = {"delay": None}
-    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("count", failed["count"] + 1))
-    monkeypatch.setattr(card, "_schedule_miniforge_poll", lambda delay_ms=3000: scheduled.__setitem__("delay", delay_ms))
+    monkeypatch.setattr(
+        card,
+        "_prompt_miniforge_install_failed",
+        lambda message: failed.__setitem__("count", failed["count"] + 1),
+    )
+    monkeypatch.setattr(
+        card,
+        "_schedule_miniforge_poll",
+        lambda delay_ms=3000: scheduled.__setitem__("delay", delay_ms),
+    )
 
     card._on_miniforge_poll_finished(
         {
@@ -392,19 +491,29 @@ def test_on_miniforge_poll_finished_running_dead_session_but_fresh_heartbeat_kee
 def test_on_miniforge_poll_finished_done_emits_install_task_success(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._miniforge_installing = True
     card._miniforge_polling = True
     card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None
+    )
     checks = {"count": 0}
     saved = {"count": 0}
     monkeypatch.setattr(card, "_sync_locator_conda_executable", lambda: None)
     card.request_save.connect(lambda: saved.__setitem__("count", saved["count"] + 1))
-    monkeypatch.setattr(card, "_do_batch_check", lambda: checks.__setitem__("count", checks["count"] + 1))
-    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, fn: fn())
+    monkeypatch.setattr(
+        card,
+        "_do_batch_check",
+        lambda: checks.__setitem__("count", checks["count"] + 1),
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, fn: fn()
+    )
 
     events = []
     card.install_task_event.connect(lambda payload: events.append(payload))
@@ -436,7 +545,9 @@ def test_emit_tool_install_event_includes_structured_progress_fields(qapp, monke
     from ui.widgets.linux_settings_card import LinuxSettingsCard
     from ui.controllers.install_workflow import build_tool_install_task_event
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
 
@@ -468,17 +579,25 @@ def test_emit_tool_install_event_includes_structured_progress_fields(qapp, monke
 def test_handle_miniforge_failure_starts_background_log_read(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._miniforge_installing = True
     card._miniforge_polling = True
 
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.miniforge_bootstrap.read_log",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not read log on main thread")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("must not read log on main thread")
+        ),
     )
     started = []
-    monkeypatch.setattr(card, "_start_miniforge_poll_job", lambda operation, reason="": started.append((operation, reason)))
+    monkeypatch.setattr(
+        card,
+        "_start_miniforge_poll_job",
+        lambda operation, reason="": started.append((operation, reason)),
+    )
 
     card._handle_miniforge_failure("远端初始化任务失败")
 
@@ -490,12 +609,20 @@ def test_handle_miniforge_failure_starts_background_log_read(qapp, monkeypatch):
 def test_on_miniforge_failure_log_finished_prompts_with_tail(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     failed = {"message": ""}
-    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+    monkeypatch.setattr(
+        card,
+        "_prompt_miniforge_install_failed",
+        lambda message: failed.__setitem__("message", message),
+    )
 
-    card._on_miniforge_failure_log_finished({"reason": "会话已退出", "log_text": "tail log"})
+    card._on_miniforge_failure_log_finished(
+        {"reason": "会话已退出", "log_text": "tail log"}
+    )
 
     assert "会话已退出" in failed["message"]
     assert "tail log" in failed["message"]
@@ -504,10 +631,16 @@ def test_on_miniforge_failure_log_finished_prompts_with_tail(qapp, monkeypatch):
 def test_on_miniforge_failure_log_error_prompts_reason(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     failed = {"message": ""}
-    monkeypatch.setattr(card, "_prompt_miniforge_install_failed", lambda message: failed.__setitem__("message", message))
+    monkeypatch.setattr(
+        card,
+        "_prompt_miniforge_install_failed",
+        lambda message: failed.__setitem__("message", message),
+    )
 
     card._on_miniforge_failure_log_error({"reason": "心跳超时", "error": "boom"})
 
@@ -517,13 +650,19 @@ def test_on_miniforge_failure_log_error_prompts_reason(qapp, monkeypatch):
 def test_install_success_emits_event_and_clears_running_state(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
     card._installing_tool_ids.add("fastp")
     card._tool_log_samples["fastp"] = (128, time.time())
-    monkeypatch.setattr("ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None)
-    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.Toast.show_toast", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None
+    )
 
     events = []
     card.install_task_event.connect(lambda payload: events.append(payload))
@@ -543,13 +682,23 @@ def test_recover_installs_worker_uses_cached_env_paths(monkeypatch):
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.EnvInstaller.scan_running",
         lambda *args, **kwargs: [
-            {"tool_id": "running_tool", "task_dir": "~/.h2ometa/env_installs/running_tool", "status": "RUNNING"},
-            {"tool_id": "done_tool", "task_dir": "~/.h2ometa/env_installs/done_tool", "status": "DONE"},
+            {
+                "tool_id": "running_tool",
+                "task_dir": "~/.h2ometa/env_installs/running_tool",
+                "status": "RUNNING",
+            },
+            {
+                "tool_id": "done_tool",
+                "task_dir": "~/.h2ometa/env_installs/done_tool",
+                "status": "DONE",
+            },
         ],
     )
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.get_existing_env_paths",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cached env paths should be reused")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("cached env paths should be reused")
+        ),
     )
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.EnvInstaller.is_session_alive",
@@ -577,7 +726,9 @@ def test_recover_installs_worker_uses_cached_env_paths(monkeypatch):
 
     assert payloads
     rows = {row["tool_id"]: row for row in payloads[0]["rows"]}
-    assert set(payloads[0]["existing_env_paths"]) == {"/home/user/.h2ometa/conda/envs/done_tool_env"}
+    assert set(payloads[0]["existing_env_paths"]) == {
+        "/home/user/.h2ometa/conda/envs/done_tool_env"
+    }
     assert rows["running_tool"]["session_alive"] is True
     assert rows["running_tool"]["env_exists"] is False
     assert rows["done_tool"]["cleanup_attempted"] is True
@@ -590,7 +741,11 @@ def test_recover_installs_worker_dead_session_cleans_missing(monkeypatch):
     monkeypatch.setattr(
         "ui.widgets.linux_settings_card.EnvInstaller.scan_running",
         lambda *args, **kwargs: [
-            {"tool_id": "abricate", "task_dir": "~/.h2ometa/env_installs/abricate", "status": "RUNNING"},
+            {
+                "tool_id": "abricate",
+                "task_dir": "~/.h2ometa/env_installs/abricate",
+                "status": "RUNNING",
+            },
         ],
     )
     monkeypatch.setattr(
@@ -629,7 +784,9 @@ def test_recover_installs_worker_dead_session_cleans_missing(monkeypatch):
 def test_recover_running_installs_only_emits_running(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card._tools = [
@@ -637,7 +794,9 @@ def test_recover_running_installs_only_emits_running(qapp, monkeypatch):
         {"id": "done_tool", "name": "done_tool", "conda_env": "done_tool_env"},
         {"id": "failed_tool", "name": "failed_tool", "conda_env": "failed_tool_env"},
     ]
-    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None
+    )
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
 
     events = []
@@ -671,7 +830,10 @@ def test_recover_running_installs_only_emits_running(qapp, monkeypatch):
         }
     )
 
-    assert any(e.get("task_id") == "tool_env:running_tool" and e.get("state") == "running" for e in events)
+    assert any(
+        e.get("task_id") == "tool_env:running_tool" and e.get("state") == "running"
+        for e in events
+    )
     assert not any(e.get("task_id") == "tool_env:done_tool" for e in events)
     assert not any(e.get("task_id") == "tool_env:failed_tool" for e in events)
 
@@ -679,15 +841,23 @@ def test_recover_running_installs_only_emits_running(qapp, monkeypatch):
 def test_queue_install_tool_does_not_mark_running_before_submit(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
-    monkeypatch.setattr(card, "_ensure_tool_install_ready", lambda interactive=True: True)
-    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+    monkeypatch.setattr(
+        card, "_ensure_tool_install_ready", lambda interactive=True: True
+    )
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None
+    )
 
     events = []
     card.install_task_event.connect(lambda payload: events.append(payload))
-    card._queue_install_tool({"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"})
+    card._queue_install_tool(
+        {"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}
+    )
 
     assert "abricate" not in card._installing_tool_ids
     assert events == []
@@ -696,7 +866,9 @@ def test_queue_install_tool_does_not_mark_running_before_submit(qapp, monkeypatc
 def test_on_install_submitted_marks_running(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
 
     started = {"tool_id": ""}
@@ -715,23 +887,38 @@ def test_on_install_submitted_marks_running(qapp, monkeypatch):
 
     assert "abricate" in card._installing_tool_ids
     assert started["tool_id"] == "abricate"
-    assert any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "running" for e in events)
+    assert any(
+        e.get("task_id") == "tool_env:abricate" and e.get("state") == "running"
+        for e in events
+    )
 
 
 def test_dialog_install_requested_starts_submit_worker(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
-    card._tools = [{"id": "abricate", "name": "ABRicate", "install_cmd": "conda create -n abricate_env -y"}]
-    monkeypatch.setattr(card, "_ensure_tool_install_ready", lambda interactive=True: True)
+    card._tools = [
+        {
+            "id": "abricate",
+            "name": "ABRicate",
+            "install_cmd": "conda create -n abricate_env -y",
+        }
+    ]
+    monkeypatch.setattr(
+        card, "_ensure_tool_install_ready", lambda interactive=True: True
+    )
 
     called = {"tool_id": "", "install_cmd": ""}
     monkeypatch.setattr(
         card,
         "_start_tool_install_submit",
-        lambda tool_id, install_cmd: called.update({"tool_id": tool_id, "install_cmd": install_cmd}),
+        lambda tool_id, install_cmd: called.update(
+            {"tool_id": tool_id, "install_cmd": install_cmd}
+        ),
     )
 
     card._on_dialog_install_requested("abricate")
@@ -743,7 +930,9 @@ def test_dialog_install_requested_starts_submit_worker(qapp, monkeypatch):
 def test_dialog_install_requested_running_attach_only(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._installing_tool_ids.add("abricate")
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
@@ -765,7 +954,9 @@ def test_dialog_install_requested_running_attach_only(qapp, monkeypatch):
 def test_submit_finished_marks_running_and_updates_snapshot(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tool_install_submitting_ids.add("abricate")
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
@@ -780,11 +971,16 @@ def test_submit_finished_marks_running_and_updates_snapshot(qapp, monkeypatch):
     card._bridge = _Bridge()
 
     snapshots = []
-    card.tool_install_snapshot_updated.connect(lambda tool_id, snapshot: snapshots.append((tool_id, snapshot)))
+    card.tool_install_snapshot_updated.connect(
+        lambda tool_id, snapshot: snapshots.append((tool_id, snapshot))
+    )
 
     card._on_tool_install_submit_finished(
         "abricate",
-        {"task_dir": "~/.h2ometa/env_installs/abricate", "job_id": "h2o_install_abricate"},
+        {
+            "task_dir": "~/.h2ometa/env_installs/abricate",
+            "job_id": "h2o_install_abricate",
+        },
     )
 
     assert "abricate" in card._installing_tool_ids
@@ -796,12 +992,16 @@ def test_submit_finished_marks_running_and_updates_snapshot(qapp, monkeypatch):
     assert snapshots[-1][1].get("task_dir") == "~/.h2ometa/env_installs/abricate"
 
 
-def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, monkeypatch):
+def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(
+    qapp, monkeypatch
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
     from PyQt6.QtCore import pyqtSignal
     from PyQt6.QtWidgets import QDialog
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
 
@@ -832,9 +1032,17 @@ def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, m
         def activateWindow(self):
             return None
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstallDialog", _FakeDialog)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_tool_install.EnvInstallDialog", _FakeDialog
+    )
 
-    card._do_install_tool({"id": "abricate", "name": "ABRicate", "install_cmd": "conda create -n abricate_env -y"})
+    card._do_install_tool(
+        {
+            "id": "abricate",
+            "name": "ABRicate",
+            "install_cmd": "conda create -n abricate_env -y",
+        }
+    )
 
     assert dialogs
     assert dialogs[0].conda_executable == card._conda_executable
@@ -849,14 +1057,18 @@ def test_do_install_tool_disconnects_snapshot_signal_after_dialog_closes(qapp, m
 def test_submit_error_marks_failed_and_does_not_add_installing(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tool_install_submitting_ids.add("abricate")
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
 
     snapshots = []
     events = []
-    card.tool_install_snapshot_updated.connect(lambda tool_id, snapshot: snapshots.append((tool_id, snapshot)))
+    card.tool_install_snapshot_updated.connect(
+        lambda tool_id, snapshot: snapshots.append((tool_id, snapshot))
+    )
     card.install_task_event.connect(lambda payload: events.append(payload))
 
     card._on_tool_install_submit_error("abricate", "submit boom")
@@ -866,17 +1078,26 @@ def test_submit_error_marks_failed_and_does_not_add_installing(qapp, monkeypatch
     assert snapshots
     assert snapshots[-1][1].get("status") == "FAILED"
     assert "submit boom" in snapshots[-1][1].get("message", "")
-    assert any(e.get("task_id") == "tool_env:abricate" and e.get("state") == "failed" for e in events)
+    assert any(
+        e.get("task_id") == "tool_env:abricate" and e.get("state") == "failed"
+        for e in events
+    )
 
 
-def test_recover_running_install_dead_session_reverts_missing_silently(qapp, monkeypatch):
+def test_recover_running_install_dead_session_reverts_missing_silently(
+    qapp, monkeypatch
+):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._conda_executable = "/home/user/.h2ometa/conda/bin/conda"
     card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]
-    monkeypatch.setattr("ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.QTimer.singleShot", lambda _ms, _fn: None
+    )
 
     finished = {"tool_id": "", "success": None}
 
@@ -918,7 +1139,9 @@ def test_recover_running_install_dead_session_reverts_missing_silently(qapp, mon
 def test_poll_running_or_empty_with_dead_session_reverts_missing(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]
     card._installing_tool_ids.add("abricate")
@@ -956,14 +1179,18 @@ def test_poll_running_or_empty_with_dead_session_reverts_missing(qapp, monkeypat
 def test_tool_install_poll_running_broadcasts_snapshot_with_log(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tools = [{"id": "abricate", "name": "ABRicate", "conda_env": "abricate_env"}]
     card._installing_tool_ids.add("abricate")
     monkeypatch.setattr(card, "_ensure_tool_install_polling", lambda: None)
 
     snapshots = []
-    card.tool_install_snapshot_updated.connect(lambda tool_id, snapshot: snapshots.append((tool_id, snapshot)))
+    card.tool_install_snapshot_updated.connect(
+        lambda tool_id, snapshot: snapshots.append((tool_id, snapshot))
+    )
 
     card._on_tool_install_poll_finished(
         [
@@ -991,9 +1218,20 @@ def test_tool_install_batch_poll_worker_uses_batch_probe(monkeypatch):
 
     def fake_batch_probe(ssh_run_fn, tool_ids, tail_lines=120, timeout=20):
         called["tool_ids"] = list(tool_ids)
-        return [{"tool_id": "fastp", "status": "RUNNING", "session_alive": True, "log_size": 10, "log_text": "x", "exit_code": ""}]
+        return [
+            {
+                "tool_id": "fastp",
+                "status": "RUNNING",
+                "session_alive": True,
+                "log_size": 10,
+                "log_text": "x",
+                "exit_code": "",
+            }
+        ]
 
-    monkeypatch.setattr("ui.widgets.linux_settings_card.EnvInstaller.batch_probe", fake_batch_probe)
+    monkeypatch.setattr(
+        "ui.widgets.linux_settings_card.EnvInstaller.batch_probe", fake_batch_probe
+    )
     worker = ToolInstallBatchPollWorker(lambda cmd, timeout=10: (0, "", ""), ["fastp"])
     rows = []
     worker.finished.connect(lambda payload: rows.extend(payload))
@@ -1006,7 +1244,9 @@ def test_tool_install_batch_poll_worker_uses_batch_probe(monkeypatch):
 def test_on_batch_finished_recovers_with_cached_envs(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._tools = [{"id": "fastp", "name": "fastp", "conda_env": "fastp_env"}]
     card._pending_recover_after_batch = True
@@ -1026,12 +1266,18 @@ def test_on_batch_finished_recovers_with_cached_envs(qapp, monkeypatch):
 def test_on_batch_error_recovers_without_cached_envs(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
     card._pending_recover_after_batch = True
 
     captured = {"envs": "unset"}
-    monkeypatch.setattr(card, "_recover_running_installs", lambda existing_env_paths=None: captured.update({"envs": existing_env_paths}))
+    monkeypatch.setattr(
+        card,
+        "_recover_running_installs",
+        lambda existing_env_paths=None: captured.update({"envs": existing_env_paths}),
+    )
 
     card._on_batch_error("boom")
 
@@ -1042,15 +1288,28 @@ def test_on_batch_error_recovers_without_cached_envs(qapp, monkeypatch):
 def test_recover_running_installs_deduplicates_worker_start(qapp, monkeypatch):
     from ui.widgets.linux_settings_card import LinuxSettingsCard
 
-    monkeypatch.setattr(LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None)
+    monkeypatch.setattr(
+        LinuxSettingsCard, "_build_tool_env_web_view", lambda self, layout: None
+    )
     card = LinuxSettingsCard()
-    card.set_ssh_service(type("S", (), {"is_connected": True, "run": staticmethod(lambda cmd, timeout=10: (0, "", ""))})())
+    card.set_ssh_service(
+        type(
+            "S",
+            (),
+            {
+                "is_connected": True,
+                "run": staticmethod(lambda cmd, timeout=10: (0, "", "")),
+            },
+        )()
+    )
 
     started = {"count": 0, "envs": None}
     monkeypatch.setattr(
         card,
         "_start_recover_installs_job",
-        lambda existing_env_paths=None: started.update({"count": started["count"] + 1, "envs": existing_env_paths}),
+        lambda existing_env_paths=None: started.update(
+            {"count": started["count"] + 1, "envs": existing_env_paths}
+        ),
     )
 
     card._recover_running_installs(existing_env_paths={"a"})
