@@ -55,6 +55,10 @@ let integratedRunModalContext = null;
 let _integratedChartRetryTimer = null;
 let _echartsLoadRequested = false;
 const remoteStatusLoading = new Set();
+let historyRefreshRequestId = 0;
+const HISTORY_REFRESH_MIN_LOADING_MS = 450;
+let historyRefreshLoadingStartedAt = 0;
+let historyRefreshLoadingTimer = null;
 const DETECTION_WORKFLOW_TOOL_IDS = [
     'unknown_sample_detection',
     'wastewater_metagenomics_basic',
@@ -64,6 +68,55 @@ console.log('=== Galaxy Style Detection Page ===');
 
 const showNotice = window.DetectionPageUiFeedback.showNotice;
 const bindHelpTooltipInteractions = window.DetectionPageUiFeedback.bindHelpTooltipInteractions;
+
+function setHistoryRefreshLoading(loading) {
+    const refreshBtn = document.getElementById('btn-refresh');
+    if (!refreshBtn) {
+        return;
+    }
+    refreshBtn.disabled = Boolean(loading);
+    refreshBtn.classList.toggle('is-loading', Boolean(loading));
+    refreshBtn.setAttribute('aria-busy', loading ? 'true' : 'false');
+}
+
+function beginHistoryRefreshLoading() {
+    historyRefreshLoadingStartedAt = Date.now();
+    if (historyRefreshLoadingTimer != null) {
+        clearTimeout(historyRefreshLoadingTimer);
+        historyRefreshLoadingTimer = null;
+    }
+    setHistoryRefreshLoading(true);
+}
+
+function completeHistoryRefreshLoading(requestId) {
+    if (requestId !== historyRefreshRequestId) {
+        return;
+    }
+    const elapsed = Math.max(0, Date.now() - historyRefreshLoadingStartedAt);
+    const remainMs = Math.max(0, HISTORY_REFRESH_MIN_LOADING_MS - elapsed);
+    if (historyRefreshLoadingTimer != null) {
+        clearTimeout(historyRefreshLoadingTimer);
+        historyRefreshLoadingTimer = null;
+    }
+    if (remainMs <= 0) {
+        setHistoryRefreshLoading(false);
+        return;
+    }
+    historyRefreshLoadingTimer = setTimeout(function() {
+        historyRefreshLoadingTimer = null;
+        if (requestId === historyRefreshRequestId) {
+            setHistoryRefreshLoading(false);
+        }
+    }, remainMs);
+}
+
+function parseHistoryRecordsPayload(json) {
+    const parsed = typeof json === 'string' ? JSON.parse(json) : json;
+    if (!Array.isArray(parsed)) {
+        throw new Error('执行历史返回格式错误（预期数组）');
+    }
+    return parsed;
+}
 
 function renderLinearIcons(root) {
     if (!window.LinearIconRenderer || typeof window.LinearIconRenderer.renderDataIcons !== 'function') {
@@ -122,7 +175,9 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     });
 
     // 刷新历史按钮
-    document.getElementById('btn-refresh').addEventListener('click', loadHistory);
+    document.getElementById('btn-refresh').addEventListener('click', function() {
+        loadHistory({ source: 'manual' });
+    });
     const historySearch = document.getElementById('history-search');
     if (historySearch) {
         historySearch.addEventListener('input', function(e) {
@@ -227,7 +282,7 @@ function activateTab(tab) {
     switchTab(tab);
 
     if (tab === 'history') {
-        loadHistory();
+        loadHistory({ source: 'tab-switch' });
         return;
     }
 
@@ -640,11 +695,20 @@ function isPrimerGenomesBundlePath(filePath) {
 }
 
 // 加载执行历史
-function loadHistory() {
+function loadHistory(options = {}) {
+    const requestId = ++historyRefreshRequestId;
+    const withLoadingFeedback = options && options.source === 'manual';
     console.log('Loading execution history...');
+    if (withLoadingFeedback) {
+        beginHistoryRefreshLoading();
+    }
+
     bridgeHistoryService.loadExecutionHistory(function(json) {
+        if (requestId !== historyRefreshRequestId) {
+            return;
+        }
         try {
-            historyRecords = JSON.parse(json);
+            historyRecords = parseHistoryRecordsPayload(json);
             console.log(`✓ Loaded ${historyRecords.length} execution records`);
             const historySearch = document.getElementById('history-search');
             window.HistoryPanelRenderer.renderHistoryPanel({
@@ -683,9 +747,21 @@ function loadHistory() {
             });
         } catch (e) {
             console.error('Failed to parse history:', e);
+            showNotice(`任务历史解析失败: ${e && e.message ? e.message : e}`);
+        } finally {
+            if (withLoadingFeedback) {
+                completeHistoryRefreshLoading(requestId);
+            }
         }
     }, function(error) {
+        if (requestId !== historyRefreshRequestId) {
+            return;
+        }
         console.error('Failed to load history:', error);
+        showNotice(error && error.message ? error.message : '加载任务历史失败');
+        if (withLoadingFeedback) {
+            completeHistoryRefreshLoading(requestId);
+        }
     });
 }
 
