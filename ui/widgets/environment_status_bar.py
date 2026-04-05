@@ -2,6 +2,7 @@
 
 通过颜色指示器（绿/黄/红）直观展示各项状态。
 """
+
 import logging
 from typing import Optional
 
@@ -71,11 +72,12 @@ class EnvironmentStatusBar(QFrame):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("EnvironmentStatusBar")
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.setFixedHeight(32)
         self.setStyleSheet(f"""
             QFrame#EnvironmentStatusBar {{
                 background-color: {styles.COLOR_BG_CARD};
-                border-top: 1px solid {styles.COLOR_BORDER};
+                border: none;
                 padding: 0 12px;
             }}
         """)
@@ -217,7 +219,9 @@ class EnvironmentStatusBar(QFrame):
         else:
             self._project_label.setText("项目: 无")
 
-    def update_disk_usage(self, used_gb: float, total_gb: float, percent: float) -> None:
+    def update_disk_usage(
+        self, used_gb: float, total_gb: float, percent: float
+    ) -> None:
         """更新磁盘用量显示
 
         Args:
