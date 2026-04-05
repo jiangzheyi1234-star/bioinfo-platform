@@ -86,74 +86,90 @@
         }
     }
 
-    function renderHistorySectionControls(options) {
-        var historyToggleBtn = options.historyToggleBtn;
-        var historyCountEl = options.historyCountEl;
-        var historyContainer = options.historyContainer;
-        var historyFeatures = Array.isArray(options.historyFeatures) ? options.historyFeatures : [];
-        var historyCollapsed = Boolean(options.historyCollapsed);
+    function renderSectionControls(options) {
+        var toggleBtn = options.toggleBtn;
+        var countEl = options.countEl;
+        var container = options.container;
+        var features = Array.isArray(options.features) ? options.features : [];
+        var collapsed = Boolean(options.collapsed);
+        var controlsId = String(options.controlsId || '').trim();
 
-        if (historyCountEl) {
-            historyCountEl.textContent = String(historyFeatures.length);
+        if (countEl) {
+            countEl.textContent = String(features.length);
         }
-        if (historyContainer) {
-            historyContainer.classList.toggle('is-collapsed', historyCollapsed);
+        if (container) {
+            container.classList.toggle('is-collapsed', collapsed);
         }
-        if (!historyToggleBtn) {
+        if (!toggleBtn) {
             return;
         }
 
-        historyToggleBtn.classList.toggle('is-collapsed', historyCollapsed);
-        historyToggleBtn.setAttribute('aria-expanded', historyCollapsed ? 'false' : 'true');
-        historyToggleBtn.dataset.collapsed = historyCollapsed ? '1' : '0';
-        historyToggleBtn.setAttribute('aria-controls', 'integrated-history-feature-list');
-        historyToggleBtn.disabled = historyFeatures.length === 0;
+        toggleBtn.classList.toggle('is-collapsed', collapsed);
+        toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        toggleBtn.dataset.collapsed = collapsed ? '1' : '0';
+        if (controlsId) {
+            toggleBtn.setAttribute('aria-controls', controlsId);
+        }
+        toggleBtn.disabled = features.length === 0;
 
-        if (historyToggleBtn.dataset.bound === '1') {
+        if (toggleBtn.dataset.bound === '1') {
             return;
         }
-        historyToggleBtn.dataset.bound = '1';
-        historyToggleBtn.addEventListener('click', function() {
-            var isCollapsed = historyToggleBtn.dataset.collapsed === '1';
-            if (typeof options.onHistoryToggle === 'function') {
-                options.onHistoryToggle(!isCollapsed);
+        toggleBtn.dataset.bound = '1';
+        toggleBtn.addEventListener('click', function() {
+            var isCollapsed = toggleBtn.dataset.collapsed === '1';
+            if (typeof options.onToggle === 'function') {
+                options.onToggle(!isCollapsed);
             }
         });
-        historyToggleBtn.addEventListener('keydown', function(event) {
+        toggleBtn.addEventListener('keydown', function(event) {
             if (event.key !== 'Enter' && event.key !== ' ') {
                 return;
             }
             event.preventDefault();
-            var isCollapsed = historyToggleBtn.dataset.collapsed === '1';
-            if (typeof options.onHistoryToggle === 'function') {
-                options.onHistoryToggle(!isCollapsed);
+            var isCollapsed = toggleBtn.dataset.collapsed === '1';
+            if (typeof options.onToggle === 'function') {
+                options.onToggle(!isCollapsed);
             }
         });
     }
 
     function renderIntegratedSidebar(options) {
         var analysisContainer = options.analysisContainer;
+        var analysisToggleBtn = options.analysisToggleBtn;
+        var analysisCountEl = options.analysisCountEl;
         var historyContainer = options.historyContainer;
         var historyToggleBtn = options.historyToggleBtn;
         var historyCountEl = options.historyCountEl;
         var analysisFeatures = Array.isArray(options.analysisFeatures) ? options.analysisFeatures : [];
         var historyFeatures = Array.isArray(options.historyFeatures) ? options.historyFeatures : [];
+        var analysisCollapsed = Boolean(options.analysisCollapsed);
         var historyCollapsed = Boolean(options.historyCollapsed);
         var escapeHtml = options.escapeHtml;
 
-        if (!analysisContainer || !historyContainer || !historyToggleBtn || !historyCountEl || typeof escapeHtml !== 'function') {
+        if (!analysisContainer || !analysisToggleBtn || !analysisCountEl || !historyContainer || !historyToggleBtn || !historyCountEl || typeof escapeHtml !== 'function') {
             return;
         }
 
         renderFeatureItems(analysisContainer, analysisFeatures, Object.assign({}, options, { isHistoryList: false }));
         renderFeatureItems(historyContainer, historyFeatures, Object.assign({}, options, { isHistoryList: true }));
-        renderHistorySectionControls({
-            historyToggleBtn: historyToggleBtn,
-            historyCountEl: historyCountEl,
-            historyContainer: historyContainer,
-            historyFeatures: historyFeatures,
-            historyCollapsed: historyCollapsed,
-            onHistoryToggle: options.onHistoryToggle,
+        renderSectionControls({
+            toggleBtn: analysisToggleBtn,
+            countEl: analysisCountEl,
+            container: analysisContainer,
+            features: analysisFeatures,
+            collapsed: analysisCollapsed,
+            controlsId: 'integrated-analysis-feature-list',
+            onToggle: options.onAnalysisToggle,
+        });
+        renderSectionControls({
+            toggleBtn: historyToggleBtn,
+            countEl: historyCountEl,
+            container: historyContainer,
+            features: historyFeatures,
+            collapsed: historyCollapsed,
+            controlsId: 'integrated-history-feature-list',
+            onToggle: options.onHistoryToggle,
         });
     }
 

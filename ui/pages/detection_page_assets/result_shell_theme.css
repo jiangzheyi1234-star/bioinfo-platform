@@ -19,6 +19,7 @@
 .integrated-sidebar {
     background: #f8fafc;
     border-right: 1px solid var(--report-border);
+    padding-top: 6px;
 }
 
 .integrated-sidebar-header {
@@ -49,6 +50,10 @@
     gap: 2px;
 }
 
+.integrated-sidebar-analysis-section {
+    padding-top: 4px;
+}
+
 .integrated-sidebar-section-title {
     padding: 0;
     font-size: 11px;
@@ -59,6 +64,12 @@
 
 .integrated-sidebar-section-head {
     padding: 2px 2px 6px;
+}
+
+.integrated-sidebar-section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .integrated-sidebar-section-toggle {
@@ -213,6 +224,7 @@
     background: #eaf2ff;
 }
 
+.integrated-analysis-feature-list.is-collapsed,
 .integrated-history-feature-list.is-collapsed {
     display: none;
 }
@@ -856,6 +868,16 @@
     margin: -1px 0 8px;
 }
 
+#tab-integrated .integrated-empty-state,
+#tab-integrated .integrated-empty-state--blank {
+    min-height: 0;
+    flex: 1;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+}
+
 @media (max-width: 1280px) {
     #tab-integrated .integrated-content {
         padding: 12px 16px 14px;
@@ -885,4 +907,165 @@
     #tab-integrated #feature-title {
         font-size: 24px;
     }
+}
+
+/* V3.9 ADS simple refinements */
+#tab-integrated .integrated-shell {
+    background: #f7f8fa;
+}
+
+#tab-integrated .integrated-sidebar {
+    background: #f7f8fa;
+    border-right-color: #dfe1e6;
+}
+
+#tab-integrated .integrated-sidebar-section-head {
+    padding: 3px 2px 6px;
+}
+
+#tab-integrated .integrated-sidebar-section-toggle {
+    min-height: 22px;
+}
+
+#tab-integrated .integrated-sidebar-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: #6b778c;
+}
+
+#tab-integrated .integrated-sidebar-section-count {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #ebecf0;
+    color: #6b778c;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+#tab-integrated .integrated-feature-item {
+    min-height: 32px;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+#tab-integrated .integrated-feature-item:hover {
+    background: #f1f2f4;
+}
+
+#tab-integrated .integrated-feature-item.active {
+    background: #e9f2ff;
+    border-color: #c7ddff;
+}
+
+#tab-integrated .integrated-feature-name {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#tab-integrated .detail-header-card {
+    padding: 12px 20px 8px;
+    border-bottom-color: #dfe1e6;
+}
+
+#tab-integrated #feature-title {
+    font-size: 28px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+}
+
+#tab-integrated #feature-description {
+    font-size: 13px;
+    color: #5e6c84;
+}
+
+#tab-integrated .integrated-status-chip {
+    border: 1px solid #dfe1e6;
+    background: #f4f5f7;
+    color: #44546f;
+}
+
+#tab-integrated .integrated-summary-grid,
+#tab-integrated .summary-strip {
+    border: 1px solid #dfe1e6;
+    border-radius: 6px;
+    background: #ffffff;
+    padding: 0;
+}
+
+#tab-integrated .summary-card,
+#tab-integrated .summary-stat {
+    min-width: 148px;
+    min-height: 54px;
+    padding: 8px 10px;
+}
+
+#tab-integrated .summary-stat + .summary-stat {
+    border-left: 1px solid #ebecf0;
+}
+
+#tab-integrated .summary-label {
+    font-size: 11px;
+    color: #6b778c;
+    margin-bottom: 3px;
+}
+
+#tab-integrated .summary-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #172b4d;
+}
+
+#tab-integrated .summary-card.tone-primary .summary-value,
+#tab-integrated .summary-card.tone-info .summary-value,
+#tab-integrated .summary-card.tone-success .summary-value,
+#tab-integrated .summary-card.tone-accent .summary-value,
+#tab-integrated .summary-card.tone-warning .summary-value,
+#tab-integrated .summary-stat--primary .summary-value,
+#tab-integrated .summary-stat--info .summary-value,
+#tab-integrated .summary-stat--success .summary-value,
+#tab-integrated .summary-stat--accent .summary-value,
+#tab-integrated .summary-stat--warning .summary-value {
+    color: #172b4d;
+}
+
+#tab-integrated .integrated-result-tabs {
+    gap: 12px;
+    border-bottom-color: #dfe1e6;
+}
+
+#tab-integrated .integrated-result-tab {
+    padding: 8px 2px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b778c;
+}
+
+#tab-integrated .integrated-result-tab:hover {
+    color: #42526e;
+}
+
+#tab-integrated .integrated-result-tab.active {
+    color: #0c66e4;
+    border-bottom-color: #0c66e4;
+}
+
+#tab-integrated .detail-card,
+#tab-integrated .report-section-card,
+#tab-integrated .report-outline-card {
+    border-bottom-color: #ebecf0;
+}
+
+#tab-integrated .card-title-row h4,
+#tab-integrated .compact-title-row h4 {
+    font-size: 15px;
+    color: #172b4d;
+}
+
+#tab-integrated .results-table-wrap {
+    border: 1px solid #ebecf0;
+    border-radius: 6px;
+    background: #ffffff;
 }
