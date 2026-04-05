@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QFrame,
 )
 
 from core.data.project_manager import ProjectManager
