@@ -788,10 +788,13 @@ class TestDetectionIntegratedWorkbench:
 
         assert 'id="tab-integrated"' in html
         assert 'id="integrated-clear-history-results"' in html
+        assert 'id="integrated-analysis-toggle"' in html
+        assert 'id="integrated-analysis-count"' in html
         assert 'id="integrated-analysis-feature-list"' in html
         assert 'id="integrated-history-feature-list"' in html
         assert 'id="integrated-history-toggle"' in html
         assert 'id="integrated-history-count"' in html
+        assert 'class="integrated-sidebar-header"' not in html
         assert 'id="integrated-header-run-btn"' in html
         assert 'id="integrated-header-status-chip"' in html
         assert 'class="summary-grid integrated-summary-grid summary-strip"' in html
@@ -1123,6 +1126,8 @@ class TestDetectionIntegratedWorkbench:
         assert "restoreIntegratedExecutionFeatures();" in js
         assert "nextWorkbench && nextWorkbench.project_id" in js
         assert "clearIntegratedExecutionCache();" in js
+        assert "hasSelectedAnalysisFeature" not in js
+        assert "hasSelectedHistoryFeature" not in js
         assert "--state-running-fg" in css
         assert "--state-completed-fg" in css
         assert '.integrated-status-chip[data-status="completed"]' in css

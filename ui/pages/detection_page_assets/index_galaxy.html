@@ -131,14 +131,21 @@
         <div class="tab-content" id="tab-integrated">
             <div class="integrated-shell">
                 <aside class="integrated-sidebar">
-                    <div class="integrated-sidebar-header">
-                        <div class="integrated-kicker">结果空间</div>
-                        <h2 id="integrated-title">结果工作台</h2>
-                        <p id="integrated-subtitle">按 execution 管理结果、文件和运行追溯。</p>
-                    </div>
-                    <div class="integrated-sidebar-section">
-                        <div class="integrated-sidebar-section-title">分析功能</div>
-                        <div class="integrated-feature-list" id="integrated-analysis-feature-list"></div>
+                    <div class="integrated-sidebar-section integrated-sidebar-analysis-section">
+                        <div class="integrated-sidebar-section-head">
+                            <button
+                                class="integrated-sidebar-section-toggle"
+                                id="integrated-analysis-toggle"
+                                type="button"
+                                aria-expanded="true"
+                                aria-controls="integrated-analysis-feature-list"
+                            >
+                                <span class="integrated-sidebar-section-chevron" aria-hidden="true"></span>
+                                <span class="integrated-sidebar-section-title">分析功能</span>
+                                <span class="integrated-sidebar-section-count" id="integrated-analysis-count">0</span>
+                            </button>
+                        </div>
+                        <div class="integrated-feature-list integrated-analysis-feature-list" id="integrated-analysis-feature-list"></div>
                     </div>
                     <div class="integrated-sidebar-section integrated-sidebar-history-section">
                         <div class="integrated-sidebar-section-head">
@@ -166,11 +173,7 @@
                             功能列表
                         </button>
                     </div>
-                    <div class="integrated-empty-state" id="integrated-empty-state">
-                        <div class="empty-mark">结果</div>
-                        <h3>选择左侧功能开始查看</h3>
-                        <p>统一承接工具结果、工作流结果与执行追溯，形成稳定的 execution 旅程。</p>
-                    </div>
+                    <div class="integrated-empty-state integrated-empty-state--blank" id="integrated-empty-state"></div>
 
                     <div class="integrated-detail is-hidden" id="integrated-detail">
                         <div class="detail-header-card">

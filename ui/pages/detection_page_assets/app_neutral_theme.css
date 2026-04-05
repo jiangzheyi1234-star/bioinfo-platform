@@ -67,8 +67,8 @@
 }
 
 #tab-integrated .integrated-empty-state {
-    border-color: #c9d1dc;
-    background: #ffffff;
+    border: none;
+    background: transparent;
 }
 
 #tab-integrated .empty-mark {
