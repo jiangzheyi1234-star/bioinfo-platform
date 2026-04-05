@@ -37,14 +37,6 @@ def create_local_web_ui_host(
     )
     view.setStyleSheet(f"background: {background}; border: none;")
 
-    # Fill the background natively to prevent black gaps on resize (Windows High DPI artifact)
-    view.setAutoFillBackground(True)
-    from PyQt6.QtGui import QPalette, QColor
-
-    palette = view.palette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(background))
-    view.setPalette(palette)
-
     if callable(on_load_finished):
         view.loadFinished.connect(on_load_finished)
 
