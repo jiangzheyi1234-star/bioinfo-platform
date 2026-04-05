@@ -971,9 +971,10 @@
 }
 
 #tab-integrated #feature-title {
-    font-size: 28px;
-    line-height: 1.15;
-    letter-spacing: -0.01em;
+    font-size: 22px;
+    line-height: 1.2;
+    letter-spacing: 0;
+    font-weight: 600;
 }
 
 #tab-integrated #feature-description {
@@ -1068,4 +1069,10 @@
     border: 1px solid #ebecf0;
     border-radius: 6px;
     background: #ffffff;
+}
+
+@media (max-width: 900px) {
+    #tab-integrated #feature-title {
+        font-size: 20px;
+    }
 }
