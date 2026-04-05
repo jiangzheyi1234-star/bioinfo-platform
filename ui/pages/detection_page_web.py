@@ -9,7 +9,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
@@ -399,6 +399,7 @@ class DetectionPageWeb(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         if not enable_webengine:
             placeholder = QLabel("检测页 WebEngine 已在当前运行模式下禁用。")
@@ -442,6 +443,19 @@ class DetectionPageWeb(QFrame):
             return
 
         layout.addWidget(self.web_view)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.web_view:
+            # Known QtWebEngine bug on Windows: resizing to maximize leaves a black 1px artifact
+            # Force layout invalidation and view update shortly after resize
+            def force_refresh():
+                self.layout().invalidate()
+                self.web_view.updateGeometry()
+                self.web_view.update()
+
+            QTimer.singleShot(50, force_refresh)
+            QTimer.singleShot(150, force_refresh)
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:

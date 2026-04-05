@@ -109,6 +109,10 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         middle = QWidget()
+        middle.setObjectName("MainMiddleWidget")
+        middle.setStyleSheet(
+            f"QWidget#MainMiddleWidget {{ background-color: {styles.COLOR_BG_PAGE}; border: none; }}"
+        )
         middle_layout = QHBoxLayout(middle)
         middle_layout.setContentsMargins(0, 0, 0, 0)
         middle_layout.setSpacing(0)
@@ -139,6 +143,10 @@ class MainWindow(QMainWindow):
         middle_layout.addWidget(sidebar_widget)
 
         self.content = _CurrentPageStackedWidget()
+        self.content.setObjectName("MainContentStack")
+        self.content.setStyleSheet(
+            f"QStackedWidget#MainContentStack {{ background-color: {styles.COLOR_BG_PAGE}; border: none; }}"
+        )
 
         self.home_page = HomePage(main_window=self)
         self.content.addWidget(self.home_page)
@@ -322,6 +330,23 @@ class MainWindow(QMainWindow):
                 callback()
         except Exception:
             logger.exception("Lazy-loading detection page failed")
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMaximized() and getattr(self, "_detection_loaded", False):
+                if self.content.currentWidget() == self.detection_page:
+                    # Windows QtWebEngine artifact fix: force hide/show when maximized to redraw gap
+                    if (
+                        hasattr(self.detection_page, "web_view")
+                        and self.detection_page.web_view
+                    ):
+
+                        def _refresh_view():
+                            self.detection_page.web_view.hide()
+                            self.detection_page.web_view.show()
+
+                        QTimer.singleShot(150, _refresh_view)
 
     def _on_nav_row_changed(self, row: int) -> None:
         if row == 1:
