@@ -135,14 +135,37 @@
                         <div class="integrated-kicker">结果空间</div>
                         <h2 id="integrated-title">结果工作台</h2>
                         <p id="integrated-subtitle">按 execution 管理结果、文件和运行追溯。</p>
-                        <div class="integrated-sidebar-actions">
+                    </div>
+                    <div class="integrated-sidebar-section">
+                        <div class="integrated-sidebar-section-title">分析功能</div>
+                        <div class="integrated-feature-list" id="integrated-analysis-feature-list"></div>
+                    </div>
+                    <div class="integrated-sidebar-section integrated-sidebar-history-section">
+                        <div class="integrated-sidebar-section-head">
+                            <button
+                                class="integrated-sidebar-section-toggle"
+                                id="integrated-history-toggle"
+                                type="button"
+                                aria-expanded="false"
+                                aria-controls="integrated-history-feature-list"
+                            >
+                                <span class="integrated-sidebar-section-chevron" aria-hidden="true"></span>
+                                <span class="integrated-sidebar-section-title">历史结果</span>
+                                <span class="integrated-sidebar-section-count" id="integrated-history-count">0</span>
+                            </button>
                             <button class="ui-button ui-button--secondary ui-button--sm is-hidden" id="integrated-clear-history-results" type="button">清理未固定结果</button>
                         </div>
+                        <div class="integrated-feature-list integrated-history-feature-list" id="integrated-history-feature-list"></div>
                     </div>
-                    <div class="integrated-feature-list" id="integrated-feature-list"></div>
                 </aside>
+                <div class="integrated-sidebar-backdrop" id="integrated-sidebar-backdrop"></div>
 
                 <section class="integrated-content">
+                    <div class="integrated-mobile-toolbar">
+                        <button class="ui-button ui-button--secondary ui-button--sm" id="integrated-sidebar-toggle" type="button" aria-expanded="false">
+                            功能列表
+                        </button>
+                    </div>
                     <div class="integrated-empty-state" id="integrated-empty-state">
                         <div class="empty-mark">结果</div>
                         <h3>选择左侧功能开始查看</h3>
@@ -152,27 +175,32 @@
                     <div class="integrated-detail is-hidden" id="integrated-detail">
                         <div class="detail-header-card">
                             <div class="detail-header-main">
-                                <div class="detail-kicker" id="feature-kicker">结果工作台</div>
-                                <h3 id="feature-title"></h3>
-                                <p id="feature-description"></p>
-                            </div>
-                            <div class="feature-state-card">
-                                <div class="feature-state-label">状态</div>
-                                <div class="ui-badge integrated-status-chip" id="integrated-status-chip">待选择</div>
-                                <div class="feature-state-detail" id="feature-state-detail">请选择左侧功能或通过运行历史进入结果。</div>
+                                <div class="detail-header-top">
+                                    <div class="detail-header-copy">
+                                        <div class="detail-kicker" id="feature-kicker">结果工作台</div>
+                                        <h3 id="feature-title"></h3>
+                                        <p id="feature-description"></p>
+                                    </div>
+                                    <span class="integrated-status-chip" id="integrated-header-status-chip">等待运行</span>
+                                </div>
+                                <div class="detail-header-actions">
+                                    <button class="ui-button ui-button--primary ui-button--sm" id="integrated-header-run-btn" type="button">启动分析</button>
+                                </div>
                             </div>
                         </div>
 
+                        <div class="summary-grid integrated-summary-grid summary-strip" id="summary-grid"></div>
+
                         <div class="integrated-result-tabs" id="integrated-result-tabs">
-                            <button class="integrated-result-tab active" data-result-tab="overview" type="button">概览</button>
-                            <button class="integrated-result-tab" data-result-tab="result" type="button">结果</button>
-                            <button class="integrated-result-tab" data-result-tab="files" type="button">文件</button>
-                            <button class="integrated-result-tab" data-result-tab="provenance" type="button">诊断</button>
+                            <button class="integrated-result-tab active" data-result-tab="table" type="button">数据表格</button>
+                            <button class="integrated-result-tab" data-result-tab="chart" type="button">图表</button>
+                            <button class="integrated-result-tab" data-result-tab="artifacts" type="button">产物文件</button>
+                            <button class="integrated-result-tab" data-result-tab="provenance" type="button">溯源信息</button>
                         </div>
 
                         <div class="integrated-main-layout">
                             <div class="integrated-primary-column">
-                                <div class="detail-card chart-card result-tab-panel result-tab-result is-hidden" id="integrated-html-card">
+                                <div class="detail-card chart-card result-tab-panel result-tab-chart is-hidden" id="integrated-html-card">
                                     <div class="card-title-row">
                                         <h4 id="html-preview-title">HTML 预览</h4>
                                         <button class="ui-button ui-button--secondary ui-button--sm is-hidden" id="html-open-btn" type="button">在系统中打开</button>
@@ -181,12 +209,12 @@
                                     <iframe id="integrated-html-frame" class="integrated-html-frame is-hidden" title="HTML preview"></iframe>
                                 </div>
 
-                                <div class="detail-card chart-card result-tab-panel result-tab-result is-hidden" id="integrated-chart-card">
+                                <div class="detail-card chart-card result-tab-panel result-tab-chart is-hidden" id="integrated-chart-card">
                                     <div class="card-title-row"><h4 id="chart-card-title">图表</h4></div>
                                     <div id="integrated-chart-container" class="integrated-chart-stage"></div>
                                 </div>
 
-                                <div class="detail-card results-card result-tab-panel result-tab-result" id="integrated-table-card">
+                                <div class="detail-card results-card result-tab-panel result-tab-table" id="integrated-table-card">
                                     <div class="card-title-row">
                                         <h4 id="results-card-title">分析结果</h4>
                                         <span class="ui-badge ui-badge--accent" id="results-card-badge">primer_result_final_2.txt</span>
@@ -200,34 +228,15 @@
                                     </div>
                                 </div>
 
-                                <div class="detail-card compact-detail-card result-tab-panel result-tab-result result-tab-overview is-hidden" id="integrated-sections-card">
+                                <div class="detail-card compact-detail-card result-tab-panel result-tab-table is-hidden" id="integrated-sections-card">
                                     <div class="card-title-row compact-title-row">
                                         <h4>结果分段</h4>
                                         <span class="ui-badge ui-badge--accent">sections</span>
                                     </div>
                                     <div id="integrated-sections-list"></div>
                                 </div>
-                            </div>
 
-                            <div class="integrated-side-column">
-                                <div class="detail-card compact-detail-card integrated-run-card integrated-context-workflow is-hidden" id="integrated-run-card">
-                                    <div class="card-title-row compact-title-row">
-                                        <h4>工作流入口</h4>
-                                        <div class="side-card-actions integrated-run-actions">
-                                            <span class="ui-badge ui-badge--accent" id="integrated-run-badge">运行入口</span>
-                                            <button class="section-toggle-btn" data-target="integrated-run-body" type="button">展开</button>
-                                        </div>
-                                    </div>
-                                    <div class="side-section-body collapsed" id="integrated-run-body">
-                                        <div class="integrated-run-hint" id="integrated-run-hint"></div>
-                                        <div class="integrated-input-list" id="integrated-input-list"></div>
-                                        <button class="ui-button ui-button--primary integrated-run-btn" id="integrated-run-btn" type="button">配置并运行</button>
-                                    </div>
-                                </div>
-
-                                <div class="summary-grid integrated-summary-grid result-tab-panel result-tab-overview" id="summary-grid"></div>
-
-                                <div class="detail-card compact-detail-card result-tab-panel result-tab-files" id="integrated-files-card">
+                                <div class="detail-card compact-detail-card result-tab-panel result-tab-artifacts" id="integrated-files-card">
                                     <div class="card-title-row compact-title-row">
                                         <h4>结果文件</h4>
                                         <div class="side-card-actions">

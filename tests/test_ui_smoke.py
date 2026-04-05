@@ -788,13 +788,18 @@ class TestDetectionIntegratedWorkbench:
 
         assert 'id="tab-integrated"' in html
         assert 'id="integrated-clear-history-results"' in html
-        assert 'id="integrated-feature-list"' in html
-        assert 'id="integrated-run-card"' in html
-        assert 'id="integrated-run-btn"' in html
-        assert 'id="integrated-input-list"' in html
-        assert 'data-result-tab="overview"' in html
-        assert 'data-result-tab="result"' in html
-        assert 'data-result-tab="files"' in html
+        assert 'id="integrated-analysis-feature-list"' in html
+        assert 'id="integrated-history-feature-list"' in html
+        assert 'id="integrated-history-toggle"' in html
+        assert 'id="integrated-history-count"' in html
+        assert 'id="integrated-header-run-btn"' in html
+        assert 'id="integrated-header-status-chip"' in html
+        assert 'class="summary-grid integrated-summary-grid summary-strip"' in html
+        assert 'id="integrated-sidebar-toggle"' in html
+        assert 'id="integrated-sidebar-backdrop"' in html
+        assert 'data-result-tab="table"' in html
+        assert 'data-result-tab="chart"' in html
+        assert 'data-result-tab="artifacts"' in html
         assert 'data-result-tab="provenance"' in html
         assert 'id="integrated-table-body"' in html
         assert 'id="integrated-table-card"' in html

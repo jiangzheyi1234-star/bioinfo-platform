@@ -84,7 +84,7 @@
 
     function switchIntegratedResultTab(tabName) {
         var runtime = getRuntime();
-        var activeTab = String(tabName || 'overview').trim() || 'overview';
+        var activeTab = String(tabName || 'table').trim() || 'table';
         document.querySelectorAll('.integrated-result-tab').forEach(function(btn) {
             btn.classList.toggle('active', btn.dataset.resultTab === activeTab);
         });
@@ -220,7 +220,9 @@
             viewerErrors: viewerErrors,
             table: tablePayload,
             htmlArtifact: htmlArtifact,
-            primaryTab: strategy.primaryViewer === 'files' ? 'files' : 'result',
+            primaryTab: strategy.primaryViewer === 'files'
+                ? 'artifacts'
+                : ((strategy.primaryViewer === 'chart' || strategy.primaryViewer === 'html') ? 'chart' : 'table'),
         };
     }
 
@@ -236,11 +238,70 @@
     }
 
     function getDefaultIntegratedResultTab(view, options) {
-        var sourceMode = String(options && options.sourceMode || 'workflow').trim() || 'workflow';
-        if (sourceMode !== 'history') {
-            return 'overview';
+        var viewerState = buildIntegratedViewerState(view || {});
+        return viewerState.primaryTab || 'table';
+    }
+
+    function configureIntegratedHeaderRunButton(feature, viewModel, options) {
+        var runtime = getRuntime();
+        var runBtn = document.getElementById('integrated-header-run-btn');
+        if (!runBtn) {
+            return;
         }
-        return buildIntegratedViewerState(view).primaryTab;
+        var sourceMode = String(options && options.sourceMode || 'workflow').trim() || 'workflow';
+        var isHistoryResult = sourceMode === 'history';
+        var toolId = getIntegratedToolId(feature, viewModel);
+        if (!toolId) {
+            runtime.setHidden(runBtn, true);
+            runBtn.onclick = null;
+            return;
+        }
+        runtime.setHidden(runBtn, false);
+        runBtn.textContent = isHistoryResult ? '重新运行' : '启动分析';
+        runBtn.disabled = false;
+        runBtn.onclick = function() {
+            openIntegratedRunEntry();
+        };
+    }
+
+    function normalizeIntegratedStatusState(rawState) {
+        var state = String(rawState || '').trim().toLowerCase();
+        if (!state || state === 'ready' || state === 'idle') {
+            return 'pending';
+        }
+        if (state === 'completed' || state === 'success' || state === 'done') {
+            return 'completed';
+        }
+        if (state === 'running' || state === 'executing' || state === 'processing') {
+            return 'running';
+        }
+        if (state === 'failed' || state === 'error') {
+            return 'failed';
+        }
+        return 'pending';
+    }
+
+    function configureIntegratedHeaderStatus(viewModel) {
+        var statusChip = document.getElementById('integrated-header-status-chip');
+        if (!statusChip) {
+            return;
+        }
+        var status = (viewModel && viewModel.status && typeof viewModel.status === 'object') ? viewModel.status : {};
+        var normalizedState = normalizeIntegratedStatusState(status.state);
+        var statusLabel = String(status.label || '').trim();
+        if (!statusLabel) {
+            if (normalizedState === 'completed') {
+                statusLabel = '结果可用';
+            } else if (normalizedState === 'running') {
+                statusLabel = '运行中';
+            } else if (normalizedState === 'failed') {
+                statusLabel = '运行失败';
+            } else {
+                statusLabel = '等待运行';
+            }
+        }
+        statusChip.dataset.status = normalizedState;
+        statusChip.textContent = statusLabel;
     }
 
     function setSectionCollapsed(targetId, collapsed) {
@@ -261,8 +322,6 @@
         var runtime = getRuntime();
         var emptyState = document.getElementById('integrated-empty-state');
         var detail = document.getElementById('integrated-detail');
-        var statusChip = document.getElementById('integrated-status-chip');
-        var stateDetail = document.getElementById('feature-state-detail');
         var kicker = document.getElementById('feature-kicker');
         var sourceMode = String(options && options.sourceMode || runtime.getSelectedIntegratedViewSource() || 'workflow').trim() || 'workflow';
         var isHistoryResult = sourceMode === 'history';
@@ -272,13 +331,6 @@
         if (!feature || !view) {
             runtime.setHidden(emptyState, false);
             runtime.setHidden(detail, true);
-            if (statusChip) {
-                statusChip.textContent = '待选择功能';
-                statusChip.dataset.status = 'pending';
-            }
-            if (stateDetail) {
-                stateDetail.textContent = '请选择左侧功能或通过运行历史进入结果。';
-            }
             return;
         }
 
@@ -287,29 +339,22 @@
         if (detail) {
             detail.dataset.sourceMode = sourceMode;
         }
-        if (statusChip) {
-            statusChip.textContent = (viewModel && viewModel.status && viewModel.status.label) || feature.badge || '已选择';
-            statusChip.dataset.status = String((viewModel && viewModel.status && viewModel.status.state) || (isHistoryResult ? 'completed' : 'pending')).trim() || 'pending';
-        }
         if (kicker) {
             kicker.textContent = isHistoryResult ? 'Result Shell · ' + viewerState.strategy.mode : 'Workflow Entry';
         }
 
         document.getElementById('feature-title').textContent = viewModel.title || feature.name || feature.id;
-        document.getElementById('feature-description').textContent = viewModel.description || '';
-        if (stateDetail) {
-            var executionId = String((viewModel && viewModel.provenance && viewModel.provenance.execution_id) || (viewModel && viewModel.hero && viewModel.hero.executionId) || '').trim();
-            stateDetail.textContent = isHistoryResult
-                ? '当前为统一结果壳视图，主 viewer 策略为 ' + viewerState.strategy.mode + (executionId ? '，execution_id: ' + executionId : '') + '。'
-                : String((viewModel && viewModel.status && viewModel.status.detail) || '可从这里查看输入要求，并继续提交新的运行。');
-        }
+        var featureDescription = String((feature && feature.description) || '').trim();
+        var viewDescription = String((viewModel && viewModel.description) || '').trim();
+        var descriptionText = featureDescription || viewDescription;
+        document.getElementById('feature-description').textContent = descriptionText;
 
         initializeIntegratedSectionToggles();
         initializeIntegratedResultTabs();
-        setSectionCollapsed('integrated-run-body', true);
         setSectionCollapsed('artifact-list-wrap', true);
+        configureIntegratedHeaderStatus(viewModel);
+        configureIntegratedHeaderRunButton(feature, viewModel, { sourceMode: sourceMode });
 
-        renderIntegratedRunEntry(feature, viewModel, { hidden: isHistoryResult });
         global.ResultViewerRenderers.renderSummaryGrid({
             container: document.getElementById('summary-grid'),
             summaryItems: viewModel.summary || [],
@@ -355,100 +400,8 @@
         if (subtitleEl) {
             subtitleEl.textContent = viewerState.viewerErrors[viewerState.strategy.primaryViewer]
                 || viewerState.table.table.subtitle
-                || '分析结果将在此处展示。';
+                || String((viewModel && viewModel.status && viewModel.status.detail) || '分析结果将在此处展示。');
         }
-    }
-
-    function renderIntegratedRunEntry(feature, view, options) {
-        var runtime = getRuntime();
-        var card = document.getElementById('integrated-run-card');
-        var hint = document.getElementById('integrated-run-hint');
-        var list = document.getElementById('integrated-input-list');
-        var badge = document.getElementById('integrated-run-badge');
-        var runBtn = document.getElementById('integrated-run-btn');
-
-        if (!card || !hint || !list || !badge || !runBtn) {
-            return;
-        }
-        if (options && options.hidden) {
-            runtime.setHidden(card, true);
-            return;
-        }
-
-        var toolId = getIntegratedToolId(feature, view);
-        if (!toolId) {
-            runtime.setHidden(card, true);
-            return;
-        }
-
-        runtime.setHidden(card, false);
-        var supportedTools = Array.isArray(view && view.tool_ids) ? view.tool_ids.filter(Boolean) : [];
-        badge.textContent = toolId;
-        hint.textContent = '在这里查看输入要求，点击右侧按钮可直接进入插件工作台配置输入文件并提交任务。';
-        if (supportedTools.length > 1) {
-            hint.textContent = '支持多分类工具（Centrifuge / Kraken2），可在运行弹窗切换并自动刷新参数。';
-        }
-        runBtn.disabled = false;
-        list.innerHTML = '<div class="integrated-input-empty">正在读取输入要求…</div>';
-
-        var cached = runtime.toolDescriptorCache[toolId];
-        if (cached) {
-            updateIntegratedRunEntryFromDescriptor(feature && feature.id, toolId, cached);
-            return;
-        }
-
-        runtime.bridgeToolsService.getToolDescriptor(toolId, function(json) {
-            try {
-                var descriptor = JSON.parse(json || '{}');
-                runtime.toolDescriptorCache[toolId] = descriptor;
-                updateIntegratedRunEntryFromDescriptor(feature && feature.id, toolId, descriptor);
-            } catch (error) {
-                console.error('Failed to parse integrated tool descriptor:', error);
-                if (String(runtime.getSelectedIntegratedFeatureId() || '').trim() === String(feature && feature.id || '').trim()) {
-                    list.innerHTML = '<div class="integrated-input-empty">输入要求解析失败。</div>';
-                }
-            }
-        }, function() {
-            if (String(runtime.getSelectedIntegratedFeatureId() || '').trim() === String(feature && feature.id || '').trim()) {
-                list.innerHTML = '<div class="integrated-input-empty">工具描述符不可用，暂时无法显示输入要求。</div>';
-            }
-        });
-    }
-
-    function updateIntegratedRunEntryFromDescriptor(featureId, toolId, descriptor) {
-        var runtime = getRuntime();
-        if (String(runtime.getSelectedIntegratedFeatureId() || '').trim() !== String(featureId || '').trim()) {
-            return;
-        }
-
-        var list = document.getElementById('integrated-input-list');
-        var hint = document.getElementById('integrated-run-hint');
-        var runBtn = document.getElementById('integrated-run-btn');
-        if (!list || !hint || !runBtn) {
-            return;
-        }
-
-        var inputs = descriptor.inputs || [];
-        var paramCount = (descriptor.parameters || []).length;
-        var dbCount = (descriptor.databases || []).length;
-        hint.textContent = '需要输入文件 ' + inputs.length + ' 项，参数 ' + paramCount + ' 项，数据库 ' + dbCount + ' 项；点击右侧按钮可直接进入插件工作台配置并提交任务。';
-        runBtn.textContent = '配置并运行 ' + (descriptor.name || toolId);
-
-        if (inputs.length === 0) {
-            list.innerHTML = '<div class="integrated-input-empty">当前工具没有声明输入文件，可直接进入插件工作台查看参数并运行。</div>';
-            return;
-        }
-
-        list.innerHTML = inputs.map(function(input) {
-            return ''
-                + '<div class="integrated-input-item">'
-                + '  <div class="integrated-input-label-row">'
-                + '    <span class="integrated-input-label">' + runtime.escapeHtml(input.label || input.name || '输入文件') + '</span>'
-                + (input.required !== false ? '<span class="integrated-input-required">必填</span>' : '')
-                + '  </div>'
-                + '  <div class="integrated-input-desc">' + runtime.escapeHtml(input.description || '请在插件工作台中选择文件') + '</div>'
-                + '</div>';
-        }).join('');
     }
 
     function openLocalArtifact(localPath) {
@@ -598,8 +551,6 @@
         hasIntegratedResultContent: hasIntegratedResultContent,
         getDefaultIntegratedResultTab: getDefaultIntegratedResultTab,
         renderIntegratedFeature: renderIntegratedFeature,
-        renderIntegratedRunEntry: renderIntegratedRunEntry,
-        updateIntegratedRunEntryFromDescriptor: updateIntegratedRunEntryFromDescriptor,
         renderIntegratedHtmlPreview: renderIntegratedHtmlPreview,
         renderIntegratedTable: renderIntegratedTable,
         sortIntegratedArtifacts: sortIntegratedArtifacts,

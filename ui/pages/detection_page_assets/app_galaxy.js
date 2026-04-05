@@ -59,6 +59,9 @@ let historyRefreshRequestId = 0;
 const HISTORY_REFRESH_MIN_LOADING_MS = 450;
 let historyRefreshLoadingStartedAt = 0;
 let historyRefreshLoadingTimer = null;
+const INTEGRATED_SIDEBAR_DRAWER_BREAKPOINT = 1280;
+let integratedSidebarDrawerHandlersBound = false;
+let integratedHistorySectionCollapsed = true;
 const DETECTION_WORKFLOW_TOOL_IDS = [
     'unknown_sample_detection',
     'wastewater_metagenomics_basic',
@@ -131,6 +134,66 @@ function setHidden(element, hidden) {
         return;
     }
     element.classList.toggle('is-hidden', Boolean(hidden));
+}
+
+function isIntegratedSidebarDrawerMode() {
+    return window.matchMedia(`(max-width: ${INTEGRATED_SIDEBAR_DRAWER_BREAKPOINT}px)`).matches;
+}
+
+function setIntegratedSidebarDrawerOpen(open) {
+    const tabIntegrated = document.getElementById('tab-integrated');
+    const toggleBtn = document.getElementById('integrated-sidebar-toggle');
+    const nextOpen = Boolean(open) && isIntegratedSidebarDrawerMode();
+    if (tabIntegrated) {
+        tabIntegrated.classList.toggle('integrated-sidebar-open', nextOpen);
+    }
+    if (toggleBtn) {
+        toggleBtn.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    }
+}
+
+function closeIntegratedSidebarDrawer() {
+    setIntegratedSidebarDrawerOpen(false);
+}
+
+function bindIntegratedSidebarDrawerControls() {
+    const toggleBtn = document.getElementById('integrated-sidebar-toggle');
+    const backdrop = document.getElementById('integrated-sidebar-backdrop');
+
+    if (toggleBtn && toggleBtn.dataset.bound !== '1') {
+        toggleBtn.dataset.bound = '1';
+        toggleBtn.addEventListener('click', function() {
+            const tabIntegrated = document.getElementById('tab-integrated');
+            const opening = !(tabIntegrated && tabIntegrated.classList.contains('integrated-sidebar-open'));
+            setIntegratedSidebarDrawerOpen(opening);
+        });
+    }
+
+    if (backdrop && backdrop.dataset.bound !== '1') {
+        backdrop.dataset.bound = '1';
+        backdrop.addEventListener('click', function() {
+            closeIntegratedSidebarDrawer();
+        });
+    }
+
+    if (integratedSidebarDrawerHandlersBound) {
+        if (!isIntegratedSidebarDrawerMode()) {
+            closeIntegratedSidebarDrawer();
+        }
+        return;
+    }
+    integratedSidebarDrawerHandlersBound = true;
+
+    window.addEventListener('resize', function() {
+        if (!isIntegratedSidebarDrawerMode()) {
+            closeIntegratedSidebarDrawer();
+        }
+    });
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closeIntegratedSidebarDrawer();
+        }
+    });
 }
 
 renderLinearIcons(document);
@@ -224,6 +287,7 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
             renderIntegratedWorkbench();
         });
     }
+    bindIntegratedSidebarDrawerControls();
 
     // 运行按钮
     document.getElementById('run-btn').addEventListener('click', function() {
@@ -244,12 +308,6 @@ new QWebChannel(qt.webChannelTransport, function(channel) {
     window._onRunResult = function(result) {
         window.ToolPanelRenderer.onRunResult(result);
     };
-    const integratedRunBtn = document.getElementById('integrated-run-btn');
-    if (integratedRunBtn) {
-        integratedRunBtn.addEventListener('click', function() {
-            window.IntegratedWorkbenchRenderer.openIntegratedRunEntry();
-        });
-    }
     window.IntegratedWorkbenchRenderer.initializeIntegratedSectionToggles();
     window.IntegratedWorkbenchRenderer.initializeIntegratedResultTabs();
     bindHelpTooltipInteractions();
@@ -268,6 +326,10 @@ function switchTab(tab) {
     const target = document.getElementById('tab-' + tab);
     if (target) {
         target.classList.add('active');
+    }
+
+    if (tab !== 'integrated') {
+        closeIntegratedSidebarDrawer();
     }
 
     if (tab === 'integrated') {
@@ -383,15 +445,39 @@ function renderIntegratedWorkbench() {
         subtitle.textContent = integratedWorkbench.subtitle || '';
     }
 
-    const container = document.getElementById('integrated-feature-list');
-    if (!container) {
+    const analysisContainer = document.getElementById('integrated-analysis-feature-list');
+    const historyContainer = document.getElementById('integrated-history-feature-list');
+    const historyToggleBtn = document.getElementById('integrated-history-toggle');
+    const historyCountEl = document.getElementById('integrated-history-count');
+    if (!analysisContainer || !historyContainer || !historyToggleBtn || !historyCountEl) {
         return;
     }
 
     const features = integratedWorkbench.features || [];
+    const analysisFeatures = [];
+    const historyFeatures = [];
+    features.forEach(function(feature) {
+        const featureId = String(feature && feature.id || '').trim();
+        if (window.IntegratedWorkbenchStateManager.isIntegratedHistoryFeatureId(featureId)) {
+            historyFeatures.push(feature);
+            return;
+        }
+        analysisFeatures.push(feature);
+    });
+    const hasSelectedHistoryFeature = historyFeatures.some(function(feature) {
+        return String(feature && feature.id || '').trim() === String(selectedIntegratedFeatureId || '').trim();
+    });
+    if (hasSelectedHistoryFeature) {
+        integratedHistorySectionCollapsed = false;
+    }
     window.IntegratedSidebarRenderer.renderIntegratedSidebar({
-        container,
-        features,
+        analysisContainer,
+        historyContainer,
+        historyToggleBtn,
+        historyCountEl,
+        analysisFeatures,
+        historyFeatures,
+        historyCollapsed: integratedHistorySectionCollapsed,
         selectedFeatureId: selectedIntegratedFeatureId,
         isHistoryResult: function(featureId) {
             return window.IntegratedWorkbenchStateManager.isIntegratedHistoryFeatureId(featureId);
@@ -400,7 +486,12 @@ function renderIntegratedWorkbench() {
             return window.IntegratedWorkbenchStateManager.isIntegratedPinnedFeatureId(featureId);
         },
         onSelect: function(featureId, options) {
+            closeIntegratedSidebarDrawer();
             selectIntegratedFeature(featureId, options);
+        },
+        onHistoryToggle: function(nextCollapsed) {
+            integratedHistorySectionCollapsed = Boolean(nextCollapsed);
+            renderIntegratedWorkbench();
         },
         onPinToggle: function(featureId, pinned) {
             window.IntegratedWorkbenchStateManager.setIntegratedHistoryResultPinned(featureId, pinned);
