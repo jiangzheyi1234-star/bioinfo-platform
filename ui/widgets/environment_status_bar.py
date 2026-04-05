@@ -78,7 +78,9 @@ class EnvironmentStatusBar(QFrame):
             QFrame#EnvironmentStatusBar {{
                 background-color: {styles.COLOR_BG_CARD};
                 border: none;
+                border-top: 0px;
                 padding: 0 12px;
+                margin: 0px;
             }}
         """)
         self._build_ui()

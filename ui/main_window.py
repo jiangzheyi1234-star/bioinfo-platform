@@ -1,4 +1,4 @@
-﻿"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
+"""主窗口：6页导航 + 项目切换 + ServiceLocator 接线。"""
 
 import logging
 from typing import Optional
@@ -28,7 +28,9 @@ from ui.controllers.main_window_disk_monitor import MainWindowDiskMonitor
 from ui.controllers.install_task_controller import InstallTaskController
 from ui.controllers.main_window_log_controller import MainWindowLogController
 from ui.controllers.main_window_project_controller import MainWindowProjectController
-from ui.controllers.main_window_reconcile_controller import MainWindowReconcileController
+from ui.controllers.main_window_reconcile_controller import (
+    MainWindowReconcileController,
+)
 from ui.controllers.main_window_ssh_controller import MainWindowSSHController
 from ui.widgets import styles
 from ui.widgets.environment_status_bar import EnvironmentStatusBar
@@ -45,6 +47,7 @@ class _CurrentPageStackedWidget(QStackedWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.currentChanged.connect(lambda _idx: self.updateGeometry())
 
     def minimumSizeHint(self):
@@ -66,7 +69,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("H2OMeta 宏基因组分析平台")
         self.resize(980, 680)
         self.setMinimumSize(900, 600)
-        self.setStyleSheet(f"background-color: {styles.COLOR_BG_APP};")
+        # Moved stylesheet setting to central widget
 
         self._pm = project_manager or ProjectManager()
         self._ssh_service_wrapper: Optional[SSHService] = None
@@ -94,7 +97,12 @@ class MainWindow(QMainWindow):
 
     def init_ui(self) -> None:
         central = QWidget()
+        central.setObjectName("MainCentralWidget")
         self.setCentralWidget(central)
+        self.setStyleSheet(f"""
+            QMainWindow {{ background-color: {styles.COLOR_BG_APP}; }}
+            QWidget#MainCentralWidget {{ background-color: {styles.COLOR_BG_APP}; }}
+        """)
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -108,7 +116,9 @@ class MainWindow(QMainWindow):
         sidebar_widget.setFixedWidth(176)
         sidebar_widget.setStyleSheet(
             f"background-color: {styles.COLOR_BG_SIDEBAR};"
+            f"border: none;"
             f"border-right: 1px solid {styles.COLOR_BORDER};"
+            f"border-bottom: 0px;"
         )
         sidebar_layout = QVBoxLayout(sidebar_widget)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
@@ -134,12 +144,16 @@ class MainWindow(QMainWindow):
 
         self._detection_loaded = False
         self._detection_placeholder = QWidget()
-        self._detection_placeholder.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE};")
+        self._detection_placeholder.setStyleSheet(
+            f"background-color: {styles.COLOR_BG_PAGE};border: none;"
+        )
         self.detection_page = self._detection_placeholder
         self.content.addWidget(self.detection_page)
 
         self.settings_page = SettingsPage()
-        self.settings_page.active_client_changed.connect(self._on_settings_active_client_changed)
+        self.settings_page.active_client_changed.connect(
+            self._on_settings_active_client_changed
+        )
         self.database_page = DatabasePage()
         self.content.addWidget(self.database_page)
         self.content.addWidget(self.settings_page)
@@ -171,7 +185,9 @@ class MainWindow(QMainWindow):
 
         for i in range(self.sidebar.count()):
             item = self.sidebar.item(i)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            item.setFlags(
+                item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
 
         self.sidebar.currentRowChanged.connect(self._on_nav_row_changed)
         middle_layout.addWidget(self.content)
@@ -187,7 +203,9 @@ class MainWindow(QMainWindow):
 
         self._install_task_panel = InstallTaskPanel(self)
         self._install_task_controller.changed.connect(self._refresh_install_task_ui)
-        self._install_task_panel.locate_requested.connect(self._on_install_task_locate_requested)
+        self._install_task_panel.locate_requested.connect(
+            self._on_install_task_locate_requested
+        )
         self._refresh_install_task_ui()
 
         linux_card = getattr(self.settings_page, "linux_card", None)
@@ -205,7 +223,11 @@ class MainWindow(QMainWindow):
         if self._pm.current_project is not None:
             return
         try:
-            projects = [p for p in self._pm.list_projects(sort_by="last_opened") if p.status == "active"]
+            projects = [
+                p
+                for p in self._pm.list_projects(sort_by="last_opened")
+                if p.status == "active"
+            ]
             if not projects:
                 return
             self._pm.open_project(projects[0].project_id)
@@ -256,7 +278,6 @@ class MainWindow(QMainWindow):
     def _make_nav_icon(icon_key: str) -> QIcon:
         """Build sidebar icon from Phosphor key."""
         return qta.icon(icon_key, color="#64748B", color_active="#0EA5E9")
-
 
     def _initialize_services_deferred(self) -> None:
         if self._services_initialized:
@@ -351,7 +372,6 @@ class MainWindow(QMainWindow):
         if self._log_controller is not None:
             self._log_controller.load_log_history_for_project(project_id, logger)
 
-
     def _notify_pages_context_changed(self) -> None:
         """Notify pages to refresh UI state when SSH/project context changes."""
         for page_name in ("home_page", "detection_page", "database_page"):
@@ -373,7 +393,9 @@ class MainWindow(QMainWindow):
             return self.settings_page.get_active_client()
         return None
 
-    def set_settings_locked(self, locked: bool, reason: str = "SSH 任务执行中，设置暂时锁定") -> None:
+    def set_settings_locked(
+        self, locked: bool, reason: str = "SSH 任务执行中，设置暂时锁定"
+    ) -> None:
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.set_global_lock(locked, reason)
 
@@ -425,7 +447,9 @@ class MainWindow(QMainWindow):
 
     def _on_exec_started_for_log(self, execution_id: str) -> None:
         if self._log_controller is not None:
-            self._log_controller.on_exec_started(execution_id, self._ssh_service_wrapper)
+            self._log_controller.on_exec_started(
+                execution_id, self._ssh_service_wrapper
+            )
 
     def _on_exec_completed_for_log(self, execution_id: str) -> None:
         if self._log_controller is not None:
@@ -434,7 +458,6 @@ class MainWindow(QMainWindow):
     def _on_exec_failed_for_log(self, execution_id: str, error: str) -> None:
         if self._log_controller is not None:
             self._log_controller.on_exec_failed(execution_id, error)
-
 
     def _schedule_reconcile_running_tasks(self, delay_ms: int = 150) -> None:
         if self._reconcile_controller is not None:
@@ -526,7 +549,9 @@ class MainWindow(QMainWindow):
             self.raise_()
             self.activateWindow()
         except Exception:
-            logger.exception("Failed to activate main window before install-task navigation")
+            logger.exception(
+                "Failed to activate main window before install-task navigation"
+            )
 
     def closeEvent(self, event) -> None:
         if self._install_task_panel is not None:
@@ -562,7 +587,9 @@ class MainWindow(QMainWindow):
     def event(self, event) -> bool:
         if event.type() == QEvent.Type.WindowActivate:
             if self.windowState() & Qt.WindowState.WindowMinimized:
-                self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+                self.setWindowState(
+                    self.windowState() & ~Qt.WindowState.WindowMinimized
+                )
             self.raise_()
             self.activateWindow()
 
