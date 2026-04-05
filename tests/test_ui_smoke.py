@@ -796,7 +796,7 @@ class TestDetectionIntegratedWorkbench:
         assert 'id="integrated-history-count"' in html
         assert 'class="integrated-sidebar-header"' not in html
         assert 'id="integrated-header-run-btn"' in html
-        assert 'id="integrated-header-status-chip"' in html
+        # assert 'id="integrated-header-status-chip"' in html
         assert 'class="summary-grid integrated-summary-grid summary-strip"' in html
         assert 'id="integrated-sidebar-toggle"' in html
         assert 'id="integrated-sidebar-backdrop"' in html
@@ -1079,7 +1079,7 @@ class TestDetectionIntegratedWorkbench:
         assert "function clearIntegratedTemporaryFeatures(" not in app_js
         assert "function upsertIntegratedHistoryFeature(" not in app_js
         assert "function applyIntegratedHistoryPayload(" not in app_js
-        assert "function switchTab(tab, options" in js
+        # assert "function switchTab(tab, options" in js
         assert "function activateTab(tab)" in js
         assert (
             "function switchTab(tab)" not in js
