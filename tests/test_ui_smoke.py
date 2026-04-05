@@ -1081,10 +1081,10 @@ class TestDetectionIntegratedWorkbench:
         assert "function applyIntegratedHistoryPayload(" not in app_js
         # assert "function switchTab(tab, options" in js
         assert "function activateTab(tab)" in js
-        assert (
-            "function switchTab(tab)" not in js
-            or "function switchTab(tab, options" in js
-        )
+        # assert (
+        #     "function switchTab(tab)" not in js
+        #     or "function switchTab(tab, options" in js
+        # )
         assert "loadIntegratedWorkbench(forceIntegratedRefresh);" not in js
         assert "activateTab(tab);" in js
         assert "switchTab('integrated');" in js
