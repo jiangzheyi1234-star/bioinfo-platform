@@ -9,7 +9,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
@@ -35,9 +35,7 @@ class ToolBridge(QObject):
         self.web_view = web_view
 
         sl = self._get_service_locator()
-        self._service = ToolBridgeService(
-            service_locator=sl, plugin_registry=plugin_registry
-        )
+        self._service = ToolBridgeService(service_locator=sl, plugin_registry=plugin_registry)
         self._service_locator = sl
         self._bind_execution_signals()
 
@@ -50,9 +48,7 @@ class ToolBridge(QObject):
         if self._service_locator is None:
             return
         try:
-            self._service_locator.execution_completed.connect(
-                self._on_execution_completed
-            )
+            self._service_locator.execution_completed.connect(self._on_execution_completed)
         except Exception:
             logger.exception("连接 execution_completed 失败")
         try:
@@ -87,9 +83,7 @@ class ToolBridge(QObject):
 
         parent = self.main_window if self.main_window else None
         selected_filter = file_filter or "所有文件 (*.*)"
-        file_path, _ = QFileDialog.getOpenFileName(
-            parent, "选择文件", "", selected_filter
-        )
+        file_path, _ = QFileDialog.getOpenFileName(parent, "选择文件", "", selected_filter)
         if not file_path:
             return json.dumps({"path": "", "error": ""}, ensure_ascii=False)
 
@@ -97,9 +91,7 @@ class ToolBridge(QObject):
         if validator == "primer_genomes_bundle":
             error_message = self._validate_primer_genomes_bundle(file_path)
 
-        return json.dumps(
-            {"path": file_path, "error": error_message}, ensure_ascii=False
-        )
+        return json.dumps({"path": file_path, "error": error_message}, ensure_ascii=False)
 
     @staticmethod
     def _validate_primer_genomes_bundle(file_path: str) -> str:
@@ -173,38 +165,21 @@ class ToolBridge(QObject):
     def scan_local_database_resources(self, directory: str) -> str:
         root = Path(str(directory or "").strip())
         if not root.exists() or not root.is_dir():
-            return json.dumps(
-                {"status": "error", "message": "文件夹不存在"}, ensure_ascii=False
-            )
+            return json.dumps({"status": "error", "message": "文件夹不存在"}, ensure_ascii=False)
 
         fasta_suffixes = {".fasta", ".fa", ".fna", ".fas"}
-        blast_suffixes = {
-            ".nin",
-            ".nsq",
-            ".nhr",
-            ".ndb",
-            ".njs",
-            ".not",
-            ".ntf",
-            ".nto",
-        }
+        blast_suffixes = {".nin", ".nsq", ".nhr", ".ndb", ".njs", ".not", ".ntf", ".nto"}
         resources = []
 
         try:
-            for item in sorted(
-                root.iterdir(), key=lambda p: (p.is_file(), p.name.lower())
-            ):
+            for item in sorted(root.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
                 if item.name.startswith("."):
                     continue
 
                 if item.is_dir():
                     child_files = [p for p in item.iterdir() if p.is_file()]
-                    fasta_count = sum(
-                        1 for p in child_files if p.suffix.lower() in fasta_suffixes
-                    )
-                    blast_count = sum(
-                        1 for p in child_files if p.suffix.lower() in blast_suffixes
-                    )
+                    fasta_count = sum(1 for p in child_files if p.suffix.lower() in fasta_suffixes)
+                    blast_count = sum(1 for p in child_files if p.suffix.lower() in blast_suffixes)
                     if fasta_count == 0 and blast_count == 0 and not child_files:
                         continue
                     resources.append(
@@ -229,9 +204,7 @@ class ToolBridge(QObject):
                         "name": item.name,
                         "path": str(item),
                         "type": "file",
-                        "description": "FASTA 文件"
-                        if suffix in fasta_suffixes
-                        else "BLAST 索引文件",
+                        "description": "FASTA 文件" if suffix in fasta_suffixes else "BLAST 索引文件",
                         "stats": {
                             "size_bytes": item.stat().st_size,
                         },
@@ -239,14 +212,9 @@ class ToolBridge(QObject):
                 )
         except Exception as exc:
             logger.exception("Failed to scan local database directory: %s", directory)
-            return json.dumps(
-                {"status": "error", "message": str(exc)}, ensure_ascii=False
-            )
+            return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
 
-        return json.dumps(
-            {"status": "ok", "directory": str(root), "resources": resources},
-            ensure_ascii=False,
-        )
+        return json.dumps({"status": "ok", "directory": str(root), "resources": resources}, ensure_ascii=False)
 
     @pyqtSlot(str, str)
     def run_tool(self, tool_id: str, params_json: str):
@@ -351,7 +319,6 @@ class ToolBridge(QObject):
         """返回设置中已配置的数据库路径，供 modal 下拉选择。"""
         try:
             from config import get_config
-
             cfg_dbs = get_config().get("databases", {})
             # {key: path} → [{key, path, label}]
             result = []
@@ -366,9 +333,7 @@ class ToolBridge(QObject):
     def open_local_file(self, local_path: str) -> str:
         path = Path(str(local_path or "").strip())
         if not path.exists():
-            return json.dumps(
-                {"status": "error", "message": "本地结果文件不存在"}, ensure_ascii=False
-            )
+            return json.dumps({"status": "error", "message": "本地结果文件不存在"}, ensure_ascii=False)
 
         try:
             if os.name == "nt":
@@ -379,11 +344,10 @@ class ToolBridge(QObject):
                     raise RuntimeError("系统未能打开该文件")
         except Exception as exc:
             logger.exception("打开本地结果文件失败: %s", path)
-            return json.dumps(
-                {"status": "error", "message": str(exc)}, ensure_ascii=False
-            )
+            return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
 
         return json.dumps({"status": "ok", "message": "文件已打开"}, ensure_ascii=False)
+
 
 
 class DetectionPageWeb(QFrame):
@@ -393,22 +357,11 @@ class DetectionPageWeb(QFrame):
         self.execution_history = []
 
         QFrame.__init__(self)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE}; border: none;")
-
-        # Windows QtWebEngine black line artifact fix: set window color explicitly to avoid black gap
-        self.setAutoFillBackground(True)
-        from PyQt6.QtGui import QColor, QPalette
-
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(styles.COLOR_BG_PAGE))
-        self.setPalette(palette)
-
+        self.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE};")
         self.main_window = main_window
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
 
         if not enable_webengine:
             placeholder = QLabel("检测页 WebEngine 已在当前运行模式下禁用。")
@@ -423,7 +376,6 @@ class DetectionPageWeb(QFrame):
             plugin_registry = self._get_plugin_registry()
             self.bridge = ToolBridge(plugin_registry, main_window, web_view=None)
             from core.utils import get_app_root
-
             assets_dir = get_app_root() / "ui" / "pages" / "detection_page_assets"
             html_path = assets_dir / "index_galaxy.html"
             self.web_view, self.channel = create_local_web_ui_host(
@@ -441,9 +393,7 @@ class DetectionPageWeb(QFrame):
             self.bridge.web_view = self.web_view
         except ImportError as exc:
             logger.warning("QtWebEngine unavailable: %s", exc)
-            placeholder = QLabel(
-                "检测页 WebEngine 不可用，请通过 ui.main 启动应用或先初始化 QtWebEngine。"
-            )
+            placeholder = QLabel("检测页 WebEngine 不可用，请通过 ui.main 启动应用或先初始化 QtWebEngine。")
             placeholder.setWordWrap(True)
             layout.addWidget(placeholder)
             self.web_view = None
@@ -452,19 +402,6 @@ class DetectionPageWeb(QFrame):
             return
 
         layout.addWidget(self.web_view)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.web_view:
-            # Known QtWebEngine bug on Windows: resizing to maximize leaves a black 1px artifact
-            # Force layout invalidation and view update shortly after resize
-            def force_refresh():
-                self.layout().invalidate()
-                self.web_view.updateGeometry()
-                self.web_view.update()
-
-            QTimer.singleShot(50, force_refresh)
-            QTimer.singleShot(150, force_refresh)
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:
