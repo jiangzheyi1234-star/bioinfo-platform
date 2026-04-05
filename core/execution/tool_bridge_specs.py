@@ -160,6 +160,15 @@ DETECTION_WORKFLOW_SPECS: dict[str, dict[str, Any]] = {
 
 DETECTION_WORKFLOW_ORDER = tuple(DETECTION_WORKFLOW_SPECS)
 TARGETED_RESULT_TOOL_IDS = ("centrifuge", "kraken2", *DETECTION_WORKFLOW_ORDER)
+INTEGRATED_ANALYSIS_FEATURE_ORDER = (
+    "primer_design",
+    "multiplex_primer_panel",
+    "targeted_sequencing",
+    "unknown_sample_detection",
+    "wastewater_metagenomics_basic",
+    "animal_metagenomics_basic",
+    "target_screening",
+)
 
 
 def build_integrated_workbench_config() -> dict[str, Any]:

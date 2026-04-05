@@ -45,20 +45,20 @@
 
 /* Integrated/result workspace */
 #tab-integrated .integrated-shell {
-    background: linear-gradient(180deg, #f7f8fa 0%, #f4f6f9 100%);
+    background: #f6f8fa;
 }
 
 #tab-integrated .integrated-sidebar {
-    background: linear-gradient(180deg, #ffffff 0%, #f7f8fa 100%);
+    background: #f8fafc;
 }
 
 #tab-integrated .integrated-feature-item[data-source-mode="history"] {
-    background: linear-gradient(180deg, #fcfdff 0%, #ffffff 100%);
+    background: transparent;
 }
 
 #tab-integrated .integrated-feature-item.active {
     border-color: #c6d2e1;
-    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+    background: #e8eff7;
 }
 
 #tab-integrated .integrated-feature-action.is-active {
@@ -68,7 +68,7 @@
 
 #tab-integrated .integrated-empty-state {
     border-color: #c9d1dc;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    background: #ffffff;
 }
 
 #tab-integrated .empty-mark {
@@ -77,18 +77,18 @@
 }
 
 #tab-integrated .detail-header-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    background: transparent;
+    box-shadow: none;
 }
 
 #tab-integrated .feature-state-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    background: #ffffff;
     border-color: #d6dee8;
 }
 
 #tab-integrated .summary-card.tone-primary,
 #tab-integrated .summary-card.tone-info {
-    background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+    background: transparent;
     border-color: #d9e2ec;
 }
 

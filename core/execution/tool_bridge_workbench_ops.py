@@ -6,7 +6,11 @@ import copy
 import json
 import logging
 
-from core.execution.tool_bridge_specs import DETECTION_WORKFLOW_ORDER, DETECTION_WORKFLOW_SPECS
+from core.execution.tool_bridge_specs import (
+    DETECTION_WORKFLOW_ORDER,
+    DETECTION_WORKFLOW_SPECS,
+    INTEGRATED_ANALYSIS_FEATURE_ORDER,
+)
 from core.execution.workbench_view_builders import build_multiplex_view, build_primer_view
 
 logger = logging.getLogger(__name__)
@@ -239,6 +243,7 @@ def get_integrated_workbench_config(self) -> dict:
     if live_targeted_view is not None:
         views["targeted_sequencing"] = live_targeted_view
 
+    _sort_integrated_workbench_features(features)
     return config
 
 
@@ -262,6 +267,28 @@ def _ensure_detection_workbench_entries(self, features: list[dict], views: dict[
         views.setdefault(workflow_id, copy.deepcopy(spec["view"]))
         if isinstance(views.get(workflow_id), dict):
             views[workflow_id].setdefault("feature_id", workflow_id)
+
+
+def _sort_integrated_workbench_features(features: list[dict]) -> None:
+    if not isinstance(features, list) or not features:
+        return
+    order_map = {feature_id: index for index, feature_id in enumerate(INTEGRATED_ANALYSIS_FEATURE_ORDER)}
+    ordered = []
+    seen_feature_ids = set()
+    fallback_features = []
+
+    for feature in features:
+        feature_id = str(feature.get("id") or "").strip() if isinstance(feature, dict) else ""
+        if feature_id in order_map and feature_id not in seen_feature_ids:
+            seen_feature_ids.add(feature_id)
+            ordered.append((order_map[feature_id], feature))
+            continue
+        fallback_features.append(feature)
+
+    ordered.sort(key=lambda item: item[0])
+    sorted_features = [item[1] for item in ordered]
+    sorted_features.extend(fallback_features)
+    features[:] = sorted_features
 
 
 def _build_detection_workflow_view_for_execution(self, workflow_id: str, execution_id: str):

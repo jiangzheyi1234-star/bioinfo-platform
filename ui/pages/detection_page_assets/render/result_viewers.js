@@ -14,8 +14,9 @@
 
         container.innerHTML = '';
         items.forEach(function(item) {
+            var tone = String(item && item.tone || 'default');
             var card = document.createElement('div');
-            card.className = 'summary-card tone-' + (item.tone || 'default');
+            card.className = 'summary-card summary-stat tone-' + tone + ' summary-stat--' + tone;
             card.innerHTML = '<div class="summary-label">' + escapeHtml(item.label || '') + '</div><div class="summary-value">' + escapeHtml(String(item.value == null ? '' : item.value)) + '</div>';
             container.appendChild(card);
         });
