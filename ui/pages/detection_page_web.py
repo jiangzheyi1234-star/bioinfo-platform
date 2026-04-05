@@ -395,6 +395,15 @@ class DetectionPageWeb(QFrame):
         QFrame.__init__(self)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet(f"background-color: {styles.COLOR_BG_PAGE}; border: none;")
+
+        # Windows QtWebEngine black line artifact fix: set window color explicitly to avoid black gap
+        self.setAutoFillBackground(True)
+        from PyQt6.QtGui import QColor, QPalette
+
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(styles.COLOR_BG_PAGE))
+        self.setPalette(palette)
+
         self.main_window = main_window
 
         layout = QVBoxLayout(self)
