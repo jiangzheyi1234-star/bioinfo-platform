@@ -652,13 +652,6 @@ class ToolBridgeService:
         if tool_id not in ("centrifuge", "kraken2"):
             return None
 
-        try:
-            params = json.loads(row["parameters"] or "{}")
-        except Exception:
-            params = {}
-        legacy_workflow = DETECTION_WORKFLOW_SPECS["unknown_sample_detection"].get("legacy_workflow")
-        if params.get("workflow") == legacy_workflow:
-            return "unknown_sample_detection"
         return None
 
     def _build_result_view_for_execution(self, execution_id: str, execution_row: Any | None = None) -> dict:

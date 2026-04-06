@@ -125,6 +125,51 @@ def test_live_detection_workflow_view_uses_unified_result_builder(monkeypatch):
     assert view["hero"]["execution_id"] == "exec_detection"
 
 
+def test_live_targeted_seq_view_ignores_legacy_workflow_params(tmp_path: Path, monkeypatch):
+    pm = _build_project_manager(tmp_path)
+    pm.db.execute(
+        "INSERT INTO samples (sample_id, name, source, metadata) VALUES (?, ?, ?, ?)",
+        ("smp_targeted", "targeted sample", "test", "{}"),
+    )
+    pm.db.execute(
+        "INSERT INTO executions (execution_id, sample_id, tool_id, tool_version, parameters, status, triggered_by, created_at, completed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "exec_targeted_latest",
+            "smp_targeted",
+            "centrifuge",
+            "1.0.4",
+            json.dumps({"workflow": "unknown_detection"}),
+            "completed",
+            "manual",
+            1.0,
+            2.0,
+        ),
+    )
+    pm.db.commit()
+
+    class _Locator:
+        project_manager = pm
+
+    service = ToolBridgeService(service_locator=_Locator(), plugin_registry=_build_plugin_registry())
+    monkeypatch.setattr(
+        service,
+        "_get_execution_result_row",
+        lambda execution_id: {"execution_id": execution_id, "tool_id": "centrifuge", "status": "completed"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_result_view_for_execution",
+        lambda execution_id, row: {"feature_id": "targeted_sequencing", "hero": {"execution_id": execution_id}},
+    )
+
+    view = service._get_live_targeted_seq_view()
+
+    assert view is not None
+    assert view["hero"]["execution_id"] == "exec_targeted_latest"
+    pm.close()
+
+
 def test_get_results_for_execution_builds_prokka_view(tmp_path: Path):
     pm = _build_project_manager(tmp_path)
     registry = _build_plugin_registry()

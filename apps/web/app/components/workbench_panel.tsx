@@ -2,11 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  WorkbenchConfiguredDatabases,
   WorkbenchContent,
-  WorkbenchExecutionTrace,
   WorkbenchSidebar,
 } from "./workbench_panel_sections";
+import {
+  WorkbenchConfiguredDatabases,
+  WorkbenchExecutionTrace,
+  WorkbenchPageHeader,
+} from "./workbench_panel_support";
+import { WorkbenchObservabilityPanel } from "./workbench_observability_panel";
 import type {
   ConfiguredDatabasePath,
   ResultTab,
@@ -415,22 +419,19 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
 
   return (
     <div className="panel workbench-panel">
-      <div className="row" style={{ marginBottom: 8 }}>
-        <h3 style={{ margin: 0 }}>Integrated Result Workbench</h3>
-        <div className="row" style={{ justifyContent: "flex-end" }}>
-          <button className="btn" onClick={() => void refreshWorkbenchConfig(currentProjectId)}>
-            刷新配置
-          </button>
-          <button className="btn" onClick={() => void refreshWorkbenchHistory(currentProjectId)}>
-            刷新历史
-          </button>
-        </div>
-      </div>
-      <p className="muted" style={{ marginTop: 0 }}>
-        分析功能 {features.length} 项，历史任务 {workbenchHistoryRows.length} 项，数据库路径 {configuredDatabases.length} 项。
-      </p>
+      <WorkbenchPageHeader
+        featureCount={features.length}
+        historyCount={workbenchHistoryRows.length}
+        databaseCount={configuredDatabases.length}
+        onRefreshConfig={() => {
+          void refreshWorkbenchConfig(currentProjectId);
+        }}
+        onRefreshHistory={() => {
+          void refreshWorkbenchHistory(currentProjectId);
+        }}
+      />
 
-      <div className="integrated-shell-react">
+      <div className="workbench-shell">
         <WorkbenchSidebar
           features={features}
           sourceMode={sourceMode}
@@ -496,6 +497,8 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
         workbenchRemoteStatus={workbenchRemoteStatus}
         workbenchResult={workbenchResult}
       />
+
+      <WorkbenchObservabilityPanel onError={onError} />
 
       <WorkbenchConfiguredDatabases configuredDatabases={configuredDatabases} />
     </div>

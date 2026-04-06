@@ -58,7 +58,6 @@ DETECTION_WORKFLOW_SPECS: dict[str, dict[str, Any]] = {
                 ],
             },
         },
-        "legacy_workflow": "unknown_detection",
     },
     "wastewater_metagenomics_basic": {
         "feature": {

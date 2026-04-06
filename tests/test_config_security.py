@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import config
+import pytest
 
 
 def _read_json(path: Path) -> dict:
@@ -28,7 +29,7 @@ def test_save_config_persists_ssh_password(tmp_path, monkeypatch):
     assert stored["ssh"]["password"] == "super-secret"
 
 
-def test_migrate_legacy_config_keeps_password():
+def test_normalize_config_rejects_legacy_config():
     legacy = {
         "ip": "192.168.1.8",
         "user": "ubuntu",
@@ -36,11 +37,8 @@ def test_migrate_legacy_config_keeps_password():
         "ssh_port": 22,
     }
 
-    migrated = config.migrate_legacy_config(legacy)
-
-    assert migrated["ssh"]["host"] == "192.168.1.8"
-    assert migrated["ssh"]["user"] == "ubuntu"
-    assert migrated["ssh"]["password"] == "legacy-secret"
+    with pytest.raises(ValueError, match="legacy config format is no longer supported"):
+        config.normalize_config(legacy)
 
 
 def test_normalize_config_keeps_password_field():
@@ -52,7 +50,7 @@ def test_normalize_config_keeps_password_field():
     assert normalized["ssh"]["password"] == "should-survive"
 
 
-def test_normalize_config_migrates_legacy_databases_flat():
+def test_normalize_config_rejects_legacy_flat_databases():
     data = config.default_settings_schema()
     data["databases"] = {
         "kraken2": "/db/kraken2",
@@ -60,13 +58,8 @@ def test_normalize_config_migrates_legacy_databases_flat():
         "blast_nt": "/db/blast_nt",
     }
 
-    normalized = config.normalize_config(data)
-
-    assert normalized["databases"]["db_root"] == ""
-    assert normalized["databases"]["overrides"] == {
-        "kraken2": "/db/kraken2",
-        "blast_nt": "/db/blast_nt",
-    }
+    with pytest.raises(ValueError, match="legacy config format is no longer supported"):
+        config.normalize_config(data)
 
 
 def test_normalize_config_keeps_structured_databases():

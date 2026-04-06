@@ -30,6 +30,13 @@ export type DatabaseEntry = {
   status_message?: string;
 };
 
+export type Sample = {
+  sample_id: string;
+  name: string;
+  source?: string;
+  metadata: Record<string, unknown>;
+};
+
 export type ToolSummary = {
   id: string;
   name: string;
@@ -46,4 +53,45 @@ export type ToolDescriptor = {
   [key: string]: unknown;
 };
 
-export type TabId = "tools" | "history" | "integrated" | "database";
+export type SettingsPayload = Record<string, unknown>;
+
+export type SSHSettings = {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  use_key: boolean;
+  key_file: string;
+};
+
+export type SSHStatus = {
+  configured: boolean;
+  connected: boolean;
+  host: string;
+  port: number;
+  user: string;
+  use_key: boolean;
+  key_file: string;
+  has_password: boolean;
+  message: string;
+};
+
+export type SSHDiagnosticStep = {
+  name: string;
+  status: "ok" | "fail" | "running";
+  message: string;
+};
+
+export type RuntimeEvent = {
+  seq: number;
+  event_type: string;
+  timestamp: number;
+  payload: Record<string, unknown>;
+};
+
+export type AppLogPayload = {
+  path: string;
+  lines: string[];
+};
+
+export type TabId = "projects" | "samples" | "runs" | "history" | "databases" | "settings" | "workbench";

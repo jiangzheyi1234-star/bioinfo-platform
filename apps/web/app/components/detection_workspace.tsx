@@ -1,155 +1,56 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import {
+  DatabaseSection,
+  HistorySection,
+  ProjectsSection,
+  RunsSection,
+  SettingsSection,
+} from "./detection_workspace_sections";
+import { DetectionWorkspaceProjectSelect } from "./detection_workspace_project_select";
+import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import type {
   DatabaseEntry,
   Execution,
   Project,
+  SettingsPayload,
+  SSHDiagnosticStep,
+  SSHSettings,
+  SSHStatus,
   TabId,
   ToolDescriptor,
   ToolSummary,
 } from "./detection_workspace_types";
-import { DatabaseSection, HistorySection, ToolsSection } from "./detection_workspace_sections";
+import {
+  apiBase,
+  defaultSSHSettings,
+  isRecord,
+  parseSSHDiagnosticSteps,
+  parseSSHSettings,
+  parseSSHStatus,
+  parseSettingsPayload,
+  prettyJson,
+  readJsonOrThrow,
+  safeText,
+  toDatabaseEntry,
+  toExecution,
+  toProject,
+  toToolSummary,
+} from "./detection_workspace_utils";
+import { useDetectionWorkspaceHotkeys } from "./use_detection_workspace_hotkeys";
 import { WorkbenchPanel } from "./workbench_panel";
-
-const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: string; hotkey: string }> = [
-  { id: "tools", href: "/tools", label: "执行中心", note: "工具选择与参数运行", hotkey: "Alt+1" },
-  { id: "history", href: "/history", label: "历史归档", note: "记录、检索、归档", hotkey: "Alt+2" },
-  { id: "integrated", href: "/integrated", label: "结果工作台", note: "综合结果与状态", hotkey: "Alt+3" },
-  { id: "database", href: "/database", label: "数据与配置", note: "数据库与运行资源", hotkey: "Alt+4" },
-];
-
-const TAB_TITLES: Record<TabId, string> = {
-  tools: "执行中心",
-  history: "历史归档",
-  integrated: "结果工作台",
-  database: "数据与配置",
-};
-
-const TAB_DESCRIPTIONS: Record<TabId, string> = {
-  tools: "按工具配置参数并提交任务，保持与旧流程一致的执行语义。",
-  history: "追踪执行记录与归档状态，快速过滤并管理历史任务。",
-  integrated: "聚合工作流结果、摘要、产物与远端状态，作为主操作台。",
-  database: "查看数据库路径和可用状态，确认运行依赖是否就绪。",
-};
-
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
-}
-
-async function readJsonOrThrow(resp: Response): Promise<unknown> {
-  const payload = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    const detail = typeof (payload as { detail?: unknown })?.detail === "string" ? (payload as { detail: string }).detail : "";
-    throw new Error(detail || `HTTP ${resp.status}`);
-  }
-  return payload;
-}
-
-function safeText(value: unknown, fallback = ""): string {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || fallback;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  if (value === null || value === undefined) {
-    return fallback;
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function toProject(value: unknown): Project | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const projectId = safeText(value.project_id);
-  if (!projectId) {
-    return null;
-  }
-  return {
-    project_id: projectId,
-    name: safeText(value.name, "unnamed"),
-    status: safeText(value.status, "unknown"),
-    description: safeText(value.description),
-    last_opened_at: Number(value.last_opened_at || 0),
-  };
-}
-
-function toExecution(value: unknown): Execution | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const executionId = safeText(value.execution_id);
-  if (!executionId) {
-    return null;
-  }
-  return {
-    execution_id: executionId,
-    tool_id: safeText(value.tool_id, "unknown_tool"),
-    sample_id: safeText(value.sample_id),
-    status: safeText(value.status, "unknown"),
-    created_at: Number(value.created_at || 0),
-    sample_name: safeText(value.sample_name) || undefined,
-    parameters: safeText(value.parameters) || undefined,
-    error: safeText(value.error) || undefined,
-  };
-}
-
-function toDatabaseEntry(value: unknown): DatabaseEntry | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const dbId = safeText(value.db_id);
-  if (!dbId) {
-    return null;
-  }
-  return {
-    db_id: dbId,
-    name: safeText(value.name, "unnamed db"),
-    category: safeText(value.category, "unknown"),
-    resolved_path: safeText(value.resolved_path),
-    configured_override: safeText(value.configured_override),
-    installable: Boolean(value.installable),
-    status: safeText(value.status) || undefined,
-    status_message: safeText(value.status_message) || undefined,
-  };
-}
-
-function toToolSummary(value: unknown): ToolSummary | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const id = safeText(value.id || value.tool_id);
-  if (!id) {
-    return null;
-  }
-  return {
-    id,
-    name: safeText(value.name, id),
-    category: safeText(value.category, "unknown"),
-    description: safeText(value.description),
-  };
-}
 
 export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
   const router = useRouter();
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string>("");
   const [historyRows, setHistoryRows] = useState<Execution[]>([]);
   const [databases, setDatabases] = useState<DatabaseEntry[]>([]);
   const [tools, setTools] = useState<ToolSummary[]>([]);
+
   const [selectedToolId, setSelectedToolId] = useState<string>("");
   const [selectedDescriptor, setSelectedDescriptor] = useState<ToolDescriptor | null>(null);
   const [toolSearch, setToolSearch] = useState<string>("");
@@ -157,6 +58,22 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
   const [toolRunMsg, setToolRunMsg] = useState<string>("");
   const [toolRunBusy, setToolRunBusy] = useState<boolean>(false);
   const [busyArchiveId, setBusyArchiveId] = useState<string>("");
+
+  const [settingsDraft, setSettingsDraft] = useState<string>("{}");
+  const [settingsValue, setSettingsValue] = useState<SettingsPayload | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState<boolean>(false);
+  const [settingsMessage, setSettingsMessage] = useState<string>("");
+  const [sshSettings, setSSHSettings] = useState<SSHSettings>(defaultSSHSettings());
+  const [sshStatus, setSSHStatus] = useState<SSHStatus | null>(null);
+  const [sshDiagnostics, setSSHDiagnostics] = useState<SSHDiagnosticStep[]>([]);
+  const [sshBusyAction, setSSHBusyAction] = useState<string>("");
+  const [sshMessage, setSSHMessage] = useState<string>("");
+
+  const [createProjectName, setCreateProjectName] = useState<string>("");
+  const [createProjectDescription, setCreateProjectDescription] = useState<string>("");
+  const [createProjectBusy, setCreateProjectBusy] = useState<boolean>(false);
+  const [createProjectMessage, setCreateProjectMessage] = useState<string>("");
+
   const [error, setError] = useState<string>("");
 
   const currentProject = useMemo(
@@ -174,6 +91,92 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
       return content.includes(query);
     });
   }, [toolSearch, tools]);
+
+  const syncSSHSettingsFromPayload = (payload: SettingsPayload | null) => {
+    const sshValue = isRecord(payload) ? payload.ssh : null;
+    setSSHSettings(parseSSHSettings(sshValue));
+  };
+
+  const refreshSSHStatus = async () => {
+    const resp = await fetch(`${apiBase()}/api/v1/ssh/status`);
+    const data = await readJsonOrThrow(resp);
+    setSSHStatus(parseSSHStatus(data?.item));
+  };
+
+  const refreshSettings = async () => {
+    const resp = await fetch(`${apiBase()}/api/v1/settings`);
+    const data = await readJsonOrThrow(resp);
+    const payload = parseSettingsPayload(data?.item);
+    setSettingsValue(payload);
+    setSettingsDraft(prettyJson(payload));
+    syncSSHSettingsFromPayload(payload);
+  };
+
+  const applySettings = async () => {
+    setSettingsMessage("");
+    setError("");
+    setSettingsBusy(true);
+    try {
+      const parsed = JSON.parse(settingsDraft);
+      if (!isRecord(parsed)) {
+        throw new Error("settings patch must be a JSON object");
+      }
+      const resp = await fetch(`${apiBase()}/api/v1/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patch: parsed }),
+      });
+      const data = await readJsonOrThrow(resp);
+      const payload = parseSettingsPayload(data?.item);
+      setSettingsValue(payload);
+      setSettingsDraft(prettyJson(payload));
+      syncSSHSettingsFromPayload(payload);
+      setSettingsMessage("设置已更新");
+      await refreshSSHStatus();
+      if (currentProjectId) {
+        await refreshDatabases(currentProjectId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const createProject = async () => {
+    const name = createProjectName.trim();
+    if (!name) {
+      setError("项目名称不能为空。");
+      return;
+    }
+
+    setError("");
+    setCreateProjectMessage("");
+    setCreateProjectBusy(true);
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description: createProjectDescription.trim() || undefined,
+          open_after_create: true,
+        }),
+      });
+      const data = await readJsonOrThrow(resp);
+      const createdId = safeText(data?.item?.project_id);
+      setCreateProjectName("");
+      setCreateProjectDescription("");
+      setCreateProjectMessage(createdId ? `项目已创建并打开: ${createdId}` : "项目已创建并打开");
+      await refreshProjects();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setCreateProjectBusy(false);
+    }
+  };
 
   const refreshProjects = async () => {
     const projectResp = await fetch(`${apiBase()}/api/v1/projects`);
@@ -321,11 +324,133 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
     }
   };
 
+  const saveSSHSettings = async () => {
+    setError("");
+    setSSHMessage("");
+    setSSHBusyAction("save");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patch: {
+            ssh: {
+              host: sshSettings.host,
+              port: sshSettings.port,
+              user: sshSettings.user,
+              password: sshSettings.password,
+              use_key: sshSettings.use_key,
+              key_file: sshSettings.key_file,
+            },
+          },
+        }),
+      });
+      const data = await readJsonOrThrow(resp);
+      const payload = parseSettingsPayload(data?.item);
+      setSettingsValue(payload);
+      setSettingsDraft(prettyJson(payload));
+      syncSSHSettingsFromPayload(payload);
+      setSSHMessage("SSH 设置已保存");
+      await refreshSSHStatus();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setSSHBusyAction("");
+    }
+  };
+
+  const connectSSH = async () => {
+    setError("");
+    setSSHMessage("");
+    setSSHBusyAction("connect");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: sshSettings.host,
+          port: sshSettings.port,
+          user: sshSettings.user,
+          password: sshSettings.password,
+          use_key: sshSettings.use_key,
+          key_file: sshSettings.key_file,
+        }),
+      });
+      const data = await readJsonOrThrow(resp);
+      setSSHStatus(parseSSHStatus(data?.item));
+      setSSHDiagnostics([]);
+      setSSHMessage(safeText(data?.item?.message, "SSH 已连接"));
+      if (currentProjectId) {
+        await refreshDatabases(currentProjectId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setSSHBusyAction("");
+    }
+  };
+
+  const disconnectSSH = async () => {
+    setError("");
+    setSSHMessage("");
+    setSSHBusyAction("disconnect");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/disconnect`, {
+        method: "POST",
+      });
+      const data = await readJsonOrThrow(resp);
+      setSSHStatus(parseSSHStatus(data?.item));
+      setSSHDiagnostics([]);
+      setSSHMessage(safeText(data?.item?.message, "SSH 已断开"));
+      if (currentProjectId) {
+        await refreshDatabases(currentProjectId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setSSHBusyAction("");
+    }
+  };
+
+  const testSSH = async () => {
+    setError("");
+    setSSHMessage("");
+    setSSHBusyAction("test");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: sshSettings.host,
+          port: sshSettings.port,
+          user: sshSettings.user,
+          password: sshSettings.password,
+          use_key: sshSettings.use_key,
+          key_file: sshSettings.key_file,
+        }),
+      });
+      const data = await readJsonOrThrow(resp);
+      setSSHDiagnostics(parseSSHDiagnosticSteps(data?.item?.steps));
+      setSSHStatus(parseSSHStatus(data?.item?.status));
+      setSSHMessage(safeText(data?.item?.message));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setSSHBusyAction("");
+    }
+  };
+
   useEffect(() => {
     const run = async () => {
       try {
         await refreshProjects();
         await refreshTools();
+        await refreshSettings();
+        await refreshSSHStatus();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
@@ -353,126 +478,47 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
     void run();
   }, [currentProjectId]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
-      if (isTypingTarget) {
-        return;
-      }
-
-      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-        return;
-      }
-
-      switch (event.key) {
-        case "1":
-          event.preventDefault();
-          router.push("/tools");
-          return;
-        case "2":
-          event.preventDefault();
-          router.push("/history");
-          return;
-        case "3":
-          event.preventDefault();
-          router.push("/integrated");
-          return;
-        case "4":
-          event.preventDefault();
-          router.push("/database");
-          return;
-        default:
-          return;
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [router]);
+  useDetectionWorkspaceHotkeys(router);
 
   return (
-    <main className="app-shell">
-      <aside className="app-sidebar" aria-label="主导航">
-        <div className="sidebar-brand">
-          <h1>H2OMeta</h1>
-          <p>Desktop Workbench</p>
-        </div>
-        <nav className="sidebar-nav">
-          {NAV_ITEMS.map((item) => (
-            <Link key={item.id} className={`sidebar-nav-link${activeTab === item.id ? " active" : ""}`} href={item.href}>
-              <span className="sidebar-nav-title">{item.label}</span>
-              <span className="sidebar-nav-note">{item.note}</span>
-              <span className="sidebar-nav-hotkey">{item.hotkey}</span>
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <p>快捷键：Alt + 1/2/3/4</p>
-          <p>后端：{apiBase()}</p>
-        </div>
-      </aside>
+    <DetectionWorkspaceShell
+      activeTab={activeTab}
+      currentProject={currentProject}
+      currentProjectId={currentProjectId}
+      projects={projects}
+      toolsCount={tools.length}
+      historyCount={historyRows.length}
+      databasesCount={databases.length}
+      error={error}
+      projectSelect={
+        <DetectionWorkspaceProjectSelect
+          currentProjectId={currentProjectId}
+          projects={projects}
+          onOpenProject={openProject}
+        />
+      }
+      onRefreshProjects={() => {
+        void refreshProjects();
+      }}
+    >
+      {activeTab === "projects" ? (
+            <ProjectsSection
+              projects={projects}
+              currentProjectId={currentProjectId}
+              onOpenProject={openProject}
+              onRefreshProjects={refreshProjects}
+              createProjectName={createProjectName}
+              createProjectDescription={createProjectDescription}
+              createProjectBusy={createProjectBusy}
+              createProjectMessage={createProjectMessage}
+              onChangeCreateProjectName={setCreateProjectName}
+              onChangeCreateProjectDescription={setCreateProjectDescription}
+              onCreateProject={createProject}
+            />
+      ) : null}
 
-      <section className="app-main">
-        <header className="page-head">
-          <div>
-            <h2>{TAB_TITLES[activeTab]}</h2>
-            <p>{TAB_DESCRIPTIONS[activeTab]}</p>
-          </div>
-          <div className="page-head-actions">
-            <select
-              className="control-select"
-              value={currentProjectId}
-              onChange={(event) => void openProject(event.target.value)}
-              aria-label="选择项目"
-            >
-              {projects.map((project) => (
-                <option key={project.project_id} value={project.project_id}>
-                  {project.name} ({project.project_id})
-                </option>
-              ))}
-            </select>
-            <button className="control-btn" onClick={() => void refreshProjects()}>
-              刷新项目
-            </button>
-          </div>
-        </header>
-
-        {error ? (
-          <div className="notice-error" role="alert">
-            <strong>API Error</strong>
-            <pre>{error}</pre>
-          </div>
-        ) : null}
-
-        <section className="overview-grid" aria-label="概览">
-          <article className="overview-card">
-            <span>当前项目</span>
-            <strong>{currentProject ? currentProject.name : "none"}</strong>
-            <em>{currentProject?.project_id || "未选择"}</em>
-          </article>
-          <article className="overview-card">
-            <span>可用工具</span>
-            <strong>{tools.length}</strong>
-            <em>已按类别聚合</em>
-          </article>
-          <article className="overview-card">
-            <span>历史记录</span>
-            <strong>{historyRows.length}</strong>
-            <em>最近 50 条</em>
-          </article>
-          <article className="overview-card">
-            <span>数据库项</span>
-            <strong>{databases.length}</strong>
-            <em>含状态采集</em>
-          </article>
-        </section>
-
-        <section className="content-card">
-          {activeTab === "tools" ? (
-            <ToolsSection
+      {activeTab === "runs" ? (
+            <RunsSection
               filteredTools={filteredTools}
               selectedToolId={selectedToolId}
               selectedDescriptor={selectedDescriptor}
@@ -483,9 +529,9 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
               onRunTool={runSelectedTool}
               toolRunMsg={toolRunMsg}
             />
-          ) : null}
+      ) : null}
 
-          {activeTab === "history" ? (
+      {activeTab === "history" ? (
             <HistorySection
               historyRows={historyRows}
               historySearch={historySearch}
@@ -496,9 +542,43 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
               }}
               onArchiveExecution={archiveExecution}
             />
-          ) : null}
+      ) : null}
 
-          {activeTab === "integrated" ? (
+      {activeTab === "databases" ? (
+            <DatabaseSection
+              databases={databases}
+              onRefresh={async () => {
+                await refreshDatabases(currentProjectId);
+              }}
+            />
+      ) : null}
+
+      {activeTab === "settings" ? (
+            <SettingsSection
+              settingsDraft={settingsDraft}
+              settingsBusy={settingsBusy}
+              settingsMessage={settingsMessage}
+              parsedSettings={settingsValue}
+              sshSettings={sshSettings}
+              sshStatus={sshStatus}
+              sshMessage={sshMessage}
+              sshBusyAction={sshBusyAction}
+              sshDiagnostics={sshDiagnostics}
+              onSettingsDraftChange={setSettingsDraft}
+              onReloadSettings={refreshSettings}
+              onApplySettings={applySettings}
+              onSSHFieldChange={(key, value) => {
+                setSSHSettings((prev) => ({ ...prev, [key]: value }));
+              }}
+              onReloadSSHStatus={refreshSSHStatus}
+              onSaveSSHSettings={saveSSHSettings}
+              onConnectSSH={connectSSH}
+              onDisconnectSSH={disconnectSSH}
+              onTestSSH={testSSH}
+            />
+      ) : null}
+
+      {activeTab === "workbench" ? (
             <WorkbenchPanel
               currentProjectId={currentProjectId}
               onError={setError}
@@ -506,23 +586,7 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
                 await refreshHistory(currentProjectId);
               }}
             />
-          ) : null}
-
-          {activeTab === "database" ? (
-            <DatabaseSection
-              databases={databases}
-              onRefresh={async () => {
-                await refreshDatabases(currentProjectId);
-              }}
-            />
-          ) : null}
-        </section>
-
-        <footer className="page-footnote">
-          当前项目状态：{currentProject?.status || "none"}
-          {currentProject?.description ? ` · ${currentProject.description}` : ""}
-        </footer>
-      </section>
-    </main>
+      ) : null}
+    </DetectionWorkspaceShell>
   );
 }
