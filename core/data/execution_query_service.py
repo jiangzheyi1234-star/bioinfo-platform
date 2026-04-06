@@ -34,20 +34,36 @@ class ExecutionQueryService:
             rows = self._conn.execute(sql, (limit,)).fetchall()
         return [dict(row) for row in rows]
 
-    def get_execution_history_for_ui(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        rows = self._conn.execute(
-            """
-            SELECT e.execution_id, e.sample_id, s.name AS sample_name,
-                   e.tool_id, e.status, e.parameters,
-                   e.created_at, e.completed_at, e.error
-            FROM executions e
-            LEFT JOIN samples s ON e.sample_id = s.sample_id
-            WHERE e.archived_at IS NULL
-            ORDER BY e.created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+    def get_execution_history_for_ui(self, *, limit: int = 50, task_id: str | None = None) -> list[dict[str, Any]]:
+        normalized_task_id = str(task_id or "").strip()
+        if normalized_task_id:
+            rows = self._conn.execute(
+                """
+                SELECT e.execution_id, e.task_id, e.sample_id, s.name AS sample_name,
+                       e.tool_id, e.status, e.parameters,
+                       e.created_at, e.completed_at, e.error
+                FROM executions e
+                LEFT JOIN samples s ON e.sample_id = s.sample_id
+                WHERE e.archived_at IS NULL AND e.task_id = ?
+                ORDER BY e.created_at DESC
+                LIMIT ?
+                """,
+                (normalized_task_id, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """
+                SELECT e.execution_id, e.task_id, e.sample_id, s.name AS sample_name,
+                       e.tool_id, e.status, e.parameters,
+                       e.created_at, e.completed_at, e.error
+                FROM executions e
+                LEFT JOIN samples s ON e.sample_id = s.sample_id
+                WHERE e.archived_at IS NULL
+                ORDER BY e.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def list_recent_execution_rows(self, *, limit: int = 100) -> list[dict[str, Any]]:

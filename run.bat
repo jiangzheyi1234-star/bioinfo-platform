@@ -9,6 +9,7 @@ if "%REPO_ROOT:~-1%"=="\" set "REPO_ROOT=%REPO_ROOT:~0,-1%"
 set "DESKTOP_EXE=%REPO_ROOT%\apps\desktop\src-tauri\target\debug\h2ometa-desktop.exe"
 set "API_URL=http://127.0.0.1:8765"
 set "WEB_URL=http://127.0.0.1:3100"
+set "DESKTOP_DEV_DIR=%REPO_ROOT%\apps\desktop"
 
 set "MODE=%~1"
 if "%MODE%"=="" (
@@ -23,6 +24,7 @@ if /I "%MODE%"=="--help" goto :help
 if /I "%MODE%"=="-h" goto :help
 if /I "%MODE%"=="--check" goto :check
 if /I "%MODE%"=="--desktop" goto :desktop
+if /I "%MODE%"=="--desktop-built" goto :desktop_built
 if /I "%MODE%"=="--web" goto :web
 
 echo [ERROR] Unknown option: %MODE%
@@ -34,12 +36,13 @@ echo H2OMeta launcher
 echo.
 echo Usage:
 echo   run.bat --web      Start FastAPI + Next.js dev servers in two windows.
-echo   run.bat --desktop  Run the built desktop shell executable.
+echo   run.bat --desktop  Start Tauri desktop dev mode with live frontend changes.
+echo   run.bat --desktop-built  Run the built desktop shell executable.
 echo   run.bat --check    Check whether the desktop executable exists.
 echo   run.bat --help     Show this help.
 echo.
 echo Default:
-echo   run.bat            Prefer --desktop if built, otherwise fall back to --web.
+echo   run.bat            Prefer live desktop dev mode.
 echo.
 echo URLs:
 echo   API: %API_URL%
@@ -58,7 +61,43 @@ echo   npm run build:debug:no-bundle:win-gnu
 endlocal & exit /b 1
 
 :desktop
-echo [INFO] Launch mode: desktop shell
+echo [INFO] Launch mode: desktop dev
+if not exist "%DESKTOP_DEV_DIR%\package.json" (
+    echo [ERROR] Desktop source directory not found: %DESKTOP_DEV_DIR%
+    pause
+    endlocal & exit /b 1
+)
+
+set "H2OMETA_WORKDIR=%REPO_ROOT%"
+set "WSL_UTF8=1"
+set "PYTHONUTF8=1"
+set "NEXT_PUBLIC_API_BASE=%API_URL%"
+
+echo [INFO] Repo root: %REPO_ROOT%
+echo [INFO] Tauri dev URL: %WEB_URL%
+echo [INFO] API URL: %API_URL%
+echo [INFO] H2OMETA_WORKDIR=%H2OMETA_WORKDIR%
+echo.
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] npm not found in PATH.
+    pause
+    endlocal & exit /b 1
+)
+
+start "H2OMeta Desktop Dev" cmd /k "cd /d %DESKTOP_DEV_DIR% && set PATH=%USERPROFILE%\.cargo\bin;C:\msys64\ucrt64\bin;%PATH% && set H2OMETA_WORKDIR=%REPO_ROOT% && set WSL_UTF8=1 && set PYTHONUTF8=1 && set NEXT_PUBLIC_API_BASE=%API_URL% && npm run dev"
+if errorlevel 1 (
+    echo [ERROR] Failed to open desktop dev terminal window.
+    pause
+    endlocal & exit /b 1
+)
+
+echo [OK] Desktop dev launch command submitted.
+echo [INFO] Watch the \"H2OMeta Desktop Dev\" window for Tauri build output.
+endlocal & exit /b 0
+
+:desktop_built
+echo [INFO] Launch mode: desktop built shell
 if not exist "%DESKTOP_EXE%" (
     echo [ERROR] Desktop shell binary not found: %DESKTOP_EXE%
     echo Build it with:
@@ -69,9 +108,9 @@ if not exist "%DESKTOP_EXE%" (
 )
 
 set "H2OMETA_WORKDIR=%REPO_ROOT%"
-set "H2OMETA_PYTHON=py"
 set "WSL_UTF8=1"
 set "PYTHONUTF8=1"
+set "NEXT_PUBLIC_API_BASE=%API_URL%"
 
 "%DESKTOP_EXE%"
 set "APP_EXIT=%ERRORLEVEL%"
@@ -88,11 +127,16 @@ echo [INFO] Repo root: %REPO_ROOT%
 echo [INFO] Starting API at %API_URL%
 echo [INFO] Starting Web at %WEB_URL%
 
+set "PYTHON_EXE=py"
 where py >nul 2>nul
 if errorlevel 1 (
-    echo [ERROR] Python launcher "py" not found in PATH.
-    pause
-    endlocal & exit /b 1
+    set "PYTHON_EXE=python"
+    where python >nul 2>nul
+    if errorlevel 1 (
+        echo [ERROR] Python launcher "py" or "python" not found in PATH.
+        pause
+        endlocal & exit /b 1
+    )
 )
 
 where npm >nul 2>nul
@@ -102,7 +146,7 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-start "H2OMeta API" cmd /k "cd /d %REPO_ROOT% && set WSL_UTF8=1 && set PYTHONUTF8=1 && py -m apps.api.run"
+start "H2OMeta API" cmd /k "cd /d %REPO_ROOT% && set WSL_UTF8=1 && set PYTHONUTF8=1 && %PYTHON_EXE% -m apps.api.run"
 if errorlevel 1 (
     echo [ERROR] Failed to open API terminal window.
     pause

@@ -1,5 +1,5 @@
-import { DetectionWorkspace } from "../components/detection_workspace";
+import { redirect } from "next/navigation";
 
 export default function WorkbenchPage() {
-  return <DetectionWorkspace activeTab="workbench" />;
+  redirect("/projects");
 }

@@ -1,5 +1,5 @@
-import { DetectionWorkspace } from "../components/detection_workspace";
+import { redirect } from "next/navigation";
 
 export default function HistoryPage() {
-  return <DetectionWorkspace activeTab="history" />;
+  redirect("/projects");
 }

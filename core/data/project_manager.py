@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS samples (
 
 CREATE TABLE IF NOT EXISTS executions (
     execution_id TEXT PRIMARY KEY,
+    task_id TEXT REFERENCES tasks(task_id),
     sample_id TEXT REFERENCES samples(sample_id),
     tool_id TEXT NOT NULL,
     tool_version TEXT,
@@ -58,6 +59,20 @@ CREATE TABLE IF NOT EXISTS executions (
     remote_job_id TEXT,
     is_final_version INTEGER DEFAULT 0,  -- 标记为最终版本（用于导出和论文）
     archived_at REAL  -- 文件已清理的时间戳（数据库记录保留）
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN ('pending','queued','in_progress','completed','failed','cancelled')),
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    last_activity_at REAL NOT NULL,
+    latest_execution_id TEXT REFERENCES executions(execution_id),
+    summary TEXT NOT NULL DEFAULT '',
+    result_snapshot TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS data_items (
@@ -237,6 +252,7 @@ class ProjectManager(QObject):
 
         # 关闭旧连接
         self._close_db()
+        self._current_project = project
 
         # 建立新连接
         try:
@@ -296,6 +312,7 @@ class ProjectManager(QObject):
         except Exception:
             logger.exception("Failed to open project database: %s", db_path)
             self._close_db()
+            self._current_project = None
             raise
 
         self._current_project = project
@@ -667,8 +684,28 @@ class ProjectManager(QObject):
         添加新字段：
         - executions.is_final_version: 标记为最终版本
         - executions.archived_at: 文件清理时间戳
+        - executions.task_id: 任务归属
+        - tasks: 长时程任务表
         """
         cursor = conn.cursor()
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK(status IN ('pending','queued','in_progress','completed','failed','cancelled')),
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                last_activity_at REAL NOT NULL,
+                latest_execution_id TEXT REFERENCES executions(execution_id),
+                summary TEXT NOT NULL DEFAULT '',
+                result_snapshot TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
 
         # 检查 is_final_version 字段是否存在
         cursor.execute("PRAGMA table_info(executions)")
@@ -686,11 +723,25 @@ class ProjectManager(QObject):
                 "ALTER TABLE executions ADD COLUMN archived_at REAL"
             )
 
+        if "task_id" not in columns:
+            logger.info("迁移数据库：添加 task_id 字段")
+            conn.execute(
+                "ALTER TABLE executions ADD COLUMN task_id TEXT REFERENCES tasks(task_id)"
+            )
+
+        self._migrate_orphan_executions_into_legacy_task(conn)
+
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_exec_active_created
             ON executions(created_at)
             WHERE archived_at IS NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_exec_task_created
+            ON executions(task_id, created_at DESC)
             """
         )
         conn.execute(
@@ -717,8 +768,107 @@ class ProjectManager(QObject):
             ON execution_io(execution_id, direction)
             """
         )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tasks_project_activity
+            ON tasks(project_id, last_activity_at DESC, created_at DESC)
+            """
+        )
 
         conn.commit()
+
+    def _migrate_orphan_executions_into_legacy_task(self, conn: sqlite3.Connection) -> None:
+        current_project = self._current_project
+        if current_project is None:
+            return
+
+        orphan_row = conn.execute(
+            "SELECT COUNT(*) FROM executions WHERE task_id IS NULL"
+        ).fetchone()
+        orphan_count = int(orphan_row[0]) if orphan_row else 0
+        if orphan_count <= 0:
+            return
+
+        legacy_task_row = conn.execute(
+            """
+            SELECT task_id
+            FROM tasks
+            WHERE project_id = ? AND title = ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (current_project.project_id, "Imported history"),
+        ).fetchone()
+        if legacy_task_row is not None:
+            legacy_task_id = str(legacy_task_row[0])
+        else:
+            now = time.time()
+            legacy_task_id = f"task_{uuid.uuid4().hex[:12]}"
+            conn.execute(
+                """
+                INSERT INTO tasks (
+                    task_id, project_id, title, description, status,
+                    created_at, updated_at, last_activity_at,
+                    latest_execution_id, summary, result_snapshot
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    legacy_task_id,
+                    current_project.project_id,
+                    "Imported history",
+                    "Auto-created during task migration for executions that predate the task model.",
+                    "completed",
+                    now,
+                    now,
+                    now,
+                    None,
+                    "Legacy executions imported during workspace migration.",
+                    "{}",
+                ),
+            )
+
+        conn.execute(
+            "UPDATE executions SET task_id = ? WHERE task_id IS NULL",
+            (legacy_task_id,),
+        )
+
+        latest_execution_row = conn.execute(
+            """
+            SELECT execution_id, created_at, status, error
+            FROM executions
+            WHERE task_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (legacy_task_id,),
+        ).fetchone()
+        if latest_execution_row is None:
+            return
+
+        latest_created_at = float(latest_execution_row["created_at"] or time.time())
+        latest_status = str(latest_execution_row["status"] or "completed")
+        mapped_status = {
+            "pending": "queued",
+            "running": "in_progress",
+            "retrying": "in_progress",
+            "completed": "completed",
+            "failed": "failed",
+        }.get(latest_status, "completed")
+        conn.execute(
+            """
+            UPDATE tasks
+            SET latest_execution_id = ?, updated_at = ?, last_activity_at = ?, status = ?, summary = ?
+            WHERE task_id = ?
+            """,
+            (
+                str(latest_execution_row["execution_id"]),
+                latest_created_at,
+                latest_created_at,
+                mapped_status,
+                "Imported legacy executions",
+                legacy_task_id,
+            ),
+        )
 
     def _close_db(self) -> None:
         """安全关闭当前数据库连接"""

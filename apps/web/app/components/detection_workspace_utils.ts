@@ -9,11 +9,13 @@ import type {
   SSHDiagnosticStep,
   SSHSettings,
   SSHStatus,
+  Task,
   ToolSummary,
 } from "./detection_workspace_types";
 
 export function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
+  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
+  return raw.trim().replace(/\/+$/, "");
 }
 
 export async function readJsonOrThrow(resp: Response): Promise<any> {
@@ -74,6 +76,7 @@ export function toExecution(value: unknown): Execution | null {
   }
   return {
     execution_id: executionId,
+    task_id: safeText(value.task_id) || undefined,
     tool_id: safeText(value.tool_id, "unknown_tool"),
     sample_id: safeText(value.sample_id),
     status: safeText(value.status, "unknown"),
@@ -81,6 +84,32 @@ export function toExecution(value: unknown): Execution | null {
     sample_name: safeText(value.sample_name) || undefined,
     parameters: safeText(value.parameters) || undefined,
     error: safeText(value.error) || undefined,
+  };
+}
+
+export function toTask(value: unknown): Task | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const taskId = safeText(value.task_id);
+  if (!taskId) {
+    return null;
+  }
+  return {
+    task_id: taskId,
+    project_id: safeText(value.project_id),
+    title: safeText(value.title, taskId),
+    description: safeText(value.description),
+    status: safeText(value.status, "pending"),
+    created_at: Number(value.created_at || 0),
+    updated_at: Number(value.updated_at || 0),
+    last_activity_at: Number(value.last_activity_at || 0),
+    latest_execution_id: safeText(value.latest_execution_id),
+    summary: safeText(value.summary),
+    result_snapshot: isRecord(value.result_snapshot) ? value.result_snapshot : {},
+    execution_count: Number(value.execution_count || 0),
+    failed_execution_count: Number(value.failed_execution_count || 0),
+    latest_execution_created_at: Number(value.latest_execution_created_at || 0),
   };
 }
 

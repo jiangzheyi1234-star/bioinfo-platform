@@ -1,5 +1,5 @@
-import { DetectionWorkspace } from "../components/detection_workspace";
+import { ProjectWorkspace } from "../components/project_workspace";
 
 export default function ProjectsPage() {
-  return <DetectionWorkspace activeTab="projects" />;
+  return <ProjectWorkspace />;
 }

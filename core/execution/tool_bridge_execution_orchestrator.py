@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def execute_tool(self, tool_id: str, params: dict):
+def execute_tool(self, tool_id: str, params: dict, *, task_id: str | None = None):
     from core.execution.tool_bridge_types import ExecutionResult
 
     try:
@@ -55,6 +55,7 @@ def execute_tool(self, tool_id: str, params: dict):
             input_data_ids=input_data_ids,
             parameters=run_params,
             sample_id=sample_id,
+            task_id=str(task_id or "").strip(),
             triggered_by="manual",
             database_paths=database_paths,
         )

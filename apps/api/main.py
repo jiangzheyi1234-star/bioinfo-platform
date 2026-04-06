@@ -9,10 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
     CreateProjectRequest,
+    CreateTaskRequest,
     CreateSampleRequest,
     RunWorkbenchToolRequest,
     SSHConnectionRequest,
     SubmitExecutionRequest,
+    UpdateTaskRequest,
     UpdateSettingsRequest,
 )
 from apps.api.runtime import get_runtime_service
@@ -28,6 +30,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3100",
+        "http://127.0.0.1:3100",
         "tauri://localhost",
         "http://tauri.localhost",
         "https://tauri.localhost",
@@ -158,6 +162,45 @@ async def create_project(payload: CreateProjectRequest) -> dict[str, Any]:
 async def open_project(project_id: str) -> dict[str, Any]:
     try:
         return {"item": _runtime().open_project(project_id)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks")
+async def list_tasks(project_id: str) -> dict[str, Any]:
+    try:
+        return {"items": _runtime().list_tasks(project_id=project_id)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/tasks")
+async def create_task(project_id: str, payload: CreateTaskRequest) -> dict[str, Any]:
+    try:
+        return {
+            "item": _runtime().create_task(
+                project_id=project_id,
+                title=payload.title,
+                description=payload.description,
+            )
+        }
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}")
+async def get_task(project_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_task(project_id=project_id, task_id=task_id)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/projects/{project_id}/tasks/{task_id}")
+async def update_task(project_id: str, task_id: str, payload: UpdateTaskRequest) -> dict[str, Any]:
+    try:
+        patch = payload.model_dump(exclude_none=True)
+        return {"item": _runtime().update_task(project_id=project_id, task_id=task_id, patch=patch)}
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -309,9 +352,17 @@ async def get_execution(project_id: str, execution_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/v1/projects/{project_id}/history")
-async def list_execution_history(project_id: str, limit: int = 50) -> dict[str, Any]:
+async def list_execution_history(project_id: str, limit: int = 50, task_id: str = "") -> dict[str, Any]:
     try:
-        return {"items": _runtime().list_execution_history(project_id=project_id, limit=limit)}
+        return {"items": _runtime().list_execution_history(project_id=project_id, limit=limit, task_id=task_id or None)}
+    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/executions")
+async def list_task_executions(project_id: str, task_id: str, limit: int = 50) -> dict[str, Any]:
+    try:
+        return {"items": _runtime().list_task_executions(project_id=project_id, task_id=task_id, limit=limit)}
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -330,6 +381,7 @@ async def submit_execution(payload: SubmitExecutionRequest) -> dict[str, Any]:
         item = _runtime().submit_execution(
             ExecutionSubmitRequest(
                 project_id=payload.project_id,
+                task_id=payload.task_id,
                 tool_id=payload.tool_id,
                 input_data_ids=payload.input_data_ids,
                 parameters=payload.parameters,
@@ -351,6 +403,7 @@ async def run_workbench_tool(payload: RunWorkbenchToolRequest) -> dict[str, Any]
     try:
         item = _runtime().run_workbench_tool(
             project_id=payload.project_id,
+            task_id=payload.task_id,
             tool_id=payload.tool_id,
             params=payload.params,
         )
@@ -372,4 +425,12 @@ async def list_runtime_events(after_seq: int = 0, limit: int = 200) -> dict[str,
     try:
         return {"item": _runtime().list_runtime_events(after_seq=after_seq, limit=limit)}
     except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/results")
+async def get_project_results(project_id: str) -> dict[str, Any]:
+    try:
+        return {"items": _runtime().get_project_results(project_id=project_id)}
+    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

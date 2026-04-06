@@ -39,7 +39,9 @@
 ### M4 Continue UI cutover
 - `projects / runs / history / databases / settings / workbench` 继续作为唯一一级导航。
 - 页面结构进一步收敛，不再保留旧控制台术语。
-- 当前 M4 子任务执行事实源：`docs/migration/ui-notion-alignment.md`
+- 当前 M4 子任务执行事实源：
+  - `docs/migration/ui-notion-alignment.md`
+  - `docs/migration/project-centric-workspace-plan.md`
 
 ### M5 Delete confirmed-dead assets
 - 只删已无引用、无入口、非 runtime 桥接的旧资产。

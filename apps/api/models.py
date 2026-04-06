@@ -13,6 +13,18 @@ class CreateProjectRequest(BaseModel):
     open_after_create: bool = True
 
 
+class CreateTaskRequest(BaseModel):
+    title: str = Field(min_length=1)
+    description: str = ""
+
+
+class UpdateTaskRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+    description: str | None = None
+    status: str | None = None
+    summary: str | None = None
+
+
 class CreateSampleRequest(BaseModel):
     name: str = Field(min_length=1)
     source: str = ""
@@ -21,6 +33,7 @@ class CreateSampleRequest(BaseModel):
 
 class SubmitExecutionRequest(BaseModel):
     project_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
     tool_id: str = Field(min_length=1)
     input_data_ids: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -48,5 +61,6 @@ class SSHConnectionRequest(BaseModel):
 
 class RunWorkbenchToolRequest(BaseModel):
     project_id: str = Field(min_length=1)
+    task_id: str | None = None
     tool_id: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)

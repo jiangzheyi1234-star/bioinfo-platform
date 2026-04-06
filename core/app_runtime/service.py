@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,7 @@ def _parse_json_field(field_name: str, raw_value: Any, *, execution_id: str) -> 
 @dataclass(frozen=True)
 class ExecutionSubmitRequest:
     project_id: str
+    task_id: str
     tool_id: str
     input_data_ids: list[str]
     parameters: dict[str, Any]
@@ -143,6 +145,150 @@ class RuntimeService:
             project = self._project_manager.open_project(project_id)
             return self._project_to_dict(project)
 
+    def list_tasks(self, *, project_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            rows = self._project_manager.db.execute(
+                """
+                SELECT
+                    t.task_id,
+                    t.project_id,
+                    t.title,
+                    t.description,
+                    t.status,
+                    t.created_at,
+                    t.updated_at,
+                    t.last_activity_at,
+                    t.latest_execution_id,
+                    t.summary,
+                    t.result_snapshot,
+                    COUNT(e.execution_id) AS execution_count,
+                    SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END) AS failed_execution_count,
+                    MAX(e.created_at) AS latest_execution_created_at
+                FROM tasks t
+                LEFT JOIN executions e ON e.task_id = t.task_id
+                WHERE t.project_id = ?
+                GROUP BY t.task_id
+                ORDER BY t.last_activity_at DESC, t.created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [self._normalize_task_row(dict(row)) for row in rows]
+
+    def create_task(self, *, project_id: str, title: str, description: str = "") -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            normalized_title = str(title or "").strip()
+            if not normalized_title:
+                raise RuntimeServiceError("task title is required")
+            now = time.time()
+            task_id = f"task_{uuid.uuid4().hex[:12]}"
+            self._project_manager.db.execute(
+                """
+                INSERT INTO tasks (
+                    task_id, project_id, title, description, status,
+                    created_at, updated_at, last_activity_at,
+                    latest_execution_id, summary, result_snapshot
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    project_id,
+                    normalized_title,
+                    str(description or "").strip(),
+                    "pending",
+                    now,
+                    now,
+                    now,
+                    None,
+                    "",
+                    "{}",
+                ),
+            )
+            self._project_manager.db.commit()
+            return self.get_task(project_id=project_id, task_id=task_id)
+
+    def get_task(self, *, project_id: str, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            row = self._project_manager.db.execute(
+                """
+                SELECT
+                    t.task_id,
+                    t.project_id,
+                    t.title,
+                    t.description,
+                    t.status,
+                    t.created_at,
+                    t.updated_at,
+                    t.last_activity_at,
+                    t.latest_execution_id,
+                    t.summary,
+                    t.result_snapshot,
+                    COUNT(e.execution_id) AS execution_count,
+                    SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END) AS failed_execution_count,
+                    MAX(e.created_at) AS latest_execution_created_at
+                FROM tasks t
+                LEFT JOIN executions e ON e.task_id = t.task_id
+                WHERE t.project_id = ? AND t.task_id = ?
+                GROUP BY t.task_id
+                """,
+                (project_id, task_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeServiceError(f"Task not found: {task_id}")
+            return self._normalize_task_row(dict(row))
+
+    def update_task(self, *, project_id: str, task_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            if not isinstance(patch, dict):
+                raise RuntimeServiceError("task patch must be an object")
+            allowed_status = {"pending", "queued", "in_progress", "completed", "failed", "cancelled"}
+            updates: list[str] = []
+            values: list[Any] = []
+
+            if "title" in patch:
+                title = str(patch.get("title") or "").strip()
+                if not title:
+                    raise RuntimeServiceError("task title cannot be empty")
+                updates.append("title = ?")
+                values.append(title)
+            if "description" in patch:
+                updates.append("description = ?")
+                values.append(str(patch.get("description") or "").strip())
+            if "status" in patch:
+                status = str(patch.get("status") or "").strip()
+                if status not in allowed_status:
+                    raise RuntimeServiceError(f"invalid task status: {status}")
+                updates.append("status = ?")
+                values.append(status)
+            if "summary" in patch:
+                updates.append("summary = ?")
+                values.append(str(patch.get("summary") or "").strip())
+
+            if not updates:
+                raise RuntimeServiceError("task patch is empty")
+
+            now = time.time()
+            updates.append("updated_at = ?")
+            values.append(now)
+            updates.append("last_activity_at = ?")
+            values.append(now)
+            values.extend([project_id, task_id])
+            cursor = self._project_manager.db.execute(
+                f"UPDATE tasks SET {', '.join(updates)} WHERE project_id = ? AND task_id = ?",
+                tuple(values),
+            )
+            if cursor.rowcount <= 0:
+                raise RuntimeServiceError(f"Task not found: {task_id}")
+            self._project_manager.db.commit()
+            return self.get_task(project_id=project_id, task_id=task_id)
+
     def list_samples(self, *, project_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
@@ -209,6 +355,7 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(request.project_id)
+            self._assert_task_exists(project_id=request.project_id, task_id=request.task_id)
             sample_id = self._resolve_sample_id(request)
             tool_engine = self._service_locator.tool_engine
             if tool_engine is None:
@@ -219,6 +366,7 @@ class RuntimeService:
                 input_data_ids=request.input_data_ids,
                 parameters=request.parameters,
                 sample_id=sample_id,
+                task_id=request.task_id,
                 triggered_by=request.triggered_by,
                 database_paths=request.database_paths or None,
             )
@@ -392,12 +540,21 @@ class RuntimeService:
                 items.append(item)
             return items
 
-    def list_execution_history(self, *, project_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    def list_execution_history(self, *, project_id: str, limit: int = 50, task_id: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
             query = ExecutionQueryService(self._project_manager.db)
-            rows = query.get_execution_history_for_ui(limit=limit)
+            rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
+            return [self._normalize_execution_row(row) for row in rows]
+
+    def list_task_executions(self, *, project_id: str, task_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            self._assert_task_exists(project_id=project_id, task_id=task_id)
+            query = ExecutionQueryService(self._project_manager.db)
+            rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
             return [self._normalize_execution_row(row) for row in rows]
 
     def archive_execution(self, *, project_id: str, execution_id: str) -> dict[str, str]:
@@ -461,13 +618,25 @@ class RuntimeService:
             except (RuntimeError, ValueError) as exc:
                 raise RuntimeServiceError(str(exc)) from exc
 
-    def run_workbench_tool(self, *, project_id: str, tool_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    def run_workbench_tool(
+        self,
+        *,
+        project_id: str,
+        task_id: str | None,
+        tool_id: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
+            normalized_task_id = str(task_id or "").strip()
+            if not normalized_task_id:
+                raise RuntimeServiceError("task_id is required for workbench runs")
+            self._assert_task_exists(project_id=project_id, task_id=normalized_task_id)
             try:
                 return workbench_runtime_ops.run_workbench_tool(
                     self,
                     project_id=project_id,
+                    task_id=normalized_task_id,
                     tool_id=tool_id,
                     params=params,
                 )
@@ -505,6 +674,36 @@ class RuntimeService:
                 "latest_seq": self._event_seq,
             }
 
+    def get_project_results(self, *, project_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            rows = self._project_manager.db.execute(
+                """
+                SELECT
+                    t.task_id,
+                    t.title,
+                    t.status AS task_status,
+                    t.summary,
+                    t.last_activity_at,
+                    t.latest_execution_id,
+                    e.status AS latest_execution_status,
+                    e.tool_id AS latest_tool_id,
+                    e.error AS latest_error,
+                    COUNT(all_exec.execution_id) AS execution_count,
+                    SUM(CASE WHEN all_exec.status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
+                    SUM(CASE WHEN all_exec.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+                FROM tasks t
+                LEFT JOIN executions e ON e.execution_id = t.latest_execution_id
+                LEFT JOIN executions all_exec ON all_exec.task_id = t.task_id
+                WHERE t.project_id = ?
+                GROUP BY t.task_id
+                ORDER BY t.last_activity_at DESC, t.created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def _ensure_initialized(self) -> None:
         if not self._initialized:
             raise RuntimeServiceError("RuntimeService is not initialized")
@@ -516,6 +715,17 @@ class RuntimeService:
         if current is not None and current.project_id == project_id:
             return
         self._project_manager.open_project(project_id)
+
+    def _assert_task_exists(self, *, project_id: str, task_id: str) -> None:
+        normalized_task_id = str(task_id or "").strip()
+        if not normalized_task_id:
+            raise RuntimeServiceError("task_id is required")
+        row = self._project_manager.db.execute(
+            "SELECT task_id FROM tasks WHERE project_id = ? AND task_id = ?",
+            (project_id, normalized_task_id),
+        ).fetchone()
+        if row is None:
+            raise RuntimeServiceError(f"Task not found: {normalized_task_id}")
 
     def _resolve_sample_id(self, request: ExecutionSubmitRequest) -> str:
         registry = DataRegistry(self._project_manager.db)
@@ -560,6 +770,38 @@ class RuntimeService:
             execution_id=execution_id,
         )
         return normalized
+
+    @staticmethod
+    def _normalize_task_row(row: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(row.get("task_id") or "").strip()
+        if not task_id:
+            raise RuntimeServiceError("Invalid task row: missing task_id")
+        result_snapshot = row.get("result_snapshot")
+        if isinstance(result_snapshot, str):
+            try:
+                parsed_snapshot = json.loads(result_snapshot) if result_snapshot.strip() else {}
+            except json.JSONDecodeError as exc:
+                raise RuntimeServiceError(f"Task {task_id} has invalid result snapshot: {exc}") from exc
+        elif isinstance(result_snapshot, dict):
+            parsed_snapshot = result_snapshot
+        else:
+            parsed_snapshot = {}
+        return {
+            "task_id": task_id,
+            "project_id": str(row.get("project_id") or ""),
+            "title": str(row.get("title") or task_id),
+            "description": str(row.get("description") or ""),
+            "status": str(row.get("status") or "pending"),
+            "created_at": float(row.get("created_at") or 0.0),
+            "updated_at": float(row.get("updated_at") or 0.0),
+            "last_activity_at": float(row.get("last_activity_at") or 0.0),
+            "latest_execution_id": str(row.get("latest_execution_id") or ""),
+            "summary": str(row.get("summary") or ""),
+            "result_snapshot": parsed_snapshot,
+            "execution_count": int(row.get("execution_count") or 0),
+            "failed_execution_count": int(row.get("failed_execution_count") or 0),
+            "latest_execution_created_at": float(row.get("latest_execution_created_at") or 0.0),
+        }
 
     @staticmethod
     def _tail_file(path: Path, *, max_lines: int) -> list[str]:
