@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 import { DatabaseSection, HistorySection, RunsSection } from "./detection_workspace_sections";
 import { ProjectWorkspaceShell } from "./project_workspace_shell";
 import type { DatabaseEntry, Execution, Project, Task, ToolDescriptor, ToolSummary } from "./detection_workspace_types";
@@ -42,7 +44,6 @@ export function ProjectWorkspace() {
   const [currentProjectId, setCurrentProjectId] = useState<string>("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
-  const [taskSearch, setTaskSearch] = useState<string>("");
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
 
   const [tools, setTools] = useState<ToolSummary[]>([]);
@@ -60,27 +61,11 @@ export function ProjectWorkspace() {
   const [latestExecution, setLatestExecution] = useState<Record<string, unknown> | null>(null);
   const [latestResult, setLatestResult] = useState<Record<string, unknown> | null>(null);
 
-  const [createProjectName, setCreateProjectName] = useState<string>("");
-  const [createTaskTitle, setCreateTaskTitle] = useState<string>("");
-  const [createTaskDescription, setCreateTaskDescription] = useState<string>("");
-  const [busyProjectCreate, setBusyProjectCreate] = useState<boolean>(false);
-  const [busyTaskCreate, setBusyTaskCreate] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
-  const filteredTasks = useMemo(() => {
-    const query = taskSearch.trim().toLowerCase();
-    if (!query) {
-      return tasks;
-    }
-    return tasks.filter((task) => {
-      const content = `${task.title} ${task.description} ${task.summary}`.toLowerCase();
-      return content.includes(query);
-    });
-  }, [taskSearch, tasks]);
-
   const selectedTask = useMemo(
-    () => filteredTasks.find((task) => task.task_id === selectedTaskId) ?? tasks.find((task) => task.task_id === selectedTaskId) ?? null,
-    [filteredTasks, selectedTaskId, tasks]
+    () => tasks.find((task) => task.task_id === selectedTaskId) ?? null,
+    [selectedTaskId, tasks]
   );
 
   const filteredTools = useMemo(() => {
@@ -209,63 +194,6 @@ export function ProjectWorkspace() {
     setLatestResult(isRecord(resultData?.item) ? resultData.item : null);
   };
 
-  const createProject = async () => {
-    const name = createProjectName.trim();
-    if (!name) {
-      setError("项目名称不能为空。");
-      return;
-    }
-    setBusyProjectCreate(true);
-    setError("");
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description: "", open_after_create: true }),
-      });
-      await readJsonOrThrow(resp);
-      setCreateProjectName("");
-      await refreshProjects();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusyProjectCreate(false);
-    }
-  };
-
-  const createTask = async () => {
-    if (!currentProjectId) {
-      setError("请先选择项目。");
-      return;
-    }
-    const title = createTaskTitle.trim();
-    if (!title) {
-      setError("任务标题不能为空。");
-      return;
-    }
-    setBusyTaskCreate(true);
-    setError("");
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description: createTaskDescription.trim() }),
-      });
-      const data = await readJsonOrThrow(resp);
-      const task = toTask(data?.item);
-      setCreateTaskTitle("");
-      setCreateTaskDescription("");
-      await refreshTasks(currentProjectId);
-      if (task) {
-        setSelectedTaskId(task.task_id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusyTaskCreate(false);
-    }
-  };
-
   const runSelectedTool = async (params: Record<string, unknown>) => {
     if (!currentProjectId || !selectedTaskId || !selectedToolId) {
       setError("请先选择项目、任务和工具。");
@@ -354,61 +282,19 @@ export function ProjectWorkspace() {
       activeView="workspace"
       projects={projects}
       currentProjectId={currentProjectId}
-      tasks={filteredTasks}
+      tasks={tasks}
       selectedTaskId={selectedTaskId}
       error={error}
       onSelectProject={(projectId) => {
         void openProject(projectId);
       }}
       onSelectTask={(taskId) => setSelectedTaskId(taskId)}
-      projectControls={
-        <>
-          <input
-            className="control-input"
-            value={createProjectName}
-            onChange={(event) => setCreateProjectName(event.target.value)}
-            placeholder="新项目名称"
-            aria-label="新项目名称"
-          />
-          <button className="ui-button ui-button--primary" disabled={busyProjectCreate} onClick={() => void createProject()}>
-            {busyProjectCreate ? "创建中..." : "新建项目"}
-          </button>
-        </>
-      }
-      taskToolbar={
-        <>
-          <input
-            className="control-input"
-            value={taskSearch}
-            onChange={(event) => setTaskSearch(event.target.value)}
-            placeholder="搜索当前项目任务"
-            aria-label="搜索当前项目任务"
-          />
-          <input
-            className="control-input"
-            value={createTaskTitle}
-            onChange={(event) => setCreateTaskTitle(event.target.value)}
-            placeholder="新任务标题"
-            aria-label="新任务标题"
-          />
-          <textarea
-            className="input-control textarea-control"
-            value={createTaskDescription}
-            onChange={(event) => setCreateTaskDescription(event.target.value)}
-            placeholder="任务说明"
-            aria-label="任务说明"
-          />
-          <button className="ui-button ui-button--primary" disabled={busyTaskCreate} onClick={() => void createTask()}>
-            {busyTaskCreate ? "创建中..." : "新建任务"}
-          </button>
-        </>
-      }
     >
       {!selectedTask ? (
         <WorkspaceEmptyState mark="Task" label="当前项目没有可用任务" hint="先在左侧创建任务，再进入单任务工作区。" />
       ) : (
-        <section className="workspace-panel-card project-canvas">
-          <header className="project-canvas-head">
+        <section className="grid gap-[18px]">
+          <header className="flex flex-col items-start justify-between gap-4 xl:flex-row">
             <div>
               <h2>{selectedTask.title}</h2>
               <p>{selectedTask.description || "当前任务用于承载长时程分析、执行和结果回看。"}</p>
@@ -419,11 +305,15 @@ export function ProjectWorkspace() {
                 <span>更新于 {formatTs(selectedTask.last_activity_at)}</span>
               </div>
             </div>
-            <div className="project-canvas-tabs">
+            <div className="flex flex-wrap justify-end gap-2">
               {(["overview", "run", "history", "results", "databases"] as WorkspaceTab[]).map((tab) => (
                 <button
                   key={tab}
-                  className={`project-canvas-tab${activeTab === tab ? " active" : ""}`}
+                  type="button"
+                  className={cn(
+                    "rounded-full border border-transparent bg-transparent px-3 py-1.5 text-sm text-[var(--text-main)] transition-colors hover:bg-[var(--workspace-selection)]",
+                    activeTab === tab && "border-[var(--workspace-selection-border)] bg-[var(--workspace-selection)]"
+                  )}
                   onClick={() => setActiveTab(tab)}
                 >
                   {tab === "overview" ? "概览" : null}
@@ -437,25 +327,25 @@ export function ProjectWorkspace() {
           </header>
 
           {activeTab === "overview" ? (
-            <div className="project-canvas-grid">
-              <section className="panel project-canvas-card">
+            <div className="grid gap-4 xl:grid-cols-2">
+              <section className="panel p-4">
                 <WorkspaceSectionHeader title="任务摘要" description="持久化的任务元信息与最近状态。" />
-                <div className="project-summary-stack">
-                  <div className="project-summary-row">
+                <div className="grid gap-3">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-0 first:border-t-0">
                     <span>状态</span>
                     <strong>{mapStatusLabel(selectedTask.status)}</strong>
                   </div>
-                  <div className="project-summary-row">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
                     <span>最新执行</span>
                     <strong>{selectedTask.latest_execution_id || "暂无"}</strong>
                   </div>
-                  <div className="project-summary-row">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
                     <span>任务摘要</span>
                     <strong>{selectedTask.summary || "暂无摘要"}</strong>
                   </div>
                 </div>
               </section>
-              <section className="panel project-canvas-card">
+              <section className="panel p-4">
                 <WorkspaceSectionHeader title="最近产出" description="最近一次执行留下的结构化结果快照。" />
                 {latestResult ? (
                   <pre className="workspace-json-surface">{JSON.stringify(latestResult, null, 2)}</pre>
@@ -494,8 +384,8 @@ export function ProjectWorkspace() {
           ) : null}
 
           {activeTab === "results" ? (
-            <div className="project-canvas-grid">
-              <section className="panel project-canvas-card">
+            <div className="grid gap-4 xl:grid-cols-2">
+              <section className="panel p-4">
                 <WorkspaceSectionHeader title="最新执行" description="任务级结果视图基于 latest_execution_id。" />
                 {latestExecution ? (
                   <pre className="workspace-json-surface">{JSON.stringify(latestExecution, null, 2)}</pre>
@@ -503,7 +393,7 @@ export function ProjectWorkspace() {
                   <WorkspaceEmptyState mark="Exec" label="暂无执行记录" hint="先在执行页触发一次工具运行。" compact />
                 )}
               </section>
-              <section className="panel project-canvas-card">
+              <section className="panel p-4">
                 <WorkspaceSectionHeader title="Workbench 结果" description="复用现有结果构建接口回看最新执行。" />
                 {latestResult ? (
                   <pre className="workspace-json-surface">{JSON.stringify(latestResult, null, 2)}</pre>
