@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from core.data.data_registry import DataRegistry
 

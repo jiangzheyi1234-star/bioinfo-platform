@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from shlex import quote
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from core.execution.execution_backend import CommandBackend, ExecutionBackend
 from core.execution.command_builder import CommandBuilder

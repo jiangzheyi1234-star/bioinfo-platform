@@ -8,7 +8,7 @@ import time
 from typing import Optional, Callable
 
 import paramiko
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from core.qt_compat import QObject, QThread, pyqtSignal, pyqtSlot
 
 logger = logging.getLogger(__name__)
 

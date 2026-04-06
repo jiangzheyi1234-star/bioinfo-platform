@@ -6,7 +6,7 @@
 import logging
 from typing import Callable, Dict, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QObject
+from core.qt_compat import QObject
 
 import config
 from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL

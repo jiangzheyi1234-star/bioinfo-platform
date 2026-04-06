@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
+from core.qt_compat import QObject, QRunnable, QThreadPool, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

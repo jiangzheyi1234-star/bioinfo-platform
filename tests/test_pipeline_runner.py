@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import yaml
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from core.execution.command_builder import CommandBuilder
 from core.data.data_registry import DataRegistry
