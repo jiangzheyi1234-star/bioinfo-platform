@@ -35,11 +35,11 @@ export function ProjectWorkspaceShell({
       defaultOpen
       style={
         {
-          "--sidebar-width": "250px",
+          "--sidebar-width": "288px",
         } as CSSProperties
       }
     >
-      <div className="flex min-h-screen w-full bg-white">
+      <div className="flex min-h-screen w-full bg-[var(--app-shell-background)]">
         <ProjectWorkspaceSidebar
           activeView={activeView}
           projects={projects}
@@ -50,10 +50,10 @@ export function ProjectWorkspaceShell({
           onSelectTask={onSelectTask}
         />
 
-        <SidebarInset className="bg-white">
-          <section className="w-full flex-1 overflow-y-auto px-7 py-6 xl:max-h-screen">
+        <SidebarInset>
+          <section className="codex-main-shell w-full flex-1 overflow-y-auto px-6 py-5 xl:max-h-screen xl:px-8">
             {error ? (
-              <div className="mb-6 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-600" role="alert">
+              <div className="mb-5 rounded-2xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-700" role="alert">
                 <strong className="mb-0.5 block font-medium">API Error</strong>
                 <span className="font-mono text-xs">{error}</span>
               </div>
