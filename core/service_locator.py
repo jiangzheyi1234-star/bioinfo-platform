@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from config import get_config
 from core.data.data_registry import DataRegistry

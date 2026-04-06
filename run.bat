@@ -1,39 +1,40 @@
 @echo off
 setlocal
 chcp 65001 >nul
-title H2OMeta
+title H2OMeta Desktop
 
-set "CONDA_BAT=%USERPROFILE%\miniconda3\condabin\conda.bat"
-if not exist "%CONDA_BAT%" (
-    for /f "delims=" %%I in ('where conda.bat 2^>nul') do (
-        set "CONDA_BAT=%%I"
-        goto :conda_found
-    )
-    echo [ERROR] Cannot find conda.bat. Please install Miniconda/Anaconda first.
-    pause
-    exit /b 1
-)
-
-:conda_found
-call "%CONDA_BAT%" activate bio_ui
-if errorlevel 1 (
-    echo [ERROR] Cannot activate conda env "bio_ui".
-    echo Run: conda create -n bio_ui python=3.12
-    pause
-    exit /b 1
-)
+set "REPO_ROOT=%~dp0"
+set "DESKTOP_EXE=%REPO_ROOT%apps\desktop\src-tauri\target\debug\h2ometa-desktop.exe"
 
 if /I "%~1"=="--check" (
-    echo [OK] Conda env "bio_ui" activated.
-    endlocal & exit /b 0
+    if exist "%DESKTOP_EXE%" (
+        echo [OK] Desktop shell binary found: %DESKTOP_EXE%
+        endlocal & exit /b 0
+    )
+    echo [ERROR] Desktop shell binary not found: %DESKTOP_EXE%
+    echo Run:
+    echo   cd apps\desktop
+    echo   npm run build:debug:no-bundle:win-gnu
+    endlocal & exit /b 1
 )
 
-set "PYTHONUNBUFFERED=1"
-python -m ui.main
+if not exist "%DESKTOP_EXE%" (
+    echo [ERROR] Desktop shell binary not found: %DESKTOP_EXE%
+    echo Please build desktop shell first:
+    echo   cd apps\desktop
+    echo   npm run build:debug:no-bundle:win-gnu
+    pause
+    endlocal & exit /b 1
+)
+
+set "H2OMETA_WORKDIR=%REPO_ROOT%"
+set "H2OMETA_PYTHON=py"
+
+"%DESKTOP_EXE%"
 set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
     echo.
-    echo [ERROR] App exited with code %APP_EXIT%.
+    echo [ERROR] Desktop app exited with code %APP_EXIT%.
     pause
 )
 

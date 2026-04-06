@@ -11,7 +11,7 @@ from pathlib import Path
 from shlex import quote
 from typing import Any, Callable, Optional, Protocol
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from core.data.data_registry import DataRegistry
 from core.environment.h2o_env_paths import is_managed_conda_executable

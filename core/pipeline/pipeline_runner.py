@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import yaml
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from core.data.data_registry import DataRegistry
 

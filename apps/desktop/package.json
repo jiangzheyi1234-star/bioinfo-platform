@@ -1,0 +1,16 @@
+{
+  "name": "h2ometa-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri:info": "tauri info",
+    "tauri:info:win-gnu": "set PATH=%USERPROFILE%\\.cargo\\bin;C:\\msys64\\ucrt64\\bin;%PATH% && tauri info",
+    "build:debug:no-bundle:win-gnu": "set PATH=%USERPROFILE%\\.cargo\\bin;C:\\msys64\\ucrt64\\bin;%PATH% && tauri build --debug --no-bundle"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.3.1"
+  }
+}

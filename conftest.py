@@ -1,24 +1,17 @@
-"""pytest 配置 — 确保项目根目录在 sys.path 中"""
+"""pytest 配置：项目路径与 Windows 临时目录守护。"""
 
 import os
 import sys
-
-# 设置 Qt backend（在导入 PyQt 之前）
-if os.environ.get('QT_QPA_PLATFORM') is None:
-    # 默认使用 offscreen 避免 Wayland popup 问题
-    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-
 import tempfile
 import warnings
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
 import _pytest.tmpdir as pytest_tmpdir
+import pytest
 from _pytest.tmpdir import TempPathFactory
 
-# 将项目根目录添加到 sys.path，使 core/ 等模块可导入
 project_root = Path(__file__).parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -51,9 +44,7 @@ def _install_windows_cleanup_guard() -> None:
             original_cleanup(root)
         except PermissionError as exc:
             warnings.warn(
-                pytest.PytestWarning(
-                    f"Windows temp cleanup skipped for {root}: {exc}"
-                ),
+                pytest.PytestWarning(f"Windows temp cleanup skipped for {root}: {exc}"),
                 stacklevel=2,
             )
 
@@ -116,23 +107,6 @@ def _install_windows_temp_factory_guard() -> None:
     TempPathFactory._h2o_windows_temp_guard_installed = True
 
 
-def _install_qtawesome_windows_guard() -> None:
-    import qtawesome.iconic_font as iconic_font
-
-    if getattr(iconic_font.IconicFont, "_h2o_windows_install_fonts_guard_installed", False):
-        return
-
-    original_install_fonts = iconic_font.IconicFont._install_fonts
-
-    def _guarded_install_fonts(self, fonts_directory, system_wide=False):
-        if os.name == "nt":
-            return fonts_directory
-        return original_install_fonts(self, fonts_directory, system_wide=system_wide)
-
-    iconic_font.IconicFont._install_fonts = _guarded_install_fonts
-    iconic_font.IconicFont._h2o_windows_install_fonts_guard_installed = True
-
-
 def pytest_configure(config: pytest.Config) -> None:
     """Avoid stale Windows ACL issues from a reused static --basetemp directory."""
 
@@ -141,7 +115,6 @@ def pytest_configure(config: pytest.Config) -> None:
 
     _install_windows_cleanup_guard()
     _install_windows_temp_factory_guard()
-    _install_qtawesome_windows_guard()
 
     configured_basetemp = _resolve_configured_basetemp(getattr(config.option, "basetemp", None))
     default_basetemp = (project_root / ".pytest_tmp").resolve(strict=False)
@@ -150,30 +123,6 @@ def pytest_configure(config: pytest.Config) -> None:
 
     config.option.basetemp = str(_build_windows_isolated_basetemp())
     config._tmp_path_factory = TempPathFactory.from_config(config, _ispytest=True)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _ensure_qapp():
-    """Session-wide QApplication — 所有需要 Qt 信号的测试共享同一个实例。
-
-    在创建 QApplication 前设置 AA_ShareOpenGLContexts，确保 QWebEngineView
-    可以在 QApplication 存在后正常导入（否则 offscreen 环境下会报
-    "QtWebEngineWidgets must be imported before QCoreApplication" 错误）。
-    """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None:
-        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
-        app = QApplication(sys.argv)
-    yield app
-
-
-@pytest.fixture(scope="session")
-def qapp(_ensure_qapp):
-    """pytest-qt compatibility fixture for environments without plugin autoload."""
-    return _ensure_qapp
 
 
 @pytest.fixture

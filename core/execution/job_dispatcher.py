@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, QWaitCondition, pyqtSignal, pyqtSlot
+from core.qt_compat import QMutex, QMutexLocker, QObject, QThread, QWaitCondition, pyqtSignal, pyqtSlot
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from threading import Event, RLock, Thread
 from typing import Any, Callable, List, Optional, Tuple
 
 import paramiko
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 from core.remote.ssh_reconnector import SSHReconnector
 

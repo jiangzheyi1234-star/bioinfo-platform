@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, pyqtSignal
+from core.qt_compat import QMutex, QMutexLocker, QObject, QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

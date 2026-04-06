@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

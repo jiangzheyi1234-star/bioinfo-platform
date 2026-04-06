@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from core.qt_compat import QObject, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

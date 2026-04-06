@@ -52,8 +52,8 @@
 
 ## UI 规范（必须复用）
 
-- 圆角浮层必须加 `NoDropShadowWindowHint`，参考 `ui/widgets/project_selector.py`。
-- 图标必须用 `qtawesome`，禁止 Unicode emoji 充当产品图标。
+- 当前桌面 UI 由 `apps/web` 承载，布局应保持侧栏 + 内容区结构一致。
+- 图标应使用统一的 Web 图标资产或组件，禁止使用 Unicode emoji 充当产品图标。
 
 ## ExecPlans
 
