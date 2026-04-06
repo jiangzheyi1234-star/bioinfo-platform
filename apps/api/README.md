@@ -15,6 +15,10 @@ Default bind:
 - `GET /api/v1/tools/{tool_id}/descriptor`
 - `GET /api/v1/settings`
 - `PUT /api/v1/settings`
+- `GET /api/v1/ssh/status`
+- `POST /api/v1/ssh/connect`
+- `POST /api/v1/ssh/disconnect`
+- `POST /api/v1/ssh/test`
 - `GET /api/v1/projects`
 - `POST /api/v1/projects`
 - `POST /api/v1/projects/{project_id}/open`

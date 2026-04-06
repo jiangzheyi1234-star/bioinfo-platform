@@ -3,11 +3,20 @@ __pycache__/
 *.pyo
 *.egg-info/
 dist/
-ui/pages/detection_page_assets/dist/
 node_modules/
 build/
 .eggs/
 *.egg
+
+# Rust / Tauri build output
+apps/desktop/src-tauri/target/
+
+# Next.js build output
+apps/web/.next/
+apps/web/out/
+
+# Plugin binaries (tracked as text by mistake)
+plugins/*/workflow/software/mfeprimer
 
 # IDE
 .vscode/
@@ -16,7 +25,7 @@ build/
 *.swp
 *.swo
 
-# Claude Code
+# Agent tools
 .claude/
 .agents/
 .opencode/

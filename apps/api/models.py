@@ -36,6 +36,16 @@ class UpdateSettingsRequest(BaseModel):
     patch: dict[str, Any] = Field(default_factory=dict)
 
 
+class SSHConnectionRequest(BaseModel):
+    host: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    user: str | None = None
+    password: str | None = None
+    use_key: bool | None = None
+    key_file: str | None = None
+    timeout_sec: int = Field(default=5, ge=1, le=60)
+
+
 class RunWorkbenchToolRequest(BaseModel):
     project_id: str = Field(min_length=1)
     tool_id: str = Field(min_length=1)
