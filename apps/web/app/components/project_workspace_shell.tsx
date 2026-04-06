@@ -91,7 +91,6 @@ export function ProjectWorkspaceShell({
           <div className="px-2 h-7 flex items-center justify-between group mb-1">
             <span className="text-xs text-zinc-400 font-medium whitespace-nowrap shrink-0">项目</span>
             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              {projectControls}
               <button className="p-1 hover:bg-black/5 rounded text-zinc-400 hover:text-zinc-600 transition-colors" title="项目操作">
                 <EllipsisHorizontalIcon className="w-4 h-4" />
               </button>
@@ -160,6 +159,14 @@ export function ProjectWorkspaceShell({
               })}
             </div>
           </ScrollArea>
+
+          {projectControls && (
+            <div className="px-2 py-2 mt-1">
+              <div className="flex flex-col gap-2 p-2 bg-black/[0.02] rounded-md border border-black/[0.04]">
+                {projectControls}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 若有任务工具栏则插入底部 */}
