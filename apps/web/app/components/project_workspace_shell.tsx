@@ -5,7 +5,7 @@ import { type ReactNode } from "react";
 import { 
   Squares2X2Icon, 
   CircleStackIcon,
-  Cog6ToothIcon, 
+  Cog8ToothIcon, 
   FolderIcon, 
   PlusIcon,
   EllipsisHorizontalIcon
@@ -167,15 +167,17 @@ export function ProjectWorkspaceShell({
         )}
 
         {/* 底部系统入口 */}
-        <div className="mt-auto pt-2 pb-1 flex flex-col gap-0.5">
+        <div className="mt-auto pt-2 pb-3 px-2 flex flex-col gap-0.5">
           <Link
             href="/settings"
             className={cn(
-              "flex items-center px-2 h-8 rounded-md hover:bg-black/5 transition-colors cursor-pointer",
-              activeView === "settings" && "bg-black/5 text-zinc-900 font-medium"
+              "flex items-center px-3 h-9 rounded-[8px] cursor-pointer text-[13px] transition-colors",
+              activeView === "settings" 
+                ? "bg-zinc-200/60 font-medium text-zinc-900" 
+                : "bg-black/[0.04] text-zinc-700 hover:bg-black/[0.08]"
             )}
           >
-            <Cog6ToothIcon className="w-4 h-4 mr-2 text-zinc-500" />
+            <Cog8ToothIcon className="w-4 h-4 mr-2.5 text-zinc-600" />
             设置
           </Link>
         </div>
