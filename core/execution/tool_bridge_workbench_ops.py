@@ -334,16 +334,6 @@ def _get_live_detection_workflow_view(self, workflow_id: str):
             if row["tool_id"] == workflow_id:
                 target_eid = row["execution_id"]
                 break
-        if target_eid is None:
-            legacy_workflow = spec.get("legacy_workflow")
-            for row in rows or []:
-                try:
-                    params = json.loads(row["parameters"] or "{}")
-                except Exception:
-                    continue
-                if params.get("workflow") == legacy_workflow:
-                    target_eid = row["execution_id"]
-                    break
     else:
         try:
             row = pm.db.execute(
@@ -369,31 +359,22 @@ def _get_live_targeted_seq_view(self):
     if pm is None or pm.current_project is None:
         return None
     try:
-        rows = pm.db.execute(
-            "SELECT execution_id, parameters FROM executions "
+        row = pm.db.execute(
+            "SELECT execution_id FROM executions "
             "WHERE tool_id IN ('centrifuge', 'kraken2') AND status = 'completed' "
-            "ORDER BY rowid DESC",
-        ).fetchall()
+            "ORDER BY rowid DESC LIMIT 1",
+        ).fetchone()
     except Exception:
         return None
 
-    target_eid = None
-    for r in (rows or []):
-        try:
-            params = json.loads(r["parameters"] or "{}")
-        except Exception:
-            params = {}
-        if params.get("workflow", "") != "unknown_detection":
-            target_eid = r["execution_id"]
-            break
-
-    if target_eid is None:
+    if row is None:
         return None
     try:
-        row = self._get_execution_result_row(target_eid)
-        if row is None:
+        execution_id = row["execution_id"]
+        result_row = self._get_execution_result_row(execution_id)
+        if result_row is None:
             return None
-        return self._build_result_view_for_execution(target_eid, row)
+        return self._build_result_view_for_execution(execution_id, result_row)
     except Exception:
-        logger.exception("Failed to build live targeted sequencing view: %s", target_eid)
+        logger.exception("Failed to build live targeted sequencing view: %s", row["execution_id"])
         return None

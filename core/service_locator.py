@@ -105,13 +105,31 @@ class ServiceLocator(QObject):
         return self._ssh
 
     @ssh_service.setter
-    def ssh_service(self, ssh: SSHService) -> None:
+    def ssh_service(self, ssh: Optional[SSHService]) -> None:
+        previous = self._ssh
+        if previous is ssh:
+            return
+        if previous is not None:
+            try:
+                previous.connection_status_changed.disconnect(self.ssh_changed.emit)
+            except (TypeError, RuntimeError, AttributeError):
+                pass
         self._ssh = ssh
-        self._execution_preparer.set_ssh_service(ssh)
+        self._execution_preparer.set_ssh_service(ssh or _NullSSH())
         self._execution_preparer.set_backend(self._execution_backend)
         if self._data_registry is not None:
             self._rebuild_engine()
-        self.ssh_changed.emit(ssh is not None)
+        if ssh is not None:
+            try:
+                ssh.connection_status_changed.connect(self.ssh_changed.emit)
+            except (TypeError, RuntimeError, AttributeError):
+                logger.debug("Failed to wire SSH connection_status_changed", exc_info=True)
+        self.ssh_changed.emit(bool(ssh is not None and getattr(ssh, "is_connected", False)))
+        if previous is not None and previous is not ssh:
+            try:
+                previous.close()
+            except Exception:
+                logger.debug("Failed to close previous SSH service", exc_info=True)
         logger.info("SSH service updated")
 
     @property

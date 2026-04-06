@@ -18,6 +18,8 @@ from core.data.data_registry import DataRegistry
 from core.data.execution_query_service import ExecutionQueryService
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.execution.artifact_store import ArtifactStore
+from core.remote.ssh_connector import run_diagnostics, ssh_connect
+from core.remote.ssh_service import SSHService
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
 
@@ -253,6 +255,88 @@ class RuntimeService:
             merged = self._merge_settings_patch(current, patch)
             save_config(merged)
             return get_config()
+
+    def get_ssh_status(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            ssh_settings = self._resolve_ssh_settings()
+            ssh_service = self._service_locator.ssh_service
+            connected = bool(ssh_service is not None and getattr(ssh_service, "is_connected", False))
+            configured = bool(ssh_settings["host"] and ssh_settings["user"])
+            return {
+                "configured": configured,
+                "connected": connected,
+                "host": ssh_settings["host"],
+                "port": ssh_settings["port"],
+                "user": ssh_settings["user"],
+                "use_key": ssh_settings["use_key"],
+                "key_file": ssh_settings["key_file"],
+                "has_password": bool(ssh_settings["password"]),
+                "message": "SSH connected" if connected else "SSH disconnected",
+            }
+
+    def connect_ssh(self, patch: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            ssh_settings = self._resolve_ssh_settings(patch)
+            timeout = self._resolve_ssh_timeout(patch)
+            result = ssh_connect(
+                ip=ssh_settings["host"],
+                port=ssh_settings["port"],
+                user=ssh_settings["user"],
+                password=ssh_settings["password"],
+                key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                timeout=timeout,
+            )
+            if not result.ok or result.client is None:
+                raise RuntimeServiceError(result.message)
+
+            def _connect_fn() -> Any:
+                reconnect = ssh_connect(
+                    ip=ssh_settings["host"],
+                    port=ssh_settings["port"],
+                    user=ssh_settings["user"],
+                    password=ssh_settings["password"],
+                    key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                    timeout=timeout,
+                )
+                if not reconnect.ok or reconnect.client is None:
+                    raise RuntimeError(reconnect.message)
+                return reconnect.client
+
+            ssh_service = SSHService(initial_client=result.client, connect_fn=_connect_fn)
+            self._service_locator.ssh_service = ssh_service
+            status = self.get_ssh_status()
+            status["message"] = result.message
+            return status
+
+    def disconnect_ssh(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._service_locator.ssh_service = None
+            status = self.get_ssh_status()
+            status["message"] = "SSH disconnected"
+            return status
+
+    def test_ssh_connection(self, patch: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            ssh_settings = self._resolve_ssh_settings(patch)
+            steps = run_diagnostics(
+                ip=ssh_settings["host"],
+                port=ssh_settings["port"],
+                user=ssh_settings["user"],
+                password=ssh_settings["password"] if not ssh_settings["use_key"] else "",
+                key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                existing_client=getattr(self._service_locator.ssh_service, "_client", lambda: None)(),
+            )
+            ok = all(step.status == "ok" for step in steps)
+            return {
+                "ok": ok,
+                "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
+                "steps": [{"name": step.name, "status": step.status, "message": step.message} for step in steps],
+                "status": self.get_ssh_status(),
+            }
 
     def list_databases(self, *, project_id: str, include_status: bool = False) -> list[dict[str, Any]]:
         with self._lock:
@@ -519,6 +603,58 @@ class RuntimeService:
                 )
         merged["version"] = CONFIG_VERSION
         return merged
+
+    @staticmethod
+    def _resolve_ssh_timeout(patch: Optional[dict[str, Any]] = None) -> int:
+        raw_timeout = 5 if patch is None else patch.get("timeout_sec", 5)
+        try:
+            timeout = int(raw_timeout)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeServiceError(f"invalid ssh timeout: {raw_timeout}") from exc
+        if timeout <= 0:
+            raise RuntimeServiceError("ssh timeout must be positive")
+        return timeout
+
+    @staticmethod
+    def _resolve_ssh_settings(patch: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        config = get_config()
+        current = config.get("ssh", {})
+        if not isinstance(current, dict):
+            raise RuntimeServiceError("settings.ssh must be an object")
+
+        merged = dict(current)
+        if isinstance(patch, dict):
+            for key in ("host", "port", "user", "password", "use_key", "key_file"):
+                if key in patch and patch[key] is not None:
+                    merged[key] = patch[key]
+
+        host = str(merged.get("host", "") or "").strip()
+        user = str(merged.get("user", "") or "").strip()
+        key_file = str(merged.get("key_file", "") or "").strip()
+        password = str(merged.get("password", "") or "")
+        use_key = bool(merged.get("use_key", False))
+        try:
+            port = int(merged.get("port", 22))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeServiceError(f"invalid ssh port: {merged.get('port')}") from exc
+
+        if not host:
+            raise RuntimeServiceError("ssh.host is required")
+        if not user:
+            raise RuntimeServiceError("ssh.user is required")
+        if port <= 0 or port > 65535:
+            raise RuntimeServiceError(f"invalid ssh port: {port}")
+        if use_key and not key_file:
+            raise RuntimeServiceError("ssh.key_file is required when ssh.use_key is true")
+
+        return {
+            "host": host,
+            "port": port,
+            "user": user,
+            "password": password,
+            "use_key": use_key,
+            "key_file": key_file,
+        }
 
     def _run_ssh_command(self, cmd: str, timeout: int) -> tuple[int, str, str]:
         ssh = self._service_locator.ssh_service
