@@ -93,11 +93,11 @@ export function ProjectWorkspaceShell({
         <div className="mt-4 flex flex-col flex-1 min-h-0">
           <div className="px-2 h-7 flex items-center justify-between group mb-1">
             <span className="text-xs text-zinc-400 font-medium whitespace-nowrap shrink-0">项目</span>
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button className="p-1 hover:bg-black/5 rounded text-zinc-400 hover:text-zinc-600 transition-colors" title="项目操作">
+            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button className="flex items-center justify-center w-6 h-6 rounded-[6px] border border-black/10 bg-transparent text-zinc-500 hover:bg-black/5 hover:text-zinc-800 transition-all" title="项目操作">
                 <EllipsisHorizontalIcon className="w-4 h-4" />
               </button>
-              <button className="p-1 hover:bg-black/5 rounded text-zinc-400 hover:text-zinc-600 transition-colors" title="添加项目">
+              <button className="flex items-center justify-center w-6 h-6 rounded-[6px] border border-black/10 bg-transparent text-zinc-500 hover:bg-black/5 hover:text-zinc-800 transition-all" title="添加项目">
                 <PlusIcon className="w-4 h-4" />
               </button>
             </div>
@@ -122,28 +122,28 @@ export function ProjectWorkspaceShell({
                         <span className="truncate">{project.name}</span>
                       </div>
                       
-                      {/* 悬浮胶囊操作栏 (Hover浮现) */}
-                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-[8px] py-[6px] rounded-[20px] bg-gray-100 group-hover:bg-gray-200 transition-all shrink-0 ml-2">
+                      {/* 悬浮操作图标 (悬停时透明融入) */}
+                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0 ml-2">
                         <button
-                          className="p-0.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-300 transition-colors flex items-center justify-center"
+                          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-black/5 transition-colors"
                           onClick={(e) => e.stopPropagation()}
                           title="分享"
                         >
-                          <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+                          <ArrowTopRightOnSquareIcon className="w-[14px] h-[14px]" />
                         </button>
                         <button
-                          className="p-0.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-300 transition-colors flex items-center justify-center"
+                          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-black/5 transition-colors"
                           onClick={(e) => e.stopPropagation()}
                           title="编辑"
                         >
-                          <PencilSquareIcon className="w-3.5 h-3.5" />
+                          <PencilSquareIcon className="w-[14px] h-[14px]" />
                         </button>
                         <button
-                          className="p-0.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-300 transition-colors flex items-center justify-center"
+                          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-black/5 transition-colors"
                           onClick={(e) => e.stopPropagation()}
                           title="更多操作"
                         >
-                          <EllipsisHorizontalIcon className="w-4 h-4" />
+                          <EllipsisHorizontalIcon className="w-[14px] h-[14px]" />
                         </button>
                       </div>
                     </div>
