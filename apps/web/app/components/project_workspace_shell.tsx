@@ -8,7 +8,10 @@ import {
   Cog8ToothIcon, 
   FolderIcon, 
   PlusIcon,
-  EllipsisHorizontalIcon
+  EllipsisHorizontalIcon,
+  PencilSquareIcon,
+  ArrowTopRightOnSquareIcon,
+  ChevronDownIcon
 } from "@heroicons/react/24/outline";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -109,27 +112,40 @@ export function ProjectWorkspaceShell({
                     {/* 项目项 */}
                     <div
                       className={cn(
-                        "flex items-center justify-between px-2 h-8 rounded-md group cursor-pointer hover:bg-black/5 transition-colors",
-                        isActiveProject && "text-zinc-900 font-medium"
+                        "flex items-center justify-between pl-2 pr-1.5 h-9 rounded-lg group cursor-pointer hover:bg-gray-100 transition-colors",
+                        isActiveProject ? "bg-gray-50 text-gray-900 font-medium" : "text-gray-700"
                       )}
                       onClick={() => onSelectProject(project.project_id)}
                     >
                       <div className="flex items-center min-w-0">
-                        <FolderIcon className={cn("w-4 h-4 mr-2 shrink-0", isActiveProject ? "text-zinc-700" : "text-zinc-400")} />
+                        <ChevronDownIcon className={cn("w-3.5 h-3.5 mr-2 shrink-0 transition-transform", isActiveProject ? "text-gray-700" : "text-gray-400 -rotate-90")} />
                         <span className="truncate">{project.name}</span>
                       </div>
                       
-                      {/* 悬浮操作菜单 (添加/删除等) */}
-                      <button
-                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-black/10 rounded text-zinc-400 hover:text-zinc-600 transition-all shrink-0 ml-2"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // 预留给后续接入 Dropdown Menu
-                        }}
-                        title="项目操作"
-                      >
-                        <EllipsisHorizontalIcon className="w-4 h-4" />
-                      </button>
+                      {/* 悬浮胶囊操作栏 (Hover浮现) */}
+                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-[8px] py-[6px] rounded-[20px] bg-gray-100 group-hover:bg-gray-200 transition-all shrink-0 ml-2">
+                        <button
+                          className="p-0.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-300 transition-colors flex items-center justify-center"
+                          onClick={(e) => e.stopPropagation()}
+                          title="分享"
+                        >
+                          <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          className="p-0.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-300 transition-colors flex items-center justify-center"
+                          onClick={(e) => e.stopPropagation()}
+                          title="编辑"
+                        >
+                          <PencilSquareIcon className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          className="p-0.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-300 transition-colors flex items-center justify-center"
+                          onClick={(e) => e.stopPropagation()}
+                          title="更多操作"
+                        >
+                          <EllipsisHorizontalIcon className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* 嵌套的任务项 (仅在当前选中项目下展开) */}
