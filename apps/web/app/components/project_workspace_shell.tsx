@@ -89,11 +89,14 @@ export function ProjectWorkspaceShell({
         {/* 项目与任务区 */}
         <div className="mt-4 flex flex-col flex-1 min-h-0">
           <div className="px-2 h-7 flex items-center justify-between group mb-1">
-            <span className="text-xs text-zinc-400 font-medium">项目</span>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-xs text-zinc-400 font-medium whitespace-nowrap shrink-0">项目</span>
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
               {projectControls}
-              <button className="p-0.5 hover:bg-black/5 rounded text-zinc-400 hover:text-zinc-600 transition-colors" title="添加项目">
-                <PlusIcon className="w-3.5 h-3.5" />
+              <button className="p-1 hover:bg-black/5 rounded text-zinc-400 hover:text-zinc-600 transition-colors" title="项目操作">
+                <EllipsisHorizontalIcon className="w-4 h-4" />
+              </button>
+              <button className="p-1 hover:bg-black/5 rounded text-zinc-400 hover:text-zinc-600 transition-colors" title="添加项目">
+                <PlusIcon className="w-4 h-4" />
               </button>
             </div>
           </div>
