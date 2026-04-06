@@ -1,6 +1,5 @@
 import "./globals.css";
 import "./workspace.css";
-import "./project-workspace.css";
 import type { ReactNode } from "react";
 
 export const metadata = {

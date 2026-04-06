@@ -20,8 +20,6 @@ export function ProjectResultsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [resultRows, setResultRows] = useState<Array<Record<string, unknown>>>([]);
-  const [createProjectName, setCreateProjectName] = useState<string>("");
-  const [busyProjectCreate, setBusyProjectCreate] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
   const openProject = async (projectId: string) => {
@@ -72,30 +70,6 @@ export function ProjectResultsPage() {
     setResultRows(Array.isArray(data.items) ? data.items : []);
   };
 
-  const createProject = async () => {
-    const name = createProjectName.trim();
-    if (!name) {
-      setError("项目名称不能为空。");
-      return;
-    }
-    setBusyProjectCreate(true);
-    setError("");
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description: "", open_after_create: true }),
-      });
-      await readJsonOrThrow(resp);
-      setCreateProjectName("");
-      await refreshProjects();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusyProjectCreate(false);
-    }
-  };
-
   useEffect(() => {
     void (async () => {
       try {
@@ -129,24 +103,9 @@ export function ProjectResultsPage() {
         void openProject(projectId);
       }}
       onSelectTask={(taskId) => setSelectedTaskId(taskId)}
-      projectControls={
-        <>
-          <input
-            className="control-input"
-            value={createProjectName}
-            onChange={(event) => setCreateProjectName(event.target.value)}
-            placeholder="新项目名称"
-            aria-label="新项目名称"
-          />
-          <button className="ui-button ui-button--primary" disabled={busyProjectCreate} onClick={() => void createProject()}>
-            {busyProjectCreate ? "创建中..." : "新建项目"}
-          </button>
-        </>
-      }
-      taskToolbar={null}
     >
-      <section className="workspace-panel-card project-canvas">
-        <header className="project-canvas-head">
+      <section className="grid gap-[18px]">
+        <header className="flex flex-col items-start justify-between gap-4 xl:flex-row">
           <div>
             <h2>项目结果页</h2>
             <p>聚合当前项目下所有任务的最新状态、最近执行和失败情况。</p>
@@ -156,36 +115,36 @@ export function ProjectResultsPage() {
         {resultRows.length === 0 ? (
           <WorkspaceEmptyState mark="Res" label="当前项目暂无可展示结果" hint="先创建任务并执行工具，再回到这里查看聚合结果。" />
         ) : (
-          <div className="project-results-grid">
+          <div className="grid gap-4 xl:grid-cols-2">
             {resultRows.map((row) => (
-              <article key={safeText(row.task_id, safeText(row.title))} className="project-result-card">
+              <article key={safeText(row.task_id, safeText(row.title))} className="panel p-4">
                 <WorkspaceSectionHeader
                   title={safeText(row.title, safeText(row.task_id))}
                   description={safeText(row.summary, "暂无摘要")}
                   aside={<span className="badge">{safeText(row.task_status, "pending")}</span>}
                   titleAs="h4"
                 />
-                <div className="project-summary-stack">
-                  <div className="project-summary-row">
+                <div className="grid gap-3">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-0 first:border-t-0">
                     <span>最新执行</span>
                     <strong>{safeText(row.latest_execution_id, "暂无")}</strong>
                   </div>
-                  <div className="project-summary-row">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
                     <span>最近工具</span>
                     <strong>{safeText(row.latest_tool_id, "未记录")}</strong>
                   </div>
-                  <div className="project-summary-row">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
                     <span>执行统计</span>
                     <strong>
                       {safeText(row.completed_count, "0")} completed / {safeText(row.failed_count, "0")} failed
                     </strong>
                   </div>
-                  <div className="project-summary-row">
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
                     <span>最近活动</span>
                     <strong>{formatTs(Number(row.last_activity_at || 0))}</strong>
                   </div>
                   {safeText(row.latest_error) ? (
-                    <div className="project-summary-row">
+                    <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
                       <span>最近错误</span>
                       <strong>{safeText(row.latest_error)}</strong>
                     </div>
