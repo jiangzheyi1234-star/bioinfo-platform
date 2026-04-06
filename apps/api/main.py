@@ -11,6 +11,7 @@ from apps.api.models import (
     CreateProjectRequest,
     CreateSampleRequest,
     RunWorkbenchToolRequest,
+    SSHConnectionRequest,
     SubmitExecutionRequest,
     UpdateSettingsRequest,
 )
@@ -86,6 +87,40 @@ async def get_settings() -> dict[str, Any]:
 async def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
     try:
         return {"item": _runtime().update_settings(payload.patch)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/ssh/status")
+async def get_ssh_status() -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_ssh_status()}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/connect")
+async def connect_ssh(payload: SSHConnectionRequest | None = None) -> dict[str, Any]:
+    try:
+        patch = payload.model_dump(exclude_none=True) if payload is not None else None
+        return {"item": _runtime().connect_ssh(patch)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/disconnect")
+async def disconnect_ssh() -> dict[str, Any]:
+    try:
+        return {"item": _runtime().disconnect_ssh()}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/test")
+async def test_ssh_connection(payload: SSHConnectionRequest | None = None) -> dict[str, Any]:
+    try:
+        patch = payload.model_dump(exclude_none=True) if payload is not None else None
+        return {"item": _runtime().test_ssh_connection(patch)}
     except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
