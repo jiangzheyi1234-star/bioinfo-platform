@@ -16,7 +16,7 @@ apps/web/.next/
 apps/web/out/
 
 # Plugin binaries (tracked as text by mistake)
-plugins/*/workflow/software/mfeprimer
+plugins/**/workflow/software/mfeprimer
 
 # IDE
 .vscode/
