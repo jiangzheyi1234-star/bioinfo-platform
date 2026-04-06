@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import {
+  LinkIcon,
+  FolderPlusIcon,
   ChevronDownIcon,
   Cog6ToothIcon,
   FolderIcon,
@@ -59,19 +61,19 @@ export function ProjectWorkspaceSidebar({
   return (
     <Sidebar collapsible="none" className="codex-sidebar border-r-0">
       <SidebarHeader className="codex-sidebar-header">
-        <div className="codex-workspace-card">
-          <div className="codex-workspace-avatar">B</div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[14px] font-medium text-zinc-900">bio_ui</p>
-            <p className="truncate text-[12px] text-zinc-500">Project workspace</p>
-          </div>
-        </div>
-
         <SidebarMenu className="pt-1">
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={activeView === "connect"} className="codex-nav-button">
+              <Link href="/connect">
+                <LinkIcon className="h-4 w-4 shrink-0 text-zinc-500" />
+                <span>连接</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={activeView === "workspace"} className="codex-nav-button">
               <Link href="/projects">
-                <Squares2X2Icon className="h-4 w-4 shrink-0 text-zinc-500" />
+                <FolderPlusIcon className="h-4 w-4 shrink-0 text-zinc-500" />
                 <span>项目</span>
               </Link>
             </SidebarMenuButton>

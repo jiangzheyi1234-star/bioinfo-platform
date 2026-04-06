@@ -1,5 +1,5 @@
-import { DetectionWorkspace } from "../components/detection_workspace";
+import { ProjectSettingsPage } from "../components/project_settings_page";
 
 export default function SettingsPage() {
-  return <DetectionWorkspace activeTab="settings" />;
+  return <ProjectSettingsPage />;
 }
