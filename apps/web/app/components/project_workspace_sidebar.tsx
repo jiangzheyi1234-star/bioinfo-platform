@@ -3,8 +3,8 @@
 import Link from "next/link";
 import {
   ChevronDownIcon,
-  CircleStackIcon,
-  Cog8ToothIcon,
+  Cog6ToothIcon,
+  FolderIcon,
   Squares2X2Icon,
 } from "@heroicons/react/24/outline";
 
@@ -21,8 +21,9 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 import type { Project, Task } from "./detection_workspace_types";
@@ -38,7 +39,7 @@ type ProjectWorkspaceSidebarProps = {
 };
 
 const statusText: Record<string, string> = {
-  pending: "等待中",
+  pending: "待处理",
   queued: "排队中",
   in_progress: "运行中",
   completed: "已完成",
@@ -56,90 +57,110 @@ export function ProjectWorkspaceSidebar({
   onSelectTask,
 }: ProjectWorkspaceSidebarProps) {
   return (
-    <Sidebar collapsible="none" className="border-r border-black/[0.06] bg-[#f7f7f9]">
-      <SidebarHeader className="px-3 pb-2 pt-3">
-        <div className="flex h-8 items-center px-2">
-          <span className="font-semibold tracking-tight text-zinc-900">H2OMeta</span>
+    <Sidebar collapsible="none" className="codex-sidebar border-r-0">
+      <SidebarHeader className="codex-sidebar-header">
+        <div className="codex-workspace-card">
+          <div className="codex-workspace-avatar">B</div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[14px] font-medium text-zinc-900">bio_ui</p>
+            <p className="truncate text-[12px] text-zinc-500">Project workspace</p>
+          </div>
         </div>
+
+        <SidebarMenu className="pt-1">
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={activeView === "workspace"} className="codex-nav-button">
+              <Link href="/projects">
+                <Squares2X2Icon className="h-4 w-4 shrink-0 text-zinc-500" />
+                <span>项目</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={activeView === "results"} className="codex-nav-button">
+              <Link href="/results">
+                <Squares2X2Icon className="h-4 w-4 shrink-0 text-zinc-500" />
+                <span>结果</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 pb-3">
-        <SidebarGroup className="pt-1">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={activeView === "workspace" || activeView === "results"}>
-                  <Link href="/projects">
-                    <Squares2X2Icon className="h-4 w-4 shrink-0 text-zinc-500" />
-                    <span>流程</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={activeView === "databases"}>
-                  <Link href="/databases">
-                    <CircleStackIcon className="h-4 w-4 shrink-0 text-zinc-500" />
-                    <span>数据库管理</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="codex-sidebar-content">
+        <ScrollArea className="h-full">
+          <SidebarGroup className="pb-1 pt-0">
+            <SidebarGroupLabel className="codex-section-label">
+              <span>项目任务</span>
+            </SidebarGroupLabel>
 
-        <SidebarGroup className="mt-3 pt-2">
-          <SidebarGroupLabel className="px-2 text-zinc-400">项目</SidebarGroupLabel>
+            <SidebarGroupContent className="pt-2">
+              {projects.length === 0 ? (
+                <div className="codex-empty-panel">
+                  <p className="text-[13px] font-medium text-zinc-700">暂无项目</p>
+                  <p className="text-[12px] text-zinc-500">创建项目后，这里会显示任务列表。</p>
+                </div>
+              ) : (
+                <div className="codex-thread-groups">
+                  {projects.map((project) => {
+                    const isActiveProject = project.project_id === currentProjectId;
+                    const projectTasks = isActiveProject ? tasks : [];
 
-          <SidebarGroupContent className="mt-1">
-            <SidebarMenu>
-              {projects.map((project) => {
-                const isActiveProject = project.project_id === currentProjectId;
+                    return (
+                      <Collapsible key={project.project_id} open={isActiveProject} className="codex-thread-group">
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton
+                            className="codex-thread-group-trigger"
+                            isActive={isActiveProject}
+                            onClick={() => onSelectProject(project.project_id)}
+                          >
+                            <FolderIcon className="h-4 w-4 shrink-0 text-zinc-400" />
+                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{project.name}</span>
+                            <ChevronDownIcon
+                              className={cn(
+                                "h-4 w-4 shrink-0 text-zinc-400 transition-transform",
+                                !isActiveProject && "-rotate-90"
+                              )}
+                            />
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
 
-                return (
-                  <SidebarMenuItem key={project.project_id}>
-                    <SidebarMenuButton
-                      isActive={isActiveProject}
-                      onClick={() => onSelectProject(project.project_id)}
-                    >
-                      <ChevronDownIcon
-                        className={cn(
-                          "h-3.5 w-3.5 shrink-0 transition-transform",
-                          isActiveProject ? "text-zinc-700" : "-rotate-90 text-zinc-400"
-                        )}
-                      />
-                      <span className="truncate">{project.name}</span>
-                    </SidebarMenuButton>
-                    {isActiveProject && tasks.length > 0 ? (
-                      <SidebarMenuSub>
-                        {tasks.map((task) => (
-                          <SidebarMenuSubItem key={task.task_id}>
-                            <SidebarMenuSubButton
-                              isActive={task.task_id === selectedTaskId}
-                              onClick={() => onSelectTask(task.task_id)}
-                            >
-                              <span className="truncate pr-2">{task.title}</span>
-                              <span className="shrink-0 whitespace-nowrap text-[11px] text-zinc-400">
-                                {statusText[task.status] || task.status}
-                              </span>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
-                    ) : null}
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                        <CollapsibleContent className="codex-thread-group-body">
+                          {projectTasks.length > 0 ? (
+                            <SidebarMenuSub className="codex-thread-submenu">
+                              {projectTasks.map((task) => (
+                                <li key={task.task_id}>
+                                  <SidebarMenuSubButton
+                                    isActive={task.task_id === selectedTaskId}
+                                    className="codex-thread-item"
+                                    onClick={() => onSelectTask(task.task_id)}
+                                  >
+                                    <span className="truncate">{task.title}</span>
+                                    <span className="codex-thread-meta">{statusText[task.status] || task.status}</span>
+                                  </SidebarMenuSubButton>
+                                </li>
+                              ))}
+                            </SidebarMenuSub>
+                          ) : (
+                            <div className="codex-thread-empty">当前项目暂无任务</div>
+                          )}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
+                </div>
+              )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </ScrollArea>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-black/[0.05] px-2 pb-3 pt-2">
+      <SidebarFooter className="codex-sidebar-footer">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={activeView === "settings"}>
+            <SidebarMenuButton asChild isActive={activeView === "settings"} className="codex-nav-button">
               <Link href="/settings">
-                <Cog8ToothIcon className="h-4 w-4 shrink-0 text-zinc-600" />
+                <Cog6ToothIcon className="h-4 w-4 shrink-0 text-zinc-500" />
                 <span>设置</span>
               </Link>
             </SidebarMenuButton>

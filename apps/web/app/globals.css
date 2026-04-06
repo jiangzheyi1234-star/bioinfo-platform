@@ -57,6 +57,7 @@
   --radius-md: 14px;
   --radius-lg: 18px;
   --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.03), 0 10px 24px rgba(15, 23, 42, 0.04);
+  --app-shell-background: #f4f5f7;
 }
 
 * {
