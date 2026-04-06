@@ -85,6 +85,11 @@
   padding-top: 10px;
 }
 
+.codex-sidebar-content [data-radix-scroll-area-scrollbar] {
+  background: rgba(203, 213, 225, 0.55);
+  border-radius: 999px;
+}
+
 .codex-sidebar-footer {
   border-top: 1px solid rgba(229, 231, 235, 0.9);
 }
@@ -158,6 +163,25 @@
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.55) 100%),
     var(--app-shell-background);
+}
+
+.connection-panel {
+  max-width: 820px;
+}
+
+.connection-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.connection-actions {
+  margin-top: 10px;
+}
+
+.connection-diagnostics {
+  margin-top: 12px;
 }
 
 .app-shell {
