@@ -10,6 +10,7 @@ export type Project = {
 
 export type Execution = {
   execution_id: string;
+  task_id?: string;
   tool_id: string;
   sample_id: string;
   status: string;
@@ -17,6 +18,23 @@ export type Execution = {
   sample_name?: string;
   parameters?: string;
   error?: string;
+};
+
+export type Task = {
+  task_id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+  last_activity_at: number;
+  latest_execution_id: string;
+  summary: string;
+  result_snapshot: Record<string, unknown>;
+  execution_count: number;
+  failed_execution_count: number;
+  latest_execution_created_at: number;
 };
 
 export type DatabaseEntry = {

@@ -72,6 +72,7 @@ def run_workbench_tool(
     runtime: Any,
     *,
     project_id: str,
+    task_id: str | None,
     tool_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
@@ -81,7 +82,7 @@ def run_workbench_tool(
         raise ValueError("tool_id is required")
     if not isinstance(params, dict):
         raise ValueError("params must be an object")
-    result = _bridge(runtime).execute_tool(normalized_tool_id, params)
+    result = _bridge(runtime).execute_tool(normalized_tool_id, params, task_id=task_id)
     payload = {
         "status": str(getattr(result, "status", "") or ""),
         "execution_id": str(getattr(result, "execution_id", "") or ""),

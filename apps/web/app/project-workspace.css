@@ -1,0 +1,244 @@
+.project-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.project-shell-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 18px 14px;
+  border-right: 1px solid var(--workspace-line-soft);
+  background:
+    linear-gradient(180deg, rgba(250, 249, 245, 0.98) 0%, rgba(242, 239, 232, 0.96) 100%);
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  gap: 14px;
+}
+
+.project-shell-brand,
+.project-sidebar-section,
+.project-result-card,
+.project-canvas-card {
+  border: 1px solid var(--workspace-line-soft);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.project-shell-brand,
+.project-sidebar-section {
+  padding: 12px;
+}
+
+.project-shell-brand h1,
+.project-canvas-head h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.project-shell-brand p,
+.project-canvas-head p,
+.project-sidebar-item-meta,
+.project-task-copy span,
+.project-shell-footer p {
+  margin: 4px 0 0;
+  color: var(--workspace-ink-soft);
+}
+
+.project-shell-nav,
+.project-canvas-tabs,
+.project-summary-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.project-shell-nav {
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.project-shell-nav-link,
+.project-canvas-tab {
+  min-height: 34px;
+  border: 1px solid var(--workspace-line-soft);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+}
+
+.project-shell-nav-link.active,
+.project-canvas-tab.active {
+  border-color: var(--workspace-selection-border);
+  background: var(--workspace-selection);
+  color: #163a68;
+}
+
+.project-sidebar-section {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.project-sidebar-section--fill {
+  overflow: hidden;
+}
+
+.project-sidebar-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-sidebar-list,
+.project-task-list,
+.project-sidebar-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.project-task-list {
+  overflow: auto;
+  align-content: start;
+}
+
+.project-sidebar-item,
+.project-task-item {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 11px;
+  background: #fff;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+}
+
+.project-sidebar-item.active,
+.project-task-item.active {
+  border-color: var(--workspace-selection-border);
+  background: var(--workspace-selection);
+}
+
+.project-sidebar-item-title {
+  font-weight: 600;
+}
+
+.project-task-item {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.project-task-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.project-task-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-task-status {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: #c7c1b5;
+}
+
+.project-task-status--completed { background: #0f766e; }
+.project-task-status--failed { background: #b42318; }
+.project-task-status--in_progress { background: #1368df; }
+.project-task-status--queued,
+.project-task-status--pending { background: #9a6b16; }
+.project-task-status--cancelled { background: #6c6a67; }
+
+.project-shell-main {
+  width: min(1480px, 100%);
+  padding: 24px 28px 30px;
+}
+
+.project-canvas {
+  padding: 18px;
+  display: grid;
+  gap: 18px;
+}
+
+.project-canvas-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.project-canvas-tabs {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.project-canvas-grid,
+.project-results-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.project-canvas-card,
+.project-result-card {
+  padding: 16px;
+}
+
+.project-summary-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.project-summary-row {
+  justify-content: space-between;
+  border-top: 1px solid var(--workspace-line-soft);
+  padding-top: 12px;
+}
+
+.project-summary-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.project-shell-footer {
+  border-top: 1px dashed var(--workspace-line-strong);
+  padding-top: 8px;
+}
+
+@media (max-width: 1100px) {
+  .project-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .project-shell-sidebar {
+    position: static;
+    height: auto;
+    grid-template-rows: unset;
+  }
+
+  .project-canvas-head,
+  .project-summary-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .project-canvas-grid,
+  .project-results-grid {
+    grid-template-columns: 1fr;
+  }
+}

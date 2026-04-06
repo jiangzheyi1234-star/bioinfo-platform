@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.h2ometa.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix ../web run dev",
-    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "node ./scripts/ensure-web-dev.cjs",
+    "devUrl": "http://127.0.0.1:3100",
     "beforeBuildCommand": "npm --prefix ../web run build",
     "frontendDist": "../../web/out"
   },

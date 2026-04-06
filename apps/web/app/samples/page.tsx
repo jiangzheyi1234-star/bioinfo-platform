@@ -1,5 +1,5 @@
-import { SamplesWorkspace } from "../components/samples_workspace";
+import { redirect } from "next/navigation";
 
 export default function SamplesPage() {
-  return <SamplesWorkspace />;
+  redirect("/projects");
 }

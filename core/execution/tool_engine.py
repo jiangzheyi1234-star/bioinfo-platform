@@ -56,6 +56,7 @@ class JobQueueProtocol(Protocol):
 @dataclass
 class ExecutionRecord:
     execution_id: str
+    task_id: Optional[str]
     sample_id: str
     tool_id: str
     tool_version: str
@@ -121,6 +122,7 @@ class ToolEngine(QObject):
         input_data_ids: list[str],
         parameters: dict[str, Any],
         sample_id: str,
+        task_id: Optional[str] = None,
         triggered_by: str = "manual",
         database_paths: Optional[dict[str, str]] = None,
     ) -> str:
@@ -145,6 +147,7 @@ class ToolEngine(QObject):
 
         record = ExecutionRecord(
             execution_id=execution_id,
+            task_id=str(task_id or "").strip() or None,
             sample_id=sample_id,
             tool_id=tool_id,
             tool_version=descriptor.get("version", "unknown"),
@@ -197,6 +200,7 @@ class ToolEngine(QObject):
 
     def mark_execution_running(self, execution_id: str) -> None:
         self._update_execution_fields(execution_id, status="running")
+        self._sync_task_from_execution(execution_id)
 
     def on_job_completed(
         self,
@@ -256,6 +260,7 @@ class ToolEngine(QObject):
                 error=None,
                 commit=False,
             )
+            self._sync_task_from_execution(execution_id, commit=False)
             self._projects.db.commit()
 
             logger.info("Execution completed: %s", execution_id)
@@ -274,6 +279,7 @@ class ToolEngine(QObject):
             status="failed",
             error=error,
         )
+        self._sync_task_from_execution(execution_id)
 
         logger.error("Execution failed: %s - %s", execution_id, error)
         self.execution_failed.emit(execution_id, error)
@@ -436,12 +442,13 @@ class ToolEngine(QObject):
         db = self._projects.db
         db.execute(
             "INSERT INTO executions "
-            "(execution_id, sample_id, tool_id, tool_version, parameters, "
+            "(execution_id, task_id, sample_id, tool_id, tool_version, parameters, "
             "status, triggered_by, created_at, completed_at, error, "
             "retry_count, retry_of, remote_job_id, is_final_version, archived_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.execution_id,
+                record.task_id,
                 record.sample_id,
                 record.tool_id,
                 record.tool_version,
@@ -502,6 +509,11 @@ class ToolEngine(QObject):
         parameters = json.loads(params_str) if params_str else {}
 
         try:
+            task_id = row["task_id"]
+        except (KeyError, IndexError):
+            task_id = None
+
+        try:
             is_final_version = row["is_final_version"]
         except (KeyError, IndexError):
             is_final_version = 0
@@ -513,6 +525,7 @@ class ToolEngine(QObject):
 
         return ExecutionRecord(
             execution_id=row["execution_id"],
+            task_id=task_id,
             sample_id=row["sample_id"],
             tool_id=row["tool_id"],
             tool_version=row["tool_version"],
@@ -528,3 +541,48 @@ class ToolEngine(QObject):
             is_final_version=is_final_version,
             archived_at=archived_at,
         )
+
+    def _sync_task_from_execution(self, execution_id: str, *, commit: bool = True) -> None:
+        row = self._projects.db.execute(
+            """
+            SELECT execution_id, task_id, tool_id, status, error, created_at
+            FROM executions
+            WHERE execution_id = ?
+            """,
+            (execution_id,),
+        ).fetchone()
+        if row is None:
+            return
+
+        task_id = str(row["task_id"] or "").strip()
+        if not task_id:
+            return
+
+        task_status = {
+            "pending": "queued",
+            "running": "in_progress",
+            "retrying": "in_progress",
+            "completed": "completed",
+            "failed": "failed",
+        }.get(str(row["status"] or ""), "pending")
+        summary = str(row["error"] or "").strip()
+        if not summary:
+            summary = f"{row['tool_id']} {task_status}"
+
+        self._projects.db.execute(
+            """
+            UPDATE tasks
+            SET latest_execution_id = ?, status = ?, summary = ?, updated_at = ?, last_activity_at = ?
+            WHERE task_id = ?
+            """,
+            (
+                str(row["execution_id"]),
+                task_status,
+                summary,
+                float(row["created_at"] or time.time()),
+                float(row["created_at"] or time.time()),
+                task_id,
+            ),
+        )
+        if commit:
+            self._projects.db.commit()

@@ -183,6 +183,9 @@ fn main() {
     tauri::Builder::default()
         .manage(BackendState(Mutex::new(None)))
         .setup(|app| {
+            if TcpStream::connect("127.0.0.1:8765").is_ok() {
+                return Ok(());
+            }
             let state: tauri::State<BackendState> = app.state();
             let mut spawned =
                 spawn_backend().map_err(|msg| std::io::Error::new(std::io::ErrorKind::Other, msg))?;
