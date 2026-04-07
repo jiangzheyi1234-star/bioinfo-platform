@@ -112,4 +112,4 @@ export type AppLogPayload = {
   lines: string[];
 };
 
-export type TabId = "projects" | "samples" | "runs" | "history" | "databases" | "settings" | "workbench";
+export type TabId = "projects" | "samples" | "runs" | "history" | "databases" | "connect" | "settings" | "workbench";

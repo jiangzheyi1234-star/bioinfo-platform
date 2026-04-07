@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { ProjectWorkspaceShell } from "./project_workspace_shell";
+import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import type { SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
 import {
   apiBase,
@@ -14,7 +14,6 @@ import {
   readJsonOrThrow,
   safeText,
 } from "./detection_workspace_utils";
-import { WorkspaceSectionHeader } from "./workspace_section_primitives";
 import { useProjectWorkspaceSidebarState } from "./use_project_workspace_sidebar_state";
 
 export function ProjectConnectionPage() {
@@ -25,6 +24,7 @@ export function ProjectConnectionPage() {
     selectedTaskId,
     error: sidebarError,
     setError: setSidebarError,
+    refreshProjects,
     selectProject,
     selectTask,
   } = useProjectWorkspaceSidebarState();
@@ -35,6 +35,11 @@ export function ProjectConnectionPage() {
   const [sshBusyAction, setSSHBusyAction] = useState<string>("");
   const [sshMessage, setSSHMessage] = useState<string>("");
   const [pageError, setPageError] = useState<string>("");
+
+  const currentProject = useMemo(
+    () => projects.find((project) => project.project_id === currentProjectId),
+    [currentProjectId, projects]
+  );
 
   const syncFromServer = async () => {
     const [settingsResp, statusResp] = await Promise.all([
@@ -163,8 +168,11 @@ export function ProjectConnectionPage() {
   };
 
   return (
-    <ProjectWorkspaceShell
-      activeView="connect"
+    <DetectionWorkspaceShell
+      activeTab="connect"
+      hidePageMeta
+      hideFooterNote
+      currentProject={currentProject}
       projects={projects}
       currentProjectId={currentProjectId}
       tasks={tasks}
@@ -176,11 +184,8 @@ export function ProjectConnectionPage() {
       <section className="settings-layout">
         <section className="settings-column">
           <section className="settings-editor-panel connection-panel">
-            <WorkspaceSectionHeader title="连接" description="SSH" />
-
             <div className="connection-status-row">
               <span className={`status-pill${sshStatus?.connected ? " status-pill--ok" : ""}`}>{sshStatus?.connected ? "已连接" : "未连接"}</span>
-              <span className="muted text-sm">{sshStatus?.message || "填写参数后连接远端主机"}</span>
             </div>
 
             <div className="settings-form-grid">
@@ -256,6 +261,6 @@ export function ProjectConnectionPage() {
           </section>
         </section>
       </section>
-    </ProjectWorkspaceShell>
+    </DetectionWorkspaceShell>
   );
 }
