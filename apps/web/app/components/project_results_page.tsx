@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { ProjectWorkspaceShell } from "./project_workspace_shell";
+import { DetectionWorkspaceProjectSelect } from "./detection_workspace_project_select";
+import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import type { Project, Task } from "./detection_workspace_types";
 import { apiBase, readJsonOrThrow, safeText, toProject, toTask } from "./detection_workspace_utils";
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
@@ -21,6 +22,11 @@ export function ProjectResultsPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [resultRows, setResultRows] = useState<Array<Record<string, unknown>>>([]);
   const [error, setError] = useState<string>("");
+
+  const currentProject = useMemo(
+    () => projects.find((project) => project.project_id === currentProjectId),
+    [currentProjectId, projects]
+  );
 
   const openProject = async (projectId: string) => {
     const normalized = safeText(projectId);
@@ -92,13 +98,26 @@ export function ProjectResultsPage() {
   }, [currentProjectId]);
 
   return (
-    <ProjectWorkspaceShell
-      activeView="results"
+    <DetectionWorkspaceShell
+      activeTab="projects"
+      pageTitle="项目结果页"
+      pageDescription="聚合当前项目下所有任务的最新状态、最近执行和失败情况。"
+      currentProject={currentProject}
       projects={projects}
       currentProjectId={currentProjectId}
       tasks={tasks}
       selectedTaskId={selectedTaskId}
       error={error}
+      projectSelect={
+        <DetectionWorkspaceProjectSelect
+          currentProjectId={currentProjectId}
+          projects={projects}
+          onOpenProject={openProject}
+        />
+      }
+      onRefreshProjects={() => {
+        void refreshProjects();
+      }}
       onSelectProject={(projectId) => {
         void openProject(projectId);
       }}
@@ -155,6 +174,6 @@ export function ProjectResultsPage() {
           </div>
         )}
       </section>
-    </ProjectWorkspaceShell>
+    </DetectionWorkspaceShell>
   );
 }

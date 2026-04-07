@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import { DatabaseSection, HistorySection, RunsSection } from "./detection_workspace_sections";
-import { ProjectWorkspaceShell } from "./project_workspace_shell";
+import { DetectionWorkspaceProjectSelect } from "./detection_workspace_project_select";
+import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import type { DatabaseEntry, Execution, Project, Task, ToolDescriptor, ToolSummary } from "./detection_workspace_types";
 import {
   apiBase,
@@ -278,13 +279,42 @@ export function ProjectWorkspace() {
   }, [currentProjectId, selectedTask, selectedTaskId]);
 
   return (
-    <ProjectWorkspaceShell
-      activeView="workspace"
+    <DetectionWorkspaceShell
+      activeTab="projects"
+      currentProject={projects.find((project) => project.project_id === currentProjectId)}
       projects={projects}
       currentProjectId={currentProjectId}
       tasks={tasks}
       selectedTaskId={selectedTaskId}
+      toolsCount={tools.length}
+      historyCount={historyRows.length}
+      databasesCount={databases.length}
       error={error}
+      projectSelect={
+        <>
+          <DetectionWorkspaceProjectSelect
+            currentProjectId={currentProjectId}
+            projects={projects}
+            onOpenProject={openProject}
+          />
+          <select
+            className="control-select"
+            value={selectedTaskId}
+            onChange={(event) => setSelectedTaskId(event.target.value)}
+            aria-label="选择任务"
+          >
+            {tasks.length === 0 ? <option value="">暂无任务</option> : null}
+            {tasks.map((task) => (
+              <option key={task.task_id} value={task.task_id}>
+                {task.title}
+              </option>
+            ))}
+          </select>
+        </>
+      }
+      onRefreshProjects={() => {
+        void refreshProjects();
+      }}
       onSelectProject={(projectId) => {
         void openProject(projectId);
       }}
@@ -414,6 +444,6 @@ export function ProjectWorkspace() {
           ) : null}
         </section>
       )}
-    </ProjectWorkspaceShell>
+    </DetectionWorkspaceShell>
   );
 }
