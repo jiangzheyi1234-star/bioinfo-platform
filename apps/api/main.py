@@ -14,6 +14,7 @@ from apps.api.models import (
     RunWorkbenchToolRequest,
     SSHConnectionRequest,
     SubmitExecutionRequest,
+    UpdateProjectRequest,
     UpdateTaskRequest,
     UpdateSettingsRequest,
 )
@@ -130,9 +131,9 @@ async def test_ssh_connection(payload: SSHConnectionRequest | None = None) -> di
 
 
 @app.get("/api/v1/projects")
-async def list_projects(sort_by: str = "created_at") -> dict[str, Any]:
+async def list_projects(sort_by: str = "created_at", include_archived: bool = False) -> dict[str, Any]:
     try:
-        return {"items": _runtime().list_projects(sort_by=sort_by)}
+        return {"items": _runtime().list_projects(sort_by=sort_by, include_archived=include_archived)}
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -155,6 +156,39 @@ async def create_project(payload: CreateProjectRequest) -> dict[str, Any]:
         )
         return {"item": item}
     except (RuntimeServiceError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/projects/{project_id}")
+async def update_project(project_id: str, payload: UpdateProjectRequest) -> dict[str, Any]:
+    try:
+        patch = payload.model_dump(exclude_none=True)
+        return {"item": _runtime().update_project(project_id=project_id, patch=patch)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/archive")
+async def archive_project(project_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().archive_project(project_id=project_id)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/restore")
+async def restore_project(project_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().restore_project(project_id=project_id)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/projects/{project_id}")
+async def delete_project(project_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().delete_project(project_id=project_id)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -355,6 +389,14 @@ async def get_execution(project_id: str, execution_id: str) -> dict[str, Any]:
 async def list_execution_history(project_id: str, limit: int = 50, task_id: str = "") -> dict[str, Any]:
     try:
         return {"items": _runtime().list_execution_history(project_id=project_id, limit=limit, task_id=task_id or None)}
+    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/history/summary")
+async def list_execution_history_summary(project_id: str, limit: int = 20) -> dict[str, Any]:
+    try:
+        return {"items": _runtime().list_execution_history_summary(project_id=project_id, limit=limit)}
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

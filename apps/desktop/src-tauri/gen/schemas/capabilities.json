@@ -1,1 +1,1 @@
-{}
+{"main-default":{"identifier":"main-default","description":"Default desktop capabilities for the main H2OMeta window.","local":true,"windows":["main"],"permissions":["core:default","dialog:default"]}}

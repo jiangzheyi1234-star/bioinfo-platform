@@ -1,6 +1,7 @@
 import "./globals.css";
 import "./workspace.css";
 import type { ReactNode } from "react";
+import { WorkspaceRootShell } from "./components/workspace_root_shell";
 
 export const metadata = {
   title: "H2OMeta Desktop Workbench",
@@ -10,7 +11,9 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <WorkspaceRootShell>{children}</WorkspaceRootShell>
+      </body>
     </html>
   );
 }

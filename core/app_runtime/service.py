@@ -76,6 +76,10 @@ class RuntimeService:
         self._events: deque[dict[str, Any]] = deque(maxlen=2000)
         self._event_seq = 0
         self._tool_bridge_service: Optional[Any] = None
+        self._auto_connect_attempted = False
+        self._auto_connect_failed = False
+        self._auto_connect_error = ""
+        self._auto_connect_notice_key = ""
 
     def initialize(self) -> None:
         with self._lock:
@@ -84,6 +88,7 @@ class RuntimeService:
             self._service_locator.initialize()
             self._connect_runtime_signals()
             self._initialized = True
+            self._attempt_startup_auto_connect()
 
     def shutdown(self) -> None:
         with self._lock:
@@ -112,10 +117,12 @@ class RuntimeService:
                 raise RuntimeServiceError(f"Tool descriptor not found: {normalized_tool_id}")
             return descriptor
 
-    def list_projects(self, *, sort_by: str = "created_at") -> list[dict[str, Any]]:
+    def list_projects(self, *, sort_by: str = "created_at", include_archived: bool = False) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             projects = self._project_manager.list_projects(sort_by=sort_by)
+            if not include_archived:
+                projects = [project for project in projects if project.status != "archived"]
             return [self._project_to_dict(project) for project in projects]
 
     def get_current_project(self) -> Optional[dict[str, Any]]:
@@ -138,6 +145,44 @@ class RuntimeService:
                     raise RuntimeServiceError(f"Created project cannot be found: {project_id}")
                 project = matches[0]
             return self._project_to_dict(project)
+
+    def update_project(self, *, project_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            if not isinstance(patch, dict):
+                raise RuntimeServiceError("project patch must be an object")
+
+            updates: dict[str, Any] = {}
+            if "name" in patch:
+                name = str(patch.get("name") or "").strip()
+                if not name:
+                    raise RuntimeServiceError("project name cannot be empty")
+                updates["name"] = name
+            if "description" in patch:
+                updates["description"] = str(patch.get("description") or "").strip()
+            if not updates:
+                raise RuntimeServiceError("project patch is empty")
+
+            project = self._project_manager.update_project(project_id, **updates)
+            return self._project_to_dict(project)
+
+    def archive_project(self, *, project_id: str) -> dict[str, str]:
+        with self._lock:
+            self._ensure_initialized()
+            self._project_manager.archive_project(project_id)
+            return {"project_id": project_id, "status": "archived"}
+
+    def restore_project(self, *, project_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            project = self._project_manager.restore_project(project_id)
+            return self._project_to_dict(project)
+
+    def delete_project(self, *, project_id: str) -> dict[str, str]:
+        with self._lock:
+            self._ensure_initialized()
+            self._project_manager.delete_project(project_id)
+            return {"project_id": project_id, "status": "deleted"}
 
     def open_project(self, project_id: str) -> dict[str, Any]:
         with self._lock:
@@ -421,6 +466,10 @@ class RuntimeService:
                 "key_file": ssh_settings["key_file"],
                 "has_password": bool(ssh_settings["password"]),
                 "message": "SSH connected" if connected else "SSH disconnected",
+                "auto_connect_attempted": self._auto_connect_attempted,
+                "auto_connect_failed": self._auto_connect_failed,
+                "auto_connect_error": self._auto_connect_error,
+                "auto_connect_notice_key": self._auto_connect_notice_key,
             }
 
     def connect_ssh(self, patch: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -454,6 +503,9 @@ class RuntimeService:
 
             ssh_service = SSHService(initial_client=result.client, connect_fn=_connect_fn)
             self._service_locator.ssh_service = ssh_service
+            self._auto_connect_failed = False
+            self._auto_connect_error = ""
+            self._auto_connect_notice_key = ""
             status = self.get_ssh_status()
             status["message"] = result.message
             return status
@@ -462,6 +514,9 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._service_locator.ssh_service = None
+            self._auto_connect_failed = False
+            self._auto_connect_error = ""
+            self._auto_connect_notice_key = ""
             status = self.get_ssh_status()
             status["message"] = "SSH disconnected"
             return status
@@ -546,6 +601,14 @@ class RuntimeService:
             self._ensure_project_open(project_id)
             query = ExecutionQueryService(self._project_manager.db)
             rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
+            return [self._normalize_execution_row(row) for row in rows]
+
+    def list_execution_history_summary(self, *, project_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            query = ExecutionQueryService(self._project_manager.db)
+            rows = query.get_execution_history_summary_for_ui(limit=limit)
             return [self._normalize_execution_row(row) for row in rows]
 
     def list_task_executions(self, *, project_id: str, task_id: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -897,6 +960,57 @@ class RuntimeService:
             "use_key": use_key,
             "key_file": key_file,
         }
+
+    def _attempt_startup_auto_connect(self) -> None:
+        if self._auto_connect_attempted:
+            return
+        self._auto_connect_attempted = True
+
+        try:
+            ssh_settings = self._resolve_ssh_settings()
+        except RuntimeServiceError:
+            return
+
+        existing_ssh = self._service_locator.ssh_service
+        if existing_ssh is not None and getattr(existing_ssh, "is_connected", False):
+            return
+
+        timeout = self._resolve_ssh_timeout(None)
+        try:
+            result = ssh_connect(
+                ip=ssh_settings["host"],
+                port=ssh_settings["port"],
+                user=ssh_settings["user"],
+                password=ssh_settings["password"],
+                key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                timeout=timeout,
+            )
+            if not result.ok or result.client is None:
+                raise RuntimeServiceError(result.message)
+
+            def _connect_fn() -> Any:
+                reconnect = ssh_connect(
+                    ip=ssh_settings["host"],
+                    port=ssh_settings["port"],
+                    user=ssh_settings["user"],
+                    password=ssh_settings["password"],
+                    key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                    timeout=timeout,
+                )
+                if not reconnect.ok or reconnect.client is None:
+                    raise RuntimeError(reconnect.message)
+                return reconnect.client
+
+            self._service_locator.ssh_service = SSHService(initial_client=result.client, connect_fn=_connect_fn)
+            self._auto_connect_failed = False
+            self._auto_connect_error = ""
+            self._auto_connect_notice_key = ""
+        except Exception as exc:
+            message = str(exc).strip() or "SSH 自动连接失败"
+            self._auto_connect_failed = True
+            self._auto_connect_error = message
+            self._auto_connect_notice_key = f"auto-connect-{int(time.time() * 1000)}"
+            logger.warning("Startup SSH auto-connect failed: %s", message)
 
     def _run_ssh_command(self, cmd: str, timeout: int) -> tuple[int, str, str]:
         ssh = self._service_locator.ssh_service

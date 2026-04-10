@@ -92,6 +92,10 @@ export type SSHStatus = {
   key_file: string;
   has_password: boolean;
   message: string;
+  auto_connect_attempted?: boolean;
+  auto_connect_failed?: boolean;
+  auto_connect_error?: string;
+  auto_connect_notice_key?: string;
 };
 
 export type SSHDiagnosticStep = {
@@ -112,4 +116,13 @@ export type AppLogPayload = {
   lines: string[];
 };
 
-export type TabId = "projects" | "samples" | "runs" | "history" | "databases" | "connect" | "settings" | "workbench";
+export type TabId =
+  | "projects"
+  | "samples"
+  | "runs"
+  | "history"
+  | "databases"
+  | "connect"
+  | "toolflows"
+  | "settings"
+  | "workbench";

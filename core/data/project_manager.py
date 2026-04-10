@@ -462,6 +462,55 @@ class ProjectManager(QObject):
         logger.info("项目已归档: %s", project_id)
         self.project_archived.emit(project_id)
 
+    def restore_project(self, project_id: str) -> ProjectInfo:
+        """将归档项目恢复为活跃项目。"""
+        if project_id not in self._index:
+            raise KeyError(f"项目不存在: {project_id}")
+
+        project_data = dict(self._index[project_id])
+        project_data["status"] = "active"
+        self._index[project_id] = project_data
+        self._save_index()
+
+        project = ProjectInfo.from_dict(project_data)
+        self._save_project_metadata(project)
+        if self._current_project and self._current_project.project_id == project_id:
+            self._current_project = project
+
+        logger.info("项目已恢复: %s", project_id)
+        return project
+
+    def update_project(self, project_id: str, *, name: str | None = None, description: str | None = None) -> ProjectInfo:
+        """更新项目名称或描述。"""
+        if project_id not in self._index:
+            raise KeyError(f"项目不存在: {project_id}")
+
+        project_data = dict(self._index[project_id])
+        next_name = project_data.get("name", "")
+        next_description = project_data.get("description", "")
+
+        if name is not None:
+            normalized_name = str(name).strip()
+            if not normalized_name:
+                raise ValueError("项目名称不能为空")
+            next_name = normalized_name
+
+        if description is not None:
+            next_description = str(description).strip()
+
+        project_data["name"] = next_name
+        project_data["description"] = next_description
+        self._index[project_id] = project_data
+        self._save_index()
+
+        project = ProjectInfo.from_dict(project_data)
+        self._save_project_metadata(project)
+        if self._current_project and self._current_project.project_id == project_id:
+            self._current_project = project
+
+        logger.info("项目已更新: %s (%s)", next_name, project_id)
+        return project
+
     def delete_project(self, project_id: str) -> None:
         """删除项目（包括文件和索引记录）
 
@@ -470,14 +519,13 @@ class ProjectManager(QObject):
 
         Raises:
             KeyError: 项目不存在
-            RuntimeError: 无法删除当前打开的项目
         """
         if project_id not in self._index:
             raise KeyError(f"项目不存在: {project_id}")
 
-        # 不能删除当前打开的项目
         if self._current_project and self._current_project.project_id == project_id:
-            raise RuntimeError("无法删除当前打开的项目，请先关闭或切换到其他项目")
+            self._close_db()
+            self._current_project = None
 
         # 删除项目目录
         project_dir = self._projects_root / project_id

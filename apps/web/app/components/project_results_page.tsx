@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { DetectionWorkspaceProjectSelect } from "./detection_workspace_project_select";
-import { DetectionWorkspaceShell } from "./detection_workspace_shell";
-import type { Project, Task } from "./detection_workspace_types";
-import { apiBase, readJsonOrThrow, safeText, toProject, toTask } from "./detection_workspace_utils";
+import { apiBase, readJsonOrThrow, safeText } from "./detection_workspace_utils";
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
+import { useWorkspaceShell } from "./workspace_shell_context";
 
 function formatTs(value: number): string {
   if (!value) {
@@ -16,55 +14,8 @@ function formatTs(value: number): string {
 }
 
 export function ProjectResultsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [currentProjectId, setCurrentProjectId] = useState<string>("");
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+  const { currentProjectId, setShellError } = useWorkspaceShell();
   const [resultRows, setResultRows] = useState<Array<Record<string, unknown>>>([]);
-  const [error, setError] = useState<string>("");
-
-  const currentProject = useMemo(
-    () => projects.find((project) => project.project_id === currentProjectId),
-    [currentProjectId, projects]
-  );
-
-  const openProject = async (projectId: string) => {
-    const normalized = safeText(projectId);
-    if (!normalized) {
-      return;
-    }
-    const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(normalized)}/open`, { method: "POST" });
-    await readJsonOrThrow(resp);
-    setCurrentProjectId(normalized);
-  };
-
-  const refreshProjects = async () => {
-    const projectResp = await fetch(`${apiBase()}/api/v1/projects`);
-    const projectData = await readJsonOrThrow(projectResp);
-    const projectItems = Array.isArray(projectData.items)
-      ? projectData.items.map(toProject).filter((item: Project | null): item is Project => !!item)
-      : [];
-    setProjects(projectItems);
-    const currentResp = await fetch(`${apiBase()}/api/v1/projects/current`);
-    const currentData = await readJsonOrThrow(currentResp);
-    const currentId = safeText(currentData?.item?.project_id) || projectItems[0]?.project_id || "";
-    if (currentId) {
-      await openProject(currentId);
-    }
-  };
-
-  const refreshTasks = async (projectId: string) => {
-    if (!projectId) {
-      setTasks([]);
-      setSelectedTaskId("");
-      return;
-    }
-    const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(projectId)}/tasks`);
-    const data = await readJsonOrThrow(resp);
-    const items = Array.isArray(data.items) ? data.items.map(toTask).filter((item: Task | null): item is Task => !!item) : [];
-    setTasks(items);
-    setSelectedTaskId((prev) => (items.some((task: Task) => task.task_id === prev) ? prev : items[0]?.task_id || ""));
-  };
 
   const refreshResults = async (projectId: string) => {
     if (!projectId) {
@@ -79,101 +30,57 @@ export function ProjectResultsPage() {
   useEffect(() => {
     void (async () => {
       try {
-        await refreshProjects();
+        await refreshResults(currentProjectId);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setShellError(err instanceof Error ? err.message : String(err));
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        await Promise.all([refreshTasks(currentProjectId), refreshResults(currentProjectId)]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-  }, [currentProjectId]);
+  }, [currentProjectId, setShellError]);
 
   return (
-    <DetectionWorkspaceShell
-      activeTab="projects"
-      pageTitle="项目结果页"
-      pageDescription="聚合当前项目下所有任务的最新状态、最近执行和失败情况。"
-      currentProject={currentProject}
-      projects={projects}
-      currentProjectId={currentProjectId}
-      tasks={tasks}
-      selectedTaskId={selectedTaskId}
-      error={error}
-      projectSelect={
-        <DetectionWorkspaceProjectSelect
-          currentProjectId={currentProjectId}
-          projects={projects}
-          onOpenProject={openProject}
-        />
-      }
-      onRefreshProjects={() => {
-        void refreshProjects();
-      }}
-      onSelectProject={(projectId) => {
-        void openProject(projectId);
-      }}
-      onSelectTask={(taskId) => setSelectedTaskId(taskId)}
-    >
-      <section className="grid gap-[18px]">
-        <header className="flex flex-col items-start justify-between gap-4 xl:flex-row">
-          <div>
-            <h2>项目结果页</h2>
-            <p>聚合当前项目下所有任务的最新状态、最近执行和失败情况。</p>
-          </div>
-        </header>
-
-        {resultRows.length === 0 ? (
-          <WorkspaceEmptyState mark="Res" label="当前项目暂无可展示结果" hint="先创建任务并执行工具，再回到这里查看聚合结果。" />
-        ) : (
-          <div className="grid gap-4 xl:grid-cols-2">
-            {resultRows.map((row) => (
-              <article key={safeText(row.task_id, safeText(row.title))} className="panel p-4">
-                <WorkspaceSectionHeader
-                  title={safeText(row.title, safeText(row.task_id))}
-                  description={safeText(row.summary, "暂无摘要")}
-                  aside={<span className="badge">{safeText(row.task_status, "pending")}</span>}
-                  titleAs="h4"
-                />
-                <div className="grid gap-3">
-                  <div className="row border-t border-[var(--workspace-line-soft)] pt-0 first:border-t-0">
-                    <span>最新执行</span>
-                    <strong>{safeText(row.latest_execution_id, "暂无")}</strong>
-                  </div>
-                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
-                    <span>最近工具</span>
-                    <strong>{safeText(row.latest_tool_id, "未记录")}</strong>
-                  </div>
-                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
-                    <span>执行统计</span>
-                    <strong>
-                      {safeText(row.completed_count, "0")} completed / {safeText(row.failed_count, "0")} failed
-                    </strong>
-                  </div>
-                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
-                    <span>最近活动</span>
-                    <strong>{formatTs(Number(row.last_activity_at || 0))}</strong>
-                  </div>
-                  {safeText(row.latest_error) ? (
-                    <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
-                      <span>最近错误</span>
-                      <strong>{safeText(row.latest_error)}</strong>
-                    </div>
-                  ) : null}
+    <section className="grid gap-[18px]">
+      {resultRows.length === 0 ? (
+        <WorkspaceEmptyState mark="Res" label="当前项目暂无可展示结果" hint="先创建任务并执行工具，再回到这里查看聚合结果。" />
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {resultRows.map((row) => (
+            <article key={safeText(row.task_id, safeText(row.title))} className="panel p-4">
+              <WorkspaceSectionHeader
+                title={safeText(row.title, safeText(row.task_id))}
+                description={safeText(row.summary, "暂无摘要")}
+                aside={<span className="badge">{safeText(row.task_status, "pending")}</span>}
+                titleAs="h4"
+              />
+              <div className="grid gap-3">
+                <div className="row border-t border-[var(--workspace-line-soft)] pt-0 first:border-t-0">
+                  <span>最新执行</span>
+                  <strong>{safeText(row.latest_execution_id, "暂无")}</strong>
                 </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-    </DetectionWorkspaceShell>
+                <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
+                  <span>最近工具</span>
+                  <strong>{safeText(row.latest_tool_id, "未记录")}</strong>
+                </div>
+                <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
+                  <span>执行统计</span>
+                  <strong>
+                    {safeText(row.completed_count, "0")} completed / {safeText(row.failed_count, "0")} failed
+                  </strong>
+                </div>
+                <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
+                  <span>最近活动</span>
+                  <strong>{formatTs(Number(row.last_activity_at || 0))}</strong>
+                </div>
+                {safeText(row.latest_error) ? (
+                  <div className="row border-t border-[var(--workspace-line-soft)] pt-3">
+                    <span>最近错误</span>
+                    <strong>{safeText(row.latest_error)}</strong>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
