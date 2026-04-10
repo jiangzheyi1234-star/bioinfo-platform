@@ -181,6 +181,7 @@ fn wait_backend_ready(child: &mut Child, log_path: &std::path::Path, timeout: Du
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(BackendState(Mutex::new(None)))
         .setup(|app| {
             if TcpStream::connect("127.0.0.1:8765").is_ok() {

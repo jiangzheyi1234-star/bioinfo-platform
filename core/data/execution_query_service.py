@@ -66,6 +66,21 @@ class ExecutionQueryService:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_execution_history_summary_for_ui(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT e.execution_id, e.task_id, e.sample_id, s.name AS sample_name,
+                   e.tool_id, e.status, e.created_at
+            FROM executions e
+            LEFT JOIN samples s ON e.sample_id = s.sample_id
+            WHERE e.archived_at IS NULL
+            ORDER BY e.created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_recent_execution_rows(self, *, limit: int = 100) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             """

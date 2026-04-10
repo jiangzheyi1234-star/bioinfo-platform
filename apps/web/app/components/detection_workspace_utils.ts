@@ -249,6 +249,10 @@ export function parseSSHStatus(value: unknown): SSHStatus | null {
     key_file: safeText(value.key_file),
     has_password: Boolean(value.has_password),
     message: safeText(value.message),
+    auto_connect_attempted: Boolean(value.auto_connect_attempted),
+    auto_connect_failed: Boolean(value.auto_connect_failed),
+    auto_connect_error: safeText(value.auto_connect_error) || undefined,
+    auto_connect_notice_key: safeText(value.auto_connect_notice_key) || undefined,
   };
 }
 

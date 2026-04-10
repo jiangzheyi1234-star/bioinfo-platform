@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { open } from "@tauri-apps/plugin-dialog";
 
-import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import type { SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
 import {
   apiBase,
@@ -14,32 +15,23 @@ import {
   readJsonOrThrow,
   safeText,
 } from "./detection_workspace_utils";
-import { useProjectWorkspaceSidebarState } from "./use_project_workspace_sidebar_state";
+import { useWorkspaceShell } from "./workspace_shell_context";
 
 export function ProjectConnectionPage() {
-  const {
-    projects,
-    currentProjectId,
-    tasks,
-    selectedTaskId,
-    error: sidebarError,
-    setError: setSidebarError,
-    refreshProjects,
-    selectProject,
-    selectTask,
-  } = useProjectWorkspaceSidebarState();
+  const searchParams = useSearchParams();
+  const { setShellError } = useWorkspaceShell();
 
   const [sshSettings, setSSHSettings] = useState<SSHSettings>(defaultSSHSettings());
   const [sshStatus, setSSHStatus] = useState<SSHStatus | null>(null);
   const [sshDiagnostics, setSSHDiagnostics] = useState<SSHDiagnosticStep[]>([]);
-  const [sshBusyAction, setSSHBusyAction] = useState<string>("");
-  const [sshMessage, setSSHMessage] = useState<string>("");
-  const [pageError, setPageError] = useState<string>("");
+  const [sshBusyAction, setSSHBusyAction] = useState("");
+  const [sshMessage, setSSHMessage] = useState("");
+  const [isEditingConnection, setIsEditingConnection] = useState(false);
+  const [editRequestConsumed, setEditRequestConsumed] = useState(false);
 
-  const currentProject = useMemo(
-    () => projects.find((project) => project.project_id === currentProjectId),
-    [currentProjectId, projects]
-  );
+  const isConnected = sshStatus?.connected === true;
+  const canEditForm = !isConnected || isEditingConnection;
+  const buttonsLocked = sshBusyAction.length > 0 || (isConnected && !isEditingConnection);
 
   const syncFromServer = async () => {
     const [settingsResp, statusResp] = await Promise.all([
@@ -50,7 +42,11 @@ export function ProjectConnectionPage() {
     const statusData = await readJsonOrThrow(statusResp);
     const payload = parseSettingsPayload(settingsData?.item);
     setSSHSettings(parseSSHSettings(payload.ssh));
-    setSSHStatus(parseSSHStatus(statusData?.item));
+    const nextStatus = parseSSHStatus(statusData?.item);
+    setSSHStatus(nextStatus);
+    if (nextStatus?.connected) {
+      setIsEditingConnection(false);
+    }
   };
 
   useEffect(() => {
@@ -58,57 +54,47 @@ export function ProjectConnectionPage() {
       try {
         await syncFromServer();
       } catch (err) {
-        setPageError(err instanceof Error ? err.message : String(err));
+        setShellError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, []);
+  }, [setShellError]);
 
   const updateSSHField = <K extends keyof SSHSettings>(key: K, value: SSHSettings[K]) => {
     setSSHSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  const saveSSHSettings = async () => {
-    setPageError("");
-    setSidebarError("");
-    setSSHMessage("");
-    setSSHBusyAction("save");
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          patch: {
-            ssh: {
-              host: sshSettings.host,
-              port: sshSettings.port,
-              user: sshSettings.user,
-              password: sshSettings.password,
-              use_key: sshSettings.use_key,
-              key_file: sshSettings.key_file,
-            },
+  const persistSSHSettings = async () => {
+    const resp = await fetch(`${apiBase()}/api/v1/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        patch: {
+          ssh: {
+            host: sshSettings.host,
+            port: sshSettings.port,
+            user: sshSettings.user,
+            password: sshSettings.password,
+            use_key: sshSettings.use_key,
+            key_file: sshSettings.key_file,
           },
-        }),
-      });
-      const data = await readJsonOrThrow(resp);
-      const payload = parseSettingsPayload(data?.item);
-      setSSHSettings(parseSSHSettings(payload.ssh));
-      setSSHMessage("SSH 设置已保存");
-      const statusResp = await fetch(`${apiBase()}/api/v1/ssh/status`);
-      const statusData = await readJsonOrThrow(statusResp);
-      setSSHStatus(parseSSHStatus(statusData?.item));
-    } catch (err) {
-      setPageError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSSHBusyAction("");
-    }
+        },
+      }),
+    });
+    const data = await readJsonOrThrow(resp);
+    const payload = parseSettingsPayload(data?.item);
+    setSSHSettings(parseSSHSettings(payload.ssh));
   };
 
   const connectSSH = async () => {
-    setPageError("");
-    setSidebarError("");
+    if (isConnected && !isEditingConnection) {
+      setShellError("SSH 已连接；如需修改连接，请先进入编辑模式。");
+      return;
+    }
+    setShellError("");
     setSSHMessage("");
     setSSHBusyAction("connect");
     try {
+      await persistSSHSettings();
       const resp = await fetch(`${apiBase()}/api/v1/ssh/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -118,36 +104,33 @@ export function ProjectConnectionPage() {
       setSSHStatus(parseSSHStatus(data?.item));
       setSSHDiagnostics([]);
       setSSHMessage(safeText(data?.item?.message, "SSH 已连接"));
+      setIsEditingConnection(false);
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : String(err));
+      setShellError(err instanceof Error ? err.message : String(err));
     } finally {
       setSSHBusyAction("");
     }
   };
 
-  const disconnectSSH = async () => {
-    setPageError("");
-    setSidebarError("");
+  const startConnectionEdit = async () => {
+    setShellError("");
     setSSHMessage("");
     setSSHBusyAction("disconnect");
     try {
-      const resp = await fetch(`${apiBase()}/api/v1/ssh/disconnect`, {
-        method: "POST",
-      });
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/disconnect`, { method: "POST" });
       const data = await readJsonOrThrow(resp);
       setSSHStatus(parseSSHStatus(data?.item));
-      setSSHDiagnostics([]);
-      setSSHMessage(safeText(data?.item?.message, "SSH 已断开"));
+      setIsEditingConnection(true);
+      setSSHMessage("");
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : String(err));
+      setShellError(err instanceof Error ? err.message : String(err));
     } finally {
       setSSHBusyAction("");
     }
   };
 
   const testSSH = async () => {
-    setPageError("");
-    setSidebarError("");
+    setShellError("");
     setSSHMessage("");
     setSSHBusyAction("test");
     try {
@@ -161,106 +144,115 @@ export function ProjectConnectionPage() {
       setSSHStatus(parseSSHStatus(data?.item?.status));
       setSSHMessage(safeText(data?.item?.message));
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : String(err));
+      setShellError(err instanceof Error ? err.message : String(err));
     } finally {
       setSSHBusyAction("");
     }
   };
 
+  const browseKeyFile = async () => {
+    setShellError("");
+    try {
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        title: "选择 SSH 私钥文件",
+        filters: [
+          { name: "SSH Key", extensions: ["pem", "key", "rsa", "ppk"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        updateSSHField("key_file", selected);
+      }
+    } catch (err) {
+      setShellError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    if (searchParams.get("edit") !== "1" || editRequestConsumed || !sshStatus?.connected || isEditingConnection || sshBusyAction) {
+      return;
+    }
+    setEditRequestConsumed(true);
+    void startConnectionEdit();
+  }, [editRequestConsumed, isEditingConnection, searchParams, sshBusyAction, sshStatus?.connected]);
+
   return (
-    <DetectionWorkspaceShell
-      activeTab="connect"
-      hidePageMeta
-      hideFooterNote
-      currentProject={currentProject}
-      projects={projects}
-      currentProjectId={currentProjectId}
-      tasks={tasks}
-      selectedTaskId={selectedTaskId}
-      error={pageError || sidebarError}
-      onSelectProject={selectProject}
-      onSelectTask={selectTask}
-    >
-      <section className="settings-layout">
-        <section className="settings-column">
-          <section className="settings-editor-panel connection-panel">
-            <div className="connection-status-row">
-              <span className={`status-pill${sshStatus?.connected ? " status-pill--ok" : ""}`}>{sshStatus?.connected ? "已连接" : "未连接"}</span>
-            </div>
+    <section className="settings-layout">
+      <section className="settings-column">
+        <section className="settings-editor-panel connection-panel">
+          <div className="connection-status-row">
+            <span className={`status-pill${sshStatus?.connected ? " status-pill--ok" : ""}`}>{sshStatus?.connected ? "已连接" : "未连接"}</span>
+            {sshMessage ? <span className="muted">{sshMessage}</span> : null}
+          </div>
 
-            <div className="settings-form-grid">
-              <div className="field-block">
-                <label className="field-label" htmlFor="ssh-host">
-                  Host
-                </label>
-                <input id="ssh-host" className="control-input" value={sshSettings.host} onChange={(event) => updateSSHField("host", event.target.value)} placeholder="192.168.0.152" />
-              </div>
-              <div className="field-block">
-                <label className="field-label" htmlFor="ssh-port">
-                  Port
-                </label>
-                <input id="ssh-port" className="control-input" type="number" value={sshSettings.port} onChange={(event) => updateSSHField("port", Number(event.target.value || 22))} placeholder="22" />
-              </div>
-              <div className="field-block">
-                <label className="field-label" htmlFor="ssh-user">
-                  User
-                </label>
-                <input id="ssh-user" className="control-input" value={sshSettings.user} onChange={(event) => updateSSHField("user", event.target.value)} placeholder="ubuntu" />
-              </div>
-              <div className="field-block">
-                <label className="field-label" htmlFor="ssh-password">
-                  Password
-                </label>
-                <input id="ssh-password" className="control-input" type="password" value={sshSettings.password} onChange={(event) => updateSSHField("password", event.target.value)} placeholder={sshSettings.use_key ? "密钥模式下可留空" : "输入 SSH 密码"} />
-              </div>
-              <div className="field-block field-block--full">
-                <label className="field-label" htmlFor="ssh-key-file">
-                  Key File
-                </label>
-                <input id="ssh-key-file" className="control-input" value={sshSettings.key_file} onChange={(event) => updateSSHField("key_file", event.target.value)} placeholder="~/.ssh/id_rsa" />
-              </div>
-              <label className="checkbox-row field-block--full" htmlFor="ssh-use-key">
-                <input id="ssh-use-key" type="checkbox" checked={sshSettings.use_key} onChange={(event) => updateSSHField("use_key", event.target.checked)} />
-                <span>使用密钥连接</span>
+          <div className="settings-form-grid">
+            <div className="field-block">
+              <label className="field-label" htmlFor="ssh-host">
+                Host
               </label>
+              <input id="ssh-host" className="control-input" value={sshSettings.host} onChange={(event) => updateSSHField("host", event.target.value)} placeholder="192.168.0.152" disabled={!canEditForm} />
             </div>
-
-            <div className="settings-actions connection-actions">
-              <button className="control-btn" onClick={() => void syncFromServer()}>
-                刷新
-              </button>
-              <button className="ui-button" disabled={sshBusyAction === "test"} onClick={() => void testSSH()}>
-                {sshBusyAction === "test" ? "测试中..." : "测试"}
-              </button>
-              <button className="ui-button ui-button--primary" disabled={sshBusyAction === "connect"} onClick={() => void connectSSH()}>
-                {sshBusyAction === "connect" ? "连接中..." : "连接"}
-              </button>
-              <button className="control-btn" disabled={sshBusyAction === "disconnect"} onClick={() => void disconnectSSH()}>
-                {sshBusyAction === "disconnect" ? "断开中..." : "断开"}
-              </button>
-              <button className="control-btn" disabled={sshBusyAction === "save"} onClick={() => void saveSSHSettings()}>
-                {sshBusyAction === "save" ? "保存中..." : "保存"}
-              </button>
+            <div className="field-block">
+              <label className="field-label" htmlFor="ssh-port">
+                Port
+              </label>
+              <input id="ssh-port" className="control-input" type="number" value={sshSettings.port} onChange={(event) => updateSSHField("port", Number(event.target.value || 22))} placeholder="22" disabled={!canEditForm} />
             </div>
-
-            {sshMessage ? <p className="ok-text">{sshMessage}</p> : null}
-
-            {sshDiagnostics.length > 0 ? (
-              <div className="diagnostics-list connection-diagnostics">
-                {sshDiagnostics.map((step) => (
-                  <article key={step.name} className={`diagnostic-card diagnostic-card--${step.status}`}>
-                    <div className="row">
-                      <strong>{step.name}</strong>
-                      <span className="badge">{step.status}</span>
-                    </div>
-                    <p className="muted">{step.message || "无额外信息"}</p>
-                  </article>
-                ))}
+            <div className="field-block">
+              <label className="field-label" htmlFor="ssh-user">
+                User
+              </label>
+              <input id="ssh-user" className="control-input" value={sshSettings.user} onChange={(event) => updateSSHField("user", event.target.value)} placeholder="ubuntu" disabled={!canEditForm} />
+            </div>
+            <div className="field-block">
+              <label className="field-label" htmlFor="ssh-password">
+                Password
+              </label>
+              <input id="ssh-password" className="control-input" type="password" value={sshSettings.password} onChange={(event) => updateSSHField("password", event.target.value)} placeholder={sshSettings.use_key ? "密钥模式下可留空" : "输入 SSH 密码"} disabled={!canEditForm} />
+            </div>
+            <div className="field-block field-block--full">
+              <label className="field-label" htmlFor="ssh-key-file">
+                Key File
+              </label>
+              <div className="file-picker-row">
+                <input id="ssh-key-file" className="control-input file-picker-input" value={sshSettings.key_file} placeholder="选择 SSH 私钥文件" readOnly disabled={!canEditForm} />
+                <button className="control-btn" type="button" disabled={!canEditForm} onClick={() => void browseKeyFile()}>
+                  浏览
+                </button>
               </div>
-            ) : null}
-          </section>
+            </div>
+            <label className="checkbox-row field-block--full" htmlFor="ssh-use-key">
+              <input id="ssh-use-key" type="checkbox" checked={sshSettings.use_key} onChange={(event) => updateSSHField("use_key", event.target.checked)} disabled={!canEditForm} />
+              <span>使用密钥连接</span>
+            </label>
+          </div>
+
+          <div className="settings-actions connection-actions">
+            <button className="ui-button" disabled={buttonsLocked} onClick={() => void testSSH()}>
+              {sshBusyAction === "test" ? "测试中..." : "测试"}
+            </button>
+            <button className="ui-button ui-button--primary" disabled={buttonsLocked} onClick={() => void connectSSH()}>
+              {sshBusyAction === "connect" ? "连接中..." : "连接"}
+            </button>
+          </div>
+
+          {sshDiagnostics.length > 0 ? (
+            <div className="diagnostics-list connection-diagnostics">
+              {sshDiagnostics.map((step) => (
+                <article key={step.name} className={`diagnostic-card diagnostic-card--${step.status}`}>
+                  <div className="row">
+                    <strong>{step.name}</strong>
+                    <span className="badge">{step.status}</span>
+                  </div>
+                  <p className="muted">{step.message || "无额外信息"}</p>
+                </article>
+              ))}
+            </div>
+          ) : null}
         </section>
       </section>
-    </DetectionWorkspaceShell>
+    </section>
   );
 }

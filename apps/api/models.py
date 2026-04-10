@@ -13,6 +13,11 @@ class CreateProjectRequest(BaseModel):
     open_after_create: bool = True
 
 
+class UpdateProjectRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    description: str | None = None
+
+
 class CreateTaskRequest(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
