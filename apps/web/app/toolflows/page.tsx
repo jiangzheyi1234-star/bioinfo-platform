@@ -1,5 +1,5 @@
-import { ToolflowsPage } from "../components/toolflows_page";
+import { redirect } from "next/navigation";
 
 export default function ToolflowsRoute() {
-  return <ToolflowsPage />;
+  redirect("/workflows");
 }

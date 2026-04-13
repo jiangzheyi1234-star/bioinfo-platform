@@ -346,17 +346,10 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        await Promise.all([
-          refreshTasks(currentProjectId),
-          refreshProjectExecutions(currentProjectId),
-          refreshProjectExecutionSummary(currentProjectId),
-        ]);
-      } catch (err) {
-        setShellError(err instanceof Error ? err.message : String(err));
-      }
-    })();
+    setTasks([]);
+    setSelectedTaskId("");
+    setProjectExecutionRows([]);
+    setSelectedExecutionId("");
   }, [currentProjectId]);
 
   const value = useMemo<WorkspaceShellContextValue>(

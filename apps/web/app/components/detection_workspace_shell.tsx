@@ -16,8 +16,10 @@ const AUTO_CONNECT_NOTICE_STORAGE_KEY = "h2ometa:auto-connect-notice-key";
 
 export const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: string; hotkey: string }> = [
   { id: "connect", href: "/connect", label: "连接", note: "SSH 与远端状态", hotkey: "Alt+6" },
-  { id: "toolflows", href: "/toolflows", label: "工具和流程", note: "工具目录与流程视图", hotkey: "Alt+7" },
-  { id: "settings", href: "/settings", label: "系统设置", note: "全局配置与偏好", hotkey: "Alt+7" },
+  { id: "workflows", href: "/workflows", label: "Workflows", note: "Workflow 规格与 bundle 预览", hotkey: "Alt+7" },
+  { id: "runs", href: "/runs", label: "Runs", note: "Workflow run 状态与控制台", hotkey: "Alt+8" },
+  { id: "artifacts", href: "/artifacts", label: "Artifacts", note: "报告、追踪与产物同步", hotkey: "Alt+9" },
+  { id: "settings", href: "/settings", label: "系统设置", note: "全局配置与偏好", hotkey: "Alt+0" },
 ];
 
 const TAB_TITLES: Record<TabId, string> = {
@@ -27,6 +29,8 @@ const TAB_TITLES: Record<TabId, string> = {
   history: "历史归档",
   databases: "数据库状态",
   connect: "远端连接",
+  workflows: "Workflow 设计",
+  artifacts: "产物中心",
   toolflows: "工具和流程",
   settings: "系统设置",
   workbench: "高级工作流",
@@ -35,10 +39,12 @@ const TAB_TITLES: Record<TabId, string> = {
 const TAB_DESCRIPTIONS: Record<TabId, string> = {
   projects: "管理项目生命周期，确定当前上下文与执行目标。",
   samples: "维护样本清单、来源和元数据，为执行与追踪提供稳定上下文。",
-  runs: "按工具配置参数并提交任务，保持执行语义一致。",
+  runs: "查看 workflow run、远端状态、日志与取消动作。",
   history: "追踪执行记录与归档状态，快速过滤与定位。",
   databases: "确认数据库路径、类别和可用状态。",
   connect: "管理 SSH 连接、测试与远端会话状态。",
+  workflows: "编辑 workflow 规格、生成 bundle，并提交运行。",
+  artifacts: "同步 report、timeline、trace、dag 与 nextflow 日志。",
   toolflows: "集中查看生信工具目录与当前项目流程。",
   settings: "维护系统配置和本地工作台偏好。",
   workbench: "聚合视图、结果、产物与远程状态。",

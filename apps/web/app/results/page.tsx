@@ -1,5 +1,5 @@
-import { ProjectResultsPage } from "../components/project_results_page";
+import { redirect } from "next/navigation";
 
 export default function ResultsPage() {
-  return <ProjectResultsPage />;
+  redirect("/artifacts");
 }
