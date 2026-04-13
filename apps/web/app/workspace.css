@@ -1510,12 +1510,170 @@
   color: #0f8f63;
 }
 
+.workflow-console-topbar,
+.workflow-console-inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workflow-console-inline-note {
+  color: var(--workspace-ink-soft);
+  font-size: 13px;
+}
+
+.workflow-console-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.workflow-console-primary,
+.workflow-console-section {
+  display: grid;
+  gap: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--workspace-line-soft);
+}
+
+.workflow-console-run-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.workflow-console-run-chip {
+  min-width: 168px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--workspace-line-soft);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workflow-console-run-chip strong {
+  font-size: 13px;
+}
+
+.workflow-console-run-chip span {
+  color: var(--workspace-ink-soft);
+  font-size: 12px;
+}
+
+.workflow-console-run-chip.active {
+  border-color: rgba(23, 57, 103, 0.24);
+  background: rgba(23, 57, 103, 0.05);
+}
+
+.workflow-console-run-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-console-stat-row {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.workflow-console-stat {
+  display: grid;
+  gap: 5px;
+  padding: 12px 0;
+  border-top: 1px solid var(--workspace-line-soft);
+}
+
+.workflow-console-stat span {
+  color: var(--workspace-ink-soft);
+  font-size: 12px;
+}
+
+.workflow-console-stat strong {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.workflow-console-callout {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--workspace-line-soft);
+  padding-top: 12px;
+}
+
+.workflow-console-callout strong {
+  font-size: 14px;
+}
+
+.workflow-console-callout p,
+.workflow-console-section-summary span,
+.workflow-console-log-head span {
+  margin: 0;
+  color: var(--workspace-ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.workflow-console-log {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-console-log-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.workflow-console-section {
+  border-top: none;
+  padding-top: 0;
+}
+
+.workflow-console-section[open] {
+  padding-bottom: 4px;
+}
+
+.workflow-console-section-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--workspace-line-soft);
+}
+
+.workflow-console-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-console-section-summary strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.workflow-console-section-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
 @media (max-width: 1100px) {
   .workflow-panel-grid,
   .workflow-run-layout,
   .workflow-preview-grid,
   .workflow-run-meta-grid,
-  .workflow-node-row {
+  .workflow-node-row,
+  .workflow-console-stat-row {
     grid-template-columns: minmax(0, 1fr);
   }
 }

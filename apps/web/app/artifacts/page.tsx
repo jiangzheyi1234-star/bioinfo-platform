@@ -1,5 +1,5 @@
-import { WorkflowArtifactsPage } from "../components/workflow_artifacts_page";
+import { WorkspaceRouteRedirect } from "../components/workspace_route_redirect";
 
-export default function ArtifactsPage() {
-  return <WorkflowArtifactsPage />;
+export default function ArtifactsRedirectPage() {
+  return <WorkspaceRouteRedirect target="/workspace" />;
 }

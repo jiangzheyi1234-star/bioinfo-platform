@@ -16,9 +16,7 @@ const AUTO_CONNECT_NOTICE_STORAGE_KEY = "h2ometa:auto-connect-notice-key";
 
 export const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: string; hotkey: string }> = [
   { id: "connect", href: "/connect", label: "连接", note: "SSH 与远端状态", hotkey: "Alt+6" },
-  { id: "workflows", href: "/workflows", label: "Workflows", note: "Workflow 规格与 bundle 预览", hotkey: "Alt+7" },
-  { id: "runs", href: "/runs", label: "Runs", note: "Workflow run 状态与控制台", hotkey: "Alt+8" },
-  { id: "artifacts", href: "/artifacts", label: "Artifacts", note: "报告、追踪与产物同步", hotkey: "Alt+9" },
+  { id: "workspace", href: "/workspace", label: "工作台", note: "当前 run、workflow 规格与产物", hotkey: "Alt+7" },
   { id: "settings", href: "/settings", label: "系统设置", note: "全局配置与偏好", hotkey: "Alt+0" },
 ];
 
@@ -29,6 +27,7 @@ const TAB_TITLES: Record<TabId, string> = {
   history: "历史归档",
   databases: "数据库状态",
   connect: "远端连接",
+  workspace: "工作台",
   workflows: "Workflow 设计",
   artifacts: "产物中心",
   toolflows: "工具和流程",
@@ -43,6 +42,7 @@ const TAB_DESCRIPTIONS: Record<TabId, string> = {
   history: "追踪执行记录与归档状态，快速过滤与定位。",
   databases: "确认数据库路径、类别和可用状态。",
   connect: "管理 SSH 连接、测试与远端会话状态。",
+  workspace: "围绕当前 workflow run 进行编译、提交、监控与产物查看。",
   workflows: "编辑 workflow 规格、生成 bundle，并提交运行。",
   artifacts: "同步 report、timeline、trace、dag 与 nextflow 日志。",
   toolflows: "集中查看生信工具目录与当前项目流程。",
