@@ -15,15 +15,13 @@ from apps.api.models import (
     CreateSampleRequest,
     DatabaseInstallRequest,
     RemoteEnvInstallRequest,
-    RunWorkbenchToolRequest,
     SSHConnectionRequest,
-    SubmitExecutionRequest,
     UpdateProjectRequest,
     UpdateTaskRequest,
     UpdateSettingsRequest,
 )
 from apps.api.runtime import get_runtime_service
-from core.app_runtime import ExecutionSubmitRequest, RuntimeServiceError
+from core.app_runtime import RuntimeServiceError
 
 app = FastAPI(
     title="H2OMeta Local API",
@@ -66,22 +64,6 @@ async def on_shutdown() -> None:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.get("/api/v1/tools")
-async def list_tools() -> dict[str, Any]:
-    try:
-        return {"items": _runtime().list_tools()}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/tools/{tool_id}/descriptor")
-async def get_tool_descriptor(tool_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_tool_descriptor(tool_id=tool_id)}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/workflows/compile")
@@ -390,176 +372,6 @@ async def get_database_install_status(project_id: str, db_id: str) -> dict[str, 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/v1/projects/{project_id}/workbench/tools")
-async def list_workbench_tools(project_id: str) -> dict[str, Any]:
-    try:
-        return {"items": _runtime().list_workbench_tools(project_id=project_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/workbench/config")
-async def get_workbench_config(project_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_workbench_config(project_id=project_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/workbench/history")
-async def get_workbench_history(project_id: str) -> dict[str, Any]:
-    try:
-        return {"items": _runtime().get_workbench_history(project_id=project_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/workbench/configured-databases")
-async def get_workbench_configured_databases(project_id: str) -> dict[str, Any]:
-    try:
-        runtime = _runtime()
-        runtime.open_project(project_id)
-        settings = runtime.get_settings()
-        databases_cfg = settings.get("databases", {})
-        if not isinstance(databases_cfg, dict):
-            raise RuntimeServiceError("settings.databases must be an object")
-
-        items: list[dict[str, str]] = []
-        db_root = str(databases_cfg.get("db_root", "") or "").strip()
-        if db_root:
-            items.append(
-                {
-                    "key": "db_root",
-                    "path": db_root,
-                    "label": f"db_root: {db_root}",
-                }
-            )
-        overrides = databases_cfg.get("overrides", {})
-        if isinstance(overrides, dict):
-            for key in sorted(overrides.keys()):
-                value = str(overrides.get(key, "") or "").strip()
-                if not value:
-                    continue
-                items.append(
-                    {
-                        "key": str(key),
-                        "path": value,
-                        "label": f"{key}: {value}",
-                    }
-                )
-        return {"items": items}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/workbench/executions/{execution_id}/result")
-async def get_workbench_result(project_id: str, execution_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_workbench_result(project_id=project_id, execution_id=execution_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.delete("/api/v1/projects/{project_id}/workbench/executions/{execution_id}")
-async def delete_workbench_execution(project_id: str, execution_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().archive_execution(project_id=project_id, execution_id=execution_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/workbench/executions/{execution_id}/remote-status")
-async def get_workbench_remote_status(project_id: str, execution_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_workbench_remote_status(project_id=project_id, execution_id=execution_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/workbench/primer-results")
-async def get_workbench_remote_primer_results(project_id: str, remote_result_dir: str) -> dict[str, Any]:
-    try:
-        return {
-            "item": _runtime().get_workbench_remote_primer_results(
-                project_id=project_id,
-                remote_result_dir=remote_result_dir,
-            )
-        }
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/executions")
-async def list_executions(project_id: str, limit: int = 50, archived: bool = False) -> dict[str, Any]:
-    try:
-        items = _runtime().list_executions(project_id=project_id, limit=limit, archived=archived)
-        return {"items": items}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/executions/{execution_id}")
-async def get_execution(project_id: str, execution_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_execution(project_id=project_id, execution_id=execution_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/history")
-async def list_execution_history(project_id: str, limit: int = 50, task_id: str = "") -> dict[str, Any]:
-    try:
-        return {"items": _runtime().list_execution_history(project_id=project_id, limit=limit, task_id=task_id or None)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/history/summary")
-async def list_execution_history_summary(project_id: str, limit: int = 20) -> dict[str, Any]:
-    try:
-        return {"items": _runtime().list_execution_history_summary(project_id=project_id, limit=limit)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/executions")
-async def list_task_executions(project_id: str, task_id: str, limit: int = 50) -> dict[str, Any]:
-    try:
-        return {"items": _runtime().list_task_executions(project_id=project_id, task_id=task_id, limit=limit)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/v1/projects/{project_id}/executions/{execution_id}/archive")
-async def archive_execution(project_id: str, execution_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().archive_execution(project_id=project_id, execution_id=execution_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/v1/executions")
-async def submit_execution(payload: SubmitExecutionRequest) -> dict[str, Any]:
-    try:
-        raise RuntimeServiceError(
-            "POST /api/v1/executions is a legacy write path and no longer accepts new runs. "
-            "Use POST /api/v1/workflows/compile and POST /api/v1/runs from /workspace."
-        )
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/v1/workbench/run")
-async def run_workbench_tool(payload: RunWorkbenchToolRequest) -> dict[str, Any]:
-    try:
-        raise RuntimeServiceError(
-            "POST /api/v1/workbench/run is a legacy write path and no longer accepts new runs. "
-            "Open /workspace and submit a workflow run instead."
-        )
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
 @app.get("/api/v1/logs/app")
 async def read_app_log(tail_lines: int = 200) -> dict[str, Any]:
     try:
@@ -575,10 +387,3 @@ async def list_runtime_events(after_seq: int = 0, limit: int = 200) -> dict[str,
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-@app.get("/api/v1/projects/{project_id}/results")
-async def get_project_results(project_id: str) -> dict[str, Any]:
-    try:
-        return {"items": _runtime().get_project_results(project_id=project_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArchiveBoxIcon, Cog6ToothIcon, EllipsisHorizontalIcon, LinkIcon, RectangleStackIcon } from "@heroicons/react/24/outline";
+import { ArchiveBoxIcon, Cog6ToothIcon, EllipsisHorizontalIcon, LinkIcon } from "@heroicons/react/24/outline";
 
 import type { Project, TabId, Task } from "./detection_workspace_types";
 import { apiBase, parseSSHStatus, readJsonOrThrow } from "./detection_workspace_utils";
@@ -21,33 +21,21 @@ export const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: st
 ];
 
 const TAB_TITLES: Record<TabId, string> = {
-  projects: "项目工作台",
-  samples: "样本管理",
   runs: "执行中心",
-  history: "历史归档",
-  databases: "数据库状态",
   connect: "远端连接",
   workspace: "工作台",
   workflows: "Workflow 设计",
   artifacts: "产物中心",
-  toolflows: "工具和流程",
   settings: "系统设置",
-  workbench: "高级工作流",
 };
 
 const TAB_DESCRIPTIONS: Record<TabId, string> = {
-  projects: "管理项目生命周期，确定当前上下文与执行目标。",
-  samples: "维护样本清单、来源和元数据，为执行与追踪提供稳定上下文。",
   runs: "查看 workflow run、远端状态、日志与取消动作。",
-  history: "追踪执行记录与归档状态，快速过滤与定位。",
-  databases: "确认数据库路径、类别和可用状态。",
   connect: "管理 SSH 连接、测试与远端会话状态。",
   workspace: "围绕当前 workflow run 进行编译、提交、监控与产物查看。",
   workflows: "编辑 workflow 规格、生成 bundle，并提交运行。",
   artifacts: "同步 report、timeline、trace、dag 与 nextflow 日志。",
-  toolflows: "集中查看生信工具目录与当前项目流程。",
   settings: "维护系统配置和本地工作台偏好。",
-  workbench: "聚合视图、结果、产物与远程状态。",
 };
 
 type DetectionWorkspaceShellProps = {
@@ -63,9 +51,6 @@ type DetectionWorkspaceShellProps = {
   projects: Project[];
   tasks?: Task[];
   selectedTaskId?: string;
-  toolsCount?: number;
-  historyCount?: number;
-  databasesCount?: number;
   error?: string;
   isSshConnected?: boolean;
   isEditingConnection?: boolean;
@@ -108,9 +93,6 @@ export function DetectionWorkspaceShell({
   projects,
   tasks = [],
   selectedTaskId = "",
-  toolsCount,
-  historyCount,
-  databasesCount,
   error = "",
   isSshConnected = false,
   isEditingConnection = false,
@@ -139,13 +121,7 @@ export function DetectionWorkspaceShell({
   );
   const showPageActions = !!projectSelect || !!onRefreshProjects;
   const resolvedSshConnected = isEditingConnection ? false : isSshConnected || navSshConnected;
-  const workspaceMeta = [
-    resolvedCurrentProject?.name || "未选择项目",
-    currentProjectId || "",
-    typeof toolsCount === "number" ? `${toolsCount} tools` : "",
-    typeof historyCount === "number" ? `${historyCount} runs` : "",
-    typeof databasesCount === "number" ? `${databasesCount} databases` : "",
-  ].filter(Boolean);
+  const workspaceMeta = [resolvedCurrentProject?.name || "未选择项目", currentProjectId || ""].filter(Boolean);
 
   useEffect(() => {
     setSidebarWidth(readStoredSidebarWidth());
@@ -293,10 +269,6 @@ export function DetectionWorkspaceShell({
               </div>
             ) : null}
           </div>
-          <Link className={`sidebar-nav-link${activeTab === "toolflows" ? " active" : ""}`} href="/toolflows">
-            <RectangleStackIcon className="sidebar-nav-icon" />
-            <span className="sidebar-nav-title">工具和流程</span>
-          </Link>
         </nav>
         {sidebarContent ? <div className="sidebar-content-slot">{sidebarContent}</div> : null}
         <div className="sidebar-footer sidebar-footer--nav">

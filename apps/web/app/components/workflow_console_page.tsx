@@ -8,7 +8,6 @@ export function WorkflowConsolePage() {
   const {
     currentProject,
     currentProjectId,
-    tools,
     workflow,
     schemaDraft,
     params,
@@ -175,7 +174,7 @@ export function WorkflowConsolePage() {
               <strong>Workflow 规格</strong>
               <span>编辑 starter workflow、参数 schema，并提交新的 run。</span>
             </div>
-            <span>{workflow ? `${workflow.nodes.length} steps` : "等待工具注册表"}</span>
+            <span>{workflow ? `${workflow.nodes.length} steps` : "等待 workflow 初始化"}</span>
           </summary>
           <div className="workflow-panel-grid">
             <div className="workflow-panel-stack">
@@ -203,24 +202,13 @@ export function WorkflowConsolePage() {
                       <input className="control-input" value={node.label} onChange={(event) => updateNode(index, { label: event.target.value })} />
                     </label>
                     <label className="control-field">
-                      <span>Tool</span>
-                      <select
-                        className="control-select"
+                      <span>Tool ID</span>
+                      <input
+                        className="control-input"
                         value={node.tool_id}
-                        onChange={(event) => {
-                          const tool = tools.find((item) => item.id === event.target.value);
-                          updateNode(index, {
-                            tool_id: event.target.value,
-                            label: tool?.name || event.target.value,
-                          });
-                        }}
-                      >
-                        {tools.map((tool) => (
-                          <option key={tool.id} value={tool.id}>
-                            {tool.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(event) => updateNode(index, { tool_id: event.target.value })}
+                        placeholder="tool_placeholder"
+                      />
                     </label>
                     <button type="button" className="control-btn" onClick={() => removeNode(index)} disabled={(workflow?.nodes.length || 0) <= 1}>
                       删除

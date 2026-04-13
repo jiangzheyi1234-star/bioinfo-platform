@@ -2,13 +2,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { Execution, Project, Task } from "./detection_workspace_types";
-import { apiBase, readJsonOrThrow, safeText, toExecution, toProject, toTask } from "./detection_workspace_utils";
+import type { Project, Task } from "./detection_workspace_types";
+import { apiBase, readJsonOrThrow, safeText, toProject, toTask } from "./detection_workspace_utils";
 
-export type ProjectWorkspaceTab = "overview" | "run" | "history" | "results" | "databases";
-
-const SIDEBAR_EXECUTION_SUMMARY_LIMIT = 20;
-const SIDEBAR_EXECUTION_SUMMARY_STALE_MS = 30_000;
+export type ProjectWorkspaceTab = "overview" | "run";
 
 type WorkspaceShellContextValue = {
   projects: Project[];
@@ -16,10 +13,6 @@ type WorkspaceShellContextValue = {
   currentProjectId: string;
   tasks: Task[];
   selectedTaskId: string;
-  selectedExecutionId: string;
-  projectExecutionRows: Execution[];
-  projectExecutionSummaryByProject: Record<string, Execution[]>;
-  projectExecutionSummaryLoadingByProject: Record<string, boolean>;
   projectSummaryOpen: boolean;
   projectWorkspaceTab: ProjectWorkspaceTab;
   shellError: string;
@@ -29,15 +22,11 @@ type WorkspaceShellContextValue = {
   setShellError: (message: string) => void;
   selectProject: (projectId: string) => Promise<void>;
   selectTask: (taskId: string) => void;
-  selectExecution: (execution: Execution) => void;
   openProjectSummary: () => void;
   setProjectWorkspaceTab: (tab: ProjectWorkspaceTab) => void;
-  setSelectedExecutionId: (executionId: string) => void;
   setProjectSummaryOpen: (open: boolean) => void;
   refreshProjects: () => Promise<void>;
   refreshTasks: (projectId: string) => Promise<void>;
-  refreshProjectExecutions: (projectId: string) => Promise<void>;
-  refreshProjectExecutionSummary: (projectId: string, options?: { force?: boolean }) => Promise<void>;
   createProject: (name: string, description: string) => Promise<void>;
   renameProject: (name: string, description?: string) => Promise<void>;
   archiveProject: (projectId: string) => Promise<void>;
@@ -51,10 +40,6 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   const [currentProjectId, setCurrentProjectId] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [selectedExecutionId, setSelectedExecutionId] = useState("");
-  const [projectExecutionRows, setProjectExecutionRows] = useState<Execution[]>([]);
-  const [projectExecutionSummaryByProject, setProjectExecutionSummaryByProject] = useState<Record<string, Execution[]>>({});
-  const [projectExecutionSummaryLoadingByProject, setProjectExecutionSummaryLoadingByProject] = useState<Record<string, boolean>>({});
   const [projectSummaryOpen, setProjectSummaryOpen] = useState(false);
   const [projectWorkspaceTab, setProjectWorkspaceTab] = useState<ProjectWorkspaceTab>("overview");
   const [shellError, setShellError] = useState("");
@@ -62,7 +47,6 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   const [renameProjectBusy, setRenameProjectBusy] = useState(false);
   const [projectActionBusyId, setProjectActionBusyId] = useState("");
   const currentProjectIdRef = useRef("");
-  const projectExecutionSummaryFetchedAtRef = useRef<Record<string, number>>({});
 
   const currentProject = useMemo(
     () => projects.find((project) => project.project_id === currentProjectId) ?? null,
@@ -86,80 +70,17 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     setSelectedTaskId((prev) => (items.some((task) => task.task_id === prev) ? prev : items[0]?.task_id || ""));
   };
 
-  const refreshProjectExecutions = async (projectId: string) => {
-    if (!projectId) {
-      setProjectExecutionRows([]);
-      setSelectedExecutionId("");
-      return;
-    }
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(projectId)}/history?limit=100`);
-      const data = (await readJsonOrThrow(resp)) as { items?: unknown[] };
-      const items = Array.isArray(data.items)
-        ? data.items.map(toExecution).filter((item: Execution | null): item is Execution => !!item)
-        : [];
-      if (projectId === currentProjectIdRef.current) {
-        setProjectExecutionRows(items);
-        setSelectedExecutionId((prev) =>
-          prev && items.some((item) => item.execution_id === prev) ? prev : items[0]?.execution_id || ""
-        );
-      }
-    } catch (err) {
-      setShellError(err instanceof Error ? err.message : String(err));
-      throw err;
-    }
-  };
-
-  const refreshProjectExecutionSummary = async (projectId: string, options?: { force?: boolean }) => {
-    if (!projectId) {
-      setProjectExecutionSummaryByProject({});
-      setProjectExecutionSummaryLoadingByProject({});
-      projectExecutionSummaryFetchedAtRef.current = {};
-      return;
-    }
-    const force = options?.force === true;
-    const fetchedAt = projectExecutionSummaryFetchedAtRef.current[projectId] ?? 0;
-    const isFresh = fetchedAt > 0 && Date.now() - fetchedAt < SIDEBAR_EXECUTION_SUMMARY_STALE_MS;
-    if (!force && isFresh) {
-      return;
-    }
-    setProjectExecutionSummaryLoadingByProject((prev) => ({ ...prev, [projectId]: true }));
-    try {
-      const resp = await fetch(
-        `${apiBase()}/api/v1/projects/${encodeURIComponent(projectId)}/history/summary?limit=${SIDEBAR_EXECUTION_SUMMARY_LIMIT}`
-      );
-      const data = (await readJsonOrThrow(resp)) as { items?: unknown[] };
-      const items = Array.isArray(data.items)
-        ? data.items.map(toExecution).filter((item: Execution | null): item is Execution => !!item)
-        : [];
-      projectExecutionSummaryFetchedAtRef.current = {
-        ...projectExecutionSummaryFetchedAtRef.current,
-        [projectId]: Date.now(),
-      };
-      setProjectExecutionSummaryByProject((prev) => ({ ...prev, [projectId]: items }));
-    } catch (err) {
-      setShellError(err instanceof Error ? err.message : String(err));
-      throw err;
-    } finally {
-      setProjectExecutionSummaryLoadingByProject((prev) => ({ ...prev, [projectId]: false }));
-    }
-  };
-
   const openProject = async (projectId: string) => {
     const normalized = safeText(projectId);
     if (!normalized) {
       setCurrentProjectId("");
       setTasks([]);
       setSelectedTaskId("");
-      setProjectExecutionRows([]);
-      setSelectedExecutionId("");
       return;
     }
     const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(normalized)}/open`, { method: "POST" });
     await readJsonOrThrow(resp);
     setCurrentProjectId(normalized);
-    setProjectExecutionRows([]);
-    setSelectedExecutionId("");
   };
 
   const refreshProjects = async () => {
@@ -179,11 +100,6 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       setCurrentProjectId("");
       setTasks([]);
       setSelectedTaskId("");
-      setProjectExecutionRows([]);
-      setProjectExecutionSummaryByProject({});
-      setProjectExecutionSummaryLoadingByProject({});
-      projectExecutionSummaryFetchedAtRef.current = {};
-      setSelectedExecutionId("");
     }
   };
 
@@ -289,19 +205,6 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       await readJsonOrThrow(resp);
       const remainingProjects = projects.filter((project) => project.project_id !== normalizedProjectId);
       setProjects(remainingProjects);
-      setProjectExecutionSummaryByProject((prev) => {
-        const next = { ...prev };
-        delete next[normalizedProjectId];
-        return next;
-      });
-      setProjectExecutionSummaryLoadingByProject((prev) => {
-        const next = { ...prev };
-        delete next[normalizedProjectId];
-        return next;
-      });
-      const nextFetchedAt = { ...projectExecutionSummaryFetchedAtRef.current };
-      delete nextFetchedAt[normalizedProjectId];
-      projectExecutionSummaryFetchedAtRef.current = nextFetchedAt;
       setProjectSummaryOpen(false);
       setProjectWorkspaceTab("overview");
       if (currentProjectId === normalizedProjectId) {
@@ -309,15 +212,9 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
         setCurrentProjectId(nextProjectId);
         setTasks([]);
         setSelectedTaskId("");
-        setProjectExecutionRows([]);
-        setSelectedExecutionId("");
         if (nextProjectId) {
           await openProject(nextProjectId);
-          await Promise.all([
-            refreshTasks(nextProjectId),
-            refreshProjectExecutions(nextProjectId),
-            refreshProjectExecutionSummary(nextProjectId, { force: true }),
-          ]);
+          await refreshTasks(nextProjectId);
         }
       } else {
         await refreshProjects();
@@ -348,8 +245,6 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setTasks([]);
     setSelectedTaskId("");
-    setProjectExecutionRows([]);
-    setSelectedExecutionId("");
   }, [currentProjectId]);
 
   const value = useMemo<WorkspaceShellContextValue>(
@@ -359,10 +254,6 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       currentProjectId,
       tasks,
       selectedTaskId,
-      selectedExecutionId,
-      projectExecutionRows,
-      projectExecutionSummaryByProject,
-      projectExecutionSummaryLoadingByProject,
       projectSummaryOpen,
       projectWorkspaceTab,
       shellError,
@@ -379,25 +270,14 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
         setSelectedTaskId(taskId);
         setProjectSummaryOpen(false);
       },
-      selectExecution: (execution: Execution) => {
-        if (execution.task_id) {
-          setSelectedTaskId(execution.task_id);
-        }
-        setSelectedExecutionId(execution.execution_id);
-        setProjectSummaryOpen(false);
-        setProjectWorkspaceTab("results");
-      },
       openProjectSummary: () => {
         setProjectSummaryOpen(true);
         setProjectWorkspaceTab("overview");
       },
       setProjectWorkspaceTab,
-      setSelectedExecutionId,
       setProjectSummaryOpen,
       refreshProjects,
       refreshTasks,
-      refreshProjectExecutions,
-      refreshProjectExecutionSummary,
       createProject,
       renameProject,
       archiveProject,
@@ -408,14 +288,10 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       createProjectBusy,
       currentProject,
       currentProjectId,
-      projectExecutionRows,
-      projectExecutionSummaryByProject,
-      projectExecutionSummaryLoadingByProject,
       projectSummaryOpen,
       projectWorkspaceTab,
       projects,
       renameProjectBusy,
-      selectedExecutionId,
       selectedTaskId,
       shellError,
       tasks,
