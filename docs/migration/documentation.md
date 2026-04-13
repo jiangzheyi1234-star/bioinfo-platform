@@ -8,6 +8,10 @@
   - 个人服务器：`Docker -> Podman -> micromamba/conda`
   - HPC：`Apptainer -> micromamba/conda`
 - 首期目标固定为：跑通单机 Linux / 个人服务器 workflow bundle 主线
+- 已新增 workflow-first 代码骨架：
+  - `core/workflow/` 领域模型与最小 bundle 编译器
+  - workflow/run API 契约与 FastAPI 路由骨架
+  - `RuntimeService` 的 compile/list/get/create/cancel/artifacts/doctor skeleton
 
 ## Decisions
 
@@ -20,11 +24,12 @@
 
 ## Current Milestone
 
-- 当前进入 `M1 Freeze workflow-first contract` 到 `M2 Add domain types and API skeleton` 之间的切换阶段。
+- `M1 Freeze workflow-first contract` 已完成。
+- `M2 Add domain types and API skeleton` 已完成最小骨架，下一步进入 `M3 Implement minimal bundle compiler` 到 `M4 Implement single-node Linux launcher` 的衔接阶段。
 - 当前优先级：
-  - 先立数据模型与 API 骨架
-  - 再做 bundle 编译最小闭环
-  - 再接单机 Linux launcher
+  - 把 bundle 编译从 preview 升级到真实输出结构
+  - 开始接单机 Linux launcher backend
+  - 再补 run monitoring / artifacts 持久化
 
 ## Known Risks
 

@@ -10,6 +10,13 @@ Default bind:
 - port: `8765`
 
 ## Main endpoints
+- `POST /api/v1/workflows/compile`
+- `GET /api/v1/projects/{project_id}/runs`
+- `GET /api/v1/projects/{project_id}/runs/{run_id}`
+- `POST /api/v1/runs`
+- `POST /api/v1/projects/{project_id}/runs/{run_id}/cancel`
+- `GET /api/v1/projects/{project_id}/runs/{run_id}/artifacts`
+- `POST /api/v1/servers/{server_id}/doctor`
 - `GET /health`
 - `GET /api/v1/tools`
 - `GET /api/v1/tools/{tool_id}/descriptor`

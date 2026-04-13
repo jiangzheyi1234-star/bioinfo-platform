@@ -28,6 +28,7 @@ from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
+from core.workflow import LaunchSpec, RunRecord, ServerProfile, WorkflowEdge, WorkflowNode, WorkflowSpec, compile_workflow_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class RuntimeService:
         self._auto_connect_failed = False
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
+        self._workflow_runs: dict[str, dict[str, Any]] = {}
 
     def initialize(self) -> None:
         with self._lock:
@@ -110,6 +112,90 @@ class RuntimeService:
             registry = self._service_locator.plugin_registry
             ids = sorted(registry.list_all_ids())
             return [registry.get_index_entry(tool_id) for tool_id in ids]
+
+    def compile_workflow(self, *, project_id: str, workflow: dict[str, Any], launch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            workflow_spec = self._build_workflow_spec(workflow)
+            launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
+            return compile_workflow_bundle(workflow_spec, launch_spec)
+
+    def list_runs(self, *, project_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            rows = [item for item in self._workflow_runs.values() if item["project_id"] == project_id]
+            rows.sort(key=lambda item: float(item.get("created_at", 0.0)), reverse=True)
+            return rows
+
+    def get_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            row = self._workflow_runs.get(str(run_id or "").strip())
+            if row is None or row.get("project_id") != project_id:
+                raise RuntimeServiceError(f"Run not found: {run_id}")
+            return row
+
+    def create_run(self, *, project_id: str, workflow: dict[str, Any], launch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            workflow_spec = self._build_workflow_spec(workflow)
+            launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
+            compiled = compile_workflow_bundle(workflow_spec, launch_spec)
+            now = time.time()
+            run_id = f"run_{uuid.uuid4().hex[:12]}"
+            record = RunRecord(
+                run_id=run_id,
+                project_id=project_id,
+                workflow_id=workflow_spec.workflow_id,
+                profile_id=launch_spec.profile.profile_id,
+                status="draft",
+                created_at=now,
+                updated_at=now,
+                bundle_id=str(compiled.get("bundle_id") or ""),
+                message="Workflow bundle compiled; remote launcher backend not implemented yet.",
+            )
+            payload = record.to_dict()
+            payload["compiled_bundle"] = compiled
+            self._workflow_runs[run_id] = payload
+            return payload
+
+    def cancel_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            row = self._workflow_runs.get(str(run_id or "").strip())
+            if row is None or row.get("project_id") != project_id:
+                raise RuntimeServiceError(f"Run not found: {run_id}")
+            raise RuntimeServiceError("Workflow run cancellation is not implemented until the remote launcher backend lands.")
+
+    def get_run_artifacts(self, *, project_id: str, run_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            row = self._workflow_runs.get(str(run_id or "").strip())
+            if row is None or row.get("project_id") != project_id:
+                raise RuntimeServiceError(f"Run not found: {run_id}")
+            return []
+
+    def doctor_server(self, *, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            if str(server_id or "").strip() != "current":
+                raise RuntimeServiceError("Only server_id='current' is supported during the workflow-first skeleton phase.")
+            self._ensure_ssh_connected()
+            preflight = self.get_ssh_preflight()
+            env_status = self.get_remote_env_status()
+            return {
+                "server_id": "current",
+                "doctor_phase": "skeleton",
+                "preflight": preflight,
+                "env_status": env_status,
+                "recommended_profile": self._recommend_server_profile(env_status),
+            }
 
     def get_tool_descriptor(self, *, tool_id: str) -> dict[str, Any]:
         with self._lock:
@@ -1503,6 +1589,98 @@ class RuntimeService:
         self._service_locator.execution_failed.connect(self._on_execution_failed)
         self._service_locator.ssh_changed.connect(self._on_ssh_changed)
         self._signals_connected = True
+
+    def _build_workflow_spec(self, payload: dict[str, Any]) -> WorkflowSpec:
+        if not isinstance(payload, dict):
+            raise RuntimeServiceError("workflow payload must be an object")
+        workflow_id = str(payload.get("workflow_id") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        if not workflow_id or not name:
+            raise RuntimeServiceError("workflow_id and name are required")
+        raw_nodes = payload.get("nodes", [])
+        raw_edges = payload.get("edges", [])
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise RuntimeServiceError("workflow nodes/edges must be arrays")
+        nodes = [
+            WorkflowNode(
+                node_id=str(item.get("node_id") or "").strip(),
+                tool_id=str(item.get("tool_id") or "").strip(),
+                label=str(item.get("label") or "").strip(),
+                params=item.get("params", {}) if isinstance(item.get("params", {}), dict) else {},
+            )
+            for item in raw_nodes
+        ]
+        edges = [
+            WorkflowEdge(
+                edge_id=str(item.get("edge_id") or "").strip(),
+                source_node_id=str(item.get("source_node_id") or "").strip(),
+                target_node_id=str(item.get("target_node_id") or "").strip(),
+                output_name=str(item.get("output_name") or "").strip(),
+                input_name=str(item.get("input_name") or "").strip(),
+            )
+            for item in raw_edges
+        ]
+        for node in nodes:
+            if not node.node_id or not node.tool_id or not node.label:
+                raise RuntimeServiceError("workflow node requires node_id, tool_id, and label")
+        for edge in edges:
+            if not edge.edge_id or not edge.source_node_id or not edge.target_node_id:
+                raise RuntimeServiceError("workflow edge requires edge_id, source_node_id, and target_node_id")
+        params_schema = payload.get("params_schema", {})
+        if not isinstance(params_schema, dict):
+            raise RuntimeServiceError("workflow params_schema must be an object")
+        return WorkflowSpec(
+            workflow_id=workflow_id,
+            name=name,
+            version=str(payload.get("version") or "0.1.0").strip() or "0.1.0",
+            nodes=nodes,
+            edges=edges,
+            params_schema=params_schema,
+        )
+
+    def _build_launch_spec(self, *, project_id: str, launch: dict[str, Any]) -> LaunchSpec:
+        if not isinstance(launch, dict):
+            raise RuntimeServiceError("launch payload must be an object")
+        raw_profile = launch.get("profile", {})
+        if not isinstance(raw_profile, dict):
+            raise RuntimeServiceError("launch.profile must be an object")
+        profile_id = str(raw_profile.get("profile_id") or "").strip()
+        server_id = str(raw_profile.get("server_id") or "").strip()
+        profile_kind = str(raw_profile.get("profile_kind") or "").strip()
+        executor = str(raw_profile.get("executor") or "").strip()
+        packaging_mode = str(raw_profile.get("packaging_mode") or "").strip()
+        if not profile_id or not server_id or not profile_kind or not executor or not packaging_mode:
+            raise RuntimeServiceError("launch.profile is incomplete")
+        profile = ServerProfile(
+            profile_id=profile_id,
+            server_id=server_id,
+            profile_kind=profile_kind,  # type: ignore[arg-type]
+            executor=executor,
+            packaging_mode=packaging_mode,  # type: ignore[arg-type]
+            container_runtime=str(raw_profile.get("container_runtime") or "").strip(),
+            work_dir=str(raw_profile.get("work_dir") or "").strip(),
+            output_dir=str(raw_profile.get("output_dir") or "").strip(),
+            cache_dir=str(raw_profile.get("cache_dir") or "").strip(),
+        )
+        params = launch.get("params", {})
+        data_refs = launch.get("data_refs", [])
+        if not isinstance(params, dict) or not isinstance(data_refs, list):
+            raise RuntimeServiceError("launch params/data_refs have invalid format")
+        return LaunchSpec(
+            project_id=project_id,
+            profile=profile,
+            params=params,
+            data_refs=[str(item) for item in data_refs],
+            resume=bool(launch.get("resume", True)),
+        )
+
+    def _recommend_server_profile(self, env_status: dict[str, Any]) -> str:
+        miniforge = env_status.get("miniforge", {}) if isinstance(env_status, dict) else {}
+        if not isinstance(miniforge, dict):
+            return "personal_conda"
+        if miniforge.get("installed"):
+            return "personal_conda"
+        return "personal_docker"
 
     def _disconnect_runtime_signals(self) -> None:
         if not self._signals_connected:
