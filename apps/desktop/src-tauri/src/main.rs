@@ -29,7 +29,37 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
         }
     }
     if cfg!(windows) {
-        return vec![
+        let conda_env = std::env::var("H2OMETA_CONDA_ENV")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "bio_ui".to_string());
+        let mut commands = Vec::new();
+
+        if let Ok(explicit_conda) = std::env::var("H2OMETA_CONDA_EXE") {
+            if !explicit_conda.trim().is_empty() {
+                commands.push(PythonCommand {
+                    program: explicit_conda,
+                    args: vec![
+                        "run".to_string(),
+                        "-n".to_string(),
+                        conda_env.clone(),
+                        "python".to_string(),
+                    ],
+                });
+            }
+        }
+
+        commands.push(PythonCommand {
+            program: "C:\\Users\\Administrator\\miniconda3\\Scripts\\conda.exe".to_string(),
+            args: vec![
+                "run".to_string(),
+                "-n".to_string(),
+                conda_env,
+                "python".to_string(),
+            ],
+        });
+
+        commands.extend(vec![
             PythonCommand {
                 program: "py".to_string(),
                 args: vec!["-3".to_string()],
@@ -42,7 +72,8 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
                 program: "python3".to_string(),
                 args: vec![],
             },
-        ];
+        ]);
+        return commands;
     }
     vec![
         PythonCommand {

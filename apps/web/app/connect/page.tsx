@@ -1,5 +1,11 @@
+import { Suspense } from "react";
+
 import { ProjectConnectionPage } from "../components/project_connection_page";
 
 export default function ConnectPage() {
-  return <ProjectConnectionPage />;
+  return (
+    <Suspense fallback={null}>
+      <ProjectConnectionPage />
+    </Suspense>
+  );
 }
