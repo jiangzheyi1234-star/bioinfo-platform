@@ -1289,6 +1289,12 @@
   margin-top: 2px;
 }
 
+.connection-summary-text {
+  color: var(--workspace-ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .connection-section-head {
   display: flex;
   align-items: flex-start;
