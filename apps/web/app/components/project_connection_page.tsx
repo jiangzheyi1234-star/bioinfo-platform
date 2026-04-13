@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
+import type { PreflightResult, SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
 import {
   apiBase,
   defaultSSHSettings,
+  parsePreflightResult,
   parseSettingsPayload,
   parseSSHDiagnosticSteps,
   parseSSHSettings,
@@ -28,10 +29,35 @@ export function ProjectConnectionPage() {
   const [sshMessage, setSSHMessage] = useState("");
   const [isEditingConnection, setIsEditingConnection] = useState(false);
   const [editRequestConsumed, setEditRequestConsumed] = useState(false);
+  const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [preflightLoaded, setPreflightLoaded] = useState(false);
+  const [preflightError, setPreflightError] = useState("");
 
   const isConnected = sshStatus?.connected === true;
   const canEditForm = !isConnected || isEditingConnection;
   const buttonsLocked = sshBusyAction.length > 0 || (isConnected && !isEditingConnection);
+
+  const loadPreflight = async (options?: { silent?: boolean }) => {
+    setPreflightBusy(true);
+    setPreflightError("");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/preflight`, { method: "POST" });
+      const data = await readJsonOrThrow(resp);
+      const nextResult = parsePreflightResult(data?.item);
+      if (!nextResult) {
+        throw new Error("服务器预检返回格式无效。");
+      }
+      setPreflightResult(nextResult);
+      setPreflightLoaded(true);
+    } catch (err) {
+      setPreflightResult(null);
+      setPreflightLoaded(true);
+      setPreflightError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPreflightBusy(false);
+    }
+  };
 
   const syncFromServer = async () => {
     const [settingsResp, statusResp] = await Promise.all([
@@ -105,6 +131,7 @@ export function ProjectConnectionPage() {
       setSSHDiagnostics([]);
       setSSHMessage(safeText(data?.item?.message, "SSH 已连接"));
       setIsEditingConnection(false);
+      await loadPreflight();
     } catch (err) {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -122,6 +149,9 @@ export function ProjectConnectionPage() {
       setSSHStatus(parseSSHStatus(data?.item));
       setIsEditingConnection(true);
       setSSHMessage("");
+      setPreflightResult(null);
+      setPreflightLoaded(false);
+      setPreflightError("");
     } catch (err) {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -177,6 +207,13 @@ export function ProjectConnectionPage() {
     setEditRequestConsumed(true);
     void startConnectionEdit();
   }, [editRequestConsumed, isEditingConnection, searchParams, sshBusyAction, sshStatus?.connected]);
+
+  useEffect(() => {
+    if (!isConnected || preflightLoaded || preflightBusy) {
+      return;
+    }
+    void loadPreflight({ silent: true });
+  }, [isConnected, preflightBusy, preflightLoaded]);
 
   return (
     <section className="settings-layout">
@@ -252,6 +289,76 @@ export function ProjectConnectionPage() {
             </div>
           ) : null}
         </section>
+
+        {isConnected ? (
+          <section className="settings-editor-panel connection-panel preflight-panel">
+            <div className="connection-status-row">
+              <div>
+                <h2 className="settings-section-title">服务器预检</h2>
+                <p className="muted preflight-summary">
+                  {preflightBusy && !preflightLoaded
+                    ? "正在检测当前服务器是否满足后续安装与运行条件。"
+                    : preflightError
+                      ? "预检失败，请先修复连接或服务器环境问题。"
+                      : preflightResult?.ok
+                        ? "预检通过，可以继续配置运行环境。"
+                        : "预检发现问题，建议先处理失败项。"}
+                </p>
+              </div>
+              <div className="settings-actions connection-actions">
+                <button className="ui-button" type="button" disabled={preflightBusy} onClick={() => void loadPreflight()}>
+                  {preflightBusy ? "检测中..." : "重新检测"}
+                </button>
+              </div>
+            </div>
+
+            {preflightError ? <p className="fail-text">{preflightError}</p> : null}
+
+            {preflightResult ? (
+              <>
+                <div className="connection-meta-row preflight-meta-row">
+                  <span className="badge">架构 {preflightResult.arch || "unknown"}</span>
+                  <span className="badge">可用磁盘 {preflightResult.free_disk_gb} GB</span>
+                  <span className={`status-pill${preflightResult.ok ? " status-pill--ok" : ""}`}>{preflightResult.ok ? "预检通过" : "预检异常"}</span>
+                </div>
+
+                {preflightResult.failures.length > 0 ? (
+                  <div className="preflight-message-list">
+                    {preflightResult.failures.map((item) => (
+                      <p key={item} className="fail-text">
+                        {item}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+
+                {preflightResult.warnings.length > 0 ? (
+                  <div className="preflight-message-list">
+                    {preflightResult.warnings.map((item) => (
+                      <p key={item} className="muted">
+                        {item}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="diagnostics-list connection-diagnostics">
+                  {preflightResult.checks.map((check) => (
+                    <article key={check.key} className={`diagnostic-card diagnostic-card--${check.status === "warn" ? "running" : check.status}`}>
+                      <div className="row">
+                        <strong>{check.label}</strong>
+                        <span className="badge">{check.value || check.status}</span>
+                      </div>
+                      <p className="muted">{check.message || "无额外信息"}</p>
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {preflightBusy && !preflightResult ? <p className="muted">正在获取预检结果...</p> : null}
+          </section>
+        ) : null}
       </section>
     </section>
   );
