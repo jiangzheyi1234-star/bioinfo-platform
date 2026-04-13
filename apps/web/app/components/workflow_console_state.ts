@@ -73,6 +73,8 @@ export function useWorkflowConsoleState() {
   const [workflowExpanded, setWorkflowExpanded] = useState(true);
   const [artifactsExpanded, setArtifactsExpanded] = useState(false);
   const [technicalExpanded, setTechnicalExpanded] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [detailTab, setDetailTab] = useState<"logs" | "artifacts" | "config" | "trace">("logs");
 
   const schemaObject = useMemo(() => {
     try {
@@ -220,7 +222,18 @@ export function useWorkflowConsoleState() {
     const starter = createStarterWorkflow(currentProjectId);
     setWorkflow(starter);
     setSchemaDraft(prettyJson(starter.params_schema));
+    setSelectedNodeId(starter.nodes[0]?.node_id || "");
   }, [currentProjectId, workflow]);
+
+  useEffect(() => {
+    if (!workflow?.nodes.length) {
+      setSelectedNodeId("");
+      return;
+    }
+    if (!workflow.nodes.some((node) => node.node_id === selectedNodeId)) {
+      setSelectedNodeId(workflow.nodes[0]?.node_id || "");
+    }
+  }, [workflow, selectedNodeId]);
 
   useEffect(() => {
     if (!schemaObject) {
@@ -418,6 +431,17 @@ export function useWorkflowConsoleState() {
     return `已同步 ${available} 项，缺失 ${missing} 项。`;
   })();
 
+  const traceArtifacts = artifacts.filter((artifact) => {
+    const name = `${artifact.name} ${artifact.remote_path} ${artifact.local_path}`.toLowerCase();
+    return (
+      name.includes("trace") ||
+      name.includes("timeline") ||
+      name.includes("report") ||
+      name.includes("dag") ||
+      name.endsWith(".html")
+    );
+  });
+
   return {
     currentProject,
     currentProjectId,
@@ -441,9 +465,12 @@ export function useWorkflowConsoleState() {
     workflowExpanded,
     artifactsExpanded,
     technicalExpanded,
+    selectedNodeId,
+    detailTab,
     schemaSummary,
     launchProfile,
     artifactSummary,
+    traceArtifacts,
     router,
     setWorkflow,
     setSchemaDraft,
@@ -452,6 +479,8 @@ export function useWorkflowConsoleState() {
     setWorkflowExpanded,
     setArtifactsExpanded,
     setTechnicalExpanded,
+    setSelectedNodeId,
+    setDetailTab,
     refreshRuns,
     refreshRunDetail,
     fetchArtifacts,

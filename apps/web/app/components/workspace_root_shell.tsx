@@ -8,14 +8,49 @@ import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import { ProjectSidebarSection } from "./project_sidebar_section";
 import { WorkspaceShellProvider, useWorkspaceShell } from "./workspace_shell_context";
 
-function resolveActiveTab(pathname: string) {
-  if (pathname.startsWith("/connect")) return "connect" as const;
-  if (pathname.startsWith("/workspace")) return "workspace" as const;
-  if (pathname.startsWith("/workflows")) return "workflows" as const;
-  if (pathname.startsWith("/runs")) return "runs" as const;
-  if (pathname.startsWith("/artifacts")) return "artifacts" as const;
-  if (pathname.startsWith("/settings")) return "settings" as const;
+type WorkspaceRouteKind = "connect" | "workspace" | "settings" | "shell" | "other";
+
+function resolveWorkspaceRouteKind(pathname: string): WorkspaceRouteKind {
+  if (pathname.startsWith("/connect")) {
+    return "connect";
+  }
+  if (pathname.startsWith("/workspace")) {
+    return "workspace";
+  }
+  if (pathname.startsWith("/settings")) {
+    return "settings";
+  }
+  if (
+    pathname.startsWith("/projects") ||
+    pathname.startsWith("/results") ||
+    pathname.startsWith("/history") ||
+    pathname.startsWith("/samples") ||
+    pathname.startsWith("/databases") ||
+    pathname.startsWith("/workbench") ||
+    pathname.startsWith("/toolflows")
+  ) {
+    return "shell";
+  }
+  return "other";
+}
+
+function resolveActiveTab(kind: WorkspaceRouteKind) {
+  if (kind === "connect") return "connect" as const;
+  if (kind === "settings") return "settings" as const;
   return "workspace" as const;
+}
+
+function resolvePageCopy(kind: WorkspaceRouteKind) {
+  if (kind === "workspace") {
+    return {
+      title: "工作台",
+      description: "围绕当前 workflow run 进行编译、提交、监控与产物查看。",
+    };
+  }
+  return {
+    title: undefined,
+    description: undefined,
+  };
 }
 
 function WorkspaceChrome({ children }: { children: ReactNode }) {
@@ -34,16 +69,14 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
     archiveProject,
     deleteProject,
   } = useWorkspaceShell();
+  const routeKind = resolveWorkspaceRouteKind(pathname);
+  const activeTab = resolveActiveTab(routeKind);
+  const pageCopy = resolvePageCopy(routeKind);
 
-  const isWorkspaceRoute =
-    pathname.startsWith("/connect") ||
-    pathname.startsWith("/workspace") ||
-    pathname.startsWith("/workflows") ||
-    pathname.startsWith("/projects") ||
-    pathname.startsWith("/runs") ||
-    pathname.startsWith("/artifacts") ||
-    pathname.startsWith("/settings") ||
-    pathname.startsWith("/results");
+  const isWorkspaceRoute = routeKind !== "other";
+  const hidePageChrome = routeKind === "workspace";
+  const hideWorkspaceMeta = routeKind === "workspace" || routeKind === "connect";
+  const hideErrorNotice = routeKind === "workspace";
 
   useEffect(() => {
     setShellError("");
@@ -55,19 +88,19 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
 
   return (
     <DetectionWorkspaceShell
-      activeTab={resolveActiveTab(pathname)}
-      pageTitle={pathname.startsWith("/workspace") ? "工作台" : pathname.startsWith("/artifacts") ? "产物中心" : undefined}
-      pageDescription={pathname.startsWith("/workspace") ? "围绕当前 workflow run 进行编译、提交、监控与产物查看。" : pathname.startsWith("/artifacts") ? "集中查看 workflow run 拉回的 artifacts 与报告文件。" : undefined}
-      hidePageHeader={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts")}
-      hidePageMeta={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts") || pathname.startsWith("/connect")}
-      hideFooterNote={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts") || pathname.startsWith("/connect")}
-      hideErrorNotice={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs")}
+      activeTab={activeTab}
+      pageTitle={pageCopy.title}
+      pageDescription={pageCopy.description}
+      hidePageHeader={hidePageChrome}
+      hidePageMeta={hideWorkspaceMeta}
+      hideFooterNote={hideWorkspaceMeta}
+      hideErrorNotice={hideErrorNotice}
       currentProject={currentProject ?? undefined}
       projects={projects}
       currentProjectId={currentProjectId}
       error={shellError}
       onOpenConnectionEditor={
-        pathname.startsWith("/connect")
+        routeKind === "connect"
           ? () => {
               router.push("/connect?edit=1");
             }
