@@ -70,3 +70,33 @@ export type ProvenanceItem = {
 export type ResultTab = "table" | "chart" | "artifacts" | "provenance";
 
 export type ViewSourceMode = "workflow" | "history";
+
+export type WorkbenchRemoteExecutionStatus = {
+  execution_id: string;
+  tool_id: string;
+  sample_id: string;
+  local_status: string;
+  created_at: number | null;
+  completed_at: number | null;
+  local_error: string;
+  task_dir: string;
+  ssh_connected: boolean;
+  screen_running: boolean | null;
+  remote_status: string;
+  exit_code: string;
+  heartbeat: string;
+  heartbeat_age_sec: number | null;
+  log_tail: string;
+  response_status: string;
+  response_message: string;
+};
+
+export type WorkbenchTaskRuntimeState = "ready" | "running" | "repair-required" | "blocked" | "awaiting-decision";
+
+export type WorkbenchTaskGuidance = {
+  state: WorkbenchTaskRuntimeState;
+  label: string;
+  summary: string;
+  details: string[];
+  recommended_action: string;
+};

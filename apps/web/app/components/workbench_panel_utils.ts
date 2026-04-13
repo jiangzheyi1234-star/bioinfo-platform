@@ -10,6 +10,8 @@ import type {
   TableRow,
   WorkbenchConfig,
   WorkbenchFeature,
+  WorkbenchRemoteExecutionStatus,
+  WorkbenchTaskGuidance,
   WorkbenchHistoryRow,
   WorkbenchView,
 } from "./workbench_panel_types";
@@ -75,6 +77,175 @@ export function summarizePairs(value: unknown): SummaryPair[] {
     return [];
   }
   return [{ key: "value", value: clip(compactJson(value)) }];
+}
+
+export function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function normalizeRemoteExecutionStatus(value: unknown): WorkbenchRemoteExecutionStatus | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const responseStatus = asText(value.status);
+  const responseMessage = asText(value.message);
+  const payload = isRecord(value.data) ? value.data : value;
+  return {
+    execution_id: asText(payload.execution_id),
+    tool_id: asText(payload.tool_id),
+    sample_id: asText(payload.sample_id),
+    local_status: asText(payload.local_status),
+    created_at: asNumber(payload.created_at),
+    completed_at: asNumber(payload.completed_at),
+    local_error: asText(payload.local_error),
+    task_dir: asText(payload.task_dir),
+    ssh_connected: Boolean(payload.ssh_connected),
+    screen_running:
+      typeof payload.screen_running === "boolean" ? payload.screen_running : payload.screen_running === null ? null : null,
+    remote_status: asText(payload.remote_status),
+    exit_code: asText(payload.exit_code),
+    heartbeat: asText(payload.heartbeat),
+    heartbeat_age_sec: asNumber(payload.heartbeat_age_sec),
+    log_tail: typeof payload.log_tail === "string" ? payload.log_tail : "",
+    response_status: responseStatus,
+    response_message: responseMessage,
+  };
+}
+
+export function summarizeRemoteExecutionStatus(status: WorkbenchRemoteExecutionStatus | null): SummaryPair[] {
+  if (!status) {
+    return [];
+  }
+  const pairs: SummaryPair[] = [];
+  const candidatePairs: Array<[string, string]> = [
+    ["local_status", status.local_status],
+    ["remote_status", status.remote_status],
+    ["screen_running", status.screen_running === null ? "" : status.screen_running ? "yes" : "no"],
+    ["heartbeat_age_sec", status.heartbeat_age_sec === null ? "" : String(status.heartbeat_age_sec)],
+    ["exit_code", status.exit_code],
+    ["ssh_connected", status.ssh_connected ? "yes" : "no"],
+  ];
+  for (const [key, value] of candidatePairs) {
+    if (value) {
+      pairs.push({ key, value });
+    }
+  }
+  return pairs;
+}
+
+export function deriveWorkbenchTaskGuidance(
+  row: WorkbenchHistoryRow | null,
+  remoteStatus: WorkbenchRemoteExecutionStatus | null
+): WorkbenchTaskGuidance {
+  if (!row && !remoteStatus) {
+    return {
+      state: "ready",
+      label: "待启动",
+      summary: "当前还没有选中的远端执行记录，可以先运行工作流或打开一条历史结果。",
+      details: ["先选择一条历史结果，或直接提交新的高级工作流执行。"],
+      recommended_action: "启动分析",
+    };
+  }
+
+  const localStatus = asText(remoteStatus?.local_status || row?.status).toLowerCase();
+  const remoteState = asText(remoteStatus?.remote_status).toUpperCase();
+  const details: string[] = [];
+
+  if (remoteStatus?.response_message) {
+    details.push(remoteStatus.response_message);
+  }
+  if (remoteStatus?.local_error) {
+    details.push(`本地错误: ${remoteStatus.local_error}`);
+  }
+  if (remoteStatus?.heartbeat_age_sec !== null && remoteStatus?.heartbeat_age_sec !== undefined) {
+    details.push(`最近心跳 ${remoteStatus.heartbeat_age_sec}s 前`);
+  }
+  if (!remoteStatus?.ssh_connected) {
+    details.push("SSH 未连接时只能看到本地状态，无法继续远端观察或修复。");
+  }
+
+  if (localStatus === "failed") {
+    return {
+      state: remoteStatus?.ssh_connected ? "repair-required" : "blocked",
+      label: remoteStatus?.ssh_connected ? "需要修复" : "等待连通",
+      summary: remoteStatus?.ssh_connected
+        ? "该执行已经失败，建议先查看底部远端面板中的日志尾部与状态，再决定修复或重跑。"
+        : "执行记录已失败，但当前 SSH 未连接，无法继续远端诊断。",
+      details: details.length > 0 ? details : ["优先查看远端日志尾部与 exit_code。"],
+      recommended_action: remoteStatus?.ssh_connected ? "查看远端日志并修复" : "恢复 SSH 连接",
+    };
+  }
+
+  if (localStatus === "running" || localStatus === "retrying" || localStatus === "pending") {
+    if (!remoteStatus) {
+      return {
+        state: "awaiting-decision",
+        label: "等待远端状态",
+        summary: "本地记录显示任务仍在推进，但尚未拉取远端状态。",
+        details: ["先刷新远端状态，再决定是否需要修复或继续等待。"],
+        recommended_action: "刷新远端状态",
+      };
+    }
+    if (!remoteStatus.ssh_connected) {
+      return {
+        state: "blocked",
+        label: "等待连通",
+        summary: "任务本地显示仍在运行，但当前 SSH 未连接，无法确认远端进度。",
+        details,
+        recommended_action: "恢复 SSH 连接",
+      };
+    }
+    if (remoteStatus.screen_running || remoteState === "RUNNING") {
+      return {
+        state: "running",
+        label: "远端运行中",
+        summary: "远端会话仍在运行，当前最稳妥的动作是观察日志与心跳，不要提前做修复判断。",
+        details,
+        recommended_action: "观察远端面板",
+      };
+    }
+    if (remoteState === "FAILED" || (remoteStatus.exit_code && remoteStatus.exit_code !== "0")) {
+      return {
+        state: "repair-required",
+        label: "远端异常结束",
+        summary: "远端状态已经指向失败或非零退出码，建议先根据日志尾部定位问题，再决定重跑。",
+        details,
+        recommended_action: "查看远端日志并修复",
+      };
+    }
+    return {
+      state: "awaiting-decision",
+      label: "等待判定",
+      summary: "本地与远端状态还未形成稳定结论，先刷新状态或观察日志，再继续推进。",
+      details,
+      recommended_action: "刷新远端状态",
+    };
+  }
+
+  if (localStatus === "completed") {
+    return {
+      state: "ready",
+      label: "结果就绪",
+      summary: "当前执行已经完成，可以继续查看结果、校验溯源，或基于这次结果重新运行。",
+      details,
+      recommended_action: "查看结果与溯源",
+    };
+  }
+
+  return {
+    state: "awaiting-decision",
+    label: "待确认",
+    summary: "当前执行状态还不足以自动推荐下一步，需要先补充远端状态或人工判断。",
+    details: details.length > 0 ? details : ["建议先刷新远端状态并查看日志尾部。"],
+    recommended_action: "刷新远端状态",
+  };
 }
 
 export function parseWorkbenchFeatures(config: WorkbenchConfig | null): WorkbenchFeature[] {
