@@ -12,6 +12,12 @@
   - `core/workflow/` 领域模型与最小 bundle 编译器
   - workflow/run API 契约与 FastAPI 路由骨架
   - `RuntimeService` 的 compile/list/get/create/cancel/artifacts/doctor skeleton
+- 已接上单机 Linux 最小 launcher 闭环：
+  - bundle 本地落盘
+  - SSH 上传 bundle
+  - 远端 `nextflow run ... -bg` wrapper 提交
+  - `status/exit_code/heartbeat/task.log` 查询
+  - `trace/report/timeline/dag` artifact 下载
 
 ## Decisions
 
@@ -26,10 +32,12 @@
 
 - `M1 Freeze workflow-first contract` 已完成。
 - `M2 Add domain types and API skeleton` 已完成最小骨架，下一步进入 `M3 Implement minimal bundle compiler` 到 `M4 Implement single-node Linux launcher` 的衔接阶段。
+- `M3 Implement minimal bundle compiler` 已从内存 preview 提升到项目目录下的真实 bundle 落盘。
+- `M4 Implement single-node Linux launcher` 已有最小可提交/可查询闭环，但 cancel、真实 Nextflow 成功判定细节、artifact 完整性仍需继续打磨。
 - 当前优先级：
-  - 把 bundle 编译从 preview 升级到真实输出结构
-  - 开始接单机 Linux launcher backend
-  - 再补 run monitoring / artifacts 持久化
+  - 打磨单机 Linux launcher 的状态/失败判定
+  - 补 run artifacts 持久化与 UI 接入
+  - 再决定如何退役 legacy 单工具执行入口
 
 ## Known Risks
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 import threading
 import time
 import uuid
@@ -28,7 +29,21 @@ from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
-from core.workflow import LaunchSpec, RunRecord, ServerProfile, WorkflowEdge, WorkflowNode, WorkflowSpec, compile_workflow_bundle
+from core.workflow import (
+    LaunchSpec,
+    RunRecord,
+    ServerProfile,
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowSpec,
+    compile_workflow_bundle,
+    download_run_artifacts,
+    materialize_bundle,
+    persist_run_record,
+    query_local_nextflow_run,
+    recursive_upload_directory,
+    submit_local_nextflow_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,9 +148,21 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
-            row = self._workflow_runs.get(str(run_id or "").strip())
+            normalized_run_id = str(run_id or "").strip()
+            row = self._workflow_runs.get(normalized_run_id)
             if row is None or row.get("project_id") != project_id:
                 raise RuntimeServiceError(f"Run not found: {run_id}")
+            self._ensure_ssh_connected()
+            remote_task_dir = str(row.get("remote_task_dir") or "").strip()
+            if remote_task_dir:
+                remote_status = query_local_nextflow_run(self._run_ssh_command, remote_task_dir=remote_task_dir)
+                row["remote_status"] = remote_status
+                row["status"] = remote_status["stage"]
+                row["updated_at"] = time.time()
+                if remote_status["log_tail"]:
+                    row["message"] = remote_status["log_tail"].splitlines()[-1]
+                if row.get("local_run_dir"):
+                    persist_run_record(str(Path(str(row["local_run_dir"])) / "run_record.json"), row)
             return row
 
     def create_run(self, *, project_id: str, workflow: dict[str, Any], launch: dict[str, Any]) -> dict[str, Any]:
@@ -145,22 +172,50 @@ class RuntimeService:
             workflow_spec = self._build_workflow_spec(workflow)
             launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
             compiled = compile_workflow_bundle(workflow_spec, launch_spec)
+            self._ensure_ssh_connected()
+            ssh = self._service_locator.ssh_service
+            project = self._project_manager.current_project
+            project_dir = self._project_manager.current_project_dir
+            if ssh is None or project is None or project_dir is None:
+                raise RuntimeServiceError("Current project or SSH service is not available")
             now = time.time()
             run_id = f"run_{uuid.uuid4().hex[:12]}"
+            local_layout = materialize_bundle(project_dir, run_id, compiled)
+            remote_task_dir = f"{project.remote_base}/workflow_runs/{run_id}"
+            remote_bundle_dir = f"{remote_task_dir}/bundle"
+            remote_work_dir = f"{remote_task_dir}/work"
+            remote_output_dir = f"{remote_task_dir}/artifacts"
+            recursive_upload_directory(ssh, Path(local_layout["bundle_dir"]), remote_bundle_dir)
+            remote_submission = submit_local_nextflow_run(
+                self._run_ssh_command,
+                remote_task_dir=remote_task_dir,
+                remote_bundle_dir=remote_bundle_dir,
+                remote_work_dir=remote_work_dir,
+                remote_output_dir=remote_output_dir,
+            )
             record = RunRecord(
                 run_id=run_id,
                 project_id=project_id,
                 workflow_id=workflow_spec.workflow_id,
                 profile_id=launch_spec.profile.profile_id,
-                status="draft",
+                status="pending",
                 created_at=now,
                 updated_at=now,
                 bundle_id=str(compiled.get("bundle_id") or ""),
-                message="Workflow bundle compiled; remote launcher backend not implemented yet.",
+                message="Workflow bundle uploaded and launcher submitted.",
             )
             payload = record.to_dict()
             payload["compiled_bundle"] = compiled
+            payload["local_bundle_dir"] = local_layout["bundle_dir"]
+            payload["local_run_dir"] = local_layout["run_dir"]
+            payload["remote_task_dir"] = remote_submission["task_dir"]
+            payload["remote_bundle_dir"] = remote_submission["bundle_dir"]
+            payload["remote_work_dir"] = remote_submission["work_dir"]
+            payload["remote_output_dir"] = remote_submission["output_dir"]
+            payload["launcher_pid"] = remote_submission["launcher_pid"]
+            payload["artifacts"] = []
             self._workflow_runs[run_id] = payload
+            persist_run_record(local_layout["record_path"], payload)
             return payload
 
     def cancel_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
@@ -176,10 +231,25 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
-            row = self._workflow_runs.get(str(run_id or "").strip())
+            normalized_run_id = str(run_id or "").strip()
+            row = self._workflow_runs.get(normalized_run_id)
             if row is None or row.get("project_id") != project_id:
                 raise RuntimeServiceError(f"Run not found: {run_id}")
-            return []
+            self._ensure_ssh_connected()
+            ssh = self._service_locator.ssh_service
+            project_dir = self._project_manager.current_project_dir
+            if ssh is None or project_dir is None:
+                raise RuntimeServiceError("Run artifacts are unavailable without SSH and current project directory")
+            artifacts = download_run_artifacts(
+                ssh,
+                project_dir=project_dir,
+                run_id=normalized_run_id,
+                remote_bundle_dir=str(row.get("remote_bundle_dir") or "").strip(),
+            )
+            row["artifacts"] = artifacts
+            if row.get("local_run_dir"):
+                persist_run_record(str(Path(str(row["local_run_dir"])) / "run_record.json"), row)
+            return artifacts
 
     def doctor_server(self, *, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -1675,12 +1745,25 @@ class RuntimeService:
         )
 
     def _recommend_server_profile(self, env_status: dict[str, Any]) -> str:
-        miniforge = env_status.get("miniforge", {}) if isinstance(env_status, dict) else {}
-        if not isinstance(miniforge, dict):
-            return "personal_conda"
-        if miniforge.get("installed"):
-            return "personal_conda"
-        return "personal_docker"
+        if self._remote_command_available("docker") and self._remote_runtime_ok("docker --version"):
+            return "personal_docker"
+        if self._remote_command_available("podman") and self._remote_runtime_ok("podman --version"):
+            return "personal_podman"
+        return "personal_conda"
+
+    def _remote_command_available(self, command: str) -> bool:
+        try:
+            rc, stdout, _stderr = self._run_ssh_command(f"command -v {shlex.quote(command)}", 10)
+            return rc == 0 and bool(stdout.strip())
+        except Exception:
+            return False
+
+    def _remote_runtime_ok(self, command: str) -> bool:
+        try:
+            rc, _stdout, _stderr = self._run_ssh_command(command, 15)
+            return rc == 0
+        except Exception:
+            return False
 
     def _disconnect_runtime_signals(self) -> None:
         if not self._signals_connected:
