@@ -115,7 +115,20 @@ def _assert_v2_schema(data: Any) -> dict[str, Any]:
         raise ValueError("config file is empty; expected v2 schema")
     if not _is_v2_schema(data):
         raise ValueError("legacy config format is no longer supported; expected v2 schema")
+    _assert_structured_databases_schema(data.get("databases"))
     return data
+
+
+def _assert_structured_databases_schema(section: Any) -> None:
+    if not isinstance(section, dict):
+        raise ValueError("legacy config format is no longer supported; expected v2 schema")
+    allowed_keys = {"db_root", "overrides"}
+    unknown_keys = sorted(str(key) for key in section.keys() if key not in allowed_keys)
+    if unknown_keys:
+        raise ValueError("legacy config format is no longer supported; expected v2 schema")
+    overrides = section.get("overrides")
+    if overrides is not None and not isinstance(overrides, dict):
+        raise ValueError("legacy config format is no longer supported; expected v2 schema")
 
 
 def normalize_config(data: Any) -> dict[str, Any]:

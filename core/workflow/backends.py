@@ -15,6 +15,7 @@ from .runtime_ops import (
     query_local_nextflow_run,
     recursive_upload_directory,
     submit_local_nextflow_run,
+    _split_marked_sections,
 )
 
 
@@ -375,9 +376,10 @@ def _slurm_job_id_for_row(ssh_run_fn: Any, row: dict[str, Any], timeout: int = 1
 
 
 def _query_slurm_job_status(ssh_run_fn: Any, scheduler_job_id: str, timeout: int = 15) -> dict[str, Any] | None:
+    quoted_scheduler_job_id = _single_quoted_shell_arg(scheduler_job_id)
     squeue_cmd = (
         "squeue -h -j "
-        + shlex.quote(scheduler_job_id)
+        + quoted_scheduler_job_id
         + " -o "
         + shlex.quote("%T|%M|%R")
     )
@@ -386,7 +388,7 @@ def _query_slurm_job_status(ssh_run_fn: Any, scheduler_job_id: str, timeout: int
         return _parse_slurm_queue_line(scheduler_job_id, str(stdout))
     sacct_cmd = (
         "sacct -n -P -X -j "
-        + shlex.quote(scheduler_job_id)
+        + quoted_scheduler_job_id
         + " -o "
         + shlex.quote("JobIDRaw,State,ExitCode,Elapsed,MaxRSS,NodeList")
     )
@@ -501,6 +503,10 @@ def _query_remote_log_tail(ssh_run_fn: Any, remote_task_dir: str, timeout: int =
     return str(stdout or "").strip()
 
 
+def _single_quoted_shell_arg(value: str) -> str:
+    return "'" + str(value or "").replace("'", "'\"'\"'") + "'"
+
+
 def _map_slurm_state_to_stage(state: str) -> str:
     normalized = str(state or "").strip().upper()
     if not normalized:
@@ -509,7 +515,7 @@ def _map_slurm_state_to_stage(state: str) -> str:
         return "pending"
     if normalized in {"RUNNING", "COMPLETING", "STAGE_OUT"}:
         return "running"
-    if normalized in {"COMPLETED"}:
+    if normalized in {"COMPLETED", "DONE"}:
         return "completed"
     if normalized.startswith("CANCELLED") or normalized.startswith("CANCELLED+") or normalized.startswith("CANCELLED_BY"):
         return "cancelled"
