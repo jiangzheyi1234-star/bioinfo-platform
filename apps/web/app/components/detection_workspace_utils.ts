@@ -17,6 +17,10 @@ import type {
   Task,
   ToolEnvStatus,
   ToolSummary,
+  ServerDoctorReport,
+  WorkflowArtifact,
+  WorkflowCompilePreview,
+  WorkflowRun,
 } from "./detection_workspace_types";
 
 export function apiBase(): string {
@@ -384,6 +388,99 @@ export function parseSSHStatus(value: unknown): SSHStatus | null {
     auto_connect_failed: Boolean(value.auto_connect_failed),
     auto_connect_error: safeText(value.auto_connect_error) || undefined,
     auto_connect_notice_key: safeText(value.auto_connect_notice_key) || undefined,
+  };
+}
+
+export function parseWorkflowCompilePreview(value: unknown): WorkflowCompilePreview | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const bundleId = safeText(value.bundle_id);
+  if (!bundleId) {
+    return null;
+  }
+  const files: Record<string, string> = {};
+  if (isRecord(value.files)) {
+    for (const [key, item] of Object.entries(value.files)) {
+      const normalizedKey = safeText(key);
+      if (normalizedKey) {
+        files[normalizedKey] = safeText(item);
+      }
+    }
+  }
+  return {
+    bundle_id: bundleId,
+    files,
+    manifest: isRecord(value.manifest) ? value.manifest : {},
+  };
+}
+
+export function toWorkflowArtifact(value: unknown): WorkflowArtifact | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = safeText(value.name);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    remote_path: safeText(value.remote_path),
+    local_path: safeText(value.local_path),
+    available: Boolean(value.available),
+    kind: safeText(value.kind) || undefined,
+    content_type: safeText(value.content_type) || undefined,
+    error: safeText(value.error) || undefined,
+  };
+}
+
+export function toWorkflowRun(value: unknown): WorkflowRun | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const runId = safeText(value.run_id);
+  if (!runId) {
+    return null;
+  }
+  return {
+    run_id: runId,
+    project_id: safeText(value.project_id),
+    workflow_id: safeText(value.workflow_id),
+    profile_id: safeText(value.profile_id),
+    status: safeText(value.status, "unknown"),
+    created_at: Number(value.created_at || 0),
+    updated_at: Number(value.updated_at || 0),
+    bundle_id: safeText(value.bundle_id),
+    message: safeText(value.message),
+    local_bundle_dir: safeText(value.local_bundle_dir) || undefined,
+    local_run_dir: safeText(value.local_run_dir) || undefined,
+    remote_task_dir: safeText(value.remote_task_dir) || undefined,
+    remote_bundle_dir: safeText(value.remote_bundle_dir) || undefined,
+    remote_work_dir: safeText(value.remote_work_dir) || undefined,
+    remote_output_dir: safeText(value.remote_output_dir) || undefined,
+    launcher_pid: safeText(value.launcher_pid) || undefined,
+    nextflow_pid: safeText(value.nextflow_pid) || undefined,
+    remote_status: isRecord(value.remote_status) ? value.remote_status : undefined,
+    artifacts: Array.isArray(value.artifacts)
+      ? value.artifacts.map(toWorkflowArtifact).filter((item: WorkflowArtifact | null): item is WorkflowArtifact => !!item)
+      : [],
+  };
+}
+
+export function parseServerDoctorReport(value: unknown): ServerDoctorReport | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const serverId = safeText(value.server_id);
+  if (!serverId) {
+    return null;
+  }
+  return {
+    server_id: serverId,
+    doctor_phase: safeText(value.doctor_phase),
+    recommended_profile: safeText(value.recommended_profile),
+    preflight: parsePreflightResult(value.preflight),
+    env_status: parseRemoteEnvStatus(value.env_status),
   };
 }
 

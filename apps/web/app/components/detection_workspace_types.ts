@@ -186,6 +186,88 @@ export type AppLogPayload = {
   lines: string[];
 };
 
+export type WorkflowNodeView = {
+  node_id: string;
+  tool_id: string;
+  label: string;
+  params: Record<string, unknown>;
+};
+
+export type WorkflowEdgeView = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  output_name: string;
+  input_name: string;
+};
+
+export type WorkflowSpecView = {
+  workflow_id: string;
+  name: string;
+  version: string;
+  nodes: WorkflowNodeView[];
+  edges: WorkflowEdgeView[];
+  params_schema: Record<string, unknown>;
+};
+
+export type WorkflowServerProfile = {
+  profile_id: string;
+  server_id: string;
+  profile_kind: string;
+  executor: string;
+  packaging_mode: "container" | "conda";
+  container_runtime: string;
+  work_dir: string;
+  output_dir: string;
+  cache_dir: string;
+};
+
+export type WorkflowCompilePreview = {
+  bundle_id: string;
+  files: Record<string, string>;
+  manifest: Record<string, unknown>;
+};
+
+export type WorkflowArtifact = {
+  name: string;
+  remote_path: string;
+  local_path: string;
+  available: boolean;
+  kind?: string;
+  content_type?: string;
+  error?: string;
+};
+
+export type WorkflowRun = {
+  run_id: string;
+  project_id: string;
+  workflow_id: string;
+  profile_id: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+  bundle_id: string;
+  message: string;
+  local_bundle_dir?: string;
+  local_run_dir?: string;
+  remote_task_dir?: string;
+  remote_bundle_dir?: string;
+  remote_work_dir?: string;
+  remote_output_dir?: string;
+  launcher_pid?: string;
+  nextflow_pid?: string;
+  remote_status?: Record<string, unknown>;
+  artifacts: WorkflowArtifact[];
+};
+
+export type ServerDoctorReport = {
+  server_id: string;
+  doctor_phase: string;
+  recommended_profile: string;
+  preflight: PreflightResult | null;
+  env_status: RemoteEnvStatus | null;
+};
+
 export type TabId =
   | "projects"
   | "samples"
@@ -193,6 +275,8 @@ export type TabId =
   | "history"
   | "databases"
   | "connect"
+  | "workflows"
+  | "artifacts"
   | "toolflows"
   | "settings"
   | "workbench";

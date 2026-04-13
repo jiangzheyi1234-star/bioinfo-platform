@@ -15,7 +15,7 @@ type ProjectSidebarSectionProps = {
   projectActionBusyId?: string;
   onOpenProject: (projectId: string) => Promise<void>;
   onSelectProjectSummary?: (projectId: string) => void;
-  onSelectTask: (taskId: string) => void;
+  onSelectTask?: (taskId: string) => void;
   onSelectExecution?: (execution: Execution) => void;
   onCreateProject: (name: string, description: string) => Promise<void>;
   onArchiveProject: (projectId: string) => Promise<void>;
@@ -154,6 +154,7 @@ export function ProjectSidebarSection({
           const hasExecutionCache = Object.prototype.hasOwnProperty.call(executionItemsByProject, project.project_id);
           const projectExecutionItems = executionItemsByProject[project.project_id] ?? [];
           const projectExecutionLoading = executionLoadingByProject[project.project_id] === true;
+          const showExecutionSummary = typeof onLoadProjectExecutions === "function" || projectExecutionItems.length > 0;
           const menuOpen = openMenuProjectId === project.project_id;
           const actionBusy = projectActionBusyId === project.project_id;
           return (
@@ -163,7 +164,7 @@ export function ProjectSidebarSection({
                   type="button"
                   className={`sidebar-project-current${activeProject ? " active" : ""}`}
                   onClick={() => {
-                    if (activeProject && projectExecutionItems.length > 0) {
+                    if (activeProject && showExecutionSummary && projectExecutionItems.length > 0) {
                       onSelectProjectSummary?.(project.project_id);
                       return;
                     }
@@ -230,6 +231,7 @@ export function ProjectSidebarSection({
                     }));
                     if (
                       nextExpanded &&
+                      showExecutionSummary &&
                       !hasExecutionCache &&
                       !projectExecutionLoading &&
                       onLoadProjectExecutions
@@ -242,7 +244,7 @@ export function ProjectSidebarSection({
                 </button>
               </div>
 
-              {activeProject && expanded ? (
+              {activeProject && expanded && showExecutionSummary ? (
                 <div className="sidebar-task-list">
                   {projectExecutionLoading ? (
                     <div className="sidebar-task-empty">加载中...</div>
@@ -263,7 +265,7 @@ export function ProjectSidebarSection({
                           type="button"
                           className="sidebar-task-main sidebar-task-main-btn"
                           onClick={() => {
-                            if (execution.task_id) {
+                            if (execution.task_id && onSelectTask) {
                               onSelectTask(execution.task_id);
                             }
                             onSelectExecution?.(execution);

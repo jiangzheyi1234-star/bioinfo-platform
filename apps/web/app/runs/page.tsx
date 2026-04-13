@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { WorkflowRunsPage } from "../components/workflow_runs_page";
 
 export default function RunsPage() {
-  redirect("/projects");
+  return <WorkflowRunsPage />;
 }
