@@ -1014,6 +1014,46 @@ nav {
   margin-bottom: 14px;
 }
 
+.workbench-dock-toggle-btn {
+  border-color: #cfd9ef;
+  background: linear-gradient(180deg, #fbfdff 0%, #eef4ff 100%);
+  color: #1f4fa3;
+}
+
+.workbench-dock-toggle-icon-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workbench-dock-toggle-icon-btn.is-active {
+  border-color: #a7c2ff;
+  background: linear-gradient(180deg, #f6f9ff 0%, #e3edff 100%);
+}
+
+.workbench-dock-toggle-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.workbench-dock-entry-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-panel-subtle);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .workbench-page-title,
 .workbench-card-title {
   margin: 0;

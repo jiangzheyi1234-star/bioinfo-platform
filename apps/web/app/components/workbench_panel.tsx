@@ -9,6 +9,7 @@ import {
   WorkbenchConfiguredDatabases,
   WorkbenchExecutionTrace,
   WorkbenchPageHeader,
+  WorkbenchTaskStatusCard,
 } from "./workbench_panel_support";
 import { WorkbenchObservabilityPanel } from "./workbench_observability_panel";
 import type {
@@ -18,13 +19,16 @@ import type {
   WorkbenchConfig,
   WorkbenchFeature,
   WorkbenchHistoryRow,
+  WorkbenchRemoteExecutionStatus,
   WorkbenchView,
 } from "./workbench_panel_types";
 import {
   apiBase,
   asText,
+  deriveWorkbenchTaskGuidance,
   getViewToolId,
   isRecord,
+  normalizeRemoteExecutionStatus,
   normalizeArtifacts,
   normalizeCharts,
   normalizeProvenanceItems,
@@ -35,6 +39,7 @@ import {
   readJsonOrThrow,
   resolveDefaultResultTab,
   summarizePairs,
+  summarizeRemoteExecutionStatus,
   toConfiguredDatabasePath,
   toWorkbenchHistoryRow,
 } from "./workbench_panel_utils";
@@ -54,7 +59,7 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
 
   const [workbenchExecutionId, setWorkbenchExecutionId] = useState<string>("");
   const [workbenchResult, setWorkbenchResult] = useState<Record<string, unknown> | null>(null);
-  const [workbenchRemoteStatus, setWorkbenchRemoteStatus] = useState<Record<string, unknown> | null>(null);
+  const [workbenchRemoteStatus, setWorkbenchRemoteStatus] = useState<WorkbenchRemoteExecutionStatus | null>(null);
 
   const [workbenchToolId, setWorkbenchToolId] = useState<string>("unknown_sample_detection");
   const [workbenchParamsJson, setWorkbenchParamsJson] = useState<string>('{"sample_name":"wb_sample"}');
@@ -68,6 +73,7 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
   const [selectedWorkflowFeatureId, setSelectedWorkflowFeatureId] = useState<string>("");
   const [selectedHistoryExecutionId, setSelectedHistoryExecutionId] = useState<string>("");
   const [activeResultTab, setActiveResultTab] = useState<ResultTab>("table");
+  const [remoteDockCollapsed, setRemoteDockCollapsed] = useState<boolean>(false);
 
   const features = useMemo(() => parseWorkbenchFeatures(workbenchConfig), [workbenchConfig]);
   const views = useMemo(() => parseWorkbenchViews(workbenchConfig), [workbenchConfig]);
@@ -101,7 +107,7 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
   const chartItems = normalizeCharts(selectedView);
 
   const resultSummary = summarizePairs(workbenchResult);
-  const remoteSummary = summarizePairs(workbenchRemoteStatus);
+  const remoteSummary = summarizeRemoteExecutionStatus(workbenchRemoteStatus);
 
   const visibleHistoryRows = useMemo(
     () => workbenchHistoryRows.filter((row) => historyPinned[row.execution_id] || !historyClosed[row.execution_id]),
@@ -132,6 +138,15 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
       setWorkbenchToolId(nextToolId);
     }
   }, [selectedFeature, selectedView]);
+
+  const activeExecutionId = asText(selectedHistoryExecutionId || workbenchExecutionId).trim();
+  const activeExecutionRow = activeExecutionId
+    ? workbenchHistoryRows.find((row) => row.execution_id === activeExecutionId) ?? selectedHistoryRow
+    : selectedHistoryRow;
+  const taskGuidance = useMemo(
+    () => deriveWorkbenchTaskGuidance(activeExecutionRow ?? null, workbenchRemoteStatus),
+    [activeExecutionRow, workbenchRemoteStatus]
+  );
 
   const refreshWorkbenchConfig = async (projectId: string) => {
     if (!projectId) {
@@ -282,13 +297,20 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
         )}/remote-status`
       );
       const data = await readJsonOrThrow(resp);
-      const item = data?.item;
-      setWorkbenchRemoteStatus(item && typeof item === "object" ? (item as Record<string, unknown>) : null);
+      setWorkbenchRemoteStatus(normalizeRemoteExecutionStatus(data?.item));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onError(msg);
     }
   };
+
+  useEffect(() => {
+    if (!currentProjectId || !activeExecutionId) {
+      return;
+    }
+    void loadWorkbenchRemoteStatus(activeExecutionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProjectId, activeExecutionId]);
 
   const selectWorkflowFeature = (featureId: string) => {
     setSourceMode("workflow");
@@ -423,12 +445,14 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
         featureCount={features.length}
         historyCount={workbenchHistoryRows.length}
         databaseCount={configuredDatabases.length}
+        dockVisible={!remoteDockCollapsed}
         onRefreshConfig={() => {
           void refreshWorkbenchConfig(currentProjectId);
         }}
         onRefreshHistory={() => {
           void refreshWorkbenchHistory(currentProjectId);
         }}
+        onToggleDock={() => setRemoteDockCollapsed((prev) => !prev)}
       />
 
       <div className="workbench-shell">
@@ -498,7 +522,30 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
         workbenchResult={workbenchResult}
       />
 
-      <WorkbenchObservabilityPanel onError={onError} />
+      <WorkbenchTaskStatusCard
+        selectedRow={activeExecutionRow ?? null}
+        remoteStatus={workbenchRemoteStatus}
+        guidance={taskGuidance}
+        dockVisible={!remoteDockCollapsed}
+        onToggleDock={() => setRemoteDockCollapsed((prev) => !prev)}
+        onRefreshRemoteStatus={() => {
+          void loadWorkbenchRemoteStatus(activeExecutionId);
+        }}
+        onLoadResult={() => {
+          void loadWorkbenchResult(activeExecutionId);
+        }}
+      />
+
+      <WorkbenchObservabilityPanel
+        onError={onError}
+        executionId={activeExecutionId}
+        remoteStatus={workbenchRemoteStatus}
+        collapsed={remoteDockCollapsed}
+        onToggleCollapsed={() => setRemoteDockCollapsed((prev) => !prev)}
+        onRefreshRemoteStatus={() => {
+          void loadWorkbenchRemoteStatus(activeExecutionId);
+        }}
+      />
 
       <WorkbenchConfiguredDatabases configuredDatabases={configuredDatabases} />
     </div>

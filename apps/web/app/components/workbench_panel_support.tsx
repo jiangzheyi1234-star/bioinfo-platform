@@ -1,6 +1,14 @@
 "use client";
 
-import type { ConfiguredDatabasePath, SummaryPair } from "./workbench_panel_types";
+import { RectangleStackIcon } from "@heroicons/react/24/outline";
+
+import type {
+  ConfiguredDatabasePath,
+  SummaryPair,
+  WorkbenchHistoryRow,
+  WorkbenchRemoteExecutionStatus,
+  WorkbenchTaskGuidance,
+} from "./workbench_panel_types";
 import { asText } from "./workbench_panel_utils";
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
 
@@ -8,8 +16,10 @@ type WorkbenchPageHeaderProps = {
   featureCount: number;
   historyCount: number;
   databaseCount: number;
+  dockVisible: boolean;
   onRefreshConfig: () => void;
   onRefreshHistory: () => void;
+  onToggleDock: () => void;
 };
 
 export function WorkbenchPageHeader(props: WorkbenchPageHeaderProps) {
@@ -20,6 +30,14 @@ export function WorkbenchPageHeader(props: WorkbenchPageHeaderProps) {
         description="用更轻的目录、阅读流结果页和内嵌观测层组织分析功能与历史结果。"
         aside={
           <div className="workbench-header-actions">
+            <button
+              className={`btn workbench-dock-toggle-btn workbench-dock-toggle-icon-btn${props.dockVisible ? " is-active" : ""}`}
+              onClick={props.onToggleDock}
+              aria-label={props.dockVisible ? "收起远端面板" : "打开远端面板"}
+              title={props.dockVisible ? "收起远端面板" : "打开远端面板"}
+            >
+              <RectangleStackIcon className="workbench-dock-toggle-icon" />
+            </button>
             <button className="btn" onClick={props.onRefreshConfig}>
               刷新配置
             </button>
@@ -33,7 +51,97 @@ export function WorkbenchPageHeader(props: WorkbenchPageHeaderProps) {
       <p className="muted workbench-page-meta">
         {props.featureCount} 个功能视图，{props.historyCount} 条历史结果，{props.databaseCount} 组数据库路径。
       </p>
+      {!props.dockVisible ? (
+        <div className="workbench-dock-entry-hint">
+          <span className="badge">remote dock</span>
+          <span>远端面板当前已收起。使用右上角“打开远端面板”即可查看日志尾部、远端状态和修复回显。</span>
+        </div>
+      ) : null}
     </>
+  );
+}
+
+type WorkbenchTaskStatusCardProps = {
+  selectedRow: WorkbenchHistoryRow | null;
+  remoteStatus: WorkbenchRemoteExecutionStatus | null;
+  guidance: WorkbenchTaskGuidance;
+  dockVisible: boolean;
+  onToggleDock: () => void;
+  onRefreshRemoteStatus: () => void;
+  onLoadResult: () => void;
+};
+
+export function WorkbenchTaskStatusCard(props: WorkbenchTaskStatusCardProps) {
+  return (
+    <section className="workbench-panel-card workbench-task-status-card">
+      <WorkspaceSectionHeader
+        title="远端任务推进"
+        description="只面向远端任务的观察与修复，不提供通用本地终端。"
+        titleAs="h5"
+        aside={
+          <div className="workbench-header-actions">
+            <button className="btn" onClick={props.onRefreshRemoteStatus}>
+              刷新远端状态
+            </button>
+            <button className="btn" onClick={props.onLoadResult}>
+              加载结果
+            </button>
+            <button className="btn" onClick={props.onToggleDock}>
+              {props.dockVisible ? "收起远端面板" : "打开远端面板"}
+            </button>
+          </div>
+        }
+      />
+
+      <div className="workbench-task-status-grid">
+        <div className="workbench-task-runtime-summary">
+          <div className="workbench-task-state-row">
+            <span className={`badge workbench-guidance-badge tone-${props.guidance.state}`}>{props.guidance.label}</span>
+            {props.selectedRow ? <span className="badge">{props.selectedRow.status || "unknown"}</span> : null}
+            {props.remoteStatus?.remote_status ? <span className="badge">{props.remoteStatus.remote_status}</span> : null}
+          </div>
+          <p className="workbench-task-summary-text">{props.guidance.summary}</p>
+          <div className="workbench-task-action-hint">
+            推荐动作：<strong>{props.guidance.recommended_action}</strong>
+          </div>
+        </div>
+
+        <div className="workbench-task-runtime-meta">
+          <div className="kv-list">
+            <div className="kv-row">
+              <span className="kv-key">Execution</span>
+              <span className="kv-value">{props.selectedRow?.execution_id || props.remoteStatus?.execution_id || "-"}</span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-key">Tool</span>
+              <span className="kv-value">{props.selectedRow?.tool_id || props.remoteStatus?.tool_id || "-"}</span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-key">SSH</span>
+              <span className="kv-value">{props.remoteStatus ? (props.remoteStatus.ssh_connected ? "connected" : "disconnected") : "-"}</span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-key">Screen</span>
+              <span className="kv-value">
+                {props.remoteStatus?.screen_running === null ? "-" : props.remoteStatus?.screen_running ? "running" : "stopped"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="workbench-guidance-list">
+        {props.guidance.details.length === 0 ? (
+          <WorkspaceEmptyState label="暂无额外诊断细节" compact />
+        ) : (
+          props.guidance.details.map((detail, index) => (
+            <div key={`${detail}_${index}`} className="workbench-guidance-item">
+              {detail}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -50,7 +158,7 @@ type WorkbenchExecutionTraceProps = {
   workbenchMsg: string;
   remoteSummary: SummaryPair[];
   resultSummary: SummaryPair[];
-  workbenchRemoteStatus: Record<string, unknown> | null;
+  workbenchRemoteStatus: WorkbenchRemoteExecutionStatus | null;
   workbenchResult: Record<string, unknown> | null;
 };
 
