@@ -99,6 +99,7 @@ def submit_local_nextflow_run(
     remote_bundle_dir: str,
     remote_work_dir: str,
     remote_output_dir: str,
+    resume: bool,
     timeout: int = 20,
 ) -> dict[str, Any]:
     ensure_remote_dirs(ssh_run_fn, [remote_task_dir, remote_bundle_dir, remote_work_dir, remote_output_dir], timeout)
@@ -107,6 +108,7 @@ def submit_local_nextflow_run(
         remote_bundle_dir=remote_bundle_dir,
         remote_work_dir=remote_work_dir,
         remote_output_dir=remote_output_dir,
+        resume=resume,
     )
     script_path = write_remote_script(
         ssh_run_fn,
@@ -211,7 +213,14 @@ printf '__LAUNCHER__\\n%s\\n__NEXTFLOW__\\n%s\\n' "$launcher_pid" "$nextflow_pid
     }
 
 
-def download_run_artifacts(ssh_service: Any, *, project_dir: Path, run_id: str, remote_bundle_dir: str) -> list[dict[str, Any]]:
+def download_run_artifacts(
+    ssh_service: Any,
+    *,
+    project_dir: Path,
+    run_id: str,
+    remote_bundle_dir: str,
+    remote_output_dir: str = "",
+) -> list[dict[str, Any]]:
     artifact_root = project_dir / "workflow_runs" / run_id / "artifacts"
     artifact_root.mkdir(parents=True, exist_ok=True)
     artifacts: list[dict[str, Any]] = []
@@ -238,6 +247,8 @@ def download_run_artifacts(ssh_service: Any, *, project_dir: Path, run_id: str, 
         if error:
             item["error"] = error
         artifacts.append(item)
+    if remote_output_dir:
+        artifacts.extend(_download_output_artifacts(ssh_service, artifact_root, remote_output_dir))
     return artifacts
 
 
@@ -254,11 +265,19 @@ def _split_marked_sections(text: str) -> dict[str, str]:
     return {key: "\n".join(value).strip() for key, value in sections.items()}
 
 
-def _build_local_nextflow_launcher(*, remote_task_dir: str, remote_bundle_dir: str, remote_work_dir: str, remote_output_dir: str) -> str:
+def _build_local_nextflow_launcher(
+    *,
+    remote_task_dir: str,
+    remote_bundle_dir: str,
+    remote_work_dir: str,
+    remote_output_dir: str,
+    resume: bool,
+) -> str:
     task_dir_expr = f"$(eval echo {expand_home_expr(remote_task_dir)})"
     bundle_dir_expr = f"$(eval echo {expand_home_expr(remote_bundle_dir)})"
     work_dir_expr = f"$(eval echo {expand_home_expr(remote_work_dir)})"
     output_dir_expr = f"$(eval echo {expand_home_expr(remote_output_dir)})"
+    resume_line = '  -resume \\\n' if resume else ""
     return f"""#!/bin/bash
 set -euo pipefail
 
@@ -320,8 +339,7 @@ echo "RUNNING" > "$STATUS_FILE"
 nextflow -C resolved.config run main.nf \\
   -params-file params/run.yaml \\
   -work-dir "$WORK_DIR" \\
-  -resume \\
-  -with-report report.html \\
+{resume_line}  -with-report report.html \\
   -with-timeline timeline.html \\
   -with-trace trace.txt \\
   -with-dag dag.html &
@@ -352,3 +370,45 @@ def _sftp_makedirs(sftp, remote_path: str) -> None:
                 sftp.mkdir(current)
             except OSError:
                 pass
+
+
+def _download_output_artifacts(ssh_service: Any, artifact_root: Path, remote_output_dir: str) -> list[dict[str, Any]]:
+    quoted = shlex.quote(remote_output_dir)
+    rc, stdout, stderr = ssh_service.run(
+        f"find {quoted} -maxdepth 3 -type f | sort | head -n 200",
+        timeout=15,
+    )
+    if rc != 0:
+        return [
+            {
+                "name": "published_outputs",
+                "remote_path": remote_output_dir,
+                "local_path": "",
+                "available": False,
+                "error": (stderr or stdout or "find remote outputs failed").strip()[:200],
+                **ArtifactStore.infer_artifact_metadata("published_outputs.txt"),
+            }
+        ]
+    artifacts: list[dict[str, Any]] = []
+    for remote_path in [line.strip() for line in stdout.splitlines() if line.strip()]:
+        name = posixpath.relpath(remote_path, remote_output_dir)
+        local_path = artifact_root / "published" / name
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        available = False
+        error = ""
+        try:
+            ssh_service.download(remote_path, str(local_path))
+            available = local_path.exists()
+        except Exception as exc:
+            error = str(exc)
+        item = {
+            "name": f"published/{name}",
+            "remote_path": remote_path,
+            "local_path": str(local_path),
+            "available": available,
+            **ArtifactStore.infer_artifact_metadata(name),
+        }
+        if error:
+            item["error"] = error
+        artifacts.append(item)
+    return artifacts

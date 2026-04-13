@@ -31,20 +31,17 @@ from core.service_locator import ServiceLocator
 from core.utils import get_app_root
 from core.workflow import (
     LaunchSpec,
+    LocalSSHBackend,
     RunRecord,
     ServerProfile,
+    SlurmSSHBackend,
     WorkflowEdge,
     WorkflowNode,
     WorkflowSpec,
-    cancel_local_nextflow_run,
     compile_workflow_bundle,
-    download_run_artifacts,
+    create_workflow_backend,
     load_project_run_records,
-    materialize_bundle,
     persist_run_record,
-    query_local_nextflow_run,
-    recursive_upload_directory,
-    submit_local_nextflow_run,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,7 +133,11 @@ class RuntimeService:
             self._ensure_project_open(project_id)
             workflow_spec = self._build_workflow_spec(workflow)
             launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
-            return compile_workflow_bundle(workflow_spec, launch_spec)
+            return compile_workflow_bundle(
+                workflow_spec,
+                launch_spec,
+                plugin_registry=self._service_locator.plugin_registry,
+            )
 
     def list_runs(self, *, project_id: str) -> list[dict[str, Any]]:
         with self._lock:
@@ -153,9 +154,10 @@ class RuntimeService:
             normalized_run_id = str(run_id or "").strip()
             row = self._get_workflow_run(project_id=project_id, run_id=normalized_run_id)
             self._ensure_ssh_connected()
+            backend = self._workflow_backend_for_row(row)
             remote_task_dir = str(row.get("remote_task_dir") or "").strip()
             if remote_task_dir:
-                remote_status = query_local_nextflow_run(self._run_ssh_command, remote_task_dir=remote_task_dir)
+                remote_status = backend.query_run(ssh_run_fn=self._run_ssh_command, row=row)
                 row["remote_status"] = remote_status
                 row["status"] = remote_status["stage"]
                 row["updated_at"] = time.time()
@@ -170,7 +172,11 @@ class RuntimeService:
             self._ensure_project_open(project_id)
             workflow_spec = self._build_workflow_spec(workflow)
             launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
-            compiled = compile_workflow_bundle(workflow_spec, launch_spec)
+            compiled = compile_workflow_bundle(
+                workflow_spec,
+                launch_spec,
+                plugin_registry=self._service_locator.plugin_registry,
+            )
             self._ensure_ssh_connected()
             ssh = self._service_locator.ssh_service
             project = self._project_manager.current_project
@@ -179,18 +185,15 @@ class RuntimeService:
                 raise RuntimeServiceError("Current project or SSH service is not available")
             now = time.time()
             run_id = f"run_{uuid.uuid4().hex[:12]}"
-            local_layout = materialize_bundle(project_dir, run_id, compiled)
-            remote_task_dir = f"{project.remote_base}/workflow_runs/{run_id}"
-            remote_bundle_dir = f"{remote_task_dir}/bundle"
-            remote_work_dir = f"{remote_task_dir}/work"
-            remote_output_dir = f"{remote_task_dir}/artifacts"
-            recursive_upload_directory(ssh, Path(local_layout["bundle_dir"]), remote_bundle_dir)
-            remote_submission = submit_local_nextflow_run(
-                self._run_ssh_command,
-                remote_task_dir=remote_task_dir,
-                remote_bundle_dir=remote_bundle_dir,
-                remote_work_dir=remote_work_dir,
-                remote_output_dir=remote_output_dir,
+            backend = create_workflow_backend(launch_spec.profile)
+            submission = backend.submit_run(
+                ssh_service=ssh,
+                ssh_run_fn=self._run_ssh_command,
+                project_dir=project_dir,
+                remote_base=project.remote_base,
+                run_id=run_id,
+                compiled_bundle=compiled,
+                launch=launch_spec,
             )
             record = RunRecord(
                 run_id=run_id,
@@ -201,17 +204,25 @@ class RuntimeService:
                 created_at=now,
                 updated_at=now,
                 bundle_id=str(compiled.get("bundle_id") or ""),
-                message="Workflow bundle uploaded and launcher submitted.",
+                message="Workflow bundle uploaded and backend submitted.",
             )
             payload = record.to_dict()
             payload["compiled_bundle"] = compiled
-            payload["local_bundle_dir"] = local_layout["bundle_dir"]
-            payload["local_run_dir"] = local_layout["run_dir"]
-            payload["remote_task_dir"] = remote_submission["task_dir"]
-            payload["remote_bundle_dir"] = remote_submission["bundle_dir"]
-            payload["remote_work_dir"] = remote_submission["work_dir"]
-            payload["remote_output_dir"] = remote_submission["output_dir"]
-            payload["launcher_pid"] = remote_submission["launcher_pid"]
+            payload["backend_kind"] = submission["backend_kind"]
+            payload["executor"] = launch_spec.profile.executor
+            payload["packaging_mode"] = launch_spec.profile.packaging_mode
+            payload["container_runtime"] = launch_spec.profile.container_runtime
+            payload["profile"] = launch_spec.profile.to_dict()
+            payload["resume"] = launch_spec.resume
+            payload["local_bundle_dir"] = submission["local_bundle_dir"]
+            payload["local_run_dir"] = submission["local_run_dir"]
+            payload["resolved_config_path"] = submission["resolved_config_path"]
+            payload["remote_task_dir"] = submission["remote_task_dir"]
+            payload["remote_bundle_dir"] = submission["remote_bundle_dir"]
+            payload["remote_work_dir"] = submission["remote_work_dir"]
+            payload["remote_output_dir"] = submission["remote_output_dir"]
+            payload["launcher_pid"] = submission["launcher_pid"]
+            payload["scheduler_job_id"] = submission.get("scheduler_job_id", "")
             payload["artifacts"] = []
             self._workflow_runs[run_id] = payload
             self._persist_workflow_run(payload)
@@ -223,10 +234,8 @@ class RuntimeService:
             self._ensure_project_open(project_id)
             row = self._get_workflow_run(project_id=project_id, run_id=str(run_id or "").strip())
             self._ensure_ssh_connected()
-            remote_task_dir = str(row.get("remote_task_dir") or "").strip()
-            if not remote_task_dir:
-                raise RuntimeServiceError(f"Run {run_id} is missing remote_task_dir and cannot be cancelled")
-            remote_status = cancel_local_nextflow_run(self._run_ssh_command, remote_task_dir=remote_task_dir)
+            backend = self._workflow_backend_for_row(row)
+            remote_status = backend.cancel_run(ssh_run_fn=self._run_ssh_command, row=row)
             row["remote_status"] = remote_status
             row["status"] = "cancelled"
             row["updated_at"] = time.time()
@@ -249,15 +258,32 @@ class RuntimeService:
             project_dir = self._project_manager.current_project_dir
             if ssh is None or project_dir is None:
                 raise RuntimeServiceError("Run artifacts are unavailable without SSH and current project directory")
-            artifacts = download_run_artifacts(
-                ssh,
+            backend = self._workflow_backend_for_row(row)
+            artifacts = backend.collect_artifacts(
+                ssh_service=ssh,
                 project_dir=project_dir,
                 run_id=normalized_run_id,
-                remote_bundle_dir=str(row.get("remote_bundle_dir") or "").strip(),
+                row=row,
             )
             row["artifacts"] = artifacts
             self._persist_workflow_run(row)
             return artifacts
+
+    def get_run_resolved_config(self, *, project_id: str, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            row = self._get_workflow_run(project_id=project_id, run_id=str(run_id or "").strip())
+            resolved_config_path = str(row.get("resolved_config_path") or "").strip()
+            if not resolved_config_path:
+                raise RuntimeServiceError(f"Run {run_id} 缺少 resolved_config_path")
+            path = Path(resolved_config_path)
+            if not path.exists():
+                raise RuntimeServiceError(f"resolved config 不存在: {resolved_config_path}")
+            return {
+                "path": resolved_config_path,
+                "content": path.read_text(encoding="utf-8"),
+            }
 
     def doctor_server(self, *, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -267,12 +293,16 @@ class RuntimeService:
             self._ensure_ssh_connected()
             preflight = self.get_ssh_preflight()
             env_status = self.get_remote_env_status()
+            caps = probe_preflight(self._run_ssh_command)
+            recommended_profile = self._profile_from_capabilities(caps)
             return {
                 "server_id": "current",
-                "doctor_phase": "skeleton",
+                "doctor_phase": "workflow_runtime",
                 "preflight": preflight,
                 "env_status": env_status,
-                "recommended_profile": self._recommend_server_profile(env_status),
+                "recommended_profile": recommended_profile["profile_id"],
+                "recommended_profile_details": recommended_profile,
+                "runtime_capabilities": self._runtime_capabilities_dict(caps),
             }
 
     def get_tool_descriptor(self, *, tool_id: str) -> dict[str, Any]:
@@ -704,7 +734,7 @@ class RuntimeService:
             self._ensure_ssh_connected()
             caps = probe_preflight(self._run_ssh_command)
             self._service_locator.server_capabilities = caps
-            failures = caps.failures(min_free_disk_gb=MIN_FREE_DISK_GB)
+            failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
             checks = [
                 {
                     "key": "arch",
@@ -714,25 +744,18 @@ class RuntimeService:
                     "message": f"服务器架构: {caps.arch or 'unknown'}",
                 },
                 {
-                    "key": "curl",
-                    "label": "curl",
-                    "status": "ok" if caps.has_curl else "warn",
-                    "value": "available" if caps.has_curl else "missing",
-                    "message": "curl 可用" if caps.has_curl else "curl 不可用，将尝试使用 wget",
+                    "key": "bash",
+                    "label": "bash",
+                    "status": "ok" if caps.has_bash else "fail",
+                    "value": "available" if caps.has_bash else "missing",
+                    "message": "bash 可用" if caps.has_bash else "缺少 bash，无法执行 workflow launcher",
                 },
                 {
-                    "key": "wget",
-                    "label": "wget",
-                    "status": "ok" if caps.has_wget else "warn",
-                    "value": "available" if caps.has_wget else "missing",
-                    "message": "wget 可用" if caps.has_wget else "wget 不可用，将尝试使用 curl",
-                },
-                {
-                    "key": "screen",
-                    "label": "screen",
-                    "status": "ok" if caps.has_screen else "fail",
-                    "value": "available" if caps.has_screen else "missing",
-                    "message": "支持后台任务" if caps.has_screen else "缺少 screen，无法提交后台任务",
+                    "key": "downloader",
+                    "label": "下载器",
+                    "status": "ok" if caps.has_curl or caps.has_wget else "fail",
+                    "value": "curl" if caps.has_curl else "wget" if caps.has_wget else "missing",
+                    "message": "已检测到 curl/wget" if caps.has_curl or caps.has_wget else "缺少 curl/wget，无法下载运行时",
                 },
                 {
                     "key": "sha256sum",
@@ -740,6 +763,20 @@ class RuntimeService:
                     "status": "ok" if caps.has_sha256sum else "fail",
                     "value": "available" if caps.has_sha256sum else "missing",
                     "message": "支持下载校验" if caps.has_sha256sum else "缺少 sha256sum，无法校验下载内容",
+                },
+                {
+                    "key": "home_writable",
+                    "label": "HOME 可写",
+                    "status": "ok" if caps.home_writable else "fail",
+                    "value": "writable" if caps.home_writable else "read_only",
+                    "message": "HOME 目录可写" if caps.home_writable else "HOME 目录不可写，无法创建 workflow 运行目录",
+                },
+                {
+                    "key": "screen",
+                    "label": "screen",
+                    "status": "ok" if caps.has_screen else "warn",
+                    "value": "available" if caps.has_screen else "missing",
+                    "message": "screen 可用于旧后台安装流程" if caps.has_screen else "screen 缺失，但不会阻塞 workflow run",
                 },
                 {
                     "key": "disk",
@@ -755,7 +792,7 @@ class RuntimeService:
                 "free_disk_gb": caps.free_disk_gb,
                 "checks": checks,
                 "failures": failures,
-                "warnings": [item["message"] for item in checks if item["status"] == "warn"],
+                "warnings": caps.warnings() + [item["message"] for item in checks if item["status"] == "warn"],
             }
 
     def get_remote_env_status(self) -> dict[str, Any]:
@@ -1689,9 +1726,13 @@ class RuntimeService:
         for node in nodes:
             if not node.node_id or not node.tool_id or not node.label:
                 raise RuntimeServiceError("workflow node requires node_id, tool_id, and label")
+        if len({node.node_id for node in nodes}) != len(nodes):
+            raise RuntimeServiceError("workflow node_id must be unique")
         for edge in edges:
             if not edge.edge_id or not edge.source_node_id or not edge.target_node_id:
                 raise RuntimeServiceError("workflow edge requires edge_id, source_node_id, and target_node_id")
+        if len({edge.edge_id for edge in edges}) != len(edges):
+            raise RuntimeServiceError("workflow edge_id must be unique")
         params_schema = payload.get("params_schema", {})
         if not isinstance(params_schema, dict):
             raise RuntimeServiceError("workflow params_schema must be an object")
@@ -1772,12 +1813,62 @@ class RuntimeService:
         record_path = str(Path(local_run_dir) / "run_record.json")
         persist_run_record(record_path, row)
 
-    def _recommend_server_profile(self, env_status: dict[str, Any]) -> str:
-        if self._remote_command_available("docker") and self._remote_runtime_ok("docker --version"):
-            return "personal_docker"
-        if self._remote_command_available("podman") and self._remote_runtime_ok("podman --version"):
-            return "personal_podman"
-        return "personal_conda"
+    def _workflow_backend_for_row(self, row: dict[str, Any]) -> LocalSSHBackend | SlurmSSHBackend:
+        profile_payload = row.get("profile", {})
+        if isinstance(profile_payload, dict) and profile_payload:
+            profile = ServerProfile(
+                profile_id=str(profile_payload.get("profile_id") or row.get("profile_id") or "").strip(),
+                server_id=str(profile_payload.get("server_id") or "current").strip(),
+                profile_kind=str(profile_payload.get("profile_kind") or "personal_conda").strip(),  # type: ignore[arg-type]
+                executor=str(profile_payload.get("executor") or row.get("executor") or "").strip(),
+                packaging_mode=str(profile_payload.get("packaging_mode") or row.get("packaging_mode") or "conda").strip(),  # type: ignore[arg-type]
+                container_runtime=str(profile_payload.get("container_runtime") or row.get("container_runtime") or "").strip(),
+                work_dir=str(profile_payload.get("work_dir") or row.get("remote_work_dir") or "").strip(),
+                output_dir=str(profile_payload.get("output_dir") or row.get("remote_output_dir") or "").strip(),
+                cache_dir=str(profile_payload.get("cache_dir") or "").strip(),
+            )
+        else:
+            profile = ServerProfile(
+                profile_id=str(row.get("profile_id") or "").strip(),
+                server_id="current",
+                profile_kind="personal_conda",
+                executor=str(row.get("executor") or "").strip(),
+                packaging_mode=str(row.get("packaging_mode") or "conda").strip(),  # type: ignore[arg-type]
+                container_runtime=str(row.get("container_runtime") or "").strip(),
+                work_dir=str(row.get("remote_work_dir") or "").strip(),
+                output_dir=str(row.get("remote_output_dir") or "").strip(),
+                cache_dir="",
+            )
+        return create_workflow_backend(profile)
+
+    def _profile_from_capabilities(self, caps: Any) -> dict[str, Any]:
+        profile_id = caps.recommended_profile_kind
+        base_dir = "~/.bioflow"
+        return {
+            "profile_id": profile_id,
+            "server_id": "current",
+            "profile_kind": profile_id,
+            "executor": caps.recommended_executor,
+            "packaging_mode": caps.recommended_packaging_mode,
+            "container_runtime": caps.recommended_container_runtime,
+            "work_dir": f"{base_dir}/runs/work",
+            "output_dir": f"{base_dir}/runs/output",
+            "cache_dir": f"{base_dir}/cache/containers"
+            if caps.recommended_packaging_mode == "container"
+            else f"{base_dir}/cache/conda",
+        }
+
+    def _runtime_capabilities_dict(self, caps: Any) -> dict[str, Any]:
+        return {
+            "java": {"available": caps.has_java, "version": caps.java_version},
+            "nextflow": {"available": caps.has_nextflow, "version": caps.nextflow_version},
+            "docker": {"available": caps.has_docker},
+            "podman": {"available": caps.has_podman},
+            "apptainer": {"available": caps.has_apptainer},
+            "micromamba": {"available": caps.has_micromamba},
+            "conda": {"available": caps.has_conda},
+            "sbatch": {"available": caps.has_sbatch},
+        }
 
     def _remote_command_available(self, command: str) -> bool:
         try:

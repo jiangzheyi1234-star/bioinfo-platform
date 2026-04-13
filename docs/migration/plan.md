@@ -48,12 +48,15 @@
   - `params/run.yaml`
   - `params.schema.json`
   - `manifest.json`
+- 当前实现要求 compiler 必须读取真实 `tool.yaml`，并使用 `command_template + inputs + outputs + runtime metadata` 编译 process。
+- 非法 graph、缺失 runtime 元数据、旧 `~/.h2ometa/conda/envs/...` 硬编码必须直接失败，不允许占位 bundle 或 silent fallback。
 
 ### M4 Implement single-node Linux launcher
 
 - 完成 `SSHLocalBackend`。
-- 能上传 bundle，并通过 `nextflow run ... -bg` 提交一次运行。
-- `doctor` 能完成个人服务器 profile 归类：`personal_docker` / `personal_podman` / `personal_conda`。
+- 能上传 bundle，并通过后台 launcher 提交一次运行。
+- `resume` 必须由 `LaunchSpec.resume` 控制，禁止提交脚本永远写死 `-resume`。
+- `doctor` 能完成个人服务器 profile 归类：`personal_docker` / `personal_podman` / `personal_conda`，并保留 `slurm` executor 形状。
 
 ### M5 Add monitoring and artifacts
 
@@ -64,6 +67,7 @@
   - `timeline.html`
   - `dag.html`
 - `RunRecord` 状态和 artifacts API 可用。
+- `resolved.config` 路径必须进入 `RunRecord` 并通过 API 可读。
 
 ### M6 Switch UI/API to workflow/run
 
@@ -75,6 +79,7 @@
 - 若导航已收口为单工作台形态，也允许以 `/workspace` 作为统一 workflow/run 主入口，只要新执行不再从 legacy tool execution UI 发起。
 - 参数面板改为 JSON Schema 驱动。
 - UI 文案不再以 tool execution 为主轴。
+- doctor 返回必须包含可直接提交的 `recommended_profile_details`，前端禁止再推断 executor / packaging mode。
 
 ### M7 Retire legacy single-tool execution
 

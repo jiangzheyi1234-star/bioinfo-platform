@@ -67,3 +67,10 @@
 - 参数面板来自 `params.schema.json`，不再手写定义。
 - 新执行不再走 `ToolEngine.execute()` 主路径。
 - 文档、API 和 UI 命名全部围绕 workflow/run，而不是 tool execution。
+
+## Current Phase Notes
+
+- 第一阶段桌面壳继续使用现有开发态启动方式；Tauri sidecar 打包与鉴权不在本轮实现范围。
+- 第一阶段前端主入口收敛为 `/workspace`；`/workflows` 只保留为后续高级编辑器预留入口。
+- compiler 必须基于真实 `tool.yaml` 编译 process，不再允许 `_build_main_nf()` 这类占位 `echo step.done` 产物。
+- doctor 必须返回后端已决策完成的 profile 详情，前端不允许写死 `executor="local"`。

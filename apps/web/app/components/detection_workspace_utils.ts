@@ -18,6 +18,8 @@ import type {
   ServerDoctorReport,
   WorkflowArtifact,
   WorkflowCompilePreview,
+  WorkflowRuntimeCapabilities,
+  WorkflowServerProfile,
   WorkflowRun,
 } from "./detection_workspace_types";
 
@@ -421,10 +423,68 @@ export function toWorkflowRun(value: unknown): WorkflowRun | null {
     remote_output_dir: safeText(value.remote_output_dir) || undefined,
     launcher_pid: safeText(value.launcher_pid) || undefined,
     nextflow_pid: safeText(value.nextflow_pid) || undefined,
+    resolved_config_path: safeText(value.resolved_config_path) || undefined,
+    backend_kind: safeText(value.backend_kind) || undefined,
+    executor: safeText(value.executor) || undefined,
+    packaging_mode: safeText(value.packaging_mode) || undefined,
+    container_runtime: safeText(value.container_runtime) || undefined,
+    scheduler_job_id: safeText(value.scheduler_job_id) || undefined,
     remote_status: isRecord(value.remote_status) ? value.remote_status : undefined,
     artifacts: Array.isArray(value.artifacts)
       ? value.artifacts.map(toWorkflowArtifact).filter((item: WorkflowArtifact | null): item is WorkflowArtifact => !!item)
       : [],
+  };
+}
+
+export function parseWorkflowServerProfile(value: unknown): WorkflowServerProfile | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const profileId = safeText(value.profile_id);
+  if (!profileId) {
+    return null;
+  }
+  const packagingMode = safeText(value.packaging_mode) as WorkflowServerProfile["packaging_mode"];
+  if (packagingMode !== "container" && packagingMode !== "conda") {
+    return null;
+  }
+  return {
+    profile_id: profileId,
+    server_id: safeText(value.server_id, "current"),
+    profile_kind: safeText(value.profile_kind, profileId),
+    executor: safeText(value.executor),
+    packaging_mode: packagingMode,
+    container_runtime: safeText(value.container_runtime),
+    work_dir: safeText(value.work_dir),
+    output_dir: safeText(value.output_dir),
+    cache_dir: safeText(value.cache_dir),
+  };
+}
+
+function parseRuntimeCapability(value: unknown): { available: boolean; version?: string } {
+  if (!isRecord(value)) {
+    return { available: false };
+  }
+  const version = safeText(value.version);
+  return {
+    available: Boolean(value.available),
+    version: version || undefined,
+  };
+}
+
+export function parseWorkflowRuntimeCapabilities(value: unknown): WorkflowRuntimeCapabilities | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    java: parseRuntimeCapability(value.java),
+    nextflow: parseRuntimeCapability(value.nextflow),
+    docker: parseRuntimeCapability(value.docker),
+    podman: parseRuntimeCapability(value.podman),
+    apptainer: parseRuntimeCapability(value.apptainer),
+    micromamba: parseRuntimeCapability(value.micromamba),
+    conda: parseRuntimeCapability(value.conda),
+    sbatch: parseRuntimeCapability(value.sbatch),
   };
 }
 
@@ -440,6 +500,8 @@ export function parseServerDoctorReport(value: unknown): ServerDoctorReport | nu
     server_id: serverId,
     doctor_phase: safeText(value.doctor_phase),
     recommended_profile: safeText(value.recommended_profile),
+    recommended_profile_details: parseWorkflowServerProfile(value.recommended_profile_details),
+    runtime_capabilities: parseWorkflowRuntimeCapabilities(value.runtime_capabilities),
     preflight: parsePreflightResult(value.preflight),
     env_status: parseRemoteEnvStatus(value.env_status),
   };

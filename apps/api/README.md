@@ -16,6 +16,7 @@ Default bind:
 - `GET /api/v1/projects/{project_id}/runs/{run_id}`
 - `POST /api/v1/projects/{project_id}/runs/{run_id}/cancel`
 - `GET /api/v1/projects/{project_id}/runs/{run_id}/artifacts`
+- `GET /api/v1/projects/{project_id}/runs/{run_id}/resolved-config`
 - `POST /api/v1/servers/{server_id}/doctor`
 - `GET /health`
 - `GET /api/v1/settings`

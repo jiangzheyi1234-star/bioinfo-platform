@@ -194,6 +194,22 @@ export type WorkflowServerProfile = {
   cache_dir: string;
 };
 
+export type WorkflowRuntimeCapability = {
+  available: boolean;
+  version?: string;
+};
+
+export type WorkflowRuntimeCapabilities = {
+  java: WorkflowRuntimeCapability;
+  nextflow: WorkflowRuntimeCapability;
+  docker: WorkflowRuntimeCapability;
+  podman: WorkflowRuntimeCapability;
+  apptainer: WorkflowRuntimeCapability;
+  micromamba: WorkflowRuntimeCapability;
+  conda: WorkflowRuntimeCapability;
+  sbatch: WorkflowRuntimeCapability;
+};
+
 export type WorkflowCompilePreview = {
   bundle_id: string;
   files: Record<string, string>;
@@ -228,6 +244,12 @@ export type WorkflowRun = {
   remote_output_dir?: string;
   launcher_pid?: string;
   nextflow_pid?: string;
+  resolved_config_path?: string;
+  backend_kind?: string;
+  executor?: string;
+  packaging_mode?: string;
+  container_runtime?: string;
+  scheduler_job_id?: string;
   remote_status?: Record<string, unknown>;
   artifacts: WorkflowArtifact[];
 };
@@ -236,6 +258,8 @@ export type ServerDoctorReport = {
   server_id: string;
   doctor_phase: string;
   recommended_profile: string;
+  recommended_profile_details: WorkflowServerProfile | null;
+  runtime_capabilities: WorkflowRuntimeCapabilities | null;
   preflight: PreflightResult | null;
   env_status: RemoteEnvStatus | null;
 };

@@ -1,5 +1,6 @@
 """Workflow-first domain and compiler helpers."""
 
+from .backends import LocalSSHBackend, SlurmSSHBackend, WorkflowBackend, create_workflow_backend
 from .compiler import compile_workflow_bundle
 from .domain import LaunchSpec, RunRecord, ServerProfile, ToolSpec, WorkflowEdge, WorkflowNode, WorkflowSpec
 from .runtime_ops import (
@@ -16,13 +17,17 @@ from .runtime_ops import (
 
 __all__ = [
     "LaunchSpec",
+    "LocalSSHBackend",
     "RunRecord",
     "ServerProfile",
+    "SlurmSSHBackend",
     "ToolSpec",
     "WorkflowEdge",
+    "WorkflowBackend",
     "WorkflowNode",
     "WorkflowSpec",
     "compile_workflow_bundle",
+    "create_workflow_backend",
     "cancel_local_nextflow_run",
     "download_run_artifacts",
     "load_project_run_records",
