@@ -1,22 +1,39 @@
-# H2OMeta New-Architecture Cutover Documentation
+# H2OMeta Workflow-First Migration Documentation
 
 ## Current Status
 
-- 已完成：6 页工作台、桌面壳、项目/执行/历史/数据库/workbench 主链路。
-- 已完成：SSH 生命周期 API、设置页 SSH 面板、工作台壳层拆分。
-- 本轮新增：旧 config 兼容删除、旧 workflow alias 删除、靶向测序 live view 不再读取旧 `workflow=unknown_detection` 参数。
-- 明确保留：仍被 runtime/API 复用的桥接层，例如 `core/qt_compat.py`。
+- 已冻结新的产品主线：`Tauri + static Next.js + FastAPI sidecar + Python core + SSH launcher backend`
+- 已冻结新的执行模型：`WorkflowSpec -> Nextflow bundle -> run monitor`
+- 已冻结新的确定性 profile 顺序：
+  - 个人服务器：`Docker -> Podman -> micromamba/conda`
+  - HPC：`Apptainer -> micromamba/conda`
+- 首期目标固定为：跑通单机 Linux / 个人服务器 workflow bundle 主线
 
 ## Decisions
 
-- 新 UI 采用 Notion 风浅色左侧边栏。
-- 功能迁移按新信息架构重组，不按旧 PyQt6 页面逐一复刻。
-- 新系统只接受 v2 config schema。
-- 新系统只接受新 workflow/tool 名称，历史记录允许展示旧值，但新请求不再兼容旧 alias。
-- SSH 配置保存与连接动作分离，避免隐式副作用。
+- 桌面端只做控制面，不承担 workflow 执行面。
+- Nextflow 是首期唯一执行标准；WDL/CWL 只做未来导出预留。
+- 业务工具不再做服务器级预装，统一交给 workflow 的 `container` / `conda` directive。
+- 参数面板必须以 JSON Schema 为唯一真相源。
+- 现有 `ToolEngine` / 单工具执行系统不再承载新执行，将逐步退役。
+- 首期继续允许桌面端统一中转输入数据，后续再收敛到远端路径/对象存储优先。
+
+## Current Milestone
+
+- 当前进入 `M1 Freeze workflow-first contract` 到 `M2 Add domain types and API skeleton` 之间的切换阶段。
+- 当前优先级：
+  - 先立数据模型与 API 骨架
+  - 再做 bundle 编译最小闭环
+  - 再接单机 Linux launcher
+
+## Known Risks
+
+- 当前仓库明显是 tool-centric，迁移时最容易出现“双真相”并存。
+- 现有 UI、API、runtime、service locator 都围绕单工具执行设计，切主线时必须分阶段替换。
+- 桌面端统一中转大文件不是长期最优生产方案，但当前作为产品要求暂时保留。
 
 ## Follow-ups
 
-- 继续拆分 `workbench_panel*.tsx`，降低复杂度并清理旧控制台残留命名。
-- 在 Windows 侧复跑桌面构建与回归。
-- 继续审计可安全删除的旧文档和失效测试夹具。
+- 增补新的 workflow/run API 契约文档。
+- 审计哪些旧 `executions` / `tasks` / `workbench` 结构可复用，哪些需要迁移或隔离成 legacy。
+- 在单机 Linux 闭环跑通后，再决定 HPC scheduler adapter 的落地顺序。
