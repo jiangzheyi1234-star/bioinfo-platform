@@ -268,37 +268,9 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
   };
 
   const runSelectedTool = async (params: Record<string, unknown>) => {
-    if (!currentProjectId) {
-      setError("No active project selected.");
-      return;
-    }
-    if (!selectedToolId) {
-      setError("请选择工具。");
-      return;
-    }
+    void params;
     setError("");
-    setToolRunMsg("");
-    setToolRunBusy(true);
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/workbench/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: currentProjectId,
-          tool_id: selectedToolId,
-          params,
-        }),
-      });
-      const data = (await readJsonOrThrow(resp)) as { item?: Record<string, unknown> };
-      const executionId = safeText(data?.item?.execution_id);
-      setToolRunMsg(executionId ? `已提交任务: ${executionId}` : "已提交任务");
-      await refreshHistory(currentProjectId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-    } finally {
-      setToolRunBusy(false);
-    }
+    setToolRunMsg("旧工具运行入口已禁用。请改到 /workspace 通过 workflow/run 主线提交新执行。");
   };
 
   const archiveExecution = async (executionId: string) => {
@@ -528,6 +500,7 @@ export function DetectionWorkspace({ activeTab }: { activeTab: TabId }) {
               toolRunBusy={toolRunBusy}
               onRunTool={runSelectedTool}
               toolRunMsg={toolRunMsg}
+              toolRunHint="旧工具执行已停用；请前往 /workspace，通过 workflow compile + run 提交新的分析任务。"
             />
       ) : null}
 

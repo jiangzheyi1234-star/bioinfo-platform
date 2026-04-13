@@ -541,22 +541,10 @@ async def archive_execution(project_id: str, execution_id: str) -> dict[str, Any
 @app.post("/api/v1/executions")
 async def submit_execution(payload: SubmitExecutionRequest) -> dict[str, Any]:
     try:
-        item = _runtime().submit_execution(
-            ExecutionSubmitRequest(
-                project_id=payload.project_id,
-                task_id=payload.task_id,
-                tool_id=payload.tool_id,
-                input_data_ids=payload.input_data_ids,
-                parameters=payload.parameters,
-                sample_id=payload.sample_id,
-                sample_name=payload.sample_name,
-                sample_source=payload.sample_source,
-                sample_metadata=payload.sample_metadata,
-                triggered_by=payload.triggered_by,
-                database_paths=payload.database_paths,
-            )
+        raise RuntimeServiceError(
+            "POST /api/v1/executions is a legacy write path and no longer accepts new runs. "
+            "Use POST /api/v1/workflows/compile and POST /api/v1/runs from /workspace."
         )
-        return {"item": item}
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -564,13 +552,10 @@ async def submit_execution(payload: SubmitExecutionRequest) -> dict[str, Any]:
 @app.post("/api/v1/workbench/run")
 async def run_workbench_tool(payload: RunWorkbenchToolRequest) -> dict[str, Any]:
     try:
-        item = _runtime().run_workbench_tool(
-            project_id=payload.project_id,
-            task_id=payload.task_id,
-            tool_id=payload.tool_id,
-            params=payload.params,
+        raise RuntimeServiceError(
+            "POST /api/v1/workbench/run is a legacy write path and no longer accepts new runs. "
+            "Open /workspace and submit a workflow run instead."
         )
-        return {"item": item}
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

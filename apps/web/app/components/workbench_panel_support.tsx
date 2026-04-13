@@ -154,7 +154,6 @@ type WorkbenchExecutionTraceProps = {
   setWorkbenchToolId: (value: string) => void;
   workbenchParamsJson: string;
   setWorkbenchParamsJson: (value: string) => void;
-  onRunWorkbenchTool: () => void;
   workbenchMsg: string;
   remoteSummary: SummaryPair[];
   resultSummary: SummaryPair[];
@@ -195,9 +194,10 @@ export function WorkbenchExecutionTrace(props: WorkbenchExecutionTraceProps) {
               onChange={(event) => props.setWorkbenchParamsJson(event.target.value)}
             />
           </div>
-          <button className="btn" onClick={props.onRunWorkbenchTool}>
-            提交高级工作流
+          <button className="btn" disabled>
+            提交高级工作流已停用
           </button>
+          <p className="muted">新的 workflow/run 提交统一迁移到 /workspace；这里仅保留 execution 回看与远端诊断。</p>
           {props.workbenchMsg ? <p className="ok-text">{props.workbenchMsg}</p> : null}
         </div>
 

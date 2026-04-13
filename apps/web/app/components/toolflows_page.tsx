@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { ToolRunForm } from "./tool_run_form";
 import type { ToolDescriptor, ToolSummary } from "./detection_workspace_types";
 import { apiBase, isRecord, readJsonOrThrow, safeText, toToolSummary } from "./detection_workspace_utils";
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
@@ -105,7 +104,6 @@ export function ToolflowsPage() {
   const [tools, setTools] = useState<ToolSummary[]>([]);
   const [selectedToolId, setSelectedToolId] = useState("");
   const [selectedDescriptor, setSelectedDescriptor] = useState<ToolDescriptor | null>(null);
-  const [toolRunBusy, setToolRunBusy] = useState(false);
   const [toolRunMsg, setToolRunMsg] = useState("");
   const [workbenchConfig, setWorkbenchConfig] = useState<WorkbenchConfig | null>(null);
   const [selectedFlowId, setSelectedFlowId] = useState("");
@@ -169,34 +167,6 @@ export function ToolflowsPage() {
     setWorkbenchConfig(config);
     const nextFeatures = parseWorkbenchFeatures(config);
     setSelectedFlowId((prev) => (prev && nextFeatures.some((feature) => feature.id === prev) ? prev : nextFeatures[0]?.id || ""));
-  };
-
-  const runSelectedTool = async (params: Record<string, unknown>) => {
-    if (!currentProjectId || !selectedToolId) {
-      setShellError("请先选择项目和工具。");
-      return;
-    }
-    setToolRunBusy(true);
-    setToolRunMsg("");
-    setShellError("");
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/workbench/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: currentProjectId,
-          tool_id: selectedToolId,
-          params,
-        }),
-      });
-      const data = await readJsonOrThrow(resp);
-      const executionId = safeText(data?.item?.execution_id);
-      setToolRunMsg(executionId ? `已提交工具执行: ${executionId}` : "已提交工具执行");
-    } catch (err) {
-      setShellError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setToolRunBusy(false);
-    }
   };
 
   useEffect(() => {
@@ -291,7 +261,12 @@ export function ToolflowsPage() {
                   }
                 />
                 <section className="toolflows-detail-panel">
-                  <ToolRunForm descriptor={selectedDescriptor} toolId={selectedToolId} onRun={runSelectedTool} busy={toolRunBusy} />
+                  <WorkspaceEmptyState
+                    mark="WF"
+                    label="工具目录现在只提供只读浏览"
+                    hint="新的分析提交统一迁移到 /workspace 的 workflow/run 主线；这里不再直接运行旧工具。"
+                    compact
+                  />
                   {toolRunMsg ? <p className="ok-text">{toolRunMsg}</p> : null}
                 </section>
               </div>

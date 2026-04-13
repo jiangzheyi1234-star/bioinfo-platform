@@ -72,6 +72,7 @@
   - Runs
   - Artifacts
   - Settings
+- 若导航已收口为单工作台形态，也允许以 `/workspace` 作为统一 workflow/run 主入口，只要新执行不再从 legacy tool execution UI 发起。
 - 参数面板改为 JSON Schema 驱动。
 - UI 文案不再以 tool execution 为主轴。
 

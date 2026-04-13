@@ -232,40 +232,9 @@ export function ProjectWorkspace() {
   };
 
   const runSelectedTool = async (params: Record<string, unknown>) => {
-    if (!currentProjectId || !selectedTaskId || !selectedToolId) {
-      setShellError("请先选择项目、任务和工具。");
-      return;
-    }
-    setToolRunBusy(true);
-    setToolRunMsg("");
+    void params;
+    setToolRunMsg("任务页旧工具执行入口已禁用。请前往 /workspace，通过 workflow/run 主线提交新执行。");
     setShellError("");
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/workbench/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: currentProjectId,
-          task_id: selectedTaskId,
-          tool_id: selectedToolId,
-          params,
-        }),
-      });
-      const data = await readJsonOrThrow(resp);
-      const executionId = safeText(data?.item?.execution_id);
-      setToolRunMsg(executionId ? `已提交任务执行: ${executionId}` : "已提交任务执行");
-      setSelectedExecutionId(executionId);
-      await Promise.all([
-        refreshTasks(currentProjectId),
-        refreshTaskExecutions(currentProjectId, selectedTaskId),
-        refreshProjectExecutions(currentProjectId),
-        refreshProjectExecutionSummary(currentProjectId, { force: true }),
-      ]);
-      setProjectWorkspaceTab("history");
-    } catch (err) {
-      setShellError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setToolRunBusy(false);
-    }
   };
 
   const archiveExecution = async (executionId: string) => {
@@ -513,6 +482,7 @@ export function ProjectWorkspace() {
           toolRunBusy={toolRunBusy}
           onRunTool={runSelectedTool}
           toolRunMsg={toolRunMsg}
+          toolRunHint="任务页不再直接提交单工具执行。请使用 /workspace 的 workflow 工作台发起新运行。"
         />
       ) : null}
 
