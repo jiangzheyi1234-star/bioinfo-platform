@@ -1262,12 +1262,54 @@
   min-height: auto;
 }
 
+.settings-section-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+  color: var(--workspace-ink);
+}
+
+.fail-text {
+  margin: 0;
+  color: #b03a2e;
+}
+
+.connection-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.preflight-panel {
+  gap: 14px;
+}
+
+.preflight-summary {
+  margin: 4px 0 0;
+}
+
+.preflight-meta-row {
+  margin-top: 2px;
+}
+
+.preflight-message-list {
+  display: grid;
+  gap: 6px;
+}
+
 .diagnostic-card {
   border: none;
   border-top: 1px solid var(--workspace-line-soft);
   border-radius: 0;
   background: transparent;
   padding: 10px 0;
+}
+
+.diagnostic-card--warn,
+.diagnostic-card--running {
+  border-top-color: #d8c48c;
+  background: transparent;
 }
 
 .form-section {
