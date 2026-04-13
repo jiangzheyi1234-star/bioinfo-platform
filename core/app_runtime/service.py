@@ -43,9 +43,14 @@ from core.workflow import (
     load_project_run_records,
     persist_run_record,
 )
+from core.workflow.bootstrap_ops import (
+    WORKFLOW_BOOTSTRAP_PREFIX,
+    read_workflow_bootstrap_status,
+    submit_workflow_runtime_bootstrap,
+    workflow_bootstrap_task_dir,
+)
 
 logger = logging.getLogger(__name__)
-
 
 class RuntimeServiceError(RuntimeError):
     """Raised when runtime actions cannot be completed safely."""
@@ -734,6 +739,7 @@ class RuntimeService:
             self._ensure_ssh_connected()
             caps = probe_preflight(self._run_ssh_command)
             self._service_locator.server_capabilities = caps
+            recommended_profile = self._profile_from_capabilities(caps)
             failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
             checks = [
                 {
@@ -790,6 +796,9 @@ class RuntimeService:
                 "ok": not failures,
                 "arch": caps.arch,
                 "free_disk_gb": caps.free_disk_gb,
+                "recommended_profile": recommended_profile.profile_kind,
+                "recommended_profile_details": recommended_profile.to_dict(),
+                "runtime_capabilities": self._runtime_capabilities_dict(caps),
                 "checks": checks,
                 "failures": failures,
                 "warnings": caps.warnings() + [item["message"] for item in checks if item["status"] == "warn"],
@@ -897,7 +906,7 @@ class RuntimeService:
                 },
             }
 
-    def install_remote_env(self, *, target: str, tool_id: str = "") -> dict[str, Any]:
+    def install_remote_env(self, *, target: str, tool_id: str = "", profile_kind: str = "") -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_ssh_connected()
@@ -912,6 +921,22 @@ class RuntimeService:
                     "job_id": item["job_id"],
                     "task_dir": item["task_dir"],
                     "message": "已提交 Miniforge 后台安装任务",
+                }
+
+            if normalized_target == "workflow_runtime":
+                normalized_profile_kind = str(profile_kind or "").strip()
+                if not normalized_profile_kind:
+                    raise RuntimeServiceError("profile_kind is required for workflow_runtime install")
+                item = submit_workflow_runtime_bootstrap(
+                    self._run_ssh_command,
+                    profile_kind=normalized_profile_kind,
+                )
+                return {
+                    "target": "workflow_runtime",
+                    "profile_kind": normalized_profile_kind,
+                    "job_id": item["job_id"],
+                    "task_dir": item["task_dir"],
+                    "message": f"已提交 {normalized_profile_kind} workflow runtime bootstrap 任务",
                 }
 
             if normalized_target != "tool_env":
@@ -973,6 +998,35 @@ class RuntimeService:
                     stage=stage,
                     raw_status=raw_status,
                     log_text=log_text,
+                )
+
+            if normalized_job_id.startswith(_WORKFLOW_BOOTSTRAP_PREFIX):
+                profile_kind = normalized_job_id[len(_WORKFLOW_BOOTSTRAP_PREFIX):].strip()
+                if not profile_kind:
+                    raise RuntimeServiceError(f"invalid workflow bootstrap job_id: {normalized_job_id}")
+                task_dir = workflow_bootstrap_task_dir(profile_kind)
+                raw_status, session_alive, log_text = read_workflow_bootstrap_status(
+                    self._run_ssh_command,
+                    task_dir=task_dir,
+                )
+                stage = self._normalize_job_stage(
+                    status=str(raw_status.get("status") or ""),
+                    exit_code=str(raw_status.get("exit_code") or ""),
+                    session_alive=session_alive,
+                    heartbeat=str(raw_status.get("heartbeat") or ""),
+                )
+                progress = {
+                    "profile_kind": profile_kind,
+                    "pid": str(raw_status.get("pid") or ""),
+                }
+                if raw_status.get("log_preview"):
+                    progress["log_preview"] = raw_status["log_preview"]
+                return self._build_job_snapshot(
+                    job_id=normalized_job_id,
+                    stage=stage,
+                    raw_status=raw_status,
+                    log_text=log_text,
+                    progress=progress,
                 )
 
             prefix = "h2o_install_"

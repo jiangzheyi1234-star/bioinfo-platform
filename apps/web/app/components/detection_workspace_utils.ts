@@ -154,6 +154,9 @@ export function parsePreflightResult(value: unknown): PreflightResult | null {
     ok: Boolean(value.ok),
     arch: safeText(value.arch),
     free_disk_gb: Number(value.free_disk_gb || 0),
+    recommended_profile: safeText(value.recommended_profile),
+    recommended_profile_details: parseWorkflowServerProfile(value.recommended_profile_details),
+    runtime_capabilities: parseWorkflowRuntimeCapabilities(value.runtime_capabilities),
     checks: Array.isArray(value.checks)
       ? value.checks.map(toPreflightCheck).filter((item: PreflightCheck | null): item is PreflightCheck => !!item)
       : [],

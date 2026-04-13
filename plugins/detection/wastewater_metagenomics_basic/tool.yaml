@@ -3,8 +3,13 @@ name: Wastewater Metagenomics Basic
 version: "1.0.0"
 category: detection
 description: "废水监测读长宏基因组闭环：fastp → 可选 hostile → Kraken2 → Bracken → Krona"
-conda_env: ""
-install_cmd: ""
+runtime:
+  conda: fastp=0.23.4 hostile=1.1.0 kraken2=2.1.3 bracken=2.9 krona=2.8.1
+
+resources:
+  cpus: 8
+  memory: 16 GB
+  time: 8 h
 
 inputs:
   - name: reads_1
@@ -100,17 +105,17 @@ command_template: |
   #!/bin/bash
   set -euo pipefail
 
-  CONDA={{ conda_executable }}
   OUTDIR="{{ output_dir }}"
   SAMPLE="{{ sample_id }}"
   READS_1="{{ reads_1 }}"
+  READS_2="{{ reads_2 }}"
 
   mkdir -p "$OUTDIR"
 
   FASTP_R1="$OUTDIR/${SAMPLE}.clean.R1.fq.gz"
   FASTP_R2="$OUTDIR/${SAMPLE}.clean.R2.fq.gz"
 
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/fastp_env" fastp \
+  fastp \
     -i "$READS_1" \
     {%- if reads_2 %} -I "$READS_2" {%- endif %} \
     -o "$FASTP_R1" \
@@ -128,7 +133,7 @@ command_template: |
 
   {%- if enable_host_removal %}
   HOST_OUT="$OUTDIR/hostile_out"
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/hostile_env" hostile clean \
+  hostile clean \
     --fastq1 "$CLASSIFY_R1" \
     {%- if reads_2 %} --fastq2 "$CLASSIFY_R2" {%- endif %} \
     --aligner bowtie2 \
@@ -152,7 +157,7 @@ command_template: |
   {%- endif %}
   {%- endif %}
 
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/kraken2_env" kraken2 \
+  kraken2 \
     --db {{ db }} \
     --threads {{ threads }} \
     --confidence {{ confidence }} \
@@ -165,7 +170,7 @@ command_template: |
     "$CLASSIFY_R1"
     {%- endif %}
 
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/bracken_env" bracken \
+  bracken \
     -d {{ db }} \
     -i "$OUTDIR/${SAMPLE}.kreport" \
     -o "$OUTDIR/${SAMPLE}.bracken.tsv" \
@@ -174,7 +179,7 @@ command_template: |
     -l {{ bracken_level }} \
     -t 10
 
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/krona_env" ktImportTaxonomy \
+  ktImportTaxonomy \
     "$OUTDIR/${SAMPLE}.k2output" \
     -o "$OUTDIR/${SAMPLE}.krona.html"
 

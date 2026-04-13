@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import json
-import shlex
 import time
 import uuid
 from dataclasses import dataclass
@@ -17,6 +16,22 @@ from core.execution.command_builder import CommandBuilder
 from .domain import LaunchSpec, WorkflowSpec
 
 _LEGACY_CONDA_ENV_MARKER = "/.h2ometa/conda/envs/"
+_LEGACY_PLUGIN_FIELDS = ("conda_env", "install_cmd")
+_SUPPORTED_PROFILE_KINDS = {
+    "personal_docker",
+    "personal_podman",
+    "personal_conda",
+    "hpc_slurm_apptainer",
+    "hpc_slurm_conda",
+    "hpc_pbs_apptainer",
+    "hpc_pbs_conda",
+    "hpc_sge_apptainer",
+    "hpc_sge_conda",
+}
+_DEFAULT_WORK_DIR = "~/.bioflow/runs/work"
+_DEFAULT_OUTPUT_DIR = "~/.bioflow/runs/output"
+_DEFAULT_CONDA_CACHE_DIR = "~/.bioflow/cache/conda"
+_DEFAULT_CONTAINER_CACHE_DIR = "~/.bioflow/cache/containers"
 
 
 @dataclass(frozen=True)
@@ -35,6 +50,20 @@ class _CompiledNode:
     emit_names: dict[str, str]
     input_names: list[str]
     process_block: str
+
+
+@dataclass(frozen=True)
+class _ProfileResolution:
+    profile_kind: str
+    executor: str
+    packaging_mode: str
+    container_runtime: str
+    work_dir: str
+    output_dir: str
+    cache_dir: str
+    runtime_block_name: str
+    runtime_block_lines: list[str]
+    cache_policy: str
 
 
 def _yaml_dump(value: Any, indent: int = 0) -> str:
@@ -97,53 +126,56 @@ def _sample_id_for_bundle(spec: WorkflowSpec, launch: LaunchSpec) -> str:
     return _sanitize_identifier(sample_id, prefix="sample")
 
 
+def _reject_legacy_plugin_format(descriptor: dict[str, Any]) -> None:
+    legacy_fields = [
+        field
+        for field in _LEGACY_PLUGIN_FIELDS
+        if str(descriptor.get(field) or "").strip()
+    ]
+    if legacy_fields:
+        plugin_id = descriptor.get("id") or "<unknown>"
+        joined = ", ".join(legacy_fields)
+        raise RuntimeError(
+            f"插件 {plugin_id} 仍使用旧格式字段 {joined}；"
+            "请先迁移到 runtime.container/runtime.conda 后再编译 workflow"
+        )
+    runtime = descriptor.get("runtime")
+    if not isinstance(runtime, dict) or not runtime:
+        plugin_id = descriptor.get("id") or "<unknown>"
+        raise RuntimeError(
+            f"插件 {plugin_id} 缺少 runtime 元数据；"
+            "旧格式插件不再被 compiler 接受"
+        )
+    if _LEGACY_CONDA_ENV_MARKER in str(descriptor.get("command_template") or ""):
+        plugin_id = descriptor.get("id") or "<unknown>"
+        raise RuntimeError(
+            f"插件 {plugin_id} 的 command_template 仍硬编码旧 conda env 路径；"
+            "请改为 runtime.container/runtime.conda 后再编译 workflow"
+        )
+
+
 def _extract_conda_spec(descriptor: dict[str, Any]) -> str:
     runtime = descriptor.get("runtime")
-    if isinstance(runtime, dict):
-        conda_spec = str(runtime.get("conda") or "").strip()
-        if conda_spec:
-            return conda_spec
-    install_cmd = str(descriptor.get("install_cmd") or "").strip()
-    if not install_cmd:
+    if not isinstance(runtime, dict):
         return ""
-    tokens = shlex.split(install_cmd, posix=True)
-    if len(tokens) < 5 or tokens[0] != "conda" or tokens[1] != "create":
-        return ""
-    skip_next = False
-    packages: list[str] = []
-    for token in tokens[2:]:
-        if skip_next:
-            skip_next = False
-            continue
-        if token in {"-n", "--name", "-p", "--prefix"}:
-            skip_next = True
-            continue
-        if token.startswith("-"):
-            continue
-        packages.append(token)
-    return " ".join(packages).strip()
+    return str(runtime.get("conda") or "").strip()
 
 
 def _resolve_runtime(descriptor: dict[str, Any], launch: LaunchSpec) -> _ResolvedRuntime:
-    command_template = str(descriptor.get("command_template") or "")
-    if _LEGACY_CONDA_ENV_MARKER in command_template:
-        raise RuntimeError(
-            f"插件 {descriptor.get('id') or '<unknown>'} 仍硬编码旧 conda env 路径；"
-            "请改为 runtime.container/runtime.conda 元数据后再编译 workflow"
-        )
+    _reject_legacy_plugin_format(descriptor)
     runtime = descriptor.get("runtime")
     runtime = runtime if isinstance(runtime, dict) else {}
     resources = descriptor.get("resources")
     resources = resources if isinstance(resources, dict) else {}
-    container_ref = str(runtime.get("container") or descriptor.get("container_ref") or "").strip()
-    conda_spec = _extract_conda_spec(descriptor)
+    container_ref = str(runtime.get("container") or "").strip()
     if launch.profile.packaging_mode == "container" and not container_ref:
         raise RuntimeError(
             f"插件 {descriptor.get('id') or '<unknown>'} 缺少 runtime.container，无法生成 container workflow"
         )
+    conda_spec = _extract_conda_spec(descriptor)
     if launch.profile.packaging_mode == "conda" and not conda_spec:
         raise RuntimeError(
-            f"插件 {descriptor.get('id') or '<unknown>'} 缺少 runtime.conda 或可映射 install_cmd，无法生成 conda workflow"
+            f"插件 {descriptor.get('id') or '<unknown>'} 缺少 runtime.conda，无法生成 conda workflow"
         )
     cpus = None
     if resources.get("cpus") not in (None, ""):
@@ -156,6 +188,102 @@ def _resolve_runtime(descriptor: dict[str, Any], launch: LaunchSpec) -> _Resolve
         cpus=cpus,
         memory=memory,
         time_limit=time_limit,
+    )
+
+
+def _default_profile_paths(launch: LaunchSpec) -> tuple[str, str, str]:
+    work_dir = str(launch.profile.work_dir or "").strip() or _DEFAULT_WORK_DIR
+    output_dir = str(launch.profile.output_dir or "").strip() or _DEFAULT_OUTPUT_DIR
+    if str(launch.profile.cache_dir or "").strip():
+        cache_dir = str(launch.profile.cache_dir).strip()
+    elif launch.profile.packaging_mode == "conda":
+        cache_dir = _DEFAULT_CONDA_CACHE_DIR
+    else:
+        cache_dir = _DEFAULT_CONTAINER_CACHE_DIR
+    return work_dir, output_dir, cache_dir
+
+
+def _profile_resolution(launch: LaunchSpec) -> _ProfileResolution:
+    profile_kind = str(launch.profile.profile_kind or "").strip()
+    executor = str(launch.profile.executor or "").strip()
+    packaging_mode = str(launch.profile.packaging_mode or "").strip()
+    container_runtime = str(launch.profile.container_runtime or "").strip()
+    if not profile_kind:
+        raise RuntimeError("launch.profile.profile_kind is required")
+    if profile_kind not in _SUPPORTED_PROFILE_KINDS:
+        raise RuntimeError(f"不支持的 workflow profile_kind: {profile_kind}")
+    if not executor:
+        raise RuntimeError("launch.profile.executor is required")
+    if packaging_mode not in {"container", "conda"}:
+        raise RuntimeError(f"不支持的 packaging_mode: {packaging_mode or '<empty>'}")
+    if packaging_mode == "container" and not container_runtime:
+        raise RuntimeError(f"profile {profile_kind} 需要 container_runtime")
+    work_dir, output_dir, cache_dir = _default_profile_paths(launch)
+    if profile_kind == "personal_docker":
+        runtime_block_name = "docker"
+        runtime_block_lines = [
+            "docker {",
+            "  enabled = true",
+            "}",
+        ]
+        cache_policy = "container"
+    elif profile_kind == "personal_podman":
+        runtime_block_name = "podman"
+        runtime_block_lines = [
+            "podman {",
+            "  enabled = true",
+            "}",
+        ]
+        cache_policy = "container"
+    elif profile_kind == "hpc_slurm_apptainer":
+        runtime_block_name = "apptainer"
+        runtime_block_lines = [
+            "apptainer {",
+            "  enabled = true",
+            "  autoMounts = true",
+            "}",
+        ]
+        cache_policy = "container"
+    elif profile_kind == "personal_conda" or profile_kind == "hpc_slurm_conda":
+        runtime_block_name = "conda"
+        runtime_block_lines = [
+            "conda {",
+            "  enabled = true",
+            "  useMicromamba = true",
+            f"  cacheDir = {_groovy_string(cache_dir)}",
+            "}",
+        ]
+        cache_policy = "conda"
+    else:
+        runtime_block_name = "conda" if packaging_mode == "conda" else container_runtime
+        runtime_block_lines = []
+        if packaging_mode == "conda":
+            runtime_block_lines = [
+                "conda {",
+                "  enabled = true",
+                "  useMicromamba = true",
+                f"  cacheDir = {_groovy_string(cache_dir)}",
+                "}",
+            ]
+            cache_policy = "conda"
+        else:
+            runtime_block_lines = [
+                f"{container_runtime} {{",
+                "  enabled = true",
+                "}",
+            ]
+            cache_policy = "container"
+    return _ProfileResolution(
+        profile_kind=profile_kind,
+        executor=executor,
+        packaging_mode=packaging_mode,
+        container_runtime=container_runtime,
+        work_dir=work_dir,
+        output_dir=output_dir,
+        cache_dir=cache_dir,
+        runtime_block_name=runtime_block_name,
+        runtime_block_lines=runtime_block_lines,
+        cache_policy=cache_policy,
     )
 
 
@@ -202,6 +330,7 @@ def _resolve_tool_specs(spec: WorkflowSpec, plugin_registry: Any) -> dict[str, d
         descriptor = plugin_registry.get_descriptor(node.tool_id)
         if not isinstance(descriptor, dict) or not descriptor:
             raise RuntimeError(f"插件描述符无效: {node.tool_id}")
+        _reject_legacy_plugin_format(descriptor)
         resolved[node.node_id] = descriptor
     return resolved
 
@@ -361,8 +490,9 @@ def _render_workflow_graph(
     return "\n".join(workflow_lines)
 
 
-def _build_nextflow_config(launch: LaunchSpec) -> str:
+def _build_nextflow_config(launch: LaunchSpec, *, bundle_id: str, profile: _ProfileResolution) -> str:
     lines = [
+        "# Base Nextflow config generated by the workflow compiler",
         "manifest {",
         "  name = 'h2ometa-generated-workflow'",
         "}",
@@ -370,24 +500,73 @@ def _build_nextflow_config(launch: LaunchSpec) -> str:
         "params {",
         "  run_name = 'h2ometa-run'",
         "  inputs = [:]",
-        f"  output_dir = {_groovy_string(launch.profile.output_dir or '~/.bioflow/runs/output')}",
+        f"  output_dir = {_groovy_string(profile.output_dir)}",
+        f"  work_dir = {_groovy_string(profile.work_dir)}",
+        f"  cache_dir = {_groovy_string(profile.cache_dir)}",
+        f"  profile_id = {_groovy_string(launch.profile.profile_id)}",
+        f"  profile_kind = {_groovy_string(profile.profile_kind)}",
+        f"  executor = {_groovy_string(profile.executor)}",
+        f"  packaging_mode = {_groovy_string(profile.packaging_mode)}",
+        f"  container_runtime = {_groovy_string(profile.container_runtime)}",
         "}",
         "",
-        f"process.executor = {_groovy_string(launch.profile.executor)}",
+        "bioflow {",
+        f"  bundle_id = {_groovy_string(bundle_id)}",
+        f"  profile_id = {_groovy_string(launch.profile.profile_id)}",
+        f"  profile_kind = {_groovy_string(profile.profile_kind)}",
+        f"  server_id = {_groovy_string(launch.profile.server_id)}",
+        f"  executor = {_groovy_string(profile.executor)}",
+        f"  packaging_mode = {_groovy_string(profile.packaging_mode)}",
+        f"  container_runtime = {_groovy_string(profile.container_runtime)}",
+        f"  work_dir = {_groovy_string(profile.work_dir)}",
+        f"  output_dir = {_groovy_string(profile.output_dir)}",
+        f"  cache_dir = {_groovy_string(profile.cache_dir)}",
+        f"  runtime_block_name = {_groovy_string(profile.runtime_block_name)}",
+        f"  cache_policy = {_groovy_string(profile.cache_policy)}",
+        "}",
+        "",
+        "process {",
+        "  errorStrategy = 'terminate'",
+        "}",
     ]
-    runtime = launch.profile.container_runtime
-    if launch.profile.packaging_mode == "container" and runtime:
-        lines.extend(["", f"{runtime} {{", "  enabled = true"])
-        if launch.profile.cache_dir:
-            lines.append(f"  cacheDir = {_groovy_string(launch.profile.cache_dir)}")
-        lines.append("}")
-    if launch.profile.packaging_mode == "conda":
-        lines.extend(["", "conda {", "  enabled = true", "  useMicromamba = true"])
-        if launch.profile.cache_dir:
-            lines.append(f"  cacheDir = {_groovy_string(launch.profile.cache_dir)}")
-        lines.append("}")
-    if launch.profile.work_dir:
-        lines.append(f"workDir = {_groovy_string(launch.profile.work_dir)}")
+    return "\n".join(lines) + "\n"
+
+
+def _build_resolved_nextflow_config(
+    launch: LaunchSpec,
+    *,
+    bundle_id: str,
+    profile: _ProfileResolution,
+) -> str:
+    lines = [
+        "# Resolved Nextflow config generated for the selected profile",
+        f"process.executor = {_groovy_string(profile.executor)}",
+        f"workDir = {_groovy_string(profile.work_dir)}",
+        f"params.output_dir = {_groovy_string(profile.output_dir)}",
+        f"params.work_dir = {_groovy_string(profile.work_dir)}",
+        f"params.cache_dir = {_groovy_string(profile.cache_dir)}",
+        "",
+        "bioflow {",
+        f"  bundle_id = {_groovy_string(bundle_id)}",
+        f"  profile_id = {_groovy_string(launch.profile.profile_id)}",
+        f"  profile_kind = {_groovy_string(profile.profile_kind)}",
+        f"  server_id = {_groovy_string(launch.profile.server_id)}",
+        f"  executor = {_groovy_string(profile.executor)}",
+        f"  packaging_mode = {_groovy_string(profile.packaging_mode)}",
+        f"  container_runtime = {_groovy_string(profile.container_runtime)}",
+        f"  work_dir = {_groovy_string(profile.work_dir)}",
+        f"  output_dir = {_groovy_string(profile.output_dir)}",
+        f"  cache_dir = {_groovy_string(profile.cache_dir)}",
+        f"  runtime_block_name = {_groovy_string(profile.runtime_block_name)}",
+        f"  cache_policy = {_groovy_string(profile.cache_policy)}",
+        "}",
+        "",
+        "process {",
+        "  errorStrategy = 'terminate'",
+        "}",
+    ]
+    if profile.runtime_block_lines:
+        lines.extend([""] + profile.runtime_block_lines)
     return "\n".join(lines) + "\n"
 
 
@@ -427,6 +606,7 @@ def compile_workflow_bundle(spec: WorkflowSpec, launch: LaunchSpec, *, plugin_re
     if plugin_registry is None:
         raise RuntimeError("plugin_registry is required for workflow compilation")
     bundle_id = f"bundle_{uuid.uuid4().hex[:12]}"
+    profile = _profile_resolution(launch)
     descriptors_by_node = _resolve_tool_specs(spec, plugin_registry)
     sample_id = _sample_id_for_bundle(spec, launch)
     source_inputs = _source_input_mapping(spec, launch, descriptors_by_node)
@@ -445,7 +625,8 @@ def compile_workflow_bundle(spec: WorkflowSpec, launch: LaunchSpec, *, plugin_re
         [node.process_block for node in compiled_nodes.values()]
         + [_render_workflow_graph(spec, compiled_nodes, descriptors_by_node, launch)]
     )
-    config_text = _build_nextflow_config(launch)
+    config_text = _build_nextflow_config(launch, bundle_id=bundle_id, profile=profile)
+    resolved_config_text = _build_resolved_nextflow_config(launch, bundle_id=bundle_id, profile=profile)
     params_payload = dict(launch.params or {})
     params_payload["inputs"] = source_inputs
     params_payload.setdefault("sample_id", sample_id)
@@ -462,13 +643,48 @@ def compile_workflow_bundle(spec: WorkflowSpec, launch: LaunchSpec, *, plugin_re
         "workflow_name": spec.name,
         "workflow_version": spec.version,
         "profile_id": launch.profile.profile_id,
+        "server_id": launch.profile.server_id,
         "profile_kind": launch.profile.profile_kind,
         "executor": launch.profile.executor,
         "packaging_mode": launch.profile.packaging_mode,
         "container_runtime": launch.profile.container_runtime,
-        "work_dir": launch.profile.work_dir,
-        "output_dir": launch.profile.output_dir,
-        "cache_dir": launch.profile.cache_dir,
+        "work_dir": profile.work_dir,
+        "output_dir": profile.output_dir,
+        "cache_dir": profile.cache_dir,
+        "resolved_profile": {
+            "profile_kind": profile.profile_kind,
+            "executor": profile.executor,
+            "packaging_mode": profile.packaging_mode,
+            "container_runtime": profile.container_runtime,
+            "work_dir": profile.work_dir,
+            "output_dir": profile.output_dir,
+            "cache_dir": profile.cache_dir,
+            "runtime_block_name": profile.runtime_block_name,
+            "cache_policy": profile.cache_policy,
+        },
+        "config": {
+            "base_config": "nextflow.config",
+            "resolved_config": "resolved.config",
+            "resolved_is_profile_specific": True,
+            "profile_kind": profile.profile_kind,
+            "executor": profile.executor,
+            "packaging_mode": profile.packaging_mode,
+            "container_runtime": profile.container_runtime,
+            "work_dir": profile.work_dir,
+            "output_dir": profile.output_dir,
+            "cache_dir": profile.cache_dir,
+            "runtime_block_name": profile.runtime_block_name,
+            "cache_policy": profile.cache_policy,
+        },
+        "runtime_policy": {
+            "work_dir": profile.work_dir,
+            "output_dir": profile.output_dir,
+            "cache_dir": profile.cache_dir,
+            "executor": profile.executor,
+            "packaging_mode": profile.packaging_mode,
+            "runtime_block_name": profile.runtime_block_name,
+            "cache_policy": profile.cache_policy,
+        },
         "node_count": len(spec.nodes),
         "edge_count": len(spec.edges),
         "resume": launch.resume,
@@ -485,7 +701,7 @@ def compile_workflow_bundle(spec: WorkflowSpec, launch: LaunchSpec, *, plugin_re
     files = {
         "main.nf": main_nf,
         "nextflow.config": config_text,
-        "resolved.config": config_text,
+        "resolved.config": resolved_config_text,
         "params/run.yaml": params_yaml + ("\n" if params_yaml else ""),
         "params.schema.json": json.dumps(params_schema, ensure_ascii=False, indent=2) + "\n",
         "manifest.json": json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

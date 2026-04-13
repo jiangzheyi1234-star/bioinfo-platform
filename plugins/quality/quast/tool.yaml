@@ -3,8 +3,13 @@ name: QUAST
 version: "5.2.0"
 category: quality
 description: "组装质量评估工具，统计 N50、总长度、错配等关键指标"
-conda_env: quast_env
-install_cmd: "conda create -n quast_env quast=5.2.0 -y"
+runtime:
+  conda: bioconda::quast=5.2.0
+
+resources:
+  cpus: 8
+  memory: 16 GB
+  time: 2 h
 
 detection:
   command: "quast.py --version"
@@ -78,4 +83,3 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'contigs: 必填，类型 fasta。'
-

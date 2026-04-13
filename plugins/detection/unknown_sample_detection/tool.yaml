@@ -3,8 +3,13 @@ name: Unknown Sample Pathogen Detection
 version: "1.0.0"
 category: detection
 description: "二代宏基因组一键检测：解压 → fastp 质控 → hostile 去宿主 → Centrifuge 分类 → kreport 生成"
-conda_env: ""
-install_cmd: ""
+runtime:
+  conda: fastp=0.23.4 hostile=1.1.0 centrifuge=1.0.4
+
+resources:
+  cpus: 8
+  memory: 16 GB
+  time: 8 h
 
 inputs:
   - name: compressed_reads
@@ -65,7 +70,6 @@ command_template: |
   #!/bin/bash
   set -euo pipefail
 
-  CONDA={{ conda_executable }}
   WORK="{{ output_dir }}/work"
   OUTDIR="{{ output_dir }}"
   SAMPLE="{{ sample_id }}"
@@ -104,7 +108,7 @@ command_template: |
 
   # ── Step 3: fastp 质控 ──
   echo "[3/5] Running fastp QC..."
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/fastp_env" fastp \
+  fastp \
     -i "$R1" -I "$R2" \
     -o "$WORK/${SAMPLE}_clean_R1.fq.gz" \
     -O "$WORK/${SAMPLE}_clean_R2.fq.gz" \
@@ -118,7 +122,7 @@ command_template: |
 
   # ── Step 4: hostile 去宿主（失败则跳过） ──
   echo "[4/5] Running hostile host removal..."
-  if $CONDA run -p "$HOME/.h2ometa/conda/envs/hostile_env" hostile clean \
+  if hostile clean \
     --fastq1 "$CLEAN_R1" --fastq2 "$CLEAN_R2" \
     -o "$WORK/hostile_out" \
     -t "$THREADS" --force 2>&1; then
@@ -142,14 +146,14 @@ command_template: |
 
   # ── Step 5: Centrifuge 分类 + kreport ──
   echo "[5/5] Running Centrifuge classification..."
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/centrifuge_env" centrifuge \
+  centrifuge \
     -x {{ db }} \
     -1 "$CLEAN_R1" -2 "$CLEAN_R2" \
     --min-hitlen {{ min_hitlen }} \
     -p "$THREADS" \
     -S "$OUTDIR/${SAMPLE}.cf_output" \
     --report-file "$OUTDIR/${SAMPLE}.cf_report.tsv"
-  $CONDA run -p "$HOME/.h2ometa/conda/envs/centrifuge_env" centrifuge-kreport \
+  centrifuge-kreport \
     -x {{ db }} \
     "$OUTDIR/${SAMPLE}.cf_output" \
     > "$OUTDIR/${SAMPLE}.kreport"

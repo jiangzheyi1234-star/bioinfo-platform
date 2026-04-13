@@ -52,8 +52,9 @@ class SSHConnectionRequest(BaseModel):
 
 
 class RemoteEnvInstallRequest(BaseModel):
-    target: Literal["miniforge", "tool_env"]
+    target: Literal["miniforge", "tool_env", "workflow_runtime"]
     tool_id: str | None = None
+    profile_kind: str | None = None
 
 
 class DatabaseInstallRequest(BaseModel):

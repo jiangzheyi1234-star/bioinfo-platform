@@ -41,6 +41,7 @@ export function ProjectConnectionPage() {
   const [remoteEnvLoaded, setRemoteEnvLoaded] = useState(false);
   const [remoteEnvError, setRemoteEnvError] = useState("");
   const [envInstallJobId, setEnvInstallJobId] = useState("");
+  const [envInstallTarget, setEnvInstallTarget] = useState<"" | "miniforge" | "workflow_runtime">("");
   const [envInstallSnapshot, setEnvInstallSnapshot] = useState<InstallJobSnapshot | null>(null);
   const [envInstallBusy, setEnvInstallBusy] = useState(false);
   const [expandedEnvLogs, setExpandedEnvLogs] = useState<string[]>([]);
@@ -94,11 +95,15 @@ export function ProjectConnectionPage() {
       }
       setRemoteEnvStatus(nextStatus);
       setRemoteEnvLoaded(true);
-      if (nextStatus.miniforge.status === "running" || nextStatus.miniforge.status === "installing") {
-        setEnvInstallJobId(nextStatus.miniforge.job_id);
-      } else {
-        setEnvInstallJobId("");
-        setEnvInstallSnapshot(null);
+      if (envInstallTarget !== "workflow_runtime") {
+        if (nextStatus.miniforge.status === "running" || nextStatus.miniforge.status === "installing") {
+          setEnvInstallTarget("miniforge");
+          setEnvInstallJobId(nextStatus.miniforge.job_id);
+        } else {
+          setEnvInstallJobId("");
+          setEnvInstallTarget("");
+          setEnvInstallSnapshot(null);
+        }
       }
       if (!remoteEnvExpandedTouched) {
         const shouldExpand =
@@ -127,6 +132,7 @@ export function ProjectConnectionPage() {
   const startMiniforgeInstall = async () => {
     setRemoteEnvError("");
     setEnvInstallBusy(true);
+    setEnvInstallTarget("miniforge");
     setEnvInstallSnapshot(null);
     try {
       const resp = await fetch(`${apiBase()}/api/v1/ssh/env/install`, {
@@ -144,6 +150,38 @@ export function ProjectConnectionPage() {
       await loadRemoteEnvStatus({ silent: true });
     } catch (err) {
       setRemoteEnvError(err instanceof Error ? err.message : String(err));
+      setEnvInstallTarget("");
+    } finally {
+      setEnvInstallBusy(false);
+    }
+  };
+
+  const startWorkflowRuntimeInstall = async () => {
+    const profileKind = preflightResult?.recommended_profile_details?.profile_kind;
+    if (!profileKind) {
+      setRemoteEnvError("当前预检结果缺少推荐 profile，无法启动 workflow runtime 安装。");
+      return;
+    }
+    setRemoteEnvError("");
+    setEnvInstallBusy(true);
+    setEnvInstallTarget("workflow_runtime");
+    setEnvInstallSnapshot(null);
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/env/install`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "workflow_runtime", profile_kind: profileKind }),
+      });
+      const data = await readJsonOrThrow(resp);
+      const nextJobId = safeText(data?.item?.job_id);
+      if (!nextJobId) {
+        throw new Error("Workflow runtime 安装任务返回缺少 job_id。");
+      }
+      setEnvInstallJobId(nextJobId);
+      setExpandedEnvLogs((prev) => (prev.includes("workflow_runtime") ? prev : [...prev, "workflow_runtime"]));
+    } catch (err) {
+      setRemoteEnvError(err instanceof Error ? err.message : String(err));
+      setEnvInstallTarget("");
     } finally {
       setEnvInstallBusy(false);
     }
@@ -159,6 +197,7 @@ export function ProjectConnectionPage() {
     setEnvInstallSnapshot(nextSnapshot);
     if (nextSnapshot.done) {
       setEnvInstallJobId("");
+      setEnvInstallTarget("");
       await loadRemoteEnvStatus({ silent: true });
     }
   };
@@ -261,6 +300,7 @@ export function ProjectConnectionPage() {
       setRemoteEnvLoaded(false);
       setRemoteEnvError("");
       setEnvInstallJobId("");
+      setEnvInstallTarget("");
       setEnvInstallSnapshot(null);
       setExpandedEnvLogs([]);
       setPreflightExpanded(false);
@@ -359,10 +399,15 @@ export function ProjectConnectionPage() {
   }, [envInstallJobId]);
 
   const miniforgeInstalling =
-    envInstallBusy ||
-    envInstallJobId.length > 0 ||
+    (envInstallBusy && envInstallTarget === "miniforge") ||
+    (envInstallJobId.length > 0 && envInstallTarget === "miniforge") ||
     remoteEnvStatus?.miniforge.status === "running" ||
     remoteEnvStatus?.miniforge.status === "installing";
+  const workflowRuntimeInstalling =
+    (envInstallBusy && envInstallTarget === "workflow_runtime") ||
+    (envInstallJobId.length > 0 && envInstallTarget === "workflow_runtime") ||
+    envInstallJobId.startsWith("h2o_workflow_bootstrap_");
+  const recommendedWorkflowProfile = preflightResult?.recommended_profile_details?.profile_kind || preflightResult?.recommended_profile || "";
 
   const shouldShowPreflightValue = (check: PreflightResult["checks"][number]) =>
     check.key === "arch" || check.key === "disk" || check.status !== "ok";
@@ -506,6 +551,14 @@ export function ProjectConnectionPage() {
                 <button className="ui-button" type="button" disabled={preflightBusy} onClick={() => void loadPreflight()}>
                   {preflightBusy ? "检测中..." : "重新检测"}
                 </button>
+                <button
+                  className="ui-button"
+                  type="button"
+                  disabled={preflightBusy || !recommendedWorkflowProfile || workflowRuntimeInstalling}
+                  onClick={() => void startWorkflowRuntimeInstall()}
+                >
+                  {workflowRuntimeInstalling ? "安装中..." : "安装 Workflow Runtime"}
+                </button>
                 {preflightHasIssues ? (
                   <button
                     className="control-btn connection-section-toggle"
@@ -527,6 +580,10 @@ export function ProjectConnectionPage() {
 
             {preflightResult ? (
               <>
+                {recommendedWorkflowProfile ? (
+                  <p className="muted">推荐 profile: {recommendedWorkflowProfile}</p>
+                ) : null}
+
                 {preflightResult.failures.length > 0 ? (
                   <div className="preflight-message-list">
                     {preflightResult.failures.map((item) => (
@@ -562,6 +619,21 @@ export function ProjectConnectionPage() {
                       </article>
                     ))}
                   </div>
+                ) : null}
+
+                {workflowRuntimeInstalling || envInstallTarget === "workflow_runtime" ? (
+                  <article className="connection-detail-item connection-detail-item--warn">
+                    <div className="connection-detail-item-top">
+                      <strong>Workflow Runtime Bootstrap</strong>
+                      <div className="connection-detail-item-side">
+                        <span className="status-pill">{envInstallSnapshot?.status || "running"}</span>
+                      </div>
+                    </div>
+                    <p className="muted">
+                      正在为 {safeText(envInstallSnapshot?.progress?.profile_kind, recommendedWorkflowProfile) || "当前推荐 profile"} 安装 workflow runtime。
+                    </p>
+                    {envInstallSnapshot?.log_text ? <pre className="connection-log-preview">{envInstallSnapshot.log_text}</pre> : null}
+                  </article>
                 ) : null}
               </>
             ) : null}

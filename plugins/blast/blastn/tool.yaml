@@ -3,8 +3,13 @@ name: BLASTn
 version: "2.15.0"
 category: blast
 description: "核苷酸序列比对工具，用于序列相似性搜索"
-conda_env: blast_env
-install_cmd: "conda create -n blast_env blast=2.15.0 -y"
+runtime:
+  conda: bioconda::blast=2.15.0
+
+resources:
+  cpus: 4
+  memory: 16 GB
+  time: 4 h
 
 detection:
   command: "blastn -version"
@@ -99,4 +104,3 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'query: 必填，类型 fasta。'
-
