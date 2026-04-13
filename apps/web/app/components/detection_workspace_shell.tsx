@@ -21,20 +21,14 @@ export const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: st
 ];
 
 const TAB_TITLES: Record<TabId, string> = {
-  runs: "执行中心",
   connect: "远端连接",
   workspace: "工作台",
-  workflows: "Workflow 设计",
-  artifacts: "产物中心",
   settings: "系统设置",
 };
 
 const TAB_DESCRIPTIONS: Record<TabId, string> = {
-  runs: "查看 workflow run、远端状态、日志与取消动作。",
   connect: "管理 SSH 连接、测试与远端会话状态。",
   workspace: "围绕当前 workflow run 进行编译、提交、监控与产物查看。",
-  workflows: "编辑 workflow 规格、生成 bundle，并提交运行。",
-  artifacts: "同步 report、timeline、trace、dag 与 nextflow 日志。",
   settings: "维护系统配置和本地工作台偏好。",
 };
 

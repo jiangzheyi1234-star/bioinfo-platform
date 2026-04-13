@@ -1,6 +1,7 @@
 "use client";
 
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
+import WorkflowDag from "./workflow_dag";
 import { formatDateTime, mapWorkflowRunStatus, normalizeFieldValue } from "./workflow_support";
 import { describeDoctor, readWorkflowRemoteValue, useWorkflowConsoleState } from "./workflow_console_state";
 
@@ -28,9 +29,12 @@ export function WorkflowConsolePage() {
     workflowExpanded,
     artifactsExpanded,
     technicalExpanded,
+    selectedNodeId,
+    detailTab,
     schemaSummary,
     launchProfile,
     artifactSummary,
+    traceArtifacts,
     router,
     setWorkflow,
     setSchemaDraft,
@@ -39,6 +43,8 @@ export function WorkflowConsolePage() {
     setWorkflowExpanded,
     setArtifactsExpanded,
     setTechnicalExpanded,
+    setSelectedNodeId,
+    setDetailTab,
     refreshRuns,
     refreshRunDetail,
     fetchArtifacts,
@@ -59,6 +65,8 @@ export function WorkflowConsolePage() {
   const runHeadline = selectedRun
     ? `${mapWorkflowRunStatus(selectedRun.status)} · ${formatDateTime(selectedRun.updated_at || selectedRun.created_at)}`
     : "当前项目还没有 workflow run。";
+  const nodeCount = workflow?.nodes.length || 0;
+  const edgeCount = workflow?.edges.length || 0;
 
   return (
     <div className="project-workspace-content">
@@ -90,6 +98,24 @@ export function WorkflowConsolePage() {
 
       <section className="workflow-console-shell">
         <section className="workflow-console-primary">
+          <WorkspaceSectionHeader
+            title="DAG Overview"
+            description={selectedRun ? "查看当前 workflow run 的依赖图、节点关系和已匹配产物。" : "先在图层里检查 workflow 结构，再提交新的 run。"}
+            aside={
+              <div className="workflow-console-inline-note">
+                {nodeCount} nodes · {edgeCount} edges
+              </div>
+            }
+          />
+          <WorkflowDag
+            workflow={workflow}
+            selectedRun={selectedRun}
+            compilePreview={compilePreview}
+            artifacts={artifacts}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={setSelectedNodeId}
+          />
+
           <WorkspaceSectionHeader
             title={selectedRun ? "当前 Run" : "运行状态"}
             description={runHeadline}
@@ -297,37 +323,104 @@ export function WorkflowConsolePage() {
         <details className="workflow-console-section" open={artifactsExpanded} onToggle={(event) => setArtifactsExpanded(event.currentTarget.open)}>
           <summary className="workflow-console-section-summary">
             <div>
-              <strong>Artifacts</strong>
-              <span>{artifactSummary}</span>
+              <strong>Run Drawer</strong>
+              <span>logs / resolved config / artifacts / trace</span>
             </div>
-            <span>{artifacts.length} 项</span>
+            <span>{selectedRun ? detailTab : "等待 Run"}</span>
           </summary>
-          {selectedRun ? (
-            artifacts.length > 0 ? (
-              <div className="workflow-artifact-list">
-                {artifacts.map((artifact) => (
-                  <div key={artifact.name} className="workflow-artifact-item">
-                    <div className="workflow-artifact-copy">
-                      <strong>{artifact.name}</strong>
-                      <p>{artifact.available ? artifact.local_path || artifact.remote_path : artifact.error || "未找到远端文件"}</p>
-                    </div>
-                    <span className={`workflow-artifact-state${artifact.available ? " available" : ""}`}>
-                      {artifact.available ? "已同步" : "缺失"}
-                    </span>
-                  </div>
-                ))}
+
+          <div className="workflow-detail-tabs">
+            {[
+              ["logs", "Logs"],
+              ["artifacts", "Artifacts"],
+              ["config", "Resolved Config"],
+              ["trace", "Trace"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`workflow-detail-tab${detailTab === key ? " active" : ""}`}
+                onClick={() => setDetailTab(key as "logs" | "artifacts" | "config" | "trace")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {detailTab === "logs" ? (
+            selectedRun ? (
+              <div className="workflow-console-log">
+                <div className="workflow-console-log-head">
+                  <strong>最近日志</strong>
+                  <span>{readWorkflowRemoteValue(selectedRun, "heartbeat") ? `heartbeat: ${readWorkflowRemoteValue(selectedRun, "heartbeat")}` : "等待 heartbeat"}</span>
+                </div>
+                <pre className="workspace-json-surface">{readWorkflowRemoteValue(selectedRun, "log_tail") || "暂无日志"}</pre>
               </div>
             ) : (
-              <WorkspaceEmptyState
-                mark="Art"
-                label="当前 run 还没有可见产物"
-                hint="先刷新状态；如果仍为空，请确认远端 run 已生成 report、timeline、trace 或 dag。"
-                compact
-              />
+              <WorkspaceEmptyState mark="Log" label="选择一个 Run 后查看日志" compact />
             )
-          ) : (
-            <WorkspaceEmptyState mark="Art" label="选择一个 Run 后查看产物" compact />
-          )}
+          ) : null}
+
+          {detailTab === "artifacts" ? (
+            selectedRun ? (
+              artifacts.length > 0 ? (
+                <div className="workflow-artifact-list">
+                  {artifacts.map((artifact) => (
+                    <div key={artifact.name} className="workflow-artifact-item">
+                      <div className="workflow-artifact-copy">
+                        <strong>{artifact.name}</strong>
+                        <p>{artifact.available ? artifact.local_path || artifact.remote_path : artifact.error || "未找到远端文件"}</p>
+                      </div>
+                      <span className={`workflow-artifact-state${artifact.available ? " available" : ""}`}>
+                        {artifact.available ? "已同步" : "缺失"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <WorkspaceEmptyState
+                  mark="Art"
+                  label="当前 run 还没有可见产物"
+                  hint="先刷新状态；如果仍为空，请确认远端 run 已生成 report、timeline、trace 或 dag。"
+                  compact
+                />
+              )
+            ) : (
+              <WorkspaceEmptyState mark="Art" label="选择一个 Run 后查看产物" compact />
+            )
+          ) : null}
+
+          {detailTab === "config" ? (
+            selectedRun ? (
+              <pre className="workspace-json-surface">{resolvedConfig || compilePreview?.files["resolved.config"] || "{}"}</pre>
+            ) : (
+              <WorkspaceEmptyState mark="Cfg" label="选择一个 Run 后查看 resolved config" compact />
+            )
+          ) : null}
+
+          {detailTab === "trace" ? (
+            selectedRun ? (
+              traceArtifacts.length > 0 ? (
+                <div className="workflow-artifact-list">
+                  {traceArtifacts.map((artifact) => (
+                    <div key={artifact.name} className="workflow-artifact-item">
+                      <div className="workflow-artifact-copy">
+                        <strong>{artifact.name}</strong>
+                        <p>{artifact.available ? artifact.local_path || artifact.remote_path : artifact.error || "未找到 trace/report 文件"}</p>
+                      </div>
+                      <span className={`workflow-artifact-state${artifact.available ? " available" : ""}`}>
+                        {artifact.available ? "可查看" : "缺失"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <WorkspaceEmptyState mark="Tr" label="当前 run 还没有 trace / timeline / report / dag 产物" compact />
+              )
+            ) : (
+              <WorkspaceEmptyState mark="Tr" label="选择一个 Run 后查看 trace 相关产物" compact />
+            )
+          ) : null}
         </details>
 
         <details className="workflow-console-section" open={technicalExpanded} onToggle={(event) => setTechnicalExpanded(event.currentTarget.open)}>

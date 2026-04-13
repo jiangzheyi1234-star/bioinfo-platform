@@ -268,9 +268,6 @@ export type ServerDoctorReport = {
 };
 
 export type TabId =
-  | "runs"
   | "connect"
   | "workspace"
-  | "workflows"
-  | "artifacts"
   | "settings";
