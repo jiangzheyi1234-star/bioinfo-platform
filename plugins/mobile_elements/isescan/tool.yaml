@@ -3,8 +3,13 @@ name: ISEScan
 version: "1.7.2.3"
 category: mobile_elements
 description: "细菌插入序列（IS elements）识别工具"
-conda_env: isescan_env
-install_cmd: "conda create -n isescan_env isescan=1.7.2.3 -y"
+runtime:
+  conda: bioconda::isescan=1.7.2.3
+
+resources:
+  cpus: 8
+  memory: 16 GB
+  time: 4 h
 
 detection:
   command: "isescan.py --help"
@@ -65,4 +70,3 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'contigs: 必填，类型 fasta。'
-

@@ -91,6 +91,9 @@ export type PreflightResult = {
   ok: boolean;
   arch: string;
   free_disk_gb: number;
+  recommended_profile: string;
+  recommended_profile_details: WorkflowServerProfile | null;
+  runtime_capabilities: WorkflowRuntimeCapabilities | null;
   checks: PreflightCheck[];
   failures: string[];
   warnings: string[];

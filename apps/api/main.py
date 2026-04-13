@@ -211,7 +211,13 @@ async def get_remote_env_status() -> dict[str, Any]:
 @app.post("/api/v1/ssh/env/install")
 async def install_remote_env(payload: RemoteEnvInstallRequest) -> dict[str, Any]:
     try:
-        return {"item": _runtime().install_remote_env(target=payload.target, tool_id=payload.tool_id or "")}
+        return {
+            "item": _runtime().install_remote_env(
+                target=payload.target,
+                tool_id=payload.tool_id or "",
+                profile_kind=payload.profile_kind or "",
+            )
+        }
     except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

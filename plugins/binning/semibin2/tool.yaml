@@ -3,8 +3,13 @@ name: SemiBin2
 version: "2.1.0"
 category: binning
 description: "深度学习宏基因组分箱工具，nf-core/mag 推荐"
-conda_env: semibin2_env
-install_cmd: "conda create -n semibin2_env semibin=2.1.0 -y"
+runtime:
+  conda: bioconda::semibin=2.1.0
+
+resources:
+  cpus: 8
+  memory: 32 GB
+  time: 8 h
 
 detection:
   command: "SemiBin2 --version"
@@ -93,4 +98,3 @@ usage:
   required_inputs:
   - 'contigs: 必填，类型 fasta。'
   - 'sorted_bam: 必填，类型 bam。'
-

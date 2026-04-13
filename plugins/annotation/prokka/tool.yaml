@@ -3,8 +3,13 @@ name: Prokka
 version: "1.14.6"
 category: annotation
 description: "快速原核基因组注释工具"
-conda_env: prokka_env
-install_cmd: "conda create -n prokka_env prokka=1.14.6 -y"
+runtime:
+  conda: bioconda::prokka=1.14.6
+
+resources:
+  cpus: 8
+  memory: 16 GB
+  time: 4 h
 
 detection:
   command: "prokka --version 2>&1"
@@ -98,4 +103,3 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'genome: 必填，类型 fasta。'
-

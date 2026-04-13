@@ -3,8 +3,13 @@ name: Bracken
 version: "2.9"
 category: taxonomy
 description: "Kraken2 分类结果的贝叶斯重估计工具，用于物种丰度校正"
-conda_env: bracken_env
-install_cmd: "conda create -n bracken_env bracken=2.9 -y"
+runtime:
+  conda: bracken=2.9
+
+resources:
+  cpus: 1
+  memory: 2 GB
+  time: 1 h
 
 detection:
   command: "bracken -v"
@@ -92,4 +97,3 @@ usage:
     notes: 推荐默认档，参数与当前工具默认值一致。
   required_inputs:
   - 'k2_report: 必填，类型 kreport。'
-
