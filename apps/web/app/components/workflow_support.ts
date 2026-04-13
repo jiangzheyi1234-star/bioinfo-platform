@@ -26,13 +26,13 @@ export function createStarterWorkflow(projectId: string): WorkflowSpecView {
   const workflowId = slugify(projectId || "workflow") || "workflow";
   return {
     workflow_id: `${workflowId}-main`,
-    name: "New Workflow",
+    name: "FASTQ QC Workflow",
     version: "0.1.0",
     nodes: [
       {
         node_id: "step_1",
-        tool_id: "tool_placeholder",
-        label: "Primary Step",
+        tool_id: "fastp",
+        label: "Quality Control",
         params: {},
       },
     ],
@@ -45,37 +45,43 @@ export function createStarterWorkflow(projectId: string): WorkflowSpecView {
           title: "样本名",
           default: "demo_sample",
         },
-        threads: {
+        thread: {
           type: "integer",
           title: "线程数",
           default: 4,
         },
-        dry_run: {
-          type: "boolean",
-          title: "Dry Run",
-          default: false,
+        qualified_quality_phred: {
+          type: "integer",
+          title: "最低质量值",
+          default: 20,
+        },
+        length_required: {
+          type: "integer",
+          title: "最短读长",
+          default: 50,
         },
       },
-      required: ["sample_name"],
+      required: ["sample_name", "thread", "qualified_quality_phred", "length_required"],
       additionalProperties: true,
     },
   };
 }
 
 export function buildProfileFromDoctor(doctor: ServerDoctorReport | null): WorkflowServerProfile {
-  const recommended = doctor?.recommended_profile || "personal_conda";
-  const isContainer = recommended !== "personal_conda";
-  const containerRuntime = recommended === "personal_docker" ? "docker" : recommended === "personal_podman" ? "podman" : "";
+  const recommended = doctor?.recommended_profile_details;
+  if (recommended) {
+    return recommended;
+  }
   return {
-    profile_id: recommended,
+    profile_id: "personal_conda",
     server_id: doctor?.server_id || "current",
-    profile_kind: recommended,
+    profile_kind: "personal_conda",
     executor: "local",
-    packaging_mode: isContainer ? "container" : "conda",
-    container_runtime: containerRuntime,
+    packaging_mode: "conda",
+    container_runtime: "",
     work_dir: "~/.bioflow/runs/work",
     output_dir: "~/.bioflow/runs/output",
-    cache_dir: isContainer ? "~/.bioflow/cache/containers" : "~/.bioflow/cache/conda",
+    cache_dir: "~/.bioflow/cache/conda",
   };
 }
 

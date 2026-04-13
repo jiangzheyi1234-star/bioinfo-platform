@@ -23,6 +23,7 @@ export function WorkflowConsolePage() {
     detailBusy,
     actionBusy,
     artifacts,
+    resolvedConfig,
     artifactsBusy,
     workflowExpanded,
     artifactsExpanded,
@@ -41,6 +42,7 @@ export function WorkflowConsolePage() {
     refreshRuns,
     refreshRunDetail,
     fetchArtifacts,
+    fetchResolvedConfig,
     cancelRun,
     updateNode,
     addNode,
@@ -100,6 +102,9 @@ export function WorkflowConsolePage() {
                   <button type="button" className="control-btn" disabled={artifactsBusy} onClick={() => void fetchArtifacts(selectedRun.run_id)}>
                     {artifactsBusy ? "同步中..." : "刷新产物"}
                   </button>
+                  <button type="button" className="control-btn" onClick={() => void fetchResolvedConfig(selectedRun.run_id)}>
+                    刷新 Config
+                  </button>
                 </div>
               ) : null
             }
@@ -134,6 +139,10 @@ export function WorkflowConsolePage() {
                 <div className="workflow-console-stat">
                   <span>Profile</span>
                   <strong>{selectedRun.profile_id}</strong>
+                </div>
+                <div className="workflow-console-stat">
+                  <span>Backend</span>
+                  <strong>{selectedRun.backend_kind || selectedRun.executor || "未记录"}</strong>
                 </div>
                 <div className="workflow-console-stat">
                   <span>Bundle</span>
@@ -337,6 +346,7 @@ export function WorkflowConsolePage() {
                     ? {
                         bundle_id: compilePreview.bundle_id,
                         files: Object.keys(compilePreview.files),
+                        main_nf_preview: compilePreview.files["main.nf"]?.split("\n").slice(0, 24).join("\n") || "",
                       }
                     : {},
                   null,
@@ -349,14 +359,23 @@ export function WorkflowConsolePage() {
               <pre className="workspace-json-surface">{JSON.stringify(compilePreview?.manifest || {}, null, 2)}</pre>
             </div>
             <div className="workflow-preview-card">
+              <strong>Resolved Config</strong>
+              <pre className="workspace-json-surface">{resolvedConfig || compilePreview?.files["resolved.config"] || "{}"}</pre>
+            </div>
+            <div className="workflow-preview-card">
               <strong>Run Detail</strong>
               <pre className="workspace-json-surface">
                 {JSON.stringify(
                   selectedRun
                     ? {
+                        backend_kind: selectedRun.backend_kind || "",
+                        executor: selectedRun.executor || "",
+                        packaging_mode: selectedRun.packaging_mode || "",
+                        container_runtime: selectedRun.container_runtime || "",
                         remote_status: selectedRun.remote_status || {},
                         local_bundle_dir: selectedRun.local_bundle_dir || "",
                         local_run_dir: selectedRun.local_run_dir || "",
+                        resolved_config_path: selectedRun.resolved_config_path || "",
                         remote_bundle_dir: selectedRun.remote_bundle_dir || "",
                         remote_task_dir: selectedRun.remote_task_dir || "",
                         remote_work_dir: selectedRun.remote_work_dir || "",

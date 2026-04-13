@@ -126,6 +126,14 @@ async def get_run_artifacts(project_id: str, run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/projects/{project_id}/runs/{run_id}/resolved-config")
+async def get_run_resolved_config(project_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_run_resolved_config(project_id=project_id, run_id=run_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/v1/servers/{server_id}/doctor")
 async def doctor_server(server_id: str) -> dict[str, Any]:
     try:
@@ -386,4 +394,3 @@ async def list_runtime_events(after_seq: int = 0, limit: int = 200) -> dict[str,
         return {"item": _runtime().list_runtime_events(after_seq=after_seq, limit=limit)}
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-

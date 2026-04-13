@@ -40,7 +40,13 @@ export function describeDoctor(doctor: ServerDoctorReport | null, doctorError: s
     return "正在检测服务器运行时。";
   }
   const profile = buildProfileFromDoctor(doctor);
-  return `建议 profile：${profile.profile_id}`;
+  const nextflow = doctor.runtime_capabilities?.nextflow;
+  const java = doctor.runtime_capabilities?.java;
+  const runtimeBits = [
+    nextflow?.available ? `Nextflow ${nextflow.version || "ok"}` : "Nextflow 缺失",
+    java?.available ? `Java ${java.version || "ok"}` : "Java 缺失",
+  ];
+  return `建议 profile：${profile.profile_id} · executor=${profile.executor} · ${runtimeBits.join(" / ")}`;
 }
 
 export function useWorkflowConsoleState() {
@@ -62,6 +68,7 @@ export function useWorkflowConsoleState() {
   const [detailBusy, setDetailBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState("");
   const [artifacts, setArtifacts] = useState<WorkflowArtifact[]>([]);
+  const [resolvedConfig, setResolvedConfig] = useState("");
   const [artifactsBusy, setArtifactsBusy] = useState(false);
   const [workflowExpanded, setWorkflowExpanded] = useState(true);
   const [artifactsExpanded, setArtifactsExpanded] = useState(false);
@@ -140,6 +147,23 @@ export function useWorkflowConsoleState() {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
       setArtifactsBusy(false);
+    }
+  };
+
+  const fetchResolvedConfig = async (runId: string) => {
+    if (!currentProjectId || !runId) {
+      setResolvedConfig("");
+      return;
+    }
+    try {
+      const resp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/runs/${encodeURIComponent(runId)}/resolved-config`
+      );
+      const data = await readJsonOrThrow(resp);
+      setResolvedConfig(safeText(data?.item?.content));
+    } catch (err) {
+      setResolvedConfig("");
+      setShellError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -225,10 +249,12 @@ export function useWorkflowConsoleState() {
   useEffect(() => {
     if (!selectedRunId) {
       setArtifacts([]);
+      setResolvedConfig("");
       return;
     }
     void refreshRunDetail(selectedRunId);
     void fetchArtifacts(selectedRunId);
+    void fetchResolvedConfig(selectedRunId);
   }, [selectedRunId]);
 
   useEffect(() => {
@@ -364,6 +390,7 @@ export function useWorkflowConsoleState() {
       setRuns((current) => [item, ...current.filter((existing) => existing.run_id !== item.run_id)]);
       setSelectedRunId(item.run_id);
       setArtifacts([]);
+      setResolvedConfig("");
       setWorkflowExpanded(false);
       setArtifactsExpanded(false);
       router.replace(`/workspace?run_id=${encodeURIComponent(item.run_id)}`);
@@ -409,6 +436,7 @@ export function useWorkflowConsoleState() {
     detailBusy,
     actionBusy,
     artifacts,
+    resolvedConfig,
     artifactsBusy,
     workflowExpanded,
     artifactsExpanded,
@@ -427,6 +455,7 @@ export function useWorkflowConsoleState() {
     refreshRuns,
     refreshRunDetail,
     fetchArtifacts,
+    fetchResolvedConfig,
     cancelRun,
     updateNode,
     addNode,
