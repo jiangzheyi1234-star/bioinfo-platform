@@ -36,8 +36,10 @@ from core.workflow import (
     WorkflowEdge,
     WorkflowNode,
     WorkflowSpec,
+    cancel_local_nextflow_run,
     compile_workflow_bundle,
     download_run_artifacts,
+    load_project_run_records,
     materialize_bundle,
     persist_run_record,
     query_local_nextflow_run,
@@ -140,7 +142,7 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
-            rows = [item for item in self._workflow_runs.values() if item["project_id"] == project_id]
+            rows = list(self._load_workflow_runs(project_id).values())
             rows.sort(key=lambda item: float(item.get("created_at", 0.0)), reverse=True)
             return rows
 
@@ -149,9 +151,7 @@ class RuntimeService:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
             normalized_run_id = str(run_id or "").strip()
-            row = self._workflow_runs.get(normalized_run_id)
-            if row is None or row.get("project_id") != project_id:
-                raise RuntimeServiceError(f"Run not found: {run_id}")
+            row = self._get_workflow_run(project_id=project_id, run_id=normalized_run_id)
             self._ensure_ssh_connected()
             remote_task_dir = str(row.get("remote_task_dir") or "").strip()
             if remote_task_dir:
@@ -161,8 +161,7 @@ class RuntimeService:
                 row["updated_at"] = time.time()
                 if remote_status["log_tail"]:
                     row["message"] = remote_status["log_tail"].splitlines()[-1]
-                if row.get("local_run_dir"):
-                    persist_run_record(str(Path(str(row["local_run_dir"])) / "run_record.json"), row)
+                self._persist_workflow_run(row)
             return row
 
     def create_run(self, *, project_id: str, workflow: dict[str, Any], launch: dict[str, Any]) -> dict[str, Any]:
@@ -215,26 +214,36 @@ class RuntimeService:
             payload["launcher_pid"] = remote_submission["launcher_pid"]
             payload["artifacts"] = []
             self._workflow_runs[run_id] = payload
-            persist_run_record(local_layout["record_path"], payload)
+            self._persist_workflow_run(payload)
             return payload
 
     def cancel_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
-            row = self._workflow_runs.get(str(run_id or "").strip())
-            if row is None or row.get("project_id") != project_id:
-                raise RuntimeServiceError(f"Run not found: {run_id}")
-            raise RuntimeServiceError("Workflow run cancellation is not implemented until the remote launcher backend lands.")
+            row = self._get_workflow_run(project_id=project_id, run_id=str(run_id or "").strip())
+            self._ensure_ssh_connected()
+            remote_task_dir = str(row.get("remote_task_dir") or "").strip()
+            if not remote_task_dir:
+                raise RuntimeServiceError(f"Run {run_id} is missing remote_task_dir and cannot be cancelled")
+            remote_status = cancel_local_nextflow_run(self._run_ssh_command, remote_task_dir=remote_task_dir)
+            row["remote_status"] = remote_status
+            row["status"] = "cancelled"
+            row["updated_at"] = time.time()
+            row["message"] = "Workflow run cancellation requested."
+            if remote_status.get("launcher_pid"):
+                row["launcher_pid"] = remote_status["launcher_pid"]
+            if remote_status.get("nextflow_pid"):
+                row["nextflow_pid"] = remote_status["nextflow_pid"]
+            self._persist_workflow_run(row)
+            return row
 
     def get_run_artifacts(self, *, project_id: str, run_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
             normalized_run_id = str(run_id or "").strip()
-            row = self._workflow_runs.get(normalized_run_id)
-            if row is None or row.get("project_id") != project_id:
-                raise RuntimeServiceError(f"Run not found: {run_id}")
+            row = self._get_workflow_run(project_id=project_id, run_id=normalized_run_id)
             self._ensure_ssh_connected()
             ssh = self._service_locator.ssh_service
             project_dir = self._project_manager.current_project_dir
@@ -247,8 +256,7 @@ class RuntimeService:
                 remote_bundle_dir=str(row.get("remote_bundle_dir") or "").strip(),
             )
             row["artifacts"] = artifacts
-            if row.get("local_run_dir"):
-                persist_run_record(str(Path(str(row["local_run_dir"])) / "run_record.json"), row)
+            self._persist_workflow_run(row)
             return artifacts
 
     def doctor_server(self, *, server_id: str) -> dict[str, Any]:
@@ -1743,6 +1751,38 @@ class RuntimeService:
             data_refs=[str(item) for item in data_refs],
             resume=bool(launch.get("resume", True)),
         )
+
+    def _load_workflow_runs(self, project_id: str) -> dict[str, dict[str, Any]]:
+        project_dir = self._project_manager.current_project_dir
+        if project_dir is None:
+            raise RuntimeServiceError("Current project directory is not available")
+        rows: dict[str, dict[str, Any]] = {}
+        for run_id, payload in load_project_run_records(project_dir).items():
+            if payload.get("project_id") == project_id:
+                rows[run_id] = payload
+        for run_id, payload in self._workflow_runs.items():
+            if payload.get("project_id") == project_id:
+                rows[run_id] = payload
+        self._workflow_runs.update(rows)
+        return rows
+
+    def _get_workflow_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            raise RuntimeServiceError("run_id is required")
+        rows = self._load_workflow_runs(project_id)
+        row = rows.get(normalized_run_id)
+        if row is None:
+            raise RuntimeServiceError(f"Run not found: {run_id}")
+        self._workflow_runs[normalized_run_id] = row
+        return row
+
+    def _persist_workflow_run(self, row: dict[str, Any]) -> None:
+        local_run_dir = str(row.get("local_run_dir") or "").strip()
+        if not local_run_dir:
+            raise RuntimeServiceError(f"Workflow run {row.get('run_id') or '<unknown>'} is missing local_run_dir")
+        record_path = str(Path(local_run_dir) / "run_record.json")
+        persist_run_record(record_path, row)
 
     def _recommend_server_profile(self, env_status: dict[str, Any]) -> str:
         if self._remote_command_available("docker") and self._remote_runtime_ok("docker --version"):

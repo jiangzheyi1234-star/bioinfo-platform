@@ -49,6 +49,33 @@ def persist_run_record(record_path: str, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def load_run_record(record_path: str) -> dict[str, Any]:
+    path = Path(record_path)
+    if not path.exists():
+        raise RuntimeError(f"workflow run record not found: {record_path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"workflow run record is invalid JSON: {record_path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"workflow run record must be an object: {record_path}")
+    run_id = str(payload.get("run_id") or "").strip()
+    if not run_id:
+        raise RuntimeError(f"workflow run record is missing run_id: {record_path}")
+    return payload
+
+
+def load_project_run_records(project_dir: Path) -> dict[str, dict[str, Any]]:
+    run_root = project_dir / "workflow_runs"
+    if not run_root.exists():
+        return {}
+    rows: dict[str, dict[str, Any]] = {}
+    for record_path in sorted(run_root.glob("*/run_record.json")):
+        payload = load_run_record(str(record_path))
+        rows[str(payload["run_id"])] = payload
+    return rows
+
+
 def recursive_upload_directory(ssh_service: Any, local_dir: Path, remote_dir: str) -> None:
     sftp = ssh_service.sftp()
     try:
@@ -109,6 +136,7 @@ def query_local_nextflow_run(ssh_run_fn, *, remote_task_dir: str, timeout: int =
         "echo __STATUS__; cat " + shlex.quote(f"{remote_task_dir}/status.txt") + " 2>/dev/null || true; "
         "echo __EXIT__; cat " + shlex.quote(f"{remote_task_dir}/exit_code.txt") + " 2>/dev/null || true; "
         "echo __PID__; cat " + shlex.quote(f"{remote_task_dir}/launcher.pid") + " 2>/dev/null || true; "
+        "echo __NFPID__; cat " + shlex.quote(f"{remote_task_dir}/nextflow.pid") + " 2>/dev/null || true; "
         "echo __HEARTBEAT__; cat " + shlex.quote(f"{remote_task_dir}/heartbeat.txt") + " 2>/dev/null || true; "
         "echo __LOG__; tail -n 60 " + shlex.quote(f"{remote_task_dir}/task.log") + " 2>/dev/null || true"
     )
@@ -123,6 +151,8 @@ def query_local_nextflow_run(ssh_run_fn, *, remote_task_dir: str, timeout: int =
         stage = "completed"
     elif status == "FAILED":
         stage = "failed"
+    elif status == "CANCELLED":
+        stage = "cancelled"
     elif status in {"PENDING", "PREPARING", "SUBMITTED"}:
         stage = "pending"
     return {
@@ -130,8 +160,54 @@ def query_local_nextflow_run(ssh_run_fn, *, remote_task_dir: str, timeout: int =
         "stage": stage,
         "exit_code": exit_code,
         "launcher_pid": str(sections.get("__PID__", "")).strip(),
+        "nextflow_pid": str(sections.get("__NFPID__", "")).strip(),
         "heartbeat": str(sections.get("__HEARTBEAT__", "")).strip(),
         "log_tail": str(sections.get("__LOG__", "")).strip(),
+    }
+
+
+def cancel_local_nextflow_run(ssh_run_fn, *, remote_task_dir: str, timeout: int = 20) -> dict[str, Any]:
+    command = f"""
+TASK_DIR=$(eval echo {expand_home_expr(remote_task_dir)})
+STATUS_FILE="$TASK_DIR/status.txt"
+EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
+CANCEL_FILE="$TASK_DIR/cancel_requested"
+LAUNCHER_PID_FILE="$TASK_DIR/launcher.pid"
+NEXTFLOW_PID_FILE="$TASK_DIR/nextflow.pid"
+touch "$CANCEL_FILE"
+launcher_pid=""
+nextflow_pid=""
+if [ -f "$LAUNCHER_PID_FILE" ]; then
+  launcher_pid=$(cat "$LAUNCHER_PID_FILE" 2>/dev/null || true)
+fi
+if [ -f "$NEXTFLOW_PID_FILE" ]; then
+  nextflow_pid=$(cat "$NEXTFLOW_PID_FILE" 2>/dev/null || true)
+fi
+for pid in "$nextflow_pid" "$launcher_pid"; do
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+  fi
+done
+sleep 2
+for pid in "$nextflow_pid" "$launcher_pid"; do
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+done
+echo "CANCELLED" > "$STATUS_FILE"
+echo "130" > "$EXIT_CODE_FILE"
+printf '__LAUNCHER__\\n%s\\n__NEXTFLOW__\\n%s\\n' "$launcher_pid" "$nextflow_pid"
+""".strip()
+    rc, out, err = ssh_run_fn(command, timeout)
+    if rc != 0:
+        raise RuntimeError((err or out or "cancel run failed").strip()[:200])
+    sections = _split_marked_sections(out)
+    return {
+        "raw_status": "CANCELLED",
+        "stage": "cancelled",
+        "exit_code": "130",
+        "launcher_pid": str(sections.get("__LAUNCHER__", "")).strip(),
+        "nextflow_pid": str(sections.get("__NEXTFLOW__", "")).strip(),
     }
 
 
@@ -194,6 +270,8 @@ STATUS_FILE="$TASK_DIR/status.txt"
 EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
 HEARTBEAT_FILE="$TASK_DIR/heartbeat.txt"
 PID_FILE="$TASK_DIR/launcher.pid"
+NEXTFLOW_PID_FILE="$TASK_DIR/nextflow.pid"
+CANCEL_FILE="$TASK_DIR/cancel_requested"
 LOG_FILE="$TASK_DIR/task.log"
 
 echo "PENDING" > "$STATUS_FILE"
@@ -209,11 +287,24 @@ _heartbeat() {{
 _heartbeat &
 HB_PID=$!
 
+_forward_cancel() {{
+  touch "$CANCEL_FILE"
+  if [ -n "${{NF_PID:-}}" ] && kill -0 "${{NF_PID}}" 2>/dev/null; then
+    kill "${{NF_PID}}" 2>/dev/null || true
+  fi
+}}
+trap _forward_cancel INT TERM
+
 _cleanup() {{
   local ec=$?
   kill $HB_PID 2>/dev/null || true
+  if [ -f "$CANCEL_FILE" ]; then
+    ec=130
+  fi
   echo "$ec" > "$EXIT_CODE_FILE"
-  if [ "$ec" -eq 0 ]; then
+  if [ "$ec" -eq 130 ]; then
+    echo "CANCELLED" > "$STATUS_FILE"
+  elif [ "$ec" -eq 0 ]; then
     echo "DONE" > "$STATUS_FILE"
   else
     echo "FAILED" > "$STATUS_FILE"
@@ -222,6 +313,7 @@ _cleanup() {{
 trap _cleanup EXIT
 
 mkdir -p "$TASK_DIR" "$BUNDLE_DIR" "$WORK_DIR" "$OUTPUT_DIR"
+rm -f "$CANCEL_FILE"
 cd "$BUNDLE_DIR"
 echo "RUNNING" > "$STATUS_FILE"
 
@@ -232,19 +324,16 @@ nextflow -C resolved.config run main.nf \\
   -with-report report.html \\
   -with-timeline timeline.html \\
   -with-trace trace.txt \\
-  -with-dag dag.html \\
-  -bg
+  -with-dag dag.html &
+NF_PID=$!
+echo "$NF_PID" > "$NEXTFLOW_PID_FILE"
 
-while true; do
+while kill -0 "$NF_PID" 2>/dev/null; do
   date +%s > "$HEARTBEAT_FILE"
-  if grep -q "Execution complete -- Goodbye" .nextflow.log 2>/dev/null; then
-    exit 0
-  fi
-  if grep -q "Session aborted" .nextflow.log 2>/dev/null || grep -q "^ERROR ~" .nextflow.log 2>/dev/null; then
-    exit 1
-  fi
   sleep 10
 done
+
+wait "$NF_PID"
 """
 
 
