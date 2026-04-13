@@ -41,9 +41,12 @@ export type DatabaseEntry = {
   db_id: string;
   name: string;
   category: string;
+  description?: string;
   resolved_path: string;
   configured_override: string;
   installable: boolean;
+  install_job_id?: string;
+  install_stage?: string;
   status?: string;
   status_message?: string;
 };
@@ -101,6 +104,73 @@ export type SSHStatus = {
 export type SSHDiagnosticStep = {
   name: string;
   status: "ok" | "fail" | "running";
+  message: string;
+};
+
+export type PreflightCheck = {
+  key: string;
+  label: string;
+  status: "ok" | "warn" | "fail";
+  value: string;
+  message: string;
+};
+
+export type PreflightResult = {
+  ok: boolean;
+  arch: string;
+  free_disk_gb: number;
+  checks: PreflightCheck[];
+  failures: string[];
+  warnings: string[];
+};
+
+export type ToolEnvStatus = {
+  tool_id: string;
+  name: string;
+  env_name: string;
+  version: string;
+  installed: boolean;
+  installable: boolean;
+  status: string;
+  message: string;
+  job_id: string;
+  log_text: string;
+  log_size: number;
+  shared_tool_ids: string[];
+};
+
+export type MiniforgeStatus = {
+  installed: boolean;
+  status: string;
+  version: string;
+  conda_executable: string;
+  message: string;
+  job_id: string;
+  log_text: string;
+  task_status: Record<string, unknown>;
+};
+
+export type RemoteEnvStatus = {
+  miniforge: MiniforgeStatus;
+  tool_envs: ToolEnvStatus[];
+  summary: {
+    total: number;
+    installed: number;
+    missing: number;
+    env_paths: string[];
+  };
+};
+
+export type InstallJobSnapshot = {
+  job_id: string;
+  status: string;
+  done: boolean;
+  ok: boolean;
+  exit_code: string;
+  heartbeat: string;
+  log_text: string;
+  log_lines: string[];
+  progress: Record<string, unknown>;
   message: string;
 };
 

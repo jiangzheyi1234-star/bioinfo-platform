@@ -31,7 +31,13 @@ def _parse_free_disk_gb(raw_kb: str) -> float:
     return kb / 1024.0 / 1024.0
 
 
-def run_preflight(ssh_run_fn: SshRunFn) -> ServerCapabilities:
+def probe_preflight(ssh_run_fn: SshRunFn) -> ServerCapabilities:
+    """Probe remote installer prerequisites without enforcing failures()."""
+
+    return run_preflight_raw(ssh_run_fn)
+
+
+def run_preflight_raw(ssh_run_fn: SshRunFn) -> ServerCapabilities:
     """Probe remote installer prerequisites in one SSH roundtrip."""
 
     rc, stdout, stderr = ssh_run_fn(_PREFLIGHT_CMD, 20)
@@ -44,7 +50,7 @@ def run_preflight(ssh_run_fn: SshRunFn) -> ServerCapabilities:
         preview = (stdout or stderr or "").strip()
         raise PreflightError([f"服务器预检输出不完整: {preview[:200]}"])
 
-    caps = ServerCapabilities(
+    return ServerCapabilities(
         arch=str(lines[0]).strip(),
         has_curl=_to_bool(lines[1]),
         has_wget=_to_bool(lines[2]),
@@ -52,6 +58,12 @@ def run_preflight(ssh_run_fn: SshRunFn) -> ServerCapabilities:
         has_sha256sum=_to_bool(lines[4]),
         free_disk_gb=_parse_free_disk_gb(lines[5]),
     )
+
+
+def run_preflight(ssh_run_fn: SshRunFn) -> ServerCapabilities:
+    """Probe remote installer prerequisites and raise on blocking failures."""
+
+    caps = run_preflight_raw(ssh_run_fn)
     failures = caps.failures(min_free_disk_gb=MIN_FREE_DISK_GB)
     if failures:
         raise PreflightError(failures)

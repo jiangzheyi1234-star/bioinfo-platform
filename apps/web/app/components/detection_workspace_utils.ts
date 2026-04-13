@@ -2,7 +2,12 @@ import type {
   AppLogPayload,
   DatabaseEntry,
   Execution,
+  InstallJobSnapshot,
+  MiniforgeStatus,
+  PreflightCheck,
+  PreflightResult,
   Project,
+  RemoteEnvStatus,
   RuntimeEvent,
   Sample,
   SettingsPayload,
@@ -10,6 +15,7 @@ import type {
   SSHSettings,
   SSHStatus,
   Task,
+  ToolEnvStatus,
   ToolSummary,
 } from "./detection_workspace_types";
 
@@ -125,11 +131,136 @@ export function toDatabaseEntry(value: unknown): DatabaseEntry | null {
     db_id: dbId,
     name: safeText(value.name, "unnamed db"),
     category: safeText(value.category, "unknown"),
+    description: safeText(value.description),
     resolved_path: safeText(value.resolved_path),
     configured_override: safeText(value.configured_override),
     installable: Boolean(value.installable),
+    install_job_id: safeText(value.install_job_id) || undefined,
+    install_stage: safeText(value.install_stage) || undefined,
     status: safeText(value.status) || undefined,
     status_message: safeText(value.status_message) || undefined,
+  };
+}
+
+export function toPreflightCheck(value: unknown): PreflightCheck | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const key = safeText(value.key);
+  if (!key) {
+    return null;
+  }
+  const status = safeText(value.status) as PreflightCheck["status"];
+  if (!status || !["ok", "warn", "fail"].includes(status)) {
+    return null;
+  }
+  return {
+    key,
+    label: safeText(value.label, key),
+    status,
+    value: safeText(value.value),
+    message: safeText(value.message),
+  };
+}
+
+export function parsePreflightResult(value: unknown): PreflightResult | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    ok: Boolean(value.ok),
+    arch: safeText(value.arch),
+    free_disk_gb: Number(value.free_disk_gb || 0),
+    checks: Array.isArray(value.checks)
+      ? value.checks.map(toPreflightCheck).filter((item: PreflightCheck | null): item is PreflightCheck => !!item)
+      : [],
+    failures: Array.isArray(value.failures) ? value.failures.map((item) => safeText(item)).filter(Boolean) : [],
+    warnings: Array.isArray(value.warnings) ? value.warnings.map((item) => safeText(item)).filter(Boolean) : [],
+  };
+}
+
+export function toToolEnvStatus(value: unknown): ToolEnvStatus | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const toolId = safeText(value.tool_id);
+  if (!toolId) {
+    return null;
+  }
+  return {
+    tool_id: toolId,
+    name: safeText(value.name, toolId),
+    env_name: safeText(value.env_name),
+    version: safeText(value.version),
+    installed: Boolean(value.installed),
+    installable: Boolean(value.installable),
+    status: safeText(value.status, "unknown"),
+    message: safeText(value.message),
+    job_id: safeText(value.job_id),
+    log_text: safeText(value.log_text),
+    log_size: Number(value.log_size || 0),
+    shared_tool_ids: Array.isArray(value.shared_tool_ids) ? value.shared_tool_ids.map((item) => safeText(item)).filter(Boolean) : [],
+  };
+}
+
+export function parseMiniforgeStatus(value: unknown): MiniforgeStatus | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    installed: Boolean(value.installed),
+    status: safeText(value.status, "unknown"),
+    version: safeText(value.version),
+    conda_executable: safeText(value.conda_executable),
+    message: safeText(value.message),
+    job_id: safeText(value.job_id),
+    log_text: safeText(value.log_text),
+    task_status: isRecord(value.task_status) ? value.task_status : {},
+  };
+}
+
+export function parseRemoteEnvStatus(value: unknown): RemoteEnvStatus | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const miniforge = parseMiniforgeStatus(value.miniforge);
+  if (!miniforge) {
+    return null;
+  }
+  const summary = isRecord(value.summary) ? value.summary : {};
+  return {
+    miniforge,
+    tool_envs: Array.isArray(value.tool_envs)
+      ? value.tool_envs.map(toToolEnvStatus).filter((item: ToolEnvStatus | null): item is ToolEnvStatus => !!item)
+      : [],
+    summary: {
+      total: Number(summary.total || 0),
+      installed: Number(summary.installed || 0),
+      missing: Number(summary.missing || 0),
+      env_paths: Array.isArray(summary.env_paths) ? summary.env_paths.map((item) => safeText(item)).filter(Boolean) : [],
+    },
+  };
+}
+
+export function parseInstallJobSnapshot(value: unknown): InstallJobSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const jobId = safeText(value.job_id);
+  if (!jobId) {
+    return null;
+  }
+  return {
+    job_id: jobId,
+    status: safeText(value.status, "unknown"),
+    done: Boolean(value.done),
+    ok: Boolean(value.ok),
+    exit_code: safeText(value.exit_code),
+    heartbeat: safeText(value.heartbeat),
+    log_text: safeText(value.log_text),
+    log_lines: Array.isArray(value.log_lines) ? value.log_lines.map((item) => safeText(item)).filter(Boolean) : [],
+    progress: isRecord(value.progress) ? value.progress : {},
+    message: safeText(value.message),
   };
 }
 
