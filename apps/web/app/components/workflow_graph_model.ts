@@ -44,6 +44,10 @@ const NODE_GAP_X = 88;
 const NODE_GAP_Y = 28;
 const CANVAS_PADDING = 40;
 
+function hasStoredPosition(node: WorkflowSpecView["nodes"][number]) {
+  return !!node.position && Number.isFinite(node.position.x) && Number.isFinite(node.position.y);
+}
+
 function safeText(value: unknown, fallback = "") {
   if (typeof value === "string") {
     return value.trim();
@@ -160,14 +164,16 @@ export function buildWorkflowDagModel(
     });
     bucket.forEach((node, index) => {
       const matchedArtifacts = matchArtifactsForNode(node, artifacts);
+      const fallbackX = CANVAS_PADDING + depth * (NODE_WIDTH + NODE_GAP_X);
+      const fallbackY = CANVAS_PADDING + index * (NODE_HEIGHT + NODE_GAP_Y);
       layoutNodes.push({
         node_id: node.node_id,
         label: safeText(node.label, node.node_id) || node.node_id,
         tool_id: safeText(node.tool_id, "tool") || "tool",
         depth,
         order: index,
-        x: CANVAS_PADDING + depth * (NODE_WIDTH + NODE_GAP_X),
-        y: CANVAS_PADDING + index * (NODE_HEIGHT + NODE_GAP_Y),
+        x: hasStoredPosition(node) ? node.position!.x : fallbackX,
+        y: hasStoredPosition(node) ? node.position!.y : fallbackY,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
         state: selectedState,

@@ -4,15 +4,25 @@ import { useMemo } from "react";
 import {
   Background,
   Controls,
+  Handle,
   MiniMap,
+  MarkerType,
+  Position,
   ReactFlow,
+  type Connection,
   type Edge,
   type Node,
   type NodeProps,
   type OnNodeClick,
 } from "@xyflow/react";
 
-import type { WorkflowArtifact, WorkflowCompilePreview, WorkflowRun, WorkflowSpecView } from "./detection_workspace_types";
+import type {
+  WorkflowArtifact,
+  WorkflowCompilePreview,
+  WorkflowNodePosition,
+  WorkflowRun,
+  WorkflowSpecView,
+} from "./detection_workspace_types";
 import { buildWorkflowDagModel, inferRunState, type WorkflowDagNodeState } from "./workflow_graph_model";
 
 type WorkflowGraphEditorProps = {
@@ -22,6 +32,9 @@ type WorkflowGraphEditorProps = {
   artifacts: WorkflowArtifact[];
   selectedNodeId?: string | null;
   onSelectNode?: (nodeId: string) => void;
+  onConnectNodes?: (sourceNodeId: string, targetNodeId: string) => void;
+  onPersistNodePosition?: (nodeId: string, position: WorkflowNodePosition) => void;
+  onDeleteEdge?: (edgeId: string) => void;
 };
 
 type WorkflowGraphNodeData = {
@@ -76,6 +89,7 @@ function WorkflowNodeCard({ data, selected }: NodeProps<Node<WorkflowGraphNodeDa
         overflow: "hidden",
       }}
     >
+      <Handle type="target" position={Position.Left} style={{ background: accent, width: 10, height: 10, border: "none" }} />
       <div
         style={{
           padding: "10px 14px",
@@ -96,6 +110,7 @@ function WorkflowNodeCard({ data, selected }: NodeProps<Node<WorkflowGraphNodeDa
           <span className="workflow-graph-pill">out {data.downstream}</span>
         </div>
       </div>
+      <Handle type="source" position={Position.Right} style={{ background: accent, width: 10, height: 10, border: "none" }} />
     </div>
   );
 }
@@ -109,6 +124,9 @@ export function WorkflowGraphEditor({
   artifacts,
   selectedNodeId,
   onSelectNode,
+  onConnectNodes,
+  onPersistNodePosition,
+  onDeleteEdge,
 }: WorkflowGraphEditorProps) {
   const model = useMemo(() => {
     if (!workflow) {
@@ -148,6 +166,12 @@ export function WorkflowGraphEditor({
       target: edge.target_node_id,
       animated: edge.selected || inferRunState(selectedRun) === "running",
       label: [edge.output_name, edge.input_name].filter(Boolean).join(" -> "),
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 18,
+        height: 18,
+        color: edge.selected ? "#0f172a" : "rgba(51, 65, 85, 0.45)",
+      },
       style: {
         stroke: edge.selected ? "#0f172a" : "rgba(51, 65, 85, 0.45)",
         strokeWidth: edge.selected ? 2.2 : 1.5,
@@ -162,6 +186,12 @@ export function WorkflowGraphEditor({
   const onNodeClick: OnNodeClick<Node<WorkflowGraphNodeData>> = (_event, node) => {
     onSelectNode?.(node.id);
   };
+  const onConnect = (connection: Connection) => {
+    if (!connection.source || !connection.target || connection.source === connection.target) {
+      return;
+    }
+    onConnectNodes?.(connection.source, connection.target);
+  };
 
   const headline = workflow ? `${workflow.nodes.length} nodes · ${workflow.edges.length} edges` : "等待 workflow 初始化";
   const bundleId = compilePreview?.bundle_id || "pending";
@@ -171,7 +201,7 @@ export function WorkflowGraphEditor({
       <div className="workflow-graph-shell">
         <div className="workflow-graph-empty">
           <strong>Workflow Graph</strong>
-          <span>等待 workflow 载入后显示 React Flow 视图。</span>
+          <span>等待 workflow 载入后显示 composer；支持拖拽、连线和边删除。</span>
         </div>
       </div>
     );
@@ -195,10 +225,19 @@ export function WorkflowGraphEditor({
           edges={edges}
           nodeTypes={nodeTypes}
           fitView
-          nodesDraggable={false}
-          nodesConnectable={false}
+          nodesDraggable
+          nodesConnectable
+          nodesFocusable
+          edgesFocusable
+          nodesDeletable={false}
+          deleteKeyCode={["Backspace", "Delete"]}
           elementsSelectable
           onNodeClick={onNodeClick}
+          onConnect={onConnect}
+          onNodeDragStop={(_event, node) => onPersistNodePosition?.(node.id, { x: node.position.x, y: node.position.y })}
+          onEdgesDelete={(deletedEdges) => {
+            deletedEdges.forEach((edge) => onDeleteEdge?.(edge.id));
+          }}
         >
           <Background color="rgba(148, 163, 184, 0.24)" gap={20} />
           <MiniMap pannable zoomable />

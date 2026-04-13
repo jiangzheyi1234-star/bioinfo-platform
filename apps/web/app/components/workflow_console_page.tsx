@@ -1,6 +1,7 @@
 "use client";
 
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
+import { WorkflowEdgeListEditor } from "./workflow_edge_list_editor";
 import { WorkflowGraphEditor } from "./workflow_graph_editor";
 import { WorkflowNodeListEditor } from "./workflow_node_list_editor";
 import { formatDateTime, mapWorkflowRunStatus, normalizeFieldValue } from "./workflow_support";
@@ -19,6 +20,7 @@ export function WorkflowConsolePage() {
     compileBusy,
     runBusy,
     workflowMessage,
+    toolDescriptorBusy,
     runs,
     selectedRunId,
     selectedRun,
@@ -31,8 +33,10 @@ export function WorkflowConsolePage() {
     artifactsExpanded,
     technicalExpanded,
     selectedNodeId,
+    selectedNode,
     detailTab,
     schemaSummary,
+    compatibilitySummary,
     launchProfile,
     artifactSummary,
     traceArtifacts,
@@ -52,8 +56,12 @@ export function WorkflowConsolePage() {
     fetchResolvedConfig,
     cancelRun,
     updateNode,
+    updateNodePosition,
     addNode,
     removeNode,
+    updateEdge,
+    connectNodes,
+    removeEdge,
     runCompile,
     submitRun,
   } = useWorkflowConsoleState();
@@ -62,7 +70,7 @@ export function WorkflowConsolePage() {
     return <WorkspaceEmptyState mark="WF" label="先选择一个项目" hint="工作台会围绕当前项目的 workflow run 展开。" />;
   }
 
-  const doctorSummary = describeDoctor(doctor, doctorError);
+  const doctorSummary = describeDoctor(compatibilitySummary, doctorError);
   const runHeadline = selectedRun
     ? `${mapWorkflowRunStatus(selectedRun.status)} · ${formatDateTime(selectedRun.updated_at || selectedRun.created_at)}`
     : "当前项目还没有 workflow run。";
@@ -101,10 +109,14 @@ export function WorkflowConsolePage() {
         <section className="workflow-console-primary">
           <WorkspaceSectionHeader
             title="DAG Overview"
-            description={selectedRun ? "查看当前 workflow run 的依赖图、节点关系和已匹配产物。" : "先在图层里检查 workflow 结构，再提交新的 run。"}
+            description={
+              selectedRun
+                ? "查看当前 workflow run 的依赖图、节点关系和已匹配产物；draft 图谱仍可继续编辑。"
+                : "在图层中拖拽布局、创建连线，再提交新的 workflow run。"
+            }
             aside={
               <div className="workflow-console-inline-note">
-                {nodeCount} nodes · {edgeCount} edges
+                {nodeCount} nodes · {edgeCount} edges{selectedNode ? ` · selected ${selectedNode.label}` : ""}
               </div>
             }
           />
@@ -115,6 +127,9 @@ export function WorkflowConsolePage() {
             artifacts={artifacts}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}
+            onConnectNodes={connectNodes}
+            onPersistNodePosition={updateNodePosition}
+            onDeleteEdge={removeEdge}
           />
 
           <WorkspaceSectionHeader
@@ -224,7 +239,15 @@ export function WorkflowConsolePage() {
                 />
               </label>
 
-              <WorkflowNodeListEditor workflow={workflow} onAddNode={addNode} onUpdateNode={updateNode} onRemoveNode={removeNode} />
+              <WorkflowNodeListEditor
+                workflow={workflow}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+                onAddNode={addNode}
+                onUpdateNode={updateNode}
+                onRemoveNode={removeNode}
+              />
+              <WorkflowEdgeListEditor workflow={workflow} onUpdateEdge={updateEdge} onRemoveEdge={removeEdge} />
             </div>
 
             <div className="workflow-panel-stack">
@@ -236,7 +259,7 @@ export function WorkflowConsolePage() {
               <div className="workflow-param-panel">
                 <div className="workflow-node-list-head">
                   <strong>参数面板</strong>
-                  <span className="muted">{launchProfile.profile_id}</span>
+                  <span className="muted">{launchProfile?.profile_id || "未选定 profile"}</span>
                 </div>
                 {schemaSummary.unsupported.length > 0 ? (
                   <p className="workflow-panel-error">以下字段类型暂不支持表单渲染：{schemaSummary.unsupported.join(", ")}</p>
@@ -281,11 +304,48 @@ export function WorkflowConsolePage() {
                 ))}
               </div>
 
+              <div className="workflow-param-panel">
+                <div className="workflow-node-list-head">
+                  <strong>Profile 兼容性</strong>
+                  <span className="muted">{compatibilitySummary.selection_reason}</span>
+                </div>
+                {toolDescriptorBusy ? <p className="workflow-console-inline-note">正在加载节点描述符…</p> : null}
+                <div className="workflow-compatibility-grid">
+                  <div>
+                    <strong>服务器可用</strong>
+                    <ul className="workflow-compatibility-list">
+                      {compatibilitySummary.server_profiles.map((item) => (
+                        <li key={`server-${item.profile.profile_id}`}>
+                          <span>{item.profile.profile_id}</span>
+                          <small className="muted">{item.profile.executor} / {item.profile.packaging_mode}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <strong>当前 workflow 可用</strong>
+                    <ul className="workflow-compatibility-list">
+                      {compatibilitySummary.workflow_profiles.map((item) => (
+                        <li key={`workflow-${item.profile.profile_id}`}>
+                          <span>
+                            {item.profile.profile_id} {item.compatible_with_workflow ? "✅" : "❌"}
+                          </span>
+                          <small className="muted">{item.support_level}</small>
+                          {item.incompatibility_reasons.length > 0 ? (
+                            <small className="workflow-panel-error">{item.incompatibility_reasons.join("；")}</small>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
               <div className="workflow-action-row">
-                <button type="button" className="control-btn" disabled={compileBusy} onClick={() => void runCompile()}>
+                <button type="button" className="control-btn" disabled={compileBusy || toolDescriptorBusy} onClick={() => void runCompile()}>
                   {compileBusy ? "编译中..." : "更新 Bundle"}
                 </button>
-                <button type="button" className="control-btn control-btn--primary" disabled={runBusy} onClick={() => void submitRun()}>
+                <button type="button" className="control-btn control-btn--primary" disabled={runBusy || toolDescriptorBusy} onClick={() => void submitRun()}>
                   {runBusy ? "提交中..." : "提交 Run"}
                 </button>
               </div>

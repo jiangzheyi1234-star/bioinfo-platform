@@ -40,6 +40,10 @@
   - `/workflows`、`/runs`、`/artifacts` 仅保留兼容跳转，统一导向 `/workspace`
   - 工作台默认聚焦当前 run，workflow 规格与 artifacts 退为次级折叠区
   - starter workflow、compile preview、submit run、run detail、artifacts 已统一进单控制台
+- `2026-04-14` closure follow-up 已补齐 `/workspace` 主入口与 composer 闭环：
+  - `workspace_root_shell.tsx` 只把 `/workspace`、`/connect`、`/settings` 视为一等 shell 路由；`/history`、`/results`、`/workbench`、`/toolflows` 等 legacy 页面仅保留显式 redirect，不再作为独立 shell surface
+  - workflow composer 支持 React Flow 拖拽布局、节点连线、边删除，以及 draft graph 的 `localStorage` 持久化
+  - Workflow 规格面板新增 step template palette 与 connection editor，保证图上连线后仍能显式补全 input/output 命名
 - `M7 Retire legacy single-tool execution` 已进入第二阶段：
   - workflow 规格编辑器不再依赖 tool catalog，下发的是纯 workflow spec
   - 旧工具主导航、旧工作台页面壳、旧工具目录与 descriptor 入口已删除
