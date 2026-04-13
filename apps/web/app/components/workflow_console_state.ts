@@ -25,13 +25,17 @@ import {
   toWorkflowRun,
 } from "./detection_workspace_utils";
 import {
-  buildProfileFromDoctor,
   createStarterWorkflow,
   createWorkflowEdgeDraft,
   createWorkflowNodeDraft,
   getSchemaFields,
   normalizeFieldValue,
 } from "./workflow_support";
+import {
+  buildWorkflowCompatibilitySummary,
+  parseWorkflowToolDescriptor,
+  summarizeWorkflowCompatibility,
+} from "./workflow_profile_compatibility";
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -131,6 +135,10 @@ export function useWorkflowConsoleState() {
   const selectedNode = useMemo(
     () => workflow?.nodes.find((item) => item.node_id === selectedNodeId) ?? null,
     [workflow, selectedNodeId]
+  );
+  const toolIds = useMemo(
+    () => Array.from(new Set((workflow?.nodes || []).map((node) => node.tool_id).filter(Boolean))),
+    [workflow]
   );
 
   const refreshRuns = async (preferredRunId?: string) => {
@@ -284,7 +292,7 @@ export function useWorkflowConsoleState() {
     void (async () => {
       try {
         const entries = await Promise.all(
-          toolIds.map(async (toolId) => {
+          toolIds.map(async (toolId: string) => {
             const resp = await fetch(`${apiBase()}/api/v1/workflows/tools/${encodeURIComponent(toolId)}/descriptor`);
             if (!resp.ok) {
               return [toolId, { tool_id: toolId, name: toolId, workflow_support: null }] as const;
@@ -313,7 +321,7 @@ export function useWorkflowConsoleState() {
     return () => {
       active = false;
     };
-  }, [workflow, setShellError]);
+  }, [toolIds, workflow, setShellError]);
 
   useEffect(() => {
     if (!workflow?.nodes.length) {
