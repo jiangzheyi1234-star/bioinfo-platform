@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -69,3 +70,12 @@ class RunWorkbenchToolRequest(BaseModel):
     task_id: str | None = None
     tool_id: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+class RemoteEnvInstallRequest(BaseModel):
+    target: Literal["miniforge", "tool_env"]
+    tool_id: str | None = None
+
+
+class DatabaseInstallRequest(BaseModel):
+    mirror_index: int = Field(default=0, ge=0)

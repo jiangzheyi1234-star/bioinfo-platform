@@ -11,6 +11,8 @@ from apps.api.models import (
     CreateProjectRequest,
     CreateTaskRequest,
     CreateSampleRequest,
+    DatabaseInstallRequest,
+    RemoteEnvInstallRequest,
     RunWorkbenchToolRequest,
     SSHConnectionRequest,
     SubmitExecutionRequest,
@@ -126,6 +128,38 @@ async def test_ssh_connection(payload: SSHConnectionRequest | None = None) -> di
     try:
         patch = payload.model_dump(exclude_none=True) if payload is not None else None
         return {"item": _runtime().test_ssh_connection(patch)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/preflight")
+async def run_ssh_preflight() -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_ssh_preflight()}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/ssh/env/status")
+async def get_remote_env_status() -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_remote_env_status()}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/env/install")
+async def install_remote_env(payload: RemoteEnvInstallRequest) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().install_remote_env(target=payload.target, tool_id=payload.tool_id or "")}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/ssh/env/install/{job_id}")
+async def get_remote_env_install_status(job_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_remote_env_install_status(job_id=job_id)}
     except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -265,6 +299,23 @@ async def create_sample(project_id: str, payload: CreateSampleRequest) -> dict[s
 async def list_databases(project_id: str, include_status: bool = False) -> dict[str, Any]:
     try:
         return {"items": _runtime().list_databases(project_id=project_id, include_status=include_status)}
+    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/databases/{db_id}/install")
+async def install_database(project_id: str, db_id: str, payload: DatabaseInstallRequest | None = None) -> dict[str, Any]:
+    try:
+        mirror_index = payload.mirror_index if payload is not None else 0
+        return {"item": _runtime().install_database(project_id=project_id, db_id=db_id, mirror_index=mirror_index)}
+    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/databases/{db_id}/install")
+async def get_database_install_status(project_id: str, db_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_database_install_status(project_id=project_id, db_id=db_id)}
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

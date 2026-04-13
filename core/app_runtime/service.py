@@ -18,7 +18,12 @@ from core.data.database_service import DatabaseService
 from core.data.data_registry import DataRegistry
 from core.data.execution_query_service import ExecutionQueryService
 from core.data.project_manager import ProjectInfo, ProjectManager
+from core.environment import env_batch_checker, env_detector, miniforge_bootstrap
+from core.environment.env_installer import EnvInstaller
+from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
+from core.environment.server_preflight import MIN_FREE_DISK_GB, probe_preflight
 from core.execution.artifact_store import ArtifactStore
+from core.remote.server_capabilities import PreflightError
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService
 from core.service_locator import ServiceLocator
@@ -541,6 +546,325 @@ class RuntimeService:
                 "status": self.get_ssh_status(),
             }
 
+    def get_ssh_preflight(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_ssh_connected()
+            caps = probe_preflight(self._run_ssh_command)
+            self._service_locator.server_capabilities = caps
+            failures = caps.failures(min_free_disk_gb=MIN_FREE_DISK_GB)
+            checks = [
+                {
+                    "key": "arch",
+                    "label": "架构",
+                    "status": "ok" if caps.arch in {"x86_64", "aarch64"} else "fail",
+                    "value": caps.arch or "unknown",
+                    "message": f"服务器架构: {caps.arch or 'unknown'}",
+                },
+                {
+                    "key": "curl",
+                    "label": "curl",
+                    "status": "ok" if caps.has_curl else "warn",
+                    "value": "available" if caps.has_curl else "missing",
+                    "message": "curl 可用" if caps.has_curl else "curl 不可用，将尝试使用 wget",
+                },
+                {
+                    "key": "wget",
+                    "label": "wget",
+                    "status": "ok" if caps.has_wget else "warn",
+                    "value": "available" if caps.has_wget else "missing",
+                    "message": "wget 可用" if caps.has_wget else "wget 不可用，将尝试使用 curl",
+                },
+                {
+                    "key": "screen",
+                    "label": "screen",
+                    "status": "ok" if caps.has_screen else "fail",
+                    "value": "available" if caps.has_screen else "missing",
+                    "message": "支持后台任务" if caps.has_screen else "缺少 screen，无法提交后台任务",
+                },
+                {
+                    "key": "sha256sum",
+                    "label": "sha256sum",
+                    "status": "ok" if caps.has_sha256sum else "fail",
+                    "value": "available" if caps.has_sha256sum else "missing",
+                    "message": "支持下载校验" if caps.has_sha256sum else "缺少 sha256sum，无法校验下载内容",
+                },
+                {
+                    "key": "disk",
+                    "label": "磁盘空间",
+                    "status": "ok" if caps.free_disk_gb >= MIN_FREE_DISK_GB else "fail",
+                    "value": f"{caps.free_disk_gb:.1f} GB",
+                    "message": f"可用磁盘空间 {caps.free_disk_gb:.1f} GB",
+                },
+            ]
+            return {
+                "ok": not failures,
+                "arch": caps.arch,
+                "free_disk_gb": caps.free_disk_gb,
+                "checks": checks,
+                "failures": failures,
+                "warnings": [item["message"] for item in checks if item["status"] == "warn"],
+            }
+
+    def get_remote_env_status(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_ssh_connected()
+
+            conda_detect = env_detector.detect(self._run_ssh_command)
+            conda_executable = str(conda_detect.executable or "").strip()
+            if conda_detect.status == env_detector.CondaStatus.OK and conda_executable:
+                self._remember_managed_conda(conda_executable)
+            else:
+                self._service_locator.conda_executable = ""
+
+            miniforge_status = miniforge_bootstrap.check_status(self._run_ssh_command)
+            miniforge_alive = miniforge_bootstrap.is_session_alive(self._run_ssh_command)
+            miniforge_log = miniforge_bootstrap.read_log(self._run_ssh_command)
+            miniforge_stage = self._normalize_job_stage(
+                status=str(miniforge_status.get("status") or ""),
+                exit_code=str(miniforge_status.get("exit_code") or ""),
+                session_alive=miniforge_alive,
+                heartbeat=str(miniforge_status.get("heartbeat") or ""),
+            )
+
+            tool_specs = self._collect_tool_env_specs()
+            env_checks: dict[str, bool] = {}
+            existing_env_paths: list[str] = []
+            if conda_detect.status == env_detector.CondaStatus.OK and conda_executable:
+                check_results, existing_env_paths = env_batch_checker.check_all_envs(
+                    self._run_ssh_command,
+                    [{"id": spec["tool_id"], "conda_env": spec["env_name"]} for spec in tool_specs],
+                    conda_executable=conda_executable,
+                )
+                env_checks = {row.tool_id: bool(row.ok) for row in check_results}
+
+            install_probe_rows = EnvInstaller.batch_probe(
+                self._run_ssh_command,
+                [spec["tool_id"] for spec in tool_specs if spec["installable"]],
+            )
+            install_probe_by_tool = {str(row.get("tool_id") or ""): row for row in install_probe_rows}
+
+            tool_envs: list[dict[str, Any]] = []
+            for spec in tool_specs:
+                probe_row = install_probe_by_tool.get(spec["tool_id"], {})
+                session_alive = bool(probe_row.get("session_alive"))
+                install_stage = self._normalize_job_stage(
+                    status=str(probe_row.get("status") or ""),
+                    exit_code=str(probe_row.get("exit_code") or ""),
+                    session_alive=session_alive,
+                )
+                installed = bool(env_checks.get(spec["tool_id"]))
+                if install_stage == "running":
+                    status = "installing"
+                elif installed:
+                    status = "installed"
+                elif install_stage == "failed":
+                    status = "failed"
+                elif conda_detect.status != env_detector.CondaStatus.OK:
+                    status = "blocked"
+                else:
+                    status = "not_installed"
+
+                tool_envs.append(
+                    {
+                        "tool_id": spec["tool_id"],
+                        "name": spec["name"],
+                        "env_name": spec["env_name"],
+                        "version": spec["version"],
+                        "installed": installed,
+                        "installable": spec["installable"],
+                        "status": status,
+                        "message": self._describe_tool_env_status(
+                            status=status,
+                            conda_message=conda_detect.message,
+                            installable=spec["installable"],
+                        ),
+                        "job_id": f"h2o_install_{spec['tool_id']}" if spec["installable"] else "",
+                        "log_text": str(probe_row.get("log_text") or ""),
+                        "log_size": int(probe_row.get("log_size") or 0),
+                        "shared_tool_ids": spec["shared_tool_ids"],
+                    }
+                )
+
+            installed_envs = sum(1 for row in tool_envs if row["installed"])
+            return {
+                "miniforge": {
+                    "installed": conda_detect.status == env_detector.CondaStatus.OK,
+                    "status": "installed" if conda_detect.status == env_detector.CondaStatus.OK else miniforge_stage,
+                    "version": str(conda_detect.version or ""),
+                    "conda_executable": conda_executable,
+                    "message": conda_detect.message,
+                    "job_id": miniforge_bootstrap.JOB_ID,
+                    "log_text": miniforge_log,
+                    "task_status": miniforge_status,
+                },
+                "tool_envs": tool_envs,
+                "summary": {
+                    "total": len(tool_envs),
+                    "installed": installed_envs,
+                    "missing": max(len(tool_envs) - installed_envs, 0),
+                    "env_paths": existing_env_paths,
+                },
+            }
+
+    def install_remote_env(self, *, target: str, tool_id: str = "") -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_ssh_connected()
+            caps = probe_preflight(self._run_ssh_command)
+            self._service_locator.server_capabilities = caps
+
+            normalized_target = str(target or "").strip()
+            if normalized_target == "miniforge":
+                item = miniforge_bootstrap.submit(caps, self._run_ssh_command)
+                return {
+                    "target": "miniforge",
+                    "job_id": item["job_id"],
+                    "task_dir": item["task_dir"],
+                    "message": "已提交 Miniforge 后台安装任务",
+                }
+
+            if normalized_target != "tool_env":
+                raise RuntimeServiceError(f"unsupported env install target: {normalized_target}")
+
+            normalized_tool_id = str(tool_id or "").strip()
+            if not normalized_tool_id:
+                raise RuntimeServiceError("tool_id is required for tool_env install")
+
+            spec = self._get_tool_env_spec(normalized_tool_id)
+            if not spec["installable"]:
+                raise RuntimeServiceError(f"tool env is not installable: {normalized_tool_id}")
+
+            conda_detect = env_detector.detect(self._run_ssh_command)
+            if conda_detect.status != env_detector.CondaStatus.OK or not conda_detect.executable:
+                raise RuntimeServiceError(conda_detect.message)
+            self._remember_managed_conda(conda_detect.executable)
+
+            item = EnvInstaller.submit(
+                self._run_ssh_command,
+                normalized_tool_id,
+                spec["install_cmd"],
+                conda_executable=conda_detect.executable,
+                verify_cmd=spec["verify_cmd"],
+                version_regex=spec["version_regex"],
+            )
+            return {
+                "target": "tool_env",
+                "tool_id": normalized_tool_id,
+                "job_id": item["job_id"],
+                "task_dir": item["task_dir"],
+                "message": f"已提交 {spec['name']} 环境安装任务",
+            }
+
+    def get_remote_env_install_status(self, *, job_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_ssh_connected()
+            normalized_job_id = str(job_id or "").strip()
+            if not normalized_job_id:
+                raise RuntimeServiceError("job_id is required")
+
+            if normalized_job_id == miniforge_bootstrap.JOB_ID:
+                raw_status = miniforge_bootstrap.check_status(self._run_ssh_command)
+                session_alive = miniforge_bootstrap.is_session_alive(self._run_ssh_command)
+                log_text = miniforge_bootstrap.read_log(self._run_ssh_command)
+                stage = self._normalize_job_stage(
+                    status=str(raw_status.get("status") or ""),
+                    exit_code=str(raw_status.get("exit_code") or ""),
+                    session_alive=session_alive,
+                    heartbeat=str(raw_status.get("heartbeat") or ""),
+                )
+                if stage == "done":
+                    conda_detect = env_detector.detect(self._run_ssh_command)
+                    if conda_detect.status == env_detector.CondaStatus.OK and conda_detect.executable:
+                        self._remember_managed_conda(conda_detect.executable)
+                return self._build_job_snapshot(
+                    job_id=normalized_job_id,
+                    stage=stage,
+                    raw_status=raw_status,
+                    log_text=log_text,
+                )
+
+            prefix = "h2o_install_"
+            if not normalized_job_id.startswith(prefix):
+                raise RuntimeServiceError(f"unsupported env install job_id: {normalized_job_id}")
+
+            tool_id = normalized_job_id[len(prefix):].strip()
+            if not tool_id:
+                raise RuntimeServiceError(f"invalid env install job_id: {normalized_job_id}")
+            task_dir = f"{EnvInstaller.INSTALL_BASE}/{tool_id}"
+            raw_status = EnvInstaller.check_status(self._run_ssh_command, task_dir)
+            session_alive = EnvInstaller.is_session_alive(self._run_ssh_command, normalized_job_id)
+            log_text = EnvInstaller.read_log(self._run_ssh_command, task_dir)
+            stage = self._normalize_job_stage(
+                status=str(raw_status.get("status") or ""),
+                exit_code=str(raw_status.get("exit_code") or ""),
+                session_alive=session_alive,
+            )
+            return self._build_job_snapshot(
+                job_id=normalized_job_id,
+                stage=stage,
+                raw_status=raw_status,
+                log_text=log_text,
+            )
+
+    def install_database(self, *, project_id: str, db_id: str, mirror_index: int = 0) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            self._ensure_ssh_connected()
+            caps = probe_preflight(self._run_ssh_command)
+            failures = caps.failures(min_free_disk_gb=MIN_FREE_DISK_GB)
+            if failures:
+                raise RuntimeServiceError("；".join(failures))
+            config = get_config()
+            databases_cfg = config.get("databases", {})
+            if not isinstance(databases_cfg, dict):
+                raise RuntimeServiceError("settings.databases must be an object")
+            db_root = str(databases_cfg.get("db_root", "") or "")
+            service = DatabaseService()
+            item = service.submit_install(
+                self._run_ssh_command,
+                caps,
+                str(db_id or "").strip(),
+                db_root,
+                conda_exe=self._service_locator.conda_executable,
+                mirror_index=int(mirror_index),
+            )
+            return {
+                "db_id": str(db_id or "").strip(),
+                "job_id": item["job_id"],
+                "task_dir": item["task_dir"],
+                "message": "已提交数据库后台安装任务",
+            }
+
+    def get_database_install_status(self, *, project_id: str, db_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            self._ensure_ssh_connected()
+            normalized_db_id = str(db_id or "").strip()
+            if not normalized_db_id:
+                raise RuntimeServiceError("db_id is required")
+            service = DatabaseService()
+            task_dir = f"{service.INSTALL_BASE}/{normalized_db_id}"
+            raw_status = service.check_install_status(self._run_ssh_command, task_dir)
+            stage = self._normalize_job_stage(
+                status=str(raw_status.get("status") or ""),
+                exit_code=str(raw_status.get("exit_code") or ""),
+                session_alive=bool(raw_status.get("screen_running")),
+                heartbeat=str(raw_status.get("heartbeat") or ""),
+            )
+            log_text = service.read_install_log(self._run_ssh_command, task_dir, tail=120)
+            return self._build_job_snapshot(
+                job_id=f"h2o_dbinstall_{normalized_db_id}",
+                stage=stage,
+                raw_status=raw_status,
+                log_text=log_text,
+                progress=service.parse_progress(log_text),
+            )
+
     def list_databases(self, *, project_id: str, include_status: bool = False) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
@@ -581,17 +905,35 @@ class RuntimeService:
                 }
                 if include_status:
                     if status_enabled:
-                        status = service.check_status(
+                        install_status = service.check_install_status(
                             self._run_ssh_command,
-                            info.db_id,
-                            db_root,
-                            overrides=overrides,
+                            f"{service.INSTALL_BASE}/{info.db_id}",
                         )
-                        item["status"] = status.status.value
-                        item["status_message"] = status.message
+                        install_stage = self._normalize_job_stage(
+                            status=str(install_status.get("status") or ""),
+                            exit_code=str(install_status.get("exit_code") or ""),
+                            session_alive=bool(install_status.get("screen_running")),
+                            heartbeat=str(install_status.get("heartbeat") or ""),
+                        )
+                        if install_stage == "running":
+                            item["status"] = "installing"
+                            item["status_message"] = "数据库后台安装中"
+                        else:
+                            status = service.check_status(
+                                self._run_ssh_command,
+                                info.db_id,
+                                db_root,
+                                overrides=overrides,
+                            )
+                            item["status"] = status.status.value
+                            item["status_message"] = status.message
+                        item["install_job_id"] = f"h2o_dbinstall_{info.db_id}"
+                        item["install_stage"] = install_stage
                     else:
                         item["status"] = "unknown"
                         item["status_message"] = "SSH disconnected"
+                        item["install_job_id"] = f"h2o_dbinstall_{info.db_id}"
+                        item["install_stage"] = "idle"
                 items.append(item)
             return items
 
@@ -766,6 +1108,134 @@ class RuntimeService:
                 (project_id,),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def _ensure_ssh_connected(self) -> SSHService:
+        ssh = self._service_locator.ssh_service
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            raise RuntimeServiceError("SSH disconnected")
+        return ssh
+
+    def _remember_managed_conda(self, conda_executable: str) -> None:
+        normalized = str(conda_executable or "").strip()
+        if not normalized or not is_managed_conda_executable(normalized):
+            return
+        self._service_locator.conda_executable = normalized
+        current = get_config()
+        linux = current.get("linux", {})
+        current_value = str(linux.get("conda_executable", "") or "").strip() if isinstance(linux, dict) else ""
+        if current_value == normalized:
+            return
+        merged = self._merge_settings_patch(current, {"linux": {"conda_executable": normalized}})
+        save_config(merged)
+
+    def _collect_tool_env_specs(self) -> list[dict[str, Any]]:
+        registry = self._service_locator.plugin_registry
+        grouped: dict[str, dict[str, Any]] = {}
+        for tool_id in sorted(registry.list_all_ids()):
+            descriptor = registry.get_descriptor(tool_id)
+            env_name = str(descriptor.get("conda_env", "") or "").strip()
+            if not env_name:
+                continue
+            grouped_entry = grouped.get(env_name)
+            if grouped_entry is None:
+                grouped_entry = {
+                    "tool_id": str(tool_id),
+                    "name": str(descriptor.get("name", tool_id) or tool_id),
+                    "env_name": env_name,
+                    "version": str(descriptor.get("version", "") or ""),
+                    "install_cmd": str(descriptor.get("install_cmd", "") or "").strip(),
+                    "verify_cmd": str(descriptor.get("detection", {}).get("command", "") or "").strip()
+                    if isinstance(descriptor.get("detection"), dict)
+                    else "",
+                    "version_regex": str(descriptor.get("detection", {}).get("version_regex", "") or "").strip()
+                    if isinstance(descriptor.get("detection"), dict)
+                    else "",
+                    "shared_tool_ids": [str(tool_id)],
+                    "installable": bool(str(descriptor.get("install_cmd", "") or "").strip()),
+                }
+                grouped[env_name] = grouped_entry
+                continue
+            grouped_entry["shared_tool_ids"].append(str(tool_id))
+            install_cmd = str(descriptor.get("install_cmd", "") or "").strip()
+            if install_cmd and not grouped_entry["install_cmd"]:
+                grouped_entry["tool_id"] = str(tool_id)
+                grouped_entry["name"] = str(descriptor.get("name", tool_id) or tool_id)
+                grouped_entry["version"] = str(descriptor.get("version", "") or "")
+                grouped_entry["install_cmd"] = install_cmd
+                grouped_entry["installable"] = True
+                if isinstance(descriptor.get("detection"), dict):
+                    grouped_entry["verify_cmd"] = str(descriptor["detection"].get("command", "") or "").strip()
+                    grouped_entry["version_regex"] = str(descriptor["detection"].get("version_regex", "") or "").strip()
+        return list(grouped.values())
+
+    def _get_tool_env_spec(self, tool_id: str) -> dict[str, Any]:
+        normalized_tool_id = str(tool_id or "").strip()
+        if not normalized_tool_id:
+            raise RuntimeServiceError("tool_id is required")
+        for spec in self._collect_tool_env_specs():
+            if spec["tool_id"] == normalized_tool_id:
+                return spec
+        raise RuntimeServiceError(f"tool env not found: {normalized_tool_id}")
+
+    @staticmethod
+    def _normalize_job_stage(
+        *,
+        status: str,
+        exit_code: str,
+        session_alive: bool,
+        heartbeat: str = "",
+    ) -> str:
+        normalized = str(status or "").strip().upper()
+        normalized_exit = str(exit_code or "").strip()
+        if normalized == "DONE" or normalized_exit == "0":
+            return "done"
+        if normalized == "FAILED":
+            return "failed"
+        if normalized == "RUNNING" or session_alive:
+            return "running"
+        if normalized_exit and normalized_exit != "0":
+            return "failed"
+        if heartbeat.strip():
+            return "running"
+        return "idle"
+
+    @staticmethod
+    def _build_job_snapshot(
+        *,
+        job_id: str,
+        stage: str,
+        raw_status: dict[str, Any],
+        log_text: str,
+        progress: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        log_lines = [line for line in str(log_text or "").splitlines() if line.strip()]
+        ok = stage == "done"
+        return {
+            "job_id": job_id,
+            "status": stage,
+            "done": stage in {"done", "failed"},
+            "ok": ok,
+            "exit_code": str(raw_status.get("exit_code") or ""),
+            "heartbeat": str(raw_status.get("heartbeat") or ""),
+            "log_text": str(log_text or ""),
+            "log_lines": log_lines,
+            "progress": progress or {},
+            "message": "" if ok else (log_lines[-1] if log_lines else ""),
+        }
+
+    @staticmethod
+    def _describe_tool_env_status(*, status: str, conda_message: str, installable: bool) -> str:
+        if status == "installed":
+            return "环境已就绪"
+        if status == "installing":
+            return "后台安装中"
+        if status == "failed":
+            return "最近一次安装失败，请展开日志查看原因"
+        if status == "blocked":
+            return conda_message or "Miniforge 未就绪"
+        if not installable:
+            return "当前工具未声明自动安装命令"
+        return "尚未安装"
 
     def _ensure_initialized(self) -> None:
         if not self._initialized:
