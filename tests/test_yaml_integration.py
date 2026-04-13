@@ -15,6 +15,7 @@ import pytest
 
 from core.execution.command_builder import CommandBuilder, HEARTBEAT_INTERVAL
 from core.plugins.plugin_registry import PluginRegistry
+from core.plugins.runtime_metadata import derive_conda_env_name
 
 # 项目真实 plugins 目录
 _PLUGINS_DIR = Path(__file__).parent.parent / "plugins"
@@ -91,7 +92,7 @@ class TestFastpIntegration:
         assert desc["id"] == "fastp"
         assert desc["version"] == "0.23.4"
         assert desc["category"] == "qc"
-        assert desc["conda_env"] == "fastp_env"
+        assert derive_conda_env_name(desc) == "fastp_env"
 
     def test_build_single_end(self, registry: PluginRegistry) -> None:
         """单端模式: reads_2 不存在时不应渲染 -I / -O 参数。"""
@@ -193,7 +194,7 @@ class TestKraken2Integration:
         assert desc["id"] == "kraken2"
         assert desc["version"] == "2.1.3"
         assert desc["category"] == "taxonomy"
-        assert desc["conda_env"] == "kraken2_env"
+        assert derive_conda_env_name(desc) == "kraken2_env"
         assert len(desc["databases"]) == 1
         assert desc["databases"][0]["param_name"] == "db"
 
@@ -369,7 +370,7 @@ class TestHostileIntegration:
         assert desc["id"] == "hostile"
         assert desc["version"] == "1.1.0"
         assert desc["category"] == "host_removal"
-        assert desc["conda_env"] == "hostile_env"
+        assert derive_conda_env_name(desc) == "hostile_env"
         assert desc["databases"] == []
 
     def test_build_single_end(self, registry: PluginRegistry) -> None:
@@ -462,7 +463,7 @@ class TestBlastnIntegration:
         assert desc["id"] == "blastn"
         assert desc["version"] == "2.15.0"
         assert desc["category"] == "blast"
-        assert desc["conda_env"] == "blast_env"
+        assert derive_conda_env_name(desc) == "blast_env"
         assert len(desc["databases"]) == 1
         assert desc["databases"][0]["param_name"] == "db"
 
@@ -571,9 +572,9 @@ class TestCrossToolValidation:
 
     @pytest.mark.parametrize("tool_id", ["fastp", "kraken2", "hostile", "blastn"])
     def test_all_tools_have_conda_env(self, registry: PluginRegistry, tool_id: str) -> None:
-        """所有工具应声明 conda_env。"""
+        """所有工具应能解析出 conda 环境名。"""
         desc = registry.get_descriptor(tool_id)
-        assert desc.get("conda_env"), f"{tool_id} 缺少 conda_env"
+        assert derive_conda_env_name(desc), f"{tool_id} 缺少可解析的 conda 环境名"
 
     @pytest.mark.parametrize("tool_id", ["fastp", "kraken2", "hostile", "blastn"])
     def test_all_tools_have_detection(self, registry: PluginRegistry, tool_id: str) -> None:

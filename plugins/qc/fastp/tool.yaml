@@ -4,6 +4,7 @@ version: "0.23.4"
 category: qc
 description: "超快速 FASTQ 质量控制与预处理工具"
 runtime:
+  container: quay.io/biocontainers/fastp:0.23.4
   conda: fastp=0.23.4
 
 resources:

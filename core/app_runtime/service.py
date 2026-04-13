@@ -22,6 +22,7 @@ from core.data.project_manager import ProjectInfo, ProjectManager
 from core.environment import env_batch_checker, env_detector, miniforge_bootstrap
 from core.environment.env_installer import EnvInstaller
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
+from core.plugins.runtime_metadata import derive_conda_env_name
 from core.environment.server_preflight import MIN_FREE_DISK_GB, probe_preflight
 from core.execution.artifact_store import ArtifactStore
 from core.remote.server_capabilities import PreflightError
@@ -1387,7 +1388,7 @@ class RuntimeService:
         grouped: dict[str, dict[str, Any]] = {}
         for tool_id in sorted(registry.list_all_ids()):
             descriptor = registry.get_descriptor(tool_id)
-            env_name = str(descriptor.get("conda_env", "") or "").strip()
+            env_name = derive_conda_env_name(descriptor)
             if not env_name:
                 continue
             grouped_entry = grouped.get(env_name)

@@ -24,6 +24,7 @@ from core.data.data_importer import DataImporter
 from core.data.data_registry import DataRegistry
 from core.environment.h2o_env_paths import H2O_CONDA_EXE
 from core.plugins.plugin_registry import PluginRegistry
+from core.plugins.runtime_metadata import derive_conda_env_name
 from core.data.project_manager import ProjectInfo, ProjectManager, _SCHEMA_SQL
 from core.execution.command_builder import CommandBuilder
 from core.execution.tool_engine import ExecutionRecord, ToolEngine
@@ -263,7 +264,7 @@ class TestRealPluginLoading:
         desc = reg.get_descriptor("fastp")
         assert desc["id"] == "fastp"
         assert desc["version"] == "0.23.4"
-        assert desc["conda_env"] == "fastp_env"
+        assert derive_conda_env_name(desc) == "fastp_env"
         assert any(i["name"] == "reads_1" for i in desc["inputs"])
         assert any(o["name"] == "clean_1" for o in desc["outputs"])
 

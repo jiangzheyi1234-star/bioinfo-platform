@@ -4,6 +4,7 @@ version: "2.8.1"
 category: visualization
 description: "交互式层级可视化工具，可将分类结果渲染为 HTML 太阳图"
 runtime:
+  container: quay.io/biocontainers/krona:2.8.1
   conda: krona=2.8.1
 
 resources:

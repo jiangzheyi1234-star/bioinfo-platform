@@ -4,6 +4,7 @@ version: "1.14.6"
 category: annotation
 description: "快速原核基因组注释工具"
 runtime:
+  container: quay.io/biocontainers/prokka:1.14.6
   conda: bioconda::prokka=1.14.6
 
 resources:

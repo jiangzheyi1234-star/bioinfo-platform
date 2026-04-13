@@ -4,6 +4,7 @@ version: "1.1.0"
 category: host_removal
 description: "精准宿主序列去除工具，基于 Bowtie2/Minimap2 比对"
 runtime:
+  container: quay.io/biocontainers/hostile:1.1.0
   conda: hostile=1.1.0
 
 resources:

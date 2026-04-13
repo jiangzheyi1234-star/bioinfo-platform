@@ -1,6 +1,6 @@
 "use client";
 
-import type { ServerDoctorReport, WorkflowServerProfile, WorkflowSpecView } from "./detection_workspace_types";
+import type { WorkflowSpecView } from "./detection_workspace_types";
 
 export type SchemaFieldKind = "string" | "number" | "integer" | "boolean";
 
@@ -13,6 +13,22 @@ export type SchemaField = {
   description: string;
   required: boolean;
 };
+
+export type WorkflowNodeTemplate = {
+  key: string;
+  tool_id: string;
+  label: string;
+  description: string;
+};
+
+export const WORKFLOW_NODE_TEMPLATES: WorkflowNodeTemplate[] = [
+  { key: "fastp", tool_id: "fastp", label: "Quality Control", description: "FASTQ 质控与过滤。" },
+  { key: "kraken2", tool_id: "kraken2", label: "Taxonomy", description: "物种分类与 kreport 产物。" },
+  { key: "bracken", tool_id: "bracken", label: "Abundance", description: "基于 kraken2 的丰度估计。" },
+  { key: "krona", tool_id: "krona", label: "Visualization", description: "交互式 Krona 报告。" },
+  { key: "quast", tool_id: "quast", label: "Assembly QC", description: "组装质量汇总。" },
+  { key: "custom", tool_id: "custom_tool", label: "Custom Step", description: "从空白步骤开始手动编辑。" },
+];
 
 function slugify(value: string): string {
   return value
@@ -29,12 +45,7 @@ export function createStarterWorkflow(projectId: string): WorkflowSpecView {
     name: "FASTQ QC Workflow",
     version: "0.1.0",
     nodes: [
-      {
-        node_id: "step_1",
-        tool_id: "fastp",
-        label: "Quality Control",
-        params: {},
-      },
+      createWorkflowNodeDraft({ index: 1, templateKey: "fastp" }),
     ],
     edges: [],
     params_schema: {
@@ -64,24 +75,6 @@ export function createStarterWorkflow(projectId: string): WorkflowSpecView {
       required: ["sample_name", "thread", "qualified_quality_phred", "length_required"],
       additionalProperties: true,
     },
-  };
-}
-
-export function buildProfileFromDoctor(doctor: ServerDoctorReport | null): WorkflowServerProfile {
-  const recommended = doctor?.recommended_profile_details;
-  if (recommended) {
-    return recommended;
-  }
-  return {
-    profile_id: "personal_conda",
-    server_id: doctor?.server_id || "current",
-    profile_kind: "personal_conda",
-    executor: "local",
-    packaging_mode: "conda",
-    container_runtime: "",
-    work_dir: "~/.bioflow/runs/work",
-    output_dir: "~/.bioflow/runs/output",
-    cache_dir: "~/.bioflow/cache/conda",
   };
 }
 

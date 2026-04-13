@@ -13,6 +13,12 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from .runtime_metadata import (
+    WORKFLOW_GOLDEN_PATH_PLUGIN_IDS,
+    derive_workflow_support,
+    validate_workflow_descriptor,
+)
+
 logger = logging.getLogger(__name__)
 
 # Layer 1 索引中保留的头部字段
@@ -112,6 +118,13 @@ class PluginRegistry:
                 with open(yaml_path, "r", encoding="utf-8") as fh:
                     descriptor = yaml.safe_load(fh)
                 self._validate_install_cmd_policy(descriptor, yaml_path)
+                validate_workflow_descriptor(
+                    descriptor,
+                    strict=tool_id in WORKFLOW_GOLDEN_PATH_PLUGIN_IDS,
+                )
+                workflow_support = derive_workflow_support(descriptor)
+                descriptor["support_level"] = workflow_support["support_level"]
+                descriptor["workflow_support"] = workflow_support
                 descriptor["_yaml_path"] = str(yaml_path)
                 self._descriptors[tool_id] = descriptor
                 logger.debug("已加载描述符: %s", tool_id)

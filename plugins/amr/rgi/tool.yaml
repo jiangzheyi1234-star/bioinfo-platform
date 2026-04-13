@@ -4,6 +4,7 @@ version: "6.0.4"
 category: amr
 description: "CARD 数据库耐药基因识别工具（Resistance Gene Identifier）"
 runtime:
+  container: quay.io/biocontainers/rgi:6.0.4
   conda: bioconda::rgi=6.0.4
 
 resources:

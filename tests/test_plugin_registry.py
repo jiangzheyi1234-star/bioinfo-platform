@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from core.plugins.plugin_registry import PluginNotFoundError, PluginRegistry
+from core.plugins.runtime_metadata import derive_conda_env_name
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +27,11 @@ def plugins_dir(tmp_path: Path) -> Path:
             "version": "0.23.4",
             "category": "qc",
             "description": "超快速 FASTQ 质量控制",
-            "conda_env": "fastp_env",
+            "runtime": {
+                "container": "quay.io/biocontainers/fastp:0.23.4",
+                "conda": "fastp=0.23.4",
+            },
+            "resources": {"cpus": 4, "memory": "4 GB", "time": "1 h"},
             "inputs": [
                 {"name": "reads_1", "type": "fastq", "required": True},
             ],
@@ -43,6 +48,7 @@ def plugins_dir(tmp_path: Path) -> Path:
                 "command": "fastp --version",
                 "version_regex": r"fastp (\d+\.\d+\.\d+)",
             },
+            "methods_template": "fastp v{version}",
         }, allow_unicode=True),
         encoding="utf-8",
     )
@@ -57,7 +63,11 @@ def plugins_dir(tmp_path: Path) -> Path:
             "version": "2.1.3",
             "category": "taxonomy",
             "description": "超快速 k-mer 物种分类",
-            "conda_env": "kraken2_env",
+            "runtime": {
+                "container": "quay.io/biocontainers/kraken2:2.1.3",
+                "conda": "kraken2=2.1.3",
+            },
+            "resources": {"cpus": 8, "memory": "16 GB", "time": "4 h"},
             "inputs": [
                 {"name": "reads", "type": "fastq", "required": True},
             ],
@@ -77,6 +87,7 @@ def plugins_dir(tmp_path: Path) -> Path:
                 "command": "kraken2 --version",
                 "version_regex": r"version (\d+\.\d+\.\d+)",
             },
+            "methods_template": "kraken2 v{version}",
         }, allow_unicode=True),
         encoding="utf-8",
     )
@@ -91,7 +102,11 @@ def plugins_dir(tmp_path: Path) -> Path:
             "version": "1.1.0",
             "category": "host_removal",
             "description": "宿主序列去除",
-            "conda_env": "hostile_env",
+            "runtime": {
+                "container": "quay.io/biocontainers/hostile:1.1.0",
+                "conda": "hostile=1.1.0",
+            },
+            "resources": {"cpus": 4, "memory": "4 GB", "time": "1 h"},
             "inputs": [
                 {"name": "reads_1", "type": "fastq", "required": True},
             ],
@@ -108,6 +123,7 @@ def plugins_dir(tmp_path: Path) -> Path:
                 "command": "hostile --version",
                 "version_regex": r"hostile (\d+\.\d+\.\d+)",
             },
+            "methods_template": "hostile v{version}",
         }, allow_unicode=True),
         encoding="utf-8",
     )
@@ -268,7 +284,7 @@ class TestGetDescriptor:
         """get_descriptor 应返回完整 YAML 内容。"""
         desc = registry.get_descriptor("fastp")
         assert desc["id"] == "fastp"
-        assert desc["conda_env"] == "fastp_env"
+        assert derive_conda_env_name(desc) == "fastp_env"
         assert isinstance(desc["inputs"], list)
         assert isinstance(desc["parameters"], list)
         assert "command_template" in desc
@@ -311,8 +327,8 @@ class TestGetDescriptor:
         tool_dir.mkdir(parents=True)
         (tool_dir / "tool.yaml").write_text(
             yaml.dump({
-                "id": "fastp",
-                "name": "fastp",
+                "id": "demo_fastp",
+                "name": "demo_fastp",
                 "category": "qc",
                 "install_cmd": "conda create -n fastp_env fastp=0.23.4 -y",
             }),
@@ -321,7 +337,7 @@ class TestGetDescriptor:
 
         reg = PluginRegistry(tmp_path)
         reg.scan()
-        desc = reg.get_descriptor("fastp")
+        desc = reg.get_descriptor("demo_fastp")
         assert desc["install_cmd"] == "conda create -n fastp_env fastp=0.23.4 -y"
 
     @pytest.mark.parametrize(
@@ -343,8 +359,8 @@ class TestGetDescriptor:
         tool_dir.mkdir(parents=True)
         (tool_dir / "tool.yaml").write_text(
             yaml.dump({
-                "id": "fastp",
-                "name": "fastp",
+                "id": "demo_fastp",
+                "name": "demo_fastp",
                 "category": "qc",
                 "install_cmd": install_cmd,
             }),
@@ -354,7 +370,7 @@ class TestGetDescriptor:
         reg = PluginRegistry(tmp_path)
         reg.scan()
         with pytest.raises(ValueError, match=forbidden):
-            reg.get_descriptor("fastp")
+            reg.get_descriptor("demo_fastp")
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +451,7 @@ class TestRealToolYaml:
         assert "name" in desc
         assert "version" in desc
         assert "category" in desc
-        assert "conda_env" in desc
+        assert derive_conda_env_name(desc)
         assert "inputs" in desc
         assert "outputs" in desc
         assert "parameters" in desc

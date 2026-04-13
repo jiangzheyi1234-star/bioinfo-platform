@@ -4,6 +4,7 @@ version: "2.1.3"
 category: taxonomy
 description: "超快速 k-mer 物种分类工具"
 runtime:
+  container: quay.io/biocontainers/kraken2:2.1.3
   conda: kraken2=2.1.3
 
 resources:

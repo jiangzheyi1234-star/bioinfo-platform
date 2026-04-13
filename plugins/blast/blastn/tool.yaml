@@ -4,6 +4,7 @@ version: "2.15.0"
 category: blast
 description: "核苷酸序列比对工具，用于序列相似性搜索"
 runtime:
+  container: quay.io/biocontainers/blast:2.15.0
   conda: bioconda::blast=2.15.0
 
 resources:

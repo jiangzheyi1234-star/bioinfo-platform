@@ -23,11 +23,20 @@ outputs:
     tier: result
     pattern: "{output_dir}/{sample_id}.kreport"
     sync_to_local: true
+  - name: fastp_html
+    type: html
+    tier: result
+    pattern: "{output_dir}/{sample_id}.fastp.html"
+    sync_to_local: true
   - name: fastp_json
     type: json
     tier: result
     pattern: "{output_dir}/{sample_id}.fastp.json"
     sync_to_local: true
+  - name: cf_report
+    type: tsv
+    tier: intermediate
+    pattern: "{output_dir}/{sample_id}.cf_report.tsv"
   - name: cf_output
     type: tsv
     tier: intermediate
@@ -120,29 +129,20 @@ command_template: |
   CLEAN_R1="$WORK/${SAMPLE}_clean_R1.fq.gz"
   CLEAN_R2="$WORK/${SAMPLE}_clean_R2.fq.gz"
 
-  # ── Step 4: hostile 去宿主（失败则跳过） ──
+  # ── Step 4: hostile 去宿主（必须成功） ──
   echo "[4/5] Running hostile host removal..."
-  if hostile clean \
+  hostile clean \
     --fastq1 "$CLEAN_R1" --fastq2 "$CLEAN_R2" \
     -o "$WORK/hostile_out" \
-    -t "$THREADS" --force 2>&1; then
-    HOSTILE_R1=$(find "$WORK/hostile_out" -name "*.clean*_1*" -o -name "*.clean*R1*" -o -name "*_1.clean*" | head -n1)
-    HOSTILE_R2=$(find "$WORK/hostile_out" -name "*.clean*_2*" -o -name "*.clean*R2*" -o -name "*_2.clean*" | head -n1)
-    if [ -z "$HOSTILE_R1" ] || [ -z "$HOSTILE_R2" ]; then
-      # fallback: 按文件名排序取前两个
-      HOSTILE_R1=$(find "$WORK/hostile_out" -name "*.fastq.gz" -o -name "*.fq.gz" | sort | head -n1)
-      HOSTILE_R2=$(find "$WORK/hostile_out" -name "*.fastq.gz" -o -name "*.fq.gz" | sort | tail -n1)
-    fi
-    if [ -n "$HOSTILE_R1" ] && [ -n "$HOSTILE_R2" ]; then
-      CLEAN_R1="$HOSTILE_R1"
-      CLEAN_R2="$HOSTILE_R2"
-      echo "  Host removal succeeded, using filtered reads."
-    else
-      echo "  WARNING: hostile output files not found, using fastp output."
-    fi
-  else
-    echo "  WARNING: hostile failed, skipping host removal — using fastp output."
+    -t "$THREADS" --force
+  HOSTILE_R1=$(find "$WORK/hostile_out" \( -name "*.clean*_1*" -o -name "*.clean*R1*" -o -name "*_1.clean*" \) | head -n1)
+  HOSTILE_R2=$(find "$WORK/hostile_out" \( -name "*.clean*_2*" -o -name "*.clean*R2*" -o -name "*_2.clean*" \) | head -n1)
+  if [ -z "$HOSTILE_R1" ] || [ -z "$HOSTILE_R2" ]; then
+    echo "ERROR: hostile succeeded but filtered FASTQ outputs were not found"; exit 1
   fi
+  CLEAN_R1="$HOSTILE_R1"
+  CLEAN_R2="$HOSTILE_R2"
+  echo "  Host removal succeeded, using filtered reads."
 
   # ── Step 5: Centrifuge 分类 + kreport ──
   echo "[5/5] Running Centrifuge classification..."
