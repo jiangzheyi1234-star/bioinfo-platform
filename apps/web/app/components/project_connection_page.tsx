@@ -479,11 +479,6 @@ export function ProjectConnectionPage() {
               <>
                 <div className="connection-meta-row connection-summary-row">
                   <span className={`status-pill${preflightResult.ok ? " status-pill--ok" : ""}`}>{preflightResult.ok ? "预检通过" : "预检异常"}</span>
-                  <span className="connection-summary-text">
-                    {preflightResult.arch || "unknown"} · 可用磁盘 {preflightResult.free_disk_gb.toFixed(1)} GB
-                    {preflightResult.failures.length > 0 ? ` · 失败 ${preflightResult.failures.length}` : ""}
-                    {preflightResult.warnings.length > 0 ? ` · 警告 ${preflightResult.warnings.length}` : ""}
-                  </span>
                 </div>
 
                 {preflightResult.failures.length > 0 ? (
@@ -509,14 +504,14 @@ export function ProjectConnectionPage() {
                 {preflightExpanded ? (
                   <div className="connection-detail-list">
                     {preflightResult.checks.map((check) => (
-                      <article key={check.key} className={`connection-detail-row connection-detail-row--${check.status}`}>
-                        <div className="connection-detail-main">
+                      <article key={check.key} className={`connection-detail-card connection-detail-card--${check.status}`}>
+                        <div className="connection-detail-card-head">
                           <strong>{check.label}</strong>
-                          <p className="muted">{check.message || "无额外信息"}</p>
-                        </div>
-                        <div className="connection-detail-side">
                           {check.status !== "ok" ? <span className="status-pill">{check.status}</span> : null}
-                          <span className="badge">{check.value || "unknown"}</span>
+                        </div>
+                        <div className="connection-detail-card-body">
+                          <span className="connection-detail-value">{check.value || "unknown"}</span>
+                          <p className="muted">{check.message || "无额外信息"}</p>
                         </div>
                       </article>
                     ))}
