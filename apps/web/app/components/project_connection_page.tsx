@@ -479,10 +479,11 @@ export function ProjectConnectionPage() {
               <>
                 <div className="connection-meta-row connection-summary-row">
                   <span className={`status-pill${preflightResult.ok ? " status-pill--ok" : ""}`}>{preflightResult.ok ? "预检通过" : "预检异常"}</span>
-                  <span className="badge">架构 {preflightResult.arch || "unknown"}</span>
-                  <span className="badge">可用磁盘 {preflightResult.free_disk_gb.toFixed(1)} GB</span>
-                  <span className="badge">失败 {preflightResult.failures.length}</span>
-                  <span className="badge">警告 {preflightResult.warnings.length}</span>
+                  <span className="connection-summary-text">
+                    {preflightResult.arch || "unknown"} · 可用磁盘 {preflightResult.free_disk_gb.toFixed(1)} GB
+                    {preflightResult.failures.length > 0 ? ` · 失败 ${preflightResult.failures.length}` : ""}
+                    {preflightResult.warnings.length > 0 ? ` · 警告 ${preflightResult.warnings.length}` : ""}
+                  </span>
                 </div>
 
                 {preflightResult.failures.length > 0 ? (
