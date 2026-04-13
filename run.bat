@@ -10,14 +10,17 @@ set "DESKTOP_EXE=%REPO_ROOT%\apps\desktop\src-tauri\target\debug\h2ometa-desktop
 set "API_URL=http://127.0.0.1:8765"
 set "WEB_URL=http://127.0.0.1:3100"
 set "DESKTOP_DEV_DIR=%REPO_ROOT%\apps\desktop"
+set "ENSURE_WEB_DEV=%REPO_ROOT%\scripts\ensure-web-dev.cjs"
+set "ENSURE_DESKTOP_DEV=%REPO_ROOT%\scripts\ensure-desktop-dev.cjs"
+set "RUN_LOCAL_API_DEV=%REPO_ROOT%\scripts\run-local-api-dev.bat"
+set "RUN_DESKTOP_DEV=%REPO_ROOT%\scripts\run-desktop-dev.bat"
+set "RUN_WEB_DEV=%REPO_ROOT%\scripts\run-web-dev.bat"
+set "LOCAL_CONDA_ENV=bio_ui"
+set "LOCAL_CONDA_EXE=C:\Users\Administrator\miniconda3\Scripts\conda.exe"
 
 set "MODE=%~1"
 if "%MODE%"=="" (
-    if exist "%DESKTOP_EXE%" (
-        set "MODE=--desktop"
-    ) else (
-        set "MODE=--web"
-    )
+    set "MODE=--desktop"
 )
 
 if /I "%MODE%"=="--help" goto :help
@@ -72,12 +75,21 @@ set "H2OMETA_WORKDIR=%REPO_ROOT%"
 set "WSL_UTF8=1"
 set "PYTHONUTF8=1"
 set "NEXT_PUBLIC_API_BASE=%API_URL%"
+set "H2OMETA_CONDA_ENV=%LOCAL_CONDA_ENV%"
+set "H2OMETA_CONDA_EXE=%LOCAL_CONDA_EXE%"
 
 echo [INFO] Repo root: %REPO_ROOT%
 echo [INFO] Tauri dev URL: %WEB_URL%
 echo [INFO] API URL: %API_URL%
 echo [INFO] H2OMETA_WORKDIR=%H2OMETA_WORKDIR%
 echo.
+
+if not exist "%LOCAL_CONDA_EXE%" (
+    echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
+    pause
+    endlocal & exit /b 1
+)
+
 where npm >nul 2>nul
 if errorlevel 1 (
     echo [ERROR] npm not found in PATH.
@@ -85,7 +97,63 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-start "H2OMeta Desktop Dev" cmd /k "cd /d %DESKTOP_DEV_DIR% && set PATH=%USERPROFILE%\.cargo\bin;C:\msys64\ucrt64\bin;%PATH% && set H2OMETA_WORKDIR=%REPO_ROOT% && set WSL_UTF8=1 && set PYTHONUTF8=1 && set NEXT_PUBLIC_API_BASE=%API_URL% && npm run dev"
+if not exist "%ENSURE_WEB_DEV%" (
+    echo [ERROR] Web bootstrap script not found: %ENSURE_WEB_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+if not exist "%ENSURE_DESKTOP_DEV%" (
+    echo [ERROR] Desktop bootstrap script not found: %ENSURE_DESKTOP_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+if not exist "%RUN_LOCAL_API_DEV%" (
+    echo [ERROR] API launcher script not found: %RUN_LOCAL_API_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+if not exist "%RUN_DESKTOP_DEV%" (
+    echo [ERROR] Desktop launcher script not found: %RUN_DESKTOP_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+echo [INFO] Checking Web dependencies...
+node "%ENSURE_WEB_DEV%"
+if errorlevel 1 (
+    echo [ERROR] Web dependency bootstrap failed.
+    pause
+    endlocal & exit /b 1
+)
+
+echo [INFO] Checking Desktop dependencies...
+node "%ENSURE_DESKTOP_DEV%"
+if errorlevel 1 (
+    echo [ERROR] Desktop dependency bootstrap failed.
+    pause
+    endlocal & exit /b 1
+)
+
+echo [INFO] Checking local API server on 127.0.0.1:8765...
+cmd /c "netstat -ano | findstr :8765 | findstr LISTENING >nul"
+if errorlevel 1 (
+    echo [INFO] API server not running. Starting local backend window with conda env %LOCAL_CONDA_ENV%...
+    ver >nul
+    start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
+    if errorlevel 1 (
+        echo [ERROR] Failed to open API terminal window.
+        pause
+        endlocal & exit /b 1
+    )
+) else (
+    echo [INFO] Reusing existing API server on %API_URL%
+)
+
+ver >nul
+start "H2OMeta Desktop Dev" cmd /k call "%RUN_DESKTOP_DEV%"
 if errorlevel 1 (
     echo [ERROR] Failed to open desktop dev terminal window.
     pause
@@ -111,6 +179,14 @@ set "H2OMETA_WORKDIR=%REPO_ROOT%"
 set "WSL_UTF8=1"
 set "PYTHONUTF8=1"
 set "NEXT_PUBLIC_API_BASE=%API_URL%"
+set "H2OMETA_CONDA_ENV=%LOCAL_CONDA_ENV%"
+set "H2OMETA_CONDA_EXE=%LOCAL_CONDA_EXE%"
+
+if not exist "%LOCAL_CONDA_EXE%" (
+    echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
+    pause
+    endlocal & exit /b 1
+)
 
 "%DESKTOP_EXE%"
 set "APP_EXIT=%ERRORLEVEL%"
@@ -127,16 +203,10 @@ echo [INFO] Repo root: %REPO_ROOT%
 echo [INFO] Starting API at %API_URL%
 echo [INFO] Starting Web at %WEB_URL%
 
-set "PYTHON_EXE=py"
-where py >nul 2>nul
-if errorlevel 1 (
-    set "PYTHON_EXE=python"
-    where python >nul 2>nul
-    if errorlevel 1 (
-        echo [ERROR] Python launcher "py" or "python" not found in PATH.
-        pause
-        endlocal & exit /b 1
-    )
+if not exist "%LOCAL_CONDA_EXE%" (
+    echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
+    pause
+    endlocal & exit /b 1
 )
 
 where npm >nul 2>nul
@@ -146,14 +216,42 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-start "H2OMeta API" cmd /k "cd /d %REPO_ROOT% && set WSL_UTF8=1 && set PYTHONUTF8=1 && %PYTHON_EXE% -m apps.api.run"
+if not exist "%ENSURE_WEB_DEV%" (
+    echo [ERROR] Web bootstrap script not found: %ENSURE_WEB_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+if not exist "%RUN_LOCAL_API_DEV%" (
+    echo [ERROR] API launcher script not found: %RUN_LOCAL_API_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+if not exist "%RUN_WEB_DEV%" (
+    echo [ERROR] Web launcher script not found: %RUN_WEB_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+echo [INFO] Checking Web dependencies...
+node "%ENSURE_WEB_DEV%"
+if errorlevel 1 (
+    echo [ERROR] Web dependency bootstrap failed.
+    pause
+    endlocal & exit /b 1
+)
+
+ver >nul
+start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
 if errorlevel 1 (
     echo [ERROR] Failed to open API terminal window.
     pause
     endlocal & exit /b 1
 )
 
-start "H2OMeta Web" cmd /k "cd /d %REPO_ROOT%\apps\web && set NEXT_PUBLIC_API_BASE=%API_URL% && npm run dev"
+ver >nul
+start "H2OMeta Web" cmd /k call "%RUN_WEB_DEV%"
 if errorlevel 1 (
     echo [ERROR] Failed to open web terminal window.
     pause
