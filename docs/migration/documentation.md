@@ -35,17 +35,17 @@
 - `M2 Add domain types and API skeleton` 已完成最小骨架，下一步进入 `M3 Implement minimal bundle compiler` 到 `M4 Implement single-node Linux launcher` 的衔接阶段。
 - `M3 Implement minimal bundle compiler` 已从内存 preview 提升到项目目录下的真实 bundle 落盘。
 - `M4 Implement single-node Linux launcher` 已有最小可提交/可查询/可取消闭环，但真实 Nextflow 成功判定细节、artifact 完整性仍需继续打磨。
-- `M6 Switch UI/API to workflow/run` 已完成首轮主导航与页面切换：
-  - 主导航切为 `连接 / Workflows / Runs / Artifacts / Settings`
-  - `/projects`、`/toolflows`、`/workbench` 等旧主入口已改为跳转
-  - Workflow 页面已能做最小 compile preview + submit run
-  - Runs / Artifacts 页面已接 workflow-first API
+- `M6 Switch UI/API to workflow/run` 已完成首轮主导航与页面切换，并已继续收口为单工作台：
+  - 主导航已收口为 `连接 / 工作台 / Settings`
+  - `/workflows`、`/runs`、`/artifacts` 仅保留兼容跳转，统一导向 `/workspace`
+  - 工作台默认聚焦当前 run，workflow 规格与 artifacts 退为次级折叠区
+  - starter workflow、compile preview、submit run、run detail、artifacts 已统一进单控制台
 - `M7 Retire legacy single-tool execution` 已完成主 UI 退场：
   - 侧栏不再默认加载 legacy execution 摘要
   - 主页面不再暴露单工具运行入口
 - 当前优先级：
   - 打磨单机 Linux launcher 的状态/失败判定与结束态分类
-  - 打磨 workflow/run 页面和 artifacts 预览
+  - 打磨工作台首屏的信息层级、日志可读性与 artifacts 预览
   - 再决定 API 层何时彻底封禁 legacy 单工具提交入口
 
 ## Known Risks

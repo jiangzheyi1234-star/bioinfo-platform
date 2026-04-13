@@ -10,11 +10,12 @@ import { WorkspaceShellProvider, useWorkspaceShell } from "./workspace_shell_con
 
 function resolveActiveTab(pathname: string) {
   if (pathname.startsWith("/connect")) return "connect" as const;
+  if (pathname.startsWith("/workspace")) return "workspace" as const;
   if (pathname.startsWith("/workflows")) return "workflows" as const;
   if (pathname.startsWith("/runs")) return "runs" as const;
   if (pathname.startsWith("/artifacts")) return "artifacts" as const;
   if (pathname.startsWith("/settings")) return "settings" as const;
-  return "workflows" as const;
+  return "workspace" as const;
 }
 
 function WorkspaceChrome({ children }: { children: ReactNode }) {
@@ -37,6 +38,7 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
 
   const isWorkspaceRoute =
     pathname.startsWith("/connect") ||
+    pathname.startsWith("/workspace") ||
     pathname.startsWith("/workflows") ||
     pathname.startsWith("/projects") ||
     pathname.startsWith("/runs") ||
@@ -55,12 +57,12 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
   return (
     <DetectionWorkspaceShell
       activeTab={resolveActiveTab(pathname)}
-      pageTitle={pathname.startsWith("/artifacts") ? "产物中心" : undefined}
-      pageDescription={pathname.startsWith("/artifacts") ? "集中查看 workflow run 拉回的 artifacts 与报告文件。" : undefined}
-      hidePageHeader={pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts")}
-      hidePageMeta={pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts") || pathname.startsWith("/connect")}
-      hideFooterNote={pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts") || pathname.startsWith("/connect")}
-      hideErrorNotice={pathname.startsWith("/workflows") || pathname.startsWith("/runs")}
+      pageTitle={pathname.startsWith("/workspace") ? "工作台" : pathname.startsWith("/artifacts") ? "产物中心" : undefined}
+      pageDescription={pathname.startsWith("/workspace") ? "围绕当前 workflow run 进行编译、提交、监控与产物查看。" : pathname.startsWith("/artifacts") ? "集中查看 workflow run 拉回的 artifacts 与报告文件。" : undefined}
+      hidePageHeader={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts")}
+      hidePageMeta={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts") || pathname.startsWith("/connect")}
+      hideFooterNote={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs") || pathname.startsWith("/artifacts") || pathname.startsWith("/connect")}
+      hideErrorNotice={pathname.startsWith("/workspace") || pathname.startsWith("/workflows") || pathname.startsWith("/runs")}
       currentProject={currentProject ?? undefined}
       projects={projects}
       currentProjectId={currentProjectId}
@@ -80,20 +82,20 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
           projectActionBusyId={projectActionBusyId}
           onOpenProject={async (projectId) => {
             await selectProject(projectId);
-            router.push("/workflows");
+            router.push("/workspace");
           }}
           onSelectProjectSummary={() => {
             openProjectSummary();
-            router.push("/workflows");
+            router.push("/workspace");
           }}
           onCreateProject={createProject}
           onArchiveProject={async (projectId) => {
             await archiveProject(projectId);
-            router.push("/workflows");
+            router.push("/workspace");
           }}
           onDeleteProject={async (projectId) => {
             await deleteProject(projectId);
-            router.push("/workflows");
+            router.push("/workspace");
           }}
         />
       }

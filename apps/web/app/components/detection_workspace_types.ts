@@ -275,6 +275,7 @@ export type TabId =
   | "history"
   | "databases"
   | "connect"
+  | "workspace"
   | "workflows"
   | "artifacts"
   | "toolflows"
