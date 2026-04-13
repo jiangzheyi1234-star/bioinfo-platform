@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
+    CompileWorkflowRequest,
+    CreateRunRequest,
     CreateProjectRequest,
     CreateTaskRequest,
     CreateSampleRequest,
@@ -79,6 +81,74 @@ async def get_tool_descriptor(tool_id: str) -> dict[str, Any]:
     try:
         return {"item": _runtime().get_tool_descriptor(tool_id=tool_id)}
     except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/workflows/compile")
+async def compile_workflow(payload: CompileWorkflowRequest) -> dict[str, Any]:
+    try:
+        return {
+            "item": _runtime().compile_workflow(
+                project_id=payload.project_id,
+                workflow=payload.workflow.model_dump(),
+                launch=payload.launch.model_dump(),
+            )
+        }
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/runs")
+async def list_runs(project_id: str) -> dict[str, Any]:
+    try:
+        return {"items": _runtime().list_runs(project_id=project_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/runs/{run_id}")
+async def get_run(project_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_run(project_id=project_id, run_id=run_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/runs")
+async def create_run(payload: CreateRunRequest) -> dict[str, Any]:
+    try:
+        return {
+            "item": _runtime().create_run(
+                project_id=payload.project_id,
+                workflow=payload.workflow.model_dump(),
+                launch=payload.launch.model_dump(),
+            )
+        }
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/runs/{run_id}/cancel")
+async def cancel_run(project_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().cancel_run(project_id=project_id, run_id=run_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/runs/{run_id}/artifacts")
+async def get_run_artifacts(project_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        return {"items": _runtime().get_run_artifacts(project_id=project_id, run_id=run_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/servers/{server_id}/doctor")
+async def doctor_server(server_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().doctor_server(server_id=server_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
