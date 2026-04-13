@@ -449,17 +449,17 @@ export function ProjectConnectionPage() {
             <div className="connection-section-head">
               <div className="connection-section-title-wrap">
                 <h2 className="settings-section-title">服务器预检</h2>
-                <p className="muted preflight-summary">
-                  {preflightBusy && !preflightLoaded
-                    ? "正在检测当前服务器是否满足后续安装与运行条件。"
-                    : preflightError
-                      ? "预检失败，请先修复连接或服务器环境问题。"
-                      : preflightResult?.ok
-                        ? "预检通过，可以继续配置运行环境。"
-                        : "预检发现问题，建议先处理失败项。"}
-                </p>
               </div>
               <div className="settings-actions connection-section-actions">
+                <span className="connection-inline-status muted">
+                  {preflightBusy && !preflightLoaded
+                    ? "正在检测服务器环境"
+                    : preflightError
+                      ? "预检失败"
+                      : preflightResult?.ok
+                        ? "预检通过，可继续配置运行环境"
+                        : "预检发现问题"}
+                </span>
                 <button className="ui-button" type="button" disabled={preflightBusy} onClick={() => void loadPreflight()}>
                   {preflightBusy ? "检测中..." : "重新检测"}
                 </button>
@@ -484,10 +484,6 @@ export function ProjectConnectionPage() {
 
             {preflightResult ? (
               <>
-                <div className="connection-meta-row connection-summary-row">
-                  <span className={`status-pill${preflightResult.ok ? " status-pill--ok" : ""}`}>{preflightResult.ok ? "预检通过" : "预检异常"}</span>
-                </div>
-
                 {preflightResult.failures.length > 0 ? (
                   <div className="preflight-message-list">
                     {preflightResult.failures.map((item) => (
