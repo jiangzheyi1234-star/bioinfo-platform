@@ -68,3 +68,4 @@ test_detection_page_*.py
 *_debug.py
 *.backup
 启动*.bat
+.omx/
