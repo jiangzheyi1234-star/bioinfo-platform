@@ -5,11 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { useWorkspaceShell } from "./workspace_shell_context";
 import type {
+  WorkflowCompatibilitySummary,
   ServerDoctorReport,
   WorkflowArtifact,
   WorkflowCompilePreview,
+  WorkflowNodePosition,
   WorkflowRun,
   WorkflowSpecView,
+  WorkflowToolDescriptor,
 } from "./detection_workspace_types";
 import {
   apiBase,
@@ -21,10 +24,51 @@ import {
   toWorkflowArtifact,
   toWorkflowRun,
 } from "./detection_workspace_utils";
-import { buildProfileFromDoctor, getSchemaFields, normalizeFieldValue, createStarterWorkflow } from "./workflow_support";
+import {
+  buildProfileFromDoctor,
+  createStarterWorkflow,
+  createWorkflowEdgeDraft,
+  createWorkflowNodeDraft,
+  getSchemaFields,
+  normalizeFieldValue,
+} from "./workflow_support";
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function workflowDraftStorageKey(projectId: string) {
+  return `h2ometa:workflow-draft:${projectId}`;
+}
+
+function readStoredWorkflowDraft(projectId: string): { workflow: WorkflowSpecView; schemaDraft: string } | null {
+  if (typeof window === "undefined" || !projectId) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(workflowDraftStorageKey(projectId));
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!isRecord(parsed) || !isRecord(parsed.workflow)) {
+      return null;
+    }
+    const workflow = parsed.workflow as WorkflowSpecView;
+    const schemaDraft = typeof parsed.schemaDraft === "string" ? parsed.schemaDraft : prettyJson(workflow.params_schema ?? {});
+    return { workflow, schemaDraft };
+  } catch {
+    return null;
+  }
+}
+
+function nextDraftId(items: string[], prefix: string) {
+  const used = new Set(items);
+  let index = items.length + 1;
+  while (used.has(`${prefix}_${index}`)) {
+    index += 1;
+  }
+  return index;
 }
 
 export function readWorkflowRemoteValue(run: WorkflowRun, key: string): string {
@@ -32,21 +76,8 @@ export function readWorkflowRemoteValue(run: WorkflowRun, key: string): string {
   return safeText(value);
 }
 
-export function describeDoctor(doctor: ServerDoctorReport | null, doctorError: string): string {
-  if (doctorError) {
-    return `连接可用，但运行时探测失败：${doctorError}`;
-  }
-  if (!doctor) {
-    return "正在检测服务器运行时。";
-  }
-  const profile = buildProfileFromDoctor(doctor);
-  const nextflow = doctor.runtime_capabilities?.nextflow;
-  const java = doctor.runtime_capabilities?.java;
-  const runtimeBits = [
-    nextflow?.available ? `Nextflow ${nextflow.version || "ok"}` : "Nextflow 缺失",
-    java?.available ? `Java ${java.version || "ok"}` : "Java 缺失",
-  ];
-  return `建议 profile：${profile.profile_id} · executor=${profile.executor} · ${runtimeBits.join(" / ")}`;
+export function describeDoctor(summary: WorkflowCompatibilitySummary, doctorError: string): string {
+  return summarizeWorkflowCompatibility(summary, doctorError);
 }
 
 export function useWorkflowConsoleState() {
@@ -59,6 +90,8 @@ export function useWorkflowConsoleState() {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [doctor, setDoctor] = useState<ServerDoctorReport | null>(null);
   const [doctorError, setDoctorError] = useState("");
+  const [toolDescriptors, setToolDescriptors] = useState<Record<string, WorkflowToolDescriptor>>({});
+  const [toolDescriptorBusy, setToolDescriptorBusy] = useState(false);
   const [compilePreview, setCompilePreview] = useState<WorkflowCompilePreview | null>(null);
   const [compileBusy, setCompileBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
@@ -86,10 +119,18 @@ export function useWorkflowConsoleState() {
   }, [schemaDraft]);
 
   const schemaSummary = useMemo(() => getSchemaFields(schemaObject || {}), [schemaObject]);
-  const launchProfile = useMemo(() => buildProfileFromDoctor(doctor), [doctor]);
+  const compatibilitySummary = useMemo(
+    () => buildWorkflowCompatibilitySummary(doctor, workflow, toolDescriptors),
+    [doctor, workflow, toolDescriptors]
+  );
+  const launchProfile = compatibilitySummary.selected_profile;
   const selectedRun = useMemo(
     () => runs.find((item) => item.run_id === selectedRunId) ?? null,
     [runs, selectedRunId]
+  );
+  const selectedNode = useMemo(
+    () => workflow?.nodes.find((item) => item.node_id === selectedNodeId) ?? null,
+    [workflow, selectedNodeId]
   );
 
   const refreshRuns = async (preferredRunId?: string) => {
@@ -216,14 +257,63 @@ export function useWorkflowConsoleState() {
   }, [currentProjectId]);
 
   useEffect(() => {
+    setWorkflow(null);
+    setSchemaDraft("");
+    setParams({});
+    setCompilePreview(null);
+    setSelectedNodeId("");
+  }, [currentProjectId]);
+
+  useEffect(() => {
     if (!currentProjectId || workflow) {
       return;
     }
-    const starter = createStarterWorkflow(currentProjectId);
+    const storedDraft = readStoredWorkflowDraft(currentProjectId);
+    const starter = storedDraft?.workflow ?? createStarterWorkflow(currentProjectId);
     setWorkflow(starter);
-    setSchemaDraft(prettyJson(starter.params_schema));
+    setSchemaDraft(storedDraft?.schemaDraft ?? prettyJson(starter.params_schema));
     setSelectedNodeId(starter.nodes[0]?.node_id || "");
   }, [currentProjectId, workflow]);
+
+  useEffect(() => {
+    if (!currentProjectId || !workflow) {
+      return;
+    }
+    let active = true;
+    setToolDescriptorBusy(true);
+    void (async () => {
+      try {
+        const entries = await Promise.all(
+          toolIds.map(async (toolId) => {
+            const resp = await fetch(`${apiBase()}/api/v1/workflows/tools/${encodeURIComponent(toolId)}/descriptor`);
+            if (!resp.ok) {
+              return [toolId, { tool_id: toolId, name: toolId, workflow_support: null }] as const;
+            }
+            const data = await readJsonOrThrow(resp);
+            const item = parseWorkflowToolDescriptor(data?.item);
+            return [toolId, item || { tool_id: toolId, name: toolId, workflow_support: null }] as const;
+          })
+        );
+        if (!active) {
+          return;
+        }
+        setToolDescriptors(Object.fromEntries(entries));
+      } catch (err) {
+        if (!active) {
+          return;
+        }
+        setToolDescriptors({});
+        setShellError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (active) {
+          setToolDescriptorBusy(false);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [workflow, setShellError]);
 
   useEffect(() => {
     if (!workflow?.nodes.length) {
@@ -290,22 +380,32 @@ export function useWorkflowConsoleState() {
     });
   };
 
-  const addNode = () => {
+  const updateNodePosition = (nodeId: string, position: WorkflowNodePosition) => {
     setWorkflow((current) => {
       if (!current) {
         return current;
       }
-      const nextIndex = current.nodes.length + 1;
+      return {
+        ...current,
+        nodes: current.nodes.map((node) => (node.node_id === nodeId ? { ...node, position } : node)),
+      };
+    });
+  };
+
+  const addNode = (templateKey?: string) => {
+    setWorkflow((current) => {
+      if (!current) {
+        return current;
+      }
+      const nextIndex = nextDraftId(
+        current.nodes.map((node) => node.node_id),
+        "step"
+      );
       return {
         ...current,
         nodes: [
           ...current.nodes,
-          {
-            node_id: `step_${nextIndex}`,
-            tool_id: `tool_${nextIndex}`,
-            label: `Step ${nextIndex}`,
-            params: {},
-          },
+          createWorkflowNodeDraft({ index: nextIndex, templateKey }),
         ],
       };
     });
@@ -316,9 +416,69 @@ export function useWorkflowConsoleState() {
       if (!current || current.nodes.length <= 1) {
         return current;
       }
+      const removedNodeId = current.nodes[index]?.node_id;
       return {
         ...current,
         nodes: current.nodes.filter((_node, nodeIndex) => nodeIndex !== index),
+        edges: current.edges.filter(
+          (edge) => edge.source_node_id !== removedNodeId && edge.target_node_id !== removedNodeId
+        ),
+      };
+    });
+  };
+
+  const updateEdge = (edgeId: string, patch: Partial<WorkflowSpecView["edges"][number]>) => {
+    setWorkflow((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        edges: current.edges.map((edge) => (edge.edge_id === edgeId ? { ...edge, ...patch } : edge)),
+      };
+    });
+  };
+
+  const connectNodes = (sourceNodeId: string, targetNodeId: string) => {
+    setWorkflowMessage("");
+    setWorkflow((current) => {
+      if (!current) {
+        return current;
+      }
+      if (
+        current.edges.some(
+          (edge) => edge.source_node_id === sourceNodeId && edge.target_node_id === targetNodeId
+        )
+      ) {
+        setWorkflowMessage("相同的节点连线已经存在，可直接在 Connections 面板中修改 input/output。");
+        return current;
+      }
+      const nextIndex = nextDraftId(
+        current.edges.map((edge) => edge.edge_id),
+        "edge"
+      );
+      return {
+        ...current,
+        edges: [
+          ...current.edges,
+          createWorkflowEdgeDraft({
+            index: nextIndex,
+            sourceNodeId,
+            targetNodeId,
+          }),
+        ],
+      };
+    });
+  };
+
+  const removeEdge = (edgeId: string) => {
+    setWorkflow((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        edges: current.edges.filter((edge) => edge.edge_id !== edgeId),
       };
     });
   };
@@ -336,9 +496,32 @@ export function useWorkflowConsoleState() {
     if (!doctor && doctorError) {
       throw new Error(`服务器 doctor 未通过：${doctorError}`);
     }
+    if (!doctor) {
+      throw new Error("正在检测服务器运行时，请稍后再试。");
+    }
+    if (toolDescriptorBusy) {
+      throw new Error("正在加载 workflow 节点描述符，请稍后再试。");
+    }
+    if (!launchProfile) {
+      const reasons = compatibilitySummary.workflow_profiles.flatMap((item) => item.incompatibility_reasons);
+      throw new Error(reasons[0] || "当前 workflow 没有可用 profile。");
+    }
     return {
       workflow: {
         ...workflow,
+        nodes: workflow.nodes.map((node) => ({
+          node_id: node.node_id,
+          tool_id: node.tool_id,
+          label: node.label,
+          params: node.params,
+        })),
+        edges: workflow.edges.map((edge) => ({
+          edge_id: edge.edge_id,
+          source_node_id: edge.source_node_id,
+          target_node_id: edge.target_node_id,
+          output_name: edge.output_name,
+          input_name: edge.input_name,
+        })),
         params_schema: schemaObject,
       },
       launch: {
@@ -454,6 +637,7 @@ export function useWorkflowConsoleState() {
     compileBusy,
     runBusy,
     workflowMessage,
+    toolDescriptorBusy,
     runs,
     selectedRunId,
     selectedRun,
@@ -466,8 +650,10 @@ export function useWorkflowConsoleState() {
     artifactsExpanded,
     technicalExpanded,
     selectedNodeId,
+    selectedNode,
     detailTab,
     schemaSummary,
+    compatibilitySummary,
     launchProfile,
     artifactSummary,
     traceArtifacts,
@@ -487,8 +673,12 @@ export function useWorkflowConsoleState() {
     fetchResolvedConfig,
     cancelRun,
     updateNode,
+    updateNodePosition,
     addNode,
     removeNode,
+    updateEdge,
+    connectNodes,
+    removeEdge,
     runCompile,
     submitRun,
   };

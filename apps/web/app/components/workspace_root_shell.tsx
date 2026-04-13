@@ -8,7 +8,7 @@ import { DetectionWorkspaceShell } from "./detection_workspace_shell";
 import { ProjectSidebarSection } from "./project_sidebar_section";
 import { WorkspaceShellProvider, useWorkspaceShell } from "./workspace_shell_context";
 
-type WorkspaceRouteKind = "connect" | "workspace" | "settings" | "shell" | "other";
+type WorkspaceRouteKind = "connect" | "workspace" | "settings" | "other";
 
 function resolveWorkspaceRouteKind(pathname: string): WorkspaceRouteKind {
   if (pathname.startsWith("/connect")) {
@@ -19,17 +19,6 @@ function resolveWorkspaceRouteKind(pathname: string): WorkspaceRouteKind {
   }
   if (pathname.startsWith("/settings")) {
     return "settings";
-  }
-  if (
-    pathname.startsWith("/projects") ||
-    pathname.startsWith("/results") ||
-    pathname.startsWith("/history") ||
-    pathname.startsWith("/samples") ||
-    pathname.startsWith("/databases") ||
-    pathname.startsWith("/workbench") ||
-    pathname.startsWith("/toolflows")
-  ) {
-    return "shell";
   }
   return "other";
 }
