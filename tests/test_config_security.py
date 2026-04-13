@@ -123,6 +123,17 @@ def test_normalize_config_keeps_structured_databases():
     assert normalized["databases"]["overrides"]["kraken2"] == "/custom/kraken2"
 
 
+def test_normalize_config_rejects_non_mapping_database_overrides():
+    data = config.default_settings_schema()
+    data["databases"] = {
+        "db_root": "/data/databases",
+        "overrides": ["/custom/kraken2"],
+    }
+
+    with pytest.raises(ValueError, match="legacy config format is no longer supported"):
+        config.normalize_config(data)
+
+
 def test_default_schema_omits_removed_linux_and_runtime_fields():
     schema = config.default_settings_schema()
     assert "auto_installed" not in schema["linux"]

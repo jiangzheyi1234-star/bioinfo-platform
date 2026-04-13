@@ -150,6 +150,31 @@ def test_slurm_query_run_falls_back_to_status_files() -> None:
     assert result["log_tail"] == "recent log"
 
 
+def test_slurm_query_run_uses_single_quoted_job_id_for_sacct() -> None:
+    backend = SlurmSSHBackend()
+    commands: list[str] = []
+
+    def ssh_run_fn(cmd: str, timeout: int) -> tuple[int, str, str]:
+        commands.append(cmd)
+        if cmd.startswith("squeue -h -j '12345'"):
+            return 0, "", ""
+        if cmd.startswith("sacct -n -P -X -j '12345'"):
+            return 0, "12345|COMPLETED|0:0|00:02:00|1024K|node-1\n", ""
+        if cmd.startswith("tail -n 80"):
+            return 0, "accounting log", ""
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    result = backend.query_run(
+        ssh_run_fn=ssh_run_fn,
+        row={"remote_task_dir": "/remote/base/workflow_runs/run-quoted", "scheduler_job_id": "12345"},
+    )
+
+    assert result["stage"] == "completed"
+    assert result["exit_code"] == "0"
+    assert result["scheduler_job_id"] == "12345"
+    assert any(cmd.startswith("sacct -n -P -X -j '12345'") for cmd in commands)
+
+
 def test_slurm_cancel_run_scancels_job_and_returns_cancelled() -> None:
     backend = SlurmSSHBackend()
 
