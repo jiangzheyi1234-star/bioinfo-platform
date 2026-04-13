@@ -15,9 +15,10 @@
 - 已接上单机 Linux 最小 launcher 闭环：
   - bundle 本地落盘
   - SSH 上传 bundle
-  - 远端 `nextflow run ... -bg` wrapper 提交
-  - `status/exit_code/heartbeat/task.log` 查询
+  - 远端 detached wrapper 提交，并由 wrapper 持有真实 Nextflow pid
+  - `status/exit_code/heartbeat/task.log/nextflow.pid` 查询
   - `trace/report/timeline/dag` artifact 下载
+  - run 记录本地持久化后可重新加载
 
 ## Decisions
 
@@ -33,10 +34,10 @@
 - `M1 Freeze workflow-first contract` 已完成。
 - `M2 Add domain types and API skeleton` 已完成最小骨架，下一步进入 `M3 Implement minimal bundle compiler` 到 `M4 Implement single-node Linux launcher` 的衔接阶段。
 - `M3 Implement minimal bundle compiler` 已从内存 preview 提升到项目目录下的真实 bundle 落盘。
-- `M4 Implement single-node Linux launcher` 已有最小可提交/可查询闭环，但 cancel、真实 Nextflow 成功判定细节、artifact 完整性仍需继续打磨。
+- `M4 Implement single-node Linux launcher` 已有最小可提交/可查询/可取消闭环，但真实 Nextflow 成功判定细节、artifact 完整性仍需继续打磨。
 - 当前优先级：
-  - 打磨单机 Linux launcher 的状态/失败判定
-  - 补 run artifacts 持久化与 UI 接入
+  - 打磨单机 Linux launcher 的状态/失败判定与结束态分类
+  - 补 workflow/run UI 接入
   - 再决定如何退役 legacy 单工具执行入口
 
 ## Known Risks
