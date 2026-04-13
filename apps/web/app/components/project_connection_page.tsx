@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { PreflightResult, SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
+import type { InstallJobSnapshot, PreflightResult, RemoteEnvStatus, SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
 import {
   apiBase,
   defaultSSHSettings,
+  parseInstallJobSnapshot,
   parsePreflightResult,
+  parseRemoteEnvStatus,
   parseSettingsPayload,
   parseSSHDiagnosticSteps,
   parseSSHSettings,
@@ -33,12 +35,20 @@ export function ProjectConnectionPage() {
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflightLoaded, setPreflightLoaded] = useState(false);
   const [preflightError, setPreflightError] = useState("");
+  const [remoteEnvStatus, setRemoteEnvStatus] = useState<RemoteEnvStatus | null>(null);
+  const [remoteEnvBusy, setRemoteEnvBusy] = useState(false);
+  const [remoteEnvLoaded, setRemoteEnvLoaded] = useState(false);
+  const [remoteEnvError, setRemoteEnvError] = useState("");
+  const [envInstallJobId, setEnvInstallJobId] = useState("");
+  const [envInstallSnapshot, setEnvInstallSnapshot] = useState<InstallJobSnapshot | null>(null);
+  const [envInstallBusy, setEnvInstallBusy] = useState(false);
+  const [expandedEnvLogs, setExpandedEnvLogs] = useState<string[]>([]);
 
   const isConnected = sshStatus?.connected === true;
   const canEditForm = !isConnected || isEditingConnection;
   const buttonsLocked = sshBusyAction.length > 0 || (isConnected && !isEditingConnection);
 
-  const loadPreflight = async (options?: { silent?: boolean }) => {
+  const loadPreflight = async () => {
     setPreflightBusy(true);
     setPreflightError("");
     try {
@@ -56,6 +66,80 @@ export function ProjectConnectionPage() {
       setPreflightError(err instanceof Error ? err.message : String(err));
     } finally {
       setPreflightBusy(false);
+    }
+  };
+
+  const loadRemoteEnvStatus = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setRemoteEnvBusy(true);
+    }
+    setRemoteEnvError("");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/env/status`);
+      const data = await readJsonOrThrow(resp);
+      const nextStatus = parseRemoteEnvStatus(data?.item);
+      if (!nextStatus) {
+        throw new Error("运行环境返回格式无效。");
+      }
+      setRemoteEnvStatus(nextStatus);
+      setRemoteEnvLoaded(true);
+      if (nextStatus.miniforge.status === "running" || nextStatus.miniforge.status === "installing") {
+        setEnvInstallJobId(nextStatus.miniforge.job_id);
+      } else {
+        setEnvInstallJobId("");
+        setEnvInstallSnapshot(null);
+      }
+    } catch (err) {
+      setRemoteEnvStatus(null);
+      setRemoteEnvLoaded(true);
+      setRemoteEnvError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (!options?.silent) {
+        setRemoteEnvBusy(false);
+      }
+    }
+  };
+
+  const toggleEnvLog = (key: string) => {
+    setExpandedEnvLogs((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
+  };
+
+  const startMiniforgeInstall = async () => {
+    setRemoteEnvError("");
+    setEnvInstallBusy(true);
+    setEnvInstallSnapshot(null);
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/env/install`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "miniforge" }),
+      });
+      const data = await readJsonOrThrow(resp);
+      const nextJobId = safeText(data?.item?.job_id);
+      if (!nextJobId) {
+        throw new Error("Miniforge 安装任务返回缺少 job_id。");
+      }
+      setEnvInstallJobId(nextJobId);
+      setExpandedEnvLogs((prev) => (prev.includes("miniforge") ? prev : [...prev, "miniforge"]));
+      await loadRemoteEnvStatus({ silent: true });
+    } catch (err) {
+      setRemoteEnvError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEnvInstallBusy(false);
+    }
+  };
+
+  const loadEnvInstallSnapshot = async (jobId: string) => {
+    const resp = await fetch(`${apiBase()}/api/v1/ssh/env/install/${encodeURIComponent(jobId)}`);
+    const data = await readJsonOrThrow(resp);
+    const nextSnapshot = parseInstallJobSnapshot(data?.item);
+    if (!nextSnapshot) {
+      throw new Error("运行环境安装任务返回格式无效。");
+    }
+    setEnvInstallSnapshot(nextSnapshot);
+    if (nextSnapshot.done) {
+      setEnvInstallJobId("");
+      await loadRemoteEnvStatus({ silent: true });
     }
   };
 
@@ -132,6 +216,7 @@ export function ProjectConnectionPage() {
       setSSHMessage(safeText(data?.item?.message, "SSH 已连接"));
       setIsEditingConnection(false);
       await loadPreflight();
+      await loadRemoteEnvStatus();
     } catch (err) {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -152,6 +237,12 @@ export function ProjectConnectionPage() {
       setPreflightResult(null);
       setPreflightLoaded(false);
       setPreflightError("");
+      setRemoteEnvStatus(null);
+      setRemoteEnvLoaded(false);
+      setRemoteEnvError("");
+      setEnvInstallJobId("");
+      setEnvInstallSnapshot(null);
+      setExpandedEnvLogs([]);
     } catch (err) {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -212,8 +303,42 @@ export function ProjectConnectionPage() {
     if (!isConnected || preflightLoaded || preflightBusy) {
       return;
     }
-    void loadPreflight({ silent: true });
+    void loadPreflight();
   }, [isConnected, preflightBusy, preflightLoaded]);
+
+  useEffect(() => {
+    if (!isConnected || remoteEnvLoaded || remoteEnvBusy) {
+      return;
+    }
+    void loadRemoteEnvStatus({ silent: true });
+  }, [isConnected, remoteEnvBusy, remoteEnvLoaded]);
+
+  useEffect(() => {
+    if (!envInstallJobId) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+      void loadEnvInstallSnapshot(envInstallJobId).catch((err) => {
+        if (!cancelled) {
+          setRemoteEnvError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [envInstallJobId]);
+
+  const miniforgeInstalling =
+    envInstallBusy ||
+    envInstallJobId.length > 0 ||
+    remoteEnvStatus?.miniforge.status === "running" ||
+    remoteEnvStatus?.miniforge.status === "installing";
 
   return (
     <section className="settings-layout">
@@ -357,6 +482,93 @@ export function ProjectConnectionPage() {
             ) : null}
 
             {preflightBusy && !preflightResult ? <p className="muted">正在获取预检结果...</p> : null}
+          </section>
+        ) : null}
+
+        {isConnected ? (
+          <section className="settings-editor-panel connection-panel remote-env-panel">
+            <div className="connection-status-row">
+              <div>
+                <h2 className="settings-section-title">运行环境</h2>
+                <p className="muted preflight-summary">
+                  {remoteEnvBusy && !remoteEnvLoaded
+                    ? "正在读取远端 conda 与工具环境状态。"
+                    : remoteEnvError
+                      ? "环境状态读取失败，请检查 SSH 连接或服务端日志。"
+                      : "这里显示 Miniforge 与工具环境的当前可用性。"}
+                </p>
+              </div>
+              <div className="settings-actions connection-actions">
+                <button className="ui-button" type="button" disabled={remoteEnvBusy || miniforgeInstalling} onClick={() => void loadRemoteEnvStatus()}>
+                  {remoteEnvBusy ? "刷新中..." : "刷新状态"}
+                </button>
+              </div>
+            </div>
+
+            {remoteEnvError ? <p className="fail-text">{remoteEnvError}</p> : null}
+
+            {remoteEnvStatus ? (
+              <>
+                <div className="connection-meta-row preflight-meta-row">
+                  <span className={`status-pill${remoteEnvStatus.miniforge.installed ? " status-pill--ok" : ""}`}>
+                    {remoteEnvStatus.miniforge.installed ? "Miniforge 已就绪" : "Miniforge 未就绪"}
+                  </span>
+                  <span className="badge">已安装环境 {remoteEnvStatus.summary.installed}/{remoteEnvStatus.summary.total}</span>
+                </div>
+
+                <article className="env-status-card">
+                  <div className="env-status-row">
+                    <div className="env-status-main">
+                      <strong>Miniforge</strong>
+                      <p className="muted">{remoteEnvStatus.miniforge.message || "无额外信息"}</p>
+                    </div>
+                    <div className="env-status-side">
+                      <span className="badge">{remoteEnvStatus.miniforge.version || remoteEnvStatus.miniforge.status || "unknown"}</span>
+                      {!remoteEnvStatus.miniforge.installed ? (
+                        <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
+                          {miniforgeInstalling ? "安装中..." : "安装"}
+                        </button>
+                      ) : null}
+                      {(remoteEnvStatus.miniforge.log_text || envInstallSnapshot?.log_text) ? (
+                        <button className="ui-button" type="button" onClick={() => toggleEnvLog("miniforge")}>
+                          {expandedEnvLogs.includes("miniforge") ? "收起日志" : "查看日志"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {expandedEnvLogs.includes("miniforge") ? (
+                    <pre className="env-log-block">{envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "暂无日志"}</pre>
+                  ) : null}
+                </article>
+
+                <div className="env-status-list">
+                  {remoteEnvStatus.tool_envs.map((toolEnv) => (
+                    <article key={toolEnv.tool_id} className="env-status-card">
+                      <div className="env-status-row">
+                        <div className="env-status-main">
+                          <strong>{toolEnv.name}</strong>
+                          <p className="muted">{toolEnv.message || toolEnv.env_name || "无额外信息"}</p>
+                        </div>
+                        <div className="env-status-side">
+                          <span className={`status-pill${toolEnv.installed ? " status-pill--ok" : ""}`}>{toolEnv.status}</span>
+                          <span className="badge">{toolEnv.version || toolEnv.env_name || toolEnv.tool_id}</span>
+                          {toolEnv.log_text ? (
+                            <button className="ui-button" type="button" onClick={() => toggleEnvLog(toolEnv.tool_id)}>
+                              {expandedEnvLogs.includes(toolEnv.tool_id) ? "收起日志" : "查看日志"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {expandedEnvLogs.includes(toolEnv.tool_id) ? <pre className="env-log-block">{toolEnv.log_text}</pre> : null}
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {remoteEnvBusy && !remoteEnvStatus ? <p className="muted">正在获取运行环境状态...</p> : null}
           </section>
         ) : null}
       </section>
