@@ -366,6 +366,8 @@ export function ProjectConnectionPage() {
 
   const shouldShowPreflightValue = (check: PreflightResult["checks"][number]) =>
     check.key === "arch" || check.key === "disk" || check.status !== "ok";
+  const preflightProblemChecks = preflightResult ? preflightResult.checks.filter((check) => check.status !== "ok") : [];
+  const preflightHasIssues = !!preflightResult && (preflightProblemChecks.length > 0 || preflightResult.failures.length > 0 || preflightResult.warnings.length > 0 || !preflightResult.ok);
 
   return (
     <section className="settings-layout settings-layout--single">
@@ -461,18 +463,20 @@ export function ProjectConnectionPage() {
                 <button className="ui-button" type="button" disabled={preflightBusy} onClick={() => void loadPreflight()}>
                   {preflightBusy ? "检测中..." : "重新检测"}
                 </button>
-                <button
-                  className="control-btn connection-section-toggle"
-                  type="button"
-                  aria-expanded={preflightExpanded}
-                  onClick={() => {
-                    setPreflightExpandedTouched(true);
-                    setPreflightExpanded((prev) => !prev);
-                  }}
-                >
-                  <ChevronRightIcon className={`connection-section-toggle-icon${preflightExpanded ? " expanded" : ""}`} />
-                  <span>{preflightExpanded ? "收起详情" : "查看详情"}</span>
-                </button>
+                {preflightHasIssues ? (
+                  <button
+                    className="control-btn connection-section-toggle"
+                    type="button"
+                    aria-expanded={preflightExpanded}
+                    onClick={() => {
+                      setPreflightExpandedTouched(true);
+                      setPreflightExpanded((prev) => !prev);
+                    }}
+                  >
+                    <ChevronRightIcon className={`connection-section-toggle-icon${preflightExpanded ? " expanded" : ""}`} />
+                    <span>{preflightExpanded ? "收起问题" : "查看问题"}</span>
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -504,9 +508,9 @@ export function ProjectConnectionPage() {
                   </div>
                 ) : null}
 
-                {preflightExpanded ? (
+                {preflightExpanded && preflightHasIssues ? (
                   <div className="connection-detail-list">
-                    {preflightResult.checks.map((check) => (
+                    {preflightProblemChecks.map((check) => (
                       <article key={check.key} className={`connection-detail-item connection-detail-item--${check.status}`}>
                         <div className="connection-detail-item-top">
                           <strong>{check.label}</strong>
