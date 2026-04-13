@@ -13,6 +13,7 @@ from jinja2 import BaseLoader, Environment, TemplateSyntaxError, UndefinedError
 
 from core.environment.env_detector import expected_env_path
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
+from core.plugins.runtime_metadata import derive_conda_env_name
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ class CommandBuilder:
             context.update(database_paths)
 
         # conda 环境名
-        conda_env = descriptor.get("conda_env")
+        conda_env = derive_conda_env_name(descriptor)
         if conda_env:
             context["conda_env"] = conda_env
 

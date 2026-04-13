@@ -4,6 +4,7 @@ version: "5.2.0"
 category: quality
 description: "组装质量评估工具，统计 N50、总长度、错配等关键指标"
 runtime:
+  container: quay.io/biocontainers/quast:5.2.0
   conda: bioconda::quast=5.2.0
 
 resources:

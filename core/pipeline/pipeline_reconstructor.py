@@ -301,7 +301,7 @@ SELECT DISTINCT * FROM lineage ORDER BY depth DESC
             # conda
             conda_env = None
             if plugin_descriptors and node.tool_id in plugin_descriptors:
-                conda_env = plugin_descriptors[node.tool_id].get("conda_env")
+                conda_env = derive_conda_env_name(plugin_descriptors[node.tool_id])
             if conda_env:
                 lines.append(f'    conda: "{conda_env}"')
                 lines.append("")
@@ -373,3 +373,4 @@ SELECT DISTINCT * FROM lineage ORDER BY depth DESC
         if row is None:
             return None
         return dict(row)
+from core.plugins.runtime_metadata import derive_conda_env_name

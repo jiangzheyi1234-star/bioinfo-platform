@@ -166,6 +166,12 @@ export type WorkflowNodeView = {
   tool_id: string;
   label: string;
   params: Record<string, unknown>;
+  position?: WorkflowNodePosition;
+};
+
+export type WorkflowNodePosition = {
+  x: number;
+  y: number;
 };
 
 export type WorkflowEdgeView = {
@@ -195,6 +201,42 @@ export type WorkflowServerProfile = {
   work_dir: string;
   output_dir: string;
   cache_dir: string;
+};
+
+export type WorkflowSupportLevel = "Production Ready" | "Conda Only" | "Legacy";
+
+export type WorkflowToolRuntime = {
+  container: string;
+  conda: string;
+  conda_env_name: string;
+};
+
+export type WorkflowToolSupport = {
+  support_level: WorkflowSupportLevel;
+  workflow_ready: boolean;
+  validation_errors: string[];
+  runtime: WorkflowToolRuntime;
+};
+
+export type WorkflowToolDescriptor = {
+  tool_id: string;
+  name: string;
+  workflow_support: WorkflowToolSupport | null;
+};
+
+export type WorkflowProfileCompatibility = {
+  profile: WorkflowServerProfile;
+  available_on_server: boolean;
+  compatible_with_workflow: boolean;
+  support_level: WorkflowSupportLevel;
+  incompatibility_reasons: string[];
+};
+
+export type WorkflowCompatibilitySummary = {
+  server_profiles: WorkflowProfileCompatibility[];
+  workflow_profiles: WorkflowProfileCompatibility[];
+  selected_profile: WorkflowServerProfile | null;
+  selection_reason: string;
 };
 
 export type WorkflowRuntimeCapability = {

@@ -15,6 +15,7 @@ from core.qt_compat import QObject, pyqtSignal
 
 from core.data.data_registry import DataRegistry
 from core.environment.h2o_env_paths import is_managed_conda_executable
+from core.plugins.runtime_metadata import derive_conda_env_name
 from core.execution.artifact_store import ArtifactStore
 from core.execution.command_builder import CommandBuilder
 from core.execution.execution_preparer import PreparationRequest, prepare_execution
@@ -131,7 +132,7 @@ class ToolEngine(QObject):
             raise ValueError("请先选择或创建项目")
 
         descriptor = self._plugins.get_descriptor(tool_id)
-        conda_env = str(descriptor.get("conda_env", "") or "").strip()
+        conda_env = derive_conda_env_name(descriptor)
         if conda_env and not is_managed_conda_executable(self._conda_executable):
             logger.warning(
                 "Execution blocked: conda runtime not ready (tool=%s, conda_env=%s, conda_executable=%r)",

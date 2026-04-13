@@ -4,6 +4,7 @@ version: "4.1.1"
 category: taxonomy
 description: "标记基因物种分类工具，无需组装即可获得精确丰度"
 runtime:
+  container: quay.io/biocontainers/metaphlan:4.1.1
   conda: bioconda::metaphlan=4.1.1
 
 resources:

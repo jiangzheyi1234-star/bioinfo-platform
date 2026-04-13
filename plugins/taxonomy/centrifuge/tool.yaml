@@ -4,6 +4,7 @@ version: "1.0.4"
 category: taxonomy
 description: "超快速 BWT 物种分类工具，适用于靶向测序病原体鉴定"
 runtime:
+  container: quay.io/biocontainers/centrifuge:1.0.4
   conda: centrifuge=1.0.4
 
 resources:

@@ -142,6 +142,14 @@ async def doctor_server(server_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/workflows/tools/{tool_id}/descriptor")
+async def get_workflow_tool_descriptor(tool_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_tool_descriptor(tool_id=tool_id)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/settings")
 async def get_settings() -> dict[str, Any]:
     try:
