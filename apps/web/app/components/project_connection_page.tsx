@@ -369,22 +369,10 @@ export function ProjectConnectionPage() {
   const preflightProblemChecks = preflightResult ? preflightResult.checks.filter((check) => check.status !== "ok") : [];
   const preflightHasIssues = !!preflightResult && (preflightProblemChecks.length > 0 || preflightResult.failures.length > 0 || preflightResult.warnings.length > 0 || !preflightResult.ok);
   const preflightPanelVisible = isConnected && (!!preflightError || preflightHasIssues || (preflightBusy && !preflightLoaded));
-  const remoteEnvProblemItems = remoteEnvStatus
-    ? [
-        ...(!remoteEnvStatus.miniforge.installed || miniforgeInstalling || remoteEnvStatus.miniforge.status === "failed"
-          ? [
-              {
-                key: "miniforge",
-                name: "Miniforge",
-                status: miniforgeInstalling ? "installing" : remoteEnvStatus.miniforge.installed ? "installed" : remoteEnvStatus.miniforge.status || "unknown",
-                value: remoteEnvStatus.miniforge.version || remoteEnvStatus.miniforge.status || "unknown",
-                message: remoteEnvStatus.miniforge.message || "无额外信息",
-                logText: envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "",
-                installAction: !remoteEnvStatus.miniforge.installed,
-              },
-            ]
-          : []),
-        ...remoteEnvStatus.tool_envs
+  const baseRuntimeMissing = !!remoteEnvStatus && (!remoteEnvStatus.miniforge.installed || miniforgeInstalling || remoteEnvStatus.miniforge.status === "failed");
+  const toolIssueItems =
+    remoteEnvStatus && !baseRuntimeMissing
+      ? remoteEnvStatus.tool_envs
           .filter((toolEnv) => toolEnv.status !== "installed")
           .map((toolEnv) => ({
             key: toolEnv.tool_id,
@@ -394,8 +382,24 @@ export function ProjectConnectionPage() {
             message: toolEnv.message || toolEnv.env_name || "无额外信息",
             logText: toolEnv.log_text || "",
             installAction: false,
-          })),
-      ]
+          }))
+      : [];
+  const remoteEnvProblemItems = remoteEnvStatus
+    ? baseRuntimeMissing
+      ? [
+          {
+            key: "miniforge",
+            name: "Miniforge",
+            status: miniforgeInstalling ? "installing" : remoteEnvStatus.miniforge.status || "unknown",
+            value: `${remoteEnvStatus.summary.total} 个工具环境受影响`,
+            message: miniforgeInstalling
+              ? "基础运行环境安装中，完成后再继续检测工具环境。"
+              : "未在远端检测到 H2OMeta 自管 conda，请先安装基础运行环境。",
+            logText: envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "",
+            installAction: !miniforgeInstalling,
+          },
+        ]
+      : toolIssueItems
     : [];
   const remoteEnvHasIssues = remoteEnvProblemItems.length > 0 || !!remoteEnvError;
 
@@ -584,7 +588,9 @@ export function ProjectConnectionPage() {
                     : remoteEnvError
                       ? "环境状态读取失败"
                       : remoteEnvHasIssues
-                        ? `发现 ${remoteEnvProblemItems.length} 个待处理项`
+                        ? baseRuntimeMissing
+                          ? "基础运行环境未就绪"
+                          : `发现 ${remoteEnvProblemItems.length} 个待处理项`
                         : `环境已就绪，${remoteEnvStatus?.summary.installed ?? 0} 个环境可用`}
                 </span>
                 <button className="ui-button" type="button" disabled={remoteEnvBusy || miniforgeInstalling} onClick={() => void loadRemoteEnvStatus()}>
