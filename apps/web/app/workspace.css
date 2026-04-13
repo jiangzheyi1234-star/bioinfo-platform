@@ -1340,47 +1340,46 @@
 
 .connection-detail-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 18px;
 }
 
-.connection-detail-card {
-  border: 1px solid var(--workspace-line-soft);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  padding: 12px;
+.connection-detail-item {
+  border-top: 1px solid var(--workspace-line-soft);
+  padding: 10px 0 12px;
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
-.connection-detail-card--warn {
-  border-color: #d8c48c;
-  background: #fffaf0;
+.connection-detail-item--warn {
+  border-top-color: #d8c48c;
 }
 
-.connection-detail-card--fail {
-  border-color: #e3b2aa;
-  background: #fff6f5;
+.connection-detail-item--fail {
+  border-top-color: #e3b2aa;
 }
 
-.connection-detail-card-head {
+.connection-detail-item-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.connection-detail-card-body {
-  display: grid;
-  gap: 6px;
-}
-
-.connection-detail-card-body p {
+.connection-detail-item p {
   margin: 0;
 }
 
+.connection-detail-item-side {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
 .connection-detail-value {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--workspace-ink);
 }
