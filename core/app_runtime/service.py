@@ -569,22 +569,10 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(request.project_id)
-            self._assert_task_exists(project_id=request.project_id, task_id=request.task_id)
-            sample_id = self._resolve_sample_id(request)
-            tool_engine = self._service_locator.tool_engine
-            if tool_engine is None:
-                raise RuntimeServiceError("Tool engine is not ready; open a project first")
-
-            execution_id = tool_engine.execute(
-                tool_id=request.tool_id,
-                input_data_ids=request.input_data_ids,
-                parameters=request.parameters,
-                sample_id=sample_id,
-                task_id=request.task_id,
-                triggered_by=request.triggered_by,
-                database_paths=request.database_paths or None,
+            raise RuntimeServiceError(
+                "Legacy single-tool execution is disabled for new submissions. "
+                "Use the workflow/run APIs from /workspace instead."
             )
-            return {"execution_id": execution_id, "status": "pending"}
 
     def get_execution_artifacts(self, *, project_id: str, execution_id: str) -> list[dict[str, Any]]:
         with self._lock:

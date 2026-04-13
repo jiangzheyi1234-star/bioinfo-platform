@@ -1,7 +1,6 @@
 "use client";
 
 import { SettingsPreviewPanel } from "./detection_workspace_settings_support";
-import { ToolRunForm } from "./tool_run_form";
 import type {
   DatabaseEntry,
   Execution,
@@ -129,6 +128,7 @@ type RunsSectionProps = {
   toolRunBusy: boolean;
   onRunTool: (params: Record<string, unknown>) => Promise<void>;
   toolRunMsg: string;
+  toolRunHint?: string;
 };
 
 export function RunsSection({
@@ -141,6 +141,7 @@ export function RunsSection({
   toolRunBusy,
   onRunTool,
   toolRunMsg,
+  toolRunHint = "Legacy tool execution has been retired for new runs. Use the workflow workspace to compile and submit a workflow run.",
 }: RunsSectionProps) {
   return (
     <div className="tools-page-grid">
@@ -201,7 +202,12 @@ export function RunsSection({
                 </div>
               }
             />
-            <ToolRunForm descriptor={selectedDescriptor} toolId={selectedToolId} onRun={onRunTool} busy={toolRunBusy} />
+            <WorkspaceEmptyState
+              mark="WF"
+              label="旧工具运行入口已切到只读模式"
+              hint={toolRunHint}
+              compact
+            />
             {toolRunMsg ? <p className="ok-text">{toolRunMsg}</p> : null}
           </>
         )}

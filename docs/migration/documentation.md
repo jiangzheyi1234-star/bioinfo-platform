@@ -40,13 +40,14 @@
   - `/workflows`、`/runs`、`/artifacts` 仅保留兼容跳转，统一导向 `/workspace`
   - 工作台默认聚焦当前 run，workflow 规格与 artifacts 退为次级折叠区
   - starter workflow、compile preview、submit run、run detail、artifacts 已统一进单控制台
-- `M7 Retire legacy single-tool execution` 已完成主 UI 退场：
+- `M7 Retire legacy single-tool execution` 正在收口：
   - 侧栏不再默认加载 legacy execution 摘要
-  - 主页面不再暴露单工具运行入口
+  - 主页面不再提供 legacy 单工具运行按钮；旧工作台仅保留只读浏览、历史结果和远端诊断
+  - `POST /api/v1/executions` 与 `POST /api/v1/workbench/run` 已封禁新提交，统一引导到 `/workspace` workflow/run 主线
 - 当前优先级：
   - 打磨单机 Linux launcher 的状态/失败判定与结束态分类
   - 打磨工作台首屏的信息层级、日志可读性与 artifacts 预览
-  - 再决定 API 层何时彻底封禁 legacy 单工具提交入口
+  - 继续清理遗留的 legacy runtime 实现与文档表述，避免双真相残留
 
 ## Known Risks
 

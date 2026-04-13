@@ -227,36 +227,6 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
     void run();
   }, [currentProjectId, onError]);
 
-  const runWorkbenchTool = async () => {
-    if (!currentProjectId) {
-      onError("No active project selected.");
-      return;
-    }
-    setWorkbenchMsg("");
-    try {
-      const parsed = workbenchParamsJson.trim() ? JSON.parse(workbenchParamsJson) : {};
-      const resp = await fetch(`${apiBase()}/api/v1/workbench/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: currentProjectId,
-          tool_id: workbenchToolId,
-          params: parsed,
-        }),
-      });
-      const data = await readJsonOrThrow(resp);
-      const item = data?.item ?? {};
-      const executionId = asText(item.execution_id);
-      setWorkbenchExecutionId(executionId);
-      setWorkbenchMsg(executionId ? `已提交高级工作流任务: ${executionId}` : "已提交高级工作流任务");
-      await refreshWorkbenchHistory(currentProjectId);
-      await onAfterRun();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      onError(msg);
-    }
-  };
-
   const loadWorkbenchResult = async (executionIdOverride?: string): Promise<WorkbenchView | null> => {
     const executionId = asText(executionIdOverride || workbenchExecutionId).trim();
     if (!currentProjectId || !executionId) {
@@ -486,9 +456,6 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
           selectedView={selectedView}
           activeResultTab={activeResultTab}
           onChangeResultTab={setActiveResultTab}
-          onRun={() => {
-            void runWorkbenchTool();
-          }}
           summaryItems={summaryItems}
           summaryPairs={summaryPairs}
           tableModel={tableModel}
@@ -512,9 +479,6 @@ export function WorkbenchPanel({ currentProjectId, onError, onAfterRun }: Workbe
         setWorkbenchToolId={setWorkbenchToolId}
         workbenchParamsJson={workbenchParamsJson}
         setWorkbenchParamsJson={setWorkbenchParamsJson}
-        onRunWorkbenchTool={() => {
-          void runWorkbenchTool();
-        }}
         workbenchMsg={workbenchMsg}
         remoteSummary={remoteSummary}
         resultSummary={resultSummary}

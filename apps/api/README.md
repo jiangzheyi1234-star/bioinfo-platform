@@ -44,7 +44,7 @@ Default bind:
 - `GET /api/v1/projects/{project_id}/executions/{execution_id}`
 - `GET /api/v1/projects/{project_id}/history`
 - `POST /api/v1/projects/{project_id}/executions/{execution_id}/archive`
-- `POST /api/v1/executions`
-- `POST /api/v1/workbench/run`
+- `POST /api/v1/executions` (legacy write path, disabled for new runs)
+- `POST /api/v1/workbench/run` (legacy write path, disabled for new runs)
 - `GET /api/v1/logs/app`
 - `GET /api/v1/events/executions`

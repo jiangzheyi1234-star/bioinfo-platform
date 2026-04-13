@@ -163,7 +163,6 @@ type ContentProps = {
   selectedView: WorkbenchView | null;
   activeResultTab: ResultTab;
   onChangeResultTab: (tab: ResultTab) => void;
-  onRun: () => void;
   summaryItems: SummaryItem[];
   summaryPairs: SummaryPair[];
   tableModel: TableModel;
@@ -194,15 +193,12 @@ export function WorkbenchContent(props: ContentProps) {
           title={asText(props.selectedView.title) || props.selectedFeature?.title || props.selectedFeature?.id || "未命名功能"}
           description={asText(props.selectedView.description) || props.selectedFeature?.description || "暂无描述"}
           titleAs="h4"
-          aside={
-            <button className="btn" onClick={props.onRun}>
-              {props.sourceMode === "history" ? "重新运行" : "启动分析"}
-            </button>
-          }
+          aside={<button className="btn" disabled>{props.sourceMode === "history" ? "重新运行已停用" : "启动分析已停用"}</button>}
           className="workbench-content-heading"
         />
         <div className="muted workbench-content-mode">{props.sourceMode === "history" ? "历史结果视图" : "工作流功能视图"}</div>
       </header>
+      <div className="muted">新的分析提交已迁移到 /workspace workflow 工作台；当前页只保留结果阅读与历史回看。</div>
 
       <div className="workbench-summary-grid">
         {props.summaryItems.length > 0
