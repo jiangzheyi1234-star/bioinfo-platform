@@ -364,6 +364,9 @@ export function ProjectConnectionPage() {
     remoteEnvStatus?.miniforge.status === "running" ||
     remoteEnvStatus?.miniforge.status === "installing";
 
+  const shouldShowPreflightValue = (check: PreflightResult["checks"][number]) =>
+    check.key === "arch" || check.key === "disk" || check.status !== "ok";
+
   return (
     <section className="settings-layout settings-layout--single">
       <section className="settings-column">
@@ -509,7 +512,7 @@ export function ProjectConnectionPage() {
                           <strong>{check.label}</strong>
                           <div className="connection-detail-item-side">
                             {check.status !== "ok" ? <span className="status-pill">{check.status}</span> : null}
-                            <span className="connection-detail-value">{check.value || "unknown"}</span>
+                            {shouldShowPreflightValue(check) ? <span className="connection-detail-value">{check.value || "unknown"}</span> : null}
                           </div>
                         </div>
                         <p className="muted">{check.message || "无额外信息"}</p>
