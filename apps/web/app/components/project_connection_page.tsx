@@ -459,7 +459,7 @@ export function ProjectConnectionPage() {
             </button>
           </div>
 
-          {isConnected ? (
+          {isConnected && (preflightBusy || !!preflightError || preflightHasIssues) ? (
             <div className="connection-inline-note">
               <span className="muted">
                 {preflightBusy && !preflightLoaded
@@ -468,7 +468,7 @@ export function ProjectConnectionPage() {
                     ? "服务器状态检查失败"
                     : preflightHasIssues
                       ? `服务器存在 ${preflightProblemChecks.length || 1} 个待处理问题`
-                      : "服务器已就绪"}
+                      : ""}
               </span>
             </div>
           ) : null}
