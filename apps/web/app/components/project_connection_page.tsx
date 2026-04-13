@@ -368,6 +368,7 @@ export function ProjectConnectionPage() {
     check.key === "arch" || check.key === "disk" || check.status !== "ok";
   const preflightProblemChecks = preflightResult ? preflightResult.checks.filter((check) => check.status !== "ok") : [];
   const preflightHasIssues = !!preflightResult && (preflightProblemChecks.length > 0 || preflightResult.failures.length > 0 || preflightResult.warnings.length > 0 || !preflightResult.ok);
+  const preflightPanelVisible = isConnected && (!!preflightError || preflightHasIssues || (preflightBusy && !preflightLoaded));
   const remoteEnvProblemItems = remoteEnvStatus
     ? [
         ...(!remoteEnvStatus.miniforge.installed || miniforgeInstalling || remoteEnvStatus.miniforge.status === "failed"
@@ -458,6 +459,20 @@ export function ProjectConnectionPage() {
             </button>
           </div>
 
+          {isConnected ? (
+            <div className="connection-inline-note">
+              <span className="muted">
+                {preflightBusy && !preflightLoaded
+                  ? "正在检测服务器环境"
+                  : preflightError
+                    ? "服务器状态检查失败"
+                    : preflightHasIssues
+                      ? `服务器存在 ${preflightProblemChecks.length || 1} 个待处理问题`
+                      : "服务器已就绪"}
+              </span>
+            </div>
+          ) : null}
+
           {sshDiagnostics.length > 0 ? (
             <div className="diagnostics-list connection-diagnostics">
               {sshDiagnostics.map((step) => (
@@ -473,11 +488,11 @@ export function ProjectConnectionPage() {
           ) : null}
         </section>
 
-        {isConnected ? (
+        {preflightPanelVisible ? (
           <section className="settings-editor-panel connection-panel preflight-panel">
             <div className="connection-section-head">
               <div className="connection-section-title-wrap">
-                <h2 className="settings-section-title">服务器预检</h2>
+                <h2 className="settings-section-title">状态检查</h2>
               </div>
               <div className="settings-actions connection-section-actions">
                 <span className="connection-inline-status muted">
@@ -486,7 +501,7 @@ export function ProjectConnectionPage() {
                     : preflightError
                       ? "预检失败"
                       : preflightResult?.ok
-                        ? "预检通过，可继续配置运行环境"
+                        ? "服务器已就绪"
                         : "预检发现问题"}
                 </span>
                 <button className="ui-button" type="button" disabled={preflightBusy} onClick={() => void loadPreflight()}>
