@@ -515,7 +515,7 @@ export function ProjectConnectionPage() {
                             {shouldShowPreflightValue(check) ? <span className="connection-detail-value">{check.value || "unknown"}</span> : null}
                           </div>
                         </div>
-                        <p className="muted">{check.message || "无额外信息"}</p>
+                        {check.status !== "ok" ? <p className="muted">{check.message || "无额外信息"}</p> : null}
                       </article>
                     ))}
                   </div>
