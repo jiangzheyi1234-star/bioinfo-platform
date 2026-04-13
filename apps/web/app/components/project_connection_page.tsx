@@ -504,15 +504,15 @@ export function ProjectConnectionPage() {
                 {preflightExpanded ? (
                   <div className="connection-detail-list">
                     {preflightResult.checks.map((check) => (
-                      <article key={check.key} className={`connection-detail-card connection-detail-card--${check.status}`}>
-                        <div className="connection-detail-card-head">
+                      <article key={check.key} className={`connection-detail-item connection-detail-item--${check.status}`}>
+                        <div className="connection-detail-item-top">
                           <strong>{check.label}</strong>
-                          {check.status !== "ok" ? <span className="status-pill">{check.status}</span> : null}
+                          <div className="connection-detail-item-side">
+                            {check.status !== "ok" ? <span className="status-pill">{check.status}</span> : null}
+                            <span className="connection-detail-value">{check.value || "unknown"}</span>
+                          </div>
                         </div>
-                        <div className="connection-detail-card-body">
-                          <span className="connection-detail-value">{check.value || "unknown"}</span>
-                          <p className="muted">{check.message || "无额外信息"}</p>
-                        </div>
+                        <p className="muted">{check.message || "无额外信息"}</p>
                       </article>
                     ))}
                   </div>
