@@ -1,7 +1,8 @@
 "use client";
 
 import { WorkspaceEmptyState, WorkspaceSectionHeader } from "./workspace_section_primitives";
-import WorkflowDag from "./workflow_dag";
+import { WorkflowGraphEditor } from "./workflow_graph_editor";
+import { WorkflowNodeListEditor } from "./workflow_node_list_editor";
 import { formatDateTime, mapWorkflowRunStatus, normalizeFieldValue } from "./workflow_support";
 import { describeDoctor, readWorkflowRemoteValue, useWorkflowConsoleState } from "./workflow_console_state";
 
@@ -107,7 +108,7 @@ export function WorkflowConsolePage() {
               </div>
             }
           />
-          <WorkflowDag
+          <WorkflowGraphEditor
             workflow={workflow}
             selectedRun={selectedRun}
             compilePreview={compilePreview}
@@ -223,34 +224,7 @@ export function WorkflowConsolePage() {
                 />
               </label>
 
-              <div className="workflow-node-list">
-                <div className="workflow-node-list-head">
-                  <strong>Steps</strong>
-                  <button type="button" className="control-btn" onClick={addNode}>
-                    添加 Step
-                  </button>
-                </div>
-                {workflow?.nodes.map((node, index) => (
-                  <div key={node.node_id} className="workflow-node-row">
-                    <label className="control-field">
-                      <span>Label</span>
-                      <input className="control-input" value={node.label} onChange={(event) => updateNode(index, { label: event.target.value })} />
-                    </label>
-                    <label className="control-field">
-                      <span>Tool ID</span>
-                      <input
-                        className="control-input"
-                        value={node.tool_id}
-                        onChange={(event) => updateNode(index, { tool_id: event.target.value })}
-                        placeholder="tool_placeholder"
-                      />
-                    </label>
-                    <button type="button" className="control-btn" onClick={() => removeNode(index)} disabled={(workflow?.nodes.length || 0) <= 1}>
-                      删除
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <WorkflowNodeListEditor workflow={workflow} onAddNode={addNode} onUpdateNode={updateNode} onRemoveNode={removeNode} />
             </div>
 
             <div className="workflow-panel-stack">

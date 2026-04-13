@@ -7,14 +7,30 @@ import config
 import pytest
 
 
+class FakeKeyring:
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, str], str] = {}
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.values[(service, username)] = password
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self.values.get((service, username))
+
+    def delete_password(self, service: str, username: str) -> None:
+        self.values.pop((service, username), None)
+
+
 def _read_json(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def test_save_config_persists_ssh_password(tmp_path, monkeypatch):
+def test_save_config_stores_ssh_password_in_keyring(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.json"
+    fake_keyring = FakeKeyring()
     monkeypatch.setattr(config, "_CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(config, "_load_keyring_backend", lambda: fake_keyring)
 
     schema = config.default_settings_schema()
     schema["ssh"]["host"] = "10.0.0.2"
@@ -26,7 +42,30 @@ def test_save_config_persists_ssh_password(tmp_path, monkeypatch):
     stored = _read_json(cfg_path)
     assert stored["ssh"]["host"] == "10.0.0.2"
     assert stored["ssh"]["user"] == "root"
-    assert stored["ssh"]["password"] == "super-secret"
+    assert stored["ssh"]["password"] == ""
+    assert stored["ssh"]["password_ref"] == "ssh://root@10.0.0.2:22"
+    assert fake_keyring.values[(config._SSH_KEYRING_SERVICE, "ssh://root@10.0.0.2:22")] == "super-secret"
+
+
+def test_get_config_migrates_plaintext_ssh_password(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.json"
+    fake_keyring = FakeKeyring()
+    monkeypatch.setattr(config, "_CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(config, "_load_keyring_backend", lambda: fake_keyring)
+
+    schema = config.default_settings_schema()
+    schema["ssh"]["host"] = "10.0.0.8"
+    schema["ssh"]["user"] = "ubuntu"
+    schema["ssh"]["password"] = "legacy-secret"
+    cfg_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    loaded = config.get_config()
+    stored = _read_json(cfg_path)
+
+    assert loaded["ssh"]["password"] == ""
+    assert stored["ssh"]["password"] == ""
+    assert stored["ssh"]["password_ref"] == "ssh://ubuntu@10.0.0.8:22"
+    assert config.resolve_ssh_password(stored["ssh"]) == "legacy-secret"
 
 
 def test_normalize_config_rejects_legacy_config():
@@ -41,13 +80,22 @@ def test_normalize_config_rejects_legacy_config():
         config.normalize_config(legacy)
 
 
-def test_normalize_config_keeps_password_field():
-    data = config.default_settings_schema()
-    data["ssh"]["password"] = "should-survive"
+def test_resolve_ssh_password_reads_keyring_reference(monkeypatch):
+    fake_keyring = FakeKeyring()
+    fake_keyring.set_password(config._SSH_KEYRING_SERVICE, "ssh://tester@example:2200", "stored-secret")
+    monkeypatch.setattr(config, "_load_keyring_backend", lambda: fake_keyring)
 
-    normalized = config.normalize_config(data)
+    ssh = {
+        "host": "example",
+        "port": 2200,
+        "user": "tester",
+        "password": "",
+        "password_ref": "ssh://tester@example:2200",
+        "use_key": False,
+        "key_file": "",
+    }
 
-    assert normalized["ssh"]["password"] == "should-survive"
+    assert config.resolve_ssh_password(ssh) == "stored-secret"
 
 
 def test_normalize_config_rejects_legacy_flat_databases():
@@ -94,7 +142,9 @@ def test_normalize_config_drops_removed_linux_and_runtime_fields():
 
 def test_save_config_omits_removed_linux_and_runtime_fields(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.json"
+    fake_keyring = FakeKeyring()
     monkeypatch.setattr(config, "_CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(config, "_load_keyring_backend", lambda: fake_keyring)
 
     schema = config.default_settings_schema()
     schema["linux"]["auto_installed"] = True
