@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { ChevronRightIcon } from "@heroicons/react/24/outline";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import type { InstallJobSnapshot, PreflightResult, RemoteEnvStatus, SSHDiagnosticStep, SSHSettings, SSHStatus } from "./detection_workspace_types";
@@ -43,6 +44,10 @@ export function ProjectConnectionPage() {
   const [envInstallSnapshot, setEnvInstallSnapshot] = useState<InstallJobSnapshot | null>(null);
   const [envInstallBusy, setEnvInstallBusy] = useState(false);
   const [expandedEnvLogs, setExpandedEnvLogs] = useState<string[]>([]);
+  const [preflightExpanded, setPreflightExpanded] = useState(false);
+  const [preflightExpandedTouched, setPreflightExpandedTouched] = useState(false);
+  const [remoteEnvExpanded, setRemoteEnvExpanded] = useState(false);
+  const [remoteEnvExpandedTouched, setRemoteEnvExpandedTouched] = useState(false);
 
   const isConnected = sshStatus?.connected === true;
   const canEditForm = !isConnected || isEditingConnection;
@@ -60,10 +65,16 @@ export function ProjectConnectionPage() {
       }
       setPreflightResult(nextResult);
       setPreflightLoaded(true);
+      if (!preflightExpandedTouched) {
+        setPreflightExpanded(!nextResult.ok || nextResult.warnings.length > 0);
+      }
     } catch (err) {
       setPreflightResult(null);
       setPreflightLoaded(true);
       setPreflightError(err instanceof Error ? err.message : String(err));
+      if (!preflightExpandedTouched) {
+        setPreflightExpanded(true);
+      }
     } finally {
       setPreflightBusy(false);
     }
@@ -89,10 +100,19 @@ export function ProjectConnectionPage() {
         setEnvInstallJobId("");
         setEnvInstallSnapshot(null);
       }
+      if (!remoteEnvExpandedTouched) {
+        const shouldExpand =
+          !nextStatus.miniforge.installed ||
+          nextStatus.tool_envs.some((item) => item.status !== "installed");
+        setRemoteEnvExpanded(shouldExpand);
+      }
     } catch (err) {
       setRemoteEnvStatus(null);
       setRemoteEnvLoaded(true);
       setRemoteEnvError(err instanceof Error ? err.message : String(err));
+      if (!remoteEnvExpandedTouched) {
+        setRemoteEnvExpanded(true);
+      }
     } finally {
       if (!options?.silent) {
         setRemoteEnvBusy(false);
@@ -243,6 +263,10 @@ export function ProjectConnectionPage() {
       setEnvInstallJobId("");
       setEnvInstallSnapshot(null);
       setExpandedEnvLogs([]);
+      setPreflightExpanded(false);
+      setPreflightExpandedTouched(false);
+      setRemoteEnvExpanded(false);
+      setRemoteEnvExpandedTouched(false);
     } catch (err) {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -341,7 +365,7 @@ export function ProjectConnectionPage() {
     remoteEnvStatus?.miniforge.status === "installing";
 
   return (
-    <section className="settings-layout">
+    <section className="settings-layout settings-layout--single">
       <section className="settings-column">
         <section className="settings-editor-panel connection-panel">
           <div className="connection-status-row">
@@ -417,8 +441,8 @@ export function ProjectConnectionPage() {
 
         {isConnected ? (
           <section className="settings-editor-panel connection-panel preflight-panel">
-            <div className="connection-status-row">
-              <div>
+            <div className="connection-section-head">
+              <div className="connection-section-title-wrap">
                 <h2 className="settings-section-title">服务器预检</h2>
                 <p className="muted preflight-summary">
                   {preflightBusy && !preflightLoaded
@@ -430,9 +454,21 @@ export function ProjectConnectionPage() {
                         : "预检发现问题，建议先处理失败项。"}
                 </p>
               </div>
-              <div className="settings-actions connection-actions">
+              <div className="settings-actions connection-section-actions">
                 <button className="ui-button" type="button" disabled={preflightBusy} onClick={() => void loadPreflight()}>
                   {preflightBusy ? "检测中..." : "重新检测"}
+                </button>
+                <button
+                  className="control-btn connection-section-toggle"
+                  type="button"
+                  aria-expanded={preflightExpanded}
+                  onClick={() => {
+                    setPreflightExpandedTouched(true);
+                    setPreflightExpanded((prev) => !prev);
+                  }}
+                >
+                  <ChevronRightIcon className={`connection-section-toggle-icon${preflightExpanded ? " expanded" : ""}`} />
+                  <span>{preflightExpanded ? "收起详情" : "查看详情"}</span>
                 </button>
               </div>
             </div>
@@ -441,10 +477,12 @@ export function ProjectConnectionPage() {
 
             {preflightResult ? (
               <>
-                <div className="connection-meta-row preflight-meta-row">
-                  <span className="badge">架构 {preflightResult.arch || "unknown"}</span>
-                  <span className="badge">可用磁盘 {preflightResult.free_disk_gb} GB</span>
+                <div className="connection-meta-row connection-summary-row">
                   <span className={`status-pill${preflightResult.ok ? " status-pill--ok" : ""}`}>{preflightResult.ok ? "预检通过" : "预检异常"}</span>
+                  <span className="badge">架构 {preflightResult.arch || "unknown"}</span>
+                  <span className="badge">可用磁盘 {preflightResult.free_disk_gb.toFixed(1)} GB</span>
+                  <span className="badge">失败 {preflightResult.failures.length}</span>
+                  <span className="badge">警告 {preflightResult.warnings.length}</span>
                 </div>
 
                 {preflightResult.failures.length > 0 ? (
@@ -467,17 +505,22 @@ export function ProjectConnectionPage() {
                   </div>
                 ) : null}
 
-                <div className="diagnostics-list connection-diagnostics">
-                  {preflightResult.checks.map((check) => (
-                    <article key={check.key} className={`diagnostic-card diagnostic-card--${check.status === "warn" ? "running" : check.status}`}>
-                      <div className="row">
-                        <strong>{check.label}</strong>
-                        <span className="badge">{check.value || check.status}</span>
-                      </div>
-                      <p className="muted">{check.message || "无额外信息"}</p>
-                    </article>
-                  ))}
-                </div>
+                {preflightExpanded ? (
+                  <div className="connection-detail-list">
+                    {preflightResult.checks.map((check) => (
+                      <article key={check.key} className={`connection-detail-row connection-detail-row--${check.status}`}>
+                        <div className="connection-detail-main">
+                          <strong>{check.label}</strong>
+                          <p className="muted">{check.message || "无额外信息"}</p>
+                        </div>
+                        <div className="connection-detail-side">
+                          <span className={`status-pill${check.status === "ok" ? " status-pill--ok" : ""}`}>{check.status}</span>
+                          <span className="badge">{check.value || "unknown"}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : null}
 
@@ -487,8 +530,8 @@ export function ProjectConnectionPage() {
 
         {isConnected ? (
           <section className="settings-editor-panel connection-panel remote-env-panel">
-            <div className="connection-status-row">
-              <div>
+            <div className="connection-section-head">
+              <div className="connection-section-title-wrap">
                 <h2 className="settings-section-title">运行环境</h2>
                 <p className="muted preflight-summary">
                   {remoteEnvBusy && !remoteEnvLoaded
@@ -498,9 +541,21 @@ export function ProjectConnectionPage() {
                       : "这里显示 Miniforge 与工具环境的当前可用性。"}
                 </p>
               </div>
-              <div className="settings-actions connection-actions">
+              <div className="settings-actions connection-section-actions">
                 <button className="ui-button" type="button" disabled={remoteEnvBusy || miniforgeInstalling} onClick={() => void loadRemoteEnvStatus()}>
                   {remoteEnvBusy ? "刷新中..." : "刷新状态"}
+                </button>
+                <button
+                  className="control-btn connection-section-toggle"
+                  type="button"
+                  aria-expanded={remoteEnvExpanded}
+                  onClick={() => {
+                    setRemoteEnvExpandedTouched(true);
+                    setRemoteEnvExpanded((prev) => !prev);
+                  }}
+                >
+                  <ChevronRightIcon className={`connection-section-toggle-icon${remoteEnvExpanded ? " expanded" : ""}`} />
+                  <span>{remoteEnvExpanded ? "收起详情" : "查看详情"}</span>
                 </button>
               </div>
             </div>
@@ -509,62 +564,68 @@ export function ProjectConnectionPage() {
 
             {remoteEnvStatus ? (
               <>
-                <div className="connection-meta-row preflight-meta-row">
+                <div className="connection-meta-row connection-summary-row">
                   <span className={`status-pill${remoteEnvStatus.miniforge.installed ? " status-pill--ok" : ""}`}>
                     {remoteEnvStatus.miniforge.installed ? "Miniforge 已就绪" : "Miniforge 未就绪"}
                   </span>
                   <span className="badge">已安装环境 {remoteEnvStatus.summary.installed}/{remoteEnvStatus.summary.total}</span>
+                  {miniforgeInstalling ? <span className="badge">安装中</span> : null}
                 </div>
 
-                <article className="env-status-card">
-                  <div className="env-status-row">
-                    <div className="env-status-main">
-                      <strong>Miniforge</strong>
-                      <p className="muted">{remoteEnvStatus.miniforge.message || "无额外信息"}</p>
-                    </div>
-                    <div className="env-status-side">
-                      <span className="badge">{remoteEnvStatus.miniforge.version || remoteEnvStatus.miniforge.status || "unknown"}</span>
-                      {!remoteEnvStatus.miniforge.installed ? (
-                        <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
-                          {miniforgeInstalling ? "安装中..." : "安装"}
-                        </button>
-                      ) : null}
-                      {(remoteEnvStatus.miniforge.log_text || envInstallSnapshot?.log_text) ? (
-                        <button className="ui-button" type="button" onClick={() => toggleEnvLog("miniforge")}>
-                          {expandedEnvLogs.includes("miniforge") ? "收起日志" : "查看日志"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {expandedEnvLogs.includes("miniforge") ? (
-                    <pre className="env-log-block">{envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "暂无日志"}</pre>
-                  ) : null}
-                </article>
-
-                <div className="env-status-list">
-                  {remoteEnvStatus.tool_envs.map((toolEnv) => (
-                    <article key={toolEnv.tool_id} className="env-status-card">
+                {remoteEnvExpanded ? (
+                  <div className="env-status-list">
+                    <article className="env-status-card">
                       <div className="env-status-row">
                         <div className="env-status-main">
-                          <strong>{toolEnv.name}</strong>
-                          <p className="muted">{toolEnv.message || toolEnv.env_name || "无额外信息"}</p>
+                          <strong>Miniforge</strong>
+                          <p className="muted">{remoteEnvStatus.miniforge.message || "无额外信息"}</p>
                         </div>
                         <div className="env-status-side">
-                          <span className={`status-pill${toolEnv.installed ? " status-pill--ok" : ""}`}>{toolEnv.status}</span>
-                          <span className="badge">{toolEnv.version || toolEnv.env_name || toolEnv.tool_id}</span>
-                          {toolEnv.log_text ? (
-                            <button className="ui-button" type="button" onClick={() => toggleEnvLog(toolEnv.tool_id)}>
-                              {expandedEnvLogs.includes(toolEnv.tool_id) ? "收起日志" : "查看日志"}
+                          <span className={`status-pill${remoteEnvStatus.miniforge.installed ? " status-pill--ok" : ""}`}>
+                            {remoteEnvStatus.miniforge.installed ? "installed" : remoteEnvStatus.miniforge.status || "unknown"}
+                          </span>
+                          <span className="badge">{remoteEnvStatus.miniforge.version || remoteEnvStatus.miniforge.status || "unknown"}</span>
+                          {!remoteEnvStatus.miniforge.installed ? (
+                            <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
+                              {miniforgeInstalling ? "安装中..." : "安装"}
+                            </button>
+                          ) : null}
+                          {(remoteEnvStatus.miniforge.log_text || envInstallSnapshot?.log_text) ? (
+                            <button className="ui-button" type="button" onClick={() => toggleEnvLog("miniforge")}>
+                              {expandedEnvLogs.includes("miniforge") ? "收起日志" : "查看日志"}
                             </button>
                           ) : null}
                         </div>
                       </div>
 
-                      {expandedEnvLogs.includes(toolEnv.tool_id) ? <pre className="env-log-block">{toolEnv.log_text}</pre> : null}
+                      {expandedEnvLogs.includes("miniforge") ? (
+                        <pre className="env-log-block">{envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "暂无日志"}</pre>
+                      ) : null}
                     </article>
-                  ))}
-                </div>
+
+                    {remoteEnvStatus.tool_envs.map((toolEnv) => (
+                      <article key={toolEnv.tool_id} className="env-status-card">
+                        <div className="env-status-row">
+                          <div className="env-status-main">
+                            <strong>{toolEnv.name}</strong>
+                            <p className="muted">{toolEnv.message || toolEnv.env_name || "无额外信息"}</p>
+                          </div>
+                          <div className="env-status-side">
+                            <span className={`status-pill${toolEnv.installed ? " status-pill--ok" : ""}`}>{toolEnv.status}</span>
+                            <span className="badge">{toolEnv.version || toolEnv.env_name || toolEnv.tool_id}</span>
+                            {toolEnv.log_text ? (
+                              <button className="ui-button" type="button" onClick={() => toggleEnvLog(toolEnv.tool_id)}>
+                                {expandedEnvLogs.includes(toolEnv.tool_id) ? "收起日志" : "查看日志"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {expandedEnvLogs.includes(toolEnv.tool_id) ? <pre className="env-log-block">{toolEnv.log_text}</pre> : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : null}
 
