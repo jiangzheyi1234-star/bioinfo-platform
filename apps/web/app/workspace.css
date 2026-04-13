@@ -1289,12 +1289,6 @@
   margin-top: 2px;
 }
 
-.connection-summary-text {
-  color: var(--workspace-ink-soft);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 .connection-section-head {
   display: flex;
   align-items: flex-start;
@@ -1346,42 +1340,49 @@
 
 .connection-detail-list {
   display: grid;
-  gap: 0;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
 }
 
-.connection-detail-row {
+.connection-detail-card {
+  border: 1px solid var(--workspace-line-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 12px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: start;
-  padding: 14px 0;
-  border-top: 1px solid var(--workspace-line-soft);
+  gap: 10px;
 }
 
-.connection-detail-row--warn {
-  border-top-color: #d8c48c;
+.connection-detail-card--warn {
+  border-color: #d8c48c;
+  background: #fffaf0;
 }
 
-.connection-detail-row--fail {
-  border-top-color: #e3b2aa;
+.connection-detail-card--fail {
+  border-color: #e3b2aa;
+  background: #fff6f5;
 }
 
-.connection-detail-main {
-  min-width: 0;
+.connection-detail-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.connection-detail-card-body {
   display: grid;
   gap: 6px;
 }
 
-.connection-detail-main p {
+.connection-detail-card-body p {
   margin: 0;
 }
 
-.connection-detail-side {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  align-items: center;
+.connection-detail-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--workspace-ink);
 }
 
 .remote-env-panel {
@@ -1900,14 +1901,12 @@
   }
 
   .connection-section-head,
-  .connection-detail-row,
   .env-status-row {
     grid-template-columns: 1fr;
     display: grid;
   }
 
   .connection-section-actions,
-  .connection-detail-side,
   .env-status-side {
     justify-content: flex-start;
   }
