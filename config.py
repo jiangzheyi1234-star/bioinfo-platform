@@ -2,10 +2,12 @@
 import os
 import threading
 from copy import deepcopy
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 CONFIG_VERSION = 2
+_SSH_KEYRING_SERVICE = "h2ometa.ssh"
 
 
 def _resolve_config_path() -> Path:
@@ -20,6 +22,8 @@ _CONFIG_PATH = _resolve_config_path()
 _CONFIG_CACHE_LOCK = threading.RLock()
 _CONFIG_CACHE: dict[str, Any] | None = None
 _CONFIG_CACHE_FINGERPRINT: tuple[int, int] | None = None
+
+
 def get_config_path() -> Path:
     return _CONFIG_PATH
 
@@ -57,6 +61,7 @@ def default_settings_schema() -> dict[str, Any]:
             "port": 22,
             "user": "",
             "password": "",
+            "password_ref": "",
             "use_key": False,
             "key_file": "",
         },
@@ -136,7 +141,102 @@ def normalize_config(data: Any) -> dict[str, Any]:
     schema["version"] = CONFIG_VERSION
     schema["linux"]["conda_executable"] = str(schema["linux"].get("conda_executable") or "")
     schema["runtime"]["local_output_dir"] = ensure_output_dir(str(schema["runtime"].get("local_output_dir") or ""))
+    schema["ssh"]["password"] = str(schema["ssh"].get("password") or "")
+    schema["ssh"]["password_ref"] = str(schema["ssh"].get("password_ref") or "")
     return schema
+
+
+def _load_keyring_backend() -> Any:
+    try:
+        return import_module("keyring")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("keyring is required for SSH password storage") from exc
+
+
+def _ssh_secret_ref(ssh_section: dict[str, Any]) -> str:
+    host = str(ssh_section.get("host", "") or "").strip()
+    user = str(ssh_section.get("user", "") or "").strip()
+    port = int(ssh_section.get("port", 22) or 22)
+    if not host or not user:
+        raise RuntimeError("ssh.host and ssh.user are required before saving SSH password")
+    return f"ssh://{user}@{host}:{port}"
+
+
+def _store_ssh_password(password_ref: str, password: str) -> None:
+    keyring = _load_keyring_backend()
+    keyring.set_password(_SSH_KEYRING_SERVICE, password_ref, password)
+
+
+def _read_ssh_password(password_ref: str) -> str:
+    if not password_ref:
+        return ""
+    keyring = _load_keyring_backend()
+    value = keyring.get_password(_SSH_KEYRING_SERVICE, password_ref)
+    if value is None:
+        raise RuntimeError(f"SSH password is missing from keyring: {password_ref}")
+    return str(value)
+
+
+def _delete_ssh_password(password_ref: str) -> None:
+    if not password_ref:
+        return
+    keyring = _load_keyring_backend()
+    try:
+        keyring.delete_password(_SSH_KEYRING_SERVICE, password_ref)
+    except Exception:
+        pass
+
+
+def resolve_ssh_password(config_or_ssh_section: dict[str, Any]) -> str:
+    ssh_section = config_or_ssh_section.get("ssh", config_or_ssh_section)
+    if not isinstance(ssh_section, dict):
+        return ""
+    password = str(ssh_section.get("password", "") or "")
+    if password:
+        return password
+    password_ref = str(ssh_section.get("password_ref", "") or "").strip()
+    if not password_ref or bool(ssh_section.get("use_key", False)):
+        return ""
+    return _read_ssh_password(password_ref)
+
+
+def _secure_ssh_section_for_persist(ssh_section: dict[str, Any]) -> None:
+    if bool(ssh_section.get("use_key", False)):
+        existing_ref = str(ssh_section.get("password_ref", "") or "").strip()
+        if existing_ref:
+            _delete_ssh_password(existing_ref)
+        ssh_section["password"] = ""
+        ssh_section["password_ref"] = ""
+        return
+
+    plaintext = str(ssh_section.get("password", "") or "")
+    existing_ref = str(ssh_section.get("password_ref", "") or "").strip()
+    if plaintext:
+        password_ref = _ssh_secret_ref(ssh_section)
+        _store_ssh_password(password_ref, plaintext)
+        ssh_section["password_ref"] = password_ref
+        ssh_section["password"] = ""
+        return
+
+    if existing_ref:
+        _read_ssh_password(existing_ref)
+        ssh_section["password"] = ""
+        return
+
+    ssh_section["password"] = ""
+    ssh_section["password_ref"] = ""
+
+
+def _write_config(schema: dict[str, Any]) -> None:
+    global _CONFIG_CACHE, _CONFIG_CACHE_FINGERPRINT
+    schema["version"] = CONFIG_VERSION
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(schema, f, ensure_ascii=False, indent=2)
+
+    with _CONFIG_CACHE_LOCK:
+        _CONFIG_CACHE = deepcopy(schema)
+        _CONFIG_CACHE_FINGERPRINT = _get_config_fingerprint()
 
 
 def get_config() -> dict[str, Any]:
@@ -151,24 +251,23 @@ def get_config() -> dict[str, Any]:
 
     raw = load_raw_config()
     normalized = normalize_config(raw)
+    ssh_section = normalized.get("ssh", {})
+    if isinstance(ssh_section, dict) and str(ssh_section.get("password", "") or "").strip():
+        migrated = deepcopy(normalized)
+        _secure_ssh_section_for_persist(migrated["ssh"])
+        _write_config(migrated)
+        normalized = migrated
 
     with _CONFIG_CACHE_LOCK:
         _CONFIG_CACHE = normalized
-        _CONFIG_CACHE_FINGERPRINT = fingerprint
+        _CONFIG_CACHE_FINGERPRINT = _get_config_fingerprint()
         return deepcopy(_CONFIG_CACHE)
 
 
 def save_config(config: dict[str, Any]) -> None:
-    global _CONFIG_CACHE, _CONFIG_CACHE_FINGERPRINT
     schema = normalize_config(config)
-    schema["version"] = CONFIG_VERSION
-    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(schema, f, ensure_ascii=False, indent=2)
-
-    with _CONFIG_CACHE_LOCK:
-        _CONFIG_CACHE = deepcopy(schema)
-        _CONFIG_CACHE_FINGERPRINT = _get_config_fingerprint()
+    _secure_ssh_section_for_persist(schema["ssh"])
+    _write_config(schema)
 
 
 def get_runtime_setting(key: str, default: Any = None) -> Any:

@@ -1,10 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use std::{net::TcpStream, thread};
+use std::{env, net::TcpStream, thread};
 use tauri::Manager;
 
 struct BackendState(Mutex<Option<Child>>);
@@ -12,6 +12,12 @@ struct BackendState(Mutex<Option<Child>>);
 struct PythonCommand {
     program: String,
     args: Vec<String>,
+}
+
+struct BackendCommand {
+    program: String,
+    args: Vec<String>,
+    workdir: Option<PathBuf>,
 }
 
 struct SpawnedBackend {
@@ -87,11 +93,11 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
     ]
 }
 
-fn has_backend_entry(path: &std::path::Path) -> bool {
+fn has_backend_entry(path: &Path) -> bool {
     path.join("apps").join("api").join("run.py").exists()
 }
 
-fn locate_repo_root_from(start: &std::path::Path) -> Option<PathBuf> {
+fn locate_repo_root_from(start: &Path) -> Option<PathBuf> {
     let mut cursor = Some(start);
     while let Some(path) = cursor {
         if has_backend_entry(path) {
@@ -102,7 +108,7 @@ fn locate_repo_root_from(start: &std::path::Path) -> Option<PathBuf> {
     None
 }
 
-fn backend_workdir() -> Result<PathBuf, String> {
+fn repo_backend_workdir() -> Result<PathBuf, String> {
     if let Ok(explicit) = std::env::var("H2OMETA_WORKDIR") {
         let trimmed = explicit.trim();
         if !trimmed.is_empty() {
@@ -134,11 +140,102 @@ fn backend_workdir() -> Result<PathBuf, String> {
     Err("cannot locate backend workdir; set H2OMETA_WORKDIR to repo root".to_string())
 }
 
-fn spawn_backend() -> Result<SpawnedBackend, String> {
-    let workdir = backend_workdir()?;
-    let log_path = workdir.join("logs").join("desktop_backend_boot.log");
+fn explicit_backend_command() -> Result<Option<BackendCommand>, String> {
+    let program = env::var("H2OMETA_BACKEND_EXE").unwrap_or_default();
+    if program.trim().is_empty() {
+        return Ok(None);
+    }
+    let workdir = env::var("H2OMETA_BACKEND_CWD").ok().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(trimmed))
+        }
+    });
+    Ok(Some(BackendCommand {
+        program,
+        args: vec![],
+        workdir,
+    }))
+}
+
+fn sibling_sidecar_command() -> Result<Option<BackendCommand>, String> {
+    let exe_path = env::current_exe().map_err(|err| format!("resolve current exe failed: {}", err))?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or_else(|| format!("cannot resolve parent dir for {}", exe_path.display()))?;
+    let binary_name = if cfg!(windows) { "h2ometa-api.exe" } else { "h2ometa-api" };
+    let candidate = exe_dir.join(binary_name);
+    if !candidate.exists() {
+        return Ok(None);
+    }
+    Ok(Some(BackendCommand {
+        program: candidate.display().to_string(),
+        args: vec![],
+        workdir: candidate.parent().map(|path| path.to_path_buf()),
+    }))
+}
+
+fn dev_repo_backend_command() -> Result<Option<BackendCommand>, String> {
+    let allow_repo_backend = env::var("H2OMETA_ALLOW_REPO_BACKEND")
+        .ok()
+        .map(|value| value == "1")
+        .unwrap_or(false);
+    if !allow_repo_backend {
+        return Ok(None);
+    }
+    let workdir = repo_backend_workdir()?;
+    Ok(Some(BackendCommand {
+        program: String::new(),
+        args: vec![],
+        workdir: Some(workdir),
+    }))
+}
+
+fn backend_log_path(workdir: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(path) = workdir {
+        let logs_dir = path.join("logs");
+        let _ = std::fs::create_dir_all(&logs_dir);
+        return Ok(logs_dir.join("desktop_backend_boot.log"));
+    }
+
+    let temp_logs = env::temp_dir().join("h2ometa-desktop");
+    std::fs::create_dir_all(&temp_logs)
+        .map_err(|err| format!("create temp log dir failed: {}", err))?;
+    Ok(temp_logs.join("desktop_backend_boot.log"))
+}
+
+fn spawn_explicit_backend(cmd_spec: BackendCommand) -> Result<SpawnedBackend, String> {
+    let log_path = backend_log_path(cmd_spec.workdir.as_deref())?;
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|err| format!("open backend log failed: {}", err))?;
+    let log_file_err = log_file
+        .try_clone()
+        .map_err(|err| format!("clone backend log handle failed: {}", err))?;
+
+    let mut cmd = Command::new(&cmd_spec.program);
+    cmd.args(cmd_spec.args.iter())
+        .env("WSL_UTF8", "1")
+        .env("PYTHONUTF8", "1")
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err));
+    if let Some(workdir) = &cmd_spec.workdir {
+        cmd.current_dir(workdir);
+    }
+
+    let child = cmd
+        .spawn()
+        .map_err(|err| format!("spawn backend failed with {}: {}", cmd_spec.program, err))?;
+    Ok(SpawnedBackend { child, log_path })
+}
+
+fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
+    let log_path = backend_log_path(Some(&workdir))?;
     let mut last_error = String::from("no python command available");
-    let _ = std::fs::create_dir_all(workdir.join("logs"));
 
     for cmd_spec in candidate_python_commands() {
         let log_file = std::fs::OpenOptions::new()
@@ -170,7 +267,25 @@ fn spawn_backend() -> Result<SpawnedBackend, String> {
     Err(last_error)
 }
 
-fn read_log_tail(log_path: &std::path::Path, max_chars: usize) -> String {
+fn spawn_backend() -> Result<SpawnedBackend, String> {
+    if let Some(command) = explicit_backend_command()? {
+        return spawn_explicit_backend(command);
+    }
+    if let Some(command) = sibling_sidecar_command()? {
+        return spawn_explicit_backend(command);
+    }
+    if let Some(command) = dev_repo_backend_command()? {
+        let workdir = command
+            .workdir
+            .ok_or_else(|| "repo backend command is missing workdir".to_string())?;
+        return spawn_repo_backend(workdir);
+    }
+    Err(
+        "no desktop backend launch target configured; set H2OMETA_BACKEND_EXE, bundle a sibling h2ometa-api sidecar, or opt into dev fallback with H2OMETA_ALLOW_REPO_BACKEND=1".to_string(),
+    )
+}
+
+fn read_log_tail(log_path: &Path, max_chars: usize) -> String {
     let content = std::fs::read_to_string(log_path).unwrap_or_else(|_| String::new());
     if content.chars().count() <= max_chars {
         return content;
@@ -185,7 +300,7 @@ fn read_log_tail(log_path: &std::path::Path, max_chars: usize) -> String {
         .collect()
 }
 
-fn wait_backend_ready(child: &mut Child, log_path: &std::path::Path, timeout: Duration) -> Result<(), String> {
+fn wait_backend_ready(child: &mut Child, log_path: &Path, timeout: Duration) -> Result<(), String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if TcpStream::connect("127.0.0.1:8765").is_ok() {

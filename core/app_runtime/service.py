@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from config import CONFIG_VERSION, default_settings_schema, get_config, save_config
+from config import CONFIG_VERSION, default_settings_schema, get_config, resolve_ssh_password, save_config
 from . import workbench_runtime_ops
 from core.data.database_service import DatabaseService
 from core.data.data_registry import DataRegistry
@@ -629,7 +629,13 @@ class RuntimeService:
     def get_settings(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            return get_config()
+            current = get_config()
+            sanitized = dict(current)
+            ssh = dict(current.get("ssh", {})) if isinstance(current.get("ssh"), dict) else {}
+            ssh["password"] = ""
+            ssh.pop("password_ref", None)
+            sanitized["ssh"] = ssh
+            return sanitized
 
     def update_settings(self, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -639,7 +645,12 @@ class RuntimeService:
             current = get_config()
             merged = self._merge_settings_patch(current, patch)
             save_config(merged)
-            return get_config()
+            updated = get_config()
+            ssh = dict(updated.get("ssh", {})) if isinstance(updated.get("ssh"), dict) else {}
+            ssh["password"] = ""
+            ssh.pop("password_ref", None)
+            updated["ssh"] = ssh
+            return updated
 
     def get_ssh_status(self) -> dict[str, Any]:
         with self._lock:
@@ -1645,11 +1656,12 @@ class RuntimeService:
             for key in ("host", "port", "user", "password", "use_key", "key_file"):
                 if key in patch and patch[key] is not None:
                     merged[key] = patch[key]
+            merged.pop("password_ref", None)
 
         host = str(merged.get("host", "") or "").strip()
         user = str(merged.get("user", "") or "").strip()
         key_file = str(merged.get("key_file", "") or "").strip()
-        password = str(merged.get("password", "") or "")
+        password = str(patch.get("password", "") or "") if isinstance(patch, dict) and "password" in patch else resolve_ssh_password(merged)
         use_key = bool(merged.get("use_key", False))
         try:
             port = int(merged.get("port", 22))
@@ -1669,7 +1681,7 @@ class RuntimeService:
             "host": host,
             "port": port,
             "user": user,
-            "password": password,
+            "password": "" if use_key else password,
             "use_key": use_key,
             "key_file": key_file,
         }

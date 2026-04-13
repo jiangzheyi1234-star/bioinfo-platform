@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArchiveBoxIcon, Cog6ToothIcon, EllipsisHorizontalIcon, LinkIcon } from "@heroicons/react/24/outline";
 
 import type { Project, TabId, Task } from "./detection_workspace_types";
 import { apiBase, parseSSHStatus, readJsonOrThrow } from "./detection_workspace_utils";
+import { WorkspaceShellSidebar } from "./workspace_shell_sidebar";
 
 const LEFT_SIDEBAR_STORAGE_KEY = "h2ometa:left-sidebar-width";
 const DEFAULT_LEFT_SIDEBAR_WIDTH = 272;
@@ -225,91 +224,25 @@ export function DetectionWorkspaceShell({
 
   return (
     <main className="app-shell" style={{ "--workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
-      <aside className="app-sidebar" aria-label="主导航">
-        <nav className="sidebar-nav sidebar-nav--top">
-          <div className="sidebar-nav-row" ref={connectionMenuRef}>
-            <Link
-              className={`sidebar-nav-link sidebar-nav-link--connect${activeTab === "connect" ? " active" : ""}${resolvedSshConnected ? " connected" : ""}`}
-              href="/connect"
-            >
-              <LinkIcon className="sidebar-nav-icon" />
-              <span className="sidebar-nav-title">连接</span>
-            </Link>
-            {resolvedSshConnected && !isEditingConnection && onOpenConnectionEditor ? (
-              <div className="sidebar-nav-menu-wrap">
-                <button
-                  type="button"
-                  className="sidebar-nav-menu-trigger"
-                  aria-label="连接菜单"
-                  aria-expanded={connectionMenuOpen}
-                  onClick={() => setConnectionMenuOpen((open) => !open)}
-                >
-                  <EllipsisHorizontalIcon className="sidebar-nav-menu-icon" />
-                </button>
-                {connectionMenuOpen ? (
-                  <div className="sidebar-nav-menu">
-                    <button
-                      type="button"
-                      className="sidebar-nav-menu-item"
-                      onClick={() => {
-                        setConnectionMenuOpen(false);
-                        onOpenConnectionEditor();
-                      }}
-                    >
-                      修改连接
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </nav>
-        {sidebarContent ? <div className="sidebar-content-slot">{sidebarContent}</div> : null}
-        <div className="sidebar-footer sidebar-footer--nav">
-          {resolvedSshConnected ? (
-            <div className="sidebar-footer-menu-wrap" ref={settingsMenuRef}>
-              <button
-                type="button"
-                className={`sidebar-nav-link${activeTab === "settings" ? " active" : ""}`}
-                aria-expanded={settingsMenuOpen}
-                onClick={() => setSettingsMenuOpen((open) => !open)}
-              >
-                <Cog6ToothIcon className="sidebar-nav-icon" />
-                <span className="sidebar-nav-title">设置</span>
-              </button>
-              {settingsMenuOpen ? (
-                <div className="sidebar-footer-menu">
-                  <button
-                    type="button"
-                    className="sidebar-footer-menu-item"
-                    onClick={() => {
-                      setSettingsMenuOpen(false);
-                      router.push("/settings");
-                    }}
-                  >
-                    <ArchiveBoxIcon className="sidebar-footer-menu-icon" />
-                    <span>查看归档项目</span>
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="sidebar-nav-link sidebar-nav-link--disabled" aria-disabled="true">
-              <Cog6ToothIcon className="sidebar-nav-icon" />
-              <span className="sidebar-nav-title">设置</span>
-            </div>
-          )}
-        </div>
-        <div
-          aria-hidden="true"
-          className="app-sidebar-resizer"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            dragStateRef.current = { startX: event.clientX, startWidth: sidebarWidth };
-            document.body.classList.add("sidebar-resizing");
-          }}
-        />
-      </aside>
+      <WorkspaceShellSidebar
+        activeTab={activeTab}
+        resolvedSshConnected={resolvedSshConnected}
+        isEditingConnection={isEditingConnection}
+        connectionMenuOpen={connectionMenuOpen}
+        settingsMenuOpen={settingsMenuOpen}
+        connectionMenuRef={connectionMenuRef}
+        settingsMenuRef={settingsMenuRef}
+        sidebarContent={sidebarContent}
+        sidebarWidth={sidebarWidth}
+        onToggleConnectionMenu={() => setConnectionMenuOpen((open) => !open)}
+        onToggleSettingsMenu={() => setSettingsMenuOpen((open) => !open)}
+        onOpenConnectionEditor={onOpenConnectionEditor}
+        onOpenSettings={() => router.push("/settings")}
+        onBeginResize={(clientX) => {
+          dragStateRef.current = { startX: clientX, startWidth: sidebarWidth };
+          document.body.classList.add("sidebar-resizing");
+        }}
+      />
 
       <section className="app-main">
         {!hidePageHeader ? (
