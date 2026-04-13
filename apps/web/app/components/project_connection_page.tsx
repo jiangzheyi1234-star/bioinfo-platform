@@ -370,6 +370,17 @@ export function ProjectConnectionPage() {
   const preflightHasIssues = !!preflightResult && (preflightProblemChecks.length > 0 || preflightResult.failures.length > 0 || preflightResult.warnings.length > 0 || !preflightResult.ok);
   const preflightPanelVisible = isConnected && (!!preflightError || preflightHasIssues || (preflightBusy && !preflightLoaded));
   const baseRuntimeMissing = !!remoteEnvStatus && (!remoteEnvStatus.miniforge.installed || miniforgeInstalling || remoteEnvStatus.miniforge.status === "failed");
+  const baseRuntimeIssue = remoteEnvStatus
+    ? {
+        key: "miniforge",
+        name: "Miniforge",
+        message: miniforgeInstalling
+          ? `基础运行环境安装中，完成后会继续检测 ${remoteEnvStatus.summary.total} 个工具环境。`
+          : `未检测到基础运行环境，安装后再继续检测 ${remoteEnvStatus.summary.total} 个工具环境。`,
+        logText: envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "",
+        installAction: !miniforgeInstalling,
+      }
+    : null;
   const toolIssueItems =
     remoteEnvStatus && !baseRuntimeMissing
       ? remoteEnvStatus.tool_envs
@@ -384,24 +395,8 @@ export function ProjectConnectionPage() {
             installAction: false,
           }))
       : [];
-  const remoteEnvProblemItems = remoteEnvStatus
-    ? baseRuntimeMissing
-      ? [
-          {
-            key: "miniforge",
-            name: "Miniforge",
-            status: miniforgeInstalling ? "installing" : remoteEnvStatus.miniforge.status || "unknown",
-            value: `${remoteEnvStatus.summary.total} 个工具环境受影响`,
-            message: miniforgeInstalling
-              ? "基础运行环境安装中，完成后再继续检测工具环境。"
-              : "未在远端检测到 H2OMeta 自管 conda，请先安装基础运行环境。",
-            logText: envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "",
-            installAction: !miniforgeInstalling,
-          },
-        ]
-      : toolIssueItems
-    : [];
-  const remoteEnvHasIssues = remoteEnvProblemItems.length > 0 || !!remoteEnvError;
+  const remoteEnvProblemItems = remoteEnvStatus && !baseRuntimeMissing ? toolIssueItems : [];
+  const remoteEnvHasIssues = !!baseRuntimeIssue || remoteEnvProblemItems.length > 0 || !!remoteEnvError;
 
   return (
     <section className="settings-layout settings-layout--single">
@@ -589,14 +584,14 @@ export function ProjectConnectionPage() {
                       ? "环境状态读取失败"
                       : remoteEnvHasIssues
                         ? baseRuntimeMissing
-                          ? "基础运行环境未就绪"
+                          ? (miniforgeInstalling ? "正在安装基础运行环境" : "需要先安装基础运行环境")
                           : `发现 ${remoteEnvProblemItems.length} 个待处理项`
                         : `环境已就绪，${remoteEnvStatus?.summary.installed ?? 0} 个环境可用`}
                 </span>
                 <button className="ui-button" type="button" disabled={remoteEnvBusy || miniforgeInstalling} onClick={() => void loadRemoteEnvStatus()}>
                   {remoteEnvBusy ? "刷新中..." : "刷新状态"}
                 </button>
-                {remoteEnvHasIssues ? (
+                {remoteEnvHasIssues && !baseRuntimeMissing ? (
                   <button
                     className="control-btn connection-section-toggle"
                     type="button"
@@ -617,7 +612,32 @@ export function ProjectConnectionPage() {
 
             {remoteEnvStatus ? (
               <>
-                {remoteEnvExpanded && remoteEnvHasIssues ? (
+                {baseRuntimeIssue ? (
+                  <div className="env-status-list">
+                    <article className="env-status-card env-status-card--primary">
+                      <div className="env-status-row">
+                        <div className="env-status-main">
+                          <strong>{baseRuntimeIssue.name}</strong>
+                          <p className="muted">{baseRuntimeIssue.message}</p>
+                        </div>
+                        <div className="env-status-side">
+                          {baseRuntimeIssue.installAction ? (
+                            <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
+                              {miniforgeInstalling ? "安装中..." : "安装"}
+                            </button>
+                          ) : null}
+                          {baseRuntimeIssue.logText ? (
+                            <button className="ui-button" type="button" onClick={() => toggleEnvLog(baseRuntimeIssue.key)}>
+                              {expandedEnvLogs.includes(baseRuntimeIssue.key) ? "收起日志" : "查看日志"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {expandedEnvLogs.includes(baseRuntimeIssue.key) ? <pre className="env-log-block">{baseRuntimeIssue.logText}</pre> : null}
+                    </article>
+                  </div>
+                ) : remoteEnvExpanded && remoteEnvHasIssues ? (
                   <div className="env-status-list">
                     {remoteEnvProblemItems.map((item) => (
                       <article key={item.key} className="env-status-card">
@@ -627,8 +647,8 @@ export function ProjectConnectionPage() {
                             <p className="muted">{item.message}</p>
                           </div>
                           <div className="env-status-side">
-                            <span className="status-pill">{item.status}</span>
-                            <span className="badge">{item.value}</span>
+                            {!baseRuntimeMissing ? <span className="status-pill">{item.status}</span> : null}
+                            {!baseRuntimeMissing ? <span className="badge">{item.value}</span> : null}
                             {item.installAction ? (
                               <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
                                 {miniforgeInstalling ? "安装中..." : "安装"}

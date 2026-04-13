@@ -33,7 +33,7 @@ _STATUS_ORDER_HINT = ("status.txt", "exit_code.txt", "heartbeat.txt")
 def _bootstrap_source_entries() -> str:
     entries = []
     for label, base in build_miniforge_release_bases():
-        installer_url = f"{base}/${{MINIFORGE_VERSION}}/Miniforge3-Linux-${{ARCH}}.sh"
+        installer_url = f"{base}/${{MINIFORGE_VERSION}}/${{MINIFORGE_INSTALLER_NAME}}"
         checksum_url = f"{installer_url}.sha256"
         entries.append(f'    "{label}|{installer_url}|{checksum_url}"')
     return " \\\n".join(entries)
@@ -136,19 +136,49 @@ _record_failure() {{
     fi
 }}
 
-_resolve_latest_version() {{
+_extract_json_string() {{
+    local key="$1"
+    local payload="$2"
+    printf '%s' "$payload" | grep -oE '"'${{key}}'"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 | sed -E 's/^[^:]+:[[:space:]]*"([^"]+)"/\1/'
+}}
+
+_resolve_latest_release() {{
     local payload=""
+    local installer_name=""
+    local installer_url=""
+    local checksum_url=""
     local version=""
     if ! payload="$(_download_text "$RELEASE_API_URL")"; then
         return 1
     fi
-    version="$(printf '%s' "$payload" | tr -d '\r\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]\+\)".*/\1/p')"
+    payload="$(printf '%s' "$payload" | tr -d '\r\n')"
+    installer_url="$(printf '%s' "$payload" | grep -oE 'https://github\.com/conda-forge/miniforge/releases/download/[^"]+/Miniforge3-Linux-'"${{ARCH}}"'\.sh' | head -n 1)"
+    if [ -z "$installer_url" ]; then
+        installer_url="$(printf '%s' "$payload" | grep -oE 'https://github\.com/conda-forge/miniforge/releases/download/[^"]+/Miniforge3-[^"/]+-Linux-'"${{ARCH}}"'\.sh' | head -n 1)"
+    fi
+    checksum_url="$(printf '%s' "$payload" | grep -oE 'https://github\.com/conda-forge/miniforge/releases/download/[^"]+/Miniforge3-Linux-'"${{ARCH}}"'\.sh\.sha256' | head -n 1)"
+    if [ -z "$checksum_url" ]; then
+        checksum_url="$(printf '%s' "$payload" | grep -oE 'https://github\.com/conda-forge/miniforge/releases/download/[^"]+/Miniforge3-[^"/]+-Linux-'"${{ARCH}}"'\.sh\.sha256' | head -n 1)"
+    fi
+    version="$(_extract_json_string tag_name "$payload")"
     case "$version" in
         ""|*[!A-Za-z0-9._-]*)
             return 1
             ;;
     esac
-    printf '%s\n' "$version"
+    if [ -z "$installer_url" ] || [ -z "$checksum_url" ]; then
+        return 1
+    fi
+    installer_name="$(basename "$installer_url")"
+    case "$installer_name" in
+        ""|*[!A-Za-z0-9._-]*)
+            return 1
+            ;;
+    esac
+    printf 'MINIFORGE_VERSION=%s\n' "$version"
+    printf 'MINIFORGE_INSTALLER_NAME=%s\n' "$installer_name"
+    printf 'MINIFORGE_OFFICIAL_INSTALLER_URL=%s\n' "$installer_url"
+    printf 'MINIFORGE_OFFICIAL_CHECKSUM_URL=%s\n' "$checksum_url"
     return 0
 }}
 
@@ -199,13 +229,28 @@ _download_one() {{
 INSTALLER="$(mktemp /tmp/miniforge_install.XXXXXX.sh)"
 CHECKSUM_FILE="$(mktemp /tmp/miniforge_install.XXXXXX.sha256)"
 FAILURE_SUMMARY=""
-MINIFORGE_VERSION="$(_resolve_latest_version || true)"
-if [ -z "$MINIFORGE_VERSION" ]; then
-    _record_failure "latest-release" "latest release tag resolve failed via $RELEASE_API_URL"
+MINIFORGE_RELEASE_INFO="$(_resolve_latest_release || true)"
+if [ -z "$MINIFORGE_RELEASE_INFO" ]; then
+    _record_failure "latest-release" "latest release asset resolve failed via $RELEASE_API_URL"
+    echo "all miniforge mirrors failed: $FAILURE_SUMMARY" >&2
+    exit 4
+fi
+MINIFORGE_VERSION="$(printf '%s\n' "$MINIFORGE_RELEASE_INFO" | sed -n 's/^MINIFORGE_VERSION=//p' | head -n 1)"
+MINIFORGE_INSTALLER_NAME="$(printf '%s\n' "$MINIFORGE_RELEASE_INFO" | sed -n 's/^MINIFORGE_INSTALLER_NAME=//p' | head -n 1)"
+MINIFORGE_OFFICIAL_INSTALLER_URL="$(printf '%s\n' "$MINIFORGE_RELEASE_INFO" | sed -n 's/^MINIFORGE_OFFICIAL_INSTALLER_URL=//p' | head -n 1)"
+MINIFORGE_OFFICIAL_CHECKSUM_URL="$(printf '%s\n' "$MINIFORGE_RELEASE_INFO" | sed -n 's/^MINIFORGE_OFFICIAL_CHECKSUM_URL=//p' | head -n 1)"
+if [ -z "${MINIFORGE_VERSION:-}" ] || [ -z "${MINIFORGE_INSTALLER_NAME:-}" ] || [ -z "${MINIFORGE_OFFICIAL_INSTALLER_URL:-}" ] || [ -z "${MINIFORGE_OFFICIAL_CHECKSUM_URL:-}" ]; then
+    _record_failure "latest-release" "latest release asset payload incomplete"
     echo "all miniforge mirrors failed: $FAILURE_SUMMARY" >&2
     exit 4
 fi
 echo "Resolved Miniforge release tag: $MINIFORGE_VERSION"
+echo "Resolved Miniforge installer: $MINIFORGE_INSTALLER_NAME"
+
+if ! _download_one "github-resolve-check" "$MINIFORGE_OFFICIAL_INSTALLER_URL" "$MINIFORGE_OFFICIAL_CHECKSUM_URL"; then
+    echo "latest release assets not reachable on github: $FAILURE_SUMMARY" >&2
+    exit 4
+fi
 
 DOWNLOAD_OK=0
 for SOURCE in \
