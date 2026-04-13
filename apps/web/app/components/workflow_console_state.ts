@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaceShell } from "./workspace_shell_context";
 import type {
   ServerDoctorReport,
-  ToolSummary,
   WorkflowArtifact,
   WorkflowCompilePreview,
   WorkflowRun,
@@ -19,7 +18,6 @@ import {
   parseWorkflowCompilePreview,
   readJsonOrThrow,
   safeText,
-  toToolSummary,
   toWorkflowArtifact,
   toWorkflowRun,
 } from "./detection_workspace_utils";
@@ -50,7 +48,6 @@ export function useWorkflowConsoleState() {
   const searchParams = useSearchParams();
   const { currentProject, currentProjectId, setShellError } = useWorkspaceShell();
 
-  const [tools, setTools] = useState<ToolSummary[]>([]);
   const [workflow, setWorkflow] = useState<WorkflowSpecView | null>(null);
   const [schemaDraft, setSchemaDraft] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
@@ -169,21 +166,6 @@ export function useWorkflowConsoleState() {
   };
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const resp = await fetch(`${apiBase()}/api/v1/tools`);
-        const data = await readJsonOrThrow(resp);
-        const items = Array.isArray(data.items)
-          ? data.items.map(toToolSummary).filter((item: ToolSummary | null): item is ToolSummary => !!item)
-          : [];
-        setTools(items);
-      } catch (err) {
-        setShellError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-  }, [setShellError]);
-
-  useEffect(() => {
     if (!currentProjectId) {
       setDoctor(null);
       setDoctorError("");
@@ -208,13 +190,13 @@ export function useWorkflowConsoleState() {
   }, [currentProjectId]);
 
   useEffect(() => {
-    if (!currentProjectId || workflow || tools.length === 0) {
+    if (!currentProjectId || workflow) {
       return;
     }
-    const starter = createStarterWorkflow(currentProjectId, tools[0]);
+    const starter = createStarterWorkflow(currentProjectId);
     setWorkflow(starter);
     setSchemaDraft(prettyJson(starter.params_schema));
-  }, [currentProjectId, tools, workflow]);
+  }, [currentProjectId, workflow]);
 
   useEffect(() => {
     if (!schemaObject) {
@@ -275,15 +257,14 @@ export function useWorkflowConsoleState() {
         return current;
       }
       const nextIndex = current.nodes.length + 1;
-      const fallbackTool = tools[0];
       return {
         ...current,
         nodes: [
           ...current.nodes,
           {
             node_id: `step_${nextIndex}`,
-            tool_id: fallbackTool?.id || "tool_placeholder",
-            label: fallbackTool?.name || `Step ${nextIndex}`,
+            tool_id: `tool_${nextIndex}`,
+            label: `Step ${nextIndex}`,
             params: {},
           },
         ],
@@ -413,7 +394,6 @@ export function useWorkflowConsoleState() {
   return {
     currentProject,
     currentProjectId,
-    tools,
     workflow,
     schemaDraft,
     params,

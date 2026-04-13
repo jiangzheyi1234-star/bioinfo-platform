@@ -1,7 +1,6 @@
 import type {
   AppLogPayload,
   DatabaseEntry,
-  Execution,
   InstallJobSnapshot,
   MiniforgeStatus,
   PreflightCheck,
@@ -16,7 +15,6 @@ import type {
   SSHStatus,
   Task,
   ToolEnvStatus,
-  ToolSummary,
   ServerDoctorReport,
   WorkflowArtifact,
   WorkflowCompilePreview,
@@ -73,27 +71,6 @@ export function toProject(value: unknown): Project | null {
     status: safeText(value.status, "unknown"),
     description: safeText(value.description),
     last_opened_at: Number(value.last_opened_at || 0),
-  };
-}
-
-export function toExecution(value: unknown): Execution | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const executionId = safeText(value.execution_id);
-  if (!executionId) {
-    return null;
-  }
-  return {
-    execution_id: executionId,
-    task_id: safeText(value.task_id) || undefined,
-    tool_id: safeText(value.tool_id, "unknown_tool"),
-    sample_id: safeText(value.sample_id),
-    status: safeText(value.status, "unknown"),
-    created_at: Number(value.created_at || 0),
-    sample_name: safeText(value.sample_name) || undefined,
-    parameters: safeText(value.parameters) || undefined,
-    error: safeText(value.error) || undefined,
   };
 }
 
@@ -281,22 +258,6 @@ export function toSample(value: unknown): Sample | null {
     name: safeText(value.name, sampleId),
     source: safeText(value.source) || undefined,
     metadata: isRecord(value.metadata) ? value.metadata : {},
-  };
-}
-
-export function toToolSummary(value: unknown): ToolSummary | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const id = safeText(value.id || value.tool_id);
-  if (!id) {
-    return null;
-  }
-  return {
-    id,
-    name: safeText(value.name, id),
-    category: safeText(value.category, "unknown"),
-    description: safeText(value.description),
   };
 }
 

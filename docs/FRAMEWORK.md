@@ -26,11 +26,12 @@
 │  ┌──────────────────────────────────────────────────────────────────────────┐  │
 │  │  RESTful Endpoints:                                                      │  │
 │  │  - /health              - 健康检查                                       │  │
-│  │  - /api/v1/tools        - 工具管理                                       │  │
 │  │  - /api/v1/projects     - 项目管理                                       │  │
-│  │  - /api/v1/executions   - 任务执行                                       │  │
+│  │  - /api/v1/workflows/*  - workflow 编译与 bundle 预览                    │  │
+│  │  - /api/v1/runs         - workflow run 提交                              │  │
+│  │  - /api/v1/projects/*/runs - workflow run 查询/取消/产物                │  │
 │  │  - /api/v1/ssh/*        - SSH 连接管理                                   │  │
-│  │  - /api/v1/workbench/*  - 工作台操作                                     │  │
+│  │  - /api/v1/settings     - 全局设置                                       │  │
 │  └──────────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                           │
 │                                    ▼                                           │

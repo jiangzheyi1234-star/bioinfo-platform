@@ -8,18 +8,6 @@ export type Project = {
   last_opened_at: number;
 };
 
-export type Execution = {
-  execution_id: string;
-  task_id?: string;
-  tool_id: string;
-  sample_id: string;
-  status: string;
-  created_at: number;
-  sample_name?: string;
-  parameters?: string;
-  error?: string;
-};
-
 export type Task = {
   task_id: string;
   project_id: string;
@@ -56,22 +44,6 @@ export type Sample = {
   name: string;
   source?: string;
   metadata: Record<string, unknown>;
-};
-
-export type ToolSummary = {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-};
-
-export type ToolDescriptor = {
-  id: string;
-  name: string;
-  category?: string;
-  version?: string;
-  description?: string;
-  [key: string]: unknown;
 };
 
 export type SettingsPayload = Record<string, unknown>;
@@ -269,15 +241,9 @@ export type ServerDoctorReport = {
 };
 
 export type TabId =
-  | "projects"
-  | "samples"
   | "runs"
-  | "history"
-  | "databases"
   | "connect"
   | "workspace"
   | "workflows"
   | "artifacts"
-  | "toolflows"
-  | "settings"
-  | "workbench";
+  | "settings";

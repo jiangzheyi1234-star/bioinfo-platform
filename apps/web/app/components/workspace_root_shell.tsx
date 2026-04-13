@@ -30,7 +30,6 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
     projectActionBusyId,
     setShellError,
     selectProject,
-    openProjectSummary,
     createProject,
     archiveProject,
     deleteProject,
@@ -82,10 +81,6 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
           projectActionBusyId={projectActionBusyId}
           onOpenProject={async (projectId) => {
             await selectProject(projectId);
-            router.push("/workspace");
-          }}
-          onSelectProjectSummary={() => {
-            openProjectSummary();
             router.push("/workspace");
           }}
           onCreateProject={createProject}

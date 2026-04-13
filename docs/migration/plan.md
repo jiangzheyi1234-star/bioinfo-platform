@@ -79,7 +79,9 @@
 ### M7 Retire legacy single-tool execution
 
 - `ToolEngine.execute()` 不再接受新执行请求。
-- 旧执行数据若保留，只允许历史读取，不允许继续作为主线入口。
+- 旧工具 UI、工具目录、descriptor、workbench 配置/历史/result 对外接口全部删除。
+- 公开产品面只允许 workflow runs；legacy execution/history 不再作为对外读取语义保留。
+- 内部 legacy runtime 若暂时保留，不允许再被任何公开 UI、公开 API、文档主线引用。
 
 ### M8 Final validation
 

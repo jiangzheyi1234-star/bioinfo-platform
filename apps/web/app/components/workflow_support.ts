@@ -1,6 +1,6 @@
 "use client";
 
-import type { ServerDoctorReport, ToolSummary, WorkflowServerProfile, WorkflowSpecView } from "./detection_workspace_types";
+import type { ServerDoctorReport, WorkflowServerProfile, WorkflowSpecView } from "./detection_workspace_types";
 
 export type SchemaFieldKind = "string" | "number" | "integer" | "boolean";
 
@@ -22,20 +22,17 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function createStarterWorkflow(projectId: string, firstTool?: ToolSummary | null): WorkflowSpecView {
-  const tool = firstTool ?? null;
+export function createStarterWorkflow(projectId: string): WorkflowSpecView {
   const workflowId = slugify(projectId || "workflow") || "workflow";
-  const toolId = tool?.id || "tool_placeholder";
-  const label = tool?.name || "Primary Step";
   return {
     workflow_id: `${workflowId}-main`,
-    name: tool ? `${tool.name} Workflow` : "New Workflow",
+    name: "New Workflow",
     version: "0.1.0",
     nodes: [
       {
         node_id: "step_1",
-        tool_id: toolId,
-        label,
+        tool_id: "tool_placeholder",
+        label: "Primary Step",
         params: {},
       },
     ],

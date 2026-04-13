@@ -35,19 +35,21 @@
 - `M2 Add domain types and API skeleton` 已完成最小骨架，下一步进入 `M3 Implement minimal bundle compiler` 到 `M4 Implement single-node Linux launcher` 的衔接阶段。
 - `M3 Implement minimal bundle compiler` 已从内存 preview 提升到项目目录下的真实 bundle 落盘。
 - `M4 Implement single-node Linux launcher` 已有最小可提交/可查询/可取消闭环，但真实 Nextflow 成功判定细节、artifact 完整性仍需继续打磨。
-- `M6 Switch UI/API to workflow/run` 已完成首轮主导航与页面切换，并已继续收口为单工作台：
+- `M6 Switch UI/API to workflow/run` 已完成，并已收口为单工作台：
   - 主导航已收口为 `连接 / 工作台 / Settings`
   - `/workflows`、`/runs`、`/artifacts` 仅保留兼容跳转，统一导向 `/workspace`
   - 工作台默认聚焦当前 run，workflow 规格与 artifacts 退为次级折叠区
   - starter workflow、compile preview、submit run、run detail、artifacts 已统一进单控制台
-- `M7 Retire legacy single-tool execution` 正在收口：
-  - 侧栏不再默认加载 legacy execution 摘要
-  - 主页面不再提供 legacy 单工具运行按钮；旧工作台仅保留只读浏览、历史结果和远端诊断
+- `M7 Retire legacy single-tool execution` 已进入第二阶段：
+  - workflow 规格编辑器不再依赖 tool catalog，下发的是纯 workflow spec
+  - 旧工具主导航、旧工作台页面壳、旧工具目录与 descriptor 入口已删除
+  - `GET /api/v1/tools`、`GET /api/v1/tools/{tool_id}/descriptor`、`GET /api/v1/projects/{project_id}/workbench/*`、`GET /api/v1/projects/{project_id}/executions*`、`GET /api/v1/projects/{project_id}/history*` 等 legacy 对外接口已移除
   - `POST /api/v1/executions` 与 `POST /api/v1/workbench/run` 已封禁新提交，统一引导到 `/workspace` workflow/run 主线
+  - 公开产品面只保留 workflow run 语义；legacy runtime 代码仍在仓库内部等待后续物理删除
 - 当前优先级：
   - 打磨单机 Linux launcher 的状态/失败判定与结束态分类
   - 打磨工作台首屏的信息层级、日志可读性与 artifacts 预览
-  - 继续清理遗留的 legacy runtime 实现与文档表述，避免双真相残留
+  - 继续物理删除遗留的 legacy runtime 实现与过期文档表述，避免双真相残留
 
 ## Known Risks
 

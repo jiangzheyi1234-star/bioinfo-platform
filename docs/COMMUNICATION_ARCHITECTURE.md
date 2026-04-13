@@ -337,35 +337,16 @@
 │  Databases                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
 │  │  GET    /api/v1/projects/{id}/databases                    # 列出数据库       │   │
-│  │  GET    /api/v1/projects/{id}/workbench/configured-databases  # 配置的数据库  │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                         │
-│  Executions                                                                             │
+│  Workflow Runs                                                                          │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  GET    /api/v1/projects/{id}/executions              # 列出执行              │   │
-│  │  GET    /api/v1/projects/{id}/executions/{eid}        # 获取执行详情          │   │
-│  │  GET    /api/v1/projects/{id}/history                 # 执行历史              │   │
-│  │  GET    /api/v1/projects/{id}/history/summary         # 执行历史摘要          │   │
-│  │  POST   /api/v1/projects/{id}/executions/{eid}/archive # 归档执行             │   │
-│  │  POST   /api/v1/executions                            # 提交新执行           │   │
-│  └─────────────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                         │
-│  Workbench                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  GET    /api/v1/projects/{id}/workbench/tools              # 工作台工具       │   │
-│  │  GET    /api/v1/projects/{id}/workbench/config             # 工作台配置       │   │
-│  │  GET    /api/v1/projects/{id}/workbench/history            # 工作台历史       │   │
-│  │  POST   /api/v1/projects/{id}/workbench/run                # 运行工具         │   │
-│  │  GET    /api/v1/projects/{id}/workbench/executions/{eid}/result         # 结果│   │
-│  │  DELETE /api/v1/projects/{id}/workbench/executions/{eid}               # 删除 │   │
-│  │  GET    /api/v1/projects/{id}/workbench/executions/{eid}/remote-status # 状态 │   │
-│  │  GET    /api/v1/projects/{id}/workbench/primer-results                 # 引物 │   │
-│  └─────────────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                         │
-│  Tools                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  GET    /api/v1/tools                      # 列出工具                         │   │
-│  │  GET    /api/v1/tools/{id}/descriptor      # 获取工具描述符                   │   │
+│  │  POST   /api/v1/workflows/compile                   # 预览 bundle            │   │
+│  │  POST   /api/v1/runs                                # 提交 workflow run      │   │
+│  │  GET    /api/v1/projects/{id}/runs                  # 列出 runs              │   │
+│  │  GET    /api/v1/projects/{id}/runs/{rid}            # 获取 run 详情          │   │
+│  │  POST   /api/v1/projects/{id}/runs/{rid}/cancel     # 取消 run               │   │
+│  │  GET    /api/v1/projects/{id}/runs/{rid}/artifacts  # 查询产物               │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
@@ -463,31 +444,28 @@
 │                                                                                         │
 │  Step 1: 前端提交                                                                       │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  POST /api/v1/executions                                                        │   │
+│  │  POST /api/v1/runs                                                              │   │
 │  │                                                                                 │   │
 │  │  {                                                                              │   │
 │  │    "project_id": "proj_xxx",                                                    │   │
-│  │    "task_id": "task_xxx",                                                       │   │
-│  │    "tool_id": "blast",                                                          │   │
-│  │    "sample_id": "sample_xxx",                                                   │   │
-│  │    "parameters": { "evalue": "1e-5" },                                          │   │
-│  │    "input_data_ids": ["data_xxx"]                                               │   │
+│  │    "workflow": { "workflow_id": "proj-main", "nodes": [...] },                  │   │
+│  │    "launch": { "profile": {...}, "params": {...}, "resume": true }              │   │
 │  │  }                                                                              │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                                          │                                              │
 │                                          ▼                                              │
 │  Step 2: FastAPI 接收                                                                   │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  @app.post("/api/v1/executions")                                                │   │
-│  │  async def submit_execution(payload: SubmitExecutionRequest):                   │   │
-│  │      item = _runtime().submit_execution(ExecutionSubmitRequest(...))            │   │
+│  │  @app.post("/api/v1/runs")                                                      │   │
+│  │  async def create_run(payload: CreateWorkflowRunRequest):                       │   │
+│  │      item = _runtime().create_workflow_run(...)                                 │   │
 │  │      return {"item": item}                                                      │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                                          │                                              │
 │                                          ▼                                              │
 │  Step 3: RuntimeService 处理                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│  │  RuntimeService.submit_execution()                                              │   │
+│  │  RuntimeService.create_workflow_run()                                           │   │
 │  │  ├─ 检查当前项目                                                                │   │
 │  │  ├─ 调用 ServiceLocator.tool_engine.submit_execution()                          │   │
 │  │  └─ 返回 execution_id                                                           │   │
@@ -561,7 +539,7 @@
 │  模式 1: RESTful API (HTTP)                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
 │  │  用途: 查询操作、状态获取、配置管理                                             │   │
-│  │  示例: GET /api/v1/projects, POST /api/v1/executions                            │   │
+│  │  示例: GET /api/v1/projects, POST /api/v1/runs                                  │   │
 │  │  频率: 按需调用                                                                 │   │
 │  │  特点: 同步请求/响应，JSON 格式                                                 │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │

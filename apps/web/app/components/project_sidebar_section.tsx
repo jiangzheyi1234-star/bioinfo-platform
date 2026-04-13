@@ -1,64 +1,34 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArchiveBoxIcon, ChevronRightIcon, EllipsisHorizontalIcon, FolderIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { ArchiveBoxIcon, EllipsisHorizontalIcon, FolderIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 
-import type { Execution, Project } from "./detection_workspace_types";
+import type { Project } from "./detection_workspace_types";
 
 type ProjectSidebarSectionProps = {
   projects: Project[];
   currentProjectId: string;
-  executionItemsByProject?: Record<string, Execution[]>;
-  executionLoadingByProject?: Record<string, boolean>;
-  selectedExecutionId?: string;
   createProjectBusy?: boolean;
   projectActionBusyId?: string;
   onOpenProject: (projectId: string) => Promise<void>;
-  onSelectProjectSummary?: (projectId: string) => void;
-  onSelectTask?: (taskId: string) => void;
-  onSelectExecution?: (execution: Execution) => void;
   onCreateProject: (name: string, description: string) => Promise<void>;
   onArchiveProject: (projectId: string) => Promise<void>;
   onDeleteProject: (projectId: string) => Promise<void>;
-  onLoadProjectExecutions?: (projectId: string) => Promise<void>;
 };
-
-function mapTaskStatusLabel(status: string): string {
-  const normalized = status.trim();
-  if (normalized === "queued") return "排队中";
-  if (normalized === "in_progress") return "执行中";
-  if (normalized === "completed") return "已完成";
-  if (normalized === "failed") return "失败";
-  if (normalized === "cancelled") return "已取消";
-  return normalized || "待处理";
-}
-
-function isRunningStatus(status: string): boolean {
-  const normalized = status.trim();
-  return normalized === "queued" || normalized === "in_progress" || normalized === "running";
-}
 
 export function ProjectSidebarSection({
   projects,
   currentProjectId,
-  executionItemsByProject = {},
-  executionLoadingByProject = {},
-  selectedExecutionId = "",
   createProjectBusy = false,
   projectActionBusyId = "",
   onOpenProject,
-  onSelectProjectSummary,
-  onSelectTask,
-  onSelectExecution,
   onCreateProject,
   onArchiveProject,
   onDeleteProject,
-  onLoadProjectExecutions,
 }: ProjectSidebarSectionProps) {
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
-  const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
   const [openMenuProjectId, setOpenMenuProjectId] = useState("");
   const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -69,13 +39,6 @@ export function ProjectSidebarSection({
     setProjectDescription("");
     setCreatorOpen(false);
   };
-
-  useEffect(() => {
-    if (!currentProjectId) {
-      return;
-    }
-    setExpandedProjectIds((prev) => ({ ...prev, [currentProjectId]: true }));
-  }, [currentProjectId]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -150,11 +113,6 @@ export function ProjectSidebarSection({
         {projects.length === 0 ? <div className="sidebar-task-empty">暂无项目</div> : null}
         {projects.map((project) => {
           const activeProject = project.project_id === currentProjectId;
-          const expanded = expandedProjectIds[project.project_id] ?? activeProject;
-          const hasExecutionCache = Object.prototype.hasOwnProperty.call(executionItemsByProject, project.project_id);
-          const projectExecutionItems = executionItemsByProject[project.project_id] ?? [];
-          const projectExecutionLoading = executionLoadingByProject[project.project_id] === true;
-          const showExecutionSummary = typeof onLoadProjectExecutions === "function" || projectExecutionItems.length > 0;
           const menuOpen = openMenuProjectId === project.project_id;
           const actionBusy = projectActionBusyId === project.project_id;
           return (
@@ -164,10 +122,6 @@ export function ProjectSidebarSection({
                   type="button"
                   className={`sidebar-project-current${activeProject ? " active" : ""}`}
                   onClick={() => {
-                    if (activeProject && showExecutionSummary && projectExecutionItems.length > 0) {
-                      onSelectProjectSummary?.(project.project_id);
-                      return;
-                    }
                     if (!activeProject) {
                       void onOpenProject(project.project_id);
                     }
@@ -218,75 +172,7 @@ export function ProjectSidebarSection({
                     </div>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="sidebar-project-toggle"
-                  aria-label={expanded ? "折叠项目" : "展开项目"}
-                  aria-expanded={expanded}
-                  onClick={() => {
-                    const nextExpanded = !expanded;
-                    setExpandedProjectIds((prev) => ({
-                      ...prev,
-                      [project.project_id]: nextExpanded,
-                    }));
-                    if (
-                      nextExpanded &&
-                      showExecutionSummary &&
-                      !hasExecutionCache &&
-                      !projectExecutionLoading &&
-                      onLoadProjectExecutions
-                    ) {
-                      void onLoadProjectExecutions(project.project_id);
-                    }
-                  }}
-                >
-                  <ChevronRightIcon className={`sidebar-project-toggle-icon${expanded ? " expanded" : ""}`} />
-                </button>
               </div>
-
-              {activeProject && expanded && showExecutionSummary ? (
-                <div className="sidebar-task-list">
-                  {projectExecutionLoading ? (
-                    <div className="sidebar-task-empty">加载中...</div>
-                  ) : null}
-                  {!projectExecutionLoading && hasExecutionCache && projectExecutionItems.length === 0 ? (
-                    <div className="sidebar-task-empty">当前项目暂无执行记录</div>
-                  ) : null}
-                  {!projectExecutionLoading && projectExecutionItems.map((execution) => {
-                    const active = execution.execution_id === selectedExecutionId;
-                    const running = isRunningStatus(execution.status);
-                    const label = execution.sample_name || execution.sample_id || execution.execution_id;
-                    return (
-                      <div
-                        key={execution.execution_id}
-                        className={`sidebar-task-item${active ? " active" : ""}${running ? " running" : ""}`}
-                      >
-                        <button
-                          type="button"
-                          className="sidebar-task-main sidebar-task-main-btn"
-                          onClick={() => {
-                            if (execution.task_id && onSelectTask) {
-                              onSelectTask(execution.task_id);
-                            }
-                            onSelectExecution?.(execution);
-                          }}
-                        >
-                          <div className="sidebar-task-title-row">
-                            <strong className="sidebar-task-title-text" title={label}>
-                              {label}
-                            </strong>
-                            <span className="sidebar-task-trailing">
-                              <span className={`sidebar-task-state${running ? " sidebar-task-state--running" : ""}`}>
-                                {mapTaskStatusLabel(execution.status)}
-                              </span>
-                            </span>
-                          </div>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
             </div>
           );
         })}

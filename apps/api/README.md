@@ -11,15 +11,13 @@ Default bind:
 
 ## Main endpoints
 - `POST /api/v1/workflows/compile`
+- `POST /api/v1/runs`
 - `GET /api/v1/projects/{project_id}/runs`
 - `GET /api/v1/projects/{project_id}/runs/{run_id}`
-- `POST /api/v1/runs`
 - `POST /api/v1/projects/{project_id}/runs/{run_id}/cancel`
 - `GET /api/v1/projects/{project_id}/runs/{run_id}/artifacts`
 - `POST /api/v1/servers/{server_id}/doctor`
 - `GET /health`
-- `GET /api/v1/tools`
-- `GET /api/v1/tools/{tool_id}/descriptor`
 - `GET /api/v1/settings`
 - `PUT /api/v1/settings`
 - `GET /api/v1/ssh/status`
@@ -32,19 +30,5 @@ Default bind:
 - `GET /api/v1/projects/{project_id}/samples`
 - `POST /api/v1/projects/{project_id}/samples`
 - `GET /api/v1/projects/{project_id}/databases`
-- `GET /api/v1/projects/{project_id}/workbench/tools`
-- `GET /api/v1/projects/{project_id}/workbench/config`
-- `GET /api/v1/projects/{project_id}/workbench/history`
-- `GET /api/v1/projects/{project_id}/workbench/configured-databases`
-- `GET /api/v1/projects/{project_id}/workbench/executions/{execution_id}/result`
-- `DELETE /api/v1/projects/{project_id}/workbench/executions/{execution_id}`
-- `GET /api/v1/projects/{project_id}/workbench/executions/{execution_id}/remote-status`
-- `GET /api/v1/projects/{project_id}/workbench/primer-results`
-- `GET /api/v1/projects/{project_id}/executions`
-- `GET /api/v1/projects/{project_id}/executions/{execution_id}`
-- `GET /api/v1/projects/{project_id}/history`
-- `POST /api/v1/projects/{project_id}/executions/{execution_id}/archive`
-- `POST /api/v1/executions` (legacy write path, disabled for new runs)
-- `POST /api/v1/workbench/run` (legacy write path, disabled for new runs)
 - `GET /api/v1/logs/app`
 - `GET /api/v1/events/executions`
