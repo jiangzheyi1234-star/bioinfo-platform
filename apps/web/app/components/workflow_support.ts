@@ -1,6 +1,10 @@
 "use client";
 
-import type { WorkflowSpecView } from "./detection_workspace_types";
+import type {
+  WorkflowEdgeView,
+  WorkflowNodeView,
+  WorkflowSpecView,
+} from "./detection_workspace_types";
 
 export type SchemaFieldKind = "string" | "number" | "integer" | "boolean";
 
@@ -29,6 +33,17 @@ export const WORKFLOW_NODE_TEMPLATES: WorkflowNodeTemplate[] = [
   { key: "quast", tool_id: "quast", label: "Assembly QC", description: "组装质量汇总。" },
   { key: "custom", tool_id: "custom_tool", label: "Custom Step", description: "从空白步骤开始手动编辑。" },
 ];
+
+type WorkflowNodeDraftOptions = {
+  index: number;
+  templateKey?: string;
+};
+
+type WorkflowEdgeDraftOptions = {
+  index: number;
+  sourceNodeId: string;
+  targetNodeId: string;
+};
 
 function slugify(value: string): string {
   return value
@@ -75,6 +90,37 @@ export function createStarterWorkflow(projectId: string): WorkflowSpecView {
       required: ["sample_name", "thread", "qualified_quality_phred", "length_required"],
       additionalProperties: true,
     },
+  };
+}
+
+export function createWorkflowNodeDraft({
+  index,
+  templateKey,
+}: WorkflowNodeDraftOptions): WorkflowNodeView {
+  const template = WORKFLOW_NODE_TEMPLATES.find((item) => item.key === templateKey) ?? WORKFLOW_NODE_TEMPLATES[0];
+  return {
+    node_id: `step_${index}`,
+    tool_id: template?.tool_id || "custom_tool",
+    label: template?.label || `Step ${index}`,
+    params: {},
+    position: {
+      x: 80 + (index - 1) * 240,
+      y: 120,
+    },
+  };
+}
+
+export function createWorkflowEdgeDraft({
+  index,
+  sourceNodeId,
+  targetNodeId,
+}: WorkflowEdgeDraftOptions): WorkflowEdgeView {
+  return {
+    edge_id: `edge_${index}`,
+    source_node_id: sourceNodeId,
+    target_node_id: targetNodeId,
+    output_name: "output",
+    input_name: "input",
   };
 }
 

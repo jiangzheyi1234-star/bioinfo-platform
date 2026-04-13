@@ -139,7 +139,7 @@ export function summarizeWorkflowCompatibility(summary: WorkflowCompatibilitySum
 function buildServerProfiles(doctor: ServerDoctorReport | null): WorkflowProfileCompatibility[] {
   const caps = doctor?.runtime_capabilities || null;
   const base = doctor?.recommended_profile_details || null;
-  return PROFILE_TEMPLATES.map((template) => {
+  return PROFILE_TEMPLATES.map((template): WorkflowProfileCompatibility => {
     const available = template.isAvailable(caps);
     return {
       profile: {
