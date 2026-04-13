@@ -514,7 +514,7 @@ export function ProjectConnectionPage() {
                           <p className="muted">{check.message || "无额外信息"}</p>
                         </div>
                         <div className="connection-detail-side">
-                          <span className={`status-pill${check.status === "ok" ? " status-pill--ok" : ""}`}>{check.status}</span>
+                          {check.status !== "ok" ? <span className="status-pill">{check.status}</span> : null}
                           <span className="badge">{check.value || "unknown"}</span>
                         </div>
                       </article>
@@ -581,9 +581,7 @@ export function ProjectConnectionPage() {
                           <p className="muted">{remoteEnvStatus.miniforge.message || "无额外信息"}</p>
                         </div>
                         <div className="env-status-side">
-                          <span className={`status-pill${remoteEnvStatus.miniforge.installed ? " status-pill--ok" : ""}`}>
-                            {remoteEnvStatus.miniforge.installed ? "installed" : remoteEnvStatus.miniforge.status || "unknown"}
-                          </span>
+                          {!remoteEnvStatus.miniforge.installed ? <span className="status-pill">{remoteEnvStatus.miniforge.status || "unknown"}</span> : null}
                           <span className="badge">{remoteEnvStatus.miniforge.version || remoteEnvStatus.miniforge.status || "unknown"}</span>
                           {!remoteEnvStatus.miniforge.installed ? (
                             <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
@@ -611,7 +609,7 @@ export function ProjectConnectionPage() {
                             <p className="muted">{toolEnv.message || toolEnv.env_name || "无额外信息"}</p>
                           </div>
                           <div className="env-status-side">
-                            <span className={`status-pill${toolEnv.installed ? " status-pill--ok" : ""}`}>{toolEnv.status}</span>
+                            {!toolEnv.installed ? <span className="status-pill">{toolEnv.status}</span> : null}
                             <span className="badge">{toolEnv.version || toolEnv.env_name || toolEnv.tool_id}</span>
                             {toolEnv.log_text ? (
                               <button className="ui-button" type="button" onClick={() => toggleEnvLog(toolEnv.tool_id)}>
