@@ -1305,6 +1305,12 @@
   justify-content: flex-end;
 }
 
+.connection-inline-status {
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .connection-section-toggle {
   display: inline-flex;
   align-items: center;
@@ -1908,6 +1914,10 @@
   .connection-section-actions,
   .env-status-side {
     justify-content: flex-start;
+  }
+
+  .connection-inline-status {
+    white-space: normal;
   }
 
   .history-linear-actions,
