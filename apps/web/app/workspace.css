@@ -1298,6 +1298,62 @@
   gap: 6px;
 }
 
+.remote-env-panel {
+  gap: 14px;
+}
+
+.env-status-list {
+  display: grid;
+  gap: 12px;
+}
+
+.env-status-card {
+  border-top: 1px solid var(--workspace-line-soft);
+  padding: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.env-status-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.env-status-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.env-status-main p {
+  margin: 0;
+}
+
+.env-status-side {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.env-log-block {
+  margin: 0;
+  border: 1px solid var(--workspace-line-soft);
+  border-radius: 10px;
+  background: rgba(246, 247, 249, 0.8);
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--workspace-ink-soft);
+}
+
 .diagnostic-card {
   border: none;
   border-top: 1px solid var(--workspace-line-soft);
