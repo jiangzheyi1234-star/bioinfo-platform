@@ -125,3 +125,11 @@ class CreateRunRequest(BaseModel):
     project_id: str = Field(min_length=1)
     task_id: str = Field(min_length=1)
     launch: LaunchSpecRequest
+
+
+class TaskWorkflowRequest(BaseModel):
+    workflow: WorkflowSpecRequest
+
+
+class TaskWorkflowCompileRequest(BaseModel):
+    launch: LaunchSpecRequest

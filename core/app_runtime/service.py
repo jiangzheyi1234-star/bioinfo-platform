@@ -362,6 +362,36 @@ class RuntimeService:
             self._project_manager.db.commit()
             return self.get_task(project_id=project_id, task_id=task_id)
 
+    def delete_task(self, *, project_id: str, task_id: str) -> dict[str, str]:
+        with self._lock:
+            self._ensure_initialized()
+            self._ensure_project_open(project_id)
+            self._assert_task_exists(project_id=project_id, task_id=task_id)
+            execution_count = self._project_manager.db.execute(
+                "SELECT COUNT(*) FROM executions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if execution_count and int(execution_count[0] or 0) > 0:
+                raise RuntimeServiceError("cannot delete task with executions; archive/cleanup flow is not implemented yet")
+            self._project_manager.db.execute(
+                "DELETE FROM workflow_results WHERE project_id = ? AND task_id = ?",
+                (project_id, task_id),
+            )
+            self._project_manager.db.execute(
+                "DELETE FROM workflow_runs WHERE project_id = ? AND task_id = ?",
+                (project_id, task_id),
+            )
+            self._project_manager.db.execute(
+                "DELETE FROM workflow_snapshots WHERE project_id = ? AND task_id = ?",
+                (project_id, task_id),
+            )
+            self._project_manager.db.execute(
+                "DELETE FROM tasks WHERE project_id = ? AND task_id = ?",
+                (project_id, task_id),
+            )
+            self._project_manager.db.commit()
+            return {"task_id": task_id, "status": "deleted"}
+
     def get_task(self, *, project_id: str, task_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
@@ -393,6 +423,38 @@ class RuntimeService:
             if row is None:
                 raise RuntimeServiceError(f"Task not found: {task_id}")
             return self._normalize_task_row(dict(row))
+
+    def get_task_workflow(self, *, project_id: str, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_workflow(self, project_id=project_id, task_id=task_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def put_task_workflow(self, *, project_id: str, task_id: str, workflow: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.put_task_workflow(self, project_id=project_id, task_id=task_id, workflow=workflow)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def compile_task_workflow(self, *, project_id: str, task_id: str, launch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.compile_task_workflow(self, project_id=project_id, task_id=task_id, launch=launch)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def get_task_workflow_compatibility(self, *, project_id: str, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_workflow_compatibility(self, project_id=project_id, task_id=task_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def update_task(self, *, project_id: str, task_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -464,6 +526,78 @@ class RuntimeService:
                 )
             self._project_manager.db.commit()
             return self.get_task(project_id=project_id, task_id=task_id)
+
+    def list_task_runs(self, *, project_id: str, task_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.list_task_runs(self, project_id=project_id, task_id=task_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def get_task_run(self, *, project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_run(self, project_id=project_id, task_id=task_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def create_task_run(self, *, project_id: str, task_id: str, launch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.create_task_run(self, project_id=project_id, task_id=task_id, launch=launch)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def cancel_task_run(self, *, project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.cancel_task_run(self, project_id=project_id, task_id=task_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def list_task_results(self, *, project_id: str, task_id: str, run_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.list_task_results(self, project_id=project_id, task_id=task_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def get_task_results_summary(self, *, project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_results_summary(self, project_id=project_id, task_id=task_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def get_task_result(self, *, project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_result(self, project_id=project_id, task_id=task_id, result_id=result_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def get_task_result_content(self, *, project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_result_content(self, project_id=project_id, task_id=task_id, result_id=result_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
+
+    def get_task_workspace(self, *, project_id: str, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            try:
+                return workflow_runtime_ops.get_task_workspace(self, project_id=project_id, task_id=task_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def list_samples(self, *, project_id: str) -> list[dict[str, Any]]:
         with self._lock:

@@ -242,3 +242,108 @@ def test_create_run_requires_current_snapshot(runtime: RuntimeService, monkeypat
             task_id=runtime._test_task_id,  # type: ignore[attr-defined]
             launch=_launch_payload(),
         )
+
+
+def test_put_and_get_task_workflow_round_trip(runtime: RuntimeService) -> None:
+    runtime.put_task_workflow(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        workflow=_workflow_payload(),
+    )
+
+    item = runtime.get_task_workflow(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+    )
+
+    assert item["task_id"] == runtime._test_task_id  # type: ignore[attr-defined]
+    assert item["workflow"]["workflow_id"] == "wf_phase1"
+    assert item["workflow_hash"]
+
+
+def test_task_scoped_runs_results_and_workspace(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    backend = _FakeBackend()
+    monkeypatch.setattr("core.app_runtime.workflow_runtime_ops.compile_workflow_bundle", lambda *args, **kwargs: {"bundle_id": "bundle_6", "files": {"main.nf": "process D"}})
+    monkeypatch.setattr("core.app_runtime.workflow_runtime_ops.create_workflow_backend", lambda profile: backend)
+    monkeypatch.setattr(
+        runtime,
+        "get_ssh_preflight",
+        lambda: {
+            "ok": True,
+            "recommended_profile": "personal_conda",
+            "recommended_profile_details": {"profile_id": "personal_conda"},
+            "runtime_capabilities": {"nextflow": {"status": "ok"}},
+            "checks": [],
+            "failures": [],
+            "warnings": [],
+        },
+    )
+    runtime.put_task_workflow(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        workflow=_workflow_payload(),
+    )
+    created = runtime.create_task_run(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        launch=_launch_payload(),
+    )
+    runtime._workflow_backend_for_row = lambda row: backend  # type: ignore[method-assign]
+
+    task_runs = runtime.list_task_runs(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+    )
+    assert len(task_runs) == 1
+    assert task_runs[0]["run_id"] == created["run_id"]
+
+    fetched = runtime.get_task_run(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        run_id=created["run_id"],
+    )
+    assert fetched["task_id"] == runtime._test_task_id  # type: ignore[attr-defined]
+
+    artifacts = runtime.get_run_artifacts(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        run_id=created["run_id"],
+    )
+    assert len(artifacts) == 1
+
+    results = runtime.list_task_results(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+    )
+    assert len(results) == 1
+    assert results[0]["run_id"] == created["run_id"]
+    assert results[0]["content_url"].endswith(f"/results/{results[0]['result_id']}/content")
+
+    summary = runtime.get_task_results_summary(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+    )
+    assert summary["total"] == 1
+    assert summary["latest_run_id"] == created["run_id"]
+
+    result_item = runtime.get_task_result(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        result_id=results[0]["result_id"],
+    )
+    assert result_item["result_id"] == results[0]["result_id"]
+
+    result_content = runtime.get_task_result_content(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        result_id=results[0]["result_id"],
+    )
+    assert result_content["result_id"] == results[0]["result_id"]
+
+    workspace = runtime.get_task_workspace(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+    )
+    assert workspace["task"]["task_id"] == runtime._test_task_id  # type: ignore[attr-defined]
+    assert workspace["workflow_snapshot"]["task_id"] == runtime._test_task_id  # type: ignore[attr-defined]
+    assert workspace["runs_summary"]["total"] == 1
+    assert workspace["results_summary"]["total"] == 1

@@ -16,6 +16,8 @@ from apps.api.models import (
     DatabaseInstallRequest,
     RemoteEnvInstallRequest,
     SSHConnectionRequest,
+    TaskWorkflowCompileRequest,
+    TaskWorkflowRequest,
     UpdateProjectRequest,
     UpdateTaskRequest,
     UpdateSettingsRequest,
@@ -311,7 +313,8 @@ async def open_project(project_id: str) -> dict[str, Any]:
 @app.get("/api/v1/projects/{project_id}/tasks")
 async def list_tasks(project_id: str) -> dict[str, Any]:
     try:
-        return {"items": _runtime().list_tasks(project_id=project_id)}
+        items = _runtime().list_tasks(project_id=project_id)
+        return {"items": items, "total": len(items)}
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -343,6 +346,132 @@ async def update_task(project_id: str, task_id: str, payload: UpdateTaskRequest)
     try:
         patch = payload.model_dump(exclude_none=True)
         return {"item": _runtime().update_task(project_id=project_id, task_id=task_id, patch=patch)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/projects/{project_id}/tasks/{task_id}")
+async def delete_task(project_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().delete_task(project_id=project_id, task_id=task_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/workflow")
+async def get_task_workflow(project_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_workflow(project_id=project_id, task_id=task_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/projects/{project_id}/tasks/{task_id}/workflow")
+async def put_task_workflow(project_id: str, task_id: str, payload: TaskWorkflowRequest) -> dict[str, Any]:
+    try:
+        return _runtime().put_task_workflow(
+            project_id=project_id,
+            task_id=task_id,
+            workflow=payload.workflow.model_dump(),
+        )
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/tasks/{task_id}/workflow/compile")
+async def compile_task_workflow(project_id: str, task_id: str, payload: TaskWorkflowCompileRequest) -> dict[str, Any]:
+    try:
+        return _runtime().compile_task_workflow(
+            project_id=project_id,
+            task_id=task_id,
+            launch=payload.launch.model_dump(),
+        )
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/tasks/{task_id}/workflow/compatibility")
+async def get_task_workflow_compatibility(project_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_workflow_compatibility(project_id=project_id, task_id=task_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/runs")
+async def list_task_runs(project_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        items = _runtime().list_task_runs(project_id=project_id, task_id=task_id)
+        return {"items": items, "total": len(items)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/tasks/{task_id}/runs")
+async def create_task_run(project_id: str, task_id: str, payload: TaskWorkflowCompileRequest) -> dict[str, Any]:
+    try:
+        return _runtime().create_task_run(
+            project_id=project_id,
+            task_id=task_id,
+            launch=payload.launch.model_dump(),
+        )
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}")
+async def get_task_run(project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_run(project_id=project_id, task_id=task_id, run_id=run_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}/cancel")
+async def cancel_task_run(project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().cancel_task_run(project_id=project_id, task_id=task_id, run_id=run_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results")
+async def list_task_results(project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
+    try:
+        items = _runtime().list_task_results(project_id=project_id, task_id=task_id, run_id=run_id)
+        return {"items": items, "total": len(items)}
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results/summary")
+async def get_task_results_summary(project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_results_summary(project_id=project_id, task_id=task_id, run_id=run_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results/{result_id}")
+async def get_task_result(project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_result(project_id=project_id, task_id=task_id, result_id=result_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results/{result_id}/content")
+async def get_task_result_content(project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_result_content(project_id=project_id, task_id=task_id, result_id=result_id)
+    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/tasks/{task_id}/workspace")
+async def get_task_workspace(project_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_task_workspace(project_id=project_id, task_id=task_id)
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
