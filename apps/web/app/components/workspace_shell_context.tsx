@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import type { Project, Task } from "./detection_workspace_types";
 import { apiBase, readJsonOrThrow, safeText, toProject, toTask } from "./detection_workspace_utils";
 
-export type ProjectWorkspaceTab = "overview" | "run";
+export type ProjectWorkspaceTab = "overview" | "workflow" | "runs" | "results";
 
 type WorkspaceShellContextValue = {
   projects: Project[];
@@ -17,6 +17,7 @@ type WorkspaceShellContextValue = {
   projectWorkspaceTab: ProjectWorkspaceTab;
   shellError: string;
   createProjectBusy: boolean;
+  createTaskBusy: boolean;
   renameProjectBusy: boolean;
   projectActionBusyId: string;
   setShellError: (message: string) => void;
@@ -28,6 +29,7 @@ type WorkspaceShellContextValue = {
   refreshProjects: () => Promise<void>;
   refreshTasks: (projectId: string) => Promise<void>;
   createProject: (name: string, description: string) => Promise<void>;
+  createTask: (title: string, description?: string) => Promise<void>;
   renameProject: (name: string, description?: string) => Promise<void>;
   archiveProject: (projectId: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -44,6 +46,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   const [projectWorkspaceTab, setProjectWorkspaceTab] = useState<ProjectWorkspaceTab>("overview");
   const [shellError, setShellError] = useState("");
   const [createProjectBusy, setCreateProjectBusy] = useState(false);
+  const [createTaskBusy, setCreateTaskBusy] = useState(false);
   const [renameProjectBusy, setRenameProjectBusy] = useState(false);
   const [projectActionBusyId, setProjectActionBusyId] = useState("");
   const currentProjectIdRef = useRef("");
@@ -130,6 +133,42 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       throw err;
     } finally {
       setCreateProjectBusy(false);
+    }
+  };
+
+  const createTask = async (title: string, description = "") => {
+    const trimmedTitle = title.trim();
+    if (!currentProjectId) {
+      throw new Error("请先选择项目。");
+    }
+    if (!trimmedTitle) {
+      throw new Error("任务名称不能为空。");
+    }
+    setCreateTaskBusy(true);
+    setShellError("");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: trimmedTitle,
+          description: description.trim(),
+        }),
+      });
+      const data = await readJsonOrThrow(resp);
+      const item = toTask(data?.item);
+      await refreshTasks(currentProjectId);
+      if (item?.task_id) {
+        setSelectedTaskId(item.task_id);
+      }
+      setProjectWorkspaceTab("overview");
+      setProjectSummaryOpen(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setShellError(message);
+      throw err;
+    } finally {
+      setCreateTaskBusy(false);
     }
   };
 
@@ -247,6 +286,15 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     setSelectedTaskId("");
   }, [currentProjectId]);
 
+  useEffect(() => {
+    if (!currentProjectId) {
+      return;
+    }
+    void refreshTasks(currentProjectId).catch((err) => {
+      setShellError(err instanceof Error ? err.message : String(err));
+    });
+  }, [currentProjectId]);
+
   const value = useMemo<WorkspaceShellContextValue>(
     () => ({
       projects,
@@ -258,6 +306,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       projectWorkspaceTab,
       shellError,
       createProjectBusy,
+      createTaskBusy,
       renameProjectBusy,
       projectActionBusyId,
       setShellError,
@@ -269,6 +318,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       selectTask: (taskId: string) => {
         setSelectedTaskId(taskId);
         setProjectSummaryOpen(false);
+        setProjectWorkspaceTab("overview");
       },
       openProjectSummary: () => {
         setProjectSummaryOpen(true);
@@ -279,6 +329,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       refreshProjects,
       refreshTasks,
       createProject,
+      createTask,
       renameProject,
       archiveProject,
       deleteProject,
@@ -288,6 +339,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       createProjectBusy,
       currentProject,
       currentProjectId,
+      createTaskBusy,
       projectSummaryOpen,
       projectWorkspaceTab,
       projects,
