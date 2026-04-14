@@ -79,13 +79,54 @@ class LaunchSpec:
 class RunRecord:
     run_id: str
     project_id: str
+    task_id: str
+    workflow_snapshot_id: str
+    execution_id: str
     workflow_id: str
     profile_id: str
     status: Literal["draft", "pending", "running", "completed", "failed", "cancelled"]
+    snapshot_hash: str
     created_at: float
     updated_at: float
+    snapshot_payload_json: dict[str, Any] = field(default_factory=dict)
     bundle_id: str = ""
     message: str = ""
+    result_path: str = ""
+    error_text: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class WorkflowSnapshotRecord:
+    workflow_snapshot_id: str
+    project_id: str
+    task_id: str
+    workflow_id: str
+    name: str
+    version: str
+    workflow_definition_json: dict[str, Any] = field(default_factory=dict)
+    params_schema_json: dict[str, Any] = field(default_factory=dict)
+    workflow_hash: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class WorkflowResultRecord:
+    workflow_result_id: str
+    project_id: str
+    task_id: str
+    workflow_run_id: str
+    result_kind: str = "artifacts"
+    summary_json: dict[str, Any] = field(default_factory=dict)
+    result_path: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

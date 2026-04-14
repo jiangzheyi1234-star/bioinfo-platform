@@ -29,6 +29,7 @@ class UpdateTaskRequest(BaseModel):
     description: str | None = None
     status: str | None = None
     summary: str | None = None
+    workflow: WorkflowSpecRequest | None = None
 
 
 class CreateSampleRequest(BaseModel):
@@ -122,5 +123,5 @@ class CompileWorkflowRequest(BaseModel):
 
 class CreateRunRequest(BaseModel):
     project_id: str = Field(min_length=1)
-    workflow: WorkflowSpecRequest
+    task_id: str = Field(min_length=1)
     launch: LaunchSpecRequest

@@ -75,6 +75,56 @@ CREATE TABLE IF NOT EXISTS tasks (
     result_snapshot TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS workflow_snapshots (
+    workflow_snapshot_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    workflow_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL DEFAULT '0.1.0',
+    workflow_definition_json TEXT NOT NULL,
+    params_schema_json TEXT NOT NULL DEFAULT '{}',
+    workflow_hash TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(task_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    run_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    workflow_snapshot_id TEXT NOT NULL REFERENCES workflow_snapshots(workflow_snapshot_id),
+    execution_id TEXT NOT NULL UNIQUE REFERENCES executions(execution_id),
+    workflow_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed','cancelled')),
+    snapshot_hash TEXT NOT NULL,
+    snapshot_payload_json TEXT NOT NULL,
+    bundle_id TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    result_path TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    started_at REAL,
+    finished_at REAL,
+    error_text TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS workflow_results (
+    workflow_result_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
+    result_kind TEXT NOT NULL DEFAULT 'artifacts',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    result_path TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(workflow_run_id, result_kind)
+);
+
 CREATE TABLE IF NOT EXISTS data_items (
     data_id TEXT PRIMARY KEY,
     sample_id TEXT REFERENCES samples(sample_id),
@@ -754,6 +804,65 @@ class ProjectManager(QObject):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workflow_snapshots (
+                workflow_snapshot_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                workflow_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL DEFAULT '0.1.0',
+                workflow_definition_json TEXT NOT NULL,
+                params_schema_json TEXT NOT NULL DEFAULT '{}',
+                workflow_hash TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(task_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                run_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                workflow_snapshot_id TEXT NOT NULL REFERENCES workflow_snapshots(workflow_snapshot_id),
+                execution_id TEXT NOT NULL UNIQUE REFERENCES executions(execution_id),
+                workflow_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed','cancelled')),
+                snapshot_hash TEXT NOT NULL,
+                snapshot_payload_json TEXT NOT NULL,
+                bundle_id TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL DEFAULT '',
+                result_path TEXT NOT NULL DEFAULT '',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                started_at REAL,
+                finished_at REAL,
+                error_text TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workflow_results (
+                workflow_result_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
+                result_kind TEXT NOT NULL DEFAULT 'artifacts',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                result_path TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(workflow_run_id, result_kind)
+            )
+            """
+        )
 
         # 检查 is_final_version 字段是否存在
         cursor.execute("PRAGMA table_info(executions)")
@@ -820,6 +929,42 @@ class ProjectManager(QObject):
             """
             CREATE INDEX IF NOT EXISTS idx_tasks_project_activity
             ON tasks(project_id, last_activity_at DESC, created_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_snapshots_task
+            ON workflow_snapshots(task_id, updated_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_project_created
+            ON workflow_runs(project_id, created_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_task_created
+            ON workflow_runs(task_id, created_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_execution
+            ON workflow_runs(execution_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_results_run_created
+            ON workflow_results(workflow_run_id, created_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_results_task_created
+            ON workflow_results(task_id, created_at DESC)
             """
         )
 
@@ -1245,4 +1390,3 @@ class ProjectManager(QObject):
             return ""
         active.sort(key=lambda item: item[1], reverse=True)
         return active[0][0]
-

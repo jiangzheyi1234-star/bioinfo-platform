@@ -102,7 +102,7 @@ async def create_run(payload: CreateRunRequest) -> dict[str, Any]:
         return {
             "item": _runtime().create_run(
                 project_id=payload.project_id,
-                workflow=payload.workflow.model_dump(),
+                task_id=payload.task_id,
                 launch=payload.launch.model_dump(),
             )
         }

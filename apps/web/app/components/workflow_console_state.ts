@@ -87,7 +87,7 @@ export function describeDoctor(summary: WorkflowCompatibilitySummary, doctorErro
 export function useWorkflowConsoleState() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentProject, currentProjectId, setShellError } = useWorkspaceShell();
+  const { currentProject, currentProjectId, selectedTaskId, setShellError } = useWorkspaceShell();
 
   const [workflow, setWorkflow] = useState<WorkflowSpecView | null>(null);
   const [schemaDraft, setSchemaDraft] = useState("");
@@ -576,13 +576,27 @@ export function useWorkflowConsoleState() {
     setWorkflowMessage("");
     setRunBusy(true);
     try {
+      if (!selectedTaskId) {
+        throw new Error("请先选择一个任务，再提交 workflow run。");
+      }
       const payload = buildPayload();
+      const snapshotResp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workflow: payload.workflow,
+          }),
+        }
+      );
+      await readJsonOrThrow(snapshotResp);
       const resp = await fetch(`${apiBase()}/api/v1/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: currentProjectId,
-          workflow: payload.workflow,
+          task_id: selectedTaskId,
           launch: payload.launch,
         }),
       });

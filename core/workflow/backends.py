@@ -22,6 +22,16 @@ from .runtime_ops import (
 class WorkflowBackend:
     backend_kind = "unknown"
 
+    def submit_prepared_run(
+        self,
+        *,
+        ssh_service: Any,
+        ssh_run_fn: Any,
+        layout: dict[str, str],
+        launch: Any,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
     def submit_run(
         self,
         *,
@@ -55,6 +65,29 @@ class WorkflowBackend:
 class LocalSSHBackend(WorkflowBackend):
     backend_kind = "local_ssh"
 
+    def submit_prepared_run(
+        self,
+        *,
+        ssh_service: Any,
+        ssh_run_fn: Any,
+        layout: dict[str, str],
+        launch: Any,
+    ) -> dict[str, Any]:
+        recursive_upload_directory(ssh_service, Path(layout["local_bundle_dir"]), layout["remote_bundle_dir"])
+        remote_submission = submit_local_nextflow_run(
+            ssh_run_fn,
+            remote_task_dir=layout["remote_task_dir"],
+            remote_bundle_dir=layout["remote_bundle_dir"],
+            remote_work_dir=layout["remote_work_dir"],
+            remote_output_dir=layout["remote_output_dir"],
+            resume=bool(launch.resume),
+        )
+        return {
+            "backend_kind": self.backend_kind,
+            "launcher_pid": remote_submission["launcher_pid"],
+            "scheduler_job_id": "",
+        }
+
     def submit_run(
         self,
         *,
@@ -66,32 +99,19 @@ class LocalSSHBackend(WorkflowBackend):
         compiled_bundle: dict[str, Any],
         launch: Any,
     ) -> dict[str, Any]:
-        local_layout = materialize_bundle(project_dir, run_id, compiled_bundle)
-        remote_task_dir = f"{remote_base}/workflow_runs/{run_id}"
-        remote_bundle_dir = f"{remote_task_dir}/bundle"
-        remote_work_dir = launch.profile.work_dir or f"{remote_task_dir}/work"
-        remote_output_dir = launch.profile.output_dir or f"{remote_task_dir}/output"
-        recursive_upload_directory(ssh_service, Path(local_layout["bundle_dir"]), remote_bundle_dir)
-        remote_submission = submit_local_nextflow_run(
-            ssh_run_fn,
-            remote_task_dir=remote_task_dir,
-            remote_bundle_dir=remote_bundle_dir,
-            remote_work_dir=remote_work_dir,
-            remote_output_dir=remote_output_dir,
-            resume=bool(launch.resume),
+        layout = prepare_workflow_run_layout(
+            project_dir=project_dir,
+            remote_base=remote_base,
+            run_id=run_id,
+            compiled_bundle=compiled_bundle,
+            launch=launch,
         )
-        return {
-            "backend_kind": self.backend_kind,
-            "local_bundle_dir": local_layout["bundle_dir"],
-            "local_run_dir": local_layout["run_dir"],
-            "local_record_path": local_layout["record_path"],
-            "remote_task_dir": remote_submission["task_dir"],
-            "remote_bundle_dir": remote_submission["bundle_dir"],
-            "remote_work_dir": remote_submission["work_dir"],
-            "remote_output_dir": remote_submission["output_dir"],
-            "launcher_pid": remote_submission["launcher_pid"],
-            "resolved_config_path": str(Path(local_layout["bundle_dir"]) / "resolved.config"),
-        }
+        return layout | self.submit_prepared_run(
+            ssh_service=ssh_service,
+            ssh_run_fn=ssh_run_fn,
+            layout=layout,
+            launch=launch,
+        )
 
     def query_run(self, *, ssh_run_fn: Any, row: dict[str, Any]) -> dict[str, Any]:
         remote_task_dir = str(row.get("remote_task_dir") or "").strip()
@@ -127,36 +147,28 @@ class LocalSSHBackend(WorkflowBackend):
 class SlurmSSHBackend(WorkflowBackend):
     backend_kind = "slurm_ssh"
 
-    def submit_run(
+    def submit_prepared_run(
         self,
         *,
         ssh_service: Any,
         ssh_run_fn: Any,
-        project_dir: Path,
-        remote_base: str,
-        run_id: str,
-        compiled_bundle: dict[str, Any],
+        layout: dict[str, str],
         launch: Any,
     ) -> dict[str, Any]:
-        local_layout = materialize_bundle(project_dir, run_id, compiled_bundle)
-        remote_task_dir = f"{remote_base}/workflow_runs/{run_id}"
-        remote_bundle_dir = f"{remote_task_dir}/bundle"
-        remote_work_dir = launch.profile.work_dir or f"{remote_task_dir}/work"
-        remote_output_dir = launch.profile.output_dir or f"{remote_task_dir}/output"
         ensure_remote_dirs(
             ssh_run_fn,
-            [remote_task_dir, remote_bundle_dir, remote_work_dir, remote_output_dir],
+            [layout["remote_task_dir"], layout["remote_bundle_dir"], layout["remote_work_dir"], layout["remote_output_dir"]],
             timeout=20,
         )
-        recursive_upload_directory(ssh_service, Path(local_layout["bundle_dir"]), remote_bundle_dir)
+        recursive_upload_directory(ssh_service, Path(layout["local_bundle_dir"]), layout["remote_bundle_dir"])
         script_path = write_remote_script(
             ssh_run_fn,
-            f"{remote_task_dir}/launch.sbatch",
+            f"{layout['remote_task_dir']}/launch.sbatch",
             _build_slurm_launcher(
-                remote_task_dir=remote_task_dir,
-                remote_bundle_dir=remote_bundle_dir,
-                remote_work_dir=remote_work_dir,
-                remote_output_dir=remote_output_dir,
+                remote_task_dir=layout["remote_task_dir"],
+                remote_bundle_dir=layout["remote_bundle_dir"],
+                remote_work_dir=layout["remote_work_dir"],
+                remote_output_dir=layout["remote_output_dir"],
                 resume=bool(launch.resume),
             ),
             20,
@@ -169,22 +181,39 @@ class SlurmSSHBackend(WorkflowBackend):
         if not scheduler_job_id:
             raise RuntimeError(f"提交 Slurm workflow 后未返回 job id: {(stdout or stderr or '').strip()[:200]}")
         ssh_run_fn(
-            f"printf '%s\\n' {shlex.quote(scheduler_job_id)} > {shlex.quote(f'{remote_task_dir}/scheduler_job_id.txt')}",
+            f"printf '%s\\n' {shlex.quote(scheduler_job_id)} > {shlex.quote(f'{layout['remote_task_dir']}/scheduler_job_id.txt')}",
             20,
         )
         return {
             "backend_kind": self.backend_kind,
-            "local_bundle_dir": local_layout["bundle_dir"],
-            "local_run_dir": local_layout["run_dir"],
-            "local_record_path": local_layout["record_path"],
-            "remote_task_dir": remote_task_dir,
-            "remote_bundle_dir": remote_bundle_dir,
-            "remote_work_dir": remote_work_dir,
-            "remote_output_dir": remote_output_dir,
             "launcher_pid": "",
             "scheduler_job_id": scheduler_job_id,
-            "resolved_config_path": str(Path(local_layout["bundle_dir"]) / "resolved.config"),
         }
+
+    def submit_run(
+        self,
+        *,
+        ssh_service: Any,
+        ssh_run_fn: Any,
+        project_dir: Path,
+        remote_base: str,
+        run_id: str,
+        compiled_bundle: dict[str, Any],
+        launch: Any,
+    ) -> dict[str, Any]:
+        layout = prepare_workflow_run_layout(
+            project_dir=project_dir,
+            remote_base=remote_base,
+            run_id=run_id,
+            compiled_bundle=compiled_bundle,
+            launch=launch,
+        )
+        return layout | self.submit_prepared_run(
+            ssh_service=ssh_service,
+            ssh_run_fn=ssh_run_fn,
+            layout=layout,
+            launch=launch,
+        )
 
     def query_run(self, *, ssh_run_fn: Any, row: dict[str, Any]) -> dict[str, Any]:
         remote_task_dir = str(row.get("remote_task_dir") or "").strip()
@@ -260,6 +289,31 @@ def create_workflow_backend(profile: Any) -> WorkflowBackend:
     if executor == "slurm":
         return SlurmSSHBackend()
     raise RuntimeError(f"不支持的 workflow executor: {executor or '<empty>'}")
+
+
+def prepare_workflow_run_layout(
+    *,
+    project_dir: Path,
+    remote_base: str,
+    run_id: str,
+    compiled_bundle: dict[str, Any],
+    launch: Any,
+) -> dict[str, str]:
+    local_layout = materialize_bundle(project_dir, run_id, compiled_bundle)
+    remote_task_dir = f"{remote_base}/workflow_runs/{run_id}"
+    remote_bundle_dir = f"{remote_task_dir}/bundle"
+    remote_work_dir = launch.profile.work_dir or f"{remote_task_dir}/work"
+    remote_output_dir = launch.profile.output_dir or f"{remote_task_dir}/output"
+    return {
+        "local_bundle_dir": local_layout["bundle_dir"],
+        "local_run_dir": local_layout["run_dir"],
+        "local_record_path": local_layout["record_path"],
+        "resolved_config_path": str(Path(local_layout["bundle_dir"]) / "resolved.config"),
+        "remote_task_dir": remote_task_dir,
+        "remote_bundle_dir": remote_bundle_dir,
+        "remote_work_dir": remote_work_dir,
+        "remote_output_dir": remote_output_dir,
+    }
 
 
 def _build_slurm_launcher(
