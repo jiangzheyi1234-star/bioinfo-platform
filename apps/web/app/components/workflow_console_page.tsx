@@ -7,6 +7,15 @@ import { WorkflowNodeListEditor } from "./workflow_node_list_editor";
 import { formatDateTime, mapWorkflowRunStatus, normalizeFieldValue } from "./workflow_support";
 import { describeDoctor, readWorkflowRemoteValue, useWorkflowConsoleState } from "./workflow_console_state";
 
+function TechnicalItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="workflow-console-stat">
+      <span>{label}</span>
+      <strong>{value || "未记录"}</strong>
+    </div>
+  );
+}
+
 export function WorkflowConsolePage() {
   const {
     currentProject,
@@ -27,6 +36,7 @@ export function WorkflowConsolePage() {
     detailBusy,
     actionBusy,
     artifacts,
+    results,
     resolvedConfig,
     artifactsBusy,
     workflowExpanded,
@@ -175,8 +185,8 @@ export function WorkflowConsolePage() {
             <div className="workflow-console-run-panel">
               <div className="workflow-console-stat-row">
                 <div className="workflow-console-stat">
-                  <span>状态</span>
-                  <strong>{mapWorkflowRunStatus(selectedRun.status)}</strong>
+                  <span>Run ID</span>
+                  <strong>{selectedRun.run_id}</strong>
                 </div>
                 <div className="workflow-console-stat">
                   <span>Profile</span>
@@ -358,7 +368,7 @@ export function WorkflowConsolePage() {
           <summary className="workflow-console-section-summary">
             <div>
               <strong>Run Drawer</strong>
-              <span>logs / resolved config / artifacts / trace</span>
+              <span>logs / resolved config / results / trace</span>
             </div>
             <span>{selectedRun ? detailTab : "等待 Run"}</span>
           </summary>
@@ -366,7 +376,7 @@ export function WorkflowConsolePage() {
           <div className="workflow-detail-tabs">
             {[
               ["logs", "Logs"],
-              ["artifacts", "Artifacts"],
+              ["artifacts", "Results"],
               ["config", "Resolved Config"],
               ["trace", "Trace"],
             ].map(([key, label]) => (
@@ -403,7 +413,11 @@ export function WorkflowConsolePage() {
                     <div key={artifact.name} className="workflow-artifact-item">
                       <div className="workflow-artifact-copy">
                         <strong>{artifact.name}</strong>
-                        <p>{artifact.available ? artifact.local_path || artifact.remote_path : artifact.error || "未找到远端文件"}</p>
+                        <p>
+                          {[artifact.kind || artifact.artifact_type, artifact.viewer_hint, artifact.available ? artifact.local_path || artifact.remote_path : artifact.error || "未找到远端文件"]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
                       </div>
                       <span className={`workflow-artifact-state${artifact.available ? " available" : ""}`}>
                         {artifact.available ? "已同步" : "缺失"}
@@ -461,28 +475,24 @@ export function WorkflowConsolePage() {
           <summary className="workflow-console-section-summary">
             <div>
               <strong>技术详情</strong>
-              <span>Compile preview、remote status、路径和 manifest。</span>
+              <span>Compile preview、runtime 状态、路径与结果摘要。</span>
             </div>
           </summary>
           <div className="workflow-preview-grid">
             <div className="workflow-preview-card">
               <strong>Compile Preview</strong>
-              <pre className="workspace-json-surface">
-                {JSON.stringify(
-                  compilePreview
-                    ? {
-                        bundle_id: compilePreview.bundle_id,
-                        files: Object.keys(compilePreview.files),
-                        main_nf_preview: compilePreview.files["main.nf"]?.split("\n").slice(0, 24).join("\n") || "",
-                      }
-                    : {},
-                  null,
-                  2
-                )}
-              </pre>
+              <div className="workflow-console-stat-row">
+                <TechnicalItem label="Bundle" value={compilePreview?.bundle_id || ""} />
+                <TechnicalItem label="文件数" value={String(Object.keys(compilePreview?.files || {}).length)} />
+              </div>
+              <pre className="workspace-json-surface">{compilePreview?.files["main.nf"]?.split("\n").slice(0, 24).join("\n") || "{}"}</pre>
             </div>
             <div className="workflow-preview-card">
               <strong>Manifest</strong>
+              <div className="workflow-console-stat-row">
+                <TechnicalItem label="Manifest Keys" value={String(Object.keys(compilePreview?.manifest || {}).length)} />
+                <TechnicalItem label="Results" value={String(results.length)} />
+              </div>
               <pre className="workspace-json-surface">{JSON.stringify(compilePreview?.manifest || {}, null, 2)}</pre>
             </div>
             <div className="workflow-preview-card">
@@ -491,30 +501,38 @@ export function WorkflowConsolePage() {
             </div>
             <div className="workflow-preview-card">
               <strong>Run Detail</strong>
-              <pre className="workspace-json-surface">
-                {JSON.stringify(
-                  selectedRun
-                    ? {
-                        backend_kind: selectedRun.backend_kind || "",
-                        executor: selectedRun.executor || "",
-                        packaging_mode: selectedRun.packaging_mode || "",
-                        container_runtime: selectedRun.container_runtime || "",
-                        remote_status: selectedRun.remote_status || {},
+              {selectedRun ? (
+                <>
+                  <div className="workflow-console-stat-row">
+                    <TechnicalItem label="Backend" value={selectedRun.backend_kind || selectedRun.executor || ""} />
+                    <TechnicalItem label="Packaging" value={selectedRun.packaging_mode || ""} />
+                    <TechnicalItem label="Container" value={selectedRun.container_runtime || ""} />
+                  </div>
+                  <div className="workflow-console-stat-row">
+                    <TechnicalItem label="Launcher PID" value={selectedRun.launcher_pid || ""} />
+                    <TechnicalItem label="Nextflow PID" value={selectedRun.nextflow_pid || readWorkflowRemoteValue(selectedRun, "nextflow_pid") || ""} />
+                    <TechnicalItem label="Heartbeat" value={readWorkflowRemoteValue(selectedRun, "heartbeat")} />
+                  </div>
+                  <pre className="workspace-json-surface">
+                    {JSON.stringify(
+                      {
                         local_bundle_dir: selectedRun.local_bundle_dir || "",
                         local_run_dir: selectedRun.local_run_dir || "",
-                        resolved_config_path: selectedRun.resolved_config_path || "",
                         remote_bundle_dir: selectedRun.remote_bundle_dir || "",
                         remote_task_dir: selectedRun.remote_task_dir || "",
                         remote_work_dir: selectedRun.remote_work_dir || "",
                         remote_output_dir: selectedRun.remote_output_dir || "",
-                        launcher_pid: selectedRun.launcher_pid || "",
-                        nextflow_pid: selectedRun.nextflow_pid || readWorkflowRemoteValue(selectedRun, "nextflow_pid") || "",
-                      }
-                    : {},
-                  null,
-                  2
-                )}
-              </pre>
+                        resolved_config_path: selectedRun.resolved_config_path || "",
+                        remote_status: selectedRun.remote_status || {},
+                      },
+                      null,
+                      2
+                    )}
+                  </pre>
+                </>
+              ) : (
+                <pre className="workspace-json-surface">{JSON.stringify({}, null, 2)}</pre>
+              )}
             </div>
           </div>
         </details>

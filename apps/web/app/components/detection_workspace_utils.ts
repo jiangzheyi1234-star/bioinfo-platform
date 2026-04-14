@@ -18,6 +18,7 @@ import type {
   ServerDoctorReport,
   WorkflowArtifact,
   WorkflowCompilePreview,
+  WorkflowResult,
   WorkflowRuntimeCapabilities,
   WorkflowServerProfile,
   WorkflowRun,
@@ -394,9 +395,35 @@ export function toWorkflowArtifact(value: unknown): WorkflowArtifact | null {
     remote_path: safeText(value.remote_path),
     local_path: safeText(value.local_path),
     available: Boolean(value.available),
-    kind: safeText(value.kind) || undefined,
+    kind: safeText(value.kind || value.artifact_type) || undefined,
+    artifact_type: safeText(value.artifact_type) || undefined,
+    display_role: safeText(value.display_role) || undefined,
+    viewer_hint: safeText(value.viewer_hint) || undefined,
     content_type: safeText(value.content_type) || undefined,
     error: safeText(value.error) || undefined,
+  };
+}
+
+export function toWorkflowResult(value: unknown): WorkflowResult | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const resultId = safeText(value.result_id);
+  if (!resultId) {
+    return null;
+  }
+  return {
+    result_id: resultId,
+    task_id: safeText(value.task_id),
+    run_id: safeText(value.run_id),
+    kind: safeText(value.kind, "artifacts"),
+    summary: isRecord(value.summary) ? value.summary : {},
+    content_type: safeText(value.content_type, "application/json"),
+    viewer_kind: safeText(value.viewer_kind, "json"),
+    content_url: safeText(value.content_url),
+    created_at: Number(value.created_at || 0),
+    updated_at: Number(value.updated_at || 0),
+    result_path: safeText(value.result_path),
   };
 }
 
