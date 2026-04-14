@@ -157,6 +157,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const xtermRef = useRef<XTermTerminal | null>(null);
   const xtermFitRef = useRef<FitAddon | null>(null);
   const terminalRenderedOutputRef = useRef("");
+  const terminalOutputRef = useRef("");
   const terminalCursorRef = useRef(0);
   const terminalSessionIdRef = useRef<string | null>(null);
   const terminalInputEnabledRef = useRef(false);
@@ -196,7 +197,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
   const resetTerminalState = useCallback(() => {
     terminalRenderedOutputRef.current = "";
+    terminalOutputRef.current = "";
     terminalCursorRef.current = 0;
+    terminalInputQueueRef.current = Promise.resolve();
     setTerminalSessionId(null);
     setTerminalOutput("");
     setTerminalMessage("");
@@ -251,6 +254,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(TERMINAL_HEIGHT_KEY, String(terminalHeight));
     }
   }, [terminalHeight]);
+
+  useEffect(() => {
+    terminalOutputRef.current = terminalOutput;
+  }, [terminalOutput]);
 
   useEffect(() => {
     terminalSessionIdRef.current = terminalSessionId;
@@ -374,9 +381,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       xtermRef.current = nextTerminal;
       xtermFitRef.current = nextFitAddon;
       terminalRenderedOutputRef.current = "";
-      if (terminalOutput) {
-        void nextTerminal.write(terminalOutput);
-        terminalRenderedOutputRef.current = terminalOutput;
+      if (terminalOutputRef.current) {
+        void nextTerminal.write(terminalOutputRef.current);
+        terminalRenderedOutputRef.current = terminalOutputRef.current;
         nextTerminal.scrollToBottom();
       }
       nextTerminal.focus();
@@ -395,7 +402,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       xtermFitRef.current = null;
       terminalRenderedOutputRef.current = "";
     };
-  }, [queueTerminalInput, terminalOpen, terminalOutput]);
+  }, [queueTerminalInput, terminalOpen]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
