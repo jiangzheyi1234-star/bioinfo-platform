@@ -15,7 +15,7 @@ const AUTO_CONNECT_NOTICE_STORAGE_KEY = "h2ometa:auto-connect-notice-key";
 
 export const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: string; hotkey: string }> = [
   { id: "connect", href: "/connect", label: "连接", note: "SSH 与远端状态", hotkey: "Alt+6" },
-  { id: "workspace", href: "/workspace", label: "工作台", note: "当前 run、workflow 规格与产物", hotkey: "Alt+7" },
+  { id: "workspace", href: "/workspace", label: "工作台", note: "Project → Task → Workbench", hotkey: "Alt+7" },
   { id: "settings", href: "/settings", label: "系统设置", note: "全局配置与偏好", hotkey: "Alt+0" },
 ];
 
@@ -27,7 +27,7 @@ const TAB_TITLES: Record<TabId, string> = {
 
 const TAB_DESCRIPTIONS: Record<TabId, string> = {
   connect: "管理 SSH 连接、测试与远端会话状态。",
-  workspace: "围绕当前 workflow run 进行编译、提交、监控与产物查看。",
+  workspace: "围绕当前 Task Workbench 完成 Workflow、Runs 与 Results 主链路。",
   settings: "维护系统配置和本地工作台偏好。",
 };
 
@@ -112,9 +112,17 @@ export function DetectionWorkspaceShell({
     () => currentProject ?? projects.find((project) => project.project_id === currentProjectId),
     [currentProject, currentProjectId, projects]
   );
+  const resolvedCurrentTask = useMemo(
+    () => tasks.find((task) => task.task_id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId]
+  );
   const showPageActions = !!projectSelect || !!onRefreshProjects;
   const resolvedSshConnected = isEditingConnection ? false : isSshConnected || navSshConnected;
-  const workspaceMeta = [resolvedCurrentProject?.name || "未选择项目", currentProjectId || ""].filter(Boolean);
+  const workspaceMeta = [
+    resolvedCurrentProject?.name || "未选择项目",
+    resolvedCurrentTask?.title ? `Task: ${resolvedCurrentTask.title}` : tasks.length > 0 ? `${tasks.length} Tasks` : "",
+    currentProjectId || "",
+  ].filter(Boolean);
 
   useEffect(() => {
     setSidebarWidth(readStoredSidebarWidth());

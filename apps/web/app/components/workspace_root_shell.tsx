@@ -33,7 +33,7 @@ function resolvePageCopy(kind: WorkspaceRouteKind) {
   if (kind === "workspace") {
     return {
       title: "工作台",
-      description: "围绕当前 workflow run 进行编译、提交、监控与产物查看。",
+      description: "围绕当前 Task Workbench 进行 Workflow 组装、运行监控与结果查看。",
     };
   }
   return {
