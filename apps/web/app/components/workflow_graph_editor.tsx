@@ -13,7 +13,6 @@ import {
   type Edge,
   type Node,
   type NodeProps,
-  type OnNodeClick,
 } from "@xyflow/react";
 
 import type {
@@ -183,7 +182,7 @@ export function WorkflowGraphEditor({
     }));
   }, [model, selectedRun]);
 
-  const onNodeClick: OnNodeClick<Node<WorkflowGraphNodeData>> = (_event, node) => {
+  const onNodeClick = (_event: unknown, node: Node<WorkflowGraphNodeData>) => {
     onSelectNode?.(node.id);
   };
   const onConnect = (connection: Connection) => {
@@ -229,7 +228,6 @@ export function WorkflowGraphEditor({
           nodesConnectable
           nodesFocusable
           edgesFocusable
-          nodesDeletable={false}
           deleteKeyCode={["Backspace", "Delete"]}
           elementsSelectable
           onNodeClick={onNodeClick}
