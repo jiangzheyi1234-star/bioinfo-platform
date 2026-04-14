@@ -77,32 +77,40 @@ function StateLabel(state: WorkflowDagNodeState) {
 
 function WorkflowNodeCard({ data, selected }: NodeProps<Node<WorkflowGraphNodeData>>) {
   const accent = stateColor(data.state);
+  const stateLabel = StateLabel(data.state);
   return (
     <div
       style={{
-        minWidth: 220,
-        borderRadius: 18,
+        minWidth: 240,
+        borderRadius: 16,
         border: selected ? `2px solid ${accent}` : "1px solid rgba(15, 23, 42, 0.12)",
-        background: "rgba(255, 255, 255, 0.95)",
-        boxShadow: selected ? `0 18px 40px ${accent}22` : "0 14px 30px rgba(15, 23, 42, 0.08)",
-        overflow: "hidden",
+        background: "rgba(255, 255, 255, 0.98)",
+        boxShadow: selected ? `0 20px 48px ${accent}1f` : "0 10px 30px rgba(15, 23, 42, 0.08)",
       }}
     >
       <Handle type="target" position={Position.Left} style={{ background: accent, width: 10, height: 10, border: "none" }} />
-      <div
-        style={{
-          padding: "10px 14px",
-          background: `linear-gradient(135deg, ${accent} 0%, rgba(255,255,255,0.9) 180%)`,
-          color: "#fff",
-        }}
-      >
-        <strong style={{ display: "block", fontSize: 14 }}>{data.label}</strong>
-        <span style={{ display: "block", marginTop: 4, fontSize: 12, opacity: 0.92 }}>{data.toolId}</span>
-      </div>
-      <div style={{ padding: 14, display: "grid", gap: 10 }}>
+      <div style={{ padding: 16, display: "grid", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "grid", gap: 4 }}>
+            <strong style={{ display: "block", fontSize: 14, color: "#0f172a" }}>{data.label}</strong>
+            <span style={{ display: "block", fontSize: 12, color: "#64748b" }}>{data.toolId}</span>
+          </div>
+          <span
+            className="workflow-graph-pill"
+            style={{
+              borderColor: `${accent}33`,
+              background: `${accent}0d`,
+              color: accent,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {stateLabel}
+          </span>
+        </div>
+        <div style={{ height: 1, background: "rgba(226, 232, 240, 0.9)" }} />
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, color: "#475569" }}>
-          <span>{StateLabel(data.state)}</span>
-          <span>{data.artifacts} artifacts</span>
+          <span>Artifacts</span>
+          <strong style={{ color: "#0f172a", fontSize: 12 }}>{data.artifacts}</strong>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <span className="workflow-graph-pill">in {data.upstream}</span>
@@ -224,6 +232,7 @@ export function WorkflowGraphEditor({
           edges={edges}
           nodeTypes={nodeTypes}
           fitView
+          fitViewOptions={{ padding: 0.18 }}
           nodesDraggable
           nodesConnectable
           nodesFocusable
