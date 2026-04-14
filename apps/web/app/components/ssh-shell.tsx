@@ -1,9 +1,18 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { usePathname, useRouter } from "next/navigation";
-import { EllipsisHorizontalIcon, LinkIcon } from "@heroicons/react/24/outline";
+import { CommandLineIcon, EllipsisHorizontalIcon, LinkIcon, XMarkIcon } from "@heroicons/react/24/outline";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -32,6 +41,18 @@ type SSHFormState = {
   use_key: boolean;
   key_file: string;
   timeout_sec: string;
+};
+
+type TerminalSnapshot = {
+  session_id: string;
+  cursor: number;
+  output: string;
+  connected: boolean;
+  input_enabled: boolean;
+  closed: boolean;
+  message: string;
+  created_at: number;
+  closed_at: number | null;
 };
 
 type SshShellContextValue = {
@@ -102,6 +123,8 @@ function normalizeFetchError(error: unknown): string {
 export function SshShellProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const terminalViewportRef = useRef<HTMLPreElement | null>(null);
+  const terminalCursorRef = useRef(0);
   const [status, setStatus] = useState<SSHStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -109,31 +132,89 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [formError, setFormError] = useState("");
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null);
+  const [terminalOutput, setTerminalOutput] = useState("");
+  const [terminalMessage, setTerminalMessage] = useState("");
+  const [terminalConnected, setTerminalConnected] = useState(false);
+  const [terminalInputEnabled, setTerminalInputEnabled] = useState(false);
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const [terminalError, setTerminalError] = useState("");
+  const [terminalCommand, setTerminalCommand] = useState("");
 
-  const fetchStatus = useCallback(async () => {
-    setLoading(true);
-    try {
-      const resp = await fetch(`${apiBase()}/api/v1/ssh/status`, { cache: "no-store" });
-      const data = await readJsonOrThrow(resp);
-      const next = (data?.item || null) as SSHStatus | null;
-      setStatus(next);
-      setForm((current) => {
-        if (dialogOpen && (current.host || current.user || current.password || current.key_file)) {
-          return current;
+  const applyTerminalSnapshot = useCallback((item: TerminalSnapshot, mode: "replace" | "append" = "append") => {
+    terminalCursorRef.current = item.cursor || 0;
+    setTerminalSessionId(item.session_id);
+    setTerminalMessage(item.message || "");
+    setTerminalConnected(Boolean(item.connected));
+    setTerminalInputEnabled(Boolean(item.input_enabled));
+    setTerminalOutput((current) => {
+      const nextChunk = typeof item.output === "string" ? item.output : "";
+      return mode === "replace" ? nextChunk : `${current}${nextChunk}`;
+    });
+  }, []);
+
+  const resetTerminalState = useCallback(() => {
+    terminalCursorRef.current = 0;
+    setTerminalSessionId(null);
+    setTerminalOutput("");
+    setTerminalMessage("");
+    setTerminalConnected(false);
+    setTerminalInputEnabled(false);
+    setTerminalBusy(false);
+    setTerminalError("");
+    setTerminalCommand("");
+  }, []);
+
+  const fetchStatus = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!options?.silent) {
+        setLoading(true);
+      }
+      try {
+        const resp = await fetch(`${apiBase()}/api/v1/ssh/status`, { cache: "no-store" });
+        const data = await readJsonOrThrow(resp);
+        const next = (data?.item || null) as SSHStatus | null;
+        setStatus(next);
+        setForm((current) => {
+          if (dialogOpen && (current.host || current.user || current.password || current.key_file)) {
+            return current;
+          }
+          setFormError("");
+          return toForm(next);
+        });
+      } catch {
+        setStatus(null);
+      } finally {
+        if (!options?.silent) {
+          setLoading(false);
         }
-        setFormError("");
-        return toForm(next);
-      });
-    } catch {
-      setStatus(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [dialogOpen]);
+      }
+    },
+    [dialogOpen]
+  );
 
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchStatus({ silent: true });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [fetchStatus]);
+
+  useEffect(() => {
+    if (!terminalOpen) {
+      return;
+    }
+    const node = terminalViewportRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
+  }, [terminalOpen, terminalOutput]);
 
   const persistSettings = useCallback(async () => {
     const payload = {
@@ -175,6 +256,101 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setFormError("");
     setForm((current) => ({ ...current, [key]: value }));
   }, []);
+
+  const closeTerminalDrawer = useCallback(async () => {
+    const activeSessionId = terminalSessionId;
+    setTerminalOpen(false);
+    resetTerminalState();
+    if (!activeSessionId) {
+      return;
+    }
+    try {
+      await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${activeSessionId}`, { method: "DELETE" });
+    } catch {
+      // ignore cleanup failures; local state is already cleared
+    }
+  }, [resetTerminalState, terminalSessionId]);
+
+  const startTerminalSession = useCallback(
+    async (options?: { replaceExisting?: boolean }) => {
+      if (!status?.connected) {
+        setTerminalOpen(true);
+        setTerminalError("请先连接远端服务器");
+        setTerminalInputEnabled(false);
+        setTerminalConnected(false);
+        return;
+      }
+      if (terminalOpen && terminalSessionId && terminalInputEnabled && !options?.replaceExisting) {
+        return;
+      }
+      setTerminalOpen(true);
+      setTerminalBusy(true);
+      setTerminalError("");
+      try {
+        if (terminalSessionId) {
+          await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}`, { method: "DELETE" }).catch(() => undefined);
+          resetTerminalState();
+        }
+        const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cols: 120, rows: 28 }),
+        });
+        const data = await readJsonOrThrow(resp);
+        applyTerminalSnapshot((data?.item || null) as TerminalSnapshot, "replace");
+      } catch (error) {
+        setTerminalInputEnabled(false);
+        setTerminalConnected(false);
+        setTerminalError(normalizeFetchError(error) || "远程终端创建失败");
+      } finally {
+        setTerminalBusy(false);
+      }
+    },
+    [applyTerminalSnapshot, resetTerminalState, status?.connected, terminalInputEnabled, terminalOpen, terminalSessionId]
+  );
+
+  useEffect(() => {
+    if (!terminalOpen || !terminalSessionId) {
+      return;
+    }
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const poll = async () => {
+      try {
+        const resp = await fetch(
+          `${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}?cursor=${terminalCursorRef.current}`,
+          { cache: "no-store" }
+        );
+        const data = await readJsonOrThrow(resp);
+        if (cancelled) {
+          return;
+        }
+        applyTerminalSnapshot((data?.item || null) as TerminalSnapshot, "append");
+        setTerminalError("");
+        void fetchStatus({ silent: true });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setTerminalInputEnabled(false);
+        setTerminalConnected(false);
+        setTerminalError(normalizeFetchError(error) || "终端输出读取失败");
+      } finally {
+        if (!cancelled) {
+          timer = window.setTimeout(poll, 800);
+        }
+      }
+    };
+
+    timer = window.setTimeout(poll, 150);
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [applyTerminalSnapshot, fetchStatus, terminalOpen, terminalSessionId]);
 
   const connectDisabled =
     connectBusy ||
@@ -223,6 +399,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       const next = (data?.item || null) as SSHStatus | null;
       setStatus(next);
       setForm(toForm(next));
+      setTerminalConnected(false);
+      setTerminalInputEnabled(false);
+      setTerminalMessage("SSH 已断开，终端会话已结束");
       router.push("/");
     } catch (error) {
       setFormError(normalizeFetchError(error) || "断开失败");
@@ -231,6 +410,31 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       setDisconnectBusy(false);
     }
   }, [router]);
+
+  const submitTerminalCommand = useCallback(async () => {
+    if (!terminalSessionId || !terminalInputEnabled || terminalBusy) {
+      return;
+    }
+    const nextCommand = terminalCommand.trim();
+    if (!nextCommand) {
+      return;
+    }
+    setTerminalBusy(true);
+    setTerminalError("");
+    try {
+      const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}/input`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: `${nextCommand}\n` }),
+      });
+      await readJsonOrThrow(resp);
+      setTerminalCommand("");
+    } catch (error) {
+      setTerminalError(normalizeFetchError(error) || "终端输入发送失败");
+    } finally {
+      setTerminalBusy(false);
+    }
+  }, [terminalBusy, terminalCommand, terminalInputEnabled, terminalSessionId]);
 
   const value = useMemo<SshShellContextValue>(
     () => ({
@@ -250,6 +454,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     }),
     [status, loading, dialogOpen, pathname, form, connectBusy, disconnectBusy, formError, submitConnect, submitDisconnect]
   );
+
+  const terminalActionDisabled = loading || terminalBusy || !status?.connected;
+  const terminalStatusLabel = terminalInputEnabled ? "远端会话已连接" : status?.connected ? "等待重新创建会话" : "SSH 已断开";
 
   return (
     <SshShellContext.Provider value={value}>
@@ -306,7 +513,23 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
             </div>
           </aside>
 
-          <main className="min-w-0 p-4 md:p-6 lg:p-8">{children}</main>
+          <main className={cn("min-w-0 p-4 md:p-6 lg:p-8", terminalOpen && "pb-[25rem] md:pb-[27rem]")}>
+            <div className="mb-4 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={terminalActionDisabled}
+                title={status?.connected ? "打开远程终端" : "请先连接远端服务器"}
+                className="gap-2"
+                onClick={() => void startTerminalSession()}
+              >
+                <CommandLineIcon className="h-4 w-4" />
+                <span>{terminalBusy ? "启动终端..." : "远程终端"}</span>
+              </Button>
+            </div>
+            {children}
+          </main>
         </div>
       </div>
 
@@ -314,7 +537,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
-          if (!open && !(status?.connected)) {
+          if (!open && !status?.connected) {
             router.push("/");
           }
         }}
@@ -327,9 +550,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
           <div className="grid gap-4 py-4">
             {formError ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-                {formError}
-              </div>
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{formError}</div>
             ) : null}
             <div className="grid gap-2">
               <Label htmlFor="ssh-host">主机地址</Label>
@@ -404,6 +625,78 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {terminalOpen ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 md:px-6">
+          <div className="pointer-events-auto flex h-[22rem] w-full max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl md:h-[24rem]">
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-slate-100">
+              <div>
+                <div className="text-sm font-semibold">远程终端 · 当前服务器</div>
+                <div className="mt-1 text-xs text-slate-400">{terminalStatusLabel}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {status?.connected && !terminalInputEnabled ? (
+                  <Button type="button" variant="outline" size="sm" className="border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => void startTerminalSession({ replaceExisting: true })}>
+                    新建会话
+                  </Button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void closeTerminalDrawer()}
+                  className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+                  aria-label="关闭远程终端"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {(!status?.connected || (terminalSessionId !== null && !terminalInputEnabled)) ? (
+              <div className="border-b border-amber-700/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+                SSH 已断开，终端会话已结束
+              </div>
+            ) : null}
+            {terminalError ? (
+              <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">{terminalError}</div>
+            ) : null}
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <pre
+                ref={terminalViewportRef}
+                className="min-h-0 flex-1 overflow-auto bg-slate-950 px-4 py-3 font-mono text-[13px] leading-6 text-slate-100 whitespace-pre-wrap break-words"
+              >
+                {terminalOutput || "终端已就绪，输入命令后将在这里显示远端输出。"}
+              </pre>
+
+              <form
+                className="border-t border-slate-800 bg-slate-900 px-4 py-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submitTerminalCommand();
+                }}
+              >
+                <div className="flex flex-col gap-2 md:flex-row">
+                  <Input
+                    value={terminalCommand}
+                    onChange={(event) => setTerminalCommand(event.target.value)}
+                    placeholder={terminalInputEnabled ? "输入命令并回车，例如 pwd / whoami / echo hello" : "SSH 已断开，请重新建立会话"}
+                    disabled={!terminalInputEnabled || terminalBusy}
+                    className="border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={!terminalInputEnabled || terminalBusy || !terminalCommand.trim()}
+                    className="md:min-w-24"
+                  >
+                    {terminalBusy ? "发送中..." : "发送"}
+                  </Button>
+                </div>
+                <div className="mt-2 text-xs text-slate-400">{terminalMessage || "v1 仅提供纯远程终端能力，不包含本地终端与快捷动作。"}</div>
+              </form>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </SshShellContext.Provider>
   );
 }

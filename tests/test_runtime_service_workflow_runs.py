@@ -17,6 +17,53 @@ class _DummySSH:
         return (0, "", "")
 
 
+class _FakeTerminalSession:
+    def __init__(self, session_id: str = "term_test") -> None:
+        self.session_id = session_id
+        self.closed = False
+        self.connected = True
+        self.input_enabled = True
+        self.message = ""
+        self.output = "ready\\n"
+
+    def snapshot(self, cursor: int = 0) -> dict[str, object]:
+        safe_cursor = max(0, min(cursor, len(self.output)))
+        return {
+            "session_id": self.session_id,
+            "cursor": len(self.output),
+            "output": self.output[safe_cursor:],
+            "connected": self.connected,
+            "input_enabled": self.input_enabled,
+            "closed": self.closed,
+            "message": self.message,
+            "created_at": 0.0,
+            "closed_at": None,
+        }
+
+    def send(self, data: str) -> None:
+        if self.closed or not self.input_enabled:
+            raise RuntimeError("terminal closed")
+        self.output += data
+
+    def close(self, *, message: str = "终端会话已结束", connected: bool = False) -> None:
+        self.closed = True
+        self.connected = connected
+        self.input_enabled = False
+        self.message = message
+
+
+class _DummySSHWithTerminal(_DummySSH):
+    def __init__(self) -> None:
+        self.created_sessions: list[_FakeTerminalSession] = []
+
+    def open_terminal_session(self, *, cols: int = 120, rows: int = 28) -> _FakeTerminalSession:
+        assert cols == 120
+        assert rows == 28
+        session = _FakeTerminalSession(session_id=f"term_{len(self.created_sessions) + 1}")
+        self.created_sessions.append(session)
+        return session
+
+
 class _FakePluginRegistry:
     def __init__(self) -> None:
         self._descriptors = {
@@ -148,6 +195,39 @@ def _launch_payload() -> dict[str, object]:
         "data_refs": [],
         "resume": True,
     }
+
+
+def test_terminal_session_lifecycle_and_disconnect_preserves_history(tmp_path: Path) -> None:
+    projects_root = tmp_path / "projects"
+    index_path = tmp_path / "projects.json"
+    pm = ProjectManager(projects_root=projects_root, index_path=index_path)
+    ssh = _DummySSHWithTerminal()
+    service_locator = SimpleNamespace(plugin_registry=_FakePluginRegistry(), ssh_service=ssh)
+    runtime = RuntimeService(project_manager=pm, service_locator=service_locator)
+    runtime._initialized = True
+
+    created = runtime.create_terminal_session(cols=120, rows=28)
+    assert created["session_id"] == "term_1"
+    assert created["output"] == "ready\\n"
+
+    accepted = runtime.send_terminal_input(session_id="term_1", data="pwd\\n")
+    assert accepted == {"session_id": "term_1", "accepted": True}
+
+    update = runtime.read_terminal_session(session_id="term_1", cursor=len("ready\\n"))
+    assert update["output"] == "pwd\\n"
+    assert update["input_enabled"] is True
+
+    disconnected = runtime.disconnect_ssh()
+    assert disconnected["connected"] is False
+
+    snapshot = runtime.read_terminal_session(session_id="term_1", cursor=0)
+    assert snapshot["output"] == "ready\\npwd\\n"
+    assert snapshot["closed"] is True
+    assert snapshot["connected"] is False
+    assert snapshot["input_enabled"] is False
+    assert snapshot["message"] == "SSH 已断开，终端会话已结束"
+
+    pm.close()
 
 
 def test_create_run_persists_snapshot_execution_and_workflow_run(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
