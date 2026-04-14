@@ -8,11 +8,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { usePathname, useRouter } from "next/navigation";
-import { CommandLineIcon, EllipsisHorizontalIcon, LinkIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { Ellipsis, GripHorizontal, Link2, Terminal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,6 +32,9 @@ type SSHStatus = {
   key_file: string;
   has_password: boolean;
   message: string;
+  auto_connect_attempted?: boolean;
+  auto_connect_failed?: boolean;
+  auto_connect_error?: string;
 };
 
 type SSHFormState = {
@@ -60,7 +64,6 @@ type SshShellContextValue = {
   loading: boolean;
   dialogOpen: boolean;
   setDialogOpen: (open: boolean) => void;
-  connectLabelActive: boolean;
   form: SSHFormState;
   setForm: React.Dispatch<React.SetStateAction<SSHFormState>>;
   connectBusy: boolean;
@@ -80,6 +83,11 @@ const defaultForm: SSHFormState = {
   key_file: "",
   timeout_sec: "5",
 };
+
+const TERMINAL_HEIGHT_KEY = "h2ometa:ssh-terminal-height";
+const DEFAULT_TERMINAL_HEIGHT = 220;
+const MIN_TERMINAL_HEIGHT = 160;
+const MAX_TERMINAL_HEIGHT = 420;
 
 const SshShellContext = createContext<SshShellContextValue | null>(null);
 
@@ -120,11 +128,33 @@ function normalizeFetchError(error: unknown): string {
   return message || "请求失败";
 }
 
+function clampTerminalHeight(value: number): number {
+  return Math.max(MIN_TERMINAL_HEIGHT, Math.min(MAX_TERMINAL_HEIGHT, Math.round(value)));
+}
+
+function readStoredTerminalHeight(): number {
+  if (typeof window === "undefined") {
+    return DEFAULT_TERMINAL_HEIGHT;
+  }
+  const raw = window.localStorage.getItem(TERMINAL_HEIGHT_KEY);
+  if (!raw) {
+    return DEFAULT_TERMINAL_HEIGHT;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    window.localStorage.removeItem(TERMINAL_HEIGHT_KEY);
+    return DEFAULT_TERMINAL_HEIGHT;
+  }
+  return clampTerminalHeight(parsed);
+}
+
 export function SshShellProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const terminalViewportRef = useRef<HTMLPreElement | null>(null);
   const terminalCursorRef = useRef(0);
+  const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
   const [status, setStatus] = useState<SSHStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -132,7 +162,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [formError, setFormError] = useState("");
+
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
   const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null);
   const [terminalOutput, setTerminalOutput] = useState("");
   const [terminalMessage, setTerminalMessage] = useState("");
@@ -195,6 +227,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    setTerminalHeight(readStoredTerminalHeight());
     void fetchStatus();
   }, [fetchStatus]);
 
@@ -206,6 +239,12 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   }, [fetchStatus]);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(TERMINAL_HEIGHT_KEY, String(terminalHeight));
+    }
+  }, [terminalHeight]);
+
+  useEffect(() => {
     if (!terminalOpen) {
       return;
     }
@@ -215,6 +254,43 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     }
     node.scrollTop = node.scrollHeight;
   }, [terminalOpen, terminalOutput]);
+
+  useEffect(() => {
+    if (status?.connected || !terminalOpen) {
+      return;
+    }
+    setTerminalConnected(false);
+    setTerminalInputEnabled(false);
+    setTerminalMessage("SSH 已断开，终端会话已结束");
+  }, [status?.connected, terminalOpen]);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state) {
+        return;
+      }
+      setTerminalHeight(clampTerminalHeight(state.startHeight - (event.clientY - state.startY)));
+    };
+
+    const stopDragging = () => {
+      dragStateRef.current = null;
+      document.body.classList.remove("ssh-terminal-resizing");
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("pointercancel", stopDragging);
+    window.addEventListener("blur", stopDragging);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
+      window.removeEventListener("blur", stopDragging);
+      document.body.classList.remove("ssh-terminal-resizing");
+    };
+  }, []);
 
   const persistSettings = useCallback(async () => {
     const payload = {
@@ -257,7 +333,13 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setForm((current) => ({ ...current, [key]: value }));
   }, []);
 
-  const closeTerminalDrawer = useCallback(async () => {
+  const connectDisabled =
+    connectBusy ||
+    !form.host.trim() ||
+    !form.user.trim() ||
+    (form.use_key ? !form.key_file.trim() : !form.password);
+
+  const closeTerminalPanel = useCallback(async () => {
     const activeSessionId = terminalSessionId;
     setTerminalOpen(false);
     resetTerminalState();
@@ -273,24 +355,22 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
   const startTerminalSession = useCallback(
     async (options?: { replaceExisting?: boolean }) => {
-      if (!status?.connected) {
-        setTerminalOpen(true);
-        setTerminalError("请先连接远端服务器");
-        setTerminalInputEnabled(false);
-        setTerminalConnected(false);
-        return;
-      }
-      if (terminalOpen && terminalSessionId && terminalInputEnabled && !options?.replaceExisting) {
-        return;
-      }
       setTerminalOpen(true);
-      setTerminalBusy(true);
       setTerminalError("");
+      if (!status?.connected) {
+        setTerminalMessage("请先连接远端服务器");
+        setTerminalConnected(false);
+        setTerminalInputEnabled(false);
+        return;
+      }
+      if (terminalSessionId && terminalInputEnabled && !options?.replaceExisting) {
+        return;
+      }
+      setTerminalBusy(true);
       try {
         if (terminalSessionId) {
           await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}`, { method: "DELETE" }).catch(() => undefined);
           resetTerminalState();
-          setTerminalBusy(true);
         }
         const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions`, {
           method: "POST",
@@ -307,7 +387,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         setTerminalBusy(false);
       }
     },
-    [applyTerminalSnapshot, resetTerminalState, status?.connected, terminalInputEnabled, terminalOpen, terminalSessionId]
+    [applyTerminalSnapshot, resetTerminalState, status?.connected, terminalInputEnabled, terminalSessionId]
   );
 
   useEffect(() => {
@@ -353,12 +433,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     };
   }, [applyTerminalSnapshot, fetchStatus, terminalOpen, terminalSessionId]);
 
-  const connectDisabled =
-    connectBusy ||
-    !form.host.trim() ||
-    !form.user.trim() ||
-    (form.use_key ? !form.key_file.trim() : !form.password);
-
   const submitConnect = useCallback(async () => {
     setConnectBusy(true);
     setFormError("");
@@ -402,7 +476,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       setForm(toForm(next));
       setTerminalConnected(false);
       setTerminalInputEnabled(false);
-      setTerminalMessage("SSH 已断开，终端会话已结束");
+      if (terminalOpen) {
+        setTerminalMessage("SSH 已断开，终端会话已结束");
+      }
       router.push("/");
     } catch (error) {
       setFormError(normalizeFetchError(error) || "断开失败");
@@ -410,32 +486,37 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     } finally {
       setDisconnectBusy(false);
     }
-  }, [router]);
+  }, [router, terminalOpen]);
 
   const submitTerminalCommand = useCallback(async () => {
-    if (!terminalSessionId || !terminalInputEnabled || terminalBusy) {
+    if (!terminalSessionId) {
+      setTerminalError("终端会话尚未建立");
       return;
     }
-    const nextCommand = terminalCommand.trim();
-    if (!nextCommand) {
+    if (!terminalInputEnabled) {
+      setTerminalError(terminalMessage || "SSH 已断开，终端会话已结束");
+      return;
+    }
+    const trimmed = terminalCommand.replace(/\r?\n/g, "");
+    if (!trimmed.trim()) {
       return;
     }
     setTerminalBusy(true);
     setTerminalError("");
     try {
-      const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}/input`, {
+      await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}/input`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: `${nextCommand}\n` }),
-      });
-      await readJsonOrThrow(resp);
+        body: JSON.stringify({ data: `${trimmed}\n` }),
+      }).then(readJsonOrThrow);
+      setTerminalOutput((current) => `${current}${trimmed}\n`);
       setTerminalCommand("");
     } catch (error) {
-      setTerminalError(normalizeFetchError(error) || "终端输入发送失败");
+      setTerminalError(normalizeFetchError(error) || "发送终端命令失败");
     } finally {
       setTerminalBusy(false);
     }
-  }, [terminalBusy, terminalCommand, terminalInputEnabled, terminalSessionId]);
+  }, [terminalCommand, terminalInputEnabled, terminalMessage, terminalSessionId]);
 
   const value = useMemo<SshShellContextValue>(
     () => ({
@@ -443,7 +524,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       loading,
       dialogOpen,
       setDialogOpen,
-      connectLabelActive: pathname === "/connect",
       form,
       setForm,
       connectBusy,
@@ -453,11 +533,16 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       submitConnect,
       submitDisconnect,
     }),
-    [status, loading, dialogOpen, pathname, form, connectBusy, disconnectBusy, formError, submitConnect, submitDisconnect]
+    [status, loading, dialogOpen, form, connectBusy, disconnectBusy, formError, submitConnect, submitDisconnect]
   );
 
-  const terminalActionDisabled = loading || terminalBusy || !status?.connected;
-  const terminalStatusLabel = terminalInputEnabled ? "远端会话已连接" : status?.connected ? "等待重新创建会话" : "SSH 已断开";
+  const beginTerminalResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragStateRef.current = {
+      startY: event.clientY,
+      startHeight: terminalHeight,
+    };
+    document.body.classList.add("ssh-terminal-resizing");
+  };
 
   return (
     <SshShellContext.Provider value={value}>
@@ -487,7 +572,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                       }
                     }}
                   >
-                    <LinkIcon className={cn("h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-500")} />
+                    <Link2 className={cn("h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-500")} />
                     <span>连接</span>
                   </button>
 
@@ -499,7 +584,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                           className="invisible rounded-md p-1 text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-700 group-hover:visible"
                           aria-label="连接菜单"
                         >
-                          <EllipsisHorizontalIcon className="h-4 w-4" />
+                          <Ellipsis className="h-4 w-4" />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -514,22 +599,114 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
             </div>
           </aside>
 
-          <main className={cn("min-w-0 p-4 md:p-6 lg:p-8", terminalOpen && "pb-[25rem] md:pb-[27rem]")}>
-            <div className="mb-4 flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={terminalActionDisabled}
-                title={status?.connected ? "打开远程终端" : "请先连接远端服务器"}
-                className="gap-2"
-                onClick={() => void startTerminalSession()}
-              >
-                <CommandLineIcon className="h-4 w-4" />
-                <span>{terminalBusy ? "启动终端..." : "远程终端"}</span>
-              </Button>
+          <main className="min-h-screen min-w-0 bg-white p-0">
+            <div className="flex h-full min-h-screen min-w-0 flex-col overflow-hidden bg-white">
+              <div className="flex items-center justify-end gap-2 px-6 py-4">
+                <button
+                  type="button"
+                  aria-label="远程终端"
+                  title={status?.connected ? "远程终端" : "请先连接远端服务器"}
+                  disabled={!status?.connected}
+                  onClick={() => void (terminalOpen ? closeTerminalPanel() : startTerminalSession())}
+                  className={cn(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-slate-500 transition",
+                    status?.connected
+                      ? terminalOpen
+                        ? "border-slate-200 bg-slate-100/90 shadow-sm text-slate-900"
+                        : "border-transparent bg-transparent shadow-none hover:bg-slate-100/80 hover:text-slate-900"
+                      : "cursor-not-allowed border-transparent bg-transparent opacity-40"
+                  )}
+                >
+                  <Terminal className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-8 py-8">
+                    {children}
+                  </div>
+                </div>
+
+                {terminalOpen ? (
+                  <>
+                    <div className="flex h-3 items-center justify-center border-t border-slate-200 bg-white">
+                      <button
+                        type="button"
+                        aria-label="调整终端高度"
+                        onPointerDown={beginTerminalResize}
+                        className="inline-flex h-3 w-full cursor-row-resize items-center justify-center text-slate-300 transition hover:text-slate-500"
+                      >
+                        <GripHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <section
+                      className="border-t border-slate-200 bg-white"
+                      style={{ height: `${terminalHeight}px` }}
+                      aria-label="远程终端 · 当前服务器"
+                    >
+                      <div className="flex h-full flex-col">
+                        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-600">终端 PowerShell</p>
+                            <p className="truncate text-xs text-slate-400">
+                              {status?.connected
+                                ? `${status.user}@${status.host}:${status.port}`
+                                : terminalMessage || "SSH 已断开，终端会话已结束"}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="关闭终端"
+                            onClick={() => void closeTerminalPanel()}
+                            className="rounded-md p-1 text-slate-400 transition hover:bg-white hover:text-slate-700"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        {terminalError ? (
+                          <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-600">{terminalError}</div>
+                        ) : null}
+
+                        {terminalMessage ? (
+                          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm text-slate-500">{terminalMessage}</div>
+                        ) : null}
+
+                        <pre
+                          ref={terminalViewportRef}
+                          className="flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 text-slate-700"
+                        >
+                          {terminalOutput || "终端已就绪，输入命令后按 Enter 执行。"}
+                        </pre>
+
+                        <form
+                          className="border-t border-slate-100 bg-white px-4 py-3"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void submitTerminalCommand();
+                          }}
+                        >
+                          <div className="font-mono text-sm text-slate-700">
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 text-slate-500">{terminalConnected ? ">" : "×"}</span>
+                              <input
+                                value={terminalCommand}
+                                onChange={(event) => setTerminalCommand(event.target.value)}
+                                disabled={!terminalInputEnabled}
+                                placeholder={terminalInputEnabled ? "" : "SSH 已断开，终端会话已结束"}
+                                className="min-w-0 flex-1 bg-transparent text-slate-800 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:text-slate-400"
+                              />
+                            </div>
+                          </div>
+                        </form>
+                      </div>
+                    </section>
+                  </>
+                ) : null}
+              </div>
             </div>
-            {children}
           </main>
         </div>
       </div>
@@ -538,7 +715,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
-          if (!open && !status?.connected) {
+          if (!open && !(status?.connected)) {
             router.push("/");
           }
         }}
@@ -553,6 +730,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
             {formError ? (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{formError}</div>
             ) : null}
+
             <div className="grid gap-2">
               <Label htmlFor="ssh-host">主机地址</Label>
               <Input id="ssh-host" value={form.host} onChange={(e) => updateField("host", e.target.value)} />
@@ -617,7 +795,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
               取消
             </Button>
             <Button onClick={() => void submitConnect()} disabled={connectDisabled}>
@@ -626,78 +804,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           </div>
         </DialogContent>
       </Dialog>
-
-      {terminalOpen ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 md:px-6">
-          <div className="pointer-events-auto flex h-[22rem] w-full max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl md:h-[24rem]">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-slate-100">
-              <div>
-                <div className="text-sm font-semibold">远程终端 · 当前服务器</div>
-                <div className="mt-1 text-xs text-slate-400">{terminalStatusLabel}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                {status?.connected && !terminalInputEnabled ? (
-                  <Button type="button" variant="outline" size="sm" className="border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => void startTerminalSession({ replaceExisting: true })}>
-                    新建会话
-                  </Button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void closeTerminalDrawer()}
-                  className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
-                  aria-label="关闭远程终端"
-                >
-                  <XMarkIcon className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            {(!status?.connected || (terminalSessionId !== null && !terminalInputEnabled)) ? (
-              <div className="border-b border-amber-700/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
-                SSH 已断开，终端会话已结束
-              </div>
-            ) : null}
-            {terminalError ? (
-              <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">{terminalError}</div>
-            ) : null}
-
-            <div className="flex min-h-0 flex-1 flex-col">
-              <pre
-                ref={terminalViewportRef}
-                className="min-h-0 flex-1 overflow-auto bg-slate-950 px-4 py-3 font-mono text-[13px] leading-6 text-slate-100 whitespace-pre-wrap break-words"
-              >
-                {terminalOutput || "终端已就绪，输入命令后将在这里显示远端输出。"}
-              </pre>
-
-              <form
-                className="border-t border-slate-800 bg-slate-900 px-4 py-3"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void submitTerminalCommand();
-                }}
-              >
-                <div className="flex flex-col gap-2 md:flex-row">
-                  <Input
-                    value={terminalCommand}
-                    onChange={(event) => setTerminalCommand(event.target.value)}
-                    placeholder={terminalInputEnabled ? "输入命令并回车，例如 pwd / whoami / echo hello" : "SSH 已断开，请重新建立会话"}
-                    disabled={!terminalInputEnabled || terminalBusy}
-                    className="border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
-                  />
-                  <Button
-                    type="submit"
-                    disabled={!terminalInputEnabled || terminalBusy || !terminalCommand.trim()}
-                    className="md:min-w-24"
-                  >
-                    {terminalBusy ? "发送中..." : "发送"}
-                  </Button>
-                </div>
-                <div className="mt-2 text-xs text-slate-400">{terminalMessage || "v1 仅提供纯远程终端能力，不包含本地终端与快捷动作。"}</div>
-              </form>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </SshShellContext.Provider>
   );
 }
