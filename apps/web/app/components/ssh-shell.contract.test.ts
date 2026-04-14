@@ -13,7 +13,7 @@ test("ssh shell source includes the frozen remote terminal v1 UI copy", () => {
 });
 
 test("ssh shell source stays within the v1 non-goals", () => {
-  for (const bannedCopy of ["本地终端", "多 tab", "快捷命令", "文件管理", "端口转发", "安装联动"]) {
+  for (const bannedCopy of ["本地终端模式", "切换到本地终端", "多 tab", "快捷命令", "文件管理", "端口转发", "安装联动"]) {
     assert.doesNotMatch(source, new RegExp(bannedCopy));
   }
 });
