@@ -8,6 +8,13 @@ from typing import Callable, Literal
 SshRunFn = Callable[[str, int], tuple[int, str, str]]
 
 _SUPPORTED_ARCHES = {"x86_64", "aarch64"}
+_CANONICAL_PROFILE_ORDER = (
+    "hpc_slurm_apptainer",
+    "hpc_slurm_conda",
+    "personal_docker",
+    "personal_podman",
+    "personal_conda",
+)
 
 
 class PreflightError(RuntimeError):
@@ -65,6 +72,24 @@ class ServerCapabilities:
         if self.has_podman:
             return "personal_podman"
         return "personal_conda"
+
+    def supports_profile_kind(self, profile_kind: str) -> bool:
+        normalized = str(profile_kind or "").strip()
+        if normalized == "hpc_slurm_apptainer":
+            return self.has_sbatch and self.has_apptainer
+        if normalized == "hpc_slurm_conda":
+            return self.has_sbatch and (self.has_micromamba or self.has_conda)
+        if normalized == "personal_docker":
+            return self.has_docker
+        if normalized == "personal_podman":
+            return self.has_podman
+        if normalized == "personal_conda":
+            return self.has_micromamba or self.has_conda
+        return False
+
+    @property
+    def supported_profile_kinds(self) -> tuple[str, ...]:
+        return tuple(profile_kind for profile_kind in _CANONICAL_PROFILE_ORDER if self.supports_profile_kind(profile_kind))
 
     @property
     def recommended_executor(self) -> str:

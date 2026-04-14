@@ -9,7 +9,24 @@ Default bind:
 - host: `127.0.0.1`
 - port: `8765`
 
-## Main endpoints
+## Canonical workbench endpoints
+- `GET /api/v1/projects/{project_id}/tasks`
+- `POST /api/v1/projects/{project_id}/tasks`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/workflow`
+- `PUT /api/v1/projects/{project_id}/tasks/{task_id}/workflow`
+- `POST /api/v1/projects/{project_id}/tasks/{task_id}/workflow/compile`
+- `POST /api/v1/projects/{project_id}/tasks/{task_id}/workflow/compatibility`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/runs`
+- `POST /api/v1/projects/{project_id}/tasks/{task_id}/runs`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}`
+- `POST /api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}/cancel`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/results`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/results/summary`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/results/{result_id}`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/results/{result_id}/content`
+- `GET /api/v1/projects/{project_id}/tasks/{task_id}/workspace`
+
+## Legacy compatibility endpoints
 - `POST /api/v1/workflows/compile`
 - `POST /api/v1/runs`
 - `GET /api/v1/projects/{project_id}/runs`

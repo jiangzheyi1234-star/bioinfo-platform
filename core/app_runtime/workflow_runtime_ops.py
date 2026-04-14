@@ -12,6 +12,48 @@ from typing import Any
 from core.workflow import LaunchSpec, RunRecord, WorkflowSnapshotRecord, WorkflowSpec, compile_workflow_bundle, create_workflow_backend
 from core.workflow.backends import prepare_workflow_run_layout
 
+_DEFAULT_WORK_DIR = "~/.bioflow/runs/work"
+_DEFAULT_OUTPUT_DIR = "~/.bioflow/runs/output"
+_DEFAULT_CONDA_CACHE_DIR = "~/.bioflow/cache/conda"
+_DEFAULT_CONTAINER_CACHE_DIR = "~/.bioflow/cache/containers"
+_PROFILE_COMPATIBILITY_ORDER = {
+    "Production Ready": 0,
+    "Conda Only": 1,
+    "Legacy": 2,
+}
+_PROFILE_TEMPLATES = (
+    {
+        "profile_id": "hpc_slurm_apptainer",
+        "executor": "slurm",
+        "packaging_mode": "container",
+        "container_runtime": "apptainer",
+    },
+    {
+        "profile_id": "hpc_slurm_conda",
+        "executor": "slurm",
+        "packaging_mode": "conda",
+        "container_runtime": "",
+    },
+    {
+        "profile_id": "personal_docker",
+        "executor": "local",
+        "packaging_mode": "container",
+        "container_runtime": "docker",
+    },
+    {
+        "profile_id": "personal_podman",
+        "executor": "local",
+        "packaging_mode": "container",
+        "container_runtime": "podman",
+    },
+    {
+        "profile_id": "personal_conda",
+        "executor": "local",
+        "packaging_mode": "conda",
+        "container_runtime": "",
+    },
+)
+
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -422,6 +464,7 @@ def _upsert_workflow_result(runtime: Any, *, row: dict[str, Any], artifacts: lis
         "workflow_run_id": str(row.get("run_id") or ""),
         "artifact_count": len(result_items),
         "available_artifact_count": available_count,
+        "artifact_groups": _artifact_group_counts(result_items),
         "updated_at": now,
         "result_path": result_path,
     }
@@ -469,15 +512,16 @@ def _result_viewer_contract(summary: dict[str, Any], *, project_id: str, task_id
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 continue
+            name = _safe_text(artifact.get("name")).lower()
             viewer = str(artifact.get("viewer_hint") or "").strip()
             artifact_type = str(artifact.get("artifact_type") or "").strip()
-            if viewer == "html":
+            if viewer == "html" or name.endswith(".html"):
                 return "html", "text/html"
-            if viewer == "json" or artifact_type == "json":
+            if viewer == "json" or artifact_type == "json" or name.endswith(".json"):
                 return "json", "application/json"
-            if viewer == "table":
+            if viewer == "table" or artifact_type == "tsv" or name.endswith((".tsv", ".csv")):
                 return "table", "text/tab-separated-values"
-            if viewer == "text" or artifact_type == "text":
+            if viewer == "text" or artifact_type == "text" or name.endswith((".txt", ".log")):
                 return "text", "text/plain"
     return "json", "application/json"
 
@@ -516,6 +560,250 @@ def _get_workflow_result(runtime: Any, *, project_id: str, task_id: str, result_
     if row is None:
         raise RuntimeError(f"Result not found: {result_id}")
     return _workflow_result_row_to_dict(row, project_id=project_id, task_id=task_id)
+
+
+def _safe_text(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _runtime_capability_available(caps: dict[str, Any], key: str) -> bool:
+    value = caps.get(key)
+    return isinstance(value, dict) and bool(value.get("available"))
+
+
+def _profile_is_available(profile_id: str, runtime_caps: dict[str, Any]) -> bool:
+    if profile_id == "hpc_slurm_apptainer":
+        return _runtime_capability_available(runtime_caps, "sbatch") and _runtime_capability_available(runtime_caps, "apptainer")
+    if profile_id == "hpc_slurm_conda":
+        return _runtime_capability_available(runtime_caps, "sbatch") and (
+            _runtime_capability_available(runtime_caps, "micromamba") or _runtime_capability_available(runtime_caps, "conda")
+        )
+    if profile_id == "personal_docker":
+        return _runtime_capability_available(runtime_caps, "docker")
+    if profile_id == "personal_podman":
+        return _runtime_capability_available(runtime_caps, "podman")
+    if profile_id == "personal_conda":
+        return _runtime_capability_available(runtime_caps, "micromamba") or _runtime_capability_available(runtime_caps, "conda")
+    return False
+
+
+def _supported_profile_kinds(preflight: dict[str, Any]) -> list[str]:
+    raw = preflight.get("supported_profile_kinds")
+    if isinstance(raw, (list, tuple)):
+        kinds = [_safe_text(item) for item in raw]
+        return [item for item in kinds if item]
+    runtime_caps = preflight.get("runtime_capabilities")
+    if not isinstance(runtime_caps, dict):
+        return []
+    return [entry["profile_id"] for entry in _PROFILE_TEMPLATES if _profile_is_available(entry["profile_id"], runtime_caps)]
+
+
+def _profile_cache_dir(packaging_mode: str) -> str:
+    return _DEFAULT_CONTAINER_CACHE_DIR if packaging_mode == "container" else _DEFAULT_CONDA_CACHE_DIR
+
+
+def _build_profile_payload(template: dict[str, str], *, base_profile: dict[str, Any] | None, server_id: str) -> dict[str, str]:
+    profile_id = template["profile_id"]
+    packaging_mode = template["packaging_mode"]
+    base = base_profile if isinstance(base_profile, dict) else {}
+    base_profile_id = _safe_text(base.get("profile_id"))
+    return {
+        "profile_id": profile_id,
+        "server_id": _safe_text(base.get("server_id"), server_id),
+        "profile_kind": profile_id,
+        "executor": template["executor"],
+        "packaging_mode": packaging_mode,
+        "container_runtime": template["container_runtime"],
+        "work_dir": _safe_text(base.get("work_dir"), _DEFAULT_WORK_DIR),
+        "output_dir": _safe_text(base.get("output_dir"), _DEFAULT_OUTPUT_DIR),
+        "cache_dir": _safe_text(base.get("cache_dir"), _profile_cache_dir(packaging_mode))
+        if base_profile_id == profile_id
+        else _profile_cache_dir(packaging_mode),
+    }
+
+
+def _worse_support_level(left: str, right: str) -> str:
+    left_order = _PROFILE_COMPATIBILITY_ORDER.get(left, _PROFILE_COMPATIBILITY_ORDER["Legacy"])
+    right_order = _PROFILE_COMPATIBILITY_ORDER.get(right, _PROFILE_COMPATIBILITY_ORDER["Legacy"])
+    return left if left_order >= right_order else right
+
+
+def _node_display_name(node: dict[str, Any]) -> str:
+    return _safe_text(node.get("label")) or _safe_text(node.get("node_id")) or _safe_text(node.get("tool_id")) or "<unknown>"
+
+
+def _build_server_profiles(preflight: dict[str, Any]) -> list[dict[str, Any]]:
+    supported = set(_supported_profile_kinds(preflight))
+    base_profile = preflight.get("recommended_profile_details")
+    server_id = _safe_text(preflight.get("server_id"), "current")
+    entries: list[dict[str, Any]] = []
+    for template in _PROFILE_TEMPLATES:
+        profile_id = template["profile_id"]
+        if profile_id not in supported:
+            continue
+        entries.append(
+            {
+                "profile": _build_profile_payload(template, base_profile=base_profile if isinstance(base_profile, dict) else None, server_id=server_id),
+                "available_on_server": True,
+                "compatible_with_workflow": False,
+                "support_level": "Legacy",
+                "incompatibility_reasons": [],
+            }
+        )
+    return entries
+
+
+def _workflow_support_from_descriptor(descriptor: dict[str, Any]) -> dict[str, Any] | None:
+    support = descriptor.get("workflow_support")
+    return support if isinstance(support, dict) else None
+
+
+def _evaluate_profile_compatibility(
+    profile: dict[str, Any],
+    *,
+    workflow_payload: dict[str, Any],
+    plugin_registry: Any,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    seen: set[str] = set()
+    support_level = "Production Ready"
+    nodes = workflow_payload.get("nodes")
+    if not isinstance(nodes, list):
+        nodes = []
+    for raw_node in nodes:
+        node = raw_node if isinstance(raw_node, dict) else {}
+        tool_id = _safe_text(node.get("tool_id"))
+        label = _node_display_name(node)
+        if not tool_id:
+            message = f"{label} 缺少 tool_id，无法评估兼容性"
+            if message not in seen:
+                seen.add(message)
+                reasons.append(message)
+            support_level = _worse_support_level(support_level, "Legacy")
+            continue
+        try:
+            descriptor = plugin_registry.get_descriptor(tool_id)
+        except Exception:
+            message = f"{label}（{tool_id}）缺少描述符，无法评估兼容性"
+            if message not in seen:
+                seen.add(message)
+                reasons.append(message)
+            support_level = _worse_support_level(support_level, "Legacy")
+            continue
+        workflow_support = _workflow_support_from_descriptor(descriptor)
+        tool_name = _safe_text(descriptor.get("name"), tool_id)
+        if workflow_support is None:
+            message = f"{tool_name} 缺少 workflow_support 元数据"
+            if message not in seen:
+                seen.add(message)
+                reasons.append(message)
+            support_level = _worse_support_level(support_level, "Legacy")
+            continue
+        support_level = _worse_support_level(support_level, _safe_text(workflow_support.get("support_level"), "Legacy"))
+        for error in workflow_support.get("validation_errors") or []:
+            message = f"{tool_name}：{_safe_text(error)}"
+            if message and message not in seen:
+                seen.add(message)
+                reasons.append(message)
+        runtime_support = workflow_support.get("runtime")
+        runtime_support = runtime_support if isinstance(runtime_support, dict) else {}
+        if profile.get("packaging_mode") == "container" and not _safe_text(runtime_support.get("container")):
+            message = f"{profile.get('profile_id')} ❌ {tool_name} 缺少 runtime.container"
+            if message not in seen:
+                seen.add(message)
+                reasons.append(message)
+        if profile.get("packaging_mode") == "conda" and not _safe_text(runtime_support.get("conda")):
+            message = f"{profile.get('profile_id')} ❌ {tool_name} 缺少 runtime.conda"
+            if message not in seen:
+                seen.add(message)
+                reasons.append(message)
+    return {
+        "profile": profile,
+        "available_on_server": True,
+        "compatible_with_workflow": len(reasons) == 0,
+        "support_level": support_level,
+        "incompatibility_reasons": reasons,
+    }
+
+
+def _select_compatible_profile(
+    workflow_profiles: list[dict[str, Any]],
+    *,
+    preferred_profile_id: str,
+    workflow_payload: dict[str, Any],
+    preflight_ok: bool,
+) -> tuple[dict[str, Any] | None, str]:
+    compatible_profiles = [
+        entry["profile"]
+        for entry in workflow_profiles
+        if bool(entry.get("available_on_server")) and bool(entry.get("compatible_with_workflow")) and isinstance(entry.get("profile"), dict)
+    ]
+    selected = next((profile for profile in compatible_profiles if _safe_text(profile.get("profile_id")) == preferred_profile_id), None)
+    if selected is None and compatible_profiles:
+        selected = compatible_profiles[0]
+
+    if not preflight_ok:
+        return selected, "服务器预检未通过，请先修复运行时问题。"
+    if not workflow_payload.get("nodes"):
+        return selected, "当前 workflow 还没有步骤，先展示服务器可用 profile。"
+    if selected and _safe_text(selected.get("profile_id")) == preferred_profile_id:
+        return selected, f"使用服务器推荐 profile：{_safe_text(selected.get('profile_id'))}"
+    if selected and preferred_profile_id:
+        return selected, f"服务器推荐 {preferred_profile_id}，但当前 workflow 改用 {_safe_text(selected.get('profile_id'))}"
+    if selected:
+        return selected, f"当前 workflow 可用 profile：{_safe_text(selected.get('profile_id'))}"
+    return None, "当前 workflow 没有可直接提交的 profile，请先修复不兼容步骤。"
+
+
+def _compatibility_reasons(
+    *,
+    preflight: dict[str, Any],
+    workflow_profiles: list[dict[str, Any]],
+    selected_profile: dict[str, Any] | None,
+) -> list[str]:
+    reasons: list[str] = []
+    seen: set[str] = set()
+    for message in preflight.get("failures") or []:
+        text = _safe_text(message)
+        if text and text not in seen:
+            seen.add(text)
+            reasons.append(text)
+    if selected_profile is not None:
+        return reasons
+    for entry in workflow_profiles:
+        for message in entry.get("incompatibility_reasons") or []:
+            text = _safe_text(message)
+            if text and text not in seen:
+                seen.add(text)
+                reasons.append(text)
+    if not reasons:
+        reasons.append("服务器没有可用的 workflow profile。")
+    return reasons
+
+
+def _artifact_group_name(artifact: dict[str, Any]) -> str:
+    name = _safe_text(artifact.get("name")).lower()
+    viewer_hint = _safe_text(artifact.get("viewer_hint")).lower()
+    artifact_type = _safe_text(artifact.get("artifact_type")).lower()
+    if viewer_hint == "html" or name.endswith(".html"):
+        return "Reports"
+    if viewer_hint == "table" or artifact_type == "tsv" or name.endswith((".tsv", ".csv")) or name == "trace.txt":
+        return "Tables"
+    if "log" in name or name.endswith(".log"):
+        return "Logs"
+    if any(token in name for token in ("config", "manifest", "schema", "params", "resolved")) or artifact_type == "json":
+        return "Config"
+    return "Raw Outputs"
+
+
+def _artifact_group_counts(artifacts: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"Reports": 0, "Tables": 0, "Logs": 0, "Config": 0, "Raw Outputs": 0}
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        counts[_artifact_group_name(artifact)] += 1
+    return counts
 
 
 def list_runs(runtime: Any, *, project_id: str) -> list[dict[str, Any]]:
@@ -770,19 +1058,45 @@ def get_task_workflow_compatibility(runtime: Any, *, project_id: str, task_id: s
         "preflight": None,
         "recommended_profile": "",
         "recommended_profile_details": None,
+        "supported_profile_kinds": [],
         "runtime_capabilities": None,
+        "server_profiles": [],
+        "workflow_profiles": [],
+        "selected_profile": None,
+        "selection_reason": "",
     }
     try:
         preflight = runtime.get_ssh_preflight()
         response["preflight"] = preflight
         response["recommended_profile"] = str(preflight.get("recommended_profile") or "")
         response["recommended_profile_details"] = preflight.get("recommended_profile_details")
+        response["supported_profile_kinds"] = _supported_profile_kinds(preflight)
         response["runtime_capabilities"] = preflight.get("runtime_capabilities")
-        response["compatible"] = bool(preflight.get("ok"))
-        response["reasons"] = list(preflight.get("failures") or [])
+        server_profiles = _build_server_profiles(preflight)
+        workflow_profiles = [
+            _evaluate_profile_compatibility(entry["profile"], workflow_payload=workflow_payload, plugin_registry=runtime._service_locator.plugin_registry)
+            for entry in server_profiles
+        ]
+        selected_profile, selection_reason = _select_compatible_profile(
+            workflow_profiles,
+            preferred_profile_id=_safe_text(preflight.get("recommended_profile")),
+            workflow_payload=workflow_payload,
+            preflight_ok=bool(preflight.get("ok")),
+        )
+        response["server_profiles"] = server_profiles
+        response["workflow_profiles"] = workflow_profiles
+        response["selected_profile"] = selected_profile
+        response["selection_reason"] = selection_reason
+        response["compatible"] = bool(preflight.get("ok")) and selected_profile is not None
+        response["reasons"] = _compatibility_reasons(
+            preflight=preflight,
+            workflow_profiles=workflow_profiles,
+            selected_profile=selected_profile,
+        )
     except Exception as exc:
         response["compatible"] = False
         response["reasons"] = [str(exc)]
+        response["selection_reason"] = str(exc)
     return response
 
 
@@ -816,6 +1130,8 @@ def list_task_results(runtime: Any, *, project_id: str, task_id: str, run_id: st
 def get_task_results_summary(runtime: Any, *, project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
     results = list_task_results(runtime, project_id=project_id, task_id=task_id, run_id=run_id)
     latest = results[0] if results else None
+    latest_summary = latest.get("summary") if isinstance(latest, dict) else {}
+    latest_summary = latest_summary if isinstance(latest_summary, dict) else {}
     return {
         "task_id": task_id,
         "run_id": str(run_id or "") or (latest["run_id"] if latest else ""),
@@ -823,6 +1139,8 @@ def get_task_results_summary(runtime: Any, *, project_id: str, task_id: str, run
         "latest_result_id": latest["result_id"] if latest else "",
         "latest_run_id": latest["run_id"] if latest else "",
         "kinds": sorted({str(item.get("kind") or "") for item in results if str(item.get("kind") or "")}),
+        "viewer_kinds": sorted({str(item.get("viewer_kind") or "") for item in results if str(item.get("viewer_kind") or "")}),
+        "artifact_groups": latest_summary.get("artifact_groups") if latest_summary else {},
     }
 
 

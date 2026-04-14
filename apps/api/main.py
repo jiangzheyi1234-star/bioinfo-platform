@@ -68,6 +68,8 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Legacy brownfield endpoint kept for compatibility only.
+# New workbench flows must use task-scoped workflow compile routes.
 @app.post("/api/v1/workflows/compile")
 async def compile_workflow(payload: CompileWorkflowRequest) -> dict[str, Any]:
     try:
