@@ -8,53 +8,6 @@
 2. Codex 不得为了“跑过测试”而删除测试、弱化断言，或修改产品代码去迎合错误测试环境。
 
 
-
-
-## SSH 访问基线（必须复用）
-
-1. 优先通过 ServiceLocator 复用 `core/remote/ssh_service.py`。
-2. 应用代码禁止直接调用 `paramiko_client.exec_command()`，
-   必须走 `SSHService.run(cmd, timeout)` 串行队列。
-
-
-## Thread Safety & SSH Anti-Crash（必须复用）
-
-**硬禁令，违反必崩：**
-
-1. Qt slot / 主线程禁止直接调用 SSH 命令或任何阻塞操作，
-   耗时操作必须放 `QThread+Worker`。 
-   **包含 SSH 调用的私有方法，必须只从 Worker 内部调用，
-   不得从 `__init__`、`setup()`、事件回调直接调用。**
-2. 所有 SSH 命令必须走 `SSHService.run(cmd)` 单队列，
-   禁止自建 `paramiko.SSHClient()` 或绕过队列并发调用。
-3. QThread worker 内禁止直接操作 Qt Widget，
-   结果只能通过 `pyqtSignal` 回传主线程更新 UI。
-4. conda 安装 / 工具安装 / 大文件下载必须用后台分离 `screen`（detached）启动，
-   参考 `core/environment/env_installer.py`。
-## 远程 Conda（无 sudo）基线（必须复用）
-
-1. Conda 路径优先用 `H2O_CONDA_EXE`（`core/environment/h2o_env_paths.py`），
-   回退 `~/.h2ometa/conda/bin/conda`。
-
-2. 自动化脚本用 `conda run -p ...`，不依赖 `conda activate`。
-
-3. `condarc` 模板禁止内联。写入 `~/.h2ometa/runtime/condarc` 的内容
-   必须且只能来自 `core/environment/miniforge_condarc.py` 的 profile API
-   （默认使用 `build_condarc_template()`），
-   禁止在其他文件复制、内联或重写该字符串。
-
-## 执行流水线基线（必须复用）
-
-1. `ToolEngine.execute()` 保持主线程轻量，远端操作归 `execution_preparer.py`。
-2. `JobDispatcher.start_waiting()` 必须在主线程调用。
-3. SQLite 执行状态只能用现有枚举：`pending/running/completed/failed/retrying`，
-   新增持久化状态需附带迁移计划。
-
-## UI 规范（必须复用）
-
-- 当前桌面 UI 由 `apps/web` 承载，布局应保持侧栏 + 内容区结构一致。
-- 图标应使用统一的 Web 图标资产或组件，禁止使用 Unicode emoji 充当产品图标。
-
 ## ExecPlans
 
 - 复杂特性、跨文件重构、长时程任务默认使用 `ExecPlan` 工作流：
@@ -67,6 +20,17 @@
 
 - 当目标文件已超过 600 行时，新增功能、复杂分支、结果构建、远程调用、数据解析，优先提取到相邻新模块；原文件只保留门面、绑定点和薄包装。
 - 禁止在超 600 行文件中继续直接堆积重逻辑，除非用户明确要求只做局部热修且拆分会显著放大风险。
+
+## Web 前端基线（必须遵守）
+
+- Web 前端默认技术路线：**shadcn/ui + Tailwind CSS**。
+- 以后实现 UI 时，优先复用 shadcn/ui 现成组件、Tailwind 原子类与设计 token，禁止无必要重复造轮子。
+- 未经用户明确要求，不要自建一套新的基础按钮、输入框、弹层、侧边栏、表单控件或样式工具层。
+- 做前端页面/组件前，先判断能否直接用 shadcn/ui 组件组合完成；只有在 shadcn/ui 无法覆盖时，才允许做薄封装或局部扩展。
+- 新增前端样式优先放在 Tailwind class 与 shadcn/ui 组件组合层，避免重新回到手写大块自定义 UI 基础设施。
+- 默认不保留独立的大块自定义 `.css` 文件；若不是 Tailwind/shadcn 必需入口或用户明确要求，发现旧 CSS 文件可直接清理。
+- 以后前端实现优先采用 Tailwind utility class、shadcn/ui 组件组合，以及必要的 token/config 调整，而不是继续维护历史遗留 CSS。
+
 ## 用户偏好
 
 - **提交**：必须给 commit hash + 标题 + 变更摘要 + 文件清单。

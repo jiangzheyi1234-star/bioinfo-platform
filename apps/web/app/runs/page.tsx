@@ -1,11 +1,3 @@
-import { Suspense } from "react";
-
-import { WorkspaceRouteRedirect } from "../components/workspace_route_redirect";
-
-export default function RunsRedirectPage() {
-  return (
-    <Suspense fallback={null}>
-      <WorkspaceRouteRedirect target="/workspace" />
-    </Suspense>
-  );
+export default function Page() {
+  return null;
 }
