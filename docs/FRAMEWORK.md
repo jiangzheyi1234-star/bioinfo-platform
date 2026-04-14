@@ -313,7 +313,9 @@
 ### SSH 远程终端面板 v1
 
 - Web 壳层中的 SSH 入口继续由 `apps/web/app/components/ssh-shell.tsx` 承载。
-- 终端入口位于右上角工具区，以底部 drawer 展开，不新增独立 Terminal 页面。
+- 终端入口位于右上角工具区，打开后在内容区底部展开为**固定 dock 面板**，不新增独立 Terminal 页面。
+- 主工作区与终端区之间通过横向分隔条形成上下分屏，用户可拖拽调整终端高度。
+- 前端终端渲染使用 `xterm.js` + `@xterm/addon-fit`，输入直接发生在终端缓冲区内部，不再保留独立的假输入框。
 - 终端能力复用现有 Python `SSHService` 主路径；v1 不引入第二套本地 PTY / Rust SSH 栈。
 - 后端终端能力应围绕 session 生命周期提供：创建 session、读取输出、发送输入、关闭 session。
 - 断开 SSH 时，UI 需保留历史输出并禁用输入；恢复连接后不自动复用旧 session。
