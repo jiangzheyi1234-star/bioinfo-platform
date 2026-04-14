@@ -5,18 +5,18 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import type { FitAddon } from "@xterm/addon-fit";
-import type { Terminal as XTermTerminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import { open } from "@tauri-apps/plugin-dialog";
+import { Terminal as XTerm } from "@xterm/xterm";
 import { usePathname, useRouter } from "next/navigation";
-import type { Terminal as XTermTerminal } from "@xterm/xterm";
-import { Ellipsis, GripHorizontal, Link2, Terminal, X } from "lucide-react";
+import { Ellipsis, GripHorizontal, Link2, Terminal as TerminalIcon, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -60,6 +60,11 @@ type TerminalSnapshot = {
   message: string;
   created_at: number;
   closed_at: number | null;
+};
+
+type TerminalHandle = {
+  terminal: XTerm;
+  fitAddon: FitAddon;
 };
 
 type SshShellContextValue = {
@@ -154,9 +159,11 @@ function readStoredTerminalHeight(): number {
 export function SshShellProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const terminalHostRef = useRef<HTMLDivElement | null>(null);
-  const terminalRef = useRef<XTermTerminal | null>(null);
-  const terminalFitAddonRef = useRef<FitAddon | null>(null);
+  const terminalViewportRef = useRef<HTMLDivElement | null>(null);
+  const terminalHandleRef = useRef<TerminalHandle | null>(null);
+  const renderedTerminalOutputRef = useRef("");
+  const creatingTerminalSessionRef = useRef(false);
+  const terminalInputChainRef = useRef(Promise.resolve());
   const terminalCursorRef = useRef(0);
   const terminalSessionIdRef = useRef<string | null>(null);
   const terminalInputEnabledRef = useRef(false);
@@ -182,41 +189,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [terminalInputEnabled, setTerminalInputEnabled] = useState(false);
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [terminalError, setTerminalError] = useState("");
-
-  const syncTerminalOutput = useCallback((nextOutput: string, mode: "replace" | "append", chunk: string) => {
-    terminalOutputRef.current = nextOutput;
-    setTerminalOutput(nextOutput);
-    const terminal = terminalRef.current;
-    if (!terminal) {
-      return;
-    }
-    if (mode === "replace") {
-      terminal.reset();
-      if (nextOutput) {
-        terminal.write(nextOutput);
-      }
-    } else if (chunk) {
-      terminal.write(chunk);
-    }
-    terminal.scrollToBottom();
-  }, []);
-
-  const fitTerminal = useCallback(() => {
-    const terminal = terminalRef.current;
-    const fitAddon = terminalFitAddonRef.current;
-    if (!terminal || !fitAddon) {
-      return;
-    }
-    try {
-      fitAddon.fit();
-    } catch {
-      return;
-    }
-    if (terminal.cols > 0 && terminal.rows > 0) {
-      terminalGeometryRef.current = { cols: terminal.cols, rows: terminal.rows };
-    }
-    terminal.scrollToBottom();
-  }, []);
 
   const applyTerminalSnapshot = useCallback((item: TerminalSnapshot, mode: "replace" | "append" = "append") => {
     terminalCursorRef.current = item.cursor || 0;
@@ -249,12 +221,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setTerminalInputEnabled(false);
     setTerminalBusy(false);
     setTerminalError("");
-    const terminal = terminalRef.current;
-    if (terminal) {
-      terminal.reset();
-      terminal.clear();
-      terminal.options.disableStdin = true;
-    }
+    terminalInputChainRef.current = Promise.resolve();
   }, []);
 
   const fetchStatus = useCallback(
@@ -302,109 +269,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(TERMINAL_HEIGHT_KEY, String(terminalHeight));
     }
   }, [terminalHeight]);
-
-  useEffect(() => {
-    if (!terminalOpen) {
-      return;
-    }
-    const host = terminalHostRef.current;
-    if (!host || terminalRef.current) {
-      return;
-    }
-    let disposed = false;
-    let resizeObserver: ResizeObserver | null = null;
-    let dataSubscription: { dispose: () => void } | null = null;
-    let resizeSubscription: { dispose: () => void } | null = null;
-
-    void (async () => {
-      try {
-        const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
-        if (disposed || !terminalHostRef.current) {
-          return;
-        }
-        const terminal = new Terminal({
-          convertEol: true,
-          cursorBlink: true,
-          fontFamily: "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace",
-          fontSize: 13,
-          scrollback: 5000,
-          theme: {
-            background: "#0f172a",
-            foreground: "#e2e8f0",
-            cursor: "#e2e8f0",
-            selectionBackground: "rgba(148, 163, 184, 0.28)",
-          },
-          disableStdin: !terminalInputEnabledRef.current,
-        });
-        const fitAddon = new FitAddon();
-        terminal.loadAddon(fitAddon);
-        terminal.open(terminalHostRef.current);
-        terminalRef.current = terminal;
-        terminalFitAddonRef.current = fitAddon;
-        fitTerminal();
-        if (terminalOutputRef.current) {
-          terminal.write(terminalOutputRef.current);
-        }
-        dataSubscription = terminal.onData((data) => {
-          const activeSessionId = terminalSessionIdRef.current;
-          if (!activeSessionId || !terminalInputEnabledRef.current) {
-            return;
-          }
-          setTerminalError("");
-          terminalInputQueueRef.current = terminalInputQueueRef.current
-            .catch(() => undefined)
-            .then(async () => {
-              const sessionId = terminalSessionIdRef.current;
-              if (!sessionId) {
-                return;
-              }
-              await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${sessionId}/input`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ data }),
-              }).then(readJsonOrThrow);
-            })
-            .catch((error) => {
-              if (disposed) {
-                return;
-              }
-              setTerminalInputEnabled(false);
-              terminalInputEnabledRef.current = false;
-              setTerminalConnected(false);
-              setTerminalError(normalizeFetchError(error) || "发送终端输入失败");
-            });
-        });
-        resizeSubscription = terminal.onResize(({ cols, rows }) => {
-          terminalGeometryRef.current = { cols, rows };
-        });
-        resizeObserver = new ResizeObserver(() => {
-          fitTerminal();
-        });
-        resizeObserver.observe(terminalHostRef.current);
-        terminal.focus();
-      } catch (error) {
-        if (disposed) {
-          return;
-        }
-        setTerminalError(error instanceof Error ? error.message : "远程终端初始化失败");
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      resizeObserver?.disconnect();
-      dataSubscription?.dispose();
-      resizeSubscription?.dispose();
-      terminalRef.current?.dispose();
-      terminalRef.current = null;
-      terminalFitAddonRef.current = null;
-    };
-  }, [fitTerminal, terminalOpen]);
-
-  useEffect(() => {
-    terminalRef.current?.focus();
-    fitTerminal();
-  }, [fitTerminal, terminalHeight, terminalOpen]);
 
   useEffect(() => {
     if (status?.connected || !terminalOpen) {
@@ -573,6 +437,157 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const queueTerminalInput = useCallback(
+    (data: string) => {
+      if (!data) {
+        return;
+      }
+      if (!terminalSessionId) {
+        setTerminalError("终端会话尚未建立");
+        return;
+      }
+      if (!terminalInputEnabled) {
+        setTerminalError(terminalMessage || "SSH 已断开，终端会话已结束");
+        return;
+      }
+
+      const sessionId = terminalSessionId;
+      terminalInputChainRef.current = terminalInputChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${sessionId}/input`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data }),
+          }).then(readJsonOrThrow);
+        })
+        .catch((error: unknown) => {
+          setTerminalError(normalizeFetchError(error) || "发送终端输入失败");
+        });
+    },
+    [terminalInputEnabled, terminalMessage, terminalSessionId]
+  );
+
+  useLayoutEffect(() => {
+    if (!terminalOpen) {
+      return;
+    }
+    const node = terminalViewportRef.current;
+    if (!node) {
+      return;
+    }
+
+    const terminal = new XTerm({
+      allowProposedApi: false,
+      convertEol: false,
+      cursorBlink: true,
+      fontFamily:
+        '"SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      fontSize: 13,
+      lineHeight: 1.35,
+      scrollback: 4000,
+      theme: {
+        background: "#0b1020",
+        foreground: "#e2e8f0",
+        cursor: "#f8fafc",
+        black: "#0f172a",
+        red: "#f87171",
+        green: "#4ade80",
+        yellow: "#facc15",
+        blue: "#60a5fa",
+        magenta: "#c084fc",
+        cyan: "#22d3ee",
+        white: "#e2e8f0",
+        brightBlack: "#475569",
+        brightRed: "#fca5a5",
+        brightGreen: "#86efac",
+        brightYellow: "#fde68a",
+        brightBlue: "#93c5fd",
+        brightMagenta: "#d8b4fe",
+        brightCyan: "#67e8f9",
+        brightWhite: "#f8fafc",
+      },
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(node);
+    fitAddon.fit();
+    terminalHandleRef.current = { terminal, fitAddon };
+    renderedTerminalOutputRef.current = "";
+
+    if (terminalOutput) {
+      terminal.write(terminalOutput);
+      renderedTerminalOutputRef.current = terminalOutput;
+    }
+
+    const inputDisposable = terminal.onData((data) => {
+      queueTerminalInput(data);
+    });
+    const focusTimer = window.setTimeout(() => terminal.focus(), 0);
+    const handleWindowResize = () => fitAddon.fit();
+    window.addEventListener("resize", handleWindowResize);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      inputDisposable.dispose();
+      window.removeEventListener("resize", handleWindowResize);
+      terminalHandleRef.current = null;
+      renderedTerminalOutputRef.current = "";
+      terminal.dispose();
+    };
+  }, [queueTerminalInput, terminalOpen, terminalOutput]);
+
+  useEffect(() => {
+    const handle = terminalHandleRef.current;
+    if (!handle) {
+      return;
+    }
+
+    if (!terminalOutput) {
+      if (renderedTerminalOutputRef.current) {
+        handle.terminal.reset();
+        renderedTerminalOutputRef.current = "";
+      }
+      return;
+    }
+
+    const previous = renderedTerminalOutputRef.current;
+    if (!previous || !terminalOutput.startsWith(previous)) {
+      handle.terminal.reset();
+      handle.terminal.write(terminalOutput);
+      renderedTerminalOutputRef.current = terminalOutput;
+      return;
+    }
+
+    const nextChunk = terminalOutput.slice(previous.length);
+    if (!nextChunk) {
+      return;
+    }
+
+    handle.terminal.write(nextChunk);
+    renderedTerminalOutputRef.current = terminalOutput;
+  }, [terminalOutput]);
+
+  useEffect(() => {
+    if (!terminalOpen) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      terminalHandleRef.current?.fitAddon.fit();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [terminalHeight, terminalOpen]);
+
+  useEffect(() => {
+    if (!terminalOpen || !terminalInputEnabled) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      terminalHandleRef.current?.terminal.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [terminalInputEnabled, terminalOpen, terminalSessionId]);
+
   const persistSettings = useCallback(async () => {
     const payload = {
       patch: {
@@ -622,6 +637,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
   const closeTerminalPanel = useCallback(async () => {
     const activeSessionId = terminalSessionId;
+    creatingTerminalSessionRef.current = false;
     setTerminalOpen(false);
     resetTerminalState();
     if (!activeSessionId) {
@@ -649,8 +665,18 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         terminalRef.current?.focus();
         return;
       }
+      if (creatingTerminalSessionRef.current) {
+        return;
+      }
+      creatingTerminalSessionRef.current = true;
       setTerminalBusy(true);
       try {
+        if (!terminalHandleRef.current) {
+          await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        }
+        const dimensions = terminalHandleRef.current?.terminal;
+        const cols = Math.max(80, dimensions?.cols || 120);
+        const rows = Math.max(20, dimensions?.rows || 28);
         if (terminalSessionId) {
           await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}`, { method: "DELETE" }).catch(() => undefined);
           resetTerminalState();
@@ -658,7 +684,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(terminalGeometryRef.current),
+          body: JSON.stringify({ cols, rows }),
         });
         const data = await readJsonOrThrow(resp);
         applyTerminalSnapshot((data?.item || null) as TerminalSnapshot, "replace");
@@ -669,6 +695,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         setTerminalConnected(false);
         setTerminalError(normalizeFetchError(error) || "远程终端创建失败");
       } finally {
+        creatingTerminalSessionRef.current = false;
         setTerminalBusy(false);
       }
     },
@@ -704,12 +731,12 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         setTerminalError(normalizeFetchError(error) || "终端输出读取失败");
       } finally {
         if (!cancelled) {
-          timer = window.setTimeout(poll, 800);
+          timer = window.setTimeout(poll, 250);
         }
       }
     };
 
-    timer = window.setTimeout(poll, 150);
+    timer = window.setTimeout(poll, 100);
     return () => {
       cancelled = true;
       if (timer !== null) {
@@ -865,15 +892,15 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                   disabled={!status?.connected || terminalBusy}
                   onClick={() => void (terminalOpen ? closeTerminalPanel() : startTerminalSession())}
                   className={cn(
-                    "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-slate-500 transition",
-                    status?.connected
-                      ? terminalOpen
-                        ? "border-slate-200 bg-slate-100/90 shadow-sm text-slate-900"
-                        : "border-transparent bg-transparent shadow-none hover:bg-slate-100/80 hover:text-slate-900"
+                            "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-slate-500 transition",
+                            status?.connected
+                              ? terminalOpen
+                                ? "border-slate-200 bg-slate-100/90 shadow-sm text-slate-900"
+                                : "border-transparent bg-transparent shadow-none hover:bg-slate-100/80 hover:text-slate-900"
                       : "cursor-not-allowed border-transparent bg-transparent opacity-40"
                   )}
                 >
-                  <Terminal className="h-4 w-4" />
+                  <TerminalIcon className="h-4 w-4" />
                 </button>
               </div>
 
@@ -946,17 +973,36 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                           <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm text-slate-500">{terminalMessage}</div>
                         ) : null}
 
-                        <div className="relative flex-1 overflow-hidden bg-slate-950">
-                          <div ref={terminalHostRef} className="h-full w-full px-4 py-3" />
-                          {!terminalOutput ? (
-                            <div className="pointer-events-none absolute inset-x-4 bottom-3 text-xs text-slate-400">
-                              {terminalBusy
-                                ? "正在连接远程终端..."
-                                : terminalInputEnabled
-                                  ? "终端已就绪，可直接在缓冲区内输入命令。"
-                                  : "SSH 已断开，终端会话已结束"}
+                        <div className="relative flex-1 overflow-hidden bg-[#0b1020]">
+                          {!terminalSessionId && terminalBusy ? (
+                            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm text-slate-400">
+                              正在建立远程终端会话…
                             </div>
                           ) : null}
+                          {!terminalOutput && !terminalBusy ? (
+                            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 px-4 text-xs text-slate-500">
+                              {terminalInputEnabled
+                                ? "直接在终端区域内输入命令，按 Enter 执行。"
+                                : terminalMessage || "等待终端会话建立…"}
+                            </div>
+                          ) : null}
+                          <div
+                            ref={terminalViewportRef}
+                            className={cn(
+                              "ssh-terminal h-full w-full px-4 py-3",
+                              terminalInputEnabled ? "cursor-text" : "cursor-not-allowed opacity-90"
+                            )}
+                          />
+                          {!terminalInputEnabled ? (
+                            <div className="absolute inset-0 bg-slate-950/10" aria-hidden="true" />
+                          ) : null}
+                        </div>
+
+                        <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+                          <div className="flex items-center justify-between gap-3">
+                            <span>{terminalConnected ? "已连接，可直接在终端区域输入。" : "输入已禁用。"}</span>
+                            <span className="shrink-0">{terminalSessionId ? `Session: ${terminalSessionId}` : "Session: --"}</span>
+                          </div>
                         </div>
                       </div>
                     </section>

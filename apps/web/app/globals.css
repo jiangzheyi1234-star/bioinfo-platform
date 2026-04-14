@@ -4,3 +4,11 @@
 
 @source "../app";
 @source "../components";
+
+.ssh-terminal .xterm {
+  height: 100%;
+}
+
+.ssh-terminal .xterm-viewport {
+  overscroll-behavior: contain;
+}
