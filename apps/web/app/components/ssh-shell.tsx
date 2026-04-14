@@ -290,6 +290,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         if (terminalSessionId) {
           await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}`, { method: "DELETE" }).catch(() => undefined);
           resetTerminalState();
+          setTerminalBusy(true);
         }
         const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions`, {
           method: "POST",
