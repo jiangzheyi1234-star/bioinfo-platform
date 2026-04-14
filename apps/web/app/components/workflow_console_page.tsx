@@ -23,7 +23,6 @@ export function WorkflowConsolePage() {
     workflow,
     schemaDraft,
     params,
-    doctor,
     doctorError,
     compilePreview,
     compileBusy,
@@ -154,7 +153,7 @@ export function WorkflowConsolePage() {
                   <button type="button" className="control-btn" disabled={artifactsBusy} onClick={() => void fetchArtifacts(selectedRun.run_id)}>
                     {artifactsBusy ? "同步中..." : "刷新产物"}
                   </button>
-                  <button type="button" className="control-btn" onClick={() => void fetchResolvedConfig(selectedRun.run_id)}>
+                  <button type="button" className="control-btn" onClick={fetchResolvedConfig}>
                     刷新 Config
                   </button>
                 </div>

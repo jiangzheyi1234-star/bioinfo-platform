@@ -219,8 +219,8 @@ export function useWorkflowConsoleState() {
     }
   };
 
-  const fetchResolvedConfig = async (runId: string) => {
-    if (!currentProjectId || !selectedTaskId || !runId) {
+  const fetchResolvedConfig = () => {
+    if (!currentProjectId || !selectedTaskId || !selectedRunId) {
       setResolvedConfig("");
       return;
     }
@@ -405,7 +405,7 @@ export function useWorkflowConsoleState() {
     }
     void refreshRunDetail(selectedRunId);
     void fetchArtifacts(selectedRunId);
-    void fetchResolvedConfig(selectedRunId);
+    fetchResolvedConfig();
   }, [selectedRunId, currentProjectId, selectedTaskId, compilePreview]);
 
   useEffect(() => {
@@ -691,7 +691,6 @@ export function useWorkflowConsoleState() {
     workflow,
     schemaDraft,
     params,
-    doctor,
     doctorError,
     compilePreview,
     compileBusy,
