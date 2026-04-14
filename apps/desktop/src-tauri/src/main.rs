@@ -189,7 +189,7 @@ fn repo_backend_fallback_setting() -> Option<bool> {
 
 fn dev_repo_backend_command() -> Result<Option<BackendCommand>, String> {
     let explicit_setting = repo_backend_fallback_setting();
-    let allow_repo_backend = explicit_setting.unwrap_or(cfg!(debug_assertions));
+    let allow_repo_backend = explicit_setting.unwrap_or(cfg!(debug_assertions) || cfg!(windows));
     if !allow_repo_backend {
         return Ok(None);
     }
