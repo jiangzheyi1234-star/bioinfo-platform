@@ -93,6 +93,7 @@ export type PreflightResult = {
   free_disk_gb: number;
   recommended_profile: string;
   recommended_profile_details: WorkflowServerProfile | null;
+  supported_profile_kinds: string[];
   runtime_capabilities: WorkflowRuntimeCapabilities | null;
   checks: PreflightCheck[];
   failures: string[];
@@ -233,6 +234,16 @@ export type WorkflowProfileCompatibility = {
 };
 
 export type WorkflowCompatibilitySummary = {
+  task_id: string;
+  workflow_snapshot_id: string;
+  workflow_id: string;
+  compatible: boolean;
+  reasons: string[];
+  preflight: PreflightResult | null;
+  recommended_profile: string;
+  recommended_profile_details: WorkflowServerProfile | null;
+  supported_profile_kinds: string[];
+  runtime_capabilities: WorkflowRuntimeCapabilities | null;
   server_profiles: WorkflowProfileCompatibility[];
   workflow_profiles: WorkflowProfileCompatibility[];
   selected_profile: WorkflowServerProfile | null;
@@ -321,6 +332,7 @@ export type ServerDoctorReport = {
   doctor_phase: string;
   recommended_profile: string;
   recommended_profile_details: WorkflowServerProfile | null;
+  supported_profile_kinds: string[];
   runtime_capabilities: WorkflowRuntimeCapabilities | null;
   preflight: PreflightResult | null;
   env_status: RemoteEnvStatus | null;
