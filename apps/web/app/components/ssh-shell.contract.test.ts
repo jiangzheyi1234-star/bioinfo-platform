@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const source = readFileSync(resolve(import.meta.dirname, "./ssh-shell.tsx"), "utf-8");
+const globalsCss = readFileSync(resolve(import.meta.dirname, "../globals.css"), "utf-8");
 const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8")) as {
   dependencies?: Record<string, string>;
 };
@@ -21,6 +22,8 @@ test("ssh shell source mounts xterm.js inside the docked terminal buffer", () =>
   assert.match(source, /import\("@xterm\/xterm"\)/);
   assert.match(source, /import\("@xterm\/addon-fit"\)/);
   assert.match(source, /nextTerminal\.onData\(\(data\) =>/);
+  assert.match(source, /aria-label="调整终端高度"/);
+  assert.match(source, /cursor-row-resize/);
   assert.match(source, /data-terminal-input-enabled=/);
   assert.doesNotMatch(source, /terminalCommand/);
   assert.doesNotMatch(source, /submitTerminalCommand/);
@@ -30,6 +33,10 @@ test("ssh shell source mounts xterm.js inside the docked terminal buffer", () =>
 test("ssh shell package declares xterm dependencies", () => {
   assert.equal(packageJson.dependencies?.["@xterm/xterm"] !== undefined, true);
   assert.equal(packageJson.dependencies?.["@xterm/addon-fit"] !== undefined, true);
+});
+
+test("ssh shell global styles include xterm.css", () => {
+  assert.match(globalsCss, /@import "@xterm\/xterm\/css\/xterm\.css";/);
 });
 
 test("ssh shell source stays within the v1 non-goals", () => {
