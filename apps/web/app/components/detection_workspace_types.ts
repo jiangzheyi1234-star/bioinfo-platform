@@ -267,8 +267,25 @@ export type WorkflowArtifact = {
   local_path: string;
   available: boolean;
   kind?: string;
+  artifact_type?: string;
+  display_role?: string;
+  viewer_hint?: string;
   content_type?: string;
   error?: string;
+};
+
+export type WorkflowResult = {
+  result_id: string;
+  task_id: string;
+  run_id: string;
+  kind: string;
+  summary: Record<string, unknown>;
+  content_type: string;
+  viewer_kind: string;
+  content_url: string;
+  created_at: number;
+  updated_at: number;
+  result_path: string;
 };
 
 export type WorkflowRun = {

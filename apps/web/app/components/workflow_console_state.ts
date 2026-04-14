@@ -10,6 +10,7 @@ import type {
   WorkflowArtifact,
   WorkflowCompilePreview,
   WorkflowNodePosition,
+  WorkflowResult,
   WorkflowRun,
   WorkflowSpecView,
   WorkflowToolDescriptor,
@@ -22,6 +23,7 @@ import {
   readJsonOrThrow,
   safeText,
   toWorkflowArtifact,
+  toWorkflowResult,
   toWorkflowRun,
 } from "./detection_workspace_utils";
 import {
@@ -105,6 +107,7 @@ export function useWorkflowConsoleState() {
   const [detailBusy, setDetailBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState("");
   const [artifacts, setArtifacts] = useState<WorkflowArtifact[]>([]);
+  const [results, setResults] = useState<WorkflowResult[]>([]);
   const [resolvedConfig, setResolvedConfig] = useState("");
   const [artifactsBusy, setArtifactsBusy] = useState(false);
   const [workflowExpanded, setWorkflowExpanded] = useState(true);
@@ -142,12 +145,14 @@ export function useWorkflowConsoleState() {
   );
 
   const refreshRuns = async (preferredRunId?: string) => {
-    if (!currentProjectId) {
+    if (!currentProjectId || !selectedTaskId) {
       setRuns([]);
       setSelectedRunId("");
       return;
     }
-    const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/runs`);
+    const resp = await fetch(
+      `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/runs`
+    );
     const data = await readJsonOrThrow(resp);
     const items = Array.isArray(data.items)
       ? data.items.map(toWorkflowRun).filter((item: WorkflowRun | null): item is WorkflowRun => item !== null)
@@ -159,12 +164,14 @@ export function useWorkflowConsoleState() {
   };
 
   const refreshRunDetail = async (runId: string) => {
-    if (!currentProjectId || !runId) {
+    if (!currentProjectId || !selectedTaskId || !runId) {
       return;
     }
     setDetailBusy(true);
     try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/runs/${encodeURIComponent(runId)}`);
+      const resp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/runs/${encodeURIComponent(runId)}`
+      );
       const data = await readJsonOrThrow(resp);
       const item = toWorkflowRun(data.item);
       if (!item) {
@@ -182,19 +189,30 @@ export function useWorkflowConsoleState() {
   };
 
   const fetchArtifacts = async (runId: string) => {
-    if (!currentProjectId || !runId) {
+    if (!currentProjectId || !selectedTaskId || !runId) {
       setArtifacts([]);
+      setResults([]);
       return;
     }
     setArtifactsBusy(true);
     try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/runs/${encodeURIComponent(runId)}/artifacts`);
+      const resp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/results?run_id=${encodeURIComponent(runId)}`
+      );
       const data = await readJsonOrThrow(resp);
-      const items = Array.isArray(data.items)
-        ? data.items.map(toWorkflowArtifact).filter((item: WorkflowArtifact | null): item is WorkflowArtifact => item !== null)
+      const resultItems = Array.isArray(data.items)
+        ? data.items.map(toWorkflowResult).filter((item: WorkflowResult | null): item is WorkflowResult => item !== null)
         : [];
-      setArtifacts(items);
+      const artifactItems = resultItems.flatMap((result: WorkflowResult) => {
+        const raw = result.summary.artifacts;
+        return Array.isArray(raw)
+          ? raw.map(toWorkflowArtifact).filter((item: WorkflowArtifact | null): item is WorkflowArtifact => item !== null)
+          : [];
+      });
+      setResults(resultItems);
+      setArtifacts(artifactItems);
     } catch (err) {
+      setResults([]);
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
       setArtifactsBusy(false);
@@ -202,31 +220,25 @@ export function useWorkflowConsoleState() {
   };
 
   const fetchResolvedConfig = async (runId: string) => {
-    if (!currentProjectId || !runId) {
+    if (!currentProjectId || !selectedTaskId || !runId) {
       setResolvedConfig("");
       return;
     }
-    try {
-      const resp = await fetch(
-        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/runs/${encodeURIComponent(runId)}/resolved-config`
-      );
-      const data = await readJsonOrThrow(resp);
-      setResolvedConfig(safeText(data?.item?.content));
-    } catch (err) {
-      setResolvedConfig("");
-      setShellError(err instanceof Error ? err.message : String(err));
-    }
+    setResolvedConfig(compilePreview?.files["resolved.config"] || "");
   };
 
   const cancelRun = async (runId: string) => {
-    if (!currentProjectId || !runId) {
+    if (!currentProjectId || !selectedTaskId || !runId) {
       return;
     }
     setActionBusy(runId);
     try {
-      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/runs/${encodeURIComponent(runId)}/cancel`, {
-        method: "POST",
-      });
+      const resp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/runs/${encodeURIComponent(runId)}/cancel`,
+        {
+          method: "POST",
+        }
+      );
       const data = await readJsonOrThrow(resp);
       const item = toWorkflowRun(data.item);
       if (!item) {
@@ -270,18 +282,45 @@ export function useWorkflowConsoleState() {
     setParams({});
     setCompilePreview(null);
     setSelectedNodeId("");
-  }, [currentProjectId]);
+  }, [currentProjectId, selectedTaskId]);
 
   useEffect(() => {
-    if (!currentProjectId || workflow) {
+    if (!currentProjectId || !selectedTaskId) {
       return;
     }
-    const storedDraft = readStoredWorkflowDraft(currentProjectId);
-    const starter = storedDraft?.workflow ?? createStarterWorkflow(currentProjectId);
-    setWorkflow(starter);
-    setSchemaDraft(storedDraft?.schemaDraft ?? prettyJson(starter.params_schema));
-    setSelectedNodeId(starter.nodes[0]?.node_id || "");
-  }, [currentProjectId, workflow]);
+    let active = true;
+    void (async () => {
+      try {
+        const resp = await fetch(
+          `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/workflow`
+        );
+        const data = await readJsonOrThrow(resp);
+        const item = isRecord(data) && isRecord(data.workflow) ? (data.workflow as WorkflowSpecView) : null;
+        if (!active) {
+          return;
+        }
+        if (item) {
+          setWorkflow(item);
+          setSchemaDraft(prettyJson(isRecord(data.params_schema) ? data.params_schema : item.params_schema));
+          setSelectedNodeId(item.nodes[0]?.node_id || "");
+          return;
+        }
+        throw new Error("task workflow 返回格式无效。");
+      } catch (_err) {
+        if (!active) {
+          return;
+        }
+        const storedDraft = readStoredWorkflowDraft(currentProjectId);
+        const starter = storedDraft?.workflow ?? createStarterWorkflow(currentProjectId);
+        setWorkflow(starter);
+        setSchemaDraft(storedDraft?.schemaDraft ?? prettyJson(starter.params_schema));
+        setSelectedNodeId(starter.nodes[0]?.node_id || "");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [currentProjectId, selectedTaskId]);
 
   useEffect(() => {
     if (!currentProjectId || !workflow) {
@@ -348,7 +387,7 @@ export function useWorkflowConsoleState() {
 
   useEffect(() => {
     void refreshRuns();
-  }, [currentProjectId]);
+  }, [currentProjectId, selectedTaskId]);
 
   useEffect(() => {
     const requestedRunId = safeText(searchParams.get("run_id"));
@@ -360,13 +399,14 @@ export function useWorkflowConsoleState() {
   useEffect(() => {
     if (!selectedRunId) {
       setArtifacts([]);
+      setResults([]);
       setResolvedConfig("");
       return;
     }
     void refreshRunDetail(selectedRunId);
     void fetchArtifacts(selectedRunId);
     void fetchResolvedConfig(selectedRunId);
-  }, [selectedRunId]);
+  }, [selectedRunId, currentProjectId, selectedTaskId, compilePreview]);
 
   useEffect(() => {
     if (selectedRun && ["running", "pending", "draft"].includes(selectedRun.status)) {
@@ -591,12 +631,10 @@ export function useWorkflowConsoleState() {
         }
       );
       await readJsonOrThrow(snapshotResp);
-      const resp = await fetch(`${apiBase()}/api/v1/runs`, {
+      const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_id: currentProjectId,
-          task_id: selectedTaskId,
           launch: payload.launch,
         }),
       });
@@ -633,7 +671,7 @@ export function useWorkflowConsoleState() {
     if (artifacts.length === 0) {
       return "当前还没有可见产物。";
     }
-    return `已同步 ${available} 项，缺失 ${missing} 项。`;
+    return `已同步 ${available} 项，缺失 ${missing} 项；results ${results.length} 条。`;
   })();
 
   const traceArtifacts = artifacts.filter((artifact) => {
@@ -666,6 +704,7 @@ export function useWorkflowConsoleState() {
     detailBusy,
     actionBusy,
     artifacts,
+    results,
     resolvedConfig,
     artifactsBusy,
     workflowExpanded,
