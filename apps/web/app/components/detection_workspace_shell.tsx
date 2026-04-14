@@ -31,6 +31,12 @@ const TAB_DESCRIPTIONS: Record<TabId, string> = {
   settings: "维护系统配置和本地工作台偏好。",
 };
 
+const TAB_BREADCRUMB_LABELS: Record<TabId, string> = {
+  connect: "连接",
+  workspace: "Task Workbench",
+  settings: "设置",
+};
+
 type DetectionWorkspaceShellProps = {
   activeTab: TabId;
   pageTitle?: string;
@@ -123,6 +129,23 @@ export function DetectionWorkspaceShell({
     resolvedCurrentTask?.title ? `Task: ${resolvedCurrentTask.title}` : tasks.length > 0 ? `${tasks.length} Tasks` : "",
     currentProjectId || "",
   ].filter(Boolean);
+  const breadcrumbs = useMemo(() => {
+    const items = [{ label: "Workspace", tone: "muted" as const }];
+
+    if (activeTab === "workspace" && resolvedCurrentProject?.name) {
+      items.push({ label: resolvedCurrentProject.name, tone: "default" as const });
+      if (resolvedCurrentTask?.title) {
+        items.push({ label: resolvedCurrentTask.title, tone: "default" as const });
+      }
+    }
+
+    items.push({
+      label: TAB_BREADCRUMB_LABELS[activeTab],
+      tone: "current" as const,
+    });
+
+    return items;
+  }, [activeTab, resolvedCurrentProject?.name, resolvedCurrentTask?.title]);
 
   useEffect(() => {
     setSidebarWidth(readStoredSidebarWidth());
@@ -253,31 +276,41 @@ export function DetectionWorkspaceShell({
       />
 
       <section className="app-main">
-        {!hidePageHeader ? (
-          <header className="page-head">
-            <div className="page-head-copy">
-              <h2>{pageTitle ?? TAB_TITLES[activeTab]}</h2>
-              <p>{pageDescription ?? TAB_DESCRIPTIONS[activeTab]}</p>
-              {!hidePageMeta && workspaceMeta.length > 0 ? (
-                <div className="workspace-context-meta">
-                  {workspaceMeta.map((item) => (
-                    <span key={item}>{item}</span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            {showPageActions ? (
-              <div className="page-head-actions">
-                {projectSelect}
-                {onRefreshProjects ? (
-                  <button className="control-btn" onClick={onRefreshProjects}>
-                    刷新项目
-                  </button>
-                ) : null}
+        <header className="workspace-topbar">
+          <div className="workspace-topbar-copy">
+            <nav className="workspace-breadcrumbs" aria-label="页面路径">
+              {breadcrumbs.map((item, index) => (
+                <span key={`${item.label}-${index}`} className={`workspace-breadcrumb workspace-breadcrumb--${item.tone}`}>
+                  <span>{item.label}</span>
+                  {index < breadcrumbs.length - 1 ? <span className="workspace-breadcrumb-separator">/</span> : null}
+                </span>
+              ))}
+            </nav>
+            {!hidePageHeader ? (
+              <div className="workspace-topbar-detail">
+                <strong>{pageTitle ?? TAB_TITLES[activeTab]}</strong>
+                <p>{pageDescription ?? TAB_DESCRIPTIONS[activeTab]}</p>
               </div>
             ) : null}
-          </header>
-        ) : null}
+            {!hidePageMeta && workspaceMeta.length > 0 ? (
+              <div className="workspace-context-meta">
+                {workspaceMeta.map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {showPageActions ? (
+            <div className="workspace-topbar-actions">
+              {projectSelect}
+              {onRefreshProjects ? (
+                <button className="control-btn" onClick={onRefreshProjects}>
+                  刷新项目
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </header>
 
         {!hideErrorNotice && error ? (
           <div className="notice-error" role="alert">
