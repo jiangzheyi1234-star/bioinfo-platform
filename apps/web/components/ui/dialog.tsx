@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { X } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { XMarkIcon } from "@heroicons/react/24/outline";
 
 import { cn } from "@/lib/utils";
 
@@ -33,7 +33,7 @@ const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.C
         >
           {children}
           <DialogClose className="absolute right-4 top-4 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
-            <XMarkIcon className="h-4 w-4" />
+            <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
           </DialogClose>
         </DialogPrimitive.Content>

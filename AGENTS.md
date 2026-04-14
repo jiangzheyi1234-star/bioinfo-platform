@@ -30,6 +30,8 @@
 - 新增前端样式优先放在 Tailwind class 与 shadcn/ui 组件组合层，避免重新回到手写大块自定义 UI 基础设施。
 - 默认不保留独立的大块自定义 `.css` 文件；若不是 Tailwind/shadcn 必需入口或用户明确要求，发现旧 CSS 文件可直接清理。
 - 以后前端实现优先采用 Tailwind utility class、shadcn/ui 组件组合，以及必要的 token/config 调整，而不是继续维护历史遗留 CSS。
+- 图标库统一使用 **`lucide-react`**；未经用户明确要求，不再混用 `@heroicons/react`、emoji 或其他图标体系。
+- 新前端组件若需要图标，默认先从 `lucide-react` 选型，保持 stroke、尺寸、语义风格一致。
 
 ## 用户偏好
 
