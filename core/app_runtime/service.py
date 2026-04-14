@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import CONFIG_VERSION, default_settings_schema, get_config, resolve_ssh_password, save_config
-from . import workbench_runtime_ops
+from . import workbench_runtime_ops, workflow_runtime_ops
 from core.data.database_service import DatabaseService
 from core.data.data_registry import DataRegistry
 from core.data.execution_query_service import ExecutionQueryService
@@ -33,7 +33,6 @@ from core.utils import get_app_root
 from core.workflow import (
     LaunchSpec,
     LocalSSHBackend,
-    RunRecord,
     ServerProfile,
     SlurmSSHBackend,
     WorkflowEdge,
@@ -41,8 +40,6 @@ from core.workflow import (
     WorkflowSpec,
     compile_workflow_bundle,
     create_workflow_backend,
-    load_project_run_records,
-    persist_run_record,
 )
 from core.workflow.bootstrap_ops import (
     WORKFLOW_BOOTSTRAP_PREFIX,
@@ -106,8 +103,6 @@ class RuntimeService:
         self._auto_connect_failed = False
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
-        self._workflow_runs: dict[str, dict[str, Any]] = {}
-
     def initialize(self) -> None:
         with self._lock:
             if self._initialized:
@@ -148,148 +143,55 @@ class RuntimeService:
     def list_runs(self, *, project_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            rows = list(self._load_workflow_runs(project_id).values())
-            rows.sort(key=lambda item: float(item.get("created_at", 0.0)), reverse=True)
-            return rows
+            try:
+                return workflow_runtime_ops.list_runs(self, project_id=project_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def get_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            normalized_run_id = str(run_id or "").strip()
-            row = self._get_workflow_run(project_id=project_id, run_id=normalized_run_id)
-            self._ensure_ssh_connected()
-            backend = self._workflow_backend_for_row(row)
-            remote_task_dir = str(row.get("remote_task_dir") or "").strip()
-            if remote_task_dir:
-                remote_status = backend.query_run(ssh_run_fn=self._run_ssh_command, row=row)
-                row["remote_status"] = remote_status
-                row["status"] = remote_status["stage"]
-                row["updated_at"] = time.time()
-                if remote_status["log_tail"]:
-                    row["message"] = remote_status["log_tail"].splitlines()[-1]
-                self._persist_workflow_run(row)
-            return row
+            try:
+                return workflow_runtime_ops.get_run(self, project_id=project_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
-    def create_run(self, *, project_id: str, workflow: dict[str, Any], launch: dict[str, Any]) -> dict[str, Any]:
+    def create_run(self, *, project_id: str, task_id: str, launch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            workflow_spec = self._build_workflow_spec(workflow)
-            launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
-            compiled = compile_workflow_bundle(
-                workflow_spec,
-                launch_spec,
-                plugin_registry=self._service_locator.plugin_registry,
-            )
-            self._ensure_ssh_connected()
-            ssh = self._service_locator.ssh_service
-            project = self._project_manager.current_project
-            project_dir = self._project_manager.current_project_dir
-            if ssh is None or project is None or project_dir is None:
-                raise RuntimeServiceError("Current project or SSH service is not available")
-            now = time.time()
-            run_id = f"run_{uuid.uuid4().hex[:12]}"
-            backend = create_workflow_backend(launch_spec.profile)
-            submission = backend.submit_run(
-                ssh_service=ssh,
-                ssh_run_fn=self._run_ssh_command,
-                project_dir=project_dir,
-                remote_base=project.remote_base,
-                run_id=run_id,
-                compiled_bundle=compiled,
-                launch=launch_spec,
-            )
-            record = RunRecord(
-                run_id=run_id,
-                project_id=project_id,
-                workflow_id=workflow_spec.workflow_id,
-                profile_id=launch_spec.profile.profile_id,
-                status="pending",
-                created_at=now,
-                updated_at=now,
-                bundle_id=str(compiled.get("bundle_id") or ""),
-                message="Workflow bundle uploaded and backend submitted.",
-            )
-            payload = record.to_dict()
-            payload["compiled_bundle"] = compiled
-            payload["backend_kind"] = submission["backend_kind"]
-            payload["executor"] = launch_spec.profile.executor
-            payload["packaging_mode"] = launch_spec.profile.packaging_mode
-            payload["container_runtime"] = launch_spec.profile.container_runtime
-            payload["profile"] = launch_spec.profile.to_dict()
-            payload["resume"] = launch_spec.resume
-            payload["local_bundle_dir"] = submission["local_bundle_dir"]
-            payload["local_run_dir"] = submission["local_run_dir"]
-            payload["resolved_config_path"] = submission["resolved_config_path"]
-            payload["remote_task_dir"] = submission["remote_task_dir"]
-            payload["remote_bundle_dir"] = submission["remote_bundle_dir"]
-            payload["remote_work_dir"] = submission["remote_work_dir"]
-            payload["remote_output_dir"] = submission["remote_output_dir"]
-            payload["launcher_pid"] = submission["launcher_pid"]
-            payload["scheduler_job_id"] = submission.get("scheduler_job_id", "")
-            payload["artifacts"] = []
-            self._workflow_runs[run_id] = payload
-            self._persist_workflow_run(payload)
-            return payload
+            try:
+                return workflow_runtime_ops.create_run(
+                    self,
+                    project_id=project_id,
+                    task_id=task_id,
+                    launch=launch,
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def cancel_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            row = self._get_workflow_run(project_id=project_id, run_id=str(run_id or "").strip())
-            self._ensure_ssh_connected()
-            backend = self._workflow_backend_for_row(row)
-            remote_status = backend.cancel_run(ssh_run_fn=self._run_ssh_command, row=row)
-            row["remote_status"] = remote_status
-            row["status"] = "cancelled"
-            row["updated_at"] = time.time()
-            row["message"] = "Workflow run cancellation requested."
-            if remote_status.get("launcher_pid"):
-                row["launcher_pid"] = remote_status["launcher_pid"]
-            if remote_status.get("nextflow_pid"):
-                row["nextflow_pid"] = remote_status["nextflow_pid"]
-            self._persist_workflow_run(row)
-            return row
+            try:
+                return workflow_runtime_ops.cancel_run(self, project_id=project_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def get_run_artifacts(self, *, project_id: str, run_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            normalized_run_id = str(run_id or "").strip()
-            row = self._get_workflow_run(project_id=project_id, run_id=normalized_run_id)
-            self._ensure_ssh_connected()
-            ssh = self._service_locator.ssh_service
-            project_dir = self._project_manager.current_project_dir
-            if ssh is None or project_dir is None:
-                raise RuntimeServiceError("Run artifacts are unavailable without SSH and current project directory")
-            backend = self._workflow_backend_for_row(row)
-            artifacts = backend.collect_artifacts(
-                ssh_service=ssh,
-                project_dir=project_dir,
-                run_id=normalized_run_id,
-                row=row,
-            )
-            row["artifacts"] = artifacts
-            self._persist_workflow_run(row)
-            return artifacts
+            try:
+                return workflow_runtime_ops.get_run_artifacts(self, project_id=project_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def get_run_resolved_config(self, *, project_id: str, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            row = self._get_workflow_run(project_id=project_id, run_id=str(run_id or "").strip())
-            resolved_config_path = str(row.get("resolved_config_path") or "").strip()
-            if not resolved_config_path:
-                raise RuntimeServiceError(f"Run {run_id} 缺少 resolved_config_path")
-            path = Path(resolved_config_path)
-            if not path.exists():
-                raise RuntimeServiceError(f"resolved config 不存在: {resolved_config_path}")
-            return {
-                "path": resolved_config_path,
-                "content": path.read_text(encoding="utf-8"),
-            }
+            try:
+                return workflow_runtime_ops.get_run_resolved_config(self, project_id=project_id, run_id=run_id)
+            except (RuntimeError, ValueError) as exc:
+                raise RuntimeServiceError(str(exc)) from exc
 
     def doctor_server(self, *, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -521,21 +423,45 @@ class RuntimeService:
                 updates.append("summary = ?")
                 values.append(str(patch.get("summary") or "").strip())
 
-            if not updates:
+            workflow_patch = patch.get("workflow")
+            if workflow_patch is not None and not isinstance(workflow_patch, dict):
+                raise RuntimeServiceError("workflow patch must be an object")
+
+            if not updates and workflow_patch is None:
                 raise RuntimeServiceError("task patch is empty")
 
-            now = time.time()
-            updates.append("updated_at = ?")
-            values.append(now)
-            updates.append("last_activity_at = ?")
-            values.append(now)
-            values.extend([project_id, task_id])
-            cursor = self._project_manager.db.execute(
-                f"UPDATE tasks SET {', '.join(updates)} WHERE project_id = ? AND task_id = ?",
-                tuple(values),
-            )
-            if cursor.rowcount <= 0:
-                raise RuntimeServiceError(f"Task not found: {task_id}")
+            cursor = None
+            if updates:
+                now = time.time()
+                updates.append("updated_at = ?")
+                values.append(now)
+                updates.append("last_activity_at = ?")
+                values.append(now)
+                values.extend([project_id, task_id])
+                cursor = self._project_manager.db.execute(
+                    f"UPDATE tasks SET {', '.join(updates)} WHERE project_id = ? AND task_id = ?",
+                    tuple(values),
+                )
+                if cursor.rowcount <= 0:
+                    raise RuntimeServiceError(f"Task not found: {task_id}")
+            else:
+                self._assert_task_exists(project_id=project_id, task_id=task_id)
+            if isinstance(workflow_patch, dict):
+                workflow_runtime_ops.upsert_task_workflow_snapshot(
+                    self,
+                    project_id=project_id,
+                    task_id=task_id,
+                    workflow_payload=self._build_workflow_spec(workflow_patch).to_dict(),
+                )
+                now = time.time()
+                self._project_manager.db.execute(
+                    """
+                    UPDATE tasks
+                    SET updated_at = ?, last_activity_at = ?
+                    WHERE project_id = ? AND task_id = ?
+                    """,
+                    (now, now, project_id, task_id),
+                )
             self._project_manager.db.commit()
             return self.get_task(project_id=project_id, task_id=task_id)
 
@@ -1847,38 +1773,6 @@ class RuntimeService:
             data_refs=[str(item) for item in data_refs],
             resume=bool(launch.get("resume", True)),
         )
-
-    def _load_workflow_runs(self, project_id: str) -> dict[str, dict[str, Any]]:
-        project_dir = self._project_manager.current_project_dir
-        if project_dir is None:
-            raise RuntimeServiceError("Current project directory is not available")
-        rows: dict[str, dict[str, Any]] = {}
-        for run_id, payload in load_project_run_records(project_dir).items():
-            if payload.get("project_id") == project_id:
-                rows[run_id] = payload
-        for run_id, payload in self._workflow_runs.items():
-            if payload.get("project_id") == project_id:
-                rows[run_id] = payload
-        self._workflow_runs.update(rows)
-        return rows
-
-    def _get_workflow_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
-        normalized_run_id = str(run_id or "").strip()
-        if not normalized_run_id:
-            raise RuntimeServiceError("run_id is required")
-        rows = self._load_workflow_runs(project_id)
-        row = rows.get(normalized_run_id)
-        if row is None:
-            raise RuntimeServiceError(f"Run not found: {run_id}")
-        self._workflow_runs[normalized_run_id] = row
-        return row
-
-    def _persist_workflow_run(self, row: dict[str, Any]) -> None:
-        local_run_dir = str(row.get("local_run_dir") or "").strip()
-        if not local_run_dir:
-            raise RuntimeServiceError(f"Workflow run {row.get('run_id') or '<unknown>'} is missing local_run_dir")
-        record_path = str(Path(local_run_dir) / "run_record.json")
-        persist_run_record(record_path, row)
 
     def _workflow_backend_for_row(self, row: dict[str, Any]) -> LocalSSHBackend | SlurmSSHBackend:
         profile_payload = row.get("profile", {})

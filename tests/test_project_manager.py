@@ -81,7 +81,7 @@ class TestCreateProject:
         project_id = pm.create_project("Schema 测试")
         db_path = pm._projects_root / project_id / "project.db"
         conn = sqlite3.connect(str(db_path))
-        # 检查四张表都存在
+        # 检查核心表都存在
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
@@ -90,6 +90,10 @@ class TestCreateProject:
         assert "execution_io" in table_names
         assert "executions" in table_names
         assert "samples" in table_names
+        assert "tasks" in table_names
+        assert "workflow_snapshots" in table_names
+        assert "workflow_runs" in table_names
+        assert "workflow_results" in table_names
         conn.close()
 
     def test_create_project_saves_index(self, pm: ProjectManager) -> None:
@@ -337,7 +341,74 @@ class TestSchema:
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
         table_names = [t[0] for t in tables]
-        assert sorted(table_names) == ["data_items", "execution_io", "executions", "samples"]
+        assert sorted(table_names) == [
+            "data_items",
+            "execution_io",
+            "executions",
+            "samples",
+            "tasks",
+            "workflow_results",
+            "workflow_runs",
+            "workflow_snapshots",
+        ]
+        conn.close()
+
+    def test_schema_workflow_run_constraints(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript(_SCHEMA_SQL)
+        conn.execute(
+            """
+            INSERT INTO tasks (
+                task_id, project_id, title, description, status,
+                created_at, updated_at, last_activity_at, latest_execution_id, summary, result_snapshot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("task_1", "proj_1", "任务", "", "pending", 1.0, 1.0, 1.0, None, "", "{}"),
+        )
+        conn.execute(
+            """
+            INSERT INTO workflow_snapshots (
+                workflow_snapshot_id, project_id, task_id, workflow_id, name, version,
+                workflow_definition_json, params_schema_json, workflow_hash, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("ws_1", "proj_1", "task_1", "wf_1", "WF", "0.1.0", "{}", "{}", "hash-1", 1.0, 1.0),
+        )
+        conn.execute(
+            "INSERT INTO executions (execution_id, task_id, tool_id, parameters, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("exec_1", "task_1", "workflow:wf_1", "{}", "pending", 1.0),
+        )
+        conn.execute(
+            """
+            INSERT INTO workflow_runs (
+                run_id, project_id, task_id, workflow_snapshot_id, execution_id, workflow_id, profile_id,
+                status, snapshot_hash, snapshot_payload_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("run_1", "proj_1", "task_1", "ws_1", "exec_1", "wf_1", "profile_1", "pending", "hash-1", "{}", 1.0, 1.0),
+        )
+        conn.commit()
+
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO workflow_runs (
+                    run_id, project_id, task_id, workflow_snapshot_id, execution_id, workflow_id, profile_id,
+                    status, snapshot_hash, snapshot_payload_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("run_2", "proj_1", "task_1", "ws_1", "exec_1", "wf_1", "profile_1", "pending", "hash-2", "{}", 1.0, 1.0),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO workflow_results (
+                    workflow_result_id, project_id, task_id, workflow_run_id, result_kind, summary_json, result_path, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("res_missing", "proj_1", "task_1", "missing_run", "artifacts", "{}", "", 1.0, 1.0),
+            )
         conn.close()
 
     def test_schema_status_check_constraint(self) -> None:
@@ -444,3 +515,10 @@ class TestSchema:
         assert "idx_exec_status_tool_completed" in names
         assert "idx_data_sample_type_tier_created" in names
         assert "idx_eio_exec_dir" in names
+        assert "idx_tasks_project_activity" in names
+        assert "idx_workflow_snapshots_task" in names
+        assert "idx_workflow_runs_project_created" in names
+        assert "idx_workflow_runs_task_created" in names
+        assert "idx_workflow_runs_execution" in names
+        assert "idx_workflow_results_run_created" in names
+        assert "idx_workflow_results_task_created" in names
