@@ -190,6 +190,27 @@ if not exist "%LOCAL_CONDA_EXE%" (
     endlocal & exit /b 1
 )
 
+if not exist "%RUN_LOCAL_API_DEV%" (
+    echo [ERROR] API launcher script not found: %RUN_LOCAL_API_DEV%
+    pause
+    endlocal & exit /b 1
+)
+
+echo [INFO] Checking local API server on 127.0.0.1:8765...
+cmd /c "netstat -ano | findstr :8765 | findstr LISTENING >nul"
+if errorlevel 1 (
+    echo [INFO] API server not running. Starting local backend window with conda env %LOCAL_CONDA_ENV%...
+    ver >nul
+    start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
+    if errorlevel 1 (
+        echo [ERROR] Failed to open API terminal window.
+        pause
+        endlocal & exit /b 1
+    )
+) else (
+    echo [INFO] Reusing existing API server on %API_URL%
+)
+
 "%DESKTOP_EXE%"
 set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
