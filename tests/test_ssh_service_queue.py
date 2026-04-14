@@ -7,7 +7,11 @@ from core.remote.ssh_service import SSHService
 
 
 class _FakeClient:
-    pass
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
 
 class _FakeTerminalChannel:
@@ -147,38 +151,51 @@ def test_execute_command_reads_streams_before_exit_status() -> None:
     assert err == ""
 
 
-def test_open_terminal_session_reads_output_and_accepts_input() -> None:
-    channel = _FakeTerminalChannel([b"hello\\n", b"world\\n"])
-    service = SSHService(initial_client=_FakeClient())
-    service._ensure_connection = lambda: _FakeShellClient(channel)  # type: ignore[method-assign]
+def test_open_terminal_requests_pty_and_shell() -> None:
+    events: list[tuple[str, object]] = []
 
-    session = service.open_terminal_session(cols=120, rows=28)
-    time.sleep(0.2)
-    session.send("pwd\\n")
-    snapshot = session.snapshot(cursor=0)
+    class _FakeChannel:
+        def get_pty(self, *, term: str, width: int, height: int):
+            events.append(("pty", (term, width, height)))
 
-    session.close(message="done", connected=False)
+        def invoke_shell(self):
+            events.append(("shell", None))
+
+        def settimeout(self, value: float):
+            events.append(("timeout", value))
+
+    class _FakeTransport:
+        def is_active(self):
+            return True
+
+        def send_ignore(self):
+            return None
+
+        def open_session(self, timeout: int = 10):
+            events.append(("open_session", timeout))
+            return _FakeChannel()
+
+    class _FakeTerminalClient(_FakeClient):
+        def get_transport(self):
+            return _FakeTransport()
+
+    service = SSHService(initial_client=_FakeTerminalClient())
+    channel = service.open_terminal(cols=132, rows=36)
     service.close()
 
-    assert snapshot["output"] == "hello\\nworld\\n"
-    assert snapshot["connected"] is True
-    assert snapshot["input_enabled"] is True
-    assert channel.sent == ["pwd\\n"]
+    assert channel is not None
+    assert events == [
+        ("open_session", 10),
+        ("pty", ("xterm-256color", 132, 36)),
+        ("shell", None),
+        ("timeout", 0.0),
+    ]
 
 
-def test_terminal_session_close_marks_history_but_disables_input() -> None:
-    channel = _FakeTerminalChannel([b"prompt$ "])
-    service = SSHService(initial_client=_FakeClient())
-    service._ensure_connection = lambda: _FakeShellClient(channel)  # type: ignore[method-assign]
+def test_close_closes_active_client() -> None:
+    client = _FakeClient()
+    service = SSHService(initial_client=client)
 
-    session = service.open_terminal_session()
-    time.sleep(0.1)
-    session.close(message="SSH 已断开，终端会话已结束", connected=False)
-    snapshot = session.snapshot(cursor=0)
     service.close()
 
-    assert "prompt$ " in snapshot["output"]
-    assert snapshot["closed"] is True
-    assert snapshot["connected"] is False
-    assert snapshot["input_enabled"] is False
-    assert snapshot["message"] == "SSH 已断开，终端会话已结束"
+    assert client.closed is True

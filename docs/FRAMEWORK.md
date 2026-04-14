@@ -30,7 +30,7 @@
 │  │  - /api/v1/workflows/*  - workflow 编译与 bundle 预览                    │  │
 │  │  - /api/v1/runs         - workflow run 提交                              │  │
 │  │  - /api/v1/projects/*/runs - workflow run 查询/取消/产物                │  │
-│  │  - /api/v1/ssh/*        - SSH 连接管理                                   │  │
+│  │  - /api/v1/ssh/*        - SSH 连接管理 + 远程终端会话                    │  │
 │  │  - /api/v1/settings     - 全局设置                                       │  │
 │  └──────────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                           │
@@ -302,12 +302,21 @@
 │  │- _queue             │      ├─────────────────────┤      ├────────────────┤  │
 │  ├─────────────────────┤      │+ scan()             │      │+ create_proj() │  │
 │  │+ run(cmd, timeout)  │      │+ get_descriptor()   │      │+ open_proj()   │  │
-│  │+ upload()           │      │+ list_all_ids()     │      │+ list_proj()   │  │
-│  │+ download()         │      │+ get_index_entry()  │      │+ get_db()      │  │
+│  │+ open_terminal()    │      │+ list_all_ids()     │      │+ list_proj()   │  │
+│  │+ upload()           │      │+ get_index_entry()  │      │+ get_db()      │  │
+│  │+ download()         │      │                     │      │                │  │
 │  └─────────────────────┘      └─────────────────────┘      └────────────────┘  │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### SSH 远程终端面板 v1
+
+- Web 壳层中的 SSH 入口继续由 `apps/web/app/components/ssh-shell.tsx` 承载。
+- 终端入口位于右上角工具区，以底部 drawer 展开，不新增独立 Terminal 页面。
+- 终端能力复用现有 Python `SSHService` 主路径；v1 不引入第二套本地 PTY / Rust SSH 栈。
+- 后端终端能力应围绕 session 生命周期提供：创建 session、读取输出、发送输入、关闭 session。
+- 断开 SSH 时，UI 需保留历史输出并禁用输入；恢复连接后不自动复用旧 session。
 
 ## 6. 配置文件结构
 

@@ -380,6 +380,25 @@ class SSHService(QObject):
         except Exception:
             return []
 
+    def open_terminal(
+        self,
+        *,
+        cols: int = 120,
+        rows: int = 24,
+        term: str = "xterm-256color",
+    ) -> paramiko.Channel:
+        """打开一个绑定当前 SSH 连接的交互式终端 channel。"""
+        with self._io_lock:
+            client = self._ensure_connection()
+            transport = client.get_transport()
+            if transport is None or not transport.is_active():
+                raise RuntimeError("SSH 未连接")
+            channel = transport.open_session(timeout=10)
+            channel.get_pty(term=term, width=max(40, int(cols)), height=max(12, int(rows)))
+            channel.invoke_shell()
+            channel.settimeout(0.0)
+            return channel
+
     def close(self) -> None:
         """Stop queue worker gracefully."""
         if not self._queue_alive:
@@ -388,6 +407,13 @@ class SSHService(QObject):
         self._queue_alive = False
         self._queue.put((_PRIO_USER_INTERACTIVE, self._next_seq(), _STOP))
         self._worker.join(timeout=2.0)
+        client = self._active_client
+        self._active_client = None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                logger.debug("Failed to close SSH client", exc_info=True)
 
     def open_terminal_session(self, *, cols: int = 120, rows: int = 28) -> TerminalSession:
         with self._io_lock:
