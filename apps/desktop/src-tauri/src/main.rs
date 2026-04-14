@@ -177,15 +177,31 @@ fn sibling_sidecar_command() -> Result<Option<BackendCommand>, String> {
     }))
 }
 
-fn dev_repo_backend_command() -> Result<Option<BackendCommand>, String> {
-    let allow_repo_backend = env::var("H2OMETA_ALLOW_REPO_BACKEND")
+fn repo_backend_fallback_setting() -> Option<bool> {
+    env::var("H2OMETA_ALLOW_REPO_BACKEND")
         .ok()
-        .map(|value| value == "1")
-        .unwrap_or(false);
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
+}
+
+fn dev_repo_backend_command() -> Result<Option<BackendCommand>, String> {
+    let explicit_setting = repo_backend_fallback_setting();
+    let allow_repo_backend = explicit_setting.unwrap_or(cfg!(debug_assertions));
     if !allow_repo_backend {
         return Ok(None);
     }
-    let workdir = repo_backend_workdir()?;
+    let workdir = match repo_backend_workdir() {
+        Ok(path) => path,
+        Err(err) => {
+            if explicit_setting == Some(true) {
+                return Err(err);
+            }
+            return Ok(None);
+        }
+    };
     Ok(Some(BackendCommand {
         program: String::new(),
         args: vec![],
@@ -281,7 +297,7 @@ fn spawn_backend() -> Result<SpawnedBackend, String> {
         return spawn_repo_backend(workdir);
     }
     Err(
-        "no desktop backend launch target configured; set H2OMETA_BACKEND_EXE, bundle a sibling h2ometa-api sidecar, or opt into dev fallback with H2OMETA_ALLOW_REPO_BACKEND=1".to_string(),
+        "no desktop backend launch target configured; set H2OMETA_BACKEND_EXE, bundle a sibling h2ometa-api sidecar, or run a debug/dev desktop build from the repo root (auto repo-backend fallback) / opt into fallback explicitly with H2OMETA_ALLOW_REPO_BACKEND=1".to_string(),
     )
 }
 
