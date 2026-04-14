@@ -11,8 +11,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import type { FitAddon } from "@xterm/addon-fit";
 import { open } from "@tauri-apps/plugin-dialog";
 import { usePathname, useRouter } from "next/navigation";
+import type { Terminal as XTermTerminal } from "@xterm/xterm";
 import { Ellipsis, GripHorizontal, Link2, Terminal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -151,8 +153,15 @@ function readStoredTerminalHeight(): number {
 export function SshShellProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const terminalViewportRef = useRef<HTMLPreElement | null>(null);
+  const terminalViewportRef = useRef<HTMLDivElement | null>(null);
+  const xtermRef = useRef<XTermTerminal | null>(null);
+  const xtermFitRef = useRef<FitAddon | null>(null);
+  const terminalRenderedOutputRef = useRef("");
   const terminalCursorRef = useRef(0);
+  const terminalSessionIdRef = useRef<string | null>(null);
+  const terminalInputEnabledRef = useRef(false);
+  const terminalMessageRef = useRef("");
+  const terminalInputQueueRef = useRef<Promise<void>>(Promise.resolve());
   const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const [status, setStatus] = useState<SSHStatus | null>(null);
@@ -172,7 +181,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [terminalInputEnabled, setTerminalInputEnabled] = useState(false);
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [terminalError, setTerminalError] = useState("");
-  const [terminalCommand, setTerminalCommand] = useState("");
 
   const applyTerminalSnapshot = useCallback((item: TerminalSnapshot, mode: "replace" | "append" = "append") => {
     terminalCursorRef.current = item.cursor || 0;
@@ -187,6 +195,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetTerminalState = useCallback(() => {
+    terminalRenderedOutputRef.current = "";
     terminalCursorRef.current = 0;
     setTerminalSessionId(null);
     setTerminalOutput("");
@@ -195,7 +204,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setTerminalInputEnabled(false);
     setTerminalBusy(false);
     setTerminalError("");
-    setTerminalCommand("");
   }, []);
 
   const fetchStatus = useCallback(
@@ -245,15 +253,16 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   }, [terminalHeight]);
 
   useEffect(() => {
-    if (!terminalOpen) {
-      return;
-    }
-    const node = terminalViewportRef.current;
-    if (!node) {
-      return;
-    }
-    node.scrollTop = node.scrollHeight;
-  }, [terminalOpen, terminalOutput]);
+    terminalSessionIdRef.current = terminalSessionId;
+  }, [terminalSessionId]);
+
+  useEffect(() => {
+    terminalInputEnabledRef.current = terminalInputEnabled;
+  }, [terminalInputEnabled]);
+
+  useEffect(() => {
+    terminalMessageRef.current = terminalMessage;
+  }, [terminalMessage]);
 
   useEffect(() => {
     if (status?.connected || !terminalOpen) {
@@ -263,6 +272,130 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setTerminalInputEnabled(false);
     setTerminalMessage("SSH 已断开，终端会话已结束");
   }, [status?.connected, terminalOpen]);
+
+  useEffect(() => {
+    const syncOutput = (fullOutput: string) => {
+      const terminal = xtermRef.current;
+      if (!terminal) {
+        return;
+      }
+      const previous = terminalRenderedOutputRef.current;
+      if (fullOutput.startsWith(previous)) {
+        const chunk = fullOutput.slice(previous.length);
+        if (chunk) {
+          void terminal.write(chunk);
+        }
+      } else {
+        terminal.reset();
+        if (fullOutput) {
+          void terminal.write(fullOutput);
+        }
+      }
+      terminalRenderedOutputRef.current = fullOutput;
+      terminal.scrollToBottom();
+    };
+
+    syncOutput(terminalOutput);
+  }, [terminalOutput]);
+
+  useEffect(() => {
+    xtermRef.current?.options.disableStdin = !terminalInputEnabled;
+  }, [terminalInputEnabled]);
+
+  useEffect(() => {
+    if (!terminalOpen) {
+      return;
+    }
+    const fit = () => xtermFitRef.current?.fit();
+    fit();
+    const raf = window.requestAnimationFrame(fit);
+    return () => window.cancelAnimationFrame(raf);
+  }, [terminalHeight, terminalOpen]);
+
+  const queueTerminalInput = useCallback((data: string) => {
+    const activeSessionId = terminalSessionIdRef.current;
+    if (!activeSessionId) {
+      setTerminalError("终端会话尚未建立");
+      return;
+    }
+    if (!terminalInputEnabledRef.current) {
+      setTerminalError(terminalMessageRef.current || "SSH 已断开，终端会话已结束");
+      return;
+    }
+    setTerminalError("");
+    terminalInputQueueRef.current = terminalInputQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${activeSessionId}/input`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+        await readJsonOrThrow(resp);
+      })
+      .catch((error) => {
+        setTerminalError(normalizeFetchError(error) || "发送终端输入失败");
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!terminalOpen || !terminalViewportRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    let disposeData: { dispose: () => void } | null = null;
+
+    void (async () => {
+      const [{ FitAddon }, { Terminal }] = await Promise.all([import("@xterm/addon-fit"), import("@xterm/xterm")]);
+      if (cancelled || !terminalViewportRef.current) {
+        return;
+      }
+
+      const nextTerminal = new Terminal({
+        convertEol: true,
+        cursorBlink: true,
+        cursorStyle: "block",
+        disableStdin: !terminalInputEnabledRef.current,
+        fontFamily: '"SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        fontSize: 13,
+        lineHeight: 1.4,
+        theme: {
+          background: "#ffffff",
+          foreground: "#0f172a",
+          cursor: "#0f172a",
+          selectionBackground: "#cbd5e1",
+        },
+      });
+      const nextFitAddon = new FitAddon();
+      nextTerminal.loadAddon(nextFitAddon);
+      nextTerminal.open(terminalViewportRef.current);
+      nextFitAddon.fit();
+      xtermRef.current = nextTerminal;
+      xtermFitRef.current = nextFitAddon;
+      terminalRenderedOutputRef.current = "";
+      if (terminalOutput) {
+        void nextTerminal.write(terminalOutput);
+        terminalRenderedOutputRef.current = terminalOutput;
+        nextTerminal.scrollToBottom();
+      }
+      nextTerminal.focus();
+      disposeData = nextTerminal.onData((data) => {
+        queueTerminalInput(data);
+      });
+    })().catch((error) => {
+      setTerminalError(error instanceof Error ? error.message : "终端初始化失败");
+    });
+
+    return () => {
+      cancelled = true;
+      disposeData?.dispose();
+      xtermRef.current?.dispose();
+      xtermRef.current = null;
+      xtermFitRef.current = null;
+      terminalRenderedOutputRef.current = "";
+    };
+  }, [queueTerminalInput, terminalOpen, terminalOutput]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -488,36 +621,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     }
   }, [router, terminalOpen]);
 
-  const submitTerminalCommand = useCallback(async () => {
-    if (!terminalSessionId) {
-      setTerminalError("终端会话尚未建立");
-      return;
-    }
-    if (!terminalInputEnabled) {
-      setTerminalError(terminalMessage || "SSH 已断开，终端会话已结束");
-      return;
-    }
-    const trimmed = terminalCommand.replace(/\r?\n/g, "");
-    if (!trimmed.trim()) {
-      return;
-    }
-    setTerminalBusy(true);
-    setTerminalError("");
-    try {
-      await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}/input`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: `${trimmed}\n` }),
-      }).then(readJsonOrThrow);
-      setTerminalOutput((current) => `${current}${trimmed}\n`);
-      setTerminalCommand("");
-    } catch (error) {
-      setTerminalError(normalizeFetchError(error) || "发送终端命令失败");
-    } finally {
-      setTerminalBusy(false);
-    }
-  }, [terminalCommand, terminalInputEnabled, terminalMessage, terminalSessionId]);
-
   const value = useMemo<SshShellContextValue>(
     () => ({
       status,
@@ -649,7 +752,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                       <div className="flex h-full flex-col">
                         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2">
                           <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-600">终端 PowerShell</p>
+                            <p className="text-xs font-medium text-slate-600">远程终端 · 当前服务器</p>
                             <p className="truncate text-xs text-slate-400">
                               {status?.connected
                                 ? `${status.user}@${status.host}:${status.port}`
@@ -674,33 +777,12 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                           <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm text-slate-500">{terminalMessage}</div>
                         ) : null}
 
-                        <pre
+                        <div
                           ref={terminalViewportRef}
-                          className="flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 text-slate-700"
-                        >
-                          {terminalOutput || "终端已就绪，输入命令后按 Enter 执行。"}
-                        </pre>
-
-                        <form
-                          className="border-t border-slate-100 bg-white px-4 py-3"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void submitTerminalCommand();
-                          }}
-                        >
-                          <div className="font-mono text-sm text-slate-700">
-                            <div className="flex items-center gap-2">
-                              <span className="shrink-0 text-slate-500">{terminalConnected ? ">" : "×"}</span>
-                              <input
-                                value={terminalCommand}
-                                onChange={(event) => setTerminalCommand(event.target.value)}
-                                disabled={!terminalInputEnabled}
-                                placeholder={terminalInputEnabled ? "" : "SSH 已断开，终端会话已结束"}
-                                className="min-w-0 flex-1 bg-transparent text-slate-800 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:text-slate-400"
-                              />
-                            </div>
-                          </div>
-                        </form>
+                          className="flex-1 overflow-hidden px-4 py-3"
+                          data-terminal-connected={terminalConnected ? "true" : "false"}
+                          data-terminal-input-enabled={terminalInputEnabled ? "true" : "false"}
+                        />
                       </div>
                     </section>
                   </>
