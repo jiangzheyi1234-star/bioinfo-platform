@@ -1,6 +1,5 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "tailwindcss";
-@import "@xterm/xterm/css/xterm.css";
 
 @source "../app";
 @source "../components";
