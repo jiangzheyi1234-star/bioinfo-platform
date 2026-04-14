@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArchiveBoxIcon, EllipsisHorizontalIcon, FolderIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { ArchiveBoxIcon, EllipsisHorizontalIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 
 import type { Project, Task } from "./detection_workspace_types";
 
@@ -75,10 +75,10 @@ export function ProjectSidebarSection({
   return (
     <section className="sidebar-project-section" aria-label="项目和任务">
       <div className="sidebar-project-head">
-        <span className="sidebar-project-title">
-          <FolderIcon className="sidebar-project-title-icon" />
-          <span>Project / Task</span>
-        </span>
+        <div className="sidebar-project-head-copy">
+          <span className="sidebar-project-title">Projects</span>
+          <span className="sidebar-project-count">{projects.length}</span>
+        </div>
         <button
           type="button"
           className="sidebar-project-create-btn"
@@ -195,6 +195,10 @@ export function ProjectSidebarSection({
               </div>
               {activeProject ? (
                 <>
+                  <div className="sidebar-project-subhead">
+                    <span className="sidebar-project-subtitle">Tasks</span>
+                    <span className="sidebar-project-subcount">{tasks.length}</span>
+                  </div>
                   {taskCreatorOpen ? (
                     <div className="sidebar-project-creator" aria-label="新建任务表单">
                       <label className="sidebar-project-field">
@@ -234,7 +238,7 @@ export function ProjectSidebarSection({
                       </div>
                     </div>
                   ) : (
-                    <div className="sidebar-project-creator-actions" style={{ marginLeft: 18, marginBottom: 6 }}>
+                    <div className="sidebar-project-creator-actions sidebar-project-task-actions">
                       <button
                         type="button"
                         className="sidebar-project-inline-action"
