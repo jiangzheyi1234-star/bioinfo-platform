@@ -74,6 +74,8 @@ type XTermLike = {
   dispose: () => void;
   loadAddon: (addon: FitAddonLike) => void;
   onData: (handler: (data: string) => void) => TerminalDisposable;
+  cols?: number;
+  rows?: number;
   options: {
     disableStdin?: boolean;
   };
@@ -365,32 +367,33 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         convertEol: false,
         cursorBlink: true,
         fontFamily:
-          '"SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+          '"JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
         fontSize: 13,
-        lineHeight: 1.35,
+        lineHeight: 1.4,
         scrollback: 4000,
         theme: {
-          background: "#0b1020",
-          foreground: "#e2e8f0",
-          cursor: "#f8fafc",
+          background: "#ffffff",
+          foreground: "#334155",
+          cursor: "#2563eb",
+          selectionBackground: "#dbeafe",
           black: "#0f172a",
-          red: "#f87171",
-          green: "#4ade80",
-          yellow: "#facc15",
-          blue: "#60a5fa",
-          magenta: "#c084fc",
-          cyan: "#22d3ee",
+          red: "#dc2626",
+          green: "#15803d",
+          yellow: "#ca8a04",
+          blue: "#2563eb",
+          magenta: "#9333ea",
+          cyan: "#0891b2",
           white: "#e2e8f0",
-          brightBlack: "#475569",
-          brightRed: "#fca5a5",
-          brightGreen: "#86efac",
-          brightYellow: "#fde68a",
-          brightBlue: "#93c5fd",
-          brightMagenta: "#d8b4fe",
-          brightCyan: "#67e8f9",
+          brightBlack: "#64748b",
+          brightRed: "#ef4444",
+          brightGreen: "#22c55e",
+          brightYellow: "#eab308",
+          brightBlue: "#3b82f6",
+          brightMagenta: "#a855f7",
+          brightCyan: "#06b6d4",
           brightWhite: "#f8fafc",
         },
-      });
+      }) as unknown as XTermLike;
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(node);
@@ -804,27 +807,29 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
                 {terminalOpen ? (
                   <>
-                    <div className="flex h-3 items-center justify-center border-t border-slate-200 bg-white">
+                    <div className="relative h-px bg-slate-200">
                       <button
                         type="button"
                         aria-label="调整终端高度"
                         onPointerDown={beginTerminalResize}
-                        className="inline-flex h-3 w-full cursor-row-resize items-center justify-center text-slate-300 transition hover:text-slate-500"
+                        className="absolute inset-x-0 -top-2 inline-flex h-4 w-full cursor-row-resize items-center justify-center text-slate-300 transition hover:text-slate-500"
                       >
-                        <GripHorizontal className="h-4 w-4" />
+                        <span className="bg-white px-2">
+                          <GripHorizontal className="h-4 w-4" />
+                        </span>
                       </button>
                     </div>
 
                     <section
-                      className="border-t border-slate-200 bg-white"
+                      className="bg-white"
                       style={{ height: `${terminalHeight}px` }}
                       aria-label="远程终端 · 当前服务器"
                     >
                       <div className="flex h-full flex-col">
-                        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2">
+                        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-2">
                           <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-600">远程终端 · 当前服务器</p>
-                            <p className="truncate text-xs text-slate-400">
+                            <p className="text-xs font-medium text-slate-600">终端</p>
+                            <p className="truncate text-[11px] text-slate-400">
                               {status?.connected
                                 ? `${status.user}@${status.host}:${status.port}`
                                 : terminalMessage || "SSH 已断开，终端会话已结束"}
@@ -844,40 +849,22 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                           <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-600">{terminalError}</div>
                         ) : null}
 
-                        {terminalMessage ? (
-                          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm text-slate-500">{terminalMessage}</div>
-                        ) : null}
-
-                        <div className="relative flex-1 overflow-hidden bg-[#0b1020]">
+                        <div className="relative flex-1 overflow-hidden bg-white">
                           {!terminalSessionId && terminalBusy ? (
                             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm text-slate-400">
                               正在建立远程终端会话…
                             </div>
                           ) : null}
-                          {!terminalOutput && !terminalBusy ? (
-                            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 px-4 text-xs text-slate-500">
-                              {terminalInputEnabled
-                                ? "直接在终端区域内输入命令，按 Enter 执行。"
-                                : terminalMessage || "等待终端会话建立…"}
-                            </div>
-                          ) : null}
                           <div
                             ref={terminalViewportRef}
                             className={cn(
-                              "ssh-terminal h-full w-full px-4 py-3",
+                              "ssh-terminal h-full w-full",
                               terminalInputEnabled ? "cursor-text" : "cursor-not-allowed opacity-90"
                             )}
                           />
                           {!terminalInputEnabled ? (
-                            <div className="absolute inset-0 bg-slate-950/10" aria-hidden="true" />
+                            <div className="absolute inset-0 bg-white/55" aria-hidden="true" />
                           ) : null}
-                        </div>
-
-                        <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
-                          <div className="flex items-center justify-between gap-3">
-                            <span>{terminalConnected ? "已连接，可直接在终端区域输入。" : "输入已禁用。"}</span>
-                            <span className="shrink-0">{terminalSessionId ? `Session: ${terminalSessionId}` : "Session: --"}</span>
-                          </div>
                         </div>
                       </div>
                     </section>
