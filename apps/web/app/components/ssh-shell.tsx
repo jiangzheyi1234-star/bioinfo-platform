@@ -12,9 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { FitAddon } from "@xterm/addon-fit";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Terminal as XTerm } from "@xterm/xterm";
 import { usePathname, useRouter } from "next/navigation";
 import { Ellipsis, GripHorizontal, Link2, Terminal as TerminalIcon, X } from "lucide-react";
 
@@ -62,9 +60,28 @@ type TerminalSnapshot = {
   closed_at: number | null;
 };
 
+type TerminalDisposable = { dispose: () => void };
+
+type FitAddonLike = {
+  fit: () => void;
+};
+
+type XTermLike = {
+  open: (element: HTMLElement) => void;
+  write: (data: string) => void;
+  reset: () => void;
+  focus: () => void;
+  dispose: () => void;
+  loadAddon: (addon: FitAddonLike) => void;
+  onData: (handler: (data: string) => void) => TerminalDisposable;
+  options: {
+    disableStdin?: boolean;
+  };
+};
+
 type TerminalHandle = {
-  terminal: XTerm;
-  fitAddon: FitAddon;
+  terminal: XTermLike;
+  fitAddon: FitAddonLike;
 };
 
 type SshShellContextValue = {
@@ -331,59 +348,80 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     if (!node) {
       return;
     }
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
 
-    const terminal = new XTerm({
-      allowProposedApi: false,
-      convertEol: false,
-      cursorBlink: true,
-      fontFamily:
-        '"SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      fontSize: 13,
-      lineHeight: 1.35,
-      scrollback: 4000,
-      theme: {
-        background: "#0b1020",
-        foreground: "#e2e8f0",
-        cursor: "#f8fafc",
-        black: "#0f172a",
-        red: "#f87171",
-        green: "#4ade80",
-        yellow: "#facc15",
-        blue: "#60a5fa",
-        magenta: "#c084fc",
-        cyan: "#22d3ee",
-        white: "#e2e8f0",
-        brightBlack: "#475569",
-        brightRed: "#fca5a5",
-        brightGreen: "#86efac",
-        brightYellow: "#fde68a",
-        brightBlue: "#93c5fd",
-        brightMagenta: "#d8b4fe",
-        brightCyan: "#67e8f9",
-        brightWhite: "#f8fafc",
-      },
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(node);
-    fitAddon.fit();
-    terminalHandleRef.current = { terminal, fitAddon };
-    renderedTerminalOutputRef.current = "";
+    void (async () => {
+      const [{ Terminal }, { FitAddon }] = await Promise.all([
+        import("@xterm/xterm"),
+        import("@xterm/addon-fit"),
+      ]);
+      if (disposed) {
+        return;
+      }
 
-    const inputDisposable = terminal.onData((data) => {
-      queueTerminalInput(data);
+      const terminal = new Terminal({
+        allowProposedApi: false,
+        convertEol: false,
+        cursorBlink: true,
+        fontFamily:
+          '"SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        fontSize: 13,
+        lineHeight: 1.35,
+        scrollback: 4000,
+        theme: {
+          background: "#0b1020",
+          foreground: "#e2e8f0",
+          cursor: "#f8fafc",
+          black: "#0f172a",
+          red: "#f87171",
+          green: "#4ade80",
+          yellow: "#facc15",
+          blue: "#60a5fa",
+          magenta: "#c084fc",
+          cyan: "#22d3ee",
+          white: "#e2e8f0",
+          brightBlack: "#475569",
+          brightRed: "#fca5a5",
+          brightGreen: "#86efac",
+          brightYellow: "#fde68a",
+          brightBlue: "#93c5fd",
+          brightMagenta: "#d8b4fe",
+          brightCyan: "#67e8f9",
+          brightWhite: "#f8fafc",
+        },
+      });
+      const fitAddon = new FitAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.open(node);
+      fitAddon.fit();
+      terminalHandleRef.current = { terminal, fitAddon };
+      renderedTerminalOutputRef.current = "";
+
+      const inputDisposable = terminal.onData((data) => {
+        queueTerminalInput(data);
+      });
+      const focusTimer = window.setTimeout(() => terminal.focus(), 0);
+      const handleWindowResize = () => fitAddon.fit();
+      window.addEventListener("resize", handleWindowResize);
+
+      cleanup = () => {
+        window.clearTimeout(focusTimer);
+        inputDisposable.dispose();
+        window.removeEventListener("resize", handleWindowResize);
+        terminalHandleRef.current = null;
+        renderedTerminalOutputRef.current = "";
+        terminal.dispose();
+      };
+    })().catch((error: unknown) => {
+      if (!disposed) {
+        setTerminalError(normalizeFetchError(error) || "终端初始化失败");
+      }
     });
-    const focusTimer = window.setTimeout(() => terminal.focus(), 0);
-    const handleWindowResize = () => fitAddon.fit();
-    window.addEventListener("resize", handleWindowResize);
 
     return () => {
-      window.clearTimeout(focusTimer);
-      inputDisposable.dispose();
-      window.removeEventListener("resize", handleWindowResize);
-      terminalHandleRef.current = null;
-      renderedTerminalOutputRef.current = "";
-      terminal.dispose();
+      disposed = true;
+      cleanup?.();
     };
   }, [queueTerminalInput, terminalOpen]);
 
