@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArchiveBoxIcon, EllipsisHorizontalIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 
 import type { Project, Task } from "./detection_workspace_types";
@@ -45,6 +46,38 @@ export function ProjectSidebarSection({
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDescription, setTaskDescription] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const deleteProjectDialog = pendingDeleteProject ? (
+    <div className="workspace-confirm-overlay" role="presentation">
+      <div className="workspace-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
+        <div className="workspace-confirm-copy">
+          <strong id="delete-project-title">确认彻底删除项目“{pendingDeleteProject.name}”吗？</strong>
+          <p>这会同时删除该项目下的任务历史、执行结果和相关文件，且不可恢复。</p>
+        </div>
+        <div className="workspace-confirm-actions">
+          <button
+            type="button"
+            className="control-btn"
+            onClick={() => setPendingDeleteProject(null)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="control-btn workspace-confirm-danger-btn"
+            disabled={projectActionBusyId === pendingDeleteProject.project_id}
+            onClick={() => {
+              const targetProject = pendingDeleteProject;
+              setPendingDeleteProject(null);
+              void onDeleteProject(targetProject.project_id);
+            }}
+          >
+            {projectActionBusyId === pendingDeleteProject.project_id ? "删除中..." : "彻底删除"}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const submitCreate = async () => {
     await onCreateProject(projectName, projectDescription);
@@ -280,37 +313,7 @@ export function ProjectSidebarSection({
           );
         })}
       </div>
-      {pendingDeleteProject ? (
-        <div className="workspace-confirm-overlay" role="presentation">
-          <div className="workspace-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
-            <div className="workspace-confirm-copy">
-              <strong id="delete-project-title">确认彻底删除项目“{pendingDeleteProject.name}”吗？</strong>
-              <p>这会同时删除该项目下的任务历史、执行结果和相关文件，且不可恢复。</p>
-            </div>
-            <div className="workspace-confirm-actions">
-              <button
-                type="button"
-                className="control-btn"
-                onClick={() => setPendingDeleteProject(null)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="control-btn workspace-confirm-danger-btn"
-                disabled={projectActionBusyId === pendingDeleteProject.project_id}
-                onClick={() => {
-                  const targetProject = pendingDeleteProject;
-                  setPendingDeleteProject(null);
-                  void onDeleteProject(targetProject.project_id);
-                }}
-              >
-                {projectActionBusyId === pendingDeleteProject.project_id ? "删除中..." : "彻底删除"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {deleteProjectDialog && typeof document !== "undefined" ? createPortal(deleteProjectDialog, document.body) : null}
     </section>
   );
 }
