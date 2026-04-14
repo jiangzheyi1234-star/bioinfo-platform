@@ -52,6 +52,15 @@ class SSHConnectionRequest(BaseModel):
     timeout_sec: int = Field(default=5, ge=1, le=60)
 
 
+class SSHTerminalCreateRequest(BaseModel):
+    cols: int = Field(default=120, ge=40, le=240)
+    rows: int = Field(default=28, ge=12, le=80)
+
+
+class SSHTerminalInputRequest(BaseModel):
+    data: str = Field(min_length=1, max_length=4000)
+
+
 class RemoteEnvInstallRequest(BaseModel):
     target: Literal["miniforge", "tool_env", "workflow_runtime"]
     tool_id: str | None = None

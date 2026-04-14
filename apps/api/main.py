@@ -16,6 +16,8 @@ from apps.api.models import (
     DatabaseInstallRequest,
     RemoteEnvInstallRequest,
     SSHConnectionRequest,
+    SSHTerminalCreateRequest,
+    SSHTerminalInputRequest,
     TaskWorkflowCompileRequest,
     TaskWorkflowRequest,
     UpdateProjectRequest,
@@ -192,6 +194,39 @@ async def disconnect_ssh() -> dict[str, Any]:
     try:
         return {"item": _runtime().disconnect_ssh()}
     except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/terminal/sessions")
+async def create_terminal_session(payload: SSHTerminalCreateRequest | None = None) -> dict[str, Any]:
+    try:
+        request = payload or SSHTerminalCreateRequest()
+        return {"item": _runtime().create_terminal_session(cols=request.cols, rows=request.rows)}
+    except (RuntimeServiceError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/ssh/terminal/sessions/{session_id}")
+async def read_terminal_session(session_id: str, cursor: int = 0) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().read_terminal_session(session_id=session_id, cursor=cursor)}
+    except (RuntimeServiceError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/ssh/terminal/sessions/{session_id}/input")
+async def send_terminal_input(session_id: str, payload: SSHTerminalInputRequest) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().send_terminal_input(session_id=session_id, data=payload.data)}
+    except (RuntimeServiceError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/ssh/terminal/sessions/{session_id}")
+async def close_terminal_session(session_id: str) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().close_terminal_session(session_id=session_id)}
+    except (RuntimeServiceError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

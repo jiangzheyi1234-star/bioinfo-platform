@@ -3,12 +3,14 @@
 提供远程命令执行、文件传输等功能。
 集成 SSHReconnector 实现连接丢失时的自动重连。
 """
-import queue
 import logging
+import queue
+import threading
 import time
 from dataclasses import dataclass
 from threading import Event, RLock, Thread
 from typing import Any, Callable, List, Optional, Tuple
+import uuid
 
 import paramiko
 from core.qt_compat import QObject, pyqtSignal
@@ -21,6 +23,113 @@ _PRIO_USER_INTERACTIVE = 1
 _PRIO_TASK_SUBMIT = 3
 _PRIO_BACKGROUND_POLL = 9
 _STOP = "__SSH_QUEUE_STOP__"
+
+
+class TerminalSession:
+    """Interactive shell session backed by a Paramiko channel."""
+
+    def __init__(self, *, session_id: str, channel: Any):
+        self.session_id = session_id
+        self._channel = channel
+        self._lock = RLock()
+        self._stop = Event()
+        self._output = ""
+        self._closed = False
+        self._connected = True
+        self._input_enabled = True
+        self._message = ""
+        self._created_at = time.time()
+        self._closed_at: float | None = None
+        self._reader = Thread(target=self._reader_loop, daemon=True, name=f"SSHTerminalReader-{session_id}")
+        self._reader.start()
+
+    def snapshot(self, cursor: int = 0) -> dict[str, Any]:
+        with self._lock:
+            safe_cursor = max(0, min(int(cursor or 0), len(self._output)))
+            return {
+                "session_id": self.session_id,
+                "cursor": len(self._output),
+                "output": self._output[safe_cursor:],
+                "connected": self._connected,
+                "input_enabled": self._input_enabled,
+                "closed": self._closed,
+                "message": self._message,
+                "created_at": self._created_at,
+                "closed_at": self._closed_at,
+            }
+
+    def send(self, data: str) -> None:
+        if not data:
+            return
+        with self._lock:
+            if self._closed or not self._input_enabled:
+                raise RuntimeError(self._message or "Terminal session is not writable")
+            try:
+                self._channel.send(data)
+            except Exception as exc:
+                self._mark_closed(message=str(exc) or "Terminal session write failed", connected=False)
+                raise
+
+    def close(self, *, message: str = "终端会话已结束", connected: bool = False) -> None:
+        with self._lock:
+            if self._closed:
+                if message and not self._message:
+                    self._message = message
+                self._connected = self._connected and connected
+                self._input_enabled = self._input_enabled and connected
+                return
+            self._mark_closed(message=message, connected=connected)
+        self._stop.set()
+        try:
+            self._channel.close()
+        except Exception:
+            logger.debug("Failed to close interactive terminal channel", exc_info=True)
+        if self._reader.is_alive() and self._reader is not threading.current_thread():
+            self._reader.join(timeout=0.5)
+
+    def _append_output(self, text: str) -> None:
+        if not text:
+            return
+        with self._lock:
+            self._output += text
+
+    def _mark_closed(self, *, message: str, connected: bool) -> None:
+        self._closed = True
+        self._connected = connected
+        self._input_enabled = False
+        self._message = message
+        self._closed_at = time.time()
+
+    def _reader_loop(self) -> None:
+        try:
+            while not self._stop.is_set():
+                had_data = False
+                while not self._stop.is_set() and getattr(self._channel, "recv_ready", lambda: False)():
+                    chunk = self._channel.recv(4096)
+                    if not chunk:
+                        break
+                    self._append_output(chunk.decode("utf-8", errors="ignore"))
+                    had_data = True
+                while not self._stop.is_set() and getattr(self._channel, "recv_stderr_ready", lambda: False)():
+                    chunk = self._channel.recv_stderr(4096)
+                    if not chunk:
+                        break
+                    self._append_output(chunk.decode("utf-8", errors="ignore"))
+                    had_data = True
+                if getattr(self._channel, "closed", False) or getattr(self._channel, "exit_status_ready", lambda: False)():
+                    if not had_data:
+                        with self._lock:
+                            if not self._closed:
+                                self._mark_closed(message="终端会话已结束", connected=False)
+                        return
+                time.sleep(0.05)
+        except Exception as exc:
+            logger.debug("Interactive terminal reader stopped with error", exc_info=True)
+            with self._lock:
+                if not self._closed:
+                    self._mark_closed(message=str(exc) or "终端会话已结束", connected=False)
+        finally:
+            self._stop.set()
 
 
 @dataclass
@@ -73,6 +182,7 @@ class SSHService(QObject):
         self._queue_alive = True
         self._worker = Thread(target=self._queue_loop, daemon=True, name="SSHServiceQueueWorker")
         self._worker.start()
+        self._terminal_sessions: dict[str, TerminalSession] = {}
 
         # 初始化重连器（仅在提供 connect_fn 时）
         self._reconnector: Optional[SSHReconnector] = None
@@ -141,11 +251,13 @@ class SSHService(QObject):
     def _on_connection_lost(self) -> None:
         """连接丢失回调"""
         logger.warning("SSH 连接已丢失")
+        self.close_terminal_sessions(message="SSH 已断开，终端会话已结束")
         self.connection_status_changed.emit(False)
 
     def _on_reconnect_failed(self, error: str) -> None:
         """重连失败回调"""
         logger.error("SSH 重连最终失败: %s", error)
+        self.close_terminal_sessions(message="SSH 已断开，终端会话已结束")
         self.connection_status_changed.emit(False)
 
     def run(self, cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
@@ -272,9 +384,27 @@ class SSHService(QObject):
         """Stop queue worker gracefully."""
         if not self._queue_alive:
             return
+        self.close_terminal_sessions(message="终端会话已结束")
         self._queue_alive = False
         self._queue.put((_PRIO_USER_INTERACTIVE, self._next_seq(), _STOP))
         self._worker.join(timeout=2.0)
+
+    def open_terminal_session(self, *, cols: int = 120, rows: int = 28) -> TerminalSession:
+        with self._io_lock:
+            client = self._ensure_connection()
+            channel = client.invoke_shell(width=cols, height=rows)
+        session = TerminalSession(session_id=f"term_{uuid.uuid4().hex}", channel=channel)
+        self._terminal_sessions[session.session_id] = session
+        return session
+
+    def close_terminal_sessions(self, *, message: str, connected: bool = False) -> None:
+        sessions = list(self._terminal_sessions.values())
+        self._terminal_sessions.clear()
+        for session in sessions:
+            try:
+                session.close(message=message, connected=connected)
+            except Exception:
+                logger.debug("Failed to close terminal session %s", session.session_id, exc_info=True)
 
     def _next_seq(self) -> int:
         with self._io_lock:
