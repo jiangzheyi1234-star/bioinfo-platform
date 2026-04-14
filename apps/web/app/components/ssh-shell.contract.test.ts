@@ -4,6 +4,9 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const source = readFileSync(resolve(import.meta.dirname, "./ssh-shell.tsx"), "utf-8");
+const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8")) as {
+  dependencies?: Record<string, string>;
+};
 
 test("ssh shell source includes the frozen remote terminal v1 UI copy", () => {
   assert.match(source, /终端|远程终端/);
@@ -22,6 +25,11 @@ test("ssh shell source mounts xterm.js inside the docked terminal buffer", () =>
   assert.doesNotMatch(source, /terminalCommand/);
   assert.doesNotMatch(source, /submitTerminalCommand/);
   assert.doesNotMatch(source, /终端已就绪，输入命令后按 Enter 执行/);
+});
+
+test("ssh shell package declares xterm dependencies", () => {
+  assert.equal(packageJson.dependencies?.["@xterm/xterm"] !== undefined, true);
+  assert.equal(packageJson.dependencies?.["@xterm/addon-fit"] !== undefined, true);
 });
 
 test("ssh shell source stays within the v1 non-goals", () => {

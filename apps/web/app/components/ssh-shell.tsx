@@ -445,7 +445,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   }, [terminalOutput]);
 
   useEffect(() => {
-    xtermRef.current?.options.disableStdin = !terminalInputEnabled;
+    if (xtermRef.current) {
+      xtermRef.current.options.disableStdin = !terminalInputEnabled;
+    }
   }, [terminalInputEnabled]);
 
   useEffect(() => {
@@ -858,8 +860,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   aria-label="远程终端"
-                  title={status?.connected ? "远程终端" : "请先连接远端服务器"}
-                  disabled={!status?.connected}
+                  aria-busy={terminalBusy}
+                  title={status?.connected ? (terminalBusy ? "正在连接远程终端" : "远程终端") : "请先连接远端服务器"}
+                  disabled={!status?.connected || terminalBusy}
                   onClick={() => void (terminalOpen ? closeTerminalPanel() : startTerminalSession())}
                   className={cn(
                     "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-slate-500 transition",
