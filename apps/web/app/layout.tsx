@@ -1,19 +1,14 @@
-import "./globals.css";
-import "./workspace.css";
 import type { ReactNode } from "react";
-import { WorkspaceRootShell } from "./components/workspace_root_shell";
 
 export const metadata = {
-  title: "H2OMeta Desktop Workbench",
-  description: "FastAPI + Next.js + Tauri desktop workbench",
+  title: "H2OMeta Web Reset",
+  description: "Blank frontend baseline for incremental redesign.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>
-        <WorkspaceRootShell>{children}</WorkspaceRootShell>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

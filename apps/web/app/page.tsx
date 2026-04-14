@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-
-export default function HomeRedirect() {
-  redirect("/workspace");
+export default function Page() {
+  return null;
 }

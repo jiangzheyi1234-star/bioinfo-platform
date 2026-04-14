@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-
-export default function ToolflowsRoute() {
-  redirect("/workspace");
+export default function Page() {
+  return null;
 }
