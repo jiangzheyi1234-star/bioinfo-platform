@@ -374,7 +374,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         theme: {
           background: "#ffffff",
           foreground: "#334155",
-          cursor: "#2563eb",
+          cursor: "#64748b",
           selectionBackground: "#dbeafe",
           black: "#0f172a",
           red: "#dc2626",
