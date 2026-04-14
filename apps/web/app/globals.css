@@ -8,6 +8,10 @@
   height: 100%;
 }
 
+.ssh-terminal .xterm-screen {
+  padding: 8px 16px 0 16px;
+}
+
 .ssh-terminal .xterm-viewport {
   overscroll-behavior: contain;
 }
