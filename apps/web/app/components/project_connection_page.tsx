@@ -47,8 +47,6 @@ export function ProjectConnectionPage() {
   const [expandedEnvLogs, setExpandedEnvLogs] = useState<string[]>([]);
   const [preflightExpanded, setPreflightExpanded] = useState(false);
   const [preflightExpandedTouched, setPreflightExpandedTouched] = useState(false);
-  const [remoteEnvExpanded, setRemoteEnvExpanded] = useState(false);
-  const [remoteEnvExpandedTouched, setRemoteEnvExpandedTouched] = useState(false);
 
   const isConnected = sshStatus?.connected === true;
   const canEditForm = !isConnected || isEditingConnection;
@@ -105,19 +103,10 @@ export function ProjectConnectionPage() {
           setEnvInstallSnapshot(null);
         }
       }
-      if (!remoteEnvExpandedTouched) {
-        const shouldExpand =
-          !nextStatus.miniforge.installed ||
-          nextStatus.tool_envs.some((item) => item.status !== "installed");
-        setRemoteEnvExpanded(shouldExpand);
-      }
     } catch (err) {
       setRemoteEnvStatus(null);
       setRemoteEnvLoaded(true);
       setRemoteEnvError(err instanceof Error ? err.message : String(err));
-      if (!remoteEnvExpandedTouched) {
-        setRemoteEnvExpanded(true);
-      }
     } finally {
       if (!options?.silent) {
         setRemoteEnvBusy(false);
@@ -143,7 +132,7 @@ export function ProjectConnectionPage() {
       const data = await readJsonOrThrow(resp);
       const nextJobId = safeText(data?.item?.job_id);
       if (!nextJobId) {
-        throw new Error("Miniforge 安装任务返回缺少 job_id。");
+        throw new Error("Conda Runtime 安装任务返回缺少 job_id。");
       }
       setEnvInstallJobId(nextJobId);
       setExpandedEnvLogs((prev) => (prev.includes("miniforge") ? prev : [...prev, "miniforge"]));
@@ -228,7 +217,7 @@ export function ProjectConnectionPage() {
     })();
   }, [setShellError]);
 
-  const updateSSHField = <K extends keyof SSHSettings>(key: K, value: SSHSettings[K]) => {
+  const updateSSHField = <K extends keyof SSHSettings,>(key: K, value: SSHSettings[K]) => {
     setSSHSettings((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -305,8 +294,6 @@ export function ProjectConnectionPage() {
       setExpandedEnvLogs([]);
       setPreflightExpanded(false);
       setPreflightExpandedTouched(false);
-      setRemoteEnvExpanded(false);
-      setRemoteEnvExpandedTouched(false);
     } catch (err) {
       setShellError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -398,7 +385,7 @@ export function ProjectConnectionPage() {
     };
   }, [envInstallJobId]);
 
-  const miniforgeInstalling =
+  const condaRuntimeInstalling =
     (envInstallBusy && envInstallTarget === "miniforge") ||
     (envInstallJobId.length > 0 && envInstallTarget === "miniforge") ||
     remoteEnvStatus?.miniforge.status === "running" ||
@@ -414,34 +401,18 @@ export function ProjectConnectionPage() {
   const preflightProblemChecks = preflightResult ? preflightResult.checks.filter((check) => check.status !== "ok") : [];
   const preflightHasIssues = !!preflightResult && (preflightProblemChecks.length > 0 || preflightResult.failures.length > 0 || preflightResult.warnings.length > 0 || !preflightResult.ok);
   const preflightPanelVisible = isConnected && (!!preflightError || preflightHasIssues || (preflightBusy && !preflightLoaded));
-  const baseRuntimeMissing = !!remoteEnvStatus && (!remoteEnvStatus.miniforge.installed || miniforgeInstalling || remoteEnvStatus.miniforge.status === "failed");
-  const baseRuntimeIssue = remoteEnvStatus
+  const condaRuntimeIssue = remoteEnvStatus
     ? {
-        key: "miniforge",
-        name: "Miniforge",
-        message: miniforgeInstalling
-          ? `基础运行环境安装中，完成后会继续检测 ${remoteEnvStatus.summary.total} 个工具环境。`
-          : `未检测到基础运行环境，安装后再继续检测 ${remoteEnvStatus.summary.total} 个工具环境。`,
+        key: "conda_runtime",
+        name: "Conda Runtime",
+        message: condaRuntimeInstalling
+          ? "Conda Runtime 安装中，完成后即可作为 workflow conda fallback 使用。"
+          : "未检测到 Conda Runtime。若服务器缺少容器运行时或 workflow 缺少容器元数据，请先安装它。",
         logText: envInstallSnapshot?.log_text || remoteEnvStatus.miniforge.log_text || "",
-        installAction: !miniforgeInstalling,
+        installAction: !condaRuntimeInstalling,
       }
     : null;
-  const toolIssueItems =
-    remoteEnvStatus && !baseRuntimeMissing
-      ? remoteEnvStatus.tool_envs
-          .filter((toolEnv) => toolEnv.status !== "installed")
-          .map((toolEnv) => ({
-            key: toolEnv.tool_id,
-            name: toolEnv.name,
-            status: toolEnv.status,
-            value: toolEnv.version || toolEnv.env_name || toolEnv.tool_id,
-            message: toolEnv.message || toolEnv.env_name || "无额外信息",
-            logText: toolEnv.log_text || "",
-            installAction: false,
-          }))
-      : [];
-  const remoteEnvProblemItems = remoteEnvStatus && !baseRuntimeMissing ? toolIssueItems : [];
-  const remoteEnvHasIssues = !!baseRuntimeIssue || remoteEnvProblemItems.length > 0 || !!remoteEnvError;
+  const remoteEnvHasIssues = !!condaRuntimeIssue || !!remoteEnvError;
 
   return (
     <section className="settings-layout settings-layout--single">
@@ -646,37 +617,21 @@ export function ProjectConnectionPage() {
           <section className="settings-editor-panel connection-panel remote-env-panel">
             <div className="connection-section-head">
               <div className="connection-section-title-wrap">
-                <h2 className="settings-section-title">运行环境</h2>
+                <h2 className="settings-section-title">Runtime Bootstrap</h2>
               </div>
               <div className="settings-actions connection-section-actions">
                 <span className="connection-inline-status muted">
                   {remoteEnvBusy && !remoteEnvLoaded
-                    ? "正在读取运行环境状态"
+                    ? "正在读取 Runtime Bootstrap 状态"
                     : remoteEnvError
                       ? "环境状态读取失败"
                       : remoteEnvHasIssues
-                        ? baseRuntimeMissing
-                          ? (miniforgeInstalling ? "正在安装基础运行环境" : "需要先安装基础运行环境")
-                          : `发现 ${remoteEnvProblemItems.length} 个待处理项`
-                        : `环境已就绪，${remoteEnvStatus?.summary.installed ?? 0} 个环境可用`}
+                        ? (condaRuntimeInstalling ? "正在安装 Conda Runtime" : "Conda Runtime 待安装")
+                        : "Workflow Runtime Bootstrap 已就绪"}
                 </span>
-                <button className="ui-button" type="button" disabled={remoteEnvBusy || miniforgeInstalling} onClick={() => void loadRemoteEnvStatus()}>
+                <button className="ui-button" type="button" disabled={remoteEnvBusy || condaRuntimeInstalling} onClick={() => void loadRemoteEnvStatus()}>
                   {remoteEnvBusy ? "刷新中..." : "刷新状态"}
                 </button>
-                {remoteEnvHasIssues && !baseRuntimeMissing ? (
-                  <button
-                    className="control-btn connection-section-toggle"
-                    type="button"
-                    aria-expanded={remoteEnvExpanded}
-                    onClick={() => {
-                      setRemoteEnvExpandedTouched(true);
-                      setRemoteEnvExpanded((prev) => !prev);
-                    }}
-                  >
-                    <ChevronRightIcon className={`connection-section-toggle-icon${remoteEnvExpanded ? " expanded" : ""}`} />
-                    <span>{remoteEnvExpanded ? "收起问题" : "查看问题"}</span>
-                  </button>
-                ) : null}
               </div>
             </div>
 
@@ -684,61 +639,49 @@ export function ProjectConnectionPage() {
 
             {remoteEnvStatus ? (
               <>
-                {baseRuntimeIssue ? (
+                {condaRuntimeIssue ? (
                   <div className="env-status-list">
                     <article className="env-status-card env-status-card--primary">
                       <div className="env-status-row">
                         <div className="env-status-main">
-                          <strong>{baseRuntimeIssue.name}</strong>
-                          <p className="muted">{baseRuntimeIssue.message}</p>
+                          <strong>{condaRuntimeIssue.name}</strong>
+                          <p className="muted">{condaRuntimeIssue.message}</p>
                         </div>
                         <div className="env-status-side">
-                          {baseRuntimeIssue.installAction ? (
-                            <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
-                              {miniforgeInstalling ? "安装中..." : "安装"}
+                          {condaRuntimeIssue.installAction ? (
+                            <button className="ui-button ui-button--primary" type="button" disabled={condaRuntimeInstalling} onClick={() => void startMiniforgeInstall()}>
+                              {condaRuntimeInstalling ? "安装中..." : "安装 Conda Runtime"}
                             </button>
                           ) : null}
-                          {baseRuntimeIssue.logText ? (
-                            <button className="ui-button" type="button" onClick={() => toggleEnvLog(baseRuntimeIssue.key)}>
-                              {expandedEnvLogs.includes(baseRuntimeIssue.key) ? "收起日志" : "查看日志"}
+                          {condaRuntimeIssue.logText ? (
+                            <button className="ui-button" type="button" onClick={() => toggleEnvLog(condaRuntimeIssue.key)}>
+                              {expandedEnvLogs.includes(condaRuntimeIssue.key) ? "收起日志" : "查看日志"}
                             </button>
                           ) : null}
                         </div>
                       </div>
 
-                      {expandedEnvLogs.includes(baseRuntimeIssue.key) ? <pre className="env-log-block">{baseRuntimeIssue.logText}</pre> : null}
+                      {expandedEnvLogs.includes(condaRuntimeIssue.key) ? <pre className="env-log-block">{condaRuntimeIssue.logText}</pre> : null}
                     </article>
                   </div>
-                ) : remoteEnvExpanded && remoteEnvHasIssues ? (
+                ) : (
                   <div className="env-status-list">
-                    {remoteEnvProblemItems.map((item) => (
-                      <article key={item.key} className="env-status-card">
-                        <div className="env-status-row">
-                          <div className="env-status-main">
-                            <strong>{item.name}</strong>
-                            <p className="muted">{item.message}</p>
-                          </div>
-                          <div className="env-status-side">
-                            {!baseRuntimeMissing ? <span className="status-pill">{item.status}</span> : null}
-                            {!baseRuntimeMissing ? <span className="badge">{item.value}</span> : null}
-                            {item.installAction ? (
-                              <button className="ui-button ui-button--primary" type="button" disabled={miniforgeInstalling} onClick={() => void startMiniforgeInstall()}>
-                                {miniforgeInstalling ? "安装中..." : "安装"}
-                              </button>
-                            ) : null}
-                            {item.logText ? (
-                              <button className="ui-button" type="button" onClick={() => toggleEnvLog(item.key)}>
-                                {expandedEnvLogs.includes(item.key) ? "收起日志" : "查看日志"}
-                              </button>
-                            ) : null}
-                          </div>
+                    <article className="env-status-card">
+                      <div className="env-status-row">
+                        <div className="env-status-main">
+                          <strong>Conda Runtime</strong>
+                          <p className="muted">
+                            已检测到基础 conda 运行时，可为缺少容器元数据或容器运行时的 workflow 提供 fallback。
+                          </p>
                         </div>
-
-                        {expandedEnvLogs.includes(item.key) ? <pre className="env-log-block">{item.logText}</pre> : null}
-                      </article>
-                    ))}
+                        <div className="env-status-side">
+                          <span className="status-pill">ready</span>
+                          <span className="badge">{safeText(remoteEnvStatus.miniforge.conda_executable, remoteEnvStatus.miniforge.version || "available")}</span>
+                        </div>
+                      </div>
+                    </article>
                   </div>
-                ) : null}
+                )}
               </>
             ) : null}
 

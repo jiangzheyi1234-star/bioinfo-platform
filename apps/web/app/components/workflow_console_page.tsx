@@ -5,7 +5,7 @@ import { WorkflowEdgeListEditor } from "./workflow_edge_list_editor";
 import { WorkflowGraphEditor } from "./workflow_graph_editor";
 import { WorkflowNodeListEditor } from "./workflow_node_list_editor";
 import { formatDateTime, mapWorkflowRunStatus, normalizeFieldValue } from "./workflow_support";
-import { describeDoctor, readWorkflowRemoteValue, useWorkflowConsoleState } from "./workflow_console_state";
+import { describeRuntimeReadiness, readWorkflowRemoteValue, useWorkflowConsoleState } from "./workflow_console_state";
 
 function TechnicalItem({ label, value }: { label: string; value: string }) {
   return (
@@ -56,13 +56,13 @@ export function WorkflowConsolePage() {
     workflow,
     schemaDraft,
     params,
-    doctorError,
+    compatibilityError,
+    compatibilityBusy,
     compilePreview,
     saveBusy,
     compileBusy,
     runBusy,
     workflowMessage,
-    toolDescriptorBusy,
     runs,
     selectedRunId,
     selectedRun,
@@ -119,7 +119,7 @@ export function WorkflowConsolePage() {
     return <WorkspaceEmptyState mark="Task" label="先选择一个任务" hint="从左侧 Project → Task 树中选择任务，进入 Task Workbench。" />;
   }
 
-  const doctorSummary = describeDoctor(compatibilitySummary, doctorError);
+  const runtimeSummary = describeRuntimeReadiness(compatibilitySummary, compatibilityError);
   const latestRun = runs[0] || null;
   const nodeCount = workflow?.nodes.length || 0;
   const edgeCount = workflow?.edges.length || 0;
@@ -137,7 +137,7 @@ export function WorkflowConsolePage() {
         description={currentTask.summary || "围绕当前任务完成组装 Workflow、保存、编译、运行与结果查看。"}
         aside={
           <div className="workflow-console-topbar">
-            <span className="workflow-console-inline-note">{doctorSummary}</span>
+            <span className="workflow-console-inline-note">{runtimeSummary}</span>
             <button type="button" className="control-btn" onClick={() => void refreshRuns(selectedRunId)}>
               刷新任务
             </button>
@@ -175,7 +175,7 @@ export function WorkflowConsolePage() {
               <TechnicalItem label="Task Status" value={currentTask.status} />
               <TechnicalItem label="Latest Run" value={latestRun?.run_id || "暂无"} />
               <TechnicalItem label="Results" value={String(results.length)} />
-              <TechnicalItem label="Runtime Ready" value={doctorError ? "待修复" : "已就绪"} />
+              <TechnicalItem label="Runtime Ready" value={compatibilitySummary.preflight?.ok ? "已就绪" : compatibilityError ? "待修复" : "待检测"} />
             </div>
             <div className="workflow-preview-grid">
               <div className="workflow-preview-card">
@@ -326,7 +326,7 @@ export function WorkflowConsolePage() {
                       <strong>Profile 兼容性</strong>
                       <span className="muted">{compatibilitySummary.selection_reason}</span>
                     </div>
-                    {toolDescriptorBusy ? <p className="workflow-console-inline-note">正在加载节点描述符…</p> : null}
+                    {compatibilityBusy ? <p className="workflow-console-inline-note">正在同步后端兼容性…</p> : null}
                     <div className="workflow-compatibility-grid">
                       <div>
                         <strong>服务器可用</strong>
@@ -359,13 +359,13 @@ export function WorkflowConsolePage() {
                   </div>
 
                   <div className="workflow-action-row">
-                    <button type="button" className="control-btn" disabled={saveBusy || toolDescriptorBusy} onClick={() => void saveWorkflow()}>
+                    <button type="button" className="control-btn" disabled={saveBusy || compatibilityBusy} onClick={() => void saveWorkflow()}>
                       {saveBusy ? "保存中..." : "保存 Workflow"}
                     </button>
-                    <button type="button" className="control-btn" disabled={compileBusy || toolDescriptorBusy} onClick={() => void runCompile()}>
+                    <button type="button" className="control-btn" disabled={compileBusy || compatibilityBusy} onClick={() => void runCompile()}>
                       {compileBusy ? "编译中..." : "保存并编译"}
                     </button>
-                    <button type="button" className="control-btn control-btn--primary" disabled={runBusy || toolDescriptorBusy} onClick={() => void submitRun()}>
+                    <button type="button" className="control-btn control-btn--primary" disabled={runBusy || compatibilityBusy} onClick={() => void submitRun()}>
                       {runBusy ? "提交中..." : "保存并运行"}
                     </button>
                   </div>

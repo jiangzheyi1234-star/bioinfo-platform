@@ -6,19 +6,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaceShell } from "./workspace_shell_context";
 import type {
   WorkflowCompatibilitySummary,
-  ServerDoctorReport,
   WorkflowArtifact,
   WorkflowCompilePreview,
   WorkflowNodePosition,
   WorkflowResult,
   WorkflowRun,
   WorkflowSpecView,
-  WorkflowToolDescriptor,
 } from "./detection_workspace_types";
 import {
   apiBase,
   isRecord,
-  parseServerDoctorReport,
+  parseWorkflowCompatibilitySummary,
   parseWorkflowCompilePreview,
   readJsonOrThrow,
   safeText,
@@ -33,11 +31,7 @@ import {
   getSchemaFields,
   normalizeFieldValue,
 } from "./workflow_support";
-import {
-  buildWorkflowCompatibilitySummary,
-  parseWorkflowToolDescriptor,
-  summarizeWorkflowCompatibility,
-} from "./workflow_profile_compatibility";
+import { emptyWorkflowCompatibilitySummary, summarizeWorkflowCompatibility } from "./workflow_profile_compatibility";
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -82,8 +76,8 @@ export function readWorkflowRemoteValue(run: WorkflowRun, key: string): string {
   return safeText(value);
 }
 
-export function describeDoctor(summary: WorkflowCompatibilitySummary, doctorError: string): string {
-  return summarizeWorkflowCompatibility(summary, doctorError);
+export function describeRuntimeReadiness(summary: WorkflowCompatibilitySummary, compatibilityError: string): string {
+  return summarizeWorkflowCompatibility(summary, compatibilityError);
 }
 
 export function useWorkflowConsoleState() {
@@ -94,10 +88,9 @@ export function useWorkflowConsoleState() {
   const [workflow, setWorkflow] = useState<WorkflowSpecView | null>(null);
   const [schemaDraft, setSchemaDraft] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
-  const [doctor, setDoctor] = useState<ServerDoctorReport | null>(null);
-  const [doctorError, setDoctorError] = useState("");
-  const [toolDescriptors, setToolDescriptors] = useState<Record<string, WorkflowToolDescriptor>>({});
-  const [toolDescriptorBusy, setToolDescriptorBusy] = useState(false);
+  const [compatibilitySummary, setCompatibilitySummary] = useState<WorkflowCompatibilitySummary>(emptyWorkflowCompatibilitySummary());
+  const [compatibilityBusy, setCompatibilityBusy] = useState(false);
+  const [compatibilityError, setCompatibilityError] = useState("");
   const [compilePreview, setCompilePreview] = useState<WorkflowCompilePreview | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [compileBusy, setCompileBusy] = useState(false);
@@ -127,10 +120,6 @@ export function useWorkflowConsoleState() {
   }, [schemaDraft]);
 
   const schemaSummary = useMemo(() => getSchemaFields(schemaObject || {}), [schemaObject]);
-  const compatibilitySummary = useMemo(
-    () => buildWorkflowCompatibilitySummary(doctor, workflow, toolDescriptors),
-    [doctor, workflow, toolDescriptors]
-  );
   const launchProfile = compatibilitySummary.selected_profile;
   const selectedRun = useMemo(
     () => runs.find((item) => item.run_id === selectedRunId) ?? null,
@@ -144,10 +133,37 @@ export function useWorkflowConsoleState() {
     () => workflow?.nodes.find((item) => item.node_id === selectedNodeId) ?? null,
     [workflow, selectedNodeId]
   );
-  const toolIds = useMemo(
-    () => Array.from(new Set((workflow?.nodes || []).map((node) => node.tool_id).filter(Boolean))),
-    [workflow]
-  );
+
+  const refreshCompatibility = async (): Promise<WorkflowCompatibilitySummary> => {
+    if (!currentProjectId || !selectedTaskId) {
+      const empty = emptyWorkflowCompatibilitySummary();
+      setCompatibilitySummary(empty);
+      setCompatibilityError("");
+      return empty;
+    }
+    setCompatibilityBusy(true);
+    try {
+      const resp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/workflow/compatibility`,
+        { method: "POST" }
+      );
+      const data = await readJsonOrThrow(resp);
+      const item = parseWorkflowCompatibilitySummary(data);
+      if (!item) {
+        throw new Error("workflow compatibility 返回格式无效。");
+      }
+      setCompatibilitySummary(item);
+      setCompatibilityError("");
+      return item;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCompatibilitySummary(emptyWorkflowCompatibilitySummary());
+      setCompatibilityError(message);
+      throw err;
+    } finally {
+      setCompatibilityBusy(false);
+    }
+  };
 
   const refreshRuns = async (preferredRunId?: string) => {
     if (!currentProjectId || !selectedTaskId) {
@@ -258,35 +274,13 @@ export function useWorkflowConsoleState() {
   };
 
   useEffect(() => {
-    if (!currentProjectId) {
-      setDoctor(null);
-      setDoctorError("");
-      return;
-    }
-    void (async () => {
-      try {
-        const resp = await fetch(`${apiBase()}/api/v1/servers/current/doctor`, { method: "POST" });
-        const data = await readJsonOrThrow(resp);
-        const item = parseServerDoctorReport(data?.item);
-        if (!item) {
-          throw new Error("服务器 doctor 返回格式无效。");
-        }
-        setDoctor(item);
-        setDoctorError("");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setDoctor(null);
-        setDoctorError(message);
-      }
-    })();
-  }, [currentProjectId]);
-
-  useEffect(() => {
     setWorkflow(null);
     setSchemaDraft("");
     setParams({});
     setCompilePreview(null);
     setSelectedNodeId("");
+    setCompatibilitySummary(emptyWorkflowCompatibilitySummary());
+    setCompatibilityError("");
   }, [currentProjectId, selectedTaskId]);
 
   useEffect(() => {
@@ -308,6 +302,11 @@ export function useWorkflowConsoleState() {
           setWorkflow(item);
           setSchemaDraft(prettyJson(isRecord(data.params_schema) ? data.params_schema : item.params_schema));
           setSelectedNodeId(item.nodes[0]?.node_id || "");
+          try {
+            await refreshCompatibility();
+          } catch {
+            // keep the editor usable even when compatibility cannot be refreshed yet
+          }
           return;
         }
         throw new Error("task workflow 返回格式无效。");
@@ -320,52 +319,14 @@ export function useWorkflowConsoleState() {
         setWorkflow(starter);
         setSchemaDraft(storedDraft?.schemaDraft ?? prettyJson(starter.params_schema));
         setSelectedNodeId(starter.nodes[0]?.node_id || "");
+        setCompatibilitySummary(emptyWorkflowCompatibilitySummary());
+        setCompatibilityError("");
       }
     })();
     return () => {
       active = false;
     };
   }, [currentProjectId, selectedTaskId]);
-
-  useEffect(() => {
-    if (!currentProjectId || !workflow) {
-      return;
-    }
-    let active = true;
-    setToolDescriptorBusy(true);
-    void (async () => {
-      try {
-        const entries = await Promise.all(
-          toolIds.map(async (toolId: string) => {
-            const resp = await fetch(`${apiBase()}/api/v1/workflows/tools/${encodeURIComponent(toolId)}/descriptor`);
-            if (!resp.ok) {
-              return [toolId, { tool_id: toolId, name: toolId, workflow_support: null }] as const;
-            }
-            const data = await readJsonOrThrow(resp);
-            const item = parseWorkflowToolDescriptor(data?.item);
-            return [toolId, item || { tool_id: toolId, name: toolId, workflow_support: null }] as const;
-          })
-        );
-        if (!active) {
-          return;
-        }
-        setToolDescriptors(Object.fromEntries(entries));
-      } catch (err) {
-        if (!active) {
-          return;
-        }
-        setToolDescriptors({});
-        setShellError(err instanceof Error ? err.message : String(err));
-      } finally {
-        if (active) {
-          setToolDescriptorBusy(false);
-        }
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [toolIds, workflow, setShellError]);
 
   useEffect(() => {
     if (!workflow?.nodes.length) {
@@ -536,7 +497,7 @@ export function useWorkflowConsoleState() {
     });
   };
 
-  const buildPayload = (): { workflow: WorkflowSpecView; launch: Record<string, unknown> } => {
+  const buildWorkflowPayload = (): WorkflowSpecView => {
     if (!workflow) {
       throw new Error("当前没有可提交的 workflow。");
     }
@@ -546,63 +507,57 @@ export function useWorkflowConsoleState() {
     if (!currentProjectId) {
       throw new Error("请先选择项目。");
     }
-    if (!doctor && doctorError) {
-      throw new Error(`服务器 doctor 未通过：${doctorError}`);
-    }
-    if (!doctor) {
-      throw new Error("正在检测服务器运行时，请稍后再试。");
-    }
-    if (toolDescriptorBusy) {
-      throw new Error("正在加载 workflow 节点描述符，请稍后再试。");
-    }
-    if (!launchProfile) {
-      const reasons = compatibilitySummary.workflow_profiles.flatMap((item) => item.incompatibility_reasons);
-      throw new Error(reasons[0] || "当前 workflow 没有可用 profile。");
-    }
     return {
-      workflow: {
-        ...workflow,
-        nodes: workflow.nodes.map((node) => ({
-          node_id: node.node_id,
-          tool_id: node.tool_id,
-          label: node.label,
-          params: node.params,
-        })),
-        edges: workflow.edges.map((edge) => ({
-          edge_id: edge.edge_id,
-          source_node_id: edge.source_node_id,
-          target_node_id: edge.target_node_id,
-          output_name: edge.output_name,
-          input_name: edge.input_name,
-        })),
-        params_schema: schemaObject,
-      },
-      launch: {
-        profile: launchProfile,
-        params,
-        data_refs: [],
-        resume: true,
-      },
+      ...workflow,
+      nodes: workflow.nodes.map((node) => ({
+        node_id: node.node_id,
+        tool_id: node.tool_id,
+        label: node.label,
+        params: node.params,
+      })),
+      edges: workflow.edges.map((edge) => ({
+        edge_id: edge.edge_id,
+        source_node_id: edge.source_node_id,
+        target_node_id: edge.target_node_id,
+        output_name: edge.output_name,
+        input_name: edge.input_name,
+      })),
+      params_schema: schemaObject,
     };
   };
 
-  const persistWorkflowSnapshot = async () => {
+  const buildLaunchPayload = (summary: WorkflowCompatibilitySummary): Record<string, unknown> => {
+    const selectedProfile = summary.selected_profile;
+    if (!selectedProfile) {
+      throw new Error(summary.reasons[0] || "当前 workflow 没有可用 profile。");
+    }
+    return {
+      profile: selectedProfile,
+      params,
+      data_refs: [],
+      resume: true,
+    };
+  };
+
+  const persistWorkflowSnapshot = async (): Promise<{ workflow: WorkflowSpecView; compatibility: WorkflowCompatibilitySummary }> => {
     if (!currentProjectId || !selectedTaskId) {
       throw new Error("请先选择任务。");
     }
-    const payload = buildPayload();
+    const workflowPayload = buildWorkflowPayload();
     const resp = await fetch(
       `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/workflow`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workflow: payload.workflow,
+          workflow: workflowPayload,
         }),
       }
     );
     await readJsonOrThrow(resp);
+    const compatibility = await refreshCompatibility();
     setWorkflowMessage("Workflow 已保存。");
+    return { workflow: workflowPayload, compatibility };
   };
 
   const runCompile = async () => {
@@ -612,16 +567,15 @@ export function useWorkflowConsoleState() {
       if (!selectedTaskId) {
         throw new Error("请先选择一个任务，再编译 workflow。");
       }
-      const payload = buildPayload();
-      await persistWorkflowSnapshot();
+      const { compatibility } = await persistWorkflowSnapshot();
       const resp = await fetch(
         `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/workflow/compile`,
         {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          launch: payload.launch,
-        }),
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            launch: buildLaunchPayload(compatibility),
+          }),
         }
       );
       const data = await readJsonOrThrow(resp);
@@ -648,13 +602,12 @@ export function useWorkflowConsoleState() {
       if (!selectedTaskId) {
         throw new Error("请先选择一个任务，再提交 workflow run。");
       }
-      const payload = buildPayload();
-      await persistWorkflowSnapshot();
+      const { compatibility } = await persistWorkflowSnapshot();
       const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          launch: payload.launch,
+          launch: buildLaunchPayload(compatibility),
         }),
       });
       const data = await readJsonOrThrow(resp);
@@ -713,13 +666,13 @@ export function useWorkflowConsoleState() {
     workflow,
     schemaDraft,
     params,
-    doctorError,
+    compatibilityError,
+    compatibilityBusy,
     compilePreview,
     saveBusy,
     compileBusy,
     runBusy,
     workflowMessage,
-    toolDescriptorBusy,
     runs,
     selectedRunId,
     selectedRun,

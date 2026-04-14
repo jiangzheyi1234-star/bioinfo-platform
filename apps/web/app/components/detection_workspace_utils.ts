@@ -18,6 +18,8 @@ import type {
   ServerDoctorReport,
   WorkflowArtifact,
   WorkflowCompilePreview,
+  WorkflowCompatibilitySummary,
+  WorkflowProfileCompatibility,
   WorkflowResult,
   WorkflowRuntimeCapabilities,
   WorkflowServerProfile,
@@ -157,6 +159,7 @@ export function parsePreflightResult(value: unknown): PreflightResult | null {
     free_disk_gb: Number(value.free_disk_gb || 0),
     recommended_profile: safeText(value.recommended_profile),
     recommended_profile_details: parseWorkflowServerProfile(value.recommended_profile_details),
+    supported_profile_kinds: Array.isArray(value.supported_profile_kinds) ? value.supported_profile_kinds.map((item) => safeText(item)).filter(Boolean) : [],
     runtime_capabilities: parseWorkflowRuntimeCapabilities(value.runtime_capabilities),
     checks: Array.isArray(value.checks)
       ? value.checks.map(toPreflightCheck).filter((item: PreflightCheck | null): item is PreflightCheck => !!item)
@@ -382,6 +385,59 @@ export function parseWorkflowCompilePreview(value: unknown): WorkflowCompilePrev
   };
 }
 
+export function parseWorkflowProfileCompatibility(value: unknown): WorkflowProfileCompatibility | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const profile = parseWorkflowServerProfile(value.profile);
+  if (!profile) {
+    return null;
+  }
+  const supportLevel = safeText(value.support_level) as WorkflowProfileCompatibility["support_level"];
+  if (supportLevel !== "Production Ready" && supportLevel !== "Conda Only" && supportLevel !== "Legacy") {
+    return null;
+  }
+  return {
+    profile,
+    available_on_server: Boolean(value.available_on_server),
+    compatible_with_workflow: Boolean(value.compatible_with_workflow),
+    support_level: supportLevel,
+    incompatibility_reasons: Array.isArray(value.incompatibility_reasons)
+      ? value.incompatibility_reasons.map((item) => safeText(item)).filter(Boolean)
+      : [],
+  };
+}
+
+export function parseWorkflowCompatibilitySummary(value: unknown): WorkflowCompatibilitySummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    task_id: safeText(value.task_id),
+    workflow_snapshot_id: safeText(value.workflow_snapshot_id),
+    workflow_id: safeText(value.workflow_id),
+    compatible: Boolean(value.compatible),
+    reasons: Array.isArray(value.reasons) ? value.reasons.map((item) => safeText(item)).filter(Boolean) : [],
+    preflight: parsePreflightResult(value.preflight),
+    recommended_profile: safeText(value.recommended_profile),
+    recommended_profile_details: parseWorkflowServerProfile(value.recommended_profile_details),
+    supported_profile_kinds: Array.isArray(value.supported_profile_kinds) ? value.supported_profile_kinds.map((item) => safeText(item)).filter(Boolean) : [],
+    runtime_capabilities: parseWorkflowRuntimeCapabilities(value.runtime_capabilities),
+    server_profiles: Array.isArray(value.server_profiles)
+      ? value.server_profiles
+          .map(parseWorkflowProfileCompatibility)
+          .filter((item: WorkflowProfileCompatibility | null): item is WorkflowProfileCompatibility => !!item)
+      : [],
+    workflow_profiles: Array.isArray(value.workflow_profiles)
+      ? value.workflow_profiles
+          .map(parseWorkflowProfileCompatibility)
+          .filter((item: WorkflowProfileCompatibility | null): item is WorkflowProfileCompatibility => !!item)
+      : [],
+    selected_profile: parseWorkflowServerProfile(value.selected_profile),
+    selection_reason: safeText(value.selection_reason),
+  };
+}
+
 export function toWorkflowArtifact(value: unknown): WorkflowArtifact | null {
   if (!isRecord(value)) {
     return null;
@@ -531,6 +587,7 @@ export function parseServerDoctorReport(value: unknown): ServerDoctorReport | nu
     doctor_phase: safeText(value.doctor_phase),
     recommended_profile: safeText(value.recommended_profile),
     recommended_profile_details: parseWorkflowServerProfile(value.recommended_profile_details),
+    supported_profile_kinds: Array.isArray(value.supported_profile_kinds) ? value.supported_profile_kinds.map((item) => safeText(item)).filter(Boolean) : [],
     runtime_capabilities: parseWorkflowRuntimeCapabilities(value.runtime_capabilities),
     preflight: parsePreflightResult(value.preflight),
     env_status: parseRemoteEnvStatus(value.env_status),
