@@ -210,6 +210,7 @@ class RuntimeService:
                 "env_status": env_status,
                 "recommended_profile": recommended_profile["profile_id"],
                 "recommended_profile_details": recommended_profile,
+                "supported_profile_kinds": list(caps.supported_profile_kinds),
                 "runtime_capabilities": self._runtime_capabilities_dict(caps),
             }
 
@@ -870,6 +871,7 @@ class RuntimeService:
                 "free_disk_gb": caps.free_disk_gb,
                 "recommended_profile": recommended_profile.profile_kind,
                 "recommended_profile_details": recommended_profile.to_dict(),
+                "supported_profile_kinds": list(caps.supported_profile_kinds),
                 "runtime_capabilities": self._runtime_capabilities_dict(caps),
                 "checks": checks,
                 "failures": failures,

@@ -17,6 +17,45 @@ class _DummySSH:
         return (0, "", "")
 
 
+class _FakePluginRegistry:
+    def __init__(self) -> None:
+        self._descriptors = {
+            "fastp": {
+                "id": "fastp",
+                "name": "fastp",
+                "workflow_support": {
+                    "support_level": "Production Ready",
+                    "workflow_ready": True,
+                    "validation_errors": [],
+                    "runtime": {
+                        "container": "quay.io/biocontainers/fastp:0.23.4",
+                        "conda": "bioconda::fastp=0.23.4",
+                        "conda_env_name": "fastp_env",
+                    },
+                },
+            },
+            "unknown_sample_detection": {
+                "id": "unknown_sample_detection",
+                "name": "Unknown sample",
+                "workflow_support": {
+                    "support_level": "Conda Only",
+                    "workflow_ready": True,
+                    "validation_errors": [],
+                    "runtime": {
+                        "container": "",
+                        "conda": "bioconda::fastp=0.23.4 hostile=1.1.0 centrifuge=1.0.4",
+                        "conda_env_name": "unknown_sample_detection_env",
+                    },
+                },
+            },
+        }
+
+    def get_descriptor(self, tool_id: str) -> dict[str, object]:
+        if tool_id not in self._descriptors:
+            raise KeyError(tool_id)
+        return self._descriptors[tool_id]
+
+
 class _FakeBackend:
     def __init__(self) -> None:
         self.submit_calls = 0
@@ -68,7 +107,7 @@ def runtime(tmp_path: Path) -> RuntimeService:
     projects_root = tmp_path / "projects"
     index_path = tmp_path / "projects.json"
     pm = ProjectManager(projects_root=projects_root, index_path=index_path)
-    service_locator = SimpleNamespace(plugin_registry=SimpleNamespace(), ssh_service=_DummySSH())
+    service_locator = SimpleNamespace(plugin_registry=_FakePluginRegistry(), ssh_service=_DummySSH())
     runtime = RuntimeService(project_manager=pm, service_locator=service_locator)
     runtime._initialized = True
     project_id = pm.create_project("workflow runtime test")
@@ -324,6 +363,8 @@ def test_task_scoped_runs_results_and_workspace(runtime: RuntimeService, monkeyp
     )
     assert summary["total"] == 1
     assert summary["latest_run_id"] == created["run_id"]
+    assert summary["viewer_kinds"] == ["html"]
+    assert summary["artifact_groups"]["Reports"] == 1
 
     result_item = runtime.get_task_result(
         project_id=runtime._test_project_id,  # type: ignore[attr-defined]
@@ -347,3 +388,63 @@ def test_task_scoped_runs_results_and_workspace(runtime: RuntimeService, monkeyp
     assert workspace["workflow_snapshot"]["task_id"] == runtime._test_task_id  # type: ignore[attr-defined]
     assert workspace["runs_summary"]["total"] == 1
     assert workspace["results_summary"]["total"] == 1
+    assert workspace["compatibility"]["selected_profile"]["profile_id"] == "personal_conda"
+
+
+def test_task_workflow_compatibility_uses_backend_selection_and_falls_back_to_conda(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        runtime,
+        "get_ssh_preflight",
+        lambda: {
+            "ok": True,
+            "recommended_profile": "personal_docker",
+            "recommended_profile_details": {
+                "profile_id": "personal_docker",
+                "server_id": "current",
+                "profile_kind": "personal_docker",
+                "executor": "local",
+                "packaging_mode": "container",
+                "container_runtime": "docker",
+                "work_dir": "~/.bioflow/runs/work",
+                "output_dir": "~/.bioflow/runs/output",
+                "cache_dir": "~/.bioflow/cache/containers",
+            },
+            "supported_profile_kinds": ["personal_docker", "personal_conda"],
+            "runtime_capabilities": {
+                "docker": {"available": True},
+                "podman": {"available": False},
+                "apptainer": {"available": False},
+                "micromamba": {"available": False},
+                "conda": {"available": True},
+                "sbatch": {"available": False},
+                "java": {"available": True, "version": "21"},
+                "nextflow": {"available": True, "version": "24.10.0"},
+            },
+            "checks": [],
+            "failures": [],
+            "warnings": [],
+        },
+    )
+    runtime.put_task_workflow(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+        workflow={
+            "workflow_id": "wf_conda_fallback",
+            "name": "Conda fallback workflow",
+            "version": "0.1.0",
+            "nodes": [{"node_id": "n1", "tool_id": "unknown_sample_detection", "label": "Unknown sample", "params": {}}],
+            "edges": [],
+            "params_schema": {},
+        },
+    )
+
+    item = runtime.get_task_workflow_compatibility(
+        project_id=runtime._test_project_id,  # type: ignore[attr-defined]
+        task_id=runtime._test_task_id,  # type: ignore[attr-defined]
+    )
+
+    assert item["compatible"] is True
+    assert item["selected_profile"]["profile_id"] == "personal_conda"
+    assert "改用 personal_conda" in item["selection_reason"]
+    assert len(item["server_profiles"]) == 2
+    assert any(reason.endswith("缺少 runtime.container") for reason in item["workflow_profiles"][0]["incompatibility_reasons"])
