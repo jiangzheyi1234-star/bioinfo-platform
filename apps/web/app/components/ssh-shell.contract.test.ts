@@ -22,7 +22,8 @@ test("ssh shell source mounts xterm.js inside the docked terminal buffer", () =>
   assert.match(source, /onData\(\(data\) =>/);
   assert.match(source, /aria-label="调整终端高度"/);
   assert.match(source, /cursor-row-resize/);
-  assert.match(source, /data-terminal-input-enabled=/);
+  assert.match(source, /ssh-terminal h-full w-full px-4 py-3/);
+  assert.match(source, /直接在终端区域内输入命令，按 Enter 执行/);
   assert.doesNotMatch(source, /terminalCommand/);
   assert.doesNotMatch(source, /submitTerminalCommand/);
   assert.doesNotMatch(source, /终端已就绪，输入命令后按 Enter 执行/);
