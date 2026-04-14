@@ -156,7 +156,7 @@ export function WorkflowConsolePage() {
       <section className="workflow-console-shell">
         {projectWorkspaceTab === "workflow" ? (
           <>
-            <section className="workflow-console-primary">
+            <section className="workflow-console-primary workflow-console-primary--graph">
               <WorkspaceSectionHeader
                 title="DAG Overview"
                 description="组装 Workflow、保存、编译，并为后续运行准备 task workflow snapshot。"
@@ -182,23 +182,13 @@ export function WorkflowConsolePage() {
             <details className="workflow-console-section" open={workflowExpanded} onToggle={(event) => setWorkflowExpanded(event.currentTarget.open)}>
               <summary className="workflow-console-section-summary">
                 <div>
-                  <strong>Workflow 规格</strong>
-                  <span>编辑 DAG、参数 schema，并保存/编译/提交运行。</span>
+                  <strong>Workflow controls</strong>
+                  <span>保持 DAG 为主视图；仅在需要时展开 schema、参数与兼容性设置。</span>
                 </div>
                 <span>{workflow ? `${workflow.nodes.length} steps` : "等待 workflow 初始化"}</span>
               </summary>
               <div className="workflow-panel-grid">
                 <div className="workflow-panel-stack">
-                  <label className="control-field">
-                    <span>Workflow 名称</span>
-                    <input
-                      className="control-input"
-                      value={workflow?.name || ""}
-                      onChange={(event) => setWorkflow((current) => (current ? { ...current, name: event.target.value } : current))}
-                      placeholder="New Workflow"
-                    />
-                  </label>
-
                   <WorkflowNodeListEditor
                     workflow={workflow}
                     selectedNodeId={selectedNodeId}
@@ -210,95 +200,7 @@ export function WorkflowConsolePage() {
                   <WorkflowEdgeListEditor workflow={workflow} onUpdateEdge={updateEdge} onRemoveEdge={removeEdge} />
                 </div>
 
-                <div className="workflow-panel-stack">
-                  <label className="control-field">
-                    <span>Params Schema</span>
-                    <textarea className="control-textarea workflow-schema-textarea" value={schemaDraft} onChange={(event) => setSchemaDraft(event.target.value)} spellCheck={false} />
-                  </label>
-
-                  <div className="workflow-param-panel">
-                    <div className="workflow-node-list-head">
-                      <strong>参数面板</strong>
-                      <span className="muted">{launchProfile?.profile_id || "未选定 profile"}</span>
-                    </div>
-                    {schemaSummary.unsupported.length > 0 ? <p className="workflow-panel-error">以下字段类型暂不支持表单渲染：{schemaSummary.unsupported.join(", ")}</p> : null}
-                    {schemaSummary.fields.map((field) => (
-                      <label key={field.key} className="control-field">
-                        <span>
-                          {field.label}
-                          {field.required ? " *" : ""}
-                        </span>
-                        {field.enumValues.length > 0 ? (
-                          <select
-                            className="control-select"
-                            value={String(params[field.key] ?? field.defaultValue)}
-                            onChange={(event) => setParams((current) => ({ ...current, [field.key]: normalizeFieldValue(field.kind, event.target.value) }))}
-                          >
-                            {field.enumValues.map((item) => (
-                              <option key={item} value={item}>
-                                {item}
-                              </option>
-                            ))}
-                          </select>
-                        ) : field.kind === "boolean" ? (
-                          <label className="control-checkbox">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(params[field.key])}
-                              onChange={(event) => setParams((current) => ({ ...current, [field.key]: event.target.checked }))}
-                            />
-                            <span>{field.description || "布尔参数"}</span>
-                          </label>
-                        ) : (
-                          <input
-                            className="control-input"
-                            type={field.kind === "string" ? "text" : "number"}
-                            value={String(params[field.key] ?? field.defaultValue)}
-                            onChange={(event) => setParams((current) => ({ ...current, [field.key]: normalizeFieldValue(field.kind, event.target.value) }))}
-                          />
-                        )}
-                        {field.description ? <small className="muted">{field.description}</small> : null}
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="workflow-param-panel">
-                    <div className="workflow-node-list-head">
-                      <strong>Profile 兼容性</strong>
-                      <span className="muted">{compatibilitySummary.selection_reason}</span>
-                    </div>
-                    {compatibilityBusy ? <p className="workflow-console-inline-note">正在同步后端兼容性…</p> : null}
-                    <div className="workflow-compatibility-grid">
-                      <div>
-                        <strong>服务器可用</strong>
-                        <ul className="workflow-compatibility-list">
-                          {compatibilitySummary.server_profiles.map((item) => (
-                            <li key={`server-${item.profile.profile_id}`}>
-                              <span>{item.profile.profile_id}</span>
-                              <small className="muted">
-                                {item.profile.executor} / {item.profile.packaging_mode}
-                              </small>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <strong>当前 workflow 可用</strong>
-                        <ul className="workflow-compatibility-list">
-                          {compatibilitySummary.workflow_profiles.map((item) => (
-                            <li key={`workflow-${item.profile.profile_id}`}>
-                              <span>
-                                {item.profile.profile_id} {item.compatible_with_workflow ? "✅" : "❌"}
-                              </span>
-                              <small className="muted">{item.support_level}</small>
-                              {item.incompatibility_reasons.length > 0 ? <small className="workflow-panel-error">{item.incompatibility_reasons.join("；")}</small> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
+                <div className="workflow-panel-stack workflow-panel-stack--supporting">
                   <div className="workflow-action-row">
                     <button type="button" className="control-btn" disabled={saveBusy || compatibilityBusy} onClick={() => void saveWorkflow()}>
                       {saveBusy ? "保存中..." : "保存 Workflow"}
@@ -311,6 +213,125 @@ export function WorkflowConsolePage() {
                     </button>
                   </div>
                   {workflowMessage ? <p className="workflow-console-inline-note">{workflowMessage}</p> : null}
+
+                  <details className="workflow-drawer-panel" open>
+                    <summary className="workflow-drawer-summary">
+                      <div>
+                        <strong>Workflow draft</strong>
+                        <span>名称与 schema 保持近手边，但不再长期占据主画布。</span>
+                      </div>
+                    </summary>
+                    <div className="workflow-drawer-content">
+                      <label className="control-field">
+                        <span>Workflow 名称</span>
+                        <input
+                          className="control-input"
+                          value={workflow?.name || ""}
+                          onChange={(event) => setWorkflow((current) => (current ? { ...current, name: event.target.value } : current))}
+                          placeholder="New Workflow"
+                        />
+                      </label>
+
+                      <label className="control-field">
+                        <span>Params Schema</span>
+                        <textarea className="control-textarea workflow-schema-textarea" value={schemaDraft} onChange={(event) => setSchemaDraft(event.target.value)} spellCheck={false} />
+                      </label>
+                    </div>
+                  </details>
+
+                  <details className="workflow-drawer-panel">
+                    <summary className="workflow-drawer-summary">
+                      <div>
+                        <strong>Launch parameters</strong>
+                        <span>{launchProfile?.profile_id || "未选定 profile"}</span>
+                      </div>
+                      <span>{schemaSummary.fields.length} fields</span>
+                    </summary>
+                    <div className="workflow-drawer-content workflow-param-panel">
+                      {schemaSummary.unsupported.length > 0 ? <p className="workflow-panel-error">以下字段类型暂不支持表单渲染：{schemaSummary.unsupported.join(", ")}</p> : null}
+                      {schemaSummary.fields.length === 0 ? <p className="workflow-console-inline-note">保存 workflow 后即可根据 schema 渲染参数表单。</p> : null}
+                      {schemaSummary.fields.map((field) => (
+                        <label key={field.key} className="control-field">
+                          <span>
+                            {field.label}
+                            {field.required ? " *" : ""}
+                          </span>
+                          {field.enumValues.length > 0 ? (
+                            <select
+                              className="control-select"
+                              value={String(params[field.key] ?? field.defaultValue)}
+                              onChange={(event) => setParams((current) => ({ ...current, [field.key]: normalizeFieldValue(field.kind, event.target.value) }))}
+                            >
+                              {field.enumValues.map((item) => (
+                                <option key={item} value={item}>
+                                  {item}
+                                </option>
+                              ))}
+                            </select>
+                          ) : field.kind === "boolean" ? (
+                            <label className="control-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(params[field.key])}
+                                onChange={(event) => setParams((current) => ({ ...current, [field.key]: event.target.checked }))}
+                              />
+                              <span>{field.description || "布尔参数"}</span>
+                            </label>
+                          ) : (
+                            <input
+                              className="control-input"
+                              type={field.kind === "string" ? "text" : "number"}
+                              value={String(params[field.key] ?? field.defaultValue)}
+                              onChange={(event) => setParams((current) => ({ ...current, [field.key]: normalizeFieldValue(field.kind, event.target.value) }))}
+                            />
+                          )}
+                          {field.description ? <small className="muted">{field.description}</small> : null}
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+
+                  <details className="workflow-drawer-panel">
+                    <summary className="workflow-drawer-summary">
+                      <div>
+                        <strong>Profile compatibility</strong>
+                        <span>{compatibilitySummary.selection_reason}</span>
+                      </div>
+                      <span>{compatibilitySummary.workflow_profiles.length} profiles</span>
+                    </summary>
+                    <div className="workflow-drawer-content workflow-param-panel">
+                      {compatibilityBusy ? <p className="workflow-console-inline-note">正在同步后端兼容性…</p> : null}
+                      <div className="workflow-compatibility-grid">
+                        <div>
+                          <strong>服务器可用</strong>
+                          <ul className="workflow-compatibility-list">
+                            {compatibilitySummary.server_profiles.map((item) => (
+                              <li key={`server-${item.profile.profile_id}`}>
+                                <span>{item.profile.profile_id}</span>
+                                <small className="muted">
+                                  {item.profile.executor} / {item.profile.packaging_mode}
+                                </small>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <strong>当前 workflow 可用</strong>
+                          <ul className="workflow-compatibility-list">
+                            {compatibilitySummary.workflow_profiles.map((item) => (
+                              <li key={`workflow-${item.profile.profile_id}`}>
+                                <span>
+                                  {item.profile.profile_id} {item.compatible_with_workflow ? "✅" : "❌"}
+                                </span>
+                                <small className="muted">{item.support_level}</small>
+                                {item.incompatibility_reasons.length > 0 ? <small className="workflow-panel-error">{item.incompatibility_reasons.join("；")}</small> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
             </details>
