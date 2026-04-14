@@ -27,7 +27,7 @@ from core.environment.server_preflight import MIN_FREE_DISK_GB, probe_preflight
 from core.execution.artifact_store import ArtifactStore
 from core.remote.server_capabilities import PreflightError
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
-from core.remote.ssh_service import SSHService
+from core.remote.ssh_service import SSHService, TerminalSession
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
 from core.workflow import (
@@ -103,6 +103,7 @@ class RuntimeService:
         self._auto_connect_failed = False
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
+        self._terminal_sessions: dict[str, TerminalSession] = {}
     def initialize(self) -> None:
         with self._lock:
             if self._initialized:
@@ -116,6 +117,7 @@ class RuntimeService:
         with self._lock:
             if not self._initialized:
                 return
+            self._close_all_terminal_sessions(message="终端会话已结束", drop_sessions=True)
             self._disconnect_runtime_signals()
             self._service_locator.shutdown()
             self._tool_bridge_service = None
@@ -778,6 +780,7 @@ class RuntimeService:
     def disconnect_ssh(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
+            self._close_all_terminal_sessions(message="SSH 已断开，终端会话已结束", drop_sessions=False)
             self._service_locator.ssh_service = None
             self._auto_connect_failed = False
             self._auto_connect_error = ""
@@ -785,6 +788,36 @@ class RuntimeService:
             status = self.get_ssh_status()
             status["message"] = "SSH disconnected"
             return status
+
+    def create_terminal_session(self, *, cols: int = 120, rows: int = 28) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            ssh = self._ensure_ssh_connected()
+            session = ssh.open_terminal_session(cols=cols, rows=rows)
+            self._terminal_sessions[session.session_id] = session
+            return session.snapshot(cursor=0)
+
+    def read_terminal_session(self, *, session_id: str, cursor: int = 0) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            session = self._get_terminal_session(session_id)
+            return session.snapshot(cursor=cursor)
+
+    def send_terminal_input(self, *, session_id: str, data: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            session = self._get_terminal_session(session_id)
+            session.send(data)
+            return session.snapshot(cursor=0)
+
+    def close_terminal_session(self, *, session_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            session = self._terminal_sessions.pop(session_id, None)
+            if session is None:
+                raise RuntimeServiceError(f"unknown terminal session: {session_id}")
+            session.close(message="终端会话已结束", connected=False)
+            return {"session_id": session_id, "closed": True}
 
     def test_ssh_connection(self, patch: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         with self._lock:
@@ -1431,6 +1464,21 @@ class RuntimeService:
         if ssh is None or not getattr(ssh, "is_connected", False):
             raise RuntimeServiceError("SSH disconnected")
         return ssh
+
+    def _get_terminal_session(self, session_id: str) -> TerminalSession:
+        session = self._terminal_sessions.get(session_id)
+        if session is None:
+            raise RuntimeServiceError(f"unknown terminal session: {session_id}")
+        return session
+
+    def _close_all_terminal_sessions(self, *, message: str, drop_sessions: bool) -> None:
+        for session in list(self._terminal_sessions.values()):
+            try:
+                session.close(message=message, connected=False)
+            except Exception:
+                logger.debug("Failed to close terminal session %s", session.session_id, exc_info=True)
+        if drop_sessions:
+            self._terminal_sessions.clear()
 
     def _remember_managed_conda(self, conda_executable: str) -> None:
         normalized = str(conda_executable or "").strip()
