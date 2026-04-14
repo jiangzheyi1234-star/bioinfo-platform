@@ -303,6 +303,10 @@
 │  │  POST   /api/v1/ssh/connect                # 连接 SSH                         │   │
 │  │  POST   /api/v1/ssh/disconnect             # 断开 SSH                         │   │
 │  │  POST   /api/v1/ssh/test                   # 测试 SSH 连接                    │   │
+│  │  POST   /api/v1/ssh/terminals              # 创建远程终端会话                 │   │
+│  │  GET    /api/v1/ssh/terminals/{id}         # 轮询远程终端输出                 │   │
+│  │  POST   /api/v1/ssh/terminals/{id}/input   # 发送终端输入                     │   │
+│  │  DELETE /api/v1/ssh/terminals/{id}         # 关闭远程终端会话                 │   │
 │  └─────────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                         │
 │  Projects                                                                               │
