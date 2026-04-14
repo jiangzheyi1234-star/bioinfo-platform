@@ -808,7 +808,7 @@ class RuntimeService:
             self._ensure_initialized()
             session = self._get_terminal_session(session_id)
             session.send(data)
-            return session.snapshot(cursor=0)
+            return {"session_id": session_id, "accepted": True}
 
     def close_terminal_session(self, *, session_id: str) -> dict[str, Any]:
         with self._lock:
