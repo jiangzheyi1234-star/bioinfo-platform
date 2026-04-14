@@ -8,9 +8,9 @@ import { apiBase, parseSSHStatus, readJsonOrThrow } from "./detection_workspace_
 import { WorkspaceShellSidebar } from "./workspace_shell_sidebar";
 
 const LEFT_SIDEBAR_STORAGE_KEY = "h2ometa:left-sidebar-width";
-const DEFAULT_LEFT_SIDEBAR_WIDTH = 272;
-const MIN_LEFT_SIDEBAR_WIDTH = 200;
-const MAX_LEFT_SIDEBAR_WIDTH = 350;
+const DEFAULT_LEFT_SIDEBAR_WIDTH = 240;
+const MIN_LEFT_SIDEBAR_WIDTH = 220;
+const MAX_LEFT_SIDEBAR_WIDTH = 280;
 const AUTO_CONNECT_NOTICE_STORAGE_KEY = "h2ometa:auto-connect-notice-key";
 
 export const NAV_ITEMS: Array<{ id: TabId; href: string; label: string; note: string; hotkey: string }> = [
@@ -36,6 +36,9 @@ const TAB_BREADCRUMB_LABELS: Record<TabId, string> = {
   workspace: "Task Workbench",
   settings: "设置",
 };
+
+type BreadcrumbTone = "muted" | "default" | "current";
+type BreadcrumbItem = { label: string; tone: BreadcrumbTone };
 
 type DetectionWorkspaceShellProps = {
   activeTab: TabId;
@@ -130,18 +133,18 @@ export function DetectionWorkspaceShell({
     currentProjectId || "",
   ].filter(Boolean);
   const breadcrumbs = useMemo(() => {
-    const items = [{ label: "Workspace", tone: "muted" as const }];
+    const items: BreadcrumbItem[] = [{ label: "Workspace", tone: "muted" }];
 
     if (activeTab === "workspace" && resolvedCurrentProject?.name) {
-      items.push({ label: resolvedCurrentProject.name, tone: "default" as const });
+      items.push({ label: resolvedCurrentProject.name, tone: "default" });
       if (resolvedCurrentTask?.title) {
-        items.push({ label: resolvedCurrentTask.title, tone: "default" as const });
+        items.push({ label: resolvedCurrentTask.title, tone: "default" });
       }
     }
 
     items.push({
       label: TAB_BREADCRUMB_LABELS[activeTab],
-      tone: "current" as const,
+      tone: "current",
     });
 
     return items;
