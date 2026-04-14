@@ -515,11 +515,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     terminalHandleRef.current = { terminal, fitAddon };
     renderedTerminalOutputRef.current = "";
 
-    if (terminalOutput) {
-      terminal.write(terminalOutput);
-      renderedTerminalOutputRef.current = terminalOutput;
-    }
-
     const inputDisposable = terminal.onData((data) => {
       queueTerminalInput(data);
     });
@@ -535,7 +530,15 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       renderedTerminalOutputRef.current = "";
       terminal.dispose();
     };
-  }, [queueTerminalInput, terminalOpen, terminalOutput]);
+  }, [queueTerminalInput, terminalOpen]);
+
+  useEffect(() => {
+    const handle = terminalHandleRef.current;
+    if (!handle) {
+      return;
+    }
+    handle.terminal.options.disableStdin = !terminalInputEnabled;
+  }, [terminalInputEnabled]);
 
   useEffect(() => {
     const handle = terminalHandleRef.current;
