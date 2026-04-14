@@ -43,16 +43,16 @@ function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function workflowDraftStorageKey(projectId: string) {
-  return `h2ometa:workflow-draft:${projectId}`;
+function workflowDraftStorageKey(projectId: string, taskId: string) {
+  return `h2ometa:workflow-draft:${projectId}:${taskId}`;
 }
 
-function readStoredWorkflowDraft(projectId: string): { workflow: WorkflowSpecView; schemaDraft: string } | null {
-  if (typeof window === "undefined" || !projectId) {
+function readStoredWorkflowDraft(projectId: string, taskId: string): { workflow: WorkflowSpecView; schemaDraft: string } | null {
+  if (typeof window === "undefined" || !projectId || !taskId) {
     return null;
   }
   try {
-    const raw = window.localStorage.getItem(workflowDraftStorageKey(projectId));
+    const raw = window.localStorage.getItem(workflowDraftStorageKey(projectId, taskId));
     if (!raw) {
       return null;
     }
@@ -89,7 +89,7 @@ export function describeDoctor(summary: WorkflowCompatibilitySummary, doctorErro
 export function useWorkflowConsoleState() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentProject, currentProjectId, selectedTaskId, setShellError } = useWorkspaceShell();
+  const { currentProject, currentProjectId, tasks, selectedTaskId, projectWorkspaceTab, setProjectWorkspaceTab, setShellError } = useWorkspaceShell();
 
   const [workflow, setWorkflow] = useState<WorkflowSpecView | null>(null);
   const [schemaDraft, setSchemaDraft] = useState("");
@@ -99,6 +99,7 @@ export function useWorkflowConsoleState() {
   const [toolDescriptors, setToolDescriptors] = useState<Record<string, WorkflowToolDescriptor>>({});
   const [toolDescriptorBusy, setToolDescriptorBusy] = useState(false);
   const [compilePreview, setCompilePreview] = useState<WorkflowCompilePreview | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
   const [compileBusy, setCompileBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const [workflowMessage, setWorkflowMessage] = useState("");
@@ -134,6 +135,10 @@ export function useWorkflowConsoleState() {
   const selectedRun = useMemo(
     () => runs.find((item) => item.run_id === selectedRunId) ?? null,
     [runs, selectedRunId]
+  );
+  const currentTask = useMemo(
+    () => tasks.find((item) => item.task_id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId]
   );
   const selectedNode = useMemo(
     () => workflow?.nodes.find((item) => item.node_id === selectedNodeId) ?? null,
@@ -310,7 +315,7 @@ export function useWorkflowConsoleState() {
         if (!active) {
           return;
         }
-        const storedDraft = readStoredWorkflowDraft(currentProjectId);
+        const storedDraft = readStoredWorkflowDraft(currentProjectId, selectedTaskId);
         const starter = storedDraft?.workflow ?? createStarterWorkflow(currentProjectId);
         setWorkflow(starter);
         setSchemaDraft(storedDraft?.schemaDraft ?? prettyJson(starter.params_schema));
@@ -581,20 +586,44 @@ export function useWorkflowConsoleState() {
     };
   };
 
+  const persistWorkflowSnapshot = async () => {
+    if (!currentProjectId || !selectedTaskId) {
+      throw new Error("请先选择任务。");
+    }
+    const payload = buildPayload();
+    const resp = await fetch(
+      `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/workflow`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflow: payload.workflow,
+        }),
+      }
+    );
+    await readJsonOrThrow(resp);
+    setWorkflowMessage("Workflow 已保存。");
+  };
+
   const runCompile = async () => {
     setWorkflowMessage("");
     setCompileBusy(true);
     try {
+      if (!selectedTaskId) {
+        throw new Error("请先选择一个任务，再编译 workflow。");
+      }
       const payload = buildPayload();
-      const resp = await fetch(`${apiBase()}/api/v1/workflows/compile`, {
+      await persistWorkflowSnapshot();
+      const resp = await fetch(
+        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/workflow/compile`,
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_id: currentProjectId,
-          workflow: payload.workflow,
           launch: payload.launch,
         }),
-      });
+        }
+      );
       const data = await readJsonOrThrow(resp);
       const preview = parseWorkflowCompilePreview(data?.item);
       if (!preview) {
@@ -620,17 +649,7 @@ export function useWorkflowConsoleState() {
         throw new Error("请先选择一个任务，再提交 workflow run。");
       }
       const payload = buildPayload();
-      const snapshotResp = await fetch(
-        `${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            workflow: payload.workflow,
-          }),
-        }
-      );
-      await readJsonOrThrow(snapshotResp);
+      await persistWorkflowSnapshot();
       const resp = await fetch(`${apiBase()}/api/v1/projects/${encodeURIComponent(currentProjectId)}/tasks/${encodeURIComponent(selectedTaskId)}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -649,6 +668,7 @@ export function useWorkflowConsoleState() {
       setResolvedConfig("");
       setWorkflowExpanded(false);
       setArtifactsExpanded(false);
+      setProjectWorkspaceTab("runs");
       router.replace(`/workspace?run_id=${encodeURIComponent(item.run_id)}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -688,11 +708,14 @@ export function useWorkflowConsoleState() {
   return {
     currentProject,
     currentProjectId,
+    currentTask,
+    projectWorkspaceTab,
     workflow,
     schemaDraft,
     params,
     doctorError,
     compilePreview,
+    saveBusy,
     compileBusy,
     runBusy,
     workflowMessage,
@@ -719,6 +742,7 @@ export function useWorkflowConsoleState() {
     traceArtifacts,
     router,
     setWorkflow,
+    setProjectWorkspaceTab,
     setSchemaDraft,
     setParams,
     setSelectedRunId,
@@ -740,6 +764,19 @@ export function useWorkflowConsoleState() {
     connectNodes,
     removeEdge,
     runCompile,
+    saveWorkflow: async () => {
+      setWorkflowMessage("");
+      setSaveBusy(true);
+      try {
+        await persistWorkflowSnapshot();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setWorkflowMessage(message);
+        setShellError(message);
+      } finally {
+        setSaveBusy(false);
+      }
+    },
     submitRun,
   };
 }

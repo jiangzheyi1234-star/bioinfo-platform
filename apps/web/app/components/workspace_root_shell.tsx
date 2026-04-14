@@ -49,12 +49,17 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
     projects,
     currentProject,
     currentProjectId,
+    tasks,
+    selectedTaskId,
     shellError,
     createProjectBusy,
+    createTaskBusy,
     projectActionBusyId,
     setShellError,
     selectProject,
+    selectTask,
     createProject,
+    createTask,
     archiveProject,
     deleteProject,
   } = useWorkspaceShell();
@@ -99,13 +104,21 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
         <ProjectSidebarSection
           projects={projects}
           currentProjectId={currentProjectId}
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
           createProjectBusy={createProjectBusy}
+          createTaskBusy={createTaskBusy}
           projectActionBusyId={projectActionBusyId}
           onOpenProject={async (projectId) => {
             await selectProject(projectId);
             router.push("/workspace");
           }}
+          onOpenTask={(taskId) => {
+            selectTask(taskId);
+            router.push("/workspace");
+          }}
           onCreateProject={createProject}
+          onCreateTask={createTask}
           onArchiveProject={async (projectId) => {
             await archiveProject(projectId);
             router.push("/workspace");

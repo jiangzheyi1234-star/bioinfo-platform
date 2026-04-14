@@ -3,15 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import { ArchiveBoxIcon, EllipsisHorizontalIcon, FolderIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 
-import type { Project } from "./detection_workspace_types";
+import type { Project, Task } from "./detection_workspace_types";
 
 type ProjectSidebarSectionProps = {
   projects: Project[];
   currentProjectId: string;
+  tasks: Task[];
+  selectedTaskId: string;
   createProjectBusy?: boolean;
+  createTaskBusy?: boolean;
   projectActionBusyId?: string;
   onOpenProject: (projectId: string) => Promise<void>;
+  onOpenTask: (taskId: string) => void;
   onCreateProject: (name: string, description: string) => Promise<void>;
+  onCreateTask: (title: string, description?: string) => Promise<void>;
   onArchiveProject: (projectId: string) => Promise<void>;
   onDeleteProject: (projectId: string) => Promise<void>;
 };
@@ -19,10 +24,15 @@ type ProjectSidebarSectionProps = {
 export function ProjectSidebarSection({
   projects,
   currentProjectId,
+  tasks,
+  selectedTaskId,
   createProjectBusy = false,
+  createTaskBusy = false,
   projectActionBusyId = "",
   onOpenProject,
+  onOpenTask,
   onCreateProject,
+  onCreateTask,
   onArchiveProject,
   onDeleteProject,
 }: ProjectSidebarSectionProps) {
@@ -31,6 +41,9 @@ export function ProjectSidebarSection({
   const [projectDescription, setProjectDescription] = useState("");
   const [openMenuProjectId, setOpenMenuProjectId] = useState("");
   const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
+  const [taskCreatorOpen, setTaskCreatorOpen] = useState(false);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDescription, setTaskDescription] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const submitCreate = async () => {
@@ -38,6 +51,13 @@ export function ProjectSidebarSection({
     setProjectName("");
     setProjectDescription("");
     setCreatorOpen(false);
+  };
+
+  const submitCreateTask = async () => {
+    await onCreateTask(taskTitle, taskDescription);
+    setTaskTitle("");
+    setTaskDescription("");
+    setTaskCreatorOpen(false);
   };
 
   useEffect(() => {
@@ -173,6 +193,85 @@ export function ProjectSidebarSection({
                   ) : null}
                 </div>
               </div>
+              {activeProject ? (
+                <>
+                  {taskCreatorOpen ? (
+                    <div className="sidebar-project-creator" aria-label="新建任务表单">
+                      <label className="sidebar-project-field">
+                        <input
+                          className="sidebar-project-inline-input"
+                          value={taskTitle}
+                          onChange={(event) => setTaskTitle(event.target.value)}
+                          placeholder="输入任务名称"
+                        />
+                      </label>
+                      <label className="sidebar-project-field">
+                        <textarea
+                          className="sidebar-project-inline-input sidebar-project-textarea"
+                          value={taskDescription}
+                          onChange={(event) => setTaskDescription(event.target.value)}
+                          placeholder="可选：记录任务目标"
+                        />
+                      </label>
+                      <div className="sidebar-project-creator-actions">
+                        <button
+                          type="button"
+                          className="sidebar-project-inline-action sidebar-project-inline-action--primary"
+                          disabled={createTaskBusy}
+                          onClick={() => {
+                            void submitCreateTask();
+                          }}
+                        >
+                          {createTaskBusy ? "创建中..." : "创建任务"}
+                        </button>
+                        <button
+                          type="button"
+                          className="sidebar-project-inline-action"
+                          onClick={() => setTaskCreatorOpen(false)}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="sidebar-project-creator-actions" style={{ marginLeft: 18, marginBottom: 6 }}>
+                      <button
+                        type="button"
+                        className="sidebar-project-inline-action"
+                        onClick={() => setTaskCreatorOpen(true)}
+                      >
+                        + 新建任务
+                      </button>
+                    </div>
+                  )}
+                  <div className="sidebar-task-list">
+                    {tasks.length === 0 ? <div className="sidebar-task-empty">暂无任务</div> : null}
+                    {tasks.map((task) => {
+                      const activeTask = task.task_id === selectedTaskId;
+                      const running = task.status === "running" || task.status === "in_progress";
+                      return (
+                        <button
+                          key={task.task_id}
+                          type="button"
+                          className={`sidebar-task-item${activeTask ? " active" : ""}${running ? " running" : ""}`}
+                          onClick={() => onOpenTask(task.task_id)}
+                        >
+                          <div className="sidebar-task-main">
+                            <div className="sidebar-task-title-row">
+                              <span className="sidebar-task-title-text" title={task.title}>
+                                {task.title}
+                              </span>
+                              <span className={`sidebar-task-state${running ? " sidebar-task-state--running" : ""}`}>
+                                {task.status}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
             </div>
           );
         })}
