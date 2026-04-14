@@ -77,7 +77,7 @@ export function ProjectSidebarSection({
       <div className="sidebar-project-head">
         <span className="sidebar-project-title">
           <FolderIcon className="sidebar-project-title-icon" />
-          <span>项目</span>
+          <span>Project / Task</span>
         </span>
         <button
           type="button"
@@ -202,7 +202,7 @@ export function ProjectSidebarSection({
                           className="sidebar-project-inline-input"
                           value={taskTitle}
                           onChange={(event) => setTaskTitle(event.target.value)}
-                          placeholder="输入任务名称"
+                          placeholder="输入 Task 名称"
                         />
                       </label>
                       <label className="sidebar-project-field">
@@ -210,7 +210,7 @@ export function ProjectSidebarSection({
                           className="sidebar-project-inline-input sidebar-project-textarea"
                           value={taskDescription}
                           onChange={(event) => setTaskDescription(event.target.value)}
-                          placeholder="可选：记录任务目标"
+                          placeholder="可选：记录 Task 目标"
                         />
                       </label>
                       <div className="sidebar-project-creator-actions">
@@ -222,7 +222,7 @@ export function ProjectSidebarSection({
                             void submitCreateTask();
                           }}
                         >
-                          {createTaskBusy ? "创建中..." : "创建任务"}
+                          {createTaskBusy ? "创建中..." : "创建 Task"}
                         </button>
                         <button
                           type="button"
@@ -240,7 +240,7 @@ export function ProjectSidebarSection({
                         className="sidebar-project-inline-action"
                         onClick={() => setTaskCreatorOpen(true)}
                       >
-                        + 新建任务
+                        + 新建 Task
                       </button>
                     </div>
                   )}
