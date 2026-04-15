@@ -45,6 +45,7 @@ from core.workflow import (
 from core.workflow.bootstrap_ops import (
     DOCKER_BOOTSTRAP_JOB_ID,
     WORKFLOW_BOOTSTRAP_PREFIX,
+    build_workflow_runtime_progress,
     docker_bootstrap_task_dir,
     read_docker_bootstrap_status,
     submit_docker_runtime_bootstrap,
@@ -879,6 +880,8 @@ class RuntimeService:
                     "value": str(runtime_capabilities["java"].get("version") or ("available" if caps.has_java else "missing")),
                     "message": "已检测到 Java，可用于运行 Nextflow"
                     if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
+                    else "已检测到 Java，但版本不满足 Nextflow 要求（需 17-24）"
+                    if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("supported", False) is False
                     else "已检测到 Java，但当前不可正常调用"
                     if runtime_capabilities["java"]["available"]
                     else "未检测到 Java，无法运行 Nextflow",
@@ -1283,7 +1286,11 @@ class RuntimeService:
                     heartbeat=str(raw_status.get("heartbeat") or ""),
                 )
                 progress = {
-                    "profile_kind": profile_kind,
+                    **build_workflow_runtime_progress(
+                        profile_kind=profile_kind,
+                        stage=stage,
+                        log_text=log_text,
+                    ),
                     "pid": str(raw_status.get("pid") or ""),
                 }
                 if raw_status.get("log_preview"):
@@ -1735,6 +1742,7 @@ class RuntimeService:
     ) -> dict[str, Any]:
         log_lines = [line for line in str(log_text or "").splitlines() if line.strip()]
         ok = stage == "done"
+        message = "" if ok else RuntimeService._extract_job_failure_message(log_lines)
         return {
             "job_id": job_id,
             "status": stage,
@@ -1745,8 +1753,37 @@ class RuntimeService:
             "log_text": str(log_text or ""),
             "log_lines": log_lines,
             "progress": progress or {},
-            "message": "" if ok else (log_lines[-1] if log_lines else ""),
+            "message": message,
         }
+
+    @staticmethod
+    def _extract_job_failure_message(log_lines: list[str]) -> str:
+        for line in log_lines:
+            stripped = str(line or "").strip()
+            if not stripped:
+                continue
+            if stripped.startswith("STEP="):
+                continue
+            if "=" in stripped:
+                key, value = stripped.split("=", 1)
+                normalized_key = key.strip().upper()
+                if normalized_key in {
+                    "FORMAT",
+                    "PROFILE_KIND",
+                    "STATUS",
+                    "MODE",
+                    "PRESENT",
+                    "INSTALLED",
+                    "NEEDS_SYSTEM",
+                    "SKIPPED",
+                    "PREPARED_DIRS",
+                }:
+                    continue
+                if value.strip():
+                    return value.strip()
+                continue
+            return stripped
+        return log_lines[-1] if log_lines else ""
 
     @staticmethod
     def _describe_tool_env_status(*, status: str, conda_message: str, installable: bool) -> str:
@@ -2214,7 +2251,8 @@ class RuntimeService:
         return {
             "java": {
                 "available": caps.has_java,
-                "usable": caps.has_java and self._remote_runtime_ok("java -version >/dev/null 2>&1"),
+                "supported": caps.has_supported_java,
+                "usable": caps.has_supported_java and self._remote_runtime_ok("java -version >/dev/null 2>&1"),
                 "version": caps.java_version,
             },
             "nextflow": {

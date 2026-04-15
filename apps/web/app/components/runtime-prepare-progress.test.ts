@@ -44,6 +44,7 @@ async function buildView(selectedDecision: RuntimeDecisionOption, snapshot: Inst
     selectedDecision,
     installTarget: selectedDecision === "assistant_install_docker" ? "docker_runtime" : "workflow_runtime",
     snapshot,
+    installRunning: false,
   });
 }
 
@@ -89,4 +90,54 @@ test("backend-provided steps override local defaults", async () => {
   };
   const view = await buildView("use_docker", snapshot);
   assert.deepEqual(view.steps, snapshot.progress?.steps);
+});
+
+test("workflow runtime shows first step as running immediately after start", async () => {
+  const { buildRuntimePrepareView } = await loadModule();
+  const view = buildRuntimePrepareView({
+    selectedDecision: "use_docker",
+    installTarget: "workflow_runtime",
+    snapshot: null,
+    installRunning: true,
+  });
+  assert.equal(view.steps[0].status, "running");
+  assert.equal(view.steps[1].status, "pending");
+});
+
+test("workflow runtime stays pending before start", async () => {
+  const { buildRuntimePrepareView } = await loadModule();
+  const view = buildRuntimePrepareView({
+    selectedDecision: "use_docker",
+    installTarget: "workflow_runtime",
+    snapshot: null,
+    installRunning: false,
+  });
+  assert.equal(view.steps[0].status, "pending");
+});
+
+test("polling snapshot promotes the next pending step to running", async () => {
+  const { buildRuntimePrepareView } = await loadModule();
+  const snapshot: InstallSnapshot = {
+    job_id: "job",
+    status: "running",
+    done: false,
+    ok: false,
+    message: "",
+    log_text: "STEP=java:running",
+    progress: {
+      steps: [
+        { key: "java", label: "校验 Java 17-24", status: "pending" },
+        { key: "docker", label: "验证 Docker", status: "pending" },
+        { key: "nextflow", label: "准备 Nextflow", status: "pending" },
+      ],
+    },
+  };
+  const view = buildRuntimePrepareView({
+    selectedDecision: "use_docker",
+    installTarget: "workflow_runtime",
+    snapshot,
+    installRunning: true,
+  });
+  assert.equal(view.steps[0].status, "running");
+  assert.equal(view.steps[1].status, "pending");
 });

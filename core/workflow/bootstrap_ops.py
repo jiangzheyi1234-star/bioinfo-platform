@@ -16,6 +16,45 @@ DOCKER_BOOTSTRAP_BASE = "~/.bioflow/docker_runtime_bootstrap"
 DOCKER_BOOTSTRAP_JOB_ID = "h2o_docker_runtime_bootstrap"
 _BOOTSTRAP_TIMEOUT = 20
 _LOG_TAIL_LINES = 120
+_WORKFLOW_PROGRESS_SPECS: dict[str, list[dict[str, str]]] = {
+    "personal_docker": [
+        {"key": "java", "label": "校验 Java 17-24"},
+        {"key": "docker", "label": "验证 Docker"},
+        {"key": "nextflow", "label": "准备 Nextflow"},
+        {"key": "runtime_dirs", "label": "创建运行目录"},
+        {"key": "verification", "label": "验证安装"},
+    ],
+    "personal_podman": [
+        {"key": "java", "label": "校验 Java 17-24"},
+        {"key": "podman", "label": "验证 Podman"},
+        {"key": "nextflow", "label": "准备 Nextflow"},
+        {"key": "runtime_dirs", "label": "创建运行目录"},
+        {"key": "verification", "label": "验证安装"},
+    ],
+    "personal_conda": [
+        {"key": "java", "label": "校验 Java"},
+        {"key": "nextflow", "label": "安装 Nextflow"},
+        {"key": "micromamba", "label": "安装 Micromamba"},
+        {"key": "runtime_dirs", "label": "创建运行目录"},
+        {"key": "verification", "label": "验证安装"},
+    ],
+    "hpc_slurm_apptainer": [
+        {"key": "java", "label": "校验 Java"},
+        {"key": "sbatch", "label": "校验 Slurm"},
+        {"key": "apptainer", "label": "验证 Apptainer"},
+        {"key": "nextflow", "label": "准备 Nextflow"},
+        {"key": "runtime_dirs", "label": "创建运行目录"},
+        {"key": "verification", "label": "验证安装"},
+    ],
+    "hpc_slurm_conda": [
+        {"key": "java", "label": "校验 Java"},
+        {"key": "sbatch", "label": "校验 Slurm"},
+        {"key": "nextflow", "label": "安装 Nextflow"},
+        {"key": "micromamba", "label": "安装 Micromamba"},
+        {"key": "runtime_dirs", "label": "创建运行目录"},
+        {"key": "verification", "label": "验证安装"},
+    ],
+}
 
 
 def workflow_bootstrap_task_dir(profile_kind: str) -> str:
@@ -178,6 +217,35 @@ def read_docker_bootstrap_status(ssh_run_fn: Any, *, task_dir: str) -> tuple[dic
         session_alive = check_rc == 0
     log_text = str(raw_status.get("log_preview") or "")
     return raw_status, session_alive, log_text
+
+
+def build_workflow_runtime_progress(*, profile_kind: str, stage: str, log_text: str) -> dict[str, Any]:
+    spec = _WORKFLOW_PROGRESS_SPECS.get(profile_kind, _WORKFLOW_PROGRESS_SPECS["personal_conda"])
+    step_statuses = _parse_step_statuses(log_text)
+    steps: list[dict[str, str]] = []
+    for item in spec:
+        steps.append(
+            {
+                "key": item["key"],
+                "label": item["label"],
+                "status": step_statuses.get(item["key"], "pending"),
+            }
+        )
+    if stage == "done":
+        steps = [
+            {
+                **item,
+                "status": "done" if item["status"] in {"pending", "running"} else item["status"],
+            }
+            for item in steps
+        ]
+    elif stage == "failed":
+        steps = _apply_failed_terminal_state(steps)
+    return {
+        "kind": "workflow_runtime",
+        "profile_kind": profile_kind,
+        "steps": steps,
+    }
 
 
 def _workflow_bootstrap_wrapper_script(*, task_dir: str, profile_kind: str, install_script_path: str) -> str:
@@ -381,3 +449,36 @@ def _parse_status_payload(payload: str) -> dict[str, Any]:
             collecting_log = True
     result["log_preview"] = "\n".join(log_lines).strip()
     return result
+
+
+def _parse_step_statuses(log_text: str) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    for raw in str(log_text or "").splitlines():
+        if not raw.startswith("STEP="):
+            continue
+        payload = raw[len("STEP="):].strip()
+        if ":" not in payload:
+            continue
+        key, status = payload.split(":", 1)
+        normalized_key = key.strip()
+        normalized_status = status.strip()
+        if not normalized_key or normalized_status not in {"pending", "running", "done", "failed"}:
+            continue
+        statuses[normalized_key] = normalized_status
+    return statuses
+
+
+def _apply_failed_terminal_state(steps: list[dict[str, str]]) -> list[dict[str, str]]:
+    failed_seen = False
+    normalized: list[dict[str, str]] = []
+    for item in steps:
+        next_item = dict(item)
+        if next_item["status"] == "failed":
+            failed_seen = True
+        elif next_item["status"] == "running":
+            next_item["status"] = "failed"
+            failed_seen = True
+        elif failed_seen and next_item["status"] == "pending":
+            next_item["status"] = "pending"
+        normalized.append(next_item)
+    return normalized

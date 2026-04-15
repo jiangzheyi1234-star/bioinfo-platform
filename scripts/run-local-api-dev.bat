@@ -18,7 +18,7 @@ if "%H2OMETA_CONDA_ENV%"=="" (
 )
 
 cd /d "%H2OMETA_WORKDIR%"
-call "%H2OMETA_CONDA_EXE%" run -n "%H2OMETA_CONDA_ENV%" python -m apps.api.run
+call "%H2OMETA_CONDA_EXE%" run --no-capture-output -n "%H2OMETA_CONDA_ENV%" python -m apps.api.run
 set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
     echo.

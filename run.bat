@@ -139,18 +139,22 @@ if errorlevel 1 (
 )
 
 echo [INFO] Checking local API server on 127.0.0.1:8765...
-cmd /c "netstat -ano | findstr :8765 | findstr LISTENING >nul"
+set "API_PID="
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr LISTENING ^| findstr 127.0.0.1:8765') do (
+    set "API_PID=%%P"
+)
+if not "%API_PID%"=="" (
+    echo [INFO] Existing API listener detected on PID %API_PID%. Restarting to pick up latest code...
+    taskkill /PID %API_PID% /F >nul 2>nul
+)
+
+echo [INFO] Starting local backend window with conda env %LOCAL_CONDA_ENV%...
+ver >nul
+start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
 if errorlevel 1 (
-    echo [INFO] API server not running. Starting local backend window with conda env %LOCAL_CONDA_ENV%...
-    ver >nul
-    start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
-    if errorlevel 1 (
-        echo [ERROR] Failed to open API terminal window.
-        pause
-        endlocal & exit /b 1
-    )
-) else (
-    echo [INFO] Reusing existing API server on %API_URL%
+    echo [ERROR] Failed to open API terminal window.
+    pause
+    endlocal & exit /b 1
 )
 
 ver >nul
@@ -197,18 +201,22 @@ if not exist "%RUN_LOCAL_API_DEV%" (
 )
 
 echo [INFO] Checking local API server on 127.0.0.1:8765...
-cmd /c "netstat -ano | findstr :8765 | findstr LISTENING >nul"
+set "API_PID="
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr LISTENING ^| findstr 127.0.0.1:8765') do (
+    set "API_PID=%%P"
+)
+if not "%API_PID%"=="" (
+    echo [INFO] Existing API listener detected on PID %API_PID%. Restarting to pick up latest code...
+    taskkill /PID %API_PID% /F >nul 2>nul
+)
+
+echo [INFO] Starting local backend window with conda env %LOCAL_CONDA_ENV%...
+ver >nul
+start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
 if errorlevel 1 (
-    echo [INFO] API server not running. Starting local backend window with conda env %LOCAL_CONDA_ENV%...
-    ver >nul
-    start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
-    if errorlevel 1 (
-        echo [ERROR] Failed to open API terminal window.
-        pause
-        endlocal & exit /b 1
-    )
-) else (
-    echo [INFO] Reusing existing API server on %API_URL%
+    echo [ERROR] Failed to open API terminal window.
+    pause
+    endlocal & exit /b 1
 )
 
 "%DESKTOP_EXE%"

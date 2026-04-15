@@ -5,6 +5,7 @@ import test from "node:test";
 
 const source = readFileSync(resolve(import.meta.dirname, "./ssh-shell.tsx"), "utf-8");
 const globalsCss = readFileSync(resolve(import.meta.dirname, "../globals.css"), "utf-8");
+const apiSource = readFileSync(resolve(import.meta.dirname, "../../api/main.py"), "utf-8");
 const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8")) as {
   dependencies?: Record<string, string>;
 };
@@ -47,4 +48,14 @@ test("ssh shell source stays within the v1 non-goals", () => {
 test("ssh shell source uses in-buffer terminal input instead of a standalone command field", () => {
   assert.doesNotMatch(source, /terminalCommand/);
   assert.doesNotMatch(source, /终端已就绪，输入命令后按 Enter 执行/);
+});
+
+test("ssh shell uses a single runtime settings entry", () => {
+  assert.match(source, /运行时设置/);
+  assert.doesNotMatch(source, /重新检查环境/);
+  assert.doesNotMatch(source, /prepareDialogMode/);
+});
+
+test("desktop dev origin is allowed by api CORS config", () => {
+  assert.match(apiSource, /http:\/\/127\.0\.0\.1:3100/);
 });

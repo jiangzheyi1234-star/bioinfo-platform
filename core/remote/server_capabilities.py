@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Callable, Literal
 
 SshRunFn = Callable[[str, int], tuple[int, str, str]]
 
 _SUPPORTED_ARCHES = {"x86_64", "aarch64"}
+_SUPPORTED_JAVA_MAJORS = set(range(17, 25))
 _CANONICAL_PROFILE_ORDER = (
     "hpc_slurm_apptainer",
     "hpc_slurm_conda",
@@ -51,6 +53,24 @@ class ServerCapabilities:
     has_sbatch: bool
     free_disk_gb: float
     home_writable: bool
+
+    @property
+    def java_major(self) -> int | None:
+        raw = str(self.java_version or "").strip()
+        if not raw:
+            return None
+        match = re.search(r'version "(\d+)(?:\.(\d+))?', raw)
+        if not match:
+            return None
+        first = int(match.group(1))
+        if first == 1 and match.group(2):
+            return int(match.group(2))
+        return first
+
+    @property
+    def has_supported_java(self) -> bool:
+        major = self.java_major
+        return self.has_java and major in _SUPPORTED_JAVA_MAJORS
 
     @property
     def downloader(self) -> Literal["curl", "wget"]:
@@ -129,6 +149,8 @@ class ServerCapabilities:
         failures: list[str] = []
         if not self.has_java:
             failures.append("远端缺少 Java，无法运行 Nextflow")
+        elif not self.has_supported_java:
+            failures.append("远端 Java 版本不受支持；Nextflow 需要 Java 17-24")
         if not self.has_nextflow:
             failures.append("远端缺少 Nextflow，可先在连接页安装运行时")
         if self.recommended_profile_kind.startswith("hpc_slurm_"):
@@ -146,6 +168,8 @@ class ServerCapabilities:
             warnings.append("未检测到 screen；这不会阻塞 workflow run，但旧环境安装流程可能受限")
         if self.has_java and not self.java_version:
             warnings.append("Java 已检测到，但版本字符串为空")
+        if self.has_java and self.java_version and not self.has_supported_java:
+            warnings.append("Java 已检测到，但版本不满足 Nextflow 要求（需 17-24）")
         if self.has_nextflow and not self.nextflow_version:
             warnings.append("Nextflow 已检测到，但版本字符串为空")
         return warnings
