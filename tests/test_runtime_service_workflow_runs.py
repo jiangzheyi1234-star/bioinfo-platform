@@ -676,6 +676,66 @@ def test_get_ssh_preflight_blocks_when_java_is_missing_even_if_docker_and_nextfl
     assert java_check["status"] == "fail"
 
 
+def test_get_ssh_preflight_blocks_when_probe_and_resolved_java_disagree(
+    runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caps = SimpleNamespace(
+        arch="x86_64",
+        has_bash=True,
+        has_curl=True,
+        has_wget=False,
+        has_screen=True,
+        has_sha256sum=True,
+        has_java=True,
+        java_version="openjdk version \"17.0.14\" 2025-10-15",
+        has_nextflow=True,
+        nextflow_version="24.10.0",
+        has_docker=True,
+        has_podman=False,
+        has_apptainer=False,
+        has_micromamba=False,
+        has_conda=False,
+        has_sbatch=False,
+        free_disk_gb=42.0,
+        home_writable=True,
+        bootstrap_failures=lambda min_free_disk_gb=5.0: [],
+        runtime_failures=lambda: [],
+        warnings=lambda: [],
+    )
+
+    monkeypatch.setattr("core.app_runtime.service.probe_preflight", lambda _run: caps)
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_java",
+        lambda _run: {
+            "available": False,
+            "usable": False,
+            "supported": False,
+            "version": "",
+            "path": "",
+            "home": "",
+            "message": "未检测到 Java，无法运行 Nextflow",
+        },
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_nextflow",
+        lambda _run: {
+            "available": True,
+            "usable": True,
+            "version": "24.10.0",
+            "path": "/home/zyserver/bin/nextflow",
+            "command": "nextflow",
+            "source": "path",
+            "message": "已检测到 Nextflow，可直接使用",
+        },
+    )
+    monkeypatch.setattr(runtime, "_remote_runtime_ok", lambda command: "docker ps" in command)
+
+    item = runtime.get_ssh_preflight()
+
+    assert item["ok"] is False
+    assert "未检测到 Java，无法运行 Nextflow" in item["failures"]
+
+
 def test_install_remote_env_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "core.app_runtime.service.probe_preflight",

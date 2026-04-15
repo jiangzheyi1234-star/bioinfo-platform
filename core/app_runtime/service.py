@@ -861,7 +861,7 @@ class RuntimeService:
             runtime_capabilities = self._runtime_capabilities_dict(caps)
             recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
             failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
-            runtime_failures = caps.runtime_failures()
+            runtime_failures = self._runtime_failures_from_resolved_capabilities(caps, runtime_capabilities)
             failures.extend(message for message in runtime_failures if message not in failures)
             checks = [
                 {
@@ -2226,6 +2226,34 @@ class RuntimeService:
         if runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False):
             supported.append("personal_conda")
         return supported
+
+    def _runtime_failures_from_resolved_capabilities(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
+        failures = list(caps.runtime_failures())
+        java_info = runtime_capabilities.get("java", {})
+        nextflow_info = runtime_capabilities.get("nextflow", {})
+
+        if not java_info.get("usable", False):
+            message = str(java_info.get("message") or "远端缺少 Java，无法运行 Nextflow").strip()
+            if message and message not in failures:
+                failures.append(message)
+        if not nextflow_info.get("usable", False):
+            message = str(nextflow_info.get("message") or "远端缺少 Nextflow，可先在连接页安装运行时").strip()
+            if message and message not in failures:
+                failures.append(message)
+
+        runtime_ready = any(
+            runtime_capabilities.get(key, {}).get("usable", False)
+            for key in ("docker", "podman", "apptainer", "micromamba", "conda")
+        )
+        if not runtime_ready:
+            message = (
+                "HPC 运行时缺少 Apptainer 或 micromamba/conda"
+                if caps.has_sbatch
+                else "个人服务器缺少 Docker/Podman 或 micromamba/conda"
+            )
+            if message not in failures:
+                failures.append(message)
+        return failures
 
     def _runtime_capabilities_dict(self, caps: Any) -> dict[str, Any]:
         java_info = resolve_remote_java(self._run_ssh_command)
