@@ -11,6 +11,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from config import CONFIG_VERSION, default_settings_schema, get_config, resolve_ssh_password, save_config
@@ -42,7 +43,11 @@ from core.workflow import (
     create_workflow_backend,
 )
 from core.workflow.bootstrap_ops import (
+    DOCKER_BOOTSTRAP_JOB_ID,
     WORKFLOW_BOOTSTRAP_PREFIX,
+    docker_bootstrap_task_dir,
+    read_docker_bootstrap_status,
+    submit_docker_runtime_bootstrap,
     read_workflow_bootstrap_status,
     submit_workflow_runtime_bootstrap,
     workflow_bootstrap_task_dir,
@@ -845,7 +850,8 @@ class RuntimeService:
             self._ensure_ssh_connected()
             caps = probe_preflight(self._run_ssh_command)
             self._service_locator.server_capabilities = caps
-            recommended_profile = self._profile_from_capabilities(caps)
+            runtime_capabilities = self._runtime_capabilities_dict(caps)
+            recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
             failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
             checks = [
                 {
@@ -861,6 +867,131 @@ class RuntimeService:
                     "status": "ok" if caps.has_bash else "fail",
                     "value": "available" if caps.has_bash else "missing",
                     "message": "bash 可用" if caps.has_bash else "缺少 bash，无法执行 workflow launcher",
+                },
+                {
+                    "key": "java",
+                    "label": "Java 17+",
+                    "status": "ok"
+                    if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["java"]["available"]
+                    else "fail",
+                    "value": str(runtime_capabilities["java"].get("version") or ("available" if caps.has_java else "missing")),
+                    "message": "已检测到 Java，可用于运行 Nextflow"
+                    if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
+                    else "已检测到 Java，但当前不可正常调用"
+                    if runtime_capabilities["java"]["available"]
+                    else "未检测到 Java，无法运行 Nextflow",
+                },
+                {
+                    "key": "nextflow",
+                    "label": "Nextflow",
+                    "status": "ok"
+                    if runtime_capabilities["nextflow"]["available"] and runtime_capabilities["nextflow"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["nextflow"]["available"]
+                    else "fail",
+                    "value": str(runtime_capabilities["nextflow"].get("version") or ("available" if caps.has_nextflow else "missing")),
+                    "message": "已检测到 Nextflow"
+                    if runtime_capabilities["nextflow"]["available"] and runtime_capabilities["nextflow"].get("usable", False)
+                    else "已检测到 Nextflow，但当前不可正常调用"
+                    if runtime_capabilities["nextflow"]["available"]
+                    else "未检测到 Nextflow",
+                },
+                {
+                    "key": "docker",
+                    "label": "Docker",
+                    "status": "ok"
+                    if runtime_capabilities["docker"]["available"] and runtime_capabilities["docker"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["docker"]["available"]
+                    else "fail",
+                    "value": "usable"
+                    if runtime_capabilities["docker"].get("usable", False)
+                    else "installed"
+                    if runtime_capabilities["docker"]["available"]
+                    else "missing",
+                    "message": "已检测到 Docker，可优先使用容器模式"
+                    if runtime_capabilities["docker"]["available"] and runtime_capabilities["docker"].get("usable", False)
+                    else "已检测到 Docker，但当前用户不可直接使用"
+                    if runtime_capabilities["docker"]["available"]
+                    else "未检测到 Docker",
+                },
+                {
+                    "key": "podman",
+                    "label": "Podman",
+                    "status": "ok"
+                    if runtime_capabilities["podman"]["available"] and runtime_capabilities["podman"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["podman"]["available"]
+                    else "fail",
+                    "value": "usable"
+                    if runtime_capabilities["podman"].get("usable", False)
+                    else "installed"
+                    if runtime_capabilities["podman"]["available"]
+                    else "missing",
+                    "message": "已检测到 Podman，可作为容器模式替代"
+                    if runtime_capabilities["podman"]["available"] and runtime_capabilities["podman"].get("usable", False)
+                    else "已检测到 Podman，但当前用户不可直接使用"
+                    if runtime_capabilities["podman"]["available"]
+                    else "未检测到 Podman",
+                },
+                {
+                    "key": "apptainer",
+                    "label": "Apptainer",
+                    "status": "ok"
+                    if runtime_capabilities["apptainer"]["available"] and runtime_capabilities["apptainer"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["apptainer"]["available"]
+                    else "fail",
+                    "value": "usable"
+                    if runtime_capabilities["apptainer"].get("usable", False)
+                    else "installed"
+                    if runtime_capabilities["apptainer"]["available"]
+                    else "missing",
+                    "message": "已检测到 Apptainer（更适合共享/HPC 场景）"
+                    if runtime_capabilities["apptainer"]["available"] and runtime_capabilities["apptainer"].get("usable", False)
+                    else "已检测到 Apptainer，但当前不可正常调用"
+                    if runtime_capabilities["apptainer"]["available"]
+                    else "未检测到 Apptainer（个人服务器不作为默认）",
+                },
+                {
+                    "key": "micromamba",
+                    "label": "Micromamba",
+                    "status": "ok"
+                    if runtime_capabilities["micromamba"]["available"] and runtime_capabilities["micromamba"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["micromamba"]["available"]
+                    else "fail",
+                    "value": "usable"
+                    if runtime_capabilities["micromamba"].get("usable", False)
+                    else "installed"
+                    if runtime_capabilities["micromamba"]["available"]
+                    else "missing",
+                    "message": "已检测到 Micromamba"
+                    if runtime_capabilities["micromamba"]["available"] and runtime_capabilities["micromamba"].get("usable", False)
+                    else "已检测到 Micromamba，但当前不可正常调用"
+                    if runtime_capabilities["micromamba"]["available"]
+                    else "未检测到 Micromamba",
+                },
+                {
+                    "key": "conda",
+                    "label": "Conda",
+                    "status": "ok"
+                    if runtime_capabilities["conda"]["available"] and runtime_capabilities["conda"].get("usable", False)
+                    else "warn"
+                    if runtime_capabilities["conda"]["available"]
+                    else "fail",
+                    "value": "usable"
+                    if runtime_capabilities["conda"].get("usable", False)
+                    else "installed"
+                    if runtime_capabilities["conda"]["available"]
+                    else "missing",
+                    "message": "已检测到 Conda Runtime"
+                    if runtime_capabilities["conda"]["available"] and runtime_capabilities["conda"].get("usable", False)
+                    else "已检测到 Conda，但当前不可正常调用"
+                    if runtime_capabilities["conda"]["available"]
+                    else "未检测到 Conda Runtime",
                 },
                 {
                     "key": "downloader",
@@ -904,8 +1035,8 @@ class RuntimeService:
                 "free_disk_gb": caps.free_disk_gb,
                 "recommended_profile": recommended_profile.profile_kind,
                 "recommended_profile_details": recommended_profile.to_dict(),
-                "supported_profile_kinds": list(caps.supported_profile_kinds),
-                "runtime_capabilities": self._runtime_capabilities_dict(caps),
+                "supported_profile_kinds": self._supported_profile_kinds_from_runtime(caps, runtime_capabilities),
+                "runtime_capabilities": runtime_capabilities,
                 "checks": checks,
                 "failures": failures,
                 "warnings": caps.warnings() + [item["message"] for item in checks if item["status"] == "warn"],
@@ -1030,6 +1161,15 @@ class RuntimeService:
                     "message": "已提交 Miniforge 后台安装任务",
                 }
 
+            if normalized_target == "docker_runtime":
+                item = submit_docker_runtime_bootstrap(self._run_ssh_command)
+                return {
+                    "target": "docker_runtime",
+                    "job_id": item["job_id"],
+                    "task_dir": item["task_dir"],
+                    "message": "已提交 Docker 协助安装任务（实验性）",
+                }
+
             if normalized_target == "workflow_runtime":
                 normalized_profile_kind = str(profile_kind or "").strip()
                 if not normalized_profile_kind:
@@ -1105,6 +1245,26 @@ class RuntimeService:
                     stage=stage,
                     raw_status=raw_status,
                     log_text=log_text,
+                )
+
+            if normalized_job_id == DOCKER_BOOTSTRAP_JOB_ID:
+                task_dir = docker_bootstrap_task_dir()
+                raw_status, session_alive, log_text = read_docker_bootstrap_status(
+                    self._run_ssh_command,
+                    task_dir=task_dir,
+                )
+                stage = self._normalize_job_stage(
+                    status=str(raw_status.get("status") or ""),
+                    exit_code=str(raw_status.get("exit_code") or ""),
+                    session_alive=session_alive,
+                    heartbeat=str(raw_status.get("heartbeat") or ""),
+                )
+                return self._build_job_snapshot(
+                    job_id=normalized_job_id,
+                    stage=stage,
+                    raw_status=raw_status,
+                    log_text=log_text,
+                    progress={"kind": "docker_runtime"},
                 )
 
             if normalized_job_id.startswith(_WORKFLOW_BOOTSTRAP_PREFIX):
@@ -2003,15 +2163,85 @@ class RuntimeService:
             else f"{base_dir}/cache/conda",
         }
 
+    def _profile_from_runtime(self, caps: Any, runtime_capabilities: dict[str, Any]) -> ServerProfile:
+        if caps.has_sbatch:
+            if runtime_capabilities.get("apptainer", {}).get("usable", False):
+                profile_id = "hpc_slurm_apptainer"
+            elif runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False):
+                profile_id = "hpc_slurm_conda"
+            else:
+                profile_id = "hpc_slurm_conda"
+        elif runtime_capabilities.get("docker", {}).get("usable", False):
+            profile_id = "personal_docker"
+        elif runtime_capabilities.get("podman", {}).get("usable", False):
+            profile_id = "personal_podman"
+        else:
+            profile_id = "personal_conda"
+
+        profile_payload = self._profile_from_capabilities(SimpleNamespace(
+            recommended_profile_kind=profile_id,
+            recommended_executor="slurm" if profile_id.startswith("hpc_slurm_") else "local",
+            recommended_packaging_mode="container" if profile_id.endswith(("docker", "podman", "apptainer")) else "conda",
+            recommended_container_runtime="docker" if profile_id == "personal_docker" else "podman" if profile_id == "personal_podman" else "apptainer" if profile_id == "hpc_slurm_apptainer" else "",
+        ))
+        return ServerProfile(
+            profile_id=str(profile_payload["profile_id"]),
+            server_id=str(profile_payload["server_id"]),
+            profile_kind=str(profile_payload["profile_kind"]),  # type: ignore[arg-type]
+            executor=str(profile_payload["executor"]),
+            packaging_mode=str(profile_payload["packaging_mode"]),  # type: ignore[arg-type]
+            container_runtime=str(profile_payload["container_runtime"]),
+            work_dir=str(profile_payload["work_dir"]),
+            output_dir=str(profile_payload["output_dir"]),
+            cache_dir=str(profile_payload["cache_dir"]),
+        )
+
+    def _supported_profile_kinds_from_runtime(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
+        supported: list[str] = []
+        if caps.has_sbatch and runtime_capabilities.get("apptainer", {}).get("usable", False):
+            supported.append("hpc_slurm_apptainer")
+        if caps.has_sbatch and (runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False)):
+            supported.append("hpc_slurm_conda")
+        if runtime_capabilities.get("docker", {}).get("usable", False):
+            supported.append("personal_docker")
+        if runtime_capabilities.get("podman", {}).get("usable", False):
+            supported.append("personal_podman")
+        if runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False):
+            supported.append("personal_conda")
+        return supported
+
     def _runtime_capabilities_dict(self, caps: Any) -> dict[str, Any]:
         return {
-            "java": {"available": caps.has_java, "version": caps.java_version},
-            "nextflow": {"available": caps.has_nextflow, "version": caps.nextflow_version},
-            "docker": {"available": caps.has_docker},
-            "podman": {"available": caps.has_podman},
-            "apptainer": {"available": caps.has_apptainer},
-            "micromamba": {"available": caps.has_micromamba},
-            "conda": {"available": caps.has_conda},
+            "java": {
+                "available": caps.has_java,
+                "usable": caps.has_java and self._remote_runtime_ok("java -version >/dev/null 2>&1"),
+                "version": caps.java_version,
+            },
+            "nextflow": {
+                "available": caps.has_nextflow,
+                "usable": caps.has_nextflow and self._remote_runtime_ok("nextflow -version >/dev/null 2>&1"),
+                "version": caps.nextflow_version,
+            },
+            "docker": {
+                "available": caps.has_docker,
+                "usable": caps.has_docker and self._remote_runtime_ok("docker ps >/dev/null 2>&1"),
+            },
+            "podman": {
+                "available": caps.has_podman,
+                "usable": caps.has_podman and self._remote_runtime_ok("podman ps >/dev/null 2>&1"),
+            },
+            "apptainer": {
+                "available": caps.has_apptainer,
+                "usable": caps.has_apptainer and self._remote_runtime_ok("apptainer --version >/dev/null 2>&1"),
+            },
+            "micromamba": {
+                "available": caps.has_micromamba,
+                "usable": caps.has_micromamba and self._remote_runtime_ok("micromamba --version >/dev/null 2>&1"),
+            },
+            "conda": {
+                "available": caps.has_conda,
+                "usable": caps.has_conda and self._remote_runtime_ok("conda --version >/dev/null 2>&1"),
+            },
             "sbatch": {"available": caps.has_sbatch},
         }
 

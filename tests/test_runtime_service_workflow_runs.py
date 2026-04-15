@@ -528,3 +528,82 @@ def test_task_workflow_compatibility_uses_backend_selection_and_falls_back_to_co
     assert "改用 personal_conda" in item["selection_reason"]
     assert len(item["server_profiles"]) == 2
     assert any(reason.endswith("缺少 runtime.container") for reason in item["workflow_profiles"][0]["incompatibility_reasons"])
+
+
+def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    caps = SimpleNamespace(
+        arch="x86_64",
+        has_bash=True,
+        has_curl=True,
+        has_wget=False,
+        has_screen=True,
+        has_sha256sum=True,
+        has_java=True,
+        java_version="openjdk 17",
+        has_nextflow=True,
+        nextflow_version="24.10.0",
+        has_docker=True,
+        has_podman=False,
+        has_apptainer=False,
+        has_micromamba=True,
+        has_conda=False,
+        has_sbatch=False,
+        free_disk_gb=42.0,
+        home_writable=True,
+        bootstrap_failures=lambda min_free_disk_gb=5.0: [],
+        warnings=lambda: [],
+    )
+
+    monkeypatch.setattr("core.app_runtime.service.probe_preflight", lambda _run: caps)
+
+    def fake_runtime_ok(command: str) -> bool:
+        if "docker ps" in command:
+            return False
+        return True
+
+    monkeypatch.setattr(runtime, "_remote_runtime_ok", fake_runtime_ok)
+
+    item = runtime.get_ssh_preflight()
+
+    docker_cap = item["runtime_capabilities"]["docker"]
+    assert docker_cap["available"] is True
+    assert docker_cap["usable"] is False
+    assert item["recommended_profile"] == "personal_conda"
+    assert "personal_docker" not in item["supported_profile_kinds"]
+    docker_check = next(check for check in item["checks"] if check["key"] == "docker")
+    assert docker_check["status"] == "warn"
+    assert "当前用户不可直接使用" in docker_check["message"]
+
+
+def test_install_remote_env_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "core.app_runtime.service.probe_preflight",
+        lambda _run: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.submit_docker_runtime_bootstrap",
+        lambda _run: {"job_id": "h2o_docker_runtime_bootstrap", "task_dir": "~/.bioflow/docker_runtime_bootstrap"},
+    )
+
+    item = runtime.install_remote_env(target="docker_runtime")
+
+    assert item["target"] == "docker_runtime"
+    assert item["job_id"] == "h2o_docker_runtime_bootstrap"
+    assert "Docker 协助安装任务" in item["message"]
+
+
+def test_get_remote_env_install_status_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "core.app_runtime.service.read_docker_bootstrap_status",
+        lambda _run, task_dir: (
+            {"status": "DONE", "exit_code": "0", "heartbeat": "123", "pid": "456", "log_preview": "Docker 已安装"},
+            False,
+            "Docker 已安装",
+        ),
+    )
+
+    item = runtime.get_remote_env_install_status(job_id="h2o_docker_runtime_bootstrap")
+
+    assert item["status"] == "done"
+    assert item["ok"] is True
+    assert item["progress"]["kind"] == "docker_runtime"

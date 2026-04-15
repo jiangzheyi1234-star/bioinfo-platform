@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PrepareServerWizard } from "@/app/components/prepare-server-wizard";
 import { cn } from "@/lib/utils";
 
 type SSHStatus = {
@@ -37,6 +38,8 @@ type SSHStatus = {
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
 };
+
+type RuntimeStatus = "unknown" | "missing" | "ready";
 
 type SSHFormState = {
   host: string;
@@ -189,10 +192,13 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SSHStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [prepareDialogOpen, setPrepareDialogOpen] = useState(false);
+  const [prepareDialogMode, setPrepareDialogMode] = useState<"wizard" | "settings">("wizard");
   const [form, setForm] = useState<SSHFormState>(defaultForm);
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [formError, setFormError] = useState("");
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>("unknown");
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
@@ -260,6 +266,40 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setTerminalHeight(readStoredTerminalHeight());
     void fetchStatus();
   }, [fetchStatus]);
+
+  const detectRuntimeReadiness = useCallback(async () => {
+    if (!status?.connected) {
+      setRuntimeStatus("unknown");
+      return;
+    }
+    try {
+      const [preflightResp, envResp] = await Promise.all([
+        fetch(`${apiBase()}/api/v1/ssh/preflight`, { method: "POST" }),
+        fetch(`${apiBase()}/api/v1/ssh/env/status`, { cache: "no-store" }),
+      ]);
+      const [preflightData, envData] = await Promise.all([readJsonOrThrow(preflightResp), readJsonOrThrow(envResp)]);
+      const preflight = preflightData?.item || {};
+      const runtimeCapabilities = preflight.runtime_capabilities || {};
+      const javaAvailable = runtimeCapabilities?.java?.usable === true;
+      const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true;
+      const dockerAvailable = runtimeCapabilities?.docker?.usable === true;
+      const podmanAvailable = runtimeCapabilities?.podman?.usable === true;
+      const micromambaAvailable = runtimeCapabilities?.micromamba?.usable === true;
+      const condaAvailable = runtimeCapabilities?.conda?.usable === true || envData?.item?.miniforge?.installed === true;
+      const ready = javaAvailable && nextflowAvailable && (dockerAvailable || podmanAvailable || micromambaAvailable || condaAvailable);
+      setRuntimeStatus(ready ? "ready" : "missing");
+    } catch {
+      setRuntimeStatus("missing");
+    }
+  }, [status?.connected]);
+
+  useEffect(() => {
+    if (!status?.connected) {
+      setRuntimeStatus("unknown");
+      return;
+    }
+    void detectRuntimeReadiness();
+  }, [detectRuntimeReadiness, status?.connected]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -741,12 +781,19 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                       status?.connected ? "text-slate-900" : "text-slate-700"
                     )}
                     onClick={() => {
-                      router.push("/connect");
-                      setFormError("");
-                      setForm(toForm(status));
                       if (!status?.connected) {
+                        router.push("/connect");
+                        setFormError("");
+                        setForm(toForm(status));
                         setDialogOpen(true);
+                        return;
                       }
+                      if (runtimeStatus === "missing") {
+                        setPrepareDialogMode("wizard");
+                        setPrepareDialogOpen(true);
+                        return;
+                      }
+                      router.push("/connect");
                     }}
                   >
                     <Link2 className={cn("h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-500")} />
@@ -765,6 +812,22 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setPrepareDialogMode("settings");
+                            setPrepareDialogOpen(true);
+                          }}
+                        >
+                          运行时设置
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setPrepareDialogMode("wizard");
+                            setPrepareDialogOpen(true);
+                          }}
+                        >
+                          重新检查环境
+                        </DropdownMenuItem>
                         <DropdownMenuItem destructive onSelect={() => void submitDisconnect()}>
                           {disconnectBusy ? "断开中..." : "断开连接"}
                         </DropdownMenuItem>
@@ -969,6 +1032,27 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PrepareServerWizard
+        open={prepareDialogOpen}
+        mode={prepareDialogMode}
+        sshStatus={
+          status?.connected
+            ? {
+                connected: status.connected,
+                host: status.host,
+                port: status.port,
+                user: status.user,
+              }
+            : null
+        }
+        runtimeReady={runtimeStatus === "ready"}
+        onOpenChange={setPrepareDialogOpen}
+        onPrepared={() => {
+          setRuntimeStatus("ready");
+          void fetchStatus({ silent: true });
+        }}
+      />
     </SshShellContext.Provider>
   );
 }
