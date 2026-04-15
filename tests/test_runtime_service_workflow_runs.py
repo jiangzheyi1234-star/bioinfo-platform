@@ -607,3 +607,28 @@ def test_get_remote_env_install_status_supports_docker_runtime_assist(runtime: R
     assert item["status"] == "done"
     assert item["ok"] is True
     assert item["progress"]["kind"] == "docker_runtime"
+
+
+def test_get_remote_env_install_status_supports_workflow_bootstrap_jobs(
+    runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "core.app_runtime.service.read_workflow_bootstrap_status",
+        lambda _run, task_dir: (
+            {"status": "RUNNING", "exit_code": "", "heartbeat": "123", "pid": "456", "log_preview": "准备 Nextflow"},
+            True,
+            "准备 Nextflow",
+        ),
+    )
+
+    item = runtime.get_remote_env_install_status(job_id="h2o_workflow_bootstrap_personal_docker")
+
+    assert item["status"] == "running"
+    assert item["done"] is False
+    assert item["progress"]["profile_kind"] == "personal_docker"
+    assert item["progress"]["pid"] == "456"
+
+
+def test_get_remote_env_install_status_rejects_empty_workflow_bootstrap_profile(runtime: RuntimeService) -> None:
+    with pytest.raises(RuntimeServiceError, match="invalid workflow bootstrap job_id"):
+        runtime.get_remote_env_install_status(job_id="h2o_workflow_bootstrap_")

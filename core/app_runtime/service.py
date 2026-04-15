@@ -1267,8 +1267,8 @@ class RuntimeService:
                     progress={"kind": "docker_runtime"},
                 )
 
-            if normalized_job_id.startswith(_WORKFLOW_BOOTSTRAP_PREFIX):
-                profile_kind = normalized_job_id[len(_WORKFLOW_BOOTSTRAP_PREFIX):].strip()
+            if normalized_job_id.startswith(WORKFLOW_BOOTSTRAP_PREFIX):
+                profile_kind = normalized_job_id[len(WORKFLOW_BOOTSTRAP_PREFIX):].strip()
                 if not profile_kind:
                     raise RuntimeServiceError(f"invalid workflow bootstrap job_id: {normalized_job_id}")
                 task_dir = workflow_bootstrap_task_dir(profile_kind)
