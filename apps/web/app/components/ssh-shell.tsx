@@ -1169,7 +1169,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="min-h-0 flex-1 overflow-auto">
-                  <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-8 py-8">
+                  <div className="flex min-h-full w-full flex-col px-8 py-8">
                     {children}
                   </div>
                 </div>
@@ -1221,12 +1221,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                           <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-600">{terminalError}</div>
                         ) : null}
 
-                        <div ref={terminalSurfaceRef} className="relative flex-1 overflow-hidden bg-[#0b0b0b]">
-                          {!terminalSessionId && terminalBusy ? (
-                            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[#0b0b0b] text-sm text-slate-500">
-                              正在建立远程终端会话…
-                            </div>
-                          ) : null}
+                        <div
+                          ref={terminalSurfaceRef}
+                          className="relative flex-1 overflow-hidden bg-white"
+                        >
                           <div
                             ref={terminalViewportRef}
                             className={cn(
@@ -1235,7 +1233,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                             )}
                           />
                           {!terminalInputEnabled ? (
-                            <div className="absolute inset-0 bg-[#0b0b0b]/45" aria-hidden="true" />
+                            <div className="absolute inset-0 bg-white/55" aria-hidden="true" />
                           ) : null}
                         </div>
                       </div>

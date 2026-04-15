@@ -110,12 +110,6 @@ if not exist "%ENSURE_DESKTOP_DEV%" (
     endlocal & exit /b 1
 )
 
-if not exist "%RUN_LOCAL_API_DEV%" (
-    echo [ERROR] API launcher script not found: %RUN_LOCAL_API_DEV%
-    pause
-    endlocal & exit /b 1
-)
-
 if not exist "%RUN_DESKTOP_DEV%" (
     echo [ERROR] Desktop launcher script not found: %RUN_DESKTOP_DEV%
     pause
@@ -148,14 +142,7 @@ if not "%API_PID%"=="" (
     taskkill /PID %API_PID% /F >nul 2>nul
 )
 
-echo [INFO] Starting local backend window with conda env %LOCAL_CONDA_ENV%...
-ver >nul
-start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
-if errorlevel 1 (
-    echo [ERROR] Failed to open API terminal window.
-    pause
-    endlocal & exit /b 1
-)
+echo [INFO] Desktop dev will launch its own local backend after startup checks...
 
 ver >nul
 start "H2OMeta Desktop Dev" cmd /k call "%RUN_DESKTOP_DEV%"
@@ -194,12 +181,6 @@ if not exist "%LOCAL_CONDA_EXE%" (
     endlocal & exit /b 1
 )
 
-if not exist "%RUN_LOCAL_API_DEV%" (
-    echo [ERROR] API launcher script not found: %RUN_LOCAL_API_DEV%
-    pause
-    endlocal & exit /b 1
-)
-
 echo [INFO] Checking local API server on 127.0.0.1:8765...
 set "API_PID="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr LISTENING ^| findstr 127.0.0.1:8765') do (
@@ -210,14 +191,7 @@ if not "%API_PID%"=="" (
     taskkill /PID %API_PID% /F >nul 2>nul
 )
 
-echo [INFO] Starting local backend window with conda env %LOCAL_CONDA_ENV%...
-ver >nul
-start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
-if errorlevel 1 (
-    echo [ERROR] Failed to open API terminal window.
-    pause
-    endlocal & exit /b 1
-)
+echo [INFO] Desktop shell will launch its own local backend after startup checks...
 
 "%DESKTOP_EXE%"
 set "APP_EXIT=%ERRORLEVEL%"
