@@ -81,6 +81,32 @@ class _FakeRuntime:
         }
 
 
+class _FakeRuntimeMissingJava(_FakeRuntime):
+    def get_ssh_preflight(self) -> dict[str, object]:
+        return {
+            "ok": False,
+            "recommended_profile": "personal_docker",
+            "recommended_profile_details": {"profile_kind": "personal_docker"},
+            "supported_profile_kinds": ["personal_docker"],
+            "runtime_capabilities": {
+                "java": {"available": False, "usable": False, "supported": False, "version": "", "path": "", "message": "未检测到 Java，无法运行 Nextflow"},
+                "nextflow": {"available": True, "usable": True, "version": "24.10.0", "path": "/home/zyserver/bin/nextflow", "message": "已检测到 Nextflow，可直接使用"},
+                "docker": {"available": True, "usable": True},
+                "podman": {"available": False, "usable": False},
+                "apptainer": {"available": False, "usable": False},
+                "micromamba": {"available": False, "usable": False},
+                "conda": {"available": False, "usable": False},
+            },
+            "checks": [
+                {"key": "java", "label": "Java 17+", "status": "fail", "value": "missing", "message": "未检测到 Java，无法运行 Nextflow"},
+                {"key": "nextflow", "label": "Nextflow", "status": "ok", "value": "24.10.0", "message": "已检测到 Nextflow，可直接使用"},
+                {"key": "docker", "label": "Docker", "status": "ok", "value": "usable", "message": "已检测到 Docker，可优先使用容器模式"},
+            ],
+            "failures": ["远端缺少 Java，无法运行 Nextflow"],
+            "warnings": [],
+        }
+
+
 def test_prepare_server_routes_expose_expected_shapes(monkeypatch) -> None:
     runtime = _FakeRuntime()
     monkeypatch.setattr(api_main, "get_runtime_service", _RuntimeFactory(runtime))
@@ -121,5 +147,22 @@ def test_prepare_server_routes_expose_expected_shapes(monkeypatch) -> None:
             docker_install_item = docker_install.json()["item"]
             assert docker_install_item["target"] == "docker_runtime"
             assert runtime.install_calls[-1] == {"target": "docker_runtime", "tool_id": "", "profile_kind": ""}
+
+    asyncio.run(exercise_routes())
+
+
+def test_prepare_server_routes_surface_runtime_blockers_in_preflight(monkeypatch) -> None:
+    runtime = _FakeRuntimeMissingJava()
+    monkeypatch.setattr(api_main, "get_runtime_service", _RuntimeFactory(runtime))
+
+    async def exercise_routes() -> None:
+        transport = httpx.ASGITransport(app=api_main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            preflight = await client.post("/api/v1/ssh/preflight")
+            assert preflight.status_code == 200
+            preflight_item = preflight.json()["item"]
+            assert preflight_item["ok"] is False
+            assert "远端缺少 Java，无法运行 Nextflow" in preflight_item["failures"]
+            assert preflight_item["checks"][0]["status"] == "fail"
 
     asyncio.run(exercise_routes())
