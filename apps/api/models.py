@@ -62,7 +62,7 @@ class SSHTerminalInputRequest(BaseModel):
 
 
 class RemoteEnvInstallRequest(BaseModel):
-    target: Literal["miniforge", "tool_env", "workflow_runtime"]
+    target: Literal["miniforge", "tool_env", "workflow_runtime", "docker_runtime"]
     tool_id: str | None = None
     profile_kind: str | None = None
 
