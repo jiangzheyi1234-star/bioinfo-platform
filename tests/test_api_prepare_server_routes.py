@@ -166,3 +166,21 @@ def test_prepare_server_routes_surface_runtime_blockers_in_preflight(monkeypatch
             assert preflight_item["checks"][0]["status"] == "fail"
 
     asyncio.run(exercise_routes())
+
+
+def test_prepare_server_routes_allow_probe_resolve_mismatch_to_surface_as_failure(monkeypatch) -> None:
+    runtime = _FakeRuntimeMissingJava()
+    monkeypatch.setattr(api_main, "get_runtime_service", _RuntimeFactory(runtime))
+
+    async def exercise_routes() -> None:
+        transport = httpx.ASGITransport(app=api_main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            preflight = await client.post("/api/v1/ssh/preflight")
+            assert preflight.status_code == 200
+            preflight_item = preflight.json()["item"]
+            assert preflight_item["ok"] is False
+            assert preflight_item["runtime_capabilities"]["docker"]["usable"] is True
+            assert preflight_item["runtime_capabilities"]["nextflow"]["usable"] is True
+            assert "远端缺少 Java，无法运行 Nextflow" in preflight_item["failures"]
+
+    asyncio.run(exercise_routes())
