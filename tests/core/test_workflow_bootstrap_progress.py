@@ -10,7 +10,7 @@ def test_docker_runtime_progress_uses_step_markers_from_log() -> None:
                 "STEP=java:done",
                 "STEP=docker:done",
                 "STEP=nextflow:failed",
-                "ERROR=nextflow requires Java 17-24",
+                "ERROR=nextflow requires Java 17-25",
             ]
         ),
     )

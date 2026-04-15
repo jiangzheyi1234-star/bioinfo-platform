@@ -114,8 +114,8 @@ function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatus
 
   const checksByKey = new Map((preflight.checks || []).map((item) => [item.key, item]));
   const runtime = preflight.runtime_capabilities || {};
-  const condaInstalled = envStatus?.miniforge?.installed === true;
-  const condaExecutable = envStatus?.miniforge?.conda_executable || "";
+  const condaInstalled = envStatus?.conda_runtime?.installed === true;
+  const condaExecutable = envStatus?.conda_runtime?.conda_executable || "";
 
   const makeRuntimeItem = (args: {
     key: string;
@@ -142,9 +142,11 @@ function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatus
       fallbackValue: runtime.java?.version || (runtime.java?.available ? "installed" : "missing"),
       fallbackMessage: runtime.java?.usable
         ? "已检测到 Java，可用于运行 Nextflow"
-        : runtime.java?.available
-          ? "已检测到 Java，但当前不可正常调用"
-          : "未检测到 Java，无法运行 Nextflow",
+        : runtime.java?.message
+          ? runtime.java.message
+          : runtime.java?.available
+            ? "已检测到 Java，但当前不可正常调用"
+            : "未检测到 Java，无法运行 Nextflow",
     }),
     makeRuntimeItem({
       key: "nextflow",
@@ -153,9 +155,11 @@ function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatus
       fallbackValue: runtime.nextflow?.version || (runtime.nextflow?.available ? "installed" : "missing"),
       fallbackMessage: runtime.nextflow?.usable
         ? "已检测到 Nextflow"
-        : runtime.nextflow?.available
-          ? "已检测到 Nextflow，但当前不可正常调用"
-          : "未检测到 Nextflow",
+        : runtime.nextflow?.message
+          ? runtime.nextflow.message
+          : runtime.nextflow?.available
+            ? "已检测到 Nextflow，但当前不可正常调用"
+            : "未检测到 Nextflow",
     }),
     makeRuntimeItem({
       key: "docker",
@@ -321,6 +325,41 @@ function getRecommendedExplanation(args: {
   return "未检测到可用容器运行时，建议继续使用 Conda Runtime。";
 }
 
+function profileKindForDecision(selectedDecision: RuntimeDecisionOption | null): string {
+  if (selectedDecision === "use_docker") return "personal_docker";
+  if (selectedDecision === "use_podman") return "personal_podman";
+  if (selectedDecision === "fallback_conda") return "personal_conda";
+  return "";
+}
+
+function getBootstrapBlockReason(
+  preflight: PreflightPayload | null,
+  selectedDecision: RuntimeDecisionOption | null
+): string {
+  if (!preflight || !selectedDecision || selectedDecision === "self_install_docker") {
+    return "";
+  }
+
+  const javaCheck = preflight.checks.find((item) => item.key === "java");
+  const javaUsable = preflight.runtime_capabilities?.java?.usable === true;
+  const javaBlockedMessage = javaCheck?.message || "当前服务器 Java 版本不满足 Nextflow 要求（需 17-25），请先修复 Java。";
+  if (selectedDecision === "assistant_install_docker") {
+    return javaUsable ? "" : javaBlockedMessage;
+  }
+
+  const profileKind = profileKindForDecision(selectedDecision);
+  if (!profileKind) {
+    return "";
+  }
+  if ((preflight.supported_profile_kinds || []).includes(profileKind)) {
+    return "";
+  }
+  if (!javaUsable) {
+    return javaBlockedMessage;
+  }
+  return `当前服务器尚未满足 ${profileKind} 的准备条件，请先补齐依赖并重新检测。`;
+}
+
 export function PrepareServerWizard({
   open,
   sshStatus,
@@ -348,7 +387,7 @@ export function PrepareServerWizard({
   const condaAvailable =
     capabilities?.micromamba?.usable === true ||
     capabilities?.conda?.usable === true ||
-    envStatus?.miniforge?.installed === true;
+    envStatus?.conda_runtime?.installed === true;
 
   const runtimeReadyDetected = isRuntimeReady(preflight, envStatus);
   const runtimeReady = preflight ? runtimeReadyDetected : loading ? Boolean(runtimeReadyOverride) : false;
@@ -406,7 +445,7 @@ export function PrepareServerWizard({
   }, [loadData, open, sshStatus?.connected]);
 
   useEffect(() => {
-    if (!open || !installJobId) {
+    if (!installJobId) {
       return;
     }
     let cancelled = false;
@@ -456,13 +495,18 @@ export function PrepareServerWizard({
     return () => {
       cancelled = true;
     };
-  }, [installJobId, loadData, onPrepared, open]);
+  }, [installJobId, loadData, onPrepared]);
 
   const beginBootstrap = useCallback(async () => {
     if (!preflight) {
       return;
     }
     if (selectedDecision === "self_install_docker") {
+      return;
+    }
+    const blockReason = getBootstrapBlockReason(preflight, selectedDecision);
+    if (blockReason) {
+      setError(blockReason);
       return;
     }
 
@@ -508,7 +552,8 @@ export function PrepareServerWizard({
   const bootstrapSteps = runtimePrepareView.steps;
   const serverLabel = sshStatus ? `${sshStatus.user}@${sshStatus.host}:${sshStatus.port}` : "未连接服务器";
   const showDockerChoices = Boolean(preflight) && !dockerUsable && !podmanUsable;
-  const canRunBootstrap = selectedDecision !== null && selectedDecision !== "self_install_docker";
+  const bootstrapBlockReason = useMemo(() => getBootstrapBlockReason(preflight, selectedDecision), [preflight, selectedDecision]);
+  const canRunBootstrap = selectedDecision !== null && selectedDecision !== "self_install_docker" && !bootstrapBlockReason;
   const canAdvanceFromDetection = Boolean(preflight) && !loading;
   const recommendedDecision = preflight ? getRecommendedDecision(preflight) : null;
   const recommendedExplanation = getRecommendedExplanation({ dockerUsable, podmanUsable, preflight });
@@ -712,6 +757,11 @@ export function PrepareServerWizard({
               {flowNotice ? (
                 <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-700">{flowNotice}</div>
               ) : null}
+              {bootstrapBlockReason ? (
+                <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-sm text-amber-700">
+                  {bootstrapBlockReason}
+                </div>
+              ) : null}
               {selectedDecision === "self_install_docker" ? (
                 <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 text-sm text-slate-600">
                   未检测到 Docker。请先自行安装 Docker，然后点击“重新检测”继续。
@@ -791,9 +841,9 @@ export function PrepareServerWizard({
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <RuntimePath label="Runtime Home" value={runtimeSummary?.runtimeHome || "~/.h2ometa/runtime"} />
-                  <RuntimePath label="Nextflow" value={runtimeSummary?.nextflowPath || "~/.h2ometa/runtime/bin/nextflow"} />
+                  <RuntimePath label="Nextflow" value={capabilities?.nextflow?.path || runtimeSummary?.nextflowPath || "未解析到可用 Nextflow"} />
                   <RuntimePath label="Micromamba" value={runtimeSummary?.micromambaPath || "~/.h2ometa/runtime/bin/micromamba"} />
-                  <RuntimePath label="Java" value={runtimeSummary?.javaPath || "使用系统 Java"} />
+                  <RuntimePath label="Java" value={capabilities?.java?.path || runtimeSummary?.javaPath || "使用系统 Java"} />
                 </div>
               </div>
             </div>

@@ -11,6 +11,7 @@ from typing import Any
 
 from core.environment.detached_job import ensure_remote_dirs, expand_home_expr, write_remote_script
 from core.execution.artifact_store import ArtifactStore
+from core.remote.runtime_resolution import build_runtime_env_exports, resolve_remote_java, resolve_remote_nextflow
 
 _KNOWN_ARTIFACTS = (
     ".nextflow.log",
@@ -103,12 +104,20 @@ def submit_local_nextflow_run(
     timeout: int = 20,
 ) -> dict[str, Any]:
     ensure_remote_dirs(ssh_run_fn, [remote_task_dir, remote_bundle_dir, remote_work_dir, remote_output_dir], timeout)
+    nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=timeout)
+    if not nextflow_info.get("usable", False):
+        raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
+    java_info = resolve_remote_java(ssh_run_fn, timeout=timeout)
+    if not java_info.get("usable", False):
+        raise RuntimeError(str(java_info.get("message") or "Java 未就绪"))
     script = _build_local_nextflow_launcher(
         remote_task_dir=remote_task_dir,
         remote_bundle_dir=remote_bundle_dir,
         remote_work_dir=remote_work_dir,
         remote_output_dir=remote_output_dir,
         resume=resume,
+        nextflow_command=str(nextflow_info.get("command") or "nextflow"),
+        runtime_env_exports=build_runtime_env_exports(java_info),
     )
     script_path = write_remote_script(
         ssh_run_fn,
@@ -272,6 +281,8 @@ def _build_local_nextflow_launcher(
     remote_work_dir: str,
     remote_output_dir: str,
     resume: bool,
+    nextflow_command: str,
+    runtime_env_exports: str,
 ) -> str:
     task_dir_expr = f"$(eval echo {expand_home_expr(remote_task_dir)})"
     bundle_dir_expr = f"$(eval echo {expand_home_expr(remote_bundle_dir)})"
@@ -292,10 +303,13 @@ PID_FILE="$TASK_DIR/launcher.pid"
 NEXTFLOW_PID_FILE="$TASK_DIR/nextflow.pid"
 CANCEL_FILE="$TASK_DIR/cancel_requested"
 LOG_FILE="$TASK_DIR/task.log"
+NEXTFLOW_CMD={shlex.quote(nextflow_command)}
 
 echo "PENDING" > "$STATUS_FILE"
 echo "$$" > "$PID_FILE"
 exec > "$LOG_FILE" 2>&1
+
+{runtime_env_exports.rstrip()}
 
 _heartbeat() {{
   while true; do
@@ -336,7 +350,7 @@ rm -f "$CANCEL_FILE"
 cd "$BUNDLE_DIR"
 echo "RUNNING" > "$STATUS_FILE"
 
-nextflow -C resolved.config run main.nf \\
+eval "$NEXTFLOW_CMD" -C resolved.config run main.nf \\
   -params-file params/run.yaml \\
   -work-dir "$WORK_DIR" \\
 {resume_line}  -with-report report.html \\

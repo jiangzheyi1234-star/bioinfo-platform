@@ -7,10 +7,10 @@ import logging
 import queue
 import threading
 import time
-from dataclasses import dataclass
-from threading import Event, RLock, Thread
-from typing import Any, Callable, List, Optional, Tuple
 import uuid
+from dataclasses import dataclass
+from threading import Condition, Event, RLock, Thread
+from typing import Any, Callable, List, Optional, Tuple
 
 import paramiko
 from core.qt_compat import QObject, pyqtSignal
@@ -32,6 +32,7 @@ class TerminalSession:
         self.session_id = session_id
         self._channel = channel
         self._lock = RLock()
+        self._updates = Condition(self._lock)
         self._stop = Event()
         self._output = ""
         self._closed = False
@@ -40,6 +41,7 @@ class TerminalSession:
         self._message = ""
         self._created_at = time.time()
         self._closed_at: float | None = None
+        self._version = 0
         self._reader = Thread(target=self._reader_loop, daemon=True, name=f"SSHTerminalReader-{session_id}")
         self._reader.start()
 
@@ -70,6 +72,34 @@ class TerminalSession:
                 self._mark_closed(message=str(exc) or "Terminal session write failed", connected=False)
                 raise
 
+    def resize(self, *, cols: int, rows: int) -> None:
+        with self._lock:
+            if self._closed or not self._input_enabled:
+                raise RuntimeError(self._message or "Terminal session is not writable")
+            resize_pty = getattr(self._channel, "resize_pty", None)
+            if not callable(resize_pty):
+                raise RuntimeError("Terminal session does not support resizing")
+            try:
+                resize_pty(width=max(40, int(cols)), height=max(12, int(rows)))
+            except Exception as exc:
+                self._mark_closed(message=str(exc) or "Terminal session resize failed", connected=False)
+                raise
+
+    def wait_for_update(
+        self,
+        *,
+        cursor: int = 0,
+        version: int = -1,
+        timeout: float = 1.0,
+    ) -> tuple[dict[str, Any], int]:
+        with self._updates:
+            safe_cursor = max(0, min(int(cursor or 0), len(self._output)))
+            has_pending_output = safe_cursor < len(self._output)
+            has_pending_state = version != self._version
+            if not has_pending_output and not has_pending_state:
+                self._updates.wait(timeout=max(0.0, float(timeout)))
+            return self.snapshot(cursor=safe_cursor), self._version
+
     def close(self, *, message: str = "终端会话已结束", connected: bool = False) -> None:
         with self._lock:
             if self._closed:
@@ -90,8 +120,9 @@ class TerminalSession:
     def _append_output(self, text: str) -> None:
         if not text:
             return
-        with self._lock:
+        with self._updates:
             self._output += text
+            self._touch_locked()
 
     def _mark_closed(self, *, message: str, connected: bool) -> None:
         self._closed = True
@@ -99,6 +130,11 @@ class TerminalSession:
         self._input_enabled = False
         self._message = message
         self._closed_at = time.time()
+        self._touch_locked()
+
+    def _touch_locked(self) -> None:
+        self._version += 1
+        self._updates.notify_all()
 
     def _reader_loop(self) -> None:
         try:
@@ -418,7 +454,17 @@ class SSHService(QObject):
     def open_terminal_session(self, *, cols: int = 120, rows: int = 28) -> TerminalSession:
         with self._io_lock:
             client = self._ensure_connection()
-            channel = client.invoke_shell(width=cols, height=rows)
+            transport = client.get_transport()
+            if transport is None or not transport.is_active():
+                raise RuntimeError("SSH 未连接")
+            channel = transport.open_session(timeout=10)
+            channel.get_pty(
+                term="xterm-256color",
+                width=max(40, int(cols)),
+                height=max(12, int(rows)),
+            )
+            channel.invoke_shell()
+            channel.settimeout(0.0)
         session = TerminalSession(session_id=f"term_{uuid.uuid4().hex}", channel=channel)
         self._terminal_sessions[session.session_id] = session
         return session
@@ -477,10 +523,37 @@ class SSHService(QObject):
             client = self._ensure_connection()
             stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
             del stdin
-            # Paramiko best practice: read streams first, then recv exit status.
-            out = stdout.read().decode("utf-8", errors="ignore")
-            err = stderr.read().decode("utf-8", errors="ignore")
-            rc = stdout.channel.recv_exit_status()
+            channel = stdout.channel
+            deadline = time.monotonic() + max(float(timeout), 0.1)
+            stdout_chunks: list[bytes] = []
+            stderr_chunks: list[bytes] = []
+
+            while True:
+                made_progress = False
+                while channel.recv_ready():
+                    stdout_chunks.append(channel.recv(32768))
+                    made_progress = True
+                while channel.recv_stderr_ready():
+                    stderr_chunks.append(channel.recv_stderr(32768))
+                    made_progress = True
+                if channel.exit_status_ready():
+                    while channel.recv_ready():
+                        stdout_chunks.append(channel.recv(32768))
+                    while channel.recv_stderr_ready():
+                        stderr_chunks.append(channel.recv_stderr(32768))
+                    rc = channel.recv_exit_status()
+                    break
+                if time.monotonic() >= deadline:
+                    try:
+                        channel.close()
+                    except Exception:
+                        logger.debug("Failed to close timed-out SSH channel", exc_info=True)
+                    raise TimeoutError(f"SSH command timed out after {timeout}s: {self._build_tag(cmd)}")
+                if not made_progress:
+                    time.sleep(0.05)
+
+            out = b"".join(stdout_chunks).decode("utf-8", errors="ignore")
+            err = b"".join(stderr_chunks).decode("utf-8", errors="ignore")
             return rc, out, err
 
     def _build_tag(self, cmd: str) -> str:

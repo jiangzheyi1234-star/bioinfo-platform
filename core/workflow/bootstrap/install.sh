@@ -16,6 +16,20 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+resolve_nextflow_candidate() {
+  local cmd="$1"
+  local path_hint="$2"
+  if ! bash -lc "$cmd -version >/dev/null 2>&1" >/dev/null 2>&1; then
+    return 1
+  fi
+  if ! bash -lc "$cmd info >/dev/null 2>&1" >/dev/null 2>&1; then
+    return 2
+  fi
+  RESOLVED_NEXTFLOW_CMD="$cmd"
+  RESOLVED_NEXTFLOW_PATH="$path_hint"
+  return 0
+}
+
 java_major() {
   local raw
   raw="$(java -version 2>&1 | awk 'NR==1{print; exit}')"
@@ -88,15 +102,15 @@ require_supported_java() {
   local step_key="${1:-java}"
   emit_step "$step_key" "running"
   if ! has_cmd java; then
-    emit NEEDS_SYSTEM "java_17_24"
+    emit NEEDS_SYSTEM "java_17_25"
     emit_step "$step_key" "failed"
     return 1
   fi
   local major
   major="$(java_major 2>/dev/null || true)"
   if [ -z "$major" ] || [ "$major" -lt 17 ] || [ "$major" -gt 24 ]; then
-    printf 'Java version does not satisfy Nextflow runtime requirement (17-24)\n' >&2
-    emit NEEDS_SYSTEM "java_17_24"
+    printf 'Java version does not satisfy Nextflow runtime requirement (17-25)\n' >&2
+    emit NEEDS_SYSTEM "java_17_25"
     emit_step "$step_key" "failed"
     return 1
   fi
@@ -107,16 +121,53 @@ require_supported_java() {
 ensure_nextflow() {
   local step_key="${1:-nextflow}"
   emit_step "$step_key" "running"
+  local first_found_error=""
+  local first_found_path=""
+  RESOLVED_NEXTFLOW_CMD=""
+  RESOLVED_NEXTFLOW_PATH=""
+
   if has_cmd nextflow; then
-    local existing_output
-    existing_output="$(bash -lc 'nextflow -version' 2>&1)" || {
-      printf '%s\n' "$existing_output" >&2
-      emit_step "$step_key" "failed"
-      return 1
-    }
-    emit PRESENT nextflow
-    emit_step "$step_key" "done"
-    return 0
+    local path_cmd
+    path_cmd="$(command -v nextflow 2>/dev/null || true)"
+    if resolve_nextflow_candidate "nextflow" "${path_cmd:-nextflow}"; then
+      emit PRESENT nextflow
+      emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
+      emit_step "$step_key" "done"
+      return 0
+    fi
+    first_found_path="${path_cmd:-nextflow}"
+    first_found_error="$(bash -lc 'nextflow info' 2>&1 || true)"
+  fi
+
+  for candidate in "$HOME/.local/bin/nextflow" "/usr/local/bin/nextflow" "/opt/nextflow/nextflow"; do
+    if [ ! -x "$candidate" ]; then
+      continue
+    fi
+    if resolve_nextflow_candidate "$candidate" "$candidate"; then
+      emit PRESENT nextflow
+      emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
+      emit_step "$step_key" "done"
+      return 0
+    fi
+    if [ -z "$first_found_error" ]; then
+      first_found_path="$candidate"
+      first_found_error="$(bash -lc "$candidate info" 2>&1 || true)"
+    fi
+  done
+
+  for candidate in "conda run -n base nextflow" "$HOME/miniconda3/bin/conda run -n base nextflow" "$HOME/anaconda3/bin/conda run -n base nextflow" "$HOME/mambaforge/bin/conda run -n base nextflow" "$HOME/miniforge3/bin/conda run -n base nextflow"; do
+    if resolve_nextflow_candidate "$candidate" "$candidate"; then
+      emit PRESENT nextflow
+      emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
+      emit_step "$step_key" "done"
+      return 0
+    fi
+  done
+
+  if [ -n "$first_found_error" ]; then
+    printf 'detected nextflow at %s but health check failed\n%s\n' "$first_found_path" "$first_found_error" >&2
+    emit_step "$step_key" "failed"
+    return 1
   fi
 
   local bin_dir="${HOME}/.local/bin"
@@ -134,19 +185,16 @@ ensure_nextflow() {
     cd "$bin_dir"
     bash "$tmp" >/dev/null
   )
-  if [ ! -f "${bin_dir}/nextflow" ]; then
-    printf 'nextflow bootstrap did not produce an executable\n' >&2
+  chmod +x "${bin_dir}/nextflow" 2>/dev/null || true
+  if ! PATH="$bin_dir:$PATH" bash -lc '"$HOME/.local/bin/nextflow" info >/dev/null 2>&1'; then
+    printf 'nextflow bootstrap succeeded but validation failed\n' >&2
     emit_step "$step_key" "failed"
     return 1
   fi
-  chmod +x "${bin_dir}/nextflow"
-  local installed_output
-  installed_output="$(bash -lc 'nextflow -version' 2>&1)" || {
-    printf '%s\n' "$installed_output" >&2
-    emit_step "$step_key" "failed"
-    return 1
-  }
+  RESOLVED_NEXTFLOW_CMD="$HOME/.local/bin/nextflow"
+  RESOLVED_NEXTFLOW_PATH="$HOME/.local/bin/nextflow"
   emit INSTALLED nextflow
+  emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
   emit_step "$step_key" "done"
 }
 

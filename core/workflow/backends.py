@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.environment.detached_job import ensure_remote_dirs, write_remote_script
+from core.remote.runtime_resolution import build_runtime_env_exports, resolve_remote_java, resolve_remote_nextflow
 
 from .runtime_ops import (
     cancel_local_nextflow_run,
@@ -155,6 +156,12 @@ class SlurmSSHBackend(WorkflowBackend):
         layout: dict[str, str],
         launch: Any,
     ) -> dict[str, Any]:
+        nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=20)
+        if not nextflow_info.get("usable", False):
+            raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
+        java_info = resolve_remote_java(ssh_run_fn, timeout=20)
+        if not java_info.get("usable", False):
+            raise RuntimeError(str(java_info.get("message") or "Java 未就绪"))
         ensure_remote_dirs(
             ssh_run_fn,
             [layout["remote_task_dir"], layout["remote_bundle_dir"], layout["remote_work_dir"], layout["remote_output_dir"]],
@@ -170,6 +177,8 @@ class SlurmSSHBackend(WorkflowBackend):
                 remote_work_dir=layout["remote_work_dir"],
                 remote_output_dir=layout["remote_output_dir"],
                 resume=bool(launch.resume),
+                nextflow_command=str(nextflow_info.get("command") or "nextflow"),
+                runtime_env_exports=build_runtime_env_exports(java_info),
             ),
             20,
             label="Slurm launcher script",
@@ -323,6 +332,8 @@ def _build_slurm_launcher(
     remote_work_dir: str,
     remote_output_dir: str,
     resume: bool,
+    nextflow_command: str,
+    runtime_env_exports: str,
 ) -> str:
     task_dir = _shell_expr(remote_task_dir)
     bundle_dir = _shell_expr(remote_bundle_dir)
@@ -343,12 +354,15 @@ JOB_ID_FILE="$TASK_DIR/scheduler_job_id.txt"
 LAUNCHER_PID_FILE="$TASK_DIR/launcher.pid"
 LOG_FILE="$TASK_DIR/task.log"
 CANCEL_FILE="$TASK_DIR/cancel_requested"
+NEXTFLOW_CMD={shlex.quote(nextflow_command)}
 
 mkdir -p "$TASK_DIR" "$BUNDLE_DIR" "$WORK_DIR" "$OUTPUT_DIR"
 echo "PENDING" > "$STATUS_FILE"
 echo "$$" > "$LAUNCHER_PID_FILE"
 echo "${{SLURM_JOB_ID:-}}" > "$JOB_ID_FILE"
 exec > "$LOG_FILE" 2>&1
+
+{runtime_env_exports.rstrip()}
 
 _heartbeat() {{
   while true; do
@@ -384,7 +398,7 @@ trap _cleanup EXIT
 cd "$BUNDLE_DIR"
 echo "RUNNING" > "$STATUS_FILE"
 
-nextflow -C resolved.config run main.nf \\
+eval "$NEXTFLOW_CMD" -C resolved.config run main.nf \\
   -params-file params/run.yaml \\
   -work-dir "$WORK_DIR" \\
 {resume_line}  -with-report report.html \\

@@ -28,7 +28,7 @@ def test_java_11_is_not_supported_for_nextflow() -> None:
     caps = build_caps('openjdk version "11.0.30" 2026-01-20')
     assert caps.java_major == 11
     assert caps.has_supported_java is False
-    assert "Java 17-24" in " ".join(caps.runtime_failures())
+    assert "Java 17-25" in " ".join(caps.runtime_failures())
 
 
 def test_java_17_is_supported_for_nextflow() -> None:

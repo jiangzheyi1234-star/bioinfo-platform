@@ -53,7 +53,23 @@ test("runtime prepare start now distinguishes health-check success from install-
   assert.match(inspectionSource, /\/health/);
 });
 
+test("prepare server wizard blocks bootstrap when Java or the selected profile is unsupported", () => {
+  assert.match(source, /bootstrapBlockReason/);
+  assert.match(source, /supported_profile_kinds/);
+  assert.match(source, /版本不满足 Nextflow 要求（需 17-25）|请先修复 Java/);
+  assert.match(source, /!bootstrapBlockReason/);
+});
+
 test("prepare server wizard uses a fixed dialog shell size", () => {
   assert.match(source, /w-\[960px\]/);
   assert.match(source, /h-\[760px\]/);
+});
+
+test("prepare server wizard uses resolved nextflow path instead of only the runtime default path", () => {
+  assert.match(source, /capabilities\?\.nextflow\?\.path/);
+});
+
+test("prepare server wizard polling is not gated by dialog open state", () => {
+  assert.doesNotMatch(source, /if \(!open \|\| !installJobId\)/);
+  assert.match(source, /if \(!installJobId\)/);
 });

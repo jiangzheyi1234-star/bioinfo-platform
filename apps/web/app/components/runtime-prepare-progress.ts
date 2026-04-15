@@ -51,7 +51,7 @@ const DOCKER_RUNTIME_STEPS: BootstrapStep[] = [
 const WORKFLOW_RUNTIME_STEP_PRESETS: Record<string, { steps: BootstrapStep[]; emptyLogText: string }> = {
   use_docker: {
     steps: [
-      { key: "java", label: "校验 Java 17-24", status: "pending" },
+      { key: "java", label: "校验 Java 17-25", status: "pending" },
       { key: "docker", label: "验证 Docker", status: "pending" },
       { key: "nextflow", label: "准备 Nextflow", status: "pending" },
       { key: "runtime_dirs", label: "创建运行目录", status: "pending" },
@@ -61,7 +61,7 @@ const WORKFLOW_RUNTIME_STEP_PRESETS: Record<string, { steps: BootstrapStep[]; em
   },
   use_podman: {
     steps: [
-      { key: "java", label: "校验 Java 17-24", status: "pending" },
+      { key: "java", label: "校验 Java 17-25", status: "pending" },
       { key: "podman", label: "验证 Podman", status: "pending" },
       { key: "nextflow", label: "准备 Nextflow", status: "pending" },
       { key: "runtime_dirs", label: "创建运行目录", status: "pending" },
