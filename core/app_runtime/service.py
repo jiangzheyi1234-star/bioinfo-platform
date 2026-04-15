@@ -861,6 +861,8 @@ class RuntimeService:
             runtime_capabilities = self._runtime_capabilities_dict(caps)
             recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
             failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
+            runtime_failures = caps.runtime_failures()
+            failures.extend(message for message in runtime_failures if message not in failures)
             checks = [
                 {
                     "key": "arch",
