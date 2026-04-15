@@ -104,17 +104,17 @@ missing=0
 if [ -n "$PROFILE_KIND" ]; then
   case "$PROFILE_KIND" in
     personal_docker)
-      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_24; missing=1; }
+      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_25; missing=1; }
       [ "$has_nextflow" -eq 1 ] || { emit MISSING_DEP nextflow; missing=1; }
       [ "$has_docker" -eq 1 ] || { emit MISSING_DEP docker; missing=1; }
       ;;
     personal_podman)
-      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_24; missing=1; }
+      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_25; missing=1; }
       [ "$has_nextflow" -eq 1 ] || { emit MISSING_DEP nextflow; missing=1; }
       [ "$has_podman" -eq 1 ] || { emit MISSING_DEP podman; missing=1; }
       ;;
     personal_conda)
-      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_24; missing=1; }
+      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_25; missing=1; }
       [ "$has_nextflow" -eq 1 ] || { emit MISSING_DEP nextflow; missing=1; }
       if [ "$has_micromamba" -ne 1 ] && [ "$has_conda" -ne 1 ]; then
         emit MISSING_DEP micromamba_or_conda
@@ -122,13 +122,13 @@ if [ -n "$PROFILE_KIND" ]; then
       fi
       ;;
     hpc_slurm_apptainer)
-      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_24; missing=1; }
+      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_25; missing=1; }
       [ "$has_nextflow" -eq 1 ] || { emit MISSING_DEP nextflow; missing=1; }
       [ "$has_sbatch" -eq 1 ] || { emit MISSING_DEP sbatch; missing=1; }
       [ "$has_apptainer" -eq 1 ] || { emit MISSING_DEP apptainer; missing=1; }
       ;;
     hpc_slurm_conda)
-      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_24; missing=1; }
+      [ "$java_supported" -eq 1 ] || { emit MISSING_DEP java_17_25; missing=1; }
       [ "$has_nextflow" -eq 1 ] || { emit MISSING_DEP nextflow; missing=1; }
       [ "$has_sbatch" -eq 1 ] || { emit MISSING_DEP sbatch; missing=1; }
       if [ "$has_micromamba" -ne 1 ] && [ "$has_conda" -ne 1 ]; then

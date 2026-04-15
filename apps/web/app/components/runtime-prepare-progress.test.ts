@@ -52,7 +52,7 @@ test("docker workflow runtime shows docker-specific progress without micromamba"
   const view = await buildView("use_docker");
   assert.deepEqual(
     view.steps.map((step: PrepareStep) => step.label),
-    ["校验 Java 17-24", "验证 Docker", "准备 Nextflow", "创建运行目录", "验证安装"]
+    ["校验 Java 17-25", "验证 Docker", "准备 Nextflow", "创建运行目录", "验证安装"]
   );
   assert.equal(view.steps.some((step: PrepareStep) => /Micromamba/.test(step.label)), false);
 });
@@ -126,7 +126,7 @@ test("polling snapshot promotes the next pending step to running", async () => {
     log_text: "STEP=java:running",
     progress: {
       steps: [
-        { key: "java", label: "校验 Java 17-24", status: "pending" },
+        { key: "java", label: "校验 Java 17-25", status: "pending" },
         { key: "docker", label: "验证 Docker", status: "pending" },
         { key: "nextflow", label: "准备 Nextflow", status: "pending" },
       ],

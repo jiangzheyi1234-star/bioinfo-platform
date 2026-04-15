@@ -7,8 +7,8 @@ import {
 export type RuntimeStatus = "unknown" | "missing" | "ready";
 
 export type RuntimeCapabilities = {
-  java?: { available?: boolean; usable?: boolean; version?: string };
-  nextflow?: { available?: boolean; usable?: boolean; version?: string };
+  java?: { available?: boolean; usable?: boolean; version?: string; path?: string; home?: string; message?: string };
+  nextflow?: { available?: boolean; usable?: boolean; version?: string; path?: string; command?: string; message?: string };
   docker?: { available?: boolean; usable?: boolean };
   podman?: { available?: boolean; usable?: boolean };
   apptainer?: { available?: boolean; usable?: boolean };
@@ -37,7 +37,7 @@ export type PreflightPayload = {
 };
 
 export type EnvStatusPayload = {
-  miniforge?: {
+  conda_runtime?: {
     installed?: boolean;
     conda_executable?: string;
   };
@@ -119,7 +119,7 @@ export function isRuntimeReady(preflight: PreflightPayload | null, envStatus: En
   const dockerAvailable = runtimeCapabilities?.docker?.usable === true;
   const podmanAvailable = runtimeCapabilities?.podman?.usable === true;
   const micromambaAvailable = runtimeCapabilities?.micromamba?.usable === true;
-  const condaAvailable = runtimeCapabilities?.conda?.usable === true || envStatus?.miniforge?.installed === true;
+  const condaAvailable = runtimeCapabilities?.conda?.usable === true || envStatus?.conda_runtime?.installed === true;
   return Boolean(javaAvailable && nextflowAvailable && (dockerAvailable || podmanAvailable || micromambaAvailable || condaAvailable));
 }
 

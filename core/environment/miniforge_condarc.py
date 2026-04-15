@@ -1,4 +1,4 @@
-"""Single source of truth for managed Conda channel profiles and bootstrap mirrors."""
+"""Single source of truth for managed Conda channel profiles."""
 
 from __future__ import annotations
 
@@ -7,17 +7,12 @@ from dataclasses import dataclass
 
 DEFAULT_PROFILE_NAME = "tuna"
 DEFAULT_PROFILE_ORDER = ("tuna", "ustc", "official")
-GITHUB_MINIFORGE_RELEASE_BASE = "https://github.com/conda-forge/miniforge/releases/download"
-
-
 @dataclass(frozen=True)
 class ManagedMirrorProfile:
     name: str
     display_name: str
     custom_channel_base: str
     default_channels: tuple[str, ...]
-    miniforge_release_base: str
-    miniforge_release_label: str
 
     @property
     def override_channel_urls(self) -> tuple[str, ...]:
@@ -59,8 +54,6 @@ _PROFILES: dict[str, ManagedMirrorProfile] = {
             "https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/r",
             "https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/msys2",
         ),
-        miniforge_release_base="https://mirrors.tuna.tsinghua.edu.cn/github-release/conda-forge/miniforge/releases/download",
-        miniforge_release_label="tuna",
     ),
     "ustc": ManagedMirrorProfile(
         name="ustc",
@@ -71,8 +64,6 @@ _PROFILES: dict[str, ManagedMirrorProfile] = {
             "https://mirrors.ustc.edu.cn/anaconda/pkgs/r",
             "https://mirrors.ustc.edu.cn/anaconda/pkgs/msys2",
         ),
-        miniforge_release_base="https://mirrors.ustc.edu.cn/github-release/conda-forge/miniforge/releases/download",
-        miniforge_release_label="ustc",
     ),
     "official": ManagedMirrorProfile(
         name="official",
@@ -83,8 +74,6 @@ _PROFILES: dict[str, ManagedMirrorProfile] = {
             "https://repo.anaconda.com/pkgs/r",
             "https://repo.anaconda.com/pkgs/msys2",
         ),
-        miniforge_release_base=GITHUB_MINIFORGE_RELEASE_BASE,
-        miniforge_release_label="github",
     ),
 }
 
@@ -134,25 +123,3 @@ def format_override_channel_args(profile_name: str | None = None) -> str:
 def build_condarc_template(profile_name: str | None = None) -> str:
     profile = get_default_profile() if profile_name is None else get_profile(profile_name)
     return profile.condarc_template
-
-
-def build_miniforge_release_bases(
-    profile_names: tuple[str, ...] | None = None,
-    *,
-    include_github_fallback: bool = True,
-) -> tuple[tuple[str, str], ...]:
-    names = profile_names or DEFAULT_PROFILE_ORDER
-    bases: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for name in names:
-        profile = get_profile(name)
-        entry = (profile.miniforge_release_label, profile.miniforge_release_base)
-        if entry in seen:
-            continue
-        bases.append(entry)
-        seen.add(entry)
-    if include_github_fallback:
-        fallback = ("github", GITHUB_MINIFORGE_RELEASE_BASE)
-        if fallback not in seen:
-            bases.append(fallback)
-    return tuple(bases)

@@ -57,12 +57,8 @@ class SSHTerminalCreateRequest(BaseModel):
     rows: int = Field(default=28, ge=12, le=80)
 
 
-class SSHTerminalInputRequest(BaseModel):
-    data: str = Field(min_length=1, max_length=4000)
-
-
 class RemoteEnvInstallRequest(BaseModel):
-    target: Literal["miniforge", "tool_env", "workflow_runtime", "docker_runtime"]
+    target: Literal["tool_env", "workflow_runtime", "docker_runtime"]
     tool_id: str | None = None
     profile_kind: str | None = None
 

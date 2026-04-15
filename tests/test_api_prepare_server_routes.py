@@ -29,8 +29,8 @@ class _FakeRuntime:
             "recommended_profile_details": {"profile_kind": "personal_conda"},
             "supported_profile_kinds": ["personal_conda"],
             "runtime_capabilities": {
-                "java": {"available": True, "usable": True, "version": "17.0.9"},
-                "nextflow": {"available": True, "usable": True, "version": "25.04.0"},
+                "java": {"available": True, "usable": True, "version": "17.0.9", "path": "/usr/bin/java"},
+                "nextflow": {"available": True, "usable": True, "version": "25.04.0", "path": "/usr/local/bin/nextflow", "message": "已检测到 Nextflow，可直接使用"},
                 "docker": {"available": False, "usable": False},
                 "podman": {"available": False, "usable": False},
                 "apptainer": {"available": False, "usable": False},
@@ -49,15 +49,12 @@ class _FakeRuntime:
 
     def get_remote_env_status(self) -> dict[str, object]:
         return {
-            "miniforge": {
+            "conda_runtime": {
                 "installed": False,
                 "status": "not_installed",
                 "version": "",
                 "conda_executable": "",
-                "message": "未检测到 Miniforge",
-                "job_id": "miniforge",
-                "log_text": "",
-                "task_status": {},
+                "message": "未检测到 Conda Runtime",
             },
             "tool_envs": [],
             "summary": {"total": 0, "installed": 0, "missing": 0, "env_paths": []},
@@ -100,7 +97,8 @@ def test_prepare_server_routes_expose_expected_shapes(monkeypatch) -> None:
 
             env_status = await client.get("/api/v1/ssh/env/status")
             assert env_status.status_code == 200
-            assert env_status.json()["item"]["miniforge"]["installed"] is False
+            assert env_status.json()["item"]["conda_runtime"]["installed"] is False
+            assert preflight_item["runtime_capabilities"]["nextflow"]["path"] == "/usr/local/bin/nextflow"
 
             install = await client.post(
                 "/api/v1/ssh/env/install",

@@ -20,7 +20,7 @@ from core.data.database_service import DatabaseService
 from core.data.data_registry import DataRegistry
 from core.data.execution_query_service import ExecutionQueryService
 from core.data.project_manager import ProjectInfo, ProjectManager
-from core.environment import env_batch_checker, env_detector, miniforge_bootstrap
+from core.environment import env_batch_checker, env_detector
 from core.environment.env_installer import EnvInstaller
 from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
 from core.plugins.runtime_metadata import derive_conda_env_name
@@ -28,6 +28,7 @@ from core.environment.server_preflight import MIN_FREE_DISK_GB, probe_preflight
 from core.execution.artifact_store import ArtifactStore
 from core.remote.server_capabilities import PreflightError
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
+from core.remote.runtime_resolution import resolve_remote_java, resolve_remote_nextflow
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
@@ -803,11 +804,10 @@ class RuntimeService:
             self._terminal_sessions[session.session_id] = session
             return session.snapshot(cursor=0)
 
-    def read_terminal_session(self, *, session_id: str, cursor: int = 0) -> dict[str, Any]:
+    def get_terminal_session(self, *, session_id: str) -> TerminalSession:
         with self._lock:
             self._ensure_initialized()
-            session = self._get_terminal_session(session_id)
-            return session.snapshot(cursor=cursor)
+            return self._get_terminal_session(session_id)
 
     def send_terminal_input(self, *, session_id: str, data: str) -> dict[str, Any]:
         with self._lock:
@@ -815,6 +815,13 @@ class RuntimeService:
             session = self._get_terminal_session(session_id)
             session.send(data)
             return {"session_id": session_id, "accepted": True}
+
+    def resize_terminal_session(self, *, session_id: str, cols: int, rows: int) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            session = self._get_terminal_session(session_id)
+            session.resize(cols=cols, rows=rows)
+            return {"session_id": session_id, "accepted": True, "cols": cols, "rows": rows}
 
     def close_terminal_session(self, *, session_id: str) -> dict[str, Any]:
         with self._lock:
@@ -880,11 +887,7 @@ class RuntimeService:
                     "value": str(runtime_capabilities["java"].get("version") or ("available" if caps.has_java else "missing")),
                     "message": "已检测到 Java，可用于运行 Nextflow"
                     if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
-                    else "已检测到 Java，但版本不满足 Nextflow 要求（需 17-24）"
-                    if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("supported", False) is False
-                    else "已检测到 Java，但当前不可正常调用"
-                    if runtime_capabilities["java"]["available"]
-                    else "未检测到 Java，无法运行 Nextflow",
+                    else str(runtime_capabilities["java"].get("message") or "未检测到 Java，无法运行 Nextflow"),
                 },
                 {
                     "key": "nextflow",
@@ -895,11 +898,7 @@ class RuntimeService:
                     if runtime_capabilities["nextflow"]["available"]
                     else "fail",
                     "value": str(runtime_capabilities["nextflow"].get("version") or ("available" if caps.has_nextflow else "missing")),
-                    "message": "已检测到 Nextflow"
-                    if runtime_capabilities["nextflow"]["available"] and runtime_capabilities["nextflow"].get("usable", False)
-                    else "已检测到 Nextflow，但当前不可正常调用"
-                    if runtime_capabilities["nextflow"]["available"]
-                    else "未检测到 Nextflow",
+                    "message": str(runtime_capabilities["nextflow"].get("message") or "未检测到 Nextflow"),
                 },
                 {
                     "key": "docker",
@@ -1057,16 +1056,6 @@ class RuntimeService:
             else:
                 self._service_locator.conda_executable = ""
 
-            miniforge_status = miniforge_bootstrap.check_status(self._run_ssh_command)
-            miniforge_alive = miniforge_bootstrap.is_session_alive(self._run_ssh_command)
-            miniforge_log = miniforge_bootstrap.read_log(self._run_ssh_command)
-            miniforge_stage = self._normalize_job_stage(
-                status=str(miniforge_status.get("status") or ""),
-                exit_code=str(miniforge_status.get("exit_code") or ""),
-                session_alive=miniforge_alive,
-                heartbeat=str(miniforge_status.get("heartbeat") or ""),
-            )
-
             tool_specs = self._collect_tool_env_specs()
             env_checks: dict[str, bool] = {}
             existing_env_paths: list[str] = []
@@ -1128,15 +1117,12 @@ class RuntimeService:
 
             installed_envs = sum(1 for row in tool_envs if row["installed"])
             return {
-                "miniforge": {
+                "conda_runtime": {
                     "installed": conda_detect.status == env_detector.CondaStatus.OK,
-                    "status": "installed" if conda_detect.status == env_detector.CondaStatus.OK else miniforge_stage,
+                    "status": "installed" if conda_detect.status == env_detector.CondaStatus.OK else "missing",
                     "version": str(conda_detect.version or ""),
                     "conda_executable": conda_executable,
                     "message": conda_detect.message,
-                    "job_id": miniforge_bootstrap.JOB_ID,
-                    "log_text": miniforge_log,
-                    "task_status": miniforge_status,
                 },
                 "tool_envs": tool_envs,
                 "summary": {
@@ -1153,18 +1139,19 @@ class RuntimeService:
             self._ensure_ssh_connected()
             caps = probe_preflight(self._run_ssh_command)
             self._service_locator.server_capabilities = caps
+            runtime_capabilities = self._runtime_capabilities_dict(caps)
 
             normalized_target = str(target or "").strip()
-            if normalized_target == "miniforge":
-                item = miniforge_bootstrap.submit(caps, self._run_ssh_command)
-                return {
-                    "target": "miniforge",
-                    "job_id": item["job_id"],
-                    "task_dir": item["task_dir"],
-                    "message": "已提交 Miniforge 后台安装任务",
-                }
-
+            java_ready = bool(runtime_capabilities.get("java", {}).get("usable", False))
+            java_version = str(runtime_capabilities.get("java", {}).get("version") or "").strip()
+            java_block_message = (
+                f"已检测到 Java {java_version}，但版本不满足 Nextflow 要求（需 17-25）；请先修复 Java，再准备 Runtime"
+                if java_version
+                else "当前服务器缺少可用的 Java 17-25；请先修复 Java，再准备 Runtime"
+            )
             if normalized_target == "docker_runtime":
+                if not java_ready:
+                    raise RuntimeServiceError(java_block_message)
                 item = submit_docker_runtime_bootstrap(self._run_ssh_command)
                 return {
                     "target": "docker_runtime",
@@ -1177,6 +1164,16 @@ class RuntimeService:
                 normalized_profile_kind = str(profile_kind or "").strip()
                 if not normalized_profile_kind:
                     raise RuntimeServiceError("profile_kind is required for workflow_runtime install")
+                nextflow_cap = runtime_capabilities.get("nextflow", {})
+                if not bool(nextflow_cap.get("usable", False)):
+                    raise RuntimeServiceError(str(nextflow_cap.get("message") or "当前服务器的 Nextflow 不可用；请先修复后再准备 Runtime"))
+                supported_profile_kinds = set(self._supported_profile_kinds_from_runtime(caps, runtime_capabilities))
+                if normalized_profile_kind not in supported_profile_kinds:
+                    if not java_ready:
+                        raise RuntimeServiceError(java_block_message)
+                    raise RuntimeServiceError(
+                        f"当前服务器尚未满足 {normalized_profile_kind} 的准备条件；请先补齐依赖并重新检测"
+                    )
                 item = submit_workflow_runtime_bootstrap(
                     self._run_ssh_command,
                     profile_kind=normalized_profile_kind,
@@ -1228,27 +1225,6 @@ class RuntimeService:
             normalized_job_id = str(job_id or "").strip()
             if not normalized_job_id:
                 raise RuntimeServiceError("job_id is required")
-
-            if normalized_job_id == miniforge_bootstrap.JOB_ID:
-                raw_status = miniforge_bootstrap.check_status(self._run_ssh_command)
-                session_alive = miniforge_bootstrap.is_session_alive(self._run_ssh_command)
-                log_text = miniforge_bootstrap.read_log(self._run_ssh_command)
-                stage = self._normalize_job_stage(
-                    status=str(raw_status.get("status") or ""),
-                    exit_code=str(raw_status.get("exit_code") or ""),
-                    session_alive=session_alive,
-                    heartbeat=str(raw_status.get("heartbeat") or ""),
-                )
-                if stage == "done":
-                    conda_detect = env_detector.detect(self._run_ssh_command)
-                    if conda_detect.status == env_detector.CondaStatus.OK and conda_detect.executable:
-                        self._remember_managed_conda(conda_detect.executable)
-                return self._build_job_snapshot(
-                    job_id=normalized_job_id,
-                    stage=stage,
-                    raw_status=raw_status,
-                    log_text=log_text,
-                )
 
             if normalized_job_id == DOCKER_BOOTSTRAP_JOB_ID:
                 task_dir = docker_bootstrap_task_dir()
@@ -1794,7 +1770,7 @@ class RuntimeService:
         if status == "failed":
             return "最近一次安装失败，请展开日志查看原因"
         if status == "blocked":
-            return conda_message or "Miniforge 未就绪"
+            return conda_message or "Conda Runtime 未就绪"
         if not installable:
             return "当前工具未声明自动安装命令"
         return "尚未安装"
@@ -2235,6 +2211,8 @@ class RuntimeService:
 
     def _supported_profile_kinds_from_runtime(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
         supported: list[str] = []
+        if not runtime_capabilities.get("nextflow", {}).get("usable", False):
+            return supported
         if caps.has_sbatch and runtime_capabilities.get("apptainer", {}).get("usable", False):
             supported.append("hpc_slurm_apptainer")
         if caps.has_sbatch and (runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False)):
@@ -2248,18 +2226,19 @@ class RuntimeService:
         return supported
 
     def _runtime_capabilities_dict(self, caps: Any) -> dict[str, Any]:
+        java_info = resolve_remote_java(self._run_ssh_command)
+        nextflow_info = resolve_remote_nextflow(self._run_ssh_command)
         return {
             "java": {
-                "available": caps.has_java,
-                "supported": caps.has_supported_java,
-                "usable": caps.has_supported_java and self._remote_runtime_ok("java -version >/dev/null 2>&1"),
-                "version": caps.java_version,
+                "available": java_info["available"],
+                "supported": java_info["supported"],
+                "usable": java_info["usable"],
+                "version": java_info["version"],
+                "path": java_info["path"],
+                "home": java_info["home"],
+                "message": java_info["message"],
             },
-            "nextflow": {
-                "available": caps.has_nextflow,
-                "usable": caps.has_nextflow and self._remote_runtime_ok("nextflow -version >/dev/null 2>&1"),
-                "version": caps.nextflow_version,
-            },
+            "nextflow": nextflow_info,
             "docker": {
                 "available": caps.has_docker,
                 "usable": caps.has_docker and self._remote_runtime_ok("docker ps >/dev/null 2>&1"),

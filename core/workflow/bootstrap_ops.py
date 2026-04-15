@@ -18,14 +18,14 @@ _BOOTSTRAP_TIMEOUT = 20
 _LOG_TAIL_LINES = 120
 _WORKFLOW_PROGRESS_SPECS: dict[str, list[dict[str, str]]] = {
     "personal_docker": [
-        {"key": "java", "label": "校验 Java 17-24"},
+        {"key": "java", "label": "校验 Java 17-25"},
         {"key": "docker", "label": "验证 Docker"},
         {"key": "nextflow", "label": "准备 Nextflow"},
         {"key": "runtime_dirs", "label": "创建运行目录"},
         {"key": "verification", "label": "验证安装"},
     ],
     "personal_podman": [
-        {"key": "java", "label": "校验 Java 17-24"},
+        {"key": "java", "label": "校验 Java 17-25"},
         {"key": "podman", "label": "验证 Podman"},
         {"key": "nextflow", "label": "准备 Nextflow"},
         {"key": "runtime_dirs", "label": "创建运行目录"},

@@ -25,6 +25,7 @@ class _FakeTerminalSession:
         self.input_enabled = True
         self.message = ""
         self.output = "ready\\n"
+        self.resizes: list[tuple[int, int]] = []
 
     def snapshot(self, cursor: int = 0) -> dict[str, object]:
         safe_cursor = max(0, min(cursor, len(self.output)))
@@ -44,6 +45,11 @@ class _FakeTerminalSession:
         if self.closed or not self.input_enabled:
             raise RuntimeError("terminal closed")
         self.output += data
+
+    def resize(self, *, cols: int, rows: int) -> None:
+        if self.closed or not self.input_enabled:
+            raise RuntimeError("terminal closed")
+        self.resizes.append((cols, rows))
 
     def close(self, *, message: str = "终端会话已结束", connected: bool = False) -> None:
         self.closed = True
@@ -213,14 +219,19 @@ def test_terminal_session_lifecycle_and_disconnect_preserves_history(tmp_path: P
     accepted = runtime.send_terminal_input(session_id="term_1", data="pwd\\n")
     assert accepted == {"session_id": "term_1", "accepted": True}
 
-    update = runtime.read_terminal_session(session_id="term_1", cursor=len("ready\\n"))
+    resized = runtime.resize_terminal_session(session_id="term_1", cols=132, rows=40)
+    assert resized == {"session_id": "term_1", "accepted": True, "cols": 132, "rows": 40}
+    assert ssh.created_sessions[0].resizes == [(132, 40)]
+
+    session = runtime.get_terminal_session(session_id="term_1")
+    update = session.snapshot(cursor=len("ready\\n"))
     assert update["output"] == "pwd\\n"
     assert update["input_enabled"] is True
 
     disconnected = runtime.disconnect_ssh()
     assert disconnected["connected"] is False
 
-    snapshot = runtime.read_terminal_session(session_id="term_1", cursor=0)
+    snapshot = runtime.get_terminal_session(session_id="term_1").snapshot(cursor=0)
     assert snapshot["output"] == "ready\\npwd\\n"
     assert snapshot["closed"] is True
     assert snapshot["connected"] is False
@@ -555,6 +566,29 @@ def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(r
     )
 
     monkeypatch.setattr("core.app_runtime.service.probe_preflight", lambda _run: caps)
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_java",
+        lambda _run: {
+            "available": True,
+            "usable": True,
+            "supported": True,
+            "version": "openjdk 17",
+            "path": "/usr/bin/java",
+            "home": "/usr/lib/jvm/java-17-openjdk-amd64",
+            "message": "已检测到 Java，可用于运行 Nextflow",
+        },
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_nextflow",
+        lambda _run: {
+            "available": True,
+            "usable": False,
+            "version": "24.10.0",
+            "path": "conda run -n base nextflow",
+            "command": "conda run -n base nextflow",
+            "message": "已检测到 Nextflow，但当前不可正常调用：health check failed",
+        },
+    )
 
     def fake_runtime_ok(command: str) -> bool:
         if "docker ps" in command:
@@ -573,6 +607,9 @@ def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(r
     docker_check = next(check for check in item["checks"] if check["key"] == "docker")
     assert docker_check["status"] == "warn"
     assert "当前用户不可直接使用" in docker_check["message"]
+    nextflow_check = next(check for check in item["checks"] if check["key"] == "nextflow")
+    assert nextflow_check["status"] == "warn"
+    assert "当前不可正常调用" in nextflow_check["message"]
 
 
 def test_install_remote_env_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -590,6 +627,54 @@ def test_install_remote_env_supports_docker_runtime_assist(runtime: RuntimeServi
     assert item["target"] == "docker_runtime"
     assert item["job_id"] == "h2o_docker_runtime_bootstrap"
     assert "Docker 协助安装任务" in item["message"]
+
+
+def test_install_remote_env_rejects_workflow_runtime_when_java_is_unsupported(
+    runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "core.app_runtime.service.probe_preflight",
+        lambda _run: SimpleNamespace(
+            has_java=True,
+            has_supported_java=False,
+            java_version="11.0.22",
+            has_nextflow=False,
+            nextflow_version="",
+            has_docker=False,
+            has_podman=False,
+            has_apptainer=False,
+            has_micromamba=False,
+            has_conda=False,
+            has_sbatch=False,
+        ),
+    )
+
+    with pytest.raises(RuntimeServiceError, match="Java .*17-25"):
+        runtime.install_remote_env(target="workflow_runtime", profile_kind="personal_conda")
+
+
+def test_install_remote_env_rejects_docker_runtime_assist_when_java_is_unsupported(
+    runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "core.app_runtime.service.probe_preflight",
+        lambda _run: SimpleNamespace(
+            has_java=True,
+            has_supported_java=False,
+            java_version="11.0.22",
+            has_nextflow=False,
+            nextflow_version="",
+            has_docker=False,
+            has_podman=False,
+            has_apptainer=False,
+            has_micromamba=False,
+            has_conda=False,
+            has_sbatch=False,
+        ),
+    )
+
+    with pytest.raises(RuntimeServiceError, match="Java .*17-25"):
+        runtime.install_remote_env(target="docker_runtime")
 
 
 def test_get_remote_env_install_status_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -150,7 +150,7 @@ class ServerCapabilities:
         if not self.has_java:
             failures.append("远端缺少 Java，无法运行 Nextflow")
         elif not self.has_supported_java:
-            failures.append("远端 Java 版本不受支持；Nextflow 需要 Java 17-24")
+            failures.append("远端 Java 版本不受支持；Nextflow 需要 Java 17-25")
         if not self.has_nextflow:
             failures.append("远端缺少 Nextflow，可先在连接页安装运行时")
         if self.recommended_profile_kind.startswith("hpc_slurm_"):
@@ -169,7 +169,7 @@ class ServerCapabilities:
         if self.has_java and not self.java_version:
             warnings.append("Java 已检测到，但版本字符串为空")
         if self.has_java and self.java_version and not self.has_supported_java:
-            warnings.append("Java 已检测到，但版本不满足 Nextflow 要求（需 17-24）")
+            warnings.append("Java 已检测到，但版本不满足 Nextflow 要求（需 17-25）")
         if self.has_nextflow and not self.nextflow_version:
             warnings.append("Nextflow 已检测到，但版本字符串为空")
         return warnings

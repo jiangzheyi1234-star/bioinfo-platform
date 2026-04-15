@@ -1,11 +1,9 @@
-"""conda 环境检测与 Miniforge 自动安装模块。
+"""受管 conda 环境检测与命令改写模块。
 
 纯 Python 模块（不依赖 Qt），通过 ssh_run_fn 回调解耦 SSH 实现。
-逻辑：有 conda → 用它；没有 → 装一个。
 """
 
 import base64
-import json
 import logging
 import re
 import shlex
@@ -15,26 +13,16 @@ from typing import Optional
 
 from core.environment.h2o_env_paths import (
     H2O_CONDA_EXE,
-    H2O_CONDA_HOME,
     H2O_CONDARC,
     h2o_env_prefix,
 )
-from core.environment.miniforge_condarc import (
-    build_condarc_template,
-    build_miniforge_release_bases,
-)
-from core.remote.server_capabilities import ServerCapabilities, SshRunFn
+from core.environment.miniforge_condarc import build_condarc_template
+from core.remote.server_capabilities import SshRunFn
 
 logger = logging.getLogger(__name__)
 
-MINIFORGE_RELEASE_API_URL = "https://api.github.com/repos/conda-forge/miniforge/releases/latest"
-MINIFORGE_SUPPORTED_ARCHES = ("x86_64", "aarch64")
-MINIFORGE_INSTALLER_MIN_BYTES = 1_000_000
-
 # conda --version 输出正则: "conda 24.1.2"
 _VERSION_RE = re.compile(r"conda\s+(\d+\.\d+(?:\.\d+)?)")
-_SHA256_RE = re.compile(r"\b([0-9a-fA-F]{64})\b")
-_TAG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class CondaStatus(Enum):
@@ -53,156 +41,6 @@ class CondaDetectResult:
 def _summarize_error(stdout: str, stderr: str, fallback: str) -> str:
     text = (stderr or stdout or fallback).strip()
     return text[:200] if text else fallback
-
-
-def _cleanup_remote_files(ssh_run_fn: SshRunFn, *paths: str) -> None:
-    quoted = " ".join(shlex.quote(path) for path in paths if path)
-    if not quoted:
-        return
-    try:
-        ssh_run_fn(f"rm -f {quoted}", 10)
-    except Exception:
-        logger.debug("清理远端临时文件失败: %s", paths)
-
-
-def _mktemp_remote(ssh_run_fn: SshRunFn, template: str, timeout: int) -> str:
-    rc, stdout, stderr = ssh_run_fn(f"mktemp {shlex.quote(template)}", timeout)
-    if rc != 0 or not stdout.strip():
-        raise RuntimeError(f"创建远端临时文件失败: {_summarize_error(stdout, stderr, template)}")
-    return stdout.strip()
-
-
-def _download_text(
-    ssh_run_fn: SshRunFn,
-    url: str,
-    *,
-    has_curl: bool,
-    has_wget: bool,
-    timeout: int,
-) -> tuple[Optional[str], str]:
-    errors: list[str] = []
-    quoted_url = shlex.quote(url)
-    if has_curl:
-        rc, stdout, stderr = ssh_run_fn(
-            f"curl -fsSL --connect-timeout 15 --max-time 60 {quoted_url}",
-            timeout,
-        )
-        if rc == 0:
-            return stdout, ""
-        errors.append(f"curl: {_summarize_error(stdout, stderr, 'download failed')}")
-    if has_wget:
-        rc, stdout, stderr = ssh_run_fn(
-            f"wget -q -O - --timeout=60 {quoted_url}",
-            timeout,
-        )
-        if rc == 0:
-            return stdout, ""
-        errors.append(f"wget: {_summarize_error(stdout, stderr, 'download failed')}")
-    return None, "; ".join(errors) or "download failed"
-
-
-def _download_file(
-    ssh_run_fn: SshRunFn,
-    url: str,
-    destination: str,
-    *,
-    has_curl: bool,
-    has_wget: bool,
-    timeout: int,
-) -> tuple[bool, str]:
-    errors: list[str] = []
-    quoted_url = shlex.quote(url)
-    quoted_destination = shlex.quote(destination)
-    if has_curl:
-        rc, stdout, stderr = ssh_run_fn(
-            f"curl -fsSL --connect-timeout 15 --max-time 120 -o {quoted_destination} {quoted_url}",
-            timeout,
-        )
-        if rc == 0:
-            return True, ""
-        errors.append(f"curl: {_summarize_error(stdout, stderr, 'download failed')}")
-    if has_wget:
-        rc, stdout, stderr = ssh_run_fn(
-            f"wget -q --timeout=120 -O {quoted_destination} {quoted_url}",
-            timeout,
-        )
-        if rc == 0:
-            return True, ""
-        errors.append(f"wget: {_summarize_error(stdout, stderr, 'download failed')}")
-    return False, "; ".join(errors) or "download failed"
-
-
-def _resolve_miniforge_release_tag(
-    ssh_run_fn: SshRunFn,
-    *,
-    has_curl: bool,
-    has_wget: bool,
-    timeout: int,
-) -> tuple[Optional[str], str]:
-    payload, error = _download_text(
-        ssh_run_fn,
-        MINIFORGE_RELEASE_API_URL,
-        has_curl=has_curl,
-        has_wget=has_wget,
-        timeout=timeout,
-    )
-    if payload is None:
-        return None, error
-    try:
-        tag = str(json.loads(payload).get("tag_name") or "").strip()
-    except Exception as exc:
-        return None, f"invalid latest-release payload: {exc}"
-    if not tag:
-        return None, "tag_name missing in latest-release payload"
-    if not _TAG_RE.match(tag):
-        return None, f"invalid release tag: {tag}"
-    return tag, ""
-
-
-def _read_remote_file(ssh_run_fn: SshRunFn, path: str, timeout: int) -> tuple[Optional[str], str]:
-    rc, stdout, stderr = ssh_run_fn(f"cat {shlex.quote(path)}", timeout)
-    if rc != 0:
-        return None, _summarize_error(stdout, stderr, "read failed")
-    return stdout, ""
-
-
-def _read_remote_file_size(ssh_run_fn: SshRunFn, path: str, timeout: int) -> tuple[Optional[int], str]:
-    rc, stdout, stderr = ssh_run_fn(f"stat -c%s {shlex.quote(path)}", timeout)
-    if rc != 0:
-        return None, _summarize_error(stdout, stderr, "stat failed")
-    try:
-        return int(stdout.strip()), ""
-    except Exception:
-        return None, f"invalid stat output: {stdout.strip()[:100]}"
-
-
-def _read_remote_shebang(ssh_run_fn: SshRunFn, path: str, timeout: int) -> tuple[Optional[str], str]:
-    rc, stdout, stderr = ssh_run_fn(f"head -n 1 {shlex.quote(path)}", timeout)
-    if rc != 0:
-        return None, _summarize_error(stdout, stderr, "head failed")
-    return stdout.strip(), ""
-
-
-def _extract_sha256(contents: str) -> Optional[str]:
-    match = _SHA256_RE.search(contents or "")
-    if not match:
-        return None
-    return match.group(1).lower()
-
-
-def _verify_remote_sha256(
-    ssh_run_fn: SshRunFn,
-    expected_sha256: str,
-    path: str,
-    timeout: int,
-) -> tuple[bool, str]:
-    rc, stdout, stderr = ssh_run_fn(
-        f"printf '%s  %s\\n' {shlex.quote(expected_sha256)} {shlex.quote(path)} | sha256sum -c -",
-        timeout,
-    )
-    if rc != 0:
-        return False, _summarize_error(stdout, stderr, "sha256 verify failed")
-    return True, ""
 
 
 def _validate_conda(ssh_run_fn: SshRunFn, exe: str, timeout: int = 15) -> CondaDetectResult:
@@ -283,166 +121,8 @@ def detect(
         status=CondaStatus.NOT_FOUND,
         executable=None,
         version=None,
-        message="未在远端检测到 H2OMeta 自管 conda，请先执行自动安装",
+        message="未在远端检测到 H2OMeta 受管 conda runtime",
     )
-
-
-def install_miniforge(
-    ssh_run_fn: SshRunFn,
-    caps: ServerCapabilities,
-    timeout: int = 600,
-) -> CondaDetectResult:
-    """在远端安装 Miniforge3（固定路径 ~/.h2ometa/conda）。
-
-    流程：
-    1. 前置检查（架构、下载工具）
-    2. 下载 Miniforge3 安装脚本
-    3. 静默安装到 ~/.h2ometa/conda
-    4. 清理安装脚本
-    5. 写入受控 runtime condarc
-    6. 验证安装
-
-    Args:
-        ssh_run_fn: SSH 命令执行回调
-        timeout: 总超时秒数
-
-    Returns:
-        CondaDetectResult
-    """
-    arch = str(caps.arch or "").strip()
-    if arch not in MINIFORGE_SUPPORTED_ARCHES:
-        return CondaDetectResult(
-            status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: 不支持的架构: {arch or '未知'}（仅支持 x86_64/aarch64）",
-        )
-
-    has_curl = bool(caps.has_curl)
-    has_wget = bool(caps.has_wget)
-
-    try:
-        release_tag, resolve_error = _resolve_miniforge_release_tag(
-            ssh_run_fn,
-            has_curl=has_curl,
-            has_wget=has_wget,
-            timeout=min(timeout, 60),
-        )
-    except Exception as e:
-        return CondaDetectResult(
-            status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: 解析最新 Miniforge release 出错: {e}",
-        )
-    if not release_tag:
-        return CondaDetectResult(
-            status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"无法安装: 解析最新 Miniforge release 失败: {resolve_error}",
-        )
-
-    installer = ""
-    checksum_file = ""
-    download_failures: list[str] = []
-    try:
-        installer = _mktemp_remote(ssh_run_fn, "/tmp/miniforge_install.XXXXXX.sh", 15)
-        checksum_file = _mktemp_remote(ssh_run_fn, "/tmp/miniforge_install.XXXXXX.sha256", 15)
-
-        installer_name = f"Miniforge3-Linux-{arch}.sh"
-        for source_label, source_base in build_miniforge_release_bases():
-            installer_url = f"{source_base}/{release_tag}/{installer_name}"
-            checksum_url = f"{installer_url}.sha256"
-            _cleanup_remote_files(ssh_run_fn, installer, checksum_file)
-            ok, reason = _download_file(
-                ssh_run_fn,
-                installer_url,
-                installer,
-                has_curl=has_curl,
-                has_wget=has_wget,
-                timeout=timeout,
-            )
-            if not ok:
-                download_failures.append(f"[{source_label}] installer download failed: {reason}")
-                continue
-
-            size, size_error = _read_remote_file_size(ssh_run_fn, installer, 15)
-            if size is None:
-                download_failures.append(f"[{source_label}] installer stat failed: {size_error}")
-                continue
-            if size < MINIFORGE_INSTALLER_MIN_BYTES:
-                download_failures.append(
-                    f"[{source_label}] installer too small: {size} bytes"
-                )
-                continue
-
-            shebang, shebang_error = _read_remote_shebang(ssh_run_fn, installer, 15)
-            if shebang is None:
-                download_failures.append(f"[{source_label}] shebang read failed: {shebang_error}")
-                continue
-            if not shebang.startswith("#!"):
-                download_failures.append(f"[{source_label}] installer shebang check failed: {shebang}")
-                continue
-
-            ok, reason = _download_file(
-                ssh_run_fn,
-                checksum_url,
-                checksum_file,
-                has_curl=has_curl,
-                has_wget=has_wget,
-                timeout=timeout,
-            )
-            if not ok:
-                download_failures.append(f"[{source_label}] checksum download failed: {reason}")
-                continue
-
-            checksum_contents, checksum_error = _read_remote_file(ssh_run_fn, checksum_file, 15)
-            if checksum_contents is None:
-                download_failures.append(f"[{source_label}] checksum read failed: {checksum_error}")
-                continue
-            expected_sha256 = _extract_sha256(checksum_contents)
-            if not expected_sha256:
-                download_failures.append(f"[{source_label}] checksum parse failed")
-                continue
-
-            verified, verify_error = _verify_remote_sha256(ssh_run_fn, expected_sha256, installer, 30)
-            if not verified:
-                download_failures.append(f"[{source_label}] sha256 verify failed: {verify_error}")
-                continue
-
-            logger.info(
-                "Miniforge installer verified: tag=%s source=%s url=%s",
-                release_tag,
-                source_label,
-                installer_url,
-            )
-            break
-        else:
-            detail = " | ".join(download_failures) if download_failures else "no candidate sources available"
-            return CondaDetectResult(
-                status=CondaStatus.NOT_FOUND, executable=None, version=None,
-                message=f"下载 Miniforge 失败: {detail}",
-            )
-
-        rc, _, stderr = ssh_run_fn(
-            f"bash {shlex.quote(installer)} -b -p \"$(eval echo {H2O_CONDA_HOME})\"",
-            timeout,
-        )
-        if rc != 0:
-            return CondaDetectResult(
-                status=CondaStatus.NOT_FOUND, executable=None, version=None,
-                message=f"Miniforge 安装失败: {stderr[:100]}",
-            )
-    except Exception as e:
-        return CondaDetectResult(
-            status=CondaStatus.NOT_FOUND, executable=None, version=None,
-            message=f"Miniforge 安装出错: {e}",
-        )
-    finally:
-        _cleanup_remote_files(ssh_run_fn, installer, checksum_file)
-
-    # 验证
-    conda_exe = H2O_CONDA_EXE
-    result = _validate_conda(ssh_run_fn, conda_exe, 15)
-    if result.status == CondaStatus.OK:
-        logger.info("Miniforge 安装成功: %s", result.executable)
-        write_h2ometa_condarc(ssh_run_fn, timeout=30)
-    return result
 
 
 def rewrite_install_cmd(install_cmd: str, conda_executable: str) -> str:
