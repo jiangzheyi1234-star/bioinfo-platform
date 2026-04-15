@@ -14,6 +14,7 @@ const nextBin = path.join(
   ".bin",
   process.platform === "win32" ? "next.cmd" : "next"
 );
+const nodeModulesPath = path.join(webDir, "node_modules");
 
 function fail(message) {
   console.error(`[ERROR] ${message}`);
@@ -51,6 +52,22 @@ function runInstall(command, args, label) {
   return true;
 }
 
+function normalizeNodeModulesPath() {
+  try {
+    const stats = fs.lstatSync(nodeModulesPath);
+    if (stats.isDirectory() && !stats.isSymbolicLink()) {
+      return;
+    }
+    console.log(`[INFO] Removing stale node_modules entry: ${nodeModulesPath}`);
+    fs.rmSync(nodeModulesPath, { recursive: true, force: true });
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
 if (!fs.existsSync(packageJson)) {
   fail(`Web package manifest not found: ${packageJson}`);
 }
@@ -61,6 +78,7 @@ if (fs.existsSync(nextPackageJson) && fs.existsSync(nextBin)) {
 }
 
 console.log("[INFO] Web dependencies missing or incomplete.");
+normalizeNodeModulesPath();
 
 let installed = false;
 

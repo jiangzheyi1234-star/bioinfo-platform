@@ -32,6 +32,7 @@ type BuildRuntimePrepareViewArgs = {
   selectedDecision: RuntimeDecisionOption | null;
   installTarget: InstallTarget;
   snapshot: InstallSnapshot | null;
+  installRunning: boolean;
 };
 
 type RuntimePrepareView = {
@@ -116,6 +117,23 @@ function applyRunningFallback(steps: BootstrapStep[]): BootstrapStep[] {
   }));
 }
 
+function ensureVisibleRunningStep(steps: BootstrapStep[]): BootstrapStep[] {
+  if (steps.length === 0) {
+    return [];
+  }
+  if (steps.some((step) => step.status === "running")) {
+    return steps;
+  }
+  const nextPendingIndex = steps.findIndex((step) => step.status === "pending");
+  if (nextPendingIndex === -1) {
+    return steps;
+  }
+  return steps.map((step, index) => ({
+    ...step,
+    status: index === nextPendingIndex ? "running" : step.status,
+  }));
+}
+
 export function buildRuntimePrepareView(args: BuildRuntimePrepareViewArgs): RuntimePrepareView {
   const mode =
     args.installTarget === "docker_runtime"
@@ -123,8 +141,12 @@ export function buildRuntimePrepareView(args: BuildRuntimePrepareViewArgs): Runt
       : args.selectedDecision || "fallback_conda";
 
   if (args.snapshot?.progress?.steps?.length) {
+    const snapshotSteps = cloneSteps(args.snapshot.progress.steps);
     return {
-      steps: cloneSteps(args.snapshot.progress.steps),
+      steps:
+        args.snapshot.status === "running" && args.installRunning
+          ? ensureVisibleRunningStep(snapshotSteps)
+          : snapshotSteps,
       emptyLogText:
         mode === "docker_runtime"
           ? "等待开始协助安装 Docker..."
@@ -135,7 +157,10 @@ export function buildRuntimePrepareView(args: BuildRuntimePrepareViewArgs): Runt
   if (mode === "docker_runtime") {
     const base = cloneSteps(DOCKER_RUNTIME_STEPS);
     if (!args.snapshot) {
-      return { steps: base, emptyLogText: "等待开始协助安装 Docker..." };
+      return {
+        steps: args.installRunning ? applyRunningFallback(base) : base,
+        emptyLogText: "等待开始协助安装 Docker...",
+      };
     }
     if (args.snapshot.status === "done" || args.snapshot.status === "failed") {
       return {
@@ -154,7 +179,11 @@ export function buildRuntimePrepareView(args: BuildRuntimePrepareViewArgs): Runt
 
   const preset = WORKFLOW_RUNTIME_STEP_PRESETS[mode] || WORKFLOW_RUNTIME_STEP_PRESETS.fallback_conda;
   if (!args.snapshot) {
-    return { steps: cloneSteps(preset.steps), emptyLogText: preset.emptyLogText };
+    const base = cloneSteps(preset.steps);
+    return {
+      steps: args.installRunning ? applyRunningFallback(base) : base,
+      emptyLogText: preset.emptyLogText,
+    };
   }
   if (args.snapshot.status === "done" || args.snapshot.status === "failed") {
     return {

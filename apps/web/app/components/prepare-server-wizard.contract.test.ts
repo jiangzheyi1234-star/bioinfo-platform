@@ -52,3 +52,8 @@ test("runtime prepare start now distinguishes health-check success from install-
   assert.match(inspectionSource, /本地 API 健康检查已通过，但启动 Runtime 请求时连接中断/);
   assert.match(inspectionSource, /\/health/);
 });
+
+test("prepare server wizard uses a fixed dialog shell size", () => {
+  assert.match(source, /w-\[960px\]/);
+  assert.match(source, /h-\[760px\]/);
+});

@@ -501,8 +501,9 @@ export function PrepareServerWizard({
         selectedDecision,
         installTarget,
         snapshot: installSnapshot,
+        installRunning,
       }),
-    [installSnapshot, installTarget, selectedDecision]
+    [installRunning, installSnapshot, installTarget, selectedDecision]
   );
   const bootstrapSteps = runtimePrepareView.steps;
   const serverLabel = sshStatus ? `${sshStatus.user}@${sshStatus.host}:${sshStatus.port}` : "未连接服务器";
@@ -521,7 +522,7 @@ export function PrepareServerWizard({
         : "border-amber-100 bg-amber-50 text-amber-600";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[88vh] max-w-4xl flex-col overflow-hidden border-slate-100 bg-white p-0 shadow-2xl">
+      <DialogContent className="flex h-[760px] w-[960px] max-h-[calc(100vh-32px)] max-w-[calc(100vw-32px)] flex-col overflow-hidden border-slate-100 bg-white p-0 shadow-2xl">
         <div className="px-8 pt-8 pb-6">
           <DialogHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
             <div className="space-y-1">

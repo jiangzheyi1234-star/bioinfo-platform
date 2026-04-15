@@ -22,6 +22,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PrepareServerWizard } from "@/app/components/prepare-server-wizard";
+import { deriveRuntimeStatus, loadRuntimeInspection, type RuntimeStatus } from "@/app/components/runtime-inspection";
+import { LocalApiError, apiBase, requestLocalApiJson } from "@/app/lib/local-api-client";
 import { cn } from "@/lib/utils";
 
 type SSHStatus = {
@@ -38,8 +40,6 @@ type SSHStatus = {
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
 };
-
-type RuntimeStatus = "unknown" | "missing" | "ready";
 
 type SSHFormState = {
   host: string;
@@ -121,20 +121,6 @@ const MAX_TERMINAL_HEIGHT = 420;
 
 const SshShellContext = createContext<SshShellContextValue | null>(null);
 
-function apiBase(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
-  return raw.trim().replace(/\/+$/, "");
-}
-
-async function readJsonOrThrow(resp: Response) {
-  const payload = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    const detail = typeof payload?.detail === "string" ? payload.detail : "";
-    throw new Error(detail || `HTTP ${resp.status}`);
-  }
-  return payload;
-}
-
 function toForm(status: SSHStatus | null): SSHFormState {
   if (!status) {
     return defaultForm;
@@ -151,6 +137,9 @@ function toForm(status: SSHStatus | null): SSHFormState {
 }
 
 function normalizeFetchError(error: unknown): string {
+  if (error instanceof LocalApiError) {
+    return error.message || "请求失败";
+  }
   const message = error instanceof Error ? error.message : String(error || "");
   if (message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed")) {
     return `本地 API 未启动或不可达：${apiBase()}`;
@@ -193,7 +182,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [prepareDialogOpen, setPrepareDialogOpen] = useState(false);
-  const [prepareDialogMode, setPrepareDialogMode] = useState<"wizard" | "settings">("wizard");
   const [form, setForm] = useState<SSHFormState>(defaultForm);
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
@@ -240,8 +228,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         setLoading(true);
       }
       try {
-        const resp = await fetch(`${apiBase()}/api/v1/ssh/status`, { cache: "no-store" });
-        const data = await readJsonOrThrow(resp);
+        const data = await requestLocalApiJson("GET", "/api/v1/ssh/status", { cache: "no-store" });
         const next = (data?.item || null) as SSHStatus | null;
         setStatus(next);
         setForm((current) => {
@@ -273,23 +260,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const [preflightResp, envResp] = await Promise.all([
-        fetch(`${apiBase()}/api/v1/ssh/preflight`, { method: "POST" }),
-        fetch(`${apiBase()}/api/v1/ssh/env/status`, { cache: "no-store" }),
-      ]);
-      const [preflightData, envData] = await Promise.all([readJsonOrThrow(preflightResp), readJsonOrThrow(envResp)]);
-      const preflight = preflightData?.item || {};
-      const runtimeCapabilities = preflight.runtime_capabilities || {};
-      const javaAvailable = runtimeCapabilities?.java?.usable === true;
-      const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true;
-      const dockerAvailable = runtimeCapabilities?.docker?.usable === true;
-      const podmanAvailable = runtimeCapabilities?.podman?.usable === true;
-      const micromambaAvailable = runtimeCapabilities?.micromamba?.usable === true;
-      const condaAvailable = runtimeCapabilities?.conda?.usable === true || envData?.item?.miniforge?.installed === true;
-      const ready = javaAvailable && nextflowAvailable && (dockerAvailable || podmanAvailable || micromambaAvailable || condaAvailable);
-      setRuntimeStatus(ready ? "ready" : "missing");
+      const inspection = await loadRuntimeInspection();
+      setRuntimeStatus(deriveRuntimeStatus(inspection));
     } catch {
-      setRuntimeStatus("missing");
+      setRuntimeStatus("unknown");
     }
   }, [status?.connected]);
 
@@ -369,11 +343,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       terminalInputChainRef.current = terminalInputChainRef.current
         .catch(() => undefined)
         .then(async () => {
-          await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${sessionId}/input`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data }),
-          }).then(readJsonOrThrow);
+          await requestLocalApiJson("POST", `/api/v1/ssh/terminal/sessions/${sessionId}/input`, {
+            body: { data },
+          });
         })
         .catch((error: unknown) => {
           setTerminalError(normalizeFetchError(error) || "发送终端输入失败");
@@ -540,12 +512,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         },
       },
     };
-    const resp = await fetch(`${apiBase()}/api/v1/settings`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    await readJsonOrThrow(resp);
+    await requestLocalApiJson("PUT", "/api/v1/settings", { body: payload });
   }, [form]);
 
   const selectKeyFile = useCallback(async () => {
@@ -583,7 +550,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${activeSessionId}`, { method: "DELETE" });
+      await requestLocalApiJson("DELETE", `/api/v1/ssh/terminal/sessions/${activeSessionId}`);
     } catch {
       // ignore cleanup failures; local state is already cleared
     }
@@ -615,15 +582,12 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         const cols = Math.max(80, dimensions?.cols || 120);
         const rows = Math.max(20, dimensions?.rows || 28);
         if (terminalSessionId) {
-          await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}`, { method: "DELETE" }).catch(() => undefined);
+          await requestLocalApiJson("DELETE", `/api/v1/ssh/terminal/sessions/${terminalSessionId}`).catch(() => undefined);
           resetTerminalState();
         }
-        const resp = await fetch(`${apiBase()}/api/v1/ssh/terminal/sessions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cols, rows }),
+        const data = await requestLocalApiJson("POST", "/api/v1/ssh/terminal/sessions", {
+          body: { cols, rows },
         });
-        const data = await readJsonOrThrow(resp);
         applyTerminalSnapshot((data?.item || null) as TerminalSnapshot, "replace");
       } catch (error) {
         setTerminalInputEnabled(false);
@@ -646,11 +610,11 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
     const poll = async () => {
       try {
-        const resp = await fetch(
-          `${apiBase()}/api/v1/ssh/terminal/sessions/${terminalSessionId}?cursor=${terminalCursorRef.current}`,
+        const data = await requestLocalApiJson(
+          "GET",
+          `/api/v1/ssh/terminal/sessions/${terminalSessionId}?cursor=${terminalCursorRef.current}`,
           { cache: "no-store" }
         );
-        const data = await readJsonOrThrow(resp);
         if (cancelled) {
           return;
         }
@@ -694,12 +658,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         timeout_sec: Number(form.timeout_sec || 5),
       };
       await persistSettings();
-      const resp = await fetch(`${apiBase()}/api/v1/ssh/connect`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await readJsonOrThrow(resp);
+      const data = await requestLocalApiJson("POST", "/api/v1/ssh/connect", { body: payload });
       setStatus((data?.item || null) as SSHStatus | null);
       setForm((current) => ({ ...current, password: "" }));
       setDialogOpen(false);
@@ -716,8 +675,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setDisconnectBusy(true);
     setFormError("");
     try {
-      const resp = await fetch(`${apiBase()}/api/v1/ssh/disconnect`, { method: "POST" });
-      const data = await readJsonOrThrow(resp);
+      const data = await requestLocalApiJson("POST", "/api/v1/ssh/disconnect");
       const next = (data?.item || null) as SSHStatus | null;
       setStatus(next);
       setForm(toForm(next));
@@ -788,8 +746,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                         setDialogOpen(true);
                         return;
                       }
-                      if (runtimeStatus === "missing") {
-                        setPrepareDialogMode("wizard");
+                      if (runtimeStatus !== "ready") {
                         setPrepareDialogOpen(true);
                         return;
                       }
@@ -814,19 +771,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
                           onSelect={() => {
-                            setPrepareDialogMode("settings");
                             setPrepareDialogOpen(true);
                           }}
                         >
                           运行时设置
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setPrepareDialogMode("wizard");
-                            setPrepareDialogOpen(true);
-                          }}
-                        >
-                          重新检查环境
                         </DropdownMenuItem>
                         <DropdownMenuItem destructive onSelect={() => void submitDisconnect()}>
                           {disconnectBusy ? "断开中..." : "断开连接"}
@@ -1035,7 +983,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
       <PrepareServerWizard
         open={prepareDialogOpen}
-        mode={prepareDialogMode}
         sshStatus={
           status?.connected
             ? {
