@@ -1,11 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, Circle, Info, Loader2, PackageSearch, RefreshCw, Server } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Circle, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  formatApiFetchError,
+  formatRuntimeInspectionError,
+  getRecommendedDecision,
+  isRuntimeReady,
+  loadRuntimeInspection,
+  startRemoteEnvInstall,
+  type EnvStatusPayload,
+  type PreflightPayload,
+} from "@/app/components/runtime-inspection";
+import { requestLocalApiJson } from "@/app/lib/local-api-client";
+import {
+  buildRuntimePrepareView,
+  type BootstrapStep,
+  type InstallSnapshot,
+  type RuntimeDecisionOption,
+} from "@/app/components/runtime-prepare-progress";
 
 type SSHStatus = {
   connected: boolean;
@@ -22,20 +39,6 @@ type RuntimeCheckItem = {
   message: string;
 };
 
-type RuntimeDecisionOption =
-  | "use_docker"
-  | "use_podman"
-  | "self_install_docker"
-  | "assistant_install_docker"
-  | "fallback_conda";
-
-type BootstrapStep = {
-  key: string;
-  label: string;
-  status: "pending" | "running" | "done" | "failed";
-  message?: string;
-};
-
 type RuntimeReadySummary = {
   selectedProfile: string;
   runtimeHome: string;
@@ -44,7 +47,6 @@ type RuntimeReadySummary = {
   javaPath?: string;
 };
 
-
 type CheckSection = {
   key: string;
   title: string;
@@ -52,109 +54,15 @@ type CheckSection = {
   items: RuntimeCheckItem[];
 };
 
-type RuntimeCapabilities = {
-  java?: { available?: boolean; usable?: boolean; version?: string };
-  nextflow?: { available?: boolean; usable?: boolean; version?: string };
-  docker?: { available?: boolean; usable?: boolean };
-  podman?: { available?: boolean; usable?: boolean };
-  apptainer?: { available?: boolean; usable?: boolean };
-  micromamba?: { available?: boolean; usable?: boolean };
-  conda?: { available?: boolean; usable?: boolean };
-};
-
-type PreflightPayload = {
-  ok: boolean;
-  checks: Array<{
-    key: string;
-    label: string;
-    status: "ok" | "warn" | "fail";
-    value: string;
-    message: string;
-  }>;
-  failures: string[];
-  warnings: string[];
-  recommended_profile: string;
-  recommended_profile_details?: {
-    profile_id?: string;
-    profile_kind?: string;
-  };
-  supported_profile_kinds: string[];
-  runtime_capabilities?: RuntimeCapabilities;
-};
-
-type EnvStatusPayload = {
-  miniforge?: {
-    installed?: boolean;
-    conda_executable?: string;
-  };
-};
-
-type InstallSnapshot = {
-  job_id: string;
-  status: string;
-  done: boolean;
-  ok: boolean;
-  message: string;
-  log_text: string;
-};
-
 type InstallTarget = "workflow_runtime" | "docker_runtime" | "";
 
 type PrepareServerWizardProps = {
   open: boolean;
-  mode: "wizard" | "settings";
   sshStatus: SSHStatus | null;
   runtimeReady?: boolean;
   onOpenChange: (open: boolean) => void;
   onPrepared?: () => void;
 };
-
-const FALLBACK_PREFLIGHT: PreflightPayload = {
-  ok: false,
-  checks: [
-    { key: "bash", label: "bash", status: "ok", value: "unknown", message: "后端检测接口未接通，当前显示为 UI 原型占位。" },
-    { key: "home_writable", label: "HOME 可写", status: "warn", value: "unknown", message: "等待后端接入后返回真实结果。" },
-    { key: "disk", label: "磁盘空间", status: "warn", value: "unknown", message: "等待后端接入后返回真实结果。" },
-  ],
-  failures: [],
-  warnings: ["检测环境接口尚未接通，当前步骤先以 UI 原型模式展示。"],
-  recommended_profile: "personal_conda",
-  recommended_profile_details: {
-    profile_id: "personal_conda",
-    profile_kind: "personal_conda",
-  },
-  supported_profile_kinds: ["personal_docker", "personal_podman", "personal_conda"],
-  runtime_capabilities: {
-    java: { available: false },
-    nextflow: { available: false },
-    docker: { available: false },
-    podman: { available: false },
-    apptainer: { available: false },
-    micromamba: { available: false },
-    conda: { available: false },
-  },
-};
-
-const FALLBACK_ENV_STATUS: EnvStatusPayload = {
-  miniforge: {
-    installed: false,
-    conda_executable: "",
-  },
-};
-
-function apiBase(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
-  return raw.trim().replace(/\/+$/, "");
-}
-
-async function readJsonOrThrow(resp: Response) {
-  const payload = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    const detail = typeof payload?.detail === "string" ? payload.detail : "";
-    throw new Error(detail || `HTTP ${resp.status}`);
-  }
-  return payload;
-}
 
 function toItemStatus(status: "ok" | "warn" | "fail"): RuntimeCheckItem["status"] {
   if (status === "ok") return "ready";
@@ -322,38 +230,6 @@ function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatus
   return items;
 }
 
-function buildBootstrapSteps(snapshot: InstallSnapshot | null): BootstrapStep[] {
-  if (!snapshot) {
-    return [
-      { key: "java", label: "准备 Java", status: "pending" },
-      { key: "nextflow", label: "安装 Nextflow", status: "pending" },
-      { key: "micromamba", label: "安装 Micromamba", status: "pending" },
-      { key: "runtime_dirs", label: "创建运行目录", status: "pending" },
-      { key: "verification", label: "验证安装", status: "pending" },
-    ];
-  }
-  const stage = snapshot.status;
-  const done = stage === "done";
-  const failed = stage === "failed";
-  if (done || failed) {
-    return [
-      { key: "java", label: "准备 Java", status: done ? "done" : "failed" },
-      { key: "nextflow", label: "安装 Nextflow", status: done ? "done" : "failed" },
-      { key: "micromamba", label: "安装 Micromamba", status: done ? "done" : "failed" },
-      { key: "runtime_dirs", label: "创建运行目录", status: done ? "done" : "failed" },
-      { key: "verification", label: "验证安装", status: done ? "done" : "failed", message: snapshot.message || undefined },
-    ];
-  }
-  return [
-    { key: "java", label: "准备 Java", status: "done" },
-    { key: "nextflow", label: "安装 Nextflow", status: "running" },
-    { key: "micromamba", label: "安装 Micromamba", status: "running" },
-    { key: "runtime_dirs", label: "创建运行目录", status: "running" },
-    { key: "verification", label: "验证安装", status: "pending" },
-  ];
-}
-
-
 function getStatusPresentation(item: RuntimeCheckItem): {
   label: string;
   badgeClassName: string;
@@ -392,16 +268,6 @@ function getStatusPresentation(item: RuntimeCheckItem): {
   };
 }
 
-function summarizeChecks(items: RuntimeCheckItem[]): { ready: number; warn: number; missing: number; blocked: number } {
-  return items.reduce(
-    (acc, item) => {
-      acc[item.status] += 1;
-      return acc;
-    },
-    { ready: 0, warn: 0, missing: 0, blocked: 0 }
-  );
-}
-
 function buildSections(items: RuntimeCheckItem[]): CheckSection[] {
   const groups = [
     {
@@ -429,9 +295,13 @@ function buildSections(items: RuntimeCheckItem[]): CheckSection[] {
       key: group.key,
       title: group.title,
       description: group.description,
-      items: items.filter((item) => group.keys.includes(item.key)),
+      items: items.filter((item) => (group.keys as readonly string[]).includes(item.key)),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+function hasSectionWarnings(section: CheckSection): boolean {
+  return section.items.some((item) => item.status === "warn" || item.status === "blocked");
 }
 
 function getRecommendedExplanation(args: {
@@ -439,6 +309,9 @@ function getRecommendedExplanation(args: {
   podmanUsable: boolean;
   preflight: PreflightPayload | null;
 }): string {
+  if (!args.preflight) {
+    return "请先完成一次真实检测，再决定走容器模式还是 Conda Runtime。";
+  }
   if (args.dockerUsable) {
     return "检测到 Docker，可优先使用容器模式。";
   }
@@ -450,7 +323,6 @@ function getRecommendedExplanation(args: {
 
 export function PrepareServerWizard({
   open,
-  mode,
   sshStatus,
   runtimeReady: runtimeReadyOverride,
   onOpenChange,
@@ -466,12 +338,9 @@ export function PrepareServerWizard({
   const [installJobId, setInstallJobId] = useState("");
   const [installTarget, setInstallTarget] = useState<InstallTarget>("");
   const [installRunning, setInstallRunning] = useState(false);
-  const [prototypeMode, setPrototypeMode] = useState(false);
   const [flowNotice, setFlowNotice] = useState("");
 
   const capabilities = preflight?.runtime_capabilities;
-  const dockerAvailable = capabilities?.docker?.available === true;
-  const podmanAvailable = capabilities?.podman?.available === true;
   const dockerUsable = capabilities?.docker?.usable === true;
   const podmanUsable = capabilities?.podman?.usable === true;
   const javaAvailable = capabilities?.java?.usable === true;
@@ -481,8 +350,8 @@ export function PrepareServerWizard({
     capabilities?.conda?.usable === true ||
     envStatus?.miniforge?.installed === true;
 
-  const runtimeReadyDetected = Boolean(javaAvailable && nextflowAvailable && (dockerUsable || podmanUsable || condaAvailable));
-  const runtimeReady = runtimeReadyOverride ?? runtimeReadyDetected;
+  const runtimeReadyDetected = isRuntimeReady(preflight, envStatus);
+  const runtimeReady = preflight ? runtimeReadyDetected : loading ? Boolean(runtimeReadyOverride) : false;
 
   const runtimeSummary = useMemo<RuntimeReadySummary | null>(() => {
     if (!runtimeReady || !preflight) {
@@ -507,44 +376,27 @@ export function PrepareServerWizard({
     }
     setLoading(true);
     setError("");
-    setPrototypeMode(false);
     try {
-      const [preflightResp, envResp] = await Promise.all([
-        fetch(`${apiBase()}/api/v1/ssh/preflight`, { method: "POST" }),
-        fetch(`${apiBase()}/api/v1/ssh/env/status`, { cache: "no-store" }),
-      ]);
-      const [preflightData, envData] = await Promise.all([readJsonOrThrow(preflightResp), readJsonOrThrow(envResp)]);
-      const nextPreflight = (preflightData?.item || null) as PreflightPayload | null;
-      const nextEnv = (envData?.item || null) as EnvStatusPayload | null;
+      const inspection = await loadRuntimeInspection();
+      const nextPreflight = inspection.preflight;
+      const nextEnv = inspection.envStatus;
       setPreflight(nextPreflight);
       setEnvStatus(nextEnv);
-      const nextRuntime = nextPreflight?.runtime_capabilities || {};
-      const nextDockerUsable = nextRuntime?.docker?.usable === true;
-      const nextPodmanUsable = nextRuntime?.podman?.usable === true;
-      if (!selectedDecision) {
-        if (nextPreflight?.recommended_profile === "personal_docker" && nextDockerUsable) {
-          setSelectedDecision("use_docker");
-        } else if (nextPreflight?.recommended_profile === "personal_podman" && nextPodmanUsable) {
-          setSelectedDecision("use_podman");
-        } else {
-          setSelectedDecision("self_install_docker");
-        }
-      }
-      setCurrentStep(runtimeReady ? 4 : 1);
-      return { preflight: nextPreflight, envStatus: nextEnv, prototypeMode: false };
-    } catch (nextError) {
-      setPreflight(FALLBACK_PREFLIGHT);
-      setEnvStatus(FALLBACK_ENV_STATUS);
-      setSelectedDecision((current) => current || "self_install_docker");
+      setSelectedDecision((current) => current || getRecommendedDecision(nextPreflight));
       setCurrentStep(1);
-      setPrototypeMode(true);
-      setError("");
-      console.warn("PrepareServerWizard backend unavailable, falling back to prototype mode:", nextError);
-      return { preflight: FALLBACK_PREFLIGHT, envStatus: FALLBACK_ENV_STATUS, prototypeMode: true };
+      return inspection;
+    } catch (nextError) {
+      const detail = formatRuntimeInspectionError(nextError);
+      setPreflight(null);
+      setEnvStatus(null);
+      setSelectedDecision(null);
+      setCurrentStep(1);
+      setError(`运行时检测失败：${detail}`);
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [runtimeReady, selectedDecision, sshStatus?.connected]);
+  }, [sshStatus?.connected]);
 
   useEffect(() => {
     if (!open || !sshStatus?.connected) {
@@ -560,8 +412,7 @@ export function PrepareServerWizard({
     let cancelled = false;
     const poll = async () => {
       try {
-        const resp = await fetch(`${apiBase()}/api/v1/ssh/env/install/${encodeURIComponent(installJobId)}`);
-        const data = await readJsonOrThrow(resp);
+        const data = await requestLocalApiJson("GET", `/api/v1/ssh/env/install/${encodeURIComponent(installJobId)}`);
         const snapshot = (data?.item || null) as InstallSnapshot | null;
         if (!cancelled && snapshot) {
           setInstallSnapshot(snapshot);
@@ -572,12 +423,12 @@ export function PrepareServerWizard({
               if (installTarget === "docker_runtime") {
                 const refreshedRuntime = refreshed?.preflight?.runtime_capabilities || {};
                 const dockerNowUsable = refreshedRuntime?.docker?.usable === true;
-                setSelectedDecision(dockerNowUsable ? "use_docker" : "self_install_docker");
+                setSelectedDecision(dockerNowUsable ? "use_docker" : "fallback_conda");
                 setCurrentStep(2);
                 setFlowNotice(
                   dockerNowUsable
                     ? "Docker 协助安装已完成，下一步可以直接继续准备 Workflow Runtime。"
-                    : "Docker 已安装，但当前 SSH 会话可能尚未获得 docker 组权限；请断开并重新连接后重新检查。"
+                    : "Docker 已安装，但当前 SSH 会话可能尚未获得 docker 组权限；请断开并重新连接后重新检测。"
                 );
               } else {
                 setFlowNotice("");
@@ -593,7 +444,7 @@ export function PrepareServerWizard({
       } catch (nextError) {
         if (!cancelled) {
           setInstallRunning(false);
-          setError(nextError instanceof Error ? nextError.message : String(nextError));
+          setError(formatApiFetchError(nextError, "安装状态查询失败。"));
         }
         return;
       }
@@ -629,86 +480,55 @@ export function PrepareServerWizard({
           : selectedDecision === "use_podman"
             ? "personal_podman"
             : "personal_conda";
-      const resp = await fetch(`${apiBase()}/api/v1/ssh/env/install`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          target === "docker_runtime"
-            ? { target }
-            : { target, profile_kind: profileKind }
-        ),
-      });
-      const data = await readJsonOrThrow(resp);
+      const data = await startRemoteEnvInstall(
+        target === "docker_runtime"
+          ? { target }
+          : { target, profile_kind: profileKind }
+      );
       const jobId = String(data?.item?.job_id || "");
       setInstallJobId(jobId);
     } catch (nextError) {
       setInstallRunning(false);
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      setError(formatApiFetchError(nextError, "无法启动 Runtime 准备流程。"));
     }
   }, [preflight, selectedDecision]);
 
   const checklist = useMemo(() => buildChecklist(preflight, envStatus), [envStatus, preflight]);
-  const checklistSections = useMemo(() => buildSections(checklist), [checklist]);
-  const checklistSummary = useMemo(() => summarizeChecks(checklist), [checklist]);
-  const bootstrapSteps = useMemo(() => {
-    if (installTarget !== "docker_runtime") {
-      return buildBootstrapSteps(installSnapshot);
-    }
-    if (!installSnapshot) {
-      return [
-        { key: "sudo", label: "校验 sudo / root 权限", status: "pending" },
-        { key: "download", label: "下载 Docker 安装脚本", status: "pending" },
-        { key: "install", label: "安装 Docker", status: "pending" },
-        { key: "service", label: "启动 Docker 服务", status: "pending" },
-        { key: "verify", label: "验证 Docker 并提示重新检查", status: "pending" },
-      ];
-    }
-    if (installSnapshot.status === "done" || installSnapshot.status === "failed") {
-      const terminalStatus = installSnapshot.status === "done" ? "done" : "failed";
-      return [
-        { key: "sudo", label: "校验 sudo / root 权限", status: terminalStatus },
-        { key: "download", label: "下载 Docker 安装脚本", status: terminalStatus },
-        { key: "install", label: "安装 Docker", status: terminalStatus },
-        { key: "service", label: "启动 Docker 服务", status: terminalStatus },
-        { key: "verify", label: "验证 Docker 并提示重新检查", status: terminalStatus, message: installSnapshot.message || undefined },
-      ];
-    }
-    return [
-      { key: "sudo", label: "校验 sudo / root 权限", status: "running" },
-      { key: "download", label: "下载 Docker 安装脚本", status: "running" },
-      { key: "install", label: "安装 Docker", status: "running" },
-      { key: "service", label: "启动 Docker 服务", status: "running" },
-      { key: "verify", label: "验证 Docker 并提示重新检查", status: "pending" },
-    ];
-  }, [installSnapshot, installTarget]);
+  const checklistSections = useMemo(() => (preflight ? buildSections(checklist) : []), [checklist, preflight]);
+  const runtimePrepareView = useMemo(
+    () =>
+      buildRuntimePrepareView({
+        selectedDecision,
+        installTarget,
+        snapshot: installSnapshot,
+      }),
+    [installSnapshot, installTarget, selectedDecision]
+  );
+  const bootstrapSteps = runtimePrepareView.steps;
   const serverLabel = sshStatus ? `${sshStatus.user}@${sshStatus.host}:${sshStatus.port}` : "未连接服务器";
-  const showDockerChoices = !dockerUsable && !podmanUsable;
-  const canRunBootstrap = !prototypeMode && selectedDecision !== "self_install_docker";
+  const showDockerChoices = Boolean(preflight) && !dockerUsable && !podmanUsable;
+  const canRunBootstrap = selectedDecision !== null && selectedDecision !== "self_install_docker";
+  const canAdvanceFromDetection = Boolean(preflight) && !loading;
+  const recommendedDecision = preflight ? getRecommendedDecision(preflight) : null;
   const recommendedExplanation = getRecommendedExplanation({ dockerUsable, podmanUsable, preflight });
-
+  const statusLabel = loading ? "检测中" : error && !preflight ? "检测失败" : runtimeReady ? "Runtime Ready" : "Runtime Missing";
+  const statusClassName = loading
+    ? "border-slate-200 bg-slate-50 text-slate-500"
+    : error && !preflight
+      ? "border-red-100 bg-red-50 text-red-600"
+      : runtimeReady
+        ? "border-emerald-100 bg-emerald-50 text-emerald-600"
+        : "border-amber-100 bg-amber-50 text-amber-600";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden border-slate-100 bg-white p-0 shadow-2xl">
+      <DialogContent className="flex max-h-[88vh] max-w-4xl flex-col overflow-hidden border-slate-100 bg-white p-0 shadow-2xl">
         <div className="px-8 pt-8 pb-6">
           <DialogHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
             <div className="space-y-1">
-              <DialogTitle className="text-xl font-semibold text-slate-950">
-                {mode === "settings" ? "运行时设置" : "准备服务器"}
-              </DialogTitle>
+              <DialogTitle className="text-xl font-semibold text-slate-950">运行时设置</DialogTitle>
               <DialogDescription className="font-mono text-sm text-slate-400">{serverLabel}</DialogDescription>
             </div>
-            <span
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs",
-                loading
-                  ? "border-slate-200 bg-slate-50 text-slate-500"
-                  : runtimeReady
-                    ? "border-emerald-100 bg-emerald-50 text-emerald-600"
-                    : "border-amber-100 bg-amber-50 text-amber-600"
-              )}
-            >
-              {loading ? "检测中" : runtimeReady ? "Runtime Ready" : "Runtime Missing"}
-            </span>
+            <span className={cn("rounded-full border px-3 py-1 text-xs", statusClassName)}>{statusLabel}</span>
           </DialogHeader>
 
           <div className="mt-10 flex items-center border-b border-slate-100 pb-6 text-sm">
@@ -742,13 +562,13 @@ export function PrepareServerWizard({
           </div>
         </div>
 
-        <div className="min-h-[360px] overflow-hidden px-8 pt-2 pb-8">
-          {error && !prototypeMode ? (
+        <div className="min-h-0 flex-1 overflow-auto px-8 pt-2 pb-8">
+          {error && preflight ? (
             <div className="mb-6 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
           ) : null}
           {currentStep === 1 ? (
-            <div className="grid grid-cols-12 gap-8">
-              <div className="col-span-8 min-h-0 space-y-4">
+            preflight ? (
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">检测环境</h3>
                   <p className="text-sm leading-relaxed text-slate-500">
@@ -756,25 +576,7 @@ export function PrepareServerWizard({
                   </p>
                 </div>
 
-                {prototypeMode ? (
-                  <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                    <div className="space-y-1">
-                      <p className="font-medium text-slate-700">当前展示的是 UI 原型模式下的检测页。</p>
-                      <p className="text-xs leading-relaxed text-slate-500">
-                        后端检测/安装接口尚未接通时，页面先保持完整信息架构；等接口接上后，这里会自动替换为真实服务器返回结果。
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Step1StatCard label="已就绪" value={checklistSummary.ready} tone="ready" />
-                  <Step1StatCard label="需要确认" value={checklistSummary.warn + checklistSummary.blocked} tone="warn" />
-                  <Step1StatCard label="缺失" value={checklistSummary.missing} tone="missing" />
-                </div>
-
-                <div className="max-h-[48vh] overflow-auto pr-2">
+                <div className="space-y-4">
                   {checklistSections.map((section) => (
                     <section key={section.key} className="border-t border-slate-100 pt-4 first:pt-0">
                       <div className="mb-2 flex items-center justify-between gap-4">
@@ -782,7 +584,14 @@ export function PrepareServerWizard({
                           <h4 className="text-sm font-medium text-slate-900">{section.title}</h4>
                           <p className="text-xs leading-relaxed text-slate-500">{section.description}</p>
                         </div>
-                        <span className="text-[11px] text-slate-400">{section.items.length} 项</span>
+                        <div className="flex items-center gap-2">
+                          {hasSectionWarnings(section) ? (
+                            <span className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                              需关注
+                            </span>
+                          ) : null}
+                          <span className="text-[11px] text-slate-400">{section.items.length} 项</span>
+                        </div>
                       </div>
 
                       <div className="space-y-0">
@@ -818,63 +627,22 @@ export function PrepareServerWizard({
                   ))}
                 </div>
               </div>
-
-              <div className="col-span-4 pt-10">
-                <div className="sticky top-0 space-y-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                    <PackageSearch className="h-4 w-4 text-slate-400" /> 智能部署决策
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">推荐 Profile</p>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex rounded-md bg-slate-950 px-2.5 py-1 font-mono text-xs text-white">
-                          {preflight?.recommended_profile || "personal_conda"}
-                        </span>
-                        <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                          当前推荐
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm leading-relaxed text-slate-600">
-                      {recommendedExplanation}
+            ) : (
+              <div className="flex min-h-[360px] items-center justify-center">
+                <div className="w-full max-w-xl rounded-2xl border border-red-100 bg-red-50/70 p-6">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-semibold text-red-700">运行时检测失败</h3>
+                      <p className="text-sm leading-relaxed text-red-600">
+                        当前无法获取服务器的真实检测结果，因此不会显示任何原型占位数据。请检查后端服务和 SSH 会话后重试。
+                      </p>
+                      {error ? <p className="font-mono text-xs text-red-500">{error}</p> : null}
                     </div>
                   </div>
-
-                  <div className="space-y-2 border-t border-slate-100 pt-4 text-sm">
-                    <div className="flex items-start gap-2 text-slate-600">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
-                      <span>下一步会让你明确选择 Docker / Podman / Conda 路径。</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-slate-600">
-                      <Server className="mt-0.5 h-4 w-4 text-slate-400" />
-                      <span>检测结果会直接决定后续是否需要引导用户自行安装 Docker。</span>
-                    </div>
-                  </div>
-
-                  {preflight?.supported_profile_kinds?.length ? (
-                    <div className="space-y-2 border-t border-slate-100 pt-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">可选运行方式</p>
-                      <div className="flex flex-wrap gap-2">
-                        {preflight.supported_profile_kinds.map((profile) => (
-                          <span key={profile} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] text-slate-500">
-                            {profile}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {preflight?.warnings?.length ? (
-                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-700">
-                      {preflight.warnings[0]}
-                    </div>
-                  ) : null}
                 </div>
               </div>
-            </div>
+            )
           ) : null}
 
           {currentStep === 2 ? (
@@ -889,8 +657,8 @@ export function PrepareServerWizard({
                     {
                       key: "self_install_docker" as const,
                       title: "我会自己安装 Docker",
-                      description: "推荐。适合你自己管理服务器或有管理员协助时使用。",
-                      recommended: true,
+                      description: "适合你自己管理服务器或有管理员协助时使用。",
+                      recommended: false,
                     },
                     {
                       key: "assistant_install_docker" as const,
@@ -902,7 +670,7 @@ export function PrepareServerWizard({
                       key: "fallback_conda" as const,
                       title: "继续使用 Conda Runtime",
                       description: "无需 Docker。软件将准备 Micromamba 和 Nextflow。",
-                      recommended: false,
+                      recommended: recommendedDecision === "fallback_conda",
                     },
                   ].map((option) => (
                     <button
@@ -945,7 +713,7 @@ export function PrepareServerWizard({
               ) : null}
               {selectedDecision === "self_install_docker" ? (
                 <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 text-sm text-slate-600">
-                  未检测到 Docker。请先自行安装 Docker，然后点击“重新检查”继续。
+                  未检测到 Docker。请先自行安装 Docker，然后点击“重新检测”继续。
                 </div>
               ) : selectedDecision === "assistant_install_docker" ? (
                 <>
@@ -976,7 +744,7 @@ export function PrepareServerWizard({
                   </div>
 
                   <div className="h-40 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-4 font-mono text-xs text-slate-200">
-                    <pre>{installSnapshot?.log_text || "等待开始协助安装 Docker..."}</pre>
+                    <pre>{installSnapshot?.log_text || runtimePrepareView.emptyLogText}</pre>
                   </div>
                 </>
               ) : (
@@ -1005,7 +773,7 @@ export function PrepareServerWizard({
                   </div>
 
                   <div className="h-40 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-4 font-mono text-xs text-slate-200">
-                    <pre>{installSnapshot?.log_text || "等待开始准备 Runtime..."}</pre>
+                    <pre>{installSnapshot?.log_text || runtimePrepareView.emptyLogText}</pre>
                   </div>
                 </>
               )}
@@ -1053,23 +821,31 @@ export function PrepareServerWizard({
             ) : null}
             {currentStep === 1 ? (
               <Button variant="outline" className="rounded-lg border-slate-200 text-slate-700" onClick={() => void loadData()}>
-                <RefreshCw className="mr-2 h-4 w-4" /> 重新检查
+                <RefreshCw className="mr-2 h-4 w-4" /> 重新检测
               </Button>
             ) : null}
             {currentStep === 1 ? (
-              <Button className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800" onClick={() => setCurrentStep(2)}>
+              <Button
+                className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
+                disabled={!canAdvanceFromDetection}
+                onClick={() => setCurrentStep(2)}
+              >
                 下一步
               </Button>
             ) : null}
             {currentStep === 2 ? (
-              <Button className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800" onClick={() => setCurrentStep(3)}>
+              <Button
+                className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
+                disabled={!selectedDecision}
+                onClick={() => setCurrentStep(3)}
+              >
                 下一步
               </Button>
             ) : null}
             {currentStep === 3 ? (
               selectedDecision === "self_install_docker" ? (
                 <Button className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800" onClick={() => void loadData()}>
-                  我已安装，重新检查
+                  我已安装，重新检测
                 </Button>
               ) : selectedDecision === "assistant_install_docker" ? (
                 <Button
@@ -1077,7 +853,7 @@ export function PrepareServerWizard({
                   disabled={installRunning || !canRunBootstrap}
                   onClick={() => void beginBootstrap()}
                 >
-                  {prototypeMode ? "后端待接入" : installRunning ? "安装中..." : "开始协助安装 Docker"}
+                  {installRunning ? "安装中..." : "开始协助安装 Docker"}
                 </Button>
               ) : (
                 <Button
@@ -1085,7 +861,7 @@ export function PrepareServerWizard({
                   disabled={installRunning || !canRunBootstrap}
                   onClick={() => void beginBootstrap()}
                 >
-                  {prototypeMode ? "后端待接入" : installRunning ? "准备中..." : "开始准备 Runtime"}
+                  {installRunning ? "准备中..." : "开始准备 Runtime"}
                 </Button>
               )
             ) : null}
@@ -1098,47 +874,6 @@ export function PrepareServerWizard({
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-
-function Step1StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "ready" | "warn" | "missing";
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border px-4 py-3",
-        tone === "ready"
-          ? "border-emerald-100 bg-emerald-50/70"
-          : tone === "warn"
-            ? "border-amber-100 bg-amber-50/70"
-            : "border-red-100 bg-red-50/70"
-      )}
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-      <div className="mt-2 flex items-end justify-between">
-        <span className="text-2xl font-semibold text-slate-950">{value}</span>
-        <span
-          className={cn(
-            "text-xs font-medium",
-            tone === "ready"
-              ? "text-emerald-700"
-              : tone === "warn"
-                ? "text-amber-700"
-                : "text-red-700"
-          )}
-        >
-          {tone === "ready" ? "可继续" : tone === "warn" ? "待确认" : "待处理"}
-        </span>
-      </div>
-    </div>
   );
 }
 
