@@ -7,6 +7,8 @@ const source = readFileSync(resolve(import.meta.dirname, "./runtime-inspection.t
 
 test("runtime inspection nextflow contract includes resolved launcher fields", () => {
   assert.match(source, /nextflow\?: \{ available\?: boolean; usable\?: boolean; version\?: string; path\?: string; command\?: string; message\?: string \}/);
+  assert.match(source, /host_key\?: string/);
+  assert.match(source, /verification_status\?: string/);
 });
 
 test("runtime inspection java contract includes resolved java fields", () => {

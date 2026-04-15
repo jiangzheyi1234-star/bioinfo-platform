@@ -91,6 +91,17 @@ def default_settings_schema() -> dict[str, Any]:
             "db_connect_timeout_sec": 20,
             "db_busy_timeout_ms": 20000,
             "db_journal_mode": "delete",
+            "resolved": {
+                "selected_profile": "",
+                "resolved_at": "",
+                "nextflow_path": "",
+                "nextflow_command": "",
+                "nextflow_source": "",
+                "nextflow_message": "",
+                "java_path": "",
+                "java_home": "",
+                "java_message": "",
+            },
         },
     }
 

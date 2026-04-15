@@ -6,16 +6,15 @@ import test from "node:test";
 const source = readFileSync(resolve(import.meta.dirname, "./prepare-server-wizard.tsx"), "utf-8");
 const inspectionSource = readFileSync(resolve(import.meta.dirname, "./runtime-inspection.ts"), "utf-8");
 
-test("prepare server wizard contains the agreed four-step flow", () => {
-  for (const expected of ["检测环境", "运行时决策", "准备 Runtime", "完成"]) {
+test("prepare server wizard keeps runtime setup grouped into detection, prepare, and completion", () => {
+  for (const expected of ["检测环境", "准备 Runtime", "完成"]) {
     assert.match(source, new RegExp(expected));
   }
+  assert.doesNotMatch(source, /运行时决策/);
 });
 
-test("prepare server wizard contains the agreed Docker decision options", () => {
-  for (const expected of ["我会自己安装 Docker", "软件协助安装 Docker", "继续使用 Conda Runtime"]) {
-    assert.match(source, new RegExp(expected));
-  }
+test("prepare server wizard no longer exposes manual decision cards as the main flow", () => {
+  assert.doesNotMatch(source, /currentStep === 2/);
 });
 
 test("prepare server wizard no longer includes prototype-mode fallback copy", () => {
@@ -31,9 +30,9 @@ test("prepare server wizard exposes explicit inspection failure copy", () => {
   assert.match(inspectionSource, /本地 API 未启动或不可达/);
 });
 
-test("prepare server wizard still requires next-step confirmation from step 1", () => {
-  assert.match(source, />\s*下一步\s*</);
-  assert.doesNotMatch(source, /step1PrimaryAction/);
+test("prepare server wizard uses one-click configuration instead of next-step flow", () => {
+  assert.match(source, /一键配置 Runtime/);
+  assert.doesNotMatch(source, />\s*下一步\s*</);
 });
 
 test("prepare server wizard step 1 no longer renders the right-side strategy card", () => {
@@ -69,7 +68,19 @@ test("prepare server wizard uses resolved nextflow path instead of only the runt
   assert.match(source, /capabilities\?\.nextflow\?\.path/);
 });
 
+test("prepare server wizard offers terminal repair entry from runtime setup", () => {
+  assert.match(source, /打开终端修复/);
+  assert.match(source, /onOpenTerminal/);
+});
+
 test("prepare server wizard polling is not gated by dialog open state", () => {
   assert.doesNotMatch(source, /if \(!open \|\| !installJobId\)/);
   assert.match(source, /if \(!installJobId\)/);
+});
+
+test("prepare server wizard only enters completion when refreshed nextflow is resolved and usable", () => {
+  assert.match(source, /nextflowNowUsable/);
+  assert.match(source, /nextflowResolvedPath/);
+  assert.match(source, /extractLogField\(snapshot\.log_text \|\| "", "NEXTFLOW_PATH"\)/);
+  assert.match(source, /Runtime 准备已完成，但重新检测时仍未解析到可用 Nextflow/);
 });

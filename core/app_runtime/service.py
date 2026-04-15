@@ -723,6 +723,27 @@ class RuntimeService:
             updated["ssh"] = ssh
             return updated
 
+    def get_resolved_runtime_state(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            current = get_config()
+            runtime = current.get("runtime", {}) if isinstance(current.get("runtime"), dict) else {}
+            resolved = runtime.get("resolved", {}) if isinstance(runtime.get("resolved"), dict) else {}
+            return dict(resolved)
+
+    def update_resolved_runtime_state(self, patch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            if not isinstance(patch, dict):
+                raise RuntimeServiceError("runtime.resolved patch must be an object")
+            current = get_config()
+            merged = self._merge_settings_patch(current, {"runtime": {"resolved": patch}})
+            save_config(merged)
+            updated = get_config()
+            runtime = updated.get("runtime", {}) if isinstance(updated.get("runtime"), dict) else {}
+            resolved = runtime.get("resolved", {}) if isinstance(runtime.get("resolved"), dict) else {}
+            return dict(resolved)
+
     def get_ssh_status(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
@@ -1904,6 +1925,22 @@ class RuntimeService:
             if not isinstance(existing, dict):
                 existing = {}
             next_section = dict(existing)
+            if section == "runtime" and "resolved" in value:
+                resolved_defaults = defaults["runtime"].get("resolved", {})
+                resolved_patch = value.get("resolved")
+                if not isinstance(resolved_patch, dict):
+                    raise RuntimeServiceError("settings key runtime.resolved must be an object")
+                unknown_runtime_resolved = set(resolved_patch.keys()) - set(resolved_defaults.keys())
+                if unknown_runtime_resolved:
+                    bad = sorted(str(item) for item in unknown_runtime_resolved)
+                    raise RuntimeServiceError(f"unknown settings key: runtime.resolved.{bad[0]}")
+                existing_resolved = next_section.get("resolved", {})
+                if not isinstance(existing_resolved, dict):
+                    existing_resolved = {}
+                next_resolved = dict(existing_resolved)
+                next_resolved.update(resolved_patch)
+                next_section["resolved"] = next_resolved
+                value = {k: v for k, v in value.items() if k != "resolved"}
             next_section.update(value)
             merged[section] = next_section
 
