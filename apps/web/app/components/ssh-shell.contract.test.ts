@@ -5,7 +5,7 @@ import test from "node:test";
 
 const source = readFileSync(resolve(import.meta.dirname, "./ssh-shell.tsx"), "utf-8");
 const globalsCss = readFileSync(resolve(import.meta.dirname, "../globals.css"), "utf-8");
-const apiSource = readFileSync(resolve(import.meta.dirname, "../../api/main.py"), "utf-8");
+const apiSource = readFileSync(resolve(import.meta.dirname, "../../../api/main.py"), "utf-8");
 const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8")) as {
   dependencies?: Record<string, string>;
 };
@@ -24,6 +24,8 @@ test("ssh shell source mounts xterm.js inside the docked terminal buffer", () =>
   assert.match(source, /aria-label="调整终端高度"/);
   assert.match(source, /cursor-row-resize/);
   assert.match(source, /ssh-terminal h-full w-full/);
+  assert.match(source, /openTerminalStream/);
+  assert.match(source, /type: "resize"/);
   assert.doesNotMatch(source, /terminalCommand/);
   assert.doesNotMatch(source, /submitTerminalCommand/);
   assert.doesNotMatch(source, /终端已就绪，输入命令后按 Enter 执行/);
@@ -50,10 +52,39 @@ test("ssh shell source uses in-buffer terminal input instead of a standalone com
   assert.doesNotMatch(source, /终端已就绪，输入命令后按 Enter 执行/);
 });
 
+test("ssh shell source uses websocket streaming instead of polling terminal output", () => {
+  assert.match(source, /terminalStreamRef/);
+  assert.match(source, /type: "input"/);
+  assert.match(source, /type: "resize"/);
+  assert.doesNotMatch(source, /terminal\/sessions\/\$\{terminalSessionId\}\?cursor=/);
+  assert.doesNotMatch(source, /terminal\/sessions\/\$\{sessionId\}\/input/);
+  assert.match(apiSource, /@app\.websocket\(\"\/api\/v1\/ssh\/terminal\/sessions\/\{session_id\}\/stream\"\)/);
+  assert.doesNotMatch(apiSource, /@app\.get\(\"\/api\/v1\/ssh\/terminal\/sessions\/\{session_id\}\"\)/);
+  assert.doesNotMatch(apiSource, /@app\.post\(\"\/api\/v1\/ssh\/terminal\/sessions\/\{session_id\}\/input\"\)/);
+});
+
+test("ssh shell source includes clipboard copy and paste handlers", () => {
+  assert.match(source, /writeTerminalClipboard/);
+  assert.match(source, /readTerminalClipboard/);
+  assert.match(source, /attachCustomKeyEventHandler/);
+  assert.match(source, /node\.addEventListener\("paste"/);
+});
+
 test("ssh shell uses a single runtime settings entry", () => {
   assert.match(source, /运行时设置/);
   assert.doesNotMatch(source, /重新检查环境/);
   assert.doesNotMatch(source, /prepareDialogMode/);
+});
+
+test("ssh shell remembers configured runtime per server identity and only blocks on confirmed missing state", () => {
+  assert.match(source, /lastSilentRuntimeCheckKeyRef/);
+  assert.match(source, /resolvedRuntimeState/);
+  assert.match(source, /const checkedStatus = await detectRuntimeReadiness\(\)/);
+  assert.match(source, /checkedStatus === "missing"/);
+  assert.match(source, /resolvedRuntimeState\?\.hostKey === runtimeIdentityKey/);
+  assert.match(source, /resolvedRuntimeState\?\.verificationStatus === "verified"/);
+  assert.doesNotMatch(source, /rememberRuntimePrepared/);
+  assert.doesNotMatch(source, /clearRememberedRuntimePrepared/);
 });
 
 test("desktop dev origin is allowed by api CORS config", () => {

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
@@ -17,7 +19,6 @@ from apps.api.models import (
     RemoteEnvInstallRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
-    SSHTerminalInputRequest,
     TaskWorkflowCompileRequest,
     TaskWorkflowRequest,
     UpdateProjectRequest,
@@ -31,6 +32,8 @@ app = FastAPI(
     title="H2OMeta Local API",
     version="0.1.0",
 )
+
+TERMINAL_RUNTIME_BUILD_ID = "terminal-websocket-v1"
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,6 +56,34 @@ def _runtime():
     return get_runtime_service()
 
 
+def _terminal_state_event(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "state",
+        "connected": bool(snapshot.get("connected")),
+        "input_enabled": bool(snapshot.get("input_enabled")),
+        "message": str(snapshot.get("message") or ""),
+    }
+
+
+async def _send_terminal_snapshot(
+    websocket: WebSocket,
+    *,
+    snapshot: dict[str, Any],
+    last_state: tuple[bool, bool, str] | None,
+) -> tuple[int, tuple[bool, bool, str]]:
+    output = str(snapshot.get("output") or "")
+    if output:
+        await websocket.send_json({"type": "output", "data": output})
+    state = (
+        bool(snapshot.get("connected")),
+        bool(snapshot.get("input_enabled")),
+        str(snapshot.get("message") or ""),
+    )
+    if state != last_state and not bool(snapshot.get("closed")):
+        await websocket.send_json(_terminal_state_event(snapshot))
+    return int(snapshot.get("cursor") or 0), state
+
+
 @app.on_event("startup")
 async def on_startup() -> None:
     _runtime()
@@ -67,7 +98,18 @@ async def on_shutdown() -> None:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "build_id": TERMINAL_RUNTIME_BUILD_ID}
+
+
+@app.get("/api/v1/version")
+async def get_version() -> dict[str, Any]:
+    return {
+        "item": {
+            "build_id": os.environ.get("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID),
+            "terminal_transport": "websocket",
+            "backend_source": os.environ.get("H2OMETA_BACKEND_SOURCE", "unknown"),
+        }
+    }
 
 
 # Legacy brownfield endpoint kept for compatibility only.
@@ -127,7 +169,9 @@ async def cancel_run(project_id: str, run_id: str) -> dict[str, Any]:
 @app.get("/api/v1/projects/{project_id}/runs/{run_id}/artifacts")
 async def get_run_artifacts(project_id: str, run_id: str) -> dict[str, Any]:
     try:
-        return {"items": _runtime().get_run_artifacts(project_id=project_id, run_id=run_id)}
+        return {
+            "items": _runtime().get_run_artifacts(project_id=project_id, run_id=run_id)
+        }
     except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -135,7 +179,11 @@ async def get_run_artifacts(project_id: str, run_id: str) -> dict[str, Any]:
 @app.get("/api/v1/projects/{project_id}/runs/{run_id}/resolved-config")
 async def get_run_resolved_config(project_id: str, run_id: str) -> dict[str, Any]:
     try:
-        return {"item": _runtime().get_run_resolved_config(project_id=project_id, run_id=run_id)}
+        return {
+            "item": _runtime().get_run_resolved_config(
+                project_id=project_id, run_id=run_id
+            )
+        }
     except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -172,6 +220,22 @@ async def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/runtime/resolved")
+async def get_resolved_runtime_state() -> dict[str, Any]:
+    try:
+        return {"item": _runtime().get_resolved_runtime_state()}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/runtime/resolved")
+async def update_resolved_runtime_state(payload: UpdateSettingsRequest) -> dict[str, Any]:
+    try:
+        return {"item": _runtime().update_resolved_runtime_state(payload.patch)}
+    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/ssh/status")
 async def get_ssh_status() -> dict[str, Any]:
     try:
@@ -198,26 +262,16 @@ async def disconnect_ssh() -> dict[str, Any]:
 
 
 @app.post("/api/v1/ssh/terminal/sessions")
-async def create_terminal_session(payload: SSHTerminalCreateRequest | None = None) -> dict[str, Any]:
+async def create_terminal_session(
+    payload: SSHTerminalCreateRequest | None = None,
+) -> dict[str, Any]:
     try:
         request = payload or SSHTerminalCreateRequest()
-        return {"item": _runtime().create_terminal_session(cols=request.cols, rows=request.rows)}
-    except (RuntimeServiceError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/ssh/terminal/sessions/{session_id}")
-async def read_terminal_session(session_id: str, cursor: int = 0) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().read_terminal_session(session_id=session_id, cursor=cursor)}
-    except (RuntimeServiceError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/v1/ssh/terminal/sessions/{session_id}/input")
-async def send_terminal_input(session_id: str, payload: SSHTerminalInputRequest) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().send_terminal_input(session_id=session_id, data=payload.data)}
+        return {
+            "item": _runtime().create_terminal_session(
+                cols=request.cols, rows=request.rows
+            )
+        }
     except (RuntimeServiceError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -230,8 +284,134 @@ async def close_terminal_session(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.websocket("/api/v1/ssh/terminal/sessions/{session_id}/stream")
+async def stream_terminal_session(
+    websocket: WebSocket, session_id: str, cursor: int = 0
+) -> None:
+    await websocket.accept()
+    try:
+        session = _runtime().get_terminal_session(session_id=session_id)
+    except (RuntimeServiceError, ValueError, TypeError) as exc:
+        await websocket.send_json({"type": "error", "message": str(exc)})
+        await websocket.close(code=1008)
+        return
+
+    async def pump_output() -> None:
+        current_cursor = max(0, int(cursor or 0))
+        version = -1
+        last_state: tuple[bool, bool, str] | None = None
+
+        await websocket.send_json({"type": "ready", "session_id": session_id})
+        snapshot, version = await asyncio.to_thread(
+            session.wait_for_update,
+            cursor=current_cursor,
+            version=version,
+            timeout=0.0,
+        )
+        current_cursor, last_state = await _send_terminal_snapshot(
+            websocket,
+            snapshot=snapshot,
+            last_state=last_state,
+        )
+        if bool(snapshot.get("closed")):
+            await websocket.send_json(
+                {"type": "closed", "message": str(snapshot.get("message") or "")}
+            )
+            return
+
+        while True:
+            snapshot, next_version = await asyncio.to_thread(
+                session.wait_for_update,
+                cursor=current_cursor,
+                version=version,
+                timeout=30.0,
+            )
+            if (
+                next_version == version
+                and int(snapshot.get("cursor") or 0) == current_cursor
+                and not bool(snapshot.get("closed"))
+            ):
+                continue
+            version = next_version
+            current_cursor, last_state = await _send_terminal_snapshot(
+                websocket,
+                snapshot=snapshot,
+                last_state=last_state,
+            )
+            if bool(snapshot.get("closed")):
+                await websocket.send_json(
+                    {"type": "closed", "message": str(snapshot.get("message") or "")}
+                )
+                return
+
+    async def receive_input() -> None:
+        while True:
+            payload = await websocket.receive_json()
+            if not isinstance(payload, dict):
+                await websocket.send_json(
+                    {"type": "error", "message": "invalid terminal payload"}
+                )
+                continue
+            message_type = str(payload.get("type") or "").strip().lower()
+            if message_type == "input":
+                data = str(payload.get("data") or "")
+                if not data:
+                    continue
+                _runtime().send_terminal_input(session_id=session_id, data=data)
+                continue
+            if message_type == "resize":
+                _runtime().resize_terminal_session(
+                    session_id=session_id,
+                    cols=int(payload.get("cols") or 120),
+                    rows=int(payload.get("rows") or 28),
+                )
+                continue
+            if message_type == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": f"unsupported terminal message type: {message_type or '<empty>'}",
+                }
+            )
+
+    tasks = {
+        asyncio.create_task(pump_output()),
+        asyncio.create_task(receive_input()),
+    }
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for task in done:
+            exc = task.exception()
+            if exc is not None:
+                raise exc
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+    except WebSocketDisconnect:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as exc:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await websocket.send_json(
+            {"type": "error", "message": str(exc) or "terminal stream failed"}
+        )
+        await websocket.close(code=1011)
+
+
 @app.post("/api/v1/ssh/test")
-async def test_ssh_connection(payload: SSHConnectionRequest | None = None) -> dict[str, Any]:
+async def test_ssh_connection(
+    payload: SSHConnectionRequest | None = None,
+) -> dict[str, Any]:
     try:
         patch = payload.model_dump(exclude_none=True) if payload is not None else None
         return {"item": _runtime().test_ssh_connection(patch)}
@@ -278,9 +458,15 @@ async def get_remote_env_install_status(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/v1/projects")
-async def list_projects(sort_by: str = "created_at", include_archived: bool = False) -> dict[str, Any]:
+async def list_projects(
+    sort_by: str = "created_at", include_archived: bool = False
+) -> dict[str, Any]:
     try:
-        return {"items": _runtime().list_projects(sort_by=sort_by, include_archived=include_archived)}
+        return {
+            "items": _runtime().list_projects(
+                sort_by=sort_by, include_archived=include_archived
+            )
+        }
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -307,7 +493,9 @@ async def create_project(payload: CreateProjectRequest) -> dict[str, Any]:
 
 
 @app.patch("/api/v1/projects/{project_id}")
-async def update_project(project_id: str, payload: UpdateProjectRequest) -> dict[str, Any]:
+async def update_project(
+    project_id: str, payload: UpdateProjectRequest
+) -> dict[str, Any]:
     try:
         patch = payload.model_dump(exclude_none=True)
         return {"item": _runtime().update_project(project_id=project_id, patch=patch)}
@@ -379,10 +567,16 @@ async def get_task(project_id: str, task_id: str) -> dict[str, Any]:
 
 
 @app.patch("/api/v1/projects/{project_id}/tasks/{task_id}")
-async def update_task(project_id: str, task_id: str, payload: UpdateTaskRequest) -> dict[str, Any]:
+async def update_task(
+    project_id: str, task_id: str, payload: UpdateTaskRequest
+) -> dict[str, Any]:
     try:
         patch = payload.model_dump(exclude_none=True)
-        return {"item": _runtime().update_task(project_id=project_id, task_id=task_id, patch=patch)}
+        return {
+            "item": _runtime().update_task(
+                project_id=project_id, task_id=task_id, patch=patch
+            )
+        }
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -404,7 +598,9 @@ async def get_task_workflow(project_id: str, task_id: str) -> dict[str, Any]:
 
 
 @app.put("/api/v1/projects/{project_id}/tasks/{task_id}/workflow")
-async def put_task_workflow(project_id: str, task_id: str, payload: TaskWorkflowRequest) -> dict[str, Any]:
+async def put_task_workflow(
+    project_id: str, task_id: str, payload: TaskWorkflowRequest
+) -> dict[str, Any]:
     try:
         return _runtime().put_task_workflow(
             project_id=project_id,
@@ -416,7 +612,9 @@ async def put_task_workflow(project_id: str, task_id: str, payload: TaskWorkflow
 
 
 @app.post("/api/v1/projects/{project_id}/tasks/{task_id}/workflow/compile")
-async def compile_task_workflow(project_id: str, task_id: str, payload: TaskWorkflowCompileRequest) -> dict[str, Any]:
+async def compile_task_workflow(
+    project_id: str, task_id: str, payload: TaskWorkflowCompileRequest
+) -> dict[str, Any]:
     try:
         return _runtime().compile_task_workflow(
             project_id=project_id,
@@ -428,9 +626,13 @@ async def compile_task_workflow(project_id: str, task_id: str, payload: TaskWork
 
 
 @app.post("/api/v1/projects/{project_id}/tasks/{task_id}/workflow/compatibility")
-async def get_task_workflow_compatibility(project_id: str, task_id: str) -> dict[str, Any]:
+async def get_task_workflow_compatibility(
+    project_id: str, task_id: str
+) -> dict[str, Any]:
     try:
-        return _runtime().get_task_workflow_compatibility(project_id=project_id, task_id=task_id)
+        return _runtime().get_task_workflow_compatibility(
+            project_id=project_id, task_id=task_id
+        )
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -445,7 +647,9 @@ async def list_task_runs(project_id: str, task_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/v1/projects/{project_id}/tasks/{task_id}/runs")
-async def create_task_run(project_id: str, task_id: str, payload: TaskWorkflowCompileRequest) -> dict[str, Any]:
+async def create_task_run(
+    project_id: str, task_id: str, payload: TaskWorkflowCompileRequest
+) -> dict[str, Any]:
     try:
         return _runtime().create_task_run(
             project_id=project_id,
@@ -459,7 +663,9 @@ async def create_task_run(project_id: str, task_id: str, payload: TaskWorkflowCo
 @app.get("/api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}")
 async def get_task_run(project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
     try:
-        return _runtime().get_task_run(project_id=project_id, task_id=task_id, run_id=run_id)
+        return _runtime().get_task_run(
+            project_id=project_id, task_id=task_id, run_id=run_id
+        )
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -467,40 +673,58 @@ async def get_task_run(project_id: str, task_id: str, run_id: str) -> dict[str, 
 @app.post("/api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}/cancel")
 async def cancel_task_run(project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
     try:
-        return _runtime().cancel_task_run(project_id=project_id, task_id=task_id, run_id=run_id)
+        return _runtime().cancel_task_run(
+            project_id=project_id, task_id=task_id, run_id=run_id
+        )
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results")
-async def list_task_results(project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
+async def list_task_results(
+    project_id: str, task_id: str, run_id: str | None = None
+) -> dict[str, Any]:
     try:
-        items = _runtime().list_task_results(project_id=project_id, task_id=task_id, run_id=run_id)
+        items = _runtime().list_task_results(
+            project_id=project_id, task_id=task_id, run_id=run_id
+        )
         return {"items": items, "total": len(items)}
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results/summary")
-async def get_task_results_summary(project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
+async def get_task_results_summary(
+    project_id: str, task_id: str, run_id: str | None = None
+) -> dict[str, Any]:
     try:
-        return _runtime().get_task_results_summary(project_id=project_id, task_id=task_id, run_id=run_id)
+        return _runtime().get_task_results_summary(
+            project_id=project_id, task_id=task_id, run_id=run_id
+        )
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results/{result_id}")
-async def get_task_result(project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
+async def get_task_result(
+    project_id: str, task_id: str, result_id: str
+) -> dict[str, Any]:
     try:
-        return _runtime().get_task_result(project_id=project_id, task_id=task_id, result_id=result_id)
+        return _runtime().get_task_result(
+            project_id=project_id, task_id=task_id, result_id=result_id
+        )
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/tasks/{task_id}/results/{result_id}/content")
-async def get_task_result_content(project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
+async def get_task_result_content(
+    project_id: str, task_id: str, result_id: str
+) -> dict[str, Any]:
     try:
-        return _runtime().get_task_result_content(project_id=project_id, task_id=task_id, result_id=result_id)
+        return _runtime().get_task_result_content(
+            project_id=project_id, task_id=task_id, result_id=result_id
+        )
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -522,7 +746,9 @@ async def list_samples(project_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/v1/projects/{project_id}/samples")
-async def create_sample(project_id: str, payload: CreateSampleRequest) -> dict[str, Any]:
+async def create_sample(
+    project_id: str, payload: CreateSampleRequest
+) -> dict[str, Any]:
     try:
         item = _runtime().create_sample(
             project_id=project_id,
@@ -536,18 +762,30 @@ async def create_sample(project_id: str, payload: CreateSampleRequest) -> dict[s
 
 
 @app.get("/api/v1/projects/{project_id}/databases")
-async def list_databases(project_id: str, include_status: bool = False) -> dict[str, Any]:
+async def list_databases(
+    project_id: str, include_status: bool = False
+) -> dict[str, Any]:
     try:
-        return {"items": _runtime().list_databases(project_id=project_id, include_status=include_status)}
+        return {
+            "items": _runtime().list_databases(
+                project_id=project_id, include_status=include_status
+            )
+        }
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/projects/{project_id}/databases/{db_id}/install")
-async def install_database(project_id: str, db_id: str, payload: DatabaseInstallRequest | None = None) -> dict[str, Any]:
+async def install_database(
+    project_id: str, db_id: str, payload: DatabaseInstallRequest | None = None
+) -> dict[str, Any]:
     try:
         mirror_index = payload.mirror_index if payload is not None else 0
-        return {"item": _runtime().install_database(project_id=project_id, db_id=db_id, mirror_index=mirror_index)}
+        return {
+            "item": _runtime().install_database(
+                project_id=project_id, db_id=db_id, mirror_index=mirror_index
+            )
+        }
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -555,7 +793,11 @@ async def install_database(project_id: str, db_id: str, payload: DatabaseInstall
 @app.get("/api/v1/projects/{project_id}/databases/{db_id}/install")
 async def get_database_install_status(project_id: str, db_id: str) -> dict[str, Any]:
     try:
-        return {"item": _runtime().get_database_install_status(project_id=project_id, db_id=db_id)}
+        return {
+            "item": _runtime().get_database_install_status(
+                project_id=project_id, db_id=db_id
+            )
+        }
     except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -571,6 +813,8 @@ async def read_app_log(tail_lines: int = 200) -> dict[str, Any]:
 @app.get("/api/v1/events/executions")
 async def list_runtime_events(after_seq: int = 0, limit: int = 200) -> dict[str, Any]:
     try:
-        return {"item": _runtime().list_runtime_events(after_seq=after_seq, limit=limit)}
+        return {
+            "item": _runtime().list_runtime_events(after_seq=after_seq, limit=limit)
+        }
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

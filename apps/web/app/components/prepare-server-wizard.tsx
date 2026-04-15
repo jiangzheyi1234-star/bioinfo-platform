@@ -60,9 +60,30 @@ type PrepareServerWizardProps = {
   open: boolean;
   sshStatus: SSHStatus | null;
   runtimeReady?: boolean;
+  resolvedRuntime?: {
+    hostKey?: string;
+    nextflowPath?: string;
+    javaPath?: string;
+    selectedProfile?: string;
+    verificationStatus?: string;
+  } | null;
   onOpenChange: (open: boolean) => void;
-  onPrepared?: () => void;
+  onPrepared?: (resolved?: { nextflowPath?: string; javaPath?: string; selectedProfile?: string }) => void;
+  onOpenTerminal?: () => void;
 };
+
+function extractLogField(logText: string, key: string): string {
+  const pattern = new RegExp(`^${key}=(.+)$`, "m");
+  const match = String(logText || "").match(pattern);
+  return match?.[1]?.trim() || "";
+}
+
+function runtimeHostKey(status: SSHStatus | null): string {
+  if (!status) {
+    return "";
+  }
+  return `${status.user}@${status.host}:${status.port}`;
+}
 
 function toItemStatus(status: "ok" | "warn" | "fail"): RuntimeCheckItem["status"] {
   if (status === "ok") return "ready";
@@ -364,8 +385,10 @@ export function PrepareServerWizard({
   open,
   sshStatus,
   runtimeReady: runtimeReadyOverride,
+  resolvedRuntime,
   onOpenChange,
   onPrepared,
+  onOpenTerminal,
 }: PrepareServerWizardProps) {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [preflight, setPreflight] = useState<PreflightPayload | null>(null);
@@ -378,6 +401,9 @@ export function PrepareServerWizard({
   const [installTarget, setInstallTarget] = useState<InstallTarget>("");
   const [installRunning, setInstallRunning] = useState(false);
   const [flowNotice, setFlowNotice] = useState("");
+  const [resolvedNextflowPath, setResolvedNextflowPath] = useState("");
+  const [resolvedJavaPath, setResolvedJavaPath] = useState("");
+  const currentHostKey = runtimeHostKey(sshStatus);
 
   const capabilities = preflight?.runtime_capabilities;
   const dockerUsable = capabilities?.docker?.usable === true;
@@ -390,24 +416,35 @@ export function PrepareServerWizard({
     envStatus?.conda_runtime?.installed === true;
 
   const runtimeReadyDetected = isRuntimeReady(preflight, envStatus);
-  const runtimeReady = preflight ? runtimeReadyDetected : loading ? Boolean(runtimeReadyOverride) : false;
+  const runtimeReady = preflight
+    ? runtimeReadyDetected
+    : loading
+      ? Boolean(runtimeReadyOverride)
+      : Boolean(
+          runtimeReadyOverride ||
+            (resolvedRuntime?.hostKey === currentHostKey &&
+              resolvedRuntime?.verificationStatus === "verified" &&
+              resolvedRuntime?.nextflowPath) ||
+            resolvedNextflowPath
+        );
 
   const runtimeSummary = useMemo<RuntimeReadySummary | null>(() => {
-    if (!runtimeReady || !preflight) {
+    if (!runtimeReady) {
       return null;
     }
     const runtimeHome = "~/.h2ometa/runtime";
     return {
       selectedProfile:
-        preflight.recommended_profile_details?.profile_kind ||
-        preflight.recommended_profile ||
+        preflight?.recommended_profile_details?.profile_kind ||
+        preflight?.recommended_profile ||
+        resolvedRuntime?.selectedProfile ||
         "personal_conda",
       runtimeHome,
-      nextflowPath: `${runtimeHome}/bin/nextflow`,
+      nextflowPath: resolvedRuntime?.nextflowPath || `${runtimeHome}/bin/nextflow`,
       micromambaPath: `${runtimeHome}/bin/micromamba`,
-      javaPath: javaAvailable ? `${runtimeHome}/java/bin/java` : undefined,
+      javaPath: resolvedRuntime?.javaPath || (javaAvailable ? `${runtimeHome}/java/bin/java` : undefined),
     };
-  }, [javaAvailable, preflight, runtimeReady]);
+  }, [javaAvailable, preflight, resolvedRuntime, runtimeReady]);
 
   const loadData = useCallback(async () => {
     if (!sshStatus?.connected) {
@@ -419,10 +456,16 @@ export function PrepareServerWizard({
       const inspection = await loadRuntimeInspection();
       const nextPreflight = inspection.preflight;
       const nextEnv = inspection.envStatus;
+      const nextDecision = getRecommendedDecision(nextPreflight);
+      const nextRuntimeReady = isRuntimeReady(nextPreflight, nextEnv);
       setPreflight(nextPreflight);
       setEnvStatus(nextEnv);
-      setSelectedDecision((current) => current || getRecommendedDecision(nextPreflight));
-      setCurrentStep(1);
+      setSelectedDecision(nextDecision);
+      setCurrentStep(nextRuntimeReady ? 4 : 1);
+      if (!nextRuntimeReady) {
+        setResolvedNextflowPath("");
+        setResolvedJavaPath("");
+      }
       return inspection;
     } catch (nextError) {
       const detail = formatRuntimeInspectionError(nextError);
@@ -459,8 +502,8 @@ export function PrepareServerWizard({
             setInstallRunning(false);
             if (snapshot.ok) {
               const refreshed = await loadData();
+              const refreshedRuntime = refreshed?.preflight?.runtime_capabilities || {};
               if (installTarget === "docker_runtime") {
-                const refreshedRuntime = refreshed?.preflight?.runtime_capabilities || {};
                 const dockerNowUsable = refreshedRuntime?.docker?.usable === true;
                 setSelectedDecision(dockerNowUsable ? "use_docker" : "fallback_conda");
                 setCurrentStep(2);
@@ -470,9 +513,49 @@ export function PrepareServerWizard({
                     : "Docker 已安装，但当前 SSH 会话可能尚未获得 docker 组权限；请断开并重新连接后重新检测。"
                 );
               } else {
-                setFlowNotice("");
-                setCurrentStep(4);
-                onPrepared?.();
+                const nextflowNowUsable = refreshedRuntime?.nextflow?.usable === true;
+                const nextflowResolvedPath =
+                  String(refreshedRuntime?.nextflow?.path || "").trim() || extractLogField(snapshot.log_text || "", "NEXTFLOW_PATH");
+                const javaResolvedPath =
+                  String(refreshedRuntime?.java?.path || "").trim() || extractLogField(snapshot.log_text || "", "JAVA_PATH");
+                if (nextflowResolvedPath && (nextflowNowUsable || snapshot.ok)) {
+                  setResolvedNextflowPath(nextflowResolvedPath);
+                  setResolvedJavaPath(javaResolvedPath);
+                  const selectedProfile =
+                    refreshed?.preflight?.recommended_profile_details?.profile_kind ||
+                    refreshed?.preflight?.recommended_profile ||
+                    "personal_conda";
+                  await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", {
+                    body: {
+                      host_key: currentHostKey,
+                      selected_profile: selectedProfile,
+                      resolved_at: new Date().toISOString(),
+                      verification_status: "verified",
+                      nextflow_path: nextflowResolvedPath,
+                      nextflow_command:
+                        String(refreshedRuntime?.nextflow?.command || "").trim() || nextflowResolvedPath,
+                      nextflow_source: String(refreshedRuntime?.nextflow?.source || "").trim(),
+                      nextflow_message:
+                        String(refreshedRuntime?.nextflow?.message || "").trim() || "已检测到 Nextflow，可直接使用",
+                      java_path: javaResolvedPath,
+                      java_home: String(refreshedRuntime?.java?.home || "").trim(),
+                      java_message:
+                        String(refreshedRuntime?.java?.message || "").trim() || "已检测到 Java，可用于运行 Nextflow",
+                    },
+                  });
+                  setFlowNotice("");
+                  setCurrentStep(4);
+                  onPrepared?.({
+                    nextflowPath: nextflowResolvedPath,
+                    javaPath: javaResolvedPath,
+                    selectedProfile,
+                  });
+                } else {
+                  setCurrentStep(3);
+                  setError(
+                    String(refreshedRuntime?.nextflow?.message || "Runtime 准备已完成，但重新检测时仍未解析到可用 Nextflow。请重新检测或检查 SSH 运行环境。")
+                  );
+                }
               }
             } else {
               setError(snapshot.message || "后台安装失败，请查看日志。");
@@ -501,10 +584,8 @@ export function PrepareServerWizard({
     if (!preflight) {
       return;
     }
-    if (selectedDecision === "self_install_docker") {
-      return;
-    }
-    const blockReason = getBootstrapBlockReason(preflight, selectedDecision);
+    const effectiveDecision = selectedDecision || recommendedDecision || "fallback_conda";
+    const blockReason = getBootstrapBlockReason(preflight, effectiveDecision);
     if (blockReason) {
       setError(blockReason);
       return;
@@ -516,12 +597,12 @@ export function PrepareServerWizard({
     setFlowNotice("");
     setInstallSnapshot(null);
     try {
-      const target = selectedDecision === "assistant_install_docker" ? "docker_runtime" : "workflow_runtime";
+      const target = effectiveDecision === "assistant_install_docker" ? "docker_runtime" : "workflow_runtime";
       setInstallTarget(target);
       const profileKind =
-        selectedDecision === "use_docker"
+        effectiveDecision === "use_docker"
           ? "personal_docker"
-          : selectedDecision === "use_podman"
+          : effectiveDecision === "use_podman"
             ? "personal_podman"
             : "personal_conda";
       const data = await startRemoteEnvInstall(
@@ -535,7 +616,7 @@ export function PrepareServerWizard({
       setInstallRunning(false);
       setError(formatApiFetchError(nextError, "无法启动 Runtime 准备流程。"));
     }
-  }, [preflight, selectedDecision]);
+  }, [preflight, recommendedDecision, selectedDecision]);
 
   const checklist = useMemo(() => buildChecklist(preflight, envStatus), [envStatus, preflight]);
   const checklistSections = useMemo(() => (preflight ? buildSections(checklist) : []), [checklist, preflight]);
@@ -578,9 +659,10 @@ export function PrepareServerWizard({
           </DialogHeader>
 
           <div className="mt-10 flex items-center border-b border-slate-100 pb-6 text-sm">
-            {["检测环境", "运行时决策", "准备 Runtime", "完成"].map((step, index) => {
-              const isActive = currentStep === index + 1;
-              const isDone = currentStep > index + 1;
+            {["检测环境", "准备 Runtime", "完成"].map((step, index) => {
+              const visualStep = currentStep === 4 ? 3 : currentStep === 3 ? 2 : 1;
+              const isActive = visualStep === index + 1;
+              const isDone = visualStep > index + 1;
               return (
                 <div key={step} className="flex items-center">
                   <div
@@ -601,7 +683,7 @@ export function PrepareServerWizard({
                     />
                     <span>{step}</span>
                   </div>
-                  {index < 3 ? <ArrowRight className="mx-4 h-4 w-4 text-slate-200" /> : null}
+                  {index < 2 ? <ArrowRight className="mx-4 h-4 w-4 text-slate-200" /> : null}
                 </div>
               );
             })}
@@ -691,66 +773,6 @@ export function PrepareServerWizard({
             )
           ) : null}
 
-          {currentStep === 2 ? (
-            <div className="space-y-6">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">选择运行方式</h3>
-              {flowNotice ? (
-                <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-700">{flowNotice}</div>
-              ) : null}
-              {showDockerChoices ? (
-                <div className="grid grid-cols-3 gap-4">
-                  {[
-                    {
-                      key: "self_install_docker" as const,
-                      title: "我会自己安装 Docker",
-                      description: "适合你自己管理服务器或有管理员协助时使用。",
-                      recommended: false,
-                    },
-                    {
-                      key: "assistant_install_docker" as const,
-                      title: "软件协助安装 Docker",
-                      description: "实验性。需要 sudo，仅适用于部分 Linux 发行版。",
-                      recommended: false,
-                    },
-                    {
-                      key: "fallback_conda" as const,
-                      title: "继续使用 Conda Runtime",
-                      description: "无需 Docker。软件将准备 Micromamba 和 Nextflow。",
-                      recommended: recommendedDecision === "fallback_conda",
-                    },
-                  ].map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setSelectedDecision(option.key)}
-                      className={cn(
-                        "rounded-xl border p-5 text-left transition",
-                        selectedDecision === option.key
-                          ? "border-slate-950 bg-slate-50"
-                          : "border-slate-100 hover:border-slate-200"
-                      )}
-                    >
-                      <div className="mb-3 flex items-center justify-between">
-                        <h4 className="text-sm font-semibold text-slate-950">{option.title}</h4>
-                        {option.recommended ? (
-                          <span className="rounded-full bg-slate-950 px-2 py-0.5 text-[10px] text-white">推荐</span>
-                        ) : null}
-                      </div>
-                      <p className="text-sm leading-relaxed text-slate-500">{option.description}</p>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <p className="text-sm text-slate-700">
-                    当前推荐继续使用 <strong>{preflight?.recommended_profile || "personal_conda"}</strong>。
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-slate-500">{recommendedExplanation}</p>
-                </div>
-              )}
-            </div>
-          ) : null}
-
           {currentStep === 3 ? (
             <div className="space-y-6">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">准备 Runtime</h3>
@@ -762,72 +784,38 @@ export function PrepareServerWizard({
                   {bootstrapBlockReason}
                 </div>
               ) : null}
-              {selectedDecision === "self_install_docker" ? (
-                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 text-sm text-slate-600">
-                  未检测到 Docker。请先自行安装 Docker，然后点击“重新检测”继续。
-                </div>
-              ) : selectedDecision === "assistant_install_docker" ? (
-                <>
-                  <div className="rounded-xl border border-amber-100 bg-amber-50 p-5 text-sm text-amber-700">
-                    软件协助安装 Docker 属于实验性能力。需要远端具备 root 或免密 sudo，并且仅支持部分 Linux 发行版。
-                  </div>
-                  <div className="space-y-4">
-                    {bootstrapSteps.map((step) => (
-                      <div key={step.key} className="flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          {step.status === "done" ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                          ) : step.status === "running" ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
-                          ) : step.status === "failed" ? (
-                            <AlertTriangle className="h-4 w-4 text-red-500" />
-                          ) : (
-                            <Circle className="h-4 w-4 text-slate-300" />
-                          )}
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{step.label}</p>
-                            {step.message ? <p className="text-xs text-slate-500">{step.message}</p> : null}
-                          </div>
-                        </div>
-                        <span className="text-xs text-slate-400">{step.status}</span>
+              <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+                <p className="text-sm text-slate-700">
+                  当前推荐使用 <strong>{preflight?.recommended_profile || "personal_conda"}</strong>。
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">{recommendedExplanation}</p>
+              </div>
+              <div className="space-y-4">
+                {bootstrapSteps.map((step) => (
+                  <div key={step.key} className="flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {step.status === "done" ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      ) : step.status === "running" ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                      ) : step.status === "failed" ? (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      ) : (
+                        <Circle className="h-4 w-4 text-slate-300" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{step.label}</p>
+                        {step.message ? <p className="text-xs text-slate-500">{step.message}</p> : null}
                       </div>
-                    ))}
+                    </div>
+                    <span className="text-xs text-slate-400">{step.status}</span>
                   </div>
+                ))}
+              </div>
 
-                  <div className="h-40 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-4 font-mono text-xs text-slate-200">
-                    <pre>{installSnapshot?.log_text || runtimePrepareView.emptyLogText}</pre>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-4">
-                    {bootstrapSteps.map((step) => (
-                      <div key={step.key} className="flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          {step.status === "done" ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                          ) : step.status === "running" ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
-                          ) : step.status === "failed" ? (
-                            <AlertTriangle className="h-4 w-4 text-red-500" />
-                          ) : (
-                            <Circle className="h-4 w-4 text-slate-300" />
-                          )}
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{step.label}</p>
-                            {step.message ? <p className="text-xs text-slate-500">{step.message}</p> : null}
-                          </div>
-                        </div>
-                        <span className="text-xs text-slate-400">{step.status}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="h-40 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-4 font-mono text-xs text-slate-200">
-                    <pre>{installSnapshot?.log_text || runtimePrepareView.emptyLogText}</pre>
-                  </div>
-                </>
-              )}
+              <div className="h-40 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-4 font-mono text-xs text-slate-200">
+                <pre>{installSnapshot?.log_text || runtimePrepareView.emptyLogText}</pre>
+              </div>
             </div>
           ) : null}
 
@@ -841,9 +829,9 @@ export function PrepareServerWizard({
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <RuntimePath label="Runtime Home" value={runtimeSummary?.runtimeHome || "~/.h2ometa/runtime"} />
-                  <RuntimePath label="Nextflow" value={capabilities?.nextflow?.path || runtimeSummary?.nextflowPath || "未解析到可用 Nextflow"} />
+                  <RuntimePath label="Nextflow" value={capabilities?.nextflow?.path || resolvedNextflowPath || runtimeSummary?.nextflowPath || "未解析到可用 Nextflow"} />
                   <RuntimePath label="Micromamba" value={runtimeSummary?.micromambaPath || "~/.h2ometa/runtime/bin/micromamba"} />
-                  <RuntimePath label="Java" value={capabilities?.java?.path || runtimeSummary?.javaPath || "使用系统 Java"} />
+                  <RuntimePath label="Java" value={capabilities?.java?.path || resolvedJavaPath || runtimeSummary?.javaPath || "使用系统 Java"} />
                 </div>
               </div>
             </div>
@@ -855,19 +843,13 @@ export function PrepareServerWizard({
             取消
           </Button>
           <div className="flex gap-3">
-            {currentStep > 1 && currentStep < 4 ? (
+            {currentStep === 3 ? (
               <Button
                 variant="outline"
                 className="rounded-lg border-slate-200 text-slate-700"
-                onClick={() =>
-                  setCurrentStep((step) => {
-                    if (step === 4) return 3;
-                    if (step === 3) return 2;
-                    return 1;
-                  })
-                }
+                onClick={() => onOpenTerminal?.()}
               >
-                上一步
+                打开终端修复
               </Button>
             ) : null}
             {currentStep === 1 ? (
@@ -878,43 +860,20 @@ export function PrepareServerWizard({
             {currentStep === 1 ? (
               <Button
                 className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
-                disabled={!canAdvanceFromDetection}
-                onClick={() => setCurrentStep(2)}
+                disabled={!canAdvanceFromDetection || runtimeReady}
+                onClick={() => void beginBootstrap()}
               >
-                下一步
-              </Button>
-            ) : null}
-            {currentStep === 2 ? (
-              <Button
-                className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
-                disabled={!selectedDecision}
-                onClick={() => setCurrentStep(3)}
-              >
-                下一步
+                一键配置 Runtime
               </Button>
             ) : null}
             {currentStep === 3 ? (
-              selectedDecision === "self_install_docker" ? (
-                <Button className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800" onClick={() => void loadData()}>
-                  我已安装，重新检测
-                </Button>
-              ) : selectedDecision === "assistant_install_docker" ? (
-                <Button
-                  className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
-                  disabled={installRunning || !canRunBootstrap}
-                  onClick={() => void beginBootstrap()}
-                >
-                  {installRunning ? "安装中..." : "开始协助安装 Docker"}
-                </Button>
-              ) : (
-                <Button
-                  className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
-                  disabled={installRunning || !canRunBootstrap}
-                  onClick={() => void beginBootstrap()}
-                >
-                  {installRunning ? "准备中..." : "开始准备 Runtime"}
-                </Button>
-              )
+              <Button
+                className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
+                disabled={installRunning || !canRunBootstrap}
+                onClick={() => void beginBootstrap()}
+              >
+                {installRunning ? "配置中..." : "重新配置 Runtime"}
+              </Button>
             ) : null}
             {currentStep === 4 ? (
               <Button className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800" onClick={() => onOpenChange(false)}>

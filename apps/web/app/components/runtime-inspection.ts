@@ -46,6 +46,19 @@ export type EnvStatusPayload = {
 export type RuntimeInspection = {
   preflight: PreflightPayload;
   envStatus: EnvStatusPayload;
+  resolvedRuntime: {
+    host_key?: string;
+    selected_profile?: string;
+    resolved_at?: string;
+    verification_status?: string;
+    nextflow_path?: string;
+    nextflow_command?: string;
+    nextflow_source?: string;
+    nextflow_message?: string;
+    java_path?: string;
+    java_home?: string;
+    java_message?: string;
+  };
 };
 
 export type RemoteEnvInstallRequestPayload = {
@@ -54,9 +67,10 @@ export type RemoteEnvInstallRequestPayload = {
 };
 
 export async function loadRuntimeInspection(): Promise<RuntimeInspection> {
-  const [preflightData, envData] = await Promise.all([
+  const [preflightData, envData, resolvedData] = await Promise.all([
     requestLocalApiJson("POST", "/api/v1/ssh/preflight"),
     requestLocalApiJson("GET", "/api/v1/ssh/env/status", { cache: "no-store" }),
+    requestLocalApiJson("GET", "/api/v1/runtime/resolved", { cache: "no-store" }),
   ]);
   const preflight = (preflightData?.item || null) as PreflightPayload | null;
   if (!preflight) {
@@ -65,6 +79,7 @@ export async function loadRuntimeInspection(): Promise<RuntimeInspection> {
   return {
     preflight,
     envStatus: ((envData?.item || {}) as EnvStatusPayload) || {},
+    resolvedRuntime: ((resolvedData?.item || {}) as RuntimeInspection["resolvedRuntime"]) || {},
   };
 }
 
@@ -112,10 +127,11 @@ export function formatRuntimeInspectionError(error: unknown): string {
   return formatApiFetchError(error, "无法获取服务器的真实检测结果。");
 }
 
-export function isRuntimeReady(preflight: PreflightPayload | null, envStatus: EnvStatusPayload | null): boolean {
+export function isRuntimeReady(preflight: PreflightPayload | null, envStatus: EnvStatusPayload | null, resolvedRuntime?: RuntimeInspection["resolvedRuntime"] | null): boolean {
   const runtimeCapabilities = preflight?.runtime_capabilities || {};
+  const resolvedNextflow = String(resolvedRuntime?.nextflow_path || "").trim();
   const javaAvailable = runtimeCapabilities?.java?.usable === true;
-  const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true;
+  const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true || Boolean(resolvedNextflow);
   const dockerAvailable = runtimeCapabilities?.docker?.usable === true;
   const podmanAvailable = runtimeCapabilities?.podman?.usable === true;
   const micromambaAvailable = runtimeCapabilities?.micromamba?.usable === true;
@@ -127,7 +143,7 @@ export function deriveRuntimeStatus(inspection: RuntimeInspection | null): Runti
   if (!inspection) {
     return "unknown";
   }
-  return isRuntimeReady(inspection.preflight, inspection.envStatus) ? "ready" : "missing";
+  return isRuntimeReady(inspection.preflight, inspection.envStatus, inspection.resolvedRuntime) ? "ready" : "missing";
 }
 
 export function getRecommendedDecision(preflight: PreflightPayload | null): "use_docker" | "use_podman" | "fallback_conda" {

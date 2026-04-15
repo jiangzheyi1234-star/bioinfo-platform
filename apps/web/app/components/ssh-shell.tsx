@@ -151,7 +151,6 @@ const defaultForm: SSHFormState = {
 };
 
 const TERMINAL_HEIGHT_KEY = "h2ometa:ssh-terminal-height";
-const RUNTIME_MEMORY_KEY = "h2ometa:ssh-runtime-ready";
 const TERMINAL_FONT_SIZE = 13;
 const TERMINAL_LINE_HEIGHT = 1.4;
 const TERMINAL_HEADER_HEIGHT = 44;
@@ -163,8 +162,6 @@ const MIN_TERMINAL_HEIGHT = Math.ceil(
 const DEFAULT_TERMINAL_HEIGHT = 220;
 const TERMINAL_VIEWPORT_MARGIN = 180;
 const MIN_TERMINAL_COLS = 80;
-const MAX_TERMINAL_COLS = 240;
-const MAX_TERMINAL_ROWS = 80;
 const LIGHT_TERMINAL_THEME: TerminalThemeLike = {
   background: "#ffffff",
   foreground: "#334155",
@@ -228,11 +225,11 @@ function clampTerminalHeight(value: number): number {
 }
 
 function clampTerminalCols(value: number): number {
-  return Math.max(MIN_TERMINAL_COLS, Math.min(MAX_TERMINAL_COLS, Math.round(value)));
+  return Math.max(MIN_TERMINAL_COLS, Math.round(value));
 }
 
 function clampTerminalRows(value: number): number {
-  return Math.max(MIN_TERMINAL_ROWS, Math.min(MAX_TERMINAL_ROWS, Math.round(value)));
+  return Math.max(MIN_TERMINAL_ROWS, Math.round(value));
 }
 
 function readStoredTerminalHeight(): number {
@@ -264,63 +261,13 @@ function runtimePreparedKey(status: Pick<SSHStatus, "host" | "port" | "user"> | 
   return `${user}@${host}:${port}`;
 }
 
-function readRememberedRuntimePrepared(status: Pick<SSHStatus, "host" | "port" | "user"> | null): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const key = runtimePreparedKey(status);
-  if (!key) {
-    return false;
-  }
-  try {
-    const raw = window.localStorage.getItem(RUNTIME_MEMORY_KEY);
-    if (!raw) {
-      return false;
-    }
-    const parsed = JSON.parse(raw) as Record<string, boolean>;
-    return parsed[key] === true;
-  } catch {
-    window.localStorage.removeItem(RUNTIME_MEMORY_KEY);
-    return false;
-  }
-}
-
-function writeRememberedRuntimePrepared(status: Pick<SSHStatus, "host" | "port" | "user"> | null, ready: boolean) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const key = runtimePreparedKey(status);
-  if (!key) {
-    return;
-  }
-  let parsed: Record<string, boolean> = {};
-  try {
-    const raw = window.localStorage.getItem(RUNTIME_MEMORY_KEY);
-    if (raw) {
-      parsed = JSON.parse(raw) as Record<string, boolean>;
-    }
-  } catch {
-    parsed = {};
-  }
-  if (ready) {
-    parsed[key] = true;
-  } else {
-    delete parsed[key];
-  }
-  if (Object.keys(parsed).length === 0) {
-    window.localStorage.removeItem(RUNTIME_MEMORY_KEY);
-    return;
-  }
-  window.localStorage.setItem(RUNTIME_MEMORY_KEY, JSON.stringify(parsed));
-}
-
-function rememberRuntimePrepared(status: Pick<SSHStatus, "host" | "port" | "user"> | null) {
-  writeRememberedRuntimePrepared(status, true);
-}
-
-function clearRememberedRuntimePrepared(status: Pick<SSHStatus, "host" | "port" | "user"> | null) {
-  writeRememberedRuntimePrepared(status, false);
-}
+type ResolvedRuntimeState = {
+  hostKey?: string;
+  nextflowPath?: string;
+  javaPath?: string;
+  selectedProfile?: string;
+  verificationStatus?: string;
+};
 
 function getTerminalGridSize(terminal: XTermLike | null | undefined): { cols: number; rows: number } {
   return {
@@ -360,7 +307,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>("unknown");
-  const [hasRememberedRuntimePrepared, setHasRememberedRuntimePrepared] = useState(false);
+  const [resolvedRuntimeState, setResolvedRuntimeState] = useState<ResolvedRuntimeState | null>(null);
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
@@ -464,35 +411,43 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     void fetchStatus();
   }, [fetchStatus]);
 
-  const detectRuntimeReadiness = useCallback(async () => {
+  const detectRuntimeReadiness = useCallback(async (): Promise<RuntimeStatus> => {
     if (!status?.connected) {
       setRuntimeStatus("unknown");
-      return;
+      return "unknown";
     }
     try {
       const inspection = await loadRuntimeInspection();
       const nextStatus = deriveRuntimeStatus(inspection);
       setRuntimeStatus(nextStatus);
-      if (nextStatus === "ready") {
-        rememberRuntimePrepared(status);
-        setHasRememberedRuntimePrepared(true);
-      } else if (nextStatus === "missing") {
-        clearRememberedRuntimePrepared(status);
-        setHasRememberedRuntimePrepared(false);
+      const resolved = inspection.resolvedRuntime || {};
+      setResolvedRuntimeState({
+        hostKey: String(resolved.host_key || "").trim(),
+        nextflowPath: String(resolved.nextflow_path || "").trim(),
+        javaPath: String(resolved.java_path || "").trim(),
+        selectedProfile: String(resolved.selected_profile || "").trim(),
+        verificationStatus: String(resolved.verification_status || "").trim(),
+      });
+      if (nextStatus === "missing") {
+        if (String(resolved.host_key || "").trim() === runtimeIdentityKey && String(resolved.verification_status || "").trim() === "verified") {
+          await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", { body: { verification_status: "failed" } }).catch(() => undefined);
+          setResolvedRuntimeState((current) => (current ? { ...current, verificationStatus: "failed" } : current));
+        }
       }
+      return nextStatus;
     } catch {
       setRuntimeStatus("unknown");
+      return "unknown";
     }
   }, [status]);
 
   useEffect(() => {
     if (!status?.connected) {
       setRuntimeStatus("unknown");
-      setHasRememberedRuntimePrepared(false);
+      setResolvedRuntimeState(null);
       lastSilentRuntimeCheckKeyRef.current = "";
       return;
     }
-    setHasRememberedRuntimePrepared(readRememberedRuntimePrepared(status));
     if (!runtimeIdentityKey || lastSilentRuntimeCheckKeyRef.current === runtimeIdentityKey) {
       return;
     }
@@ -1088,7 +1043,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                       "flex min-w-0 flex-1 items-center gap-2 rounded-lg px-0 py-0 text-left text-sm transition-colors",
                       status?.connected ? "text-slate-900" : "text-slate-700"
                     )}
-                    onClick={() => {
+                    onClick={() => void (async () => {
                       if (!status?.connected) {
                         router.push("/connect");
                         setFormError("");
@@ -1096,20 +1051,25 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                         setDialogOpen(true);
                         return;
                       }
-                      if (runtimeStatus === "missing") {
+                      const checkedStatus = await detectRuntimeReadiness();
+                      if (checkedStatus === "missing") {
                         setPrepareDialogOpen(true);
                         return;
                       }
-                      if (runtimeStatus === "unknown" && hasRememberedRuntimePrepared) {
+                      if (
+                        checkedStatus === "unknown" &&
+                        resolvedRuntimeState?.hostKey === runtimeIdentityKey &&
+                        resolvedRuntimeState?.verificationStatus === "verified"
+                      ) {
                         router.push("/connect");
                         return;
                       }
-                      if (runtimeStatus !== "ready") {
+                      if (checkedStatus !== "ready") {
                         setPrepareDialogOpen(true);
                         return;
                       }
                       router.push("/connect");
-                    }}
+                    })()}
                   >
                     <Link2 className={cn("h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-500")} />
                     <span>连接</span>
@@ -1353,13 +1313,20 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
             : null
         }
         runtimeReady={runtimeStatus === "ready"}
+        resolvedRuntime={resolvedRuntimeState}
         onOpenChange={setPrepareDialogOpen}
-        onPrepared={() => {
+        onPrepared={(resolved) => {
           setRuntimeStatus("ready");
-          rememberRuntimePrepared(status);
-          setHasRememberedRuntimePrepared(true);
+          setResolvedRuntimeState({
+            hostKey: runtimeIdentityKey,
+            nextflowPath: resolved?.nextflowPath || "",
+            javaPath: resolved?.javaPath || "",
+            selectedProfile: resolved?.selectedProfile || "",
+            verificationStatus: "verified",
+          });
           void fetchStatus({ silent: true });
         }}
+        onOpenTerminal={() => void startTerminalSession()}
       />
     </SshShellContext.Provider>
   );
