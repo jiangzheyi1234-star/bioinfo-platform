@@ -64,9 +64,7 @@ class RuntimeService:
     ) -> None:
         self._lock = threading.RLock()
         self._project_manager = project_manager or ProjectManager()
-        self._service_locator = service_locator or ServiceLocator(
-            project_manager=self._project_manager
-        )
+        self._service_locator = service_locator or ServiceLocator()
         self._initialized = False
         self._signals_connected = False
         self._events: deque[dict[str, Any]] = deque(maxlen=2000)
@@ -1169,7 +1167,6 @@ class RuntimeService:
             return
         self._service_locator.ssh_changed.connect(self._on_ssh_changed)
         self._signals_connected = True
-
 
     def _remote_runtime_ok(self, command: str) -> bool:
         try:
