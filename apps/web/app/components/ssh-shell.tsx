@@ -571,13 +571,16 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
               return;
           }
         },
-        onClose: () => {
+        onClose: (event) => {
           if (terminalStreamRef.current?.socket !== controller.socket) {
             return;
           }
           terminalStreamRef.current = null;
           setTerminalInputEnabled(false);
           void fetchStatus({ silent: true });
+          if (event.code === 1000) {
+            return;
+          }
           if (
             terminalClosingRef.current ||
             terminalSessionClosedRef.current ||
