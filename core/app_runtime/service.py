@@ -231,8 +231,12 @@ class RuntimeService:
             self._ensure_ssh_connected()
             preflight = self.get_ssh_preflight()
             env_status = self.get_remote_env_status()
-            caps = probe_preflight(self._run_ssh_command)
-            runtime_capabilities = self._runtime_capabilities_dict(caps)
+            caps = probe_preflight(self._run_ssh_command_interactive)
+            runtime_capabilities = self._runtime_capabilities_dict(
+                caps,
+                ssh_run_fn=self._run_ssh_command_interactive,
+                runtime_ok_fn=self._remote_runtime_ok_interactive,
+            )
             recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
             return {
                 "server_id": "current",
@@ -899,9 +903,13 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_ssh_connected()
-            caps = probe_preflight(self._run_ssh_command)
+            caps = probe_preflight(self._run_ssh_command_interactive)
             self._service_locator.server_capabilities = caps
-            runtime_capabilities = self._runtime_capabilities_dict(caps)
+            runtime_capabilities = self._runtime_capabilities_dict(
+                caps,
+                ssh_run_fn=self._run_ssh_command_interactive,
+                runtime_ok_fn=self._remote_runtime_ok_interactive,
+            )
             recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
             failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
             runtime_failures = self._runtime_failures_from_resolved_capabilities(caps, runtime_capabilities)
@@ -2053,6 +2061,21 @@ class RuntimeService:
             raise RuntimeServiceError("SSH run result is invalid")
         return int(code), str(getattr(result, "stdout", "")), str(getattr(result, "stderr", ""))
 
+    def _run_ssh_command_interactive(self, cmd: str, timeout: int) -> tuple[int, str, str]:
+        ssh = self._service_locator.ssh_service
+        if ssh is None:
+            raise RuntimeServiceError("SSH service is not available")
+        if not hasattr(ssh, "run_interactive"):
+            raise RuntimeServiceError("SSH service does not support interactive invoke_shell execution")
+        result = ssh.run_interactive(cmd, timeout=timeout)
+        if isinstance(result, tuple):
+            code, stdout, stderr = result
+            return int(code), str(stdout), str(stderr)
+        code = getattr(result, "exit_code", None)
+        if code is None:
+            raise RuntimeServiceError("SSH interactive run result is invalid")
+        return int(code), str(getattr(result, "stdout", "")), str(getattr(result, "stderr", ""))
+
     def _connect_runtime_signals(self) -> None:
         if self._signals_connected:
             return
@@ -2264,9 +2287,17 @@ class RuntimeService:
                 failures.append(message)
         return failures
 
-    def _runtime_capabilities_dict(self, caps: Any) -> dict[str, Any]:
-        java_info = resolve_remote_java(self._run_ssh_command)
-        nextflow_info = resolve_remote_nextflow(self._run_ssh_command)
+    def _runtime_capabilities_dict(
+        self,
+        caps: Any,
+        *,
+        ssh_run_fn: Any | None = None,
+        runtime_ok_fn: Any | None = None,
+    ) -> dict[str, Any]:
+        runner = ssh_run_fn or self._run_ssh_command
+        runtime_ok = runtime_ok_fn or self._remote_runtime_ok
+        java_info = resolve_remote_java(runner)
+        nextflow_info = resolve_remote_nextflow(runner)
         return {
             "java": {
                 "available": java_info["available"],
@@ -2280,23 +2311,23 @@ class RuntimeService:
             "nextflow": nextflow_info,
             "docker": {
                 "available": caps.has_docker,
-                "usable": caps.has_docker and self._remote_runtime_ok("docker ps >/dev/null 2>&1"),
+                "usable": caps.has_docker and runtime_ok("docker ps >/dev/null 2>&1"),
             },
             "podman": {
                 "available": caps.has_podman,
-                "usable": caps.has_podman and self._remote_runtime_ok("podman ps >/dev/null 2>&1"),
+                "usable": caps.has_podman and runtime_ok("podman ps >/dev/null 2>&1"),
             },
             "apptainer": {
                 "available": caps.has_apptainer,
-                "usable": caps.has_apptainer and self._remote_runtime_ok("apptainer --version >/dev/null 2>&1"),
+                "usable": caps.has_apptainer and runtime_ok("apptainer --version >/dev/null 2>&1"),
             },
             "micromamba": {
                 "available": caps.has_micromamba,
-                "usable": caps.has_micromamba and self._remote_runtime_ok("micromamba --version >/dev/null 2>&1"),
+                "usable": caps.has_micromamba and runtime_ok("micromamba --version >/dev/null 2>&1"),
             },
             "conda": {
                 "available": caps.has_conda,
-                "usable": caps.has_conda and self._remote_runtime_ok("conda --version >/dev/null 2>&1"),
+                "usable": caps.has_conda and runtime_ok("conda --version >/dev/null 2>&1"),
             },
             "sbatch": {"available": caps.has_sbatch},
         }
@@ -2311,6 +2342,13 @@ class RuntimeService:
     def _remote_runtime_ok(self, command: str) -> bool:
         try:
             rc, _stdout, _stderr = self._run_ssh_command(command, 15)
+            return rc == 0
+        except Exception:
+            return False
+
+    def _remote_runtime_ok_interactive(self, command: str) -> bool:
+        try:
+            rc, _stdout, _stderr = self._run_ssh_command_interactive(command, 15)
             return rc == 0
         except Exception:
             return False

@@ -16,6 +16,9 @@ class _DummySSH:
     def run(self, cmd: str, timeout: int = 0):  # pragma: no cover - backend fakes do not use this
         return (0, "", "")
 
+    def run_interactive(self, cmd: str, timeout: int = 0):  # pragma: no cover - backend fakes do not use this
+        return (0, "", "")
+
 
 class _FakeTerminalSession:
     def __init__(self, session_id: str = "term_test") -> None:
@@ -228,6 +231,7 @@ def test_terminal_session_lifecycle_and_disconnect_preserves_history(tmp_path: P
     assert update["output"] == "pwd\\n"
     assert update["input_enabled"] is True
 
+    runtime.get_ssh_status = lambda: {"connected": False}  # type: ignore[method-assign]
     disconnected = runtime.disconnect_ssh()
     assert disconnected["connected"] is False
 
@@ -598,6 +602,7 @@ def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(r
         return True
 
     monkeypatch.setattr(runtime, "_remote_runtime_ok", fake_runtime_ok)
+    monkeypatch.setattr(runtime, "_remote_runtime_ok_interactive", fake_runtime_ok)
 
     item = runtime.get_ssh_preflight()
 
@@ -665,6 +670,7 @@ def test_doctor_server_preserves_fixed_runtime_template_model(runtime: RuntimeSe
         },
     )
     monkeypatch.setattr(runtime, "_remote_runtime_ok", lambda command: "docker ps" not in command)
+    monkeypatch.setattr(runtime, "_remote_runtime_ok_interactive", lambda command: "docker ps" not in command)
     monkeypatch.setattr(runtime, "get_remote_env_status", lambda: {"conda_runtime": {"installed": False}})
 
     item = runtime.doctor_server(server_id="current")
@@ -738,6 +744,7 @@ def test_get_ssh_preflight_blocks_when_java_is_missing_even_if_docker_and_nextfl
         },
     )
     monkeypatch.setattr(runtime, "_remote_runtime_ok", lambda command: "docker ps" in command)
+    monkeypatch.setattr(runtime, "_remote_runtime_ok_interactive", lambda command: "docker ps" in command)
 
     item = runtime.get_ssh_preflight()
 
@@ -802,11 +809,101 @@ def test_get_ssh_preflight_blocks_when_probe_and_resolved_java_disagree(
         },
     )
     monkeypatch.setattr(runtime, "_remote_runtime_ok", lambda command: "docker ps" in command)
+    monkeypatch.setattr(runtime, "_remote_runtime_ok_interactive", lambda command: "docker ps" in command)
 
     item = runtime.get_ssh_preflight()
 
     assert item["ok"] is False
     assert "未检测到 Java，无法运行 Nextflow" in item["failures"]
+
+
+def test_get_ssh_preflight_uses_interactive_runner_for_detection(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    interactive_calls: list[str] = []
+    exec_calls: list[str] = []
+
+    def fail_exec(command: str, timeout: int) -> tuple[int, str, str]:
+        exec_calls.append(command)
+        raise AssertionError(f"exec runner should not be used: {command}")
+
+    def interactive_runner(command: str, timeout: int) -> tuple[int, str, str]:
+        interactive_calls.append(command)
+        if command == "__probe__":
+            return 0, "probe-ok", ""
+        if command == "__java__":
+            return 0, "java-ok", ""
+        if command == "__nextflow__":
+            return 0, "nextflow-ok", ""
+        if command == "docker ps >/dev/null 2>&1":
+            return 0, "", ""
+        return 1, "", "unknown"
+
+    monkeypatch.setattr(runtime, "_run_ssh_command", fail_exec)
+    monkeypatch.setattr(runtime, "_run_ssh_command_interactive", interactive_runner)
+    monkeypatch.setattr(
+        "core.app_runtime.service.probe_preflight",
+        lambda runner: (
+            runner("__probe__", 25),
+            SimpleNamespace(
+                arch="x86_64",
+                has_bash=True,
+                has_curl=True,
+                has_wget=False,
+                has_screen=True,
+                has_sha256sum=True,
+                has_java=True,
+                java_version='openjdk version "21.0.2" 2024-01-16',
+                has_nextflow=True,
+                nextflow_version="26.04.1",
+                has_docker=True,
+                has_podman=False,
+                has_apptainer=False,
+                has_micromamba=False,
+                has_conda=False,
+                has_sbatch=False,
+                free_disk_gb=42.0,
+                home_writable=True,
+                bootstrap_failures=lambda min_free_disk_gb=5.0: [],
+                runtime_failures=lambda: [],
+                warnings=lambda: [],
+            ),
+        )[1],
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_java",
+        lambda runner: (
+            runner("__java__", 15),
+            {
+                "available": True,
+                "usable": True,
+                "supported": True,
+                "version": 'openjdk version "21.0.2" 2024-01-16',
+                "path": "/usr/lib/jvm/java-21-openjdk/bin/java",
+                "home": "/usr/lib/jvm/java-21-openjdk",
+                "message": "已检测到 Java，可用于运行 Nextflow",
+            },
+        )[1],
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_nextflow",
+        lambda runner: (
+            runner("__nextflow__", 15),
+            {
+                "available": True,
+                "usable": True,
+                "version": "26.04.1",
+                "path": "/usr/local/bin/nextflow",
+                "command": "/usr/local/bin/nextflow",
+                "source": "path",
+                "message": "已检测到 Nextflow，可直接使用",
+            },
+        )[1],
+    )
+
+    item = runtime.get_ssh_preflight()
+
+    assert item["ok"] is True
+    assert interactive_calls == ["__probe__", "__java__", "__nextflow__", "docker ps >/dev/null 2>&1"]
+    assert exec_calls == []
 
 
 def test_install_remote_env_rejects_docker_runtime_in_favor_of_interactive_terminal(runtime: RuntimeService) -> None:
