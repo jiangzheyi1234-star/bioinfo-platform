@@ -243,12 +243,14 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
             .map_err(|err| format!("clone backend log handle failed: {}", err))?;
 
         let mut cmd = Command::new(&cmd_spec.program);
+        let uv_cache_dir = workdir.join(".uv-cache");
         cmd.args(cmd_spec.args.iter())
             .arg("-m")
             .arg("apps.api.run")
             .current_dir(&workdir)
             .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
             .env("H2OMETA_BACKEND_SOURCE", "repo")
+            .env("UV_CACHE_DIR", uv_cache_dir)
             .env("WSL_UTF8", "1")
             .env("PYTHONUTF8", "1")
             .stdout(Stdio::from(log_file))
