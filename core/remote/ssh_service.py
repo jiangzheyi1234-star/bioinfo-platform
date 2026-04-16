@@ -5,12 +5,9 @@
 """
 
 import logging
-import queue
-import re
 import threading
 import time
 import uuid
-from dataclasses import dataclass
 from threading import Condition, Event, RLock, Thread
 from typing import Any, Callable, Optional, Tuple
 
@@ -19,11 +16,6 @@ import paramiko
 from core.remote.ssh_reconnector import SSHReconnector
 
 logger = logging.getLogger(__name__)
-
-_PRIO_USER_INTERACTIVE = 1
-_PRIO_TASK_SUBMIT = 3
-_PRIO_BACKGROUND_POLL = 9
-_STOP = "__SSH_QUEUE_STOP__"
 
 
 def _single_line_preview(text: str, limit: int = 220) -> str:
@@ -201,21 +193,6 @@ class TerminalSession:
         finally:
             self._stop.set()
 
-
-@dataclass
-class _CommandRequest:
-    request_id: str
-    cmd: str
-    timeout: int
-    priority: int
-    tag: str
-    done: Event
-    rc: int = -1
-    out: str = ""
-    err: str = ""
-    exc: Exception | None = None
-
-
 class SSHService:
     """SSH 服务封装
 
@@ -239,15 +216,6 @@ class SSHService:
         self._active_client: Optional[paramiko.SSHClient] = initial_client
         self._connect_fn = connect_fn
         self._io_lock = RLock()
-        self._queue: "queue.PriorityQueue[tuple[int, int, _CommandRequest | str]]" = (
-            queue.PriorityQueue()
-        )
-        self._seq = 0
-        self._queue_alive = True
-        self._worker = Thread(
-            target=self._queue_loop, daemon=True, name="SSHServiceQueueWorker"
-        )
-        self._worker.start()
         self._terminal_sessions: dict[str, TerminalSession] = {}
 
         self._reconnector: Optional[SSHReconnector] = None
@@ -323,53 +291,8 @@ class SSHService:
         self.close_terminal_sessions(message="SSH 已断开，终端会话已结束")
 
     def run(self, cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
-        """执行远程命令
-
-        Args:
-            cmd: 要执行的命令
-            timeout: 超时时间（秒）
-
-        Returns:
-            (exit_code, stdout, stderr) 元组
-        """
-        request_id = f"ssh_{int(time.time() * 1000)}_{self._next_seq()}"
-        priority = self._classify_priority(cmd, async_mode=False)
-        request = _CommandRequest(
-            request_id=request_id,
-            cmd=cmd,
-            timeout=timeout,
-            priority=priority,
-            tag=self._build_tag(cmd),
-            done=Event(),
-        )
-        enqueue_ts = time.time()
-        self._queue.put((priority, self._next_seq(), request))
-        request.done.wait()
-        if request.exc is not None:
-            raise request.exc
-        duration_ms = int((time.time() - enqueue_ts) * 1000)
-        logger.debug(
-            "ssh_cmd_end request_id=%s tag=%s timeout=%s priority=%s duration_ms=%s rc=%s",
-            request.request_id,
-            request.tag,
-            timeout,
-            priority,
-            duration_ms,
-            request.rc,
-        )
-        return request.rc, request.out, request.err
-
-    def run_async(self, cmd: str) -> None:
-        """执行远程命令但不等待结果（用于启动后台任务）"""
-        request = _CommandRequest(
-            request_id=f"ssh_async_{int(time.time() * 1000)}_{self._next_seq()}",
-            cmd=cmd,
-            timeout=5,
-            priority=self._classify_priority(cmd, async_mode=True),
-            tag=self._build_tag(cmd),
-            done=Event(),
-        )
-        self._queue.put((request.priority, self._next_seq(), request))
+        """执行远程命令并同步返回结果。"""
+        return self._execute_command(cmd, timeout)
 
     def sftp(self) -> paramiko.SFTPClient:
         """获取 SFTP 客户端"""
@@ -425,13 +348,8 @@ class SSHService:
             return channel
 
     def close(self) -> None:
-        """Stop queue worker gracefully."""
-        if not self._queue_alive:
-            return
+        """Close SSH client and all tracked terminal sessions."""
         self.close_terminal_sessions(message="终端会话已结束")
-        self._queue_alive = False
-        self._queue.put((_PRIO_USER_INTERACTIVE, self._next_seq(), _STOP))
-        self._worker.join(timeout=2.0)
         client = self._active_client
         self._active_client = None
         if client is not None:
@@ -462,156 +380,6 @@ class SSHService:
         self._terminal_sessions[session.session_id] = session
         return session
 
-    def run_interactive(
-        self,
-        cmd: str,
-        *,
-        timeout: int = 15,
-        cols: int = 120,
-        rows: int = 28,
-        term: str = "xterm-256color",
-    ) -> Tuple[int, str, str]:
-        """Execute a command through an interactive invoke_shell channel.
-
-        This is used for one-click runtime detection so the probe path matches
-        the same interactive shell semantics as terminal-mediated remediation.
-        """
-
-        marker = uuid.uuid4().hex
-        begin_marker = f"__OMX_BEGIN_{marker}__"
-        rc_marker = f"__OMX_RC_{marker}__"
-        end_marker = f"__OMX_END_{marker}__"
-        payload = (
-            "stty -echo >/dev/null 2>&1 || true\n"
-            f"echo '{begin_marker}'\n"
-            f"{cmd}\n"
-            "__omx_status=$?\n"
-            f"echo '{rc_marker}'\"$__omx_status\"\n"
-            f"echo '{end_marker}' \"$__omx_status\"\n"
-            "stty echo >/dev/null 2>&1 || true\n"
-        )
-
-        with self._io_lock:
-            client = self._ensure_connection()
-            transport = client.get_transport()
-            if transport is None or not transport.is_active():
-                raise RuntimeError("SSH 未连接")
-            channel = transport.open_session(timeout=10)
-            channel.get_pty(
-                term=term, width=max(40, int(cols)), height=max(12, int(rows))
-            )
-            channel.invoke_shell()
-            channel.settimeout(0.0)
-
-            output_chunks: list[str] = []
-            deadline = time.monotonic() + max(float(timeout), 0.1)
-            init_deadline = time.monotonic() + 2.0
-            try:
-                while time.monotonic() < init_deadline:
-                    if getattr(channel, "recv_ready", lambda: False)():
-                        chunk = channel.recv(32768)
-                        if chunk:
-                            output_chunks.append(chunk.decode("utf-8", errors="ignore"))
-                        else:
-                            break
-                    else:
-                        if output_chunks:
-                            break
-                        time.sleep(0.05)
-                init_output = "".join(output_chunks)
-                if init_output:
-                    logger.debug("SSH interactive shell init: %r", init_output[:200])
-                channel.send(payload)
-                while True:
-                    made_progress = False
-                    while getattr(channel, "recv_ready", lambda: False)():
-                        chunk = channel.recv(32768)
-                        if not chunk:
-                            break
-                        output_chunks.append(chunk.decode("utf-8", errors="ignore"))
-                        made_progress = True
-                    while getattr(channel, "recv_stderr_ready", lambda: False)():
-                        chunk = channel.recv_stderr(32768)
-                        if not chunk:
-                            break
-                        output_chunks.append(chunk.decode("utf-8", errors="ignore"))
-                        made_progress = True
-                    text = "".join(output_chunks)
-                    if end_marker in text:
-                        return self._parse_interactive_command_output(
-                            text=text,
-                            begin_marker=begin_marker,
-                            rc_marker=rc_marker,
-                            end_marker=end_marker,
-                        )
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(
-                            f"SSH interactive command timed out after {timeout}s: {self._build_tag(cmd)}"
-                        )
-                    if not made_progress:
-                        time.sleep(0.05)
-            finally:
-                try:
-                    channel.close()
-                except Exception:
-                    logger.debug(
-                        "Failed to close interactive SSH channel", exc_info=True
-                    )
-
-    def _parse_interactive_command_output(
-        self,
-        *,
-        text: str,
-        begin_marker: str,
-        rc_marker: str,
-        end_marker: str,
-    ) -> Tuple[int, str, str]:
-        begin_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(begin_marker)}[ \t]*\r?$")
-        rc_pattern = re.compile(
-            rf"(?m)^[ \t]*{re.escape(rc_marker)}[ \t]*(\d+)[ \t]*\r?$"
-        )
-        end_pattern = re.compile(
-            rf"(?m)^[ \t]*{re.escape(end_marker)}(?:[ \t]+(\d+))?[ \t]*\r?$"
-        )
-
-        end_match = None
-        for match in end_pattern.finditer(text):
-            end_match = match
-        if end_match is None:
-            raise RuntimeError("交互式 SSH 检测输出缺少完成标记")
-
-        begin_match = None
-        for match in begin_pattern.finditer(text, 0, end_match.start()):
-            begin_match = match
-        if begin_match is None or end_match.start() < begin_match.end():
-            raise RuntimeError("交互式 SSH 检测输出缺少完成标记")
-
-        end_line = end_match.group(0)
-        content = text[begin_match.end() : end_match.start()].lstrip("\r\n")
-        rc_match = None
-        for match in rc_pattern.finditer(content):
-            rc_match = match
-        end_rc = end_match.group(1)
-        if rc_match is not None:
-            rc = int(rc_match.group(1))
-            stdout = content[: rc_match.start()].rstrip("\r\n")
-        elif end_rc:
-            rc = int(end_rc)
-            stdout = content.rstrip("\r\n")
-        else:
-            logger.warning(
-                "SSH interactive parse failed: rc_marker=%s, end_line=%r, content_tail=%r",
-                rc_marker,
-                end_line[:200],
-                content[-500:] if len(content) > 500 else content,
-            )
-            raise RuntimeError(
-                "交互式 SSH 检测输出缺少退出码标记"
-                f"；结束行: {_single_line_preview(end_line, 120)}"
-                f"；输出片段: {_single_line_preview(content or text)}"
-            )
-        return rc, stdout, ""
-
     def close_terminal_sessions(self, *, message: str, connected: bool = False) -> None:
         sessions = list(self._terminal_sessions.values())
         self._terminal_sessions.clear()
@@ -625,47 +393,7 @@ class SSHService:
                     exc_info=True,
                 )
 
-    def _next_seq(self) -> int:
-        with self._io_lock:
-            self._seq += 1
-            return self._seq
-
-    def _queue_loop(self) -> None:
-        while self._queue_alive:
-            _prio, _seq, payload = self._queue.get()
-            try:
-                if payload == _STOP:
-                    return
-                request = payload
-                assert isinstance(request, _CommandRequest)
-                try:
-                    logger.debug(
-                        "ssh_cmd_begin request_id=%s tag=%s timeout=%s priority=%s",
-                        request.request_id,
-                        request.tag,
-                        request.timeout,
-                        request.priority,
-                    )
-                    rc, out, err = self._execute_command(request.cmd, request.timeout)
-                    request.rc = rc
-                    request.out = out
-                    request.err = err
-                except Exception as exc:
-                    request.exc = exc
-                    logger.exception(
-                        "ssh_cmd_error request_id=%s tag=%s timeout=%s priority=%s",
-                        request.request_id,
-                        request.tag,
-                        request.timeout,
-                        request.priority,
-                    )
-                finally:
-                    request.done.set()
-            finally:
-                self._queue.task_done()
-
     def _execute_command(self, cmd: str, timeout: int) -> Tuple[int, str, str]:
-        # Serialize all command channel operations and keep sftp operations coherent.
         with self._io_lock:
             client = self._ensure_connection()
             stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
@@ -706,41 +434,3 @@ class SSHService:
             out = b"".join(stdout_chunks).decode("utf-8", errors="ignore")
             err = b"".join(stderr_chunks).decode("utf-8", errors="ignore")
             return rc, out, err
-
-    def _build_tag(self, cmd: str) -> str:
-        text = (cmd or "").strip().replace("\n", " ")
-        return text[:64] if text else "empty"
-
-    def _classify_priority(self, cmd: str, async_mode: bool) -> int:
-        lowered = str(cmd or "").lower()
-        # 用户点击触发命令：目录浏览、权限校验、手动路径操作
-        if any(
-            k in lowered
-            for k in (
-                "find ",
-                "ls ",
-                "test -d",
-                "test -w",
-                "test -x",
-                "touch ",
-                "mkdir -p",
-            )
-        ):
-            return _PRIO_USER_INTERACTIVE
-        # 后台轮询命令：状态文件、心跳、screen 列表、tail 日志
-        if any(
-            k in lowered
-            for k in (
-                "status.txt",
-                "heartbeat.txt",
-                "exit_code.txt",
-                "screen -ls",
-                "tail -",
-                "date +%s",
-            )
-        ):
-            return _PRIO_BACKGROUND_POLL
-        # 任务提交/默认命令
-        if async_mode:
-            return _PRIO_TASK_SUBMIT
-        return _PRIO_TASK_SUBMIT
