@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from pathlib import Path
@@ -12,7 +11,6 @@ from config import get_config, resolve_ssh_password, save_config
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
-from core.service_locator import ServiceLocator
 from core.utils import get_app_root
 
 logger = logging.getLogger(__name__)
@@ -20,6 +18,29 @@ logger = logging.getLogger(__name__)
 
 class RuntimeServiceError(RuntimeError):
     pass
+
+
+class ServiceLocator:
+    def __init__(self, ssh_service: Optional[SSHService] = None):
+        self._ssh = ssh_service
+
+    def initialize(self):
+        return 0
+
+    @property
+    def ssh_service(self):
+        return self._ssh
+
+    @ssh_service.setter
+    def ssh_service(self, ssh):
+        if self._ssh and self._ssh is not ssh:
+            self._ssh.close()
+        self._ssh = ssh
+
+    def shutdown(self):
+        if self._ssh:
+            self._ssh.close()
+            self._ssh = None
 
 
 class RuntimeService:
