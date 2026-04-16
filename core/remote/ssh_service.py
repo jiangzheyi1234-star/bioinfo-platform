@@ -29,13 +29,17 @@ class TerminalSession:
 
     def snapshot(self, cursor: int = 0) -> dict:
         with self._lock:
+            connected = not self._closed
             return {
                 "session_id": self.session_id,
                 "cursor": len(self._output),
                 "output": self._output[max(0, cursor) :],
+                "connected": connected,
+                "input_enabled": connected,
                 "closed": self._closed,
                 "message": self._message,
                 "created_at": self._created_at,
+                "closed_at": time.time() if self._closed else None,
             }
 
     def send(self, data: str) -> None:
@@ -51,10 +55,10 @@ class TerminalSession:
             self._channel.resize_pty(cols, rows)
 
     def wait_for_update(
-        self, cursor: int = 0, timeout: float = 1.0
+        self, cursor: int = 0, version: int = -1, timeout: float = 1.0
     ) -> Tuple[dict, int]:
         time.sleep(min(timeout, 0.5))
-        return self.snapshot(cursor), 0
+        return self.snapshot(cursor), version
 
     def close(self, message: str = "终端会话已结束") -> None:
         with self._lock:
@@ -165,6 +169,27 @@ class SSHService:
             sftp = self._client.open_sftp()
             sftp.get(remote, local)
             sftp.close()
+
+    def ensure_remote_authorized_key(self, public_key: str) -> None:
+        key_text = str(public_key or "").strip()
+        if not key_text:
+            raise RuntimeError("public key is required")
+        with self._lock:
+            if not self._client:
+                raise RuntimeError("SSH not connected")
+            commands = [
+                "mkdir -p ~/.ssh",
+                "chmod 700 ~/.ssh",
+                "touch ~/.ssh/authorized_keys",
+                "chmod 600 ~/.ssh/authorized_keys",
+                "grep -qxF {key} ~/.ssh/authorized_keys || echo {key} >> ~/.ssh/authorized_keys",
+            ]
+            quoted_key = "'" + key_text.replace("'", "'\''") + "'"
+            script = " && ".join(cmd.format(key=quoted_key) for cmd in commands)
+            stdin, stdout, stderr = self._client.exec_command(script, timeout=10)
+            exit_code = stdout.channel.recv_exit_status()
+            if exit_code != 0:
+                raise RuntimeError(stderr.read().decode("utf-8", errors="ignore") or "failed to install authorized key")
 
     def open_terminal_session(self, cols=120, rows=28) -> TerminalSession:
         with self._lock:

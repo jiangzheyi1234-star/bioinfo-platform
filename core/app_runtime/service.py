@@ -141,11 +141,12 @@ class RuntimeService:
     def get_settings(self) -> dict:
         with self._lock:
             self._ensure_initialized()
-            cfg = dict(get_config())
-            ssh = cfg.get("ssh", {})
-            if isinstance(ssh, dict):
+            current = get_config()
+            cfg = {**current}
+            ssh_current = current.get("ssh", {})
+            if isinstance(ssh_current, dict):
+                ssh = {**ssh_current}
                 ssh["password"] = ""
-                ssh.pop("password_ref", None)
                 cfg["ssh"] = ssh
             return cfg
 
@@ -171,6 +172,11 @@ class RuntimeService:
                 "use_key": cfg.get("use_key", False),
                 "key_file": cfg.get("key_file", ""),
                 "has_password": bool(cfg.get("password")),
+                "timeout_sec": cfg.get("timeout_sec", 5),
+                "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
+                "auto_connect_attempted": self._auto_connect_attempted,
+                "auto_connect_failed": self._auto_connect_failed,
+                "auto_connect_error": self._auto_connect_error,
                 "message": "SSH connected" if connected else "SSH disconnected",
             }
 
@@ -238,6 +244,19 @@ class RuntimeService:
             self._service_locator.ssh_service = SSHService(
                 initial_client=result.client, connect_fn=_reconnect
             )
+            current = get_config()
+            persisted = {
+                **merged,
+                "host": host,
+                "port": port,
+                "user": user,
+                "password": "",
+                "use_key": use_key,
+                "key_file": key_file,
+                "timeout_sec": timeout,
+                "auto_connect_on_startup": bool(use_key and key_file),
+            }
+            save_config(self._merge_patch(current, {"ssh": persisted}))
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""
@@ -248,6 +267,13 @@ class RuntimeService:
             self._ensure_initialized()
             self._close_all_terminal_sessions()
             self._service_locator.ssh_service = None
+            current = get_config()
+            ssh_cfg = dict(current.get("ssh", {})) if isinstance(current.get("ssh", {}), dict) else {}
+            ssh_cfg["auto_connect_on_startup"] = False
+            save_config(self._merge_patch(current, {"ssh": ssh_cfg}))
+            self._auto_connect_failed = False
+            self._auto_connect_error = ""
+            self._auto_connect_notice_key = ""
             return self.get_ssh_status()
 
     def test_ssh_connection(self, patch: Optional[dict] = None) -> dict:
@@ -316,7 +342,7 @@ class RuntimeService:
             session = self._terminal_sessions.pop(session_id, None)
             if not session:
                 raise RuntimeServiceError(f"unknown session: {session_id}")
-            session.close(message="终端会话已结束", connected=False)
+            session.close(message="终端会话已结束")
             return {"session_id": session_id, "closed": True}
 
     def _ensure_initialized(self) -> None:
@@ -338,12 +364,15 @@ class RuntimeService:
         merged = dict(cfg) if isinstance(cfg, dict) else {}
         host = str(merged.get("host", "")).strip()
         user = str(merged.get("user", "")).strip()
-        if not host or not user:
+        use_key = bool(merged.get("use_key", False))
+        key_file = str(merged.get("key_file", "")).strip()
+        if not host or not user or not use_key or not key_file:
+            return
+        if not bool(merged.get("auto_connect_on_startup", False)):
             return
 
         port = int(merged.get("port", 22))
-        password = resolve_ssh_password(merged)
-        key_file = str(merged.get("key_file", "")).strip()
+        password = ""
         timeout = int(merged.get("timeout_sec", 5))
 
         try:
@@ -387,7 +416,7 @@ class RuntimeService:
     def _close_all_terminal_sessions(self) -> None:
         for session in list(self._terminal_sessions.values()):
             try:
-                session.close(message="终端会话已结束", connected=False)
+                session.close(message="终端会话已结束")
             except Exception:
                 pass
         self._terminal_sessions.clear()

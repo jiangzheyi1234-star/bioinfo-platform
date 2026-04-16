@@ -2,13 +2,36 @@
 
 import json
 import os
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
 
-_CONFIG_PATH = Path(os.getenv("APPDATA", "") or Path.home()) / "H2OMeta" / "config.json"
-if os.name != "nt":
-    _CONFIG_PATH = Path.home() / ".h2ometa" / "config.json"
+def get_app_data_dir() -> Path:
+    if os.name == "nt":
+        appdata = str(os.getenv("APPDATA", "") or "").strip()
+        if appdata:
+            return Path(appdata) / "H2OMeta"
+        return Path.home() / "AppData" / "Roaming" / "H2OMeta"
+    return Path.home() / ".h2ometa"
+
+
+def get_ssh_key_dir() -> Path:
+    return get_app_data_dir() / "ssh"
+
+
+def resolve_ssh_keygen_executable() -> str:
+    candidate = shutil.which("ssh-keygen")
+    if candidate:
+        return candidate
+    if os.name == "nt":
+        fallback = Path("C:/Windows/System32/OpenSSH/ssh-keygen.exe")
+        if fallback.exists():
+            return str(fallback)
+    raise FileNotFoundError("ssh-keygen not found in PATH")
+
+
+_CONFIG_PATH = get_app_data_dir() / "config.json"
 
 _CACHE: dict | None = None
 _LOCK = threading.RLock()
@@ -23,6 +46,8 @@ def default_config() -> dict:
             "password": "",
             "use_key": False,
             "key_file": "",
+            "timeout_sec": 5,
+            "auto_connect_on_startup": False,
         },
         "linux": {"conda_executable": ""},
         "databases": {"db_root": ""},
@@ -54,17 +79,7 @@ def save_config(cfg: dict) -> None:
 
 def resolve_ssh_password(cfg: dict) -> str:
     ssh = cfg.get("ssh", {})
-    pwd = ssh.get("password", "")
+    pwd = str(ssh.get("password", "") or "")
     if pwd:
         return pwd
-    if ssh.get("use_key"):
-        return ""
-    ref = ssh.get("password_ref", "")
-    if ref:
-        try:
-            import keyring
-
-            return keyring.get_password("h2ometa.ssh", ref) or ""
-        except Exception:
-            return ""
     return ""
