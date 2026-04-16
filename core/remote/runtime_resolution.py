@@ -15,6 +15,12 @@ _COMMON_NEXTFLOW_PATHS = (
     "/usr/local/bin/nextflow",
     "/opt/nextflow/nextflow",
 )
+_COMMON_JAVA_PATHS = (
+    "$HOME/.sdkman/candidates/java/current/bin/java",
+    "/usr/bin/java",
+    "/usr/local/bin/java",
+    "/usr/lib/jvm/default-java/bin/java",
+)
 
 _JAVA_VERSION_RE = re.compile(r'version "(\d+)(?:\.(\d+))?')
 
@@ -59,37 +65,59 @@ def _version_gte(left: tuple[int, int, int] | None, right: tuple[int, int, int])
 
 
 def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[str, Any]:
-    candidates = ({"cmd": "java", "home": "", "source": "path"},)
+    candidate_rows: list[dict[str, Any]] = []
+    candidates = [
+        {
+            "probe": 'JAVA_BIN="$(type -P java 2>/dev/null || true)"; if [ -n "$JAVA_BIN" ] && [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi',
+            "source": "path",
+        }
+    ]
+    candidates.extend(
+        {
+            "probe": (
+                f'JAVA_BIN="{path}"; '
+                'if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi'
+            ),
+            "source": "fixed_path" if not path.startswith("$HOME/.sdkman") else "sdkman_current",
+        }
+        for path in _COMMON_JAVA_PATHS
+    )
+    candidates.append(
+        {
+            "probe": 'for JAVA_BIN in /usr/lib/jvm/*/bin/java /opt/jdk*/bin/java; do if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi; done | awk \'NF {print; exit}\'',
+            "source": "fixed_path",
+        }
+    )
     first_found_failure: dict[str, Any] | None = None
     for candidate in candidates:
-        cmd = candidate["cmd"]
-        rc, stdout, stderr = _run_shell(
-            ssh_run_fn,
-            f'if command -v {cmd} >/dev/null 2>&1; then {cmd} -version 2>&1 | awk "NR==1{{print $0; exit}}"; fi',
-            timeout,
-        )
+        rc_found, stdout_found, _stderr_found = _run_shell(ssh_run_fn, candidate["probe"], timeout)
+        raw_path = str(stdout_found or "").strip()
+        found = rc_found == 0 and bool(raw_path) and raw_path.startswith("/")
+        if not found:
+            continue
+        quoted_path = shlex.quote(raw_path)
+        rc, stdout, stderr = _run_shell(ssh_run_fn, f'{quoted_path} -version 2>&1 | awk "NR==1{{print $0; exit}}"', timeout)
         version_line = str(stdout or "").strip()
         if rc != 0 or not version_line:
+            candidate_rows.append(
+                {
+                    "available": True,
+                    "usable": False,
+                    "version": "",
+                    "path": raw_path,
+                    "home": "",
+                    "source": candidate["source"],
+                    "message": _extract_error(stdout, stderr, "Java health check failed"),
+                }
+            )
             continue
         major = _major_from_java_version(version_line)
-        home = str(candidate["home"] or "").strip()
-        if not home and cmd == "java":
-            rc_home, stdout_home, _stderr_home = _run_shell(
-                ssh_run_fn,
-                'JAVA_BIN="$(readlink -f "$(command -v java)")"; dirname "$(dirname "$JAVA_BIN")"',
-                timeout,
-            )
-            if rc_home == 0 and stdout_home.strip():
-                home = stdout_home.strip()
-        path = cmd if cmd != "java" else "java"
-        if cmd == "java":
-            rc_path, stdout_path, _stderr_path = _run_shell(
-                ssh_run_fn,
-                'readlink -f "$(command -v java)"',
-                timeout,
-            )
-            if rc_path == 0 and stdout_path.strip():
-                path = stdout_path.strip()
+        rc_home, stdout_home, _stderr_home = _run_shell(
+            ssh_run_fn,
+            f'JAVA_BIN={quoted_path}; dirname "$(dirname "$JAVA_BIN")"',
+            timeout,
+        )
+        home = stdout_home.strip() if rc_home == 0 and stdout_home.strip() else ""
         supported = major is not None and 17 <= major <= 25
         item = {
             "available": True,
@@ -97,18 +125,21 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
             "supported": supported,
             "version": version_line,
             "major": major,
-            "path": path,
+            "path": raw_path,
             "home": home,
             "source": candidate["source"],
             "message": "已检测到 Java，可用于运行 Nextflow"
             if supported
             else "已检测到 Java，但版本不满足 Nextflow 要求（需 17-25）",
         }
+        candidate_rows.append(item.copy())
         if supported:
+            item["candidates"] = candidate_rows
             return item
         if first_found_failure is None:
             first_found_failure = item
     if first_found_failure is not None:
+        first_found_failure["candidates"] = candidate_rows
         return first_found_failure
     return {
         "available": False,
@@ -119,6 +150,7 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
         "path": "",
         "home": "",
         "source": "",
+        "candidates": [],
         "message": "未检测到 Java，无法运行 Nextflow",
     }
 
