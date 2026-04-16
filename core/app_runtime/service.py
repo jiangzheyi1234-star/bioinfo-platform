@@ -57,6 +57,39 @@ from core.workflow.bootstrap_ops import (
 
 logger = logging.getLogger(__name__)
 
+_PROFILE_CACHE_DIRS = {
+    "container": "~/.bioflow/cache/containers",
+    "conda": "~/.bioflow/cache/conda",
+}
+
+_FIXED_RUNTIME_PROFILE_TEMPLATES = {
+    "hpc_slurm_apptainer": {
+        "executor": "slurm",
+        "packaging_mode": "container",
+        "container_runtime": "apptainer",
+    },
+    "hpc_slurm_conda": {
+        "executor": "slurm",
+        "packaging_mode": "conda",
+        "container_runtime": "",
+    },
+    "personal_docker": {
+        "executor": "local",
+        "packaging_mode": "container",
+        "container_runtime": "docker",
+    },
+    "personal_podman": {
+        "executor": "local",
+        "packaging_mode": "container",
+        "container_runtime": "podman",
+    },
+    "personal_conda": {
+        "executor": "local",
+        "packaging_mode": "conda",
+        "container_runtime": "",
+    },
+}
+
 class RuntimeServiceError(RuntimeError):
     """Raised when runtime actions cannot be completed safely."""
 
@@ -211,16 +244,17 @@ class RuntimeService:
             preflight = self.get_ssh_preflight()
             env_status = self.get_remote_env_status()
             caps = probe_preflight(self._run_ssh_command)
-            recommended_profile = self._profile_from_capabilities(caps)
+            runtime_capabilities = self._runtime_capabilities_dict(caps)
+            recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
             return {
                 "server_id": "current",
                 "doctor_phase": "workflow_runtime",
                 "preflight": preflight,
                 "env_status": env_status,
-                "recommended_profile": recommended_profile["profile_id"],
-                "recommended_profile_details": recommended_profile,
-                "supported_profile_kinds": list(caps.supported_profile_kinds),
-                "runtime_capabilities": self._runtime_capabilities_dict(caps),
+                "recommended_profile": recommended_profile.profile_id,
+                "recommended_profile_details": recommended_profile.to_dict(),
+                "supported_profile_kinds": self._supported_profile_kinds_from_runtime(caps, runtime_capabilities),
+                "runtime_capabilities": runtime_capabilities,
             }
 
     def get_tool_descriptor(self, *, tool_id: str) -> dict[str, Any]:
@@ -2198,21 +2232,22 @@ class RuntimeService:
             )
         return create_workflow_backend(profile)
 
-    def _profile_from_capabilities(self, caps: Any) -> dict[str, Any]:
-        profile_id = caps.recommended_profile_kind
-        base_dir = "~/.bioflow"
+    def _profile_payload_for_kind(self, profile_kind: str, *, server_id: str = "current") -> dict[str, Any]:
+        normalized_profile_kind = str(profile_kind or "").strip()
+        template = _FIXED_RUNTIME_PROFILE_TEMPLATES.get(normalized_profile_kind)
+        if template is None:
+            raise RuntimeServiceError(f"unsupported workflow profile template: {normalized_profile_kind or '<empty>'}")
+        packaging_mode = str(template["packaging_mode"])
         return {
-            "profile_id": profile_id,
-            "server_id": "current",
-            "profile_kind": profile_id,
-            "executor": caps.recommended_executor,
-            "packaging_mode": caps.recommended_packaging_mode,
-            "container_runtime": caps.recommended_container_runtime,
-            "work_dir": f"{base_dir}/runs/work",
-            "output_dir": f"{base_dir}/runs/output",
-            "cache_dir": f"{base_dir}/cache/containers"
-            if caps.recommended_packaging_mode == "container"
-            else f"{base_dir}/cache/conda",
+            "profile_id": normalized_profile_kind,
+            "server_id": str(server_id or "current"),
+            "profile_kind": normalized_profile_kind,
+            "executor": str(template["executor"]),
+            "packaging_mode": packaging_mode,
+            "container_runtime": str(template["container_runtime"]),
+            "work_dir": "~/.bioflow/runs/work",
+            "output_dir": "~/.bioflow/runs/output",
+            "cache_dir": _PROFILE_CACHE_DIRS[packaging_mode],
         }
 
     def _profile_from_runtime(self, caps: Any, runtime_capabilities: dict[str, Any]) -> ServerProfile:
@@ -2230,12 +2265,7 @@ class RuntimeService:
         else:
             profile_id = "personal_conda"
 
-        profile_payload = self._profile_from_capabilities(SimpleNamespace(
-            recommended_profile_kind=profile_id,
-            recommended_executor="slurm" if profile_id.startswith("hpc_slurm_") else "local",
-            recommended_packaging_mode="container" if profile_id.endswith(("docker", "podman", "apptainer")) else "conda",
-            recommended_container_runtime="docker" if profile_id == "personal_docker" else "podman" if profile_id == "personal_podman" else "apptainer" if profile_id == "hpc_slurm_apptainer" else "",
-        ))
+        profile_payload = self._profile_payload_for_kind(profile_id)
         return ServerProfile(
             profile_id=str(profile_payload["profile_id"]),
             server_id=str(profile_payload["server_id"]),

@@ -82,6 +82,8 @@ class LocalSSHBackend(WorkflowBackend):
             remote_work_dir=layout["remote_work_dir"],
             remote_output_dir=layout["remote_output_dir"],
             resume=bool(launch.resume),
+            packaging_mode=str(getattr(launch.profile, "packaging_mode", "") or ""),
+            container_runtime=str(getattr(launch.profile, "container_runtime", "") or ""),
         )
         return {
             "backend_kind": self.backend_kind,

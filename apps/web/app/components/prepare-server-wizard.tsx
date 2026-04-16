@@ -12,17 +12,12 @@ import {
   getRecommendedDecision,
   isRuntimeReady,
   loadRuntimeInspection,
-  startRemoteEnvInstall,
   type EnvStatusPayload,
   type PreflightPayload,
+  type RuntimeInspection,
 } from "@/app/components/runtime-inspection";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
-import {
-  buildRuntimePrepareView,
-  type BootstrapStep,
-  type InstallSnapshot,
-  type RuntimeDecisionOption,
-} from "@/app/components/runtime-prepare-progress";
+import { type RuntimeDecisionOption } from "@/app/components/runtime-prepare-progress";
 
 type SSHStatus = {
   connected: boolean;
@@ -70,6 +65,58 @@ type PrepareServerWizardProps = {
   onOpenChange: (open: boolean) => void;
   onPrepared?: (resolved?: { nextflowPath?: string; javaPath?: string; selectedProfile?: string }) => void;
   onOpenTerminal?: () => void;
+  onSendTerminalCommand?: (command: string) => Promise<boolean>;
+};
+
+type LocalResolvedRuntime = NonNullable<PrepareServerWizardProps["resolvedRuntime"]>;
+
+function toLocalResolvedRuntime(
+  resolvedRuntime: RuntimeInspection["resolvedRuntime"] | null | undefined
+): LocalResolvedRuntime | null {
+  if (!resolvedRuntime) {
+    return null;
+  }
+  return {
+    hostKey: String(resolvedRuntime.host_key || "").trim(),
+    nextflowPath: String(resolvedRuntime.nextflow_path || "").trim(),
+    javaPath: String(resolvedRuntime.java_path || "").trim(),
+    selectedProfile: String(resolvedRuntime.selected_profile || "").trim(),
+    verificationStatus: String(resolvedRuntime.verification_status || "").trim(),
+  };
+}
+
+function toInspectionResolvedRuntime(
+  resolvedRuntime: PrepareServerWizardProps["resolvedRuntime"]
+): RuntimeInspection["resolvedRuntime"] | null {
+  if (!resolvedRuntime) {
+    return null;
+  }
+  return {
+    host_key: resolvedRuntime.hostKey,
+    nextflow_path: resolvedRuntime.nextflowPath,
+    java_path: resolvedRuntime.javaPath,
+    selected_profile: resolvedRuntime.selectedProfile,
+    verification_status: resolvedRuntime.verificationStatus,
+  };
+}
+
+function getCheckItemValue(items: RuntimeCheckItem[], key: string, fallback: string): string {
+  return items.find((item) => item.key === key)?.value || fallback;
+}
+
+type RemediationCommand = {
+  key: string;
+  label: string;
+  description: string;
+  command: string;
+};
+
+type RemediationSection = {
+  key: "java" | "nextflow" | "docker";
+  title: string;
+  status: "ready" | "repair" | "blocked";
+  summary: string;
+  commands: RemediationCommand[];
 };
 
 function extractLogField(logText: string, key: string): string {
@@ -307,22 +354,28 @@ function getStatusPresentation(item: RuntimeCheckItem): {
 function buildSections(items: RuntimeCheckItem[]): CheckSection[] {
   const groups = [
     {
-      key: "core-runtime",
-      title: "基础运行时",
-      description: "决定这台服务器能否先跑通 Nextflow 与 Conda 路线。",
-      keys: ["java", "nextflow", "micromamba", "conda"],
+      key: "resolution-order",
+      title: "自动检测顺序",
+      description: "按 Bash → Java → Nextflow 校验固定运行入口，避免依赖 PATH / shell 自动加载。",
+      keys: ["bash", "java", "nextflow"],
     },
     {
-      key: "container-runtime",
-      title: "容器运行时",
-      description: "用于决定后续是否优先走 Docker / Podman 容器模式。",
+      key: "execution-backend",
+      title: "执行后端",
+      description: "优先确认 Docker / Podman 是否可直接作为统一执行后端。",
       keys: ["docker", "podman", "apptainer"],
+    },
+    {
+      key: "optional-fallback",
+      title: "可选 fallback",
+      description: "Micromamba / Conda 仅作为补位能力，不应阻塞一键配置主路径。",
+      keys: ["micromamba", "conda"],
     },
     {
       key: "server-baseline",
       title: "服务器基线",
       description: "影响下载、目录创建与后续运行目录初始化。",
-      keys: ["home_writable", "disk", "bash", "downloader", "sha256sum", "screen"],
+      keys: ["home_writable", "disk", "downloader", "sha256sum", "screen"],
     },
   ] as const;
 
@@ -346,15 +399,176 @@ function getRecommendedExplanation(args: {
   preflight: PreflightPayload | null;
 }): string {
   if (!args.preflight) {
-    return "请先完成一次真实检测，再决定走容器模式还是 Conda Runtime。";
+    return "请先完成一次真实检测，系统再按固定路径与推荐 profile 自动推进。";
   }
   if (args.dockerUsable) {
-    return "检测到 Docker，可优先使用容器模式。";
+    return "已检测到 Docker，配置流程会优先固定 Docker 执行路径。";
   }
   if (args.podmanUsable) {
-    return "未检测到 Docker，但 Podman 可用，建议使用容器模式。";
+    return "未检测到 Docker，但 Podman 可用，配置流程会按 Podman 路线继续。";
   }
-  return "未检测到可用容器运行时，建议继续使用 Conda Runtime。";
+  return "未检测到可用容器运行时，将继续准备 Micromamba / Conda fallback；Conda 仅作为可选补位，不会阻塞整体检测。";
+}
+
+function buildRemediationSections(args: {
+  checklist: RuntimeCheckItem[];
+  preflight: PreflightPayload | null;
+  resolvedRuntime?: PrepareServerWizardProps["resolvedRuntime"];
+}): RemediationSection[] {
+  const { checklist, preflight, resolvedRuntime } = args;
+  const javaItem = checklist.find((item) => item.key === "java");
+  const nextflowItem = checklist.find((item) => item.key === "nextflow");
+  const dockerItem = checklist.find((item) => item.key === "docker");
+
+  const javaReady = javaItem?.status === "ready";
+  const nextflowReady = nextflowItem?.status === "ready";
+  const dockerReady = dockerItem?.status === "ready";
+  const nextflowDetectedPath = String(resolvedRuntime?.nextflowPath || nextflowItem?.value || "").trim();
+
+  const javaSection: RemediationSection = javaReady
+    ? {
+        key: "java",
+        title: "Java 修复",
+        status: "ready",
+        summary: "Java 已通过检测，无需额外修复。",
+        commands: [],
+      }
+    : {
+        key: "java",
+        title: "Java 修复",
+        status: "repair",
+        summary: "Java 仍未就绪。请通过终端逐条发送命令并在终端确认输出，然后重新检测。",
+        commands: [
+          {
+            key: "java-install-sdkman",
+            label: "发送 SDKMAN 安装命令",
+            description: "先安装 SDKMAN，便于在用户态安装 Java。",
+            command: `bash -lc 'curl -s https://get.sdkman.io | bash'`,
+          },
+          {
+            key: "java-source-sdkman",
+            label: "发送 SDKMAN 初始化命令",
+            description: "加载 SDKMAN 环境，为后续 Java 安装做准备。",
+            command: `bash -lc 'source "$HOME/.sdkman/bin/sdkman-init.sh"'`,
+          },
+          {
+            key: "java-install",
+            label: "发送 Java 安装命令",
+            description: "显式安装符合要求的 Java 17 版本。",
+            command: `bash -lc 'source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk install java 17.0.10-tem'`,
+          },
+          {
+            key: "java-verify",
+            label: "发送 Java 验证命令",
+            description: "检查 Java 版本是否已满足 Nextflow 要求。",
+            command: `bash -lc 'java -version'`,
+          },
+        ],
+      };
+
+  const nextflowSection: RemediationSection = nextflowReady
+    ? {
+        key: "nextflow",
+        title: "Nextflow 修复",
+        status: "ready",
+        summary: "Nextflow 已通过检测，无需额外修复。",
+        commands: [],
+      }
+    : !javaReady
+      ? {
+          key: "nextflow",
+          title: "Nextflow 修复",
+          status: "blocked",
+          summary: "请先修复 Java，再继续处理 Nextflow。命令发送成功不代表修复成功，仍需重新检测验证。",
+          commands: [],
+        }
+      : {
+          key: "nextflow",
+          title: "Nextflow 修复",
+          status: "repair",
+          summary: "Nextflow 未就绪。请通过终端逐条发送命令，并在每一步后确认输出。",
+          commands: [
+            ...(nextflowDetectedPath && !/未检测到|已安装|missing|installed/i.test(nextflowDetectedPath)
+              ? [
+                  {
+                    key: "nextflow-verify-existing",
+                    label: "验证当前 Nextflow 路径",
+                    description: "优先验证已检测到的固定路径，而不是依赖 PATH 漂移。",
+                    command: `bash -lc '${nextflowDetectedPath.replace(/'/g, `'\"'\"'`)} info'`,
+                  },
+                ]
+              : []),
+            {
+              key: "nextflow-install",
+              label: "发送 Nextflow 安装命令",
+              description: "显式安装/刷新用户态 Nextflow 到固定目录。",
+              command:
+                `bash -lc 'mkdir -p "$HOME/.local/bin" && cd "$HOME/.local/bin" && curl -fsSL https://get.nextflow.io | bash && chmod +x nextflow'`,
+            },
+            {
+              key: "nextflow-verify",
+              label: "发送 Nextflow 验证命令",
+              description: "确认固定路径上的 Nextflow 可执行并返回版本/信息。",
+              command: `bash -lc '"$HOME/.local/bin/nextflow" info'`,
+            },
+          ],
+        };
+
+  const dockerSection: RemediationSection = dockerReady
+    ? {
+        key: "docker",
+        title: "Docker 修复",
+        status: "ready",
+        summary: "Docker 已通过检测，无需额外修复。",
+        commands: [],
+      }
+    : {
+        key: "docker",
+        title: "Docker 修复",
+        status: "repair",
+        summary:
+          preflight?.recommended_profile === "personal_podman"
+            ? "当前推荐 profile 是 Podman，但若后续需要统一 Docker 执行后端，请先在终端完成显式 Docker 修复并重新检测。"
+            : "Docker 尚未就绪。请通过终端逐条发送命令，修复后再重新检测。",
+        commands: [
+          {
+            key: "docker-check-sudo",
+            label: "发送 sudo 检查命令",
+            description: "先确认当前用户是否具备安装 Docker 所需权限。",
+            command: `bash -lc 'sudo -v'`,
+          },
+          {
+            key: "docker-install",
+            label: "发送 Docker 安装命令",
+            description: "显式安装 Docker；命令发送后请在终端确认安装过程。",
+            command: `bash -lc 'curl -fsSL https://get.docker.com | sudo sh'`,
+          },
+          {
+            key: "docker-group",
+            label: "发送 Docker 用户组命令",
+            description: "将当前用户加入 docker 组，后续需重新登录/重连后再验证。",
+            command: `bash -lc 'sudo usermod -aG docker "$USER"'`,
+          },
+          {
+            key: "docker-verify",
+            label: "发送 Docker 验证命令",
+            description: "检查 Docker 是否已可调用。",
+            command: `bash -lc 'docker --version'`,
+          },
+        ],
+      };
+
+  return [javaSection, nextflowSection, dockerSection];
+}
+
+function remediationBadge(section: RemediationSection): { label: string; className: string } {
+  if (section.status === "ready") {
+    return { label: "已就绪", className: "border-emerald-100 bg-emerald-50 text-emerald-700" };
+  }
+  if (section.status === "blocked") {
+    return { label: "需先处理前置项", className: "border-amber-100 bg-amber-50 text-amber-700" };
+  }
+  return { label: "待终端修复", className: "border-blue-100 bg-blue-50 text-blue-700" };
 }
 
 function profileKindForDecision(selectedDecision: RuntimeDecisionOption | null): string {
@@ -400,21 +614,21 @@ export function PrepareServerWizard({
   onOpenChange,
   onPrepared,
   onOpenTerminal,
+  onSendTerminalCommand,
 }: PrepareServerWizardProps) {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [preflight, setPreflight] = useState<PreflightPayload | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvStatusPayload | null>(null);
+  const [detectedResolvedRuntime, setDetectedResolvedRuntime] = useState<PrepareServerWizardProps["resolvedRuntime"]>(resolvedRuntime ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedDecision, setSelectedDecision] = useState<RuntimeDecisionOption | null>(null);
-  const [installSnapshot, setInstallSnapshot] = useState<InstallSnapshot | null>(null);
-  const [installJobId, setInstallJobId] = useState("");
-  const [installTarget, setInstallTarget] = useState<InstallTarget>("");
-  const [installRunning, setInstallRunning] = useState(false);
   const [flowNotice, setFlowNotice] = useState("");
   const [resolvedNextflowPath, setResolvedNextflowPath] = useState("");
   const [resolvedJavaPath, setResolvedJavaPath] = useState("");
+  const [sentRemediationKeys, setSentRemediationKeys] = useState<Record<string, boolean>>({});
   const currentHostKey = runtimeHostKey(sshStatus);
+  const resolvedRuntimeForInspection = useMemo(() => toInspectionResolvedRuntime(detectedResolvedRuntime), [detectedResolvedRuntime]);
 
   const capabilities = preflight?.runtime_capabilities;
   const dockerUsable = capabilities?.docker?.usable === true;
@@ -426,16 +640,16 @@ export function PrepareServerWizard({
     capabilities?.conda?.usable === true ||
     envStatus?.conda_runtime?.installed === true;
 
-  const runtimeReadyDetected = isRuntimeReady(preflight, envStatus);
+  const runtimeReadyDetected = isRuntimeReady(preflight, envStatus, resolvedRuntimeForInspection);
   const runtimeReady = preflight
     ? runtimeReadyDetected
     : loading
       ? Boolean(runtimeReadyOverride)
       : Boolean(
           runtimeReadyOverride ||
-            (resolvedRuntime?.hostKey === currentHostKey &&
-              resolvedRuntime?.verificationStatus === "verified" &&
-              resolvedRuntime?.nextflowPath) ||
+            (detectedResolvedRuntime?.hostKey === currentHostKey &&
+              detectedResolvedRuntime?.verificationStatus === "verified" &&
+              detectedResolvedRuntime?.nextflowPath) ||
             resolvedNextflowPath
         );
 
@@ -448,14 +662,18 @@ export function PrepareServerWizard({
       selectedProfile:
         preflight?.recommended_profile_details?.profile_kind ||
         preflight?.recommended_profile ||
-        resolvedRuntime?.selectedProfile ||
+        detectedResolvedRuntime?.selectedProfile ||
         "personal_conda",
       runtimeHome,
-      nextflowPath: resolvedRuntime?.nextflowPath || `${runtimeHome}/bin/nextflow`,
+      nextflowPath: detectedResolvedRuntime?.nextflowPath || `${runtimeHome}/bin/nextflow`,
       micromambaPath: `${runtimeHome}/bin/micromamba`,
-      javaPath: resolvedRuntime?.javaPath || (javaAvailable ? `${runtimeHome}/java/bin/java` : undefined),
+      javaPath: detectedResolvedRuntime?.javaPath || (javaAvailable ? `${runtimeHome}/java/bin/java` : undefined),
     };
-  }, [javaAvailable, preflight, resolvedRuntime, runtimeReady]);
+  }, [detectedResolvedRuntime, javaAvailable, preflight, runtimeReady]);
+
+  useEffect(() => {
+    setDetectedResolvedRuntime(resolvedRuntime ?? null);
+  }, [resolvedRuntime]);
 
   const loadData = useCallback(async () => {
     if (!sshStatus?.connected) {
@@ -468,11 +686,18 @@ export function PrepareServerWizard({
       const nextPreflight = inspection.preflight;
       const nextEnv = inspection.envStatus;
       const nextDecision = getRecommendedDecision(nextPreflight);
-      const nextRuntimeReady = isRuntimeReady(nextPreflight, nextEnv);
+      const nextResolvedRuntime = toLocalResolvedRuntime(inspection.resolvedRuntime);
+      const nextRuntimeReady = isRuntimeReady(nextPreflight, nextEnv, inspection.resolvedRuntime);
       setPreflight(nextPreflight);
       setEnvStatus(nextEnv);
+      setDetectedResolvedRuntime(nextResolvedRuntime);
       setSelectedDecision(nextDecision);
       setCurrentStep(nextRuntimeReady ? 4 : 1);
+      setSentRemediationKeys({});
+      if (nextResolvedRuntime?.verificationStatus === "verified") {
+        setResolvedNextflowPath(nextResolvedRuntime.nextflowPath || "");
+        setResolvedJavaPath(nextResolvedRuntime.javaPath || "");
+      }
       if (!nextRuntimeReady) {
         setResolvedNextflowPath("");
         setResolvedJavaPath("");
@@ -498,99 +723,6 @@ export function PrepareServerWizard({
     void loadData();
   }, [loadData, open, sshStatus?.connected]);
 
-  useEffect(() => {
-    if (!installJobId) {
-      return;
-    }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const data = await requestLocalApiJson("GET", `/api/v1/ssh/env/install/${encodeURIComponent(installJobId)}`);
-        const snapshot = (data?.item || null) as InstallSnapshot | null;
-        if (!cancelled && snapshot) {
-          setInstallSnapshot(snapshot);
-          if (snapshot.done) {
-            setInstallRunning(false);
-            if (snapshot.ok) {
-              const refreshed = await loadData();
-              const refreshedRuntime = refreshed?.preflight?.runtime_capabilities || {};
-              if (installTarget === "docker_runtime") {
-                const dockerNowUsable = refreshedRuntime?.docker?.usable === true;
-                setSelectedDecision(dockerNowUsable ? "use_docker" : "fallback_conda");
-                setCurrentStep(2);
-                setFlowNotice(
-                  dockerNowUsable
-                    ? "Docker 协助安装已完成，下一步可以直接继续准备 Workflow Runtime。"
-                    : "Docker 已安装，但当前 SSH 会话可能尚未获得 docker 组权限；请断开并重新连接后重新检测。"
-                );
-              } else {
-                const nextflowNowUsable = refreshedRuntime?.nextflow?.usable === true;
-                const nextflowResolvedPath =
-                  String(refreshedRuntime?.nextflow?.path || "").trim() || extractLogField(snapshot.log_text || "", "NEXTFLOW_PATH");
-                const javaResolvedPath =
-                  String(refreshedRuntime?.java?.path || "").trim() || extractLogField(snapshot.log_text || "", "JAVA_PATH");
-                if (nextflowResolvedPath && (nextflowNowUsable || snapshot.ok)) {
-                  setResolvedNextflowPath(nextflowResolvedPath);
-                  setResolvedJavaPath(javaResolvedPath);
-                  const selectedProfile =
-                    refreshed?.preflight?.recommended_profile_details?.profile_kind ||
-                    refreshed?.preflight?.recommended_profile ||
-                    "personal_conda";
-                  await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", {
-                    body: {
-                      host_key: currentHostKey,
-                      selected_profile: selectedProfile,
-                      resolved_at: new Date().toISOString(),
-                      verification_status: "verified",
-                      nextflow_path: nextflowResolvedPath,
-                      nextflow_command:
-                        String(refreshedRuntime?.nextflow?.command || "").trim() || nextflowResolvedPath,
-                      nextflow_source: String(refreshedRuntime?.nextflow?.source || "").trim(),
-                      nextflow_message:
-                        String(refreshedRuntime?.nextflow?.message || "").trim() || "已检测到 Nextflow，可直接使用",
-                      java_path: javaResolvedPath,
-                      java_home: String(refreshedRuntime?.java?.home || "").trim(),
-                      java_message:
-                        String(refreshedRuntime?.java?.message || "").trim() || "已检测到 Java，可用于运行 Nextflow",
-                    },
-                  });
-                  setFlowNotice("");
-                  setCurrentStep(4);
-                  onPrepared?.({
-                    nextflowPath: nextflowResolvedPath,
-                    javaPath: javaResolvedPath,
-                    selectedProfile,
-                  });
-                } else {
-                  setCurrentStep(3);
-                  setError(
-                    String(refreshedRuntime?.nextflow?.message || "Runtime 准备已完成，但重新检测时仍未解析到可用 Nextflow。请重新检测或检查 SSH 运行环境。")
-                  );
-                }
-              }
-            } else {
-              setError(snapshot.message || "后台安装失败，请查看日志。");
-            }
-            return;
-          }
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setInstallRunning(false);
-          setError(formatApiFetchError(nextError, "安装状态查询失败。"));
-        }
-        return;
-      }
-      if (!cancelled) {
-        window.setTimeout(poll, 1000);
-      }
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [installJobId, loadData, onPrepared]);
-
   const beginBootstrap = useCallback(async () => {
     if (!preflight) {
       return;
@@ -601,53 +733,112 @@ export function PrepareServerWizard({
       setError(blockReason);
       return;
     }
-
-    setInstallRunning(true);
     setCurrentStep(3);
     setError("");
-    setFlowNotice("");
-    setInstallSnapshot(null);
-    try {
-      const target = effectiveDecision === "assistant_install_docker" ? "docker_runtime" : "workflow_runtime";
-      setInstallTarget(target);
-      const profileKind =
-        effectiveDecision === "use_docker"
-          ? "personal_docker"
-          : effectiveDecision === "use_podman"
-            ? "personal_podman"
-            : "personal_conda";
-      const data = await startRemoteEnvInstall(
-        target === "docker_runtime"
-          ? { target }
-          : { target, profile_kind: profileKind }
-      );
-      const jobId = String(data?.item?.job_id || "");
-      setInstallJobId(jobId);
-    } catch (nextError) {
-      setInstallRunning(false);
-      setError(formatApiFetchError(nextError, "无法启动 Runtime 准备流程。"));
-    }
+    setFlowNotice("请按顺序通过终端逐条发送修复命令；每发一步都要在终端确认输出，再点击“重新检测”完成复检。");
   }, [preflight, selectedDecision]);
 
-  const checklist = useMemo(() => buildChecklist(preflight, envStatus, resolvedRuntime), [envStatus, preflight, resolvedRuntime]);
-  const checklistSections = useMemo(() => (preflight ? buildSections(checklist) : []), [checklist, preflight]);
-  const runtimePrepareView = useMemo(
-    () =>
-      buildRuntimePrepareView({
-        selectedDecision,
-        installTarget,
-        snapshot: installSnapshot,
-        installRunning,
-      }),
-    [installRunning, installSnapshot, installTarget, selectedDecision]
+  const syncPreparedState = useCallback(
+    async (inspection: RuntimeInspection) => {
+      const refreshedRuntime = inspection.preflight?.runtime_capabilities || {};
+      const nextflowNowUsable = refreshedRuntime?.nextflow?.usable === true;
+      const nextflowResolvedPath = String(refreshedRuntime?.nextflow?.path || inspection.resolvedRuntime?.nextflow_path || "").trim();
+      const javaResolvedPath = String(refreshedRuntime?.java?.path || inspection.resolvedRuntime?.java_path || "").trim();
+      if (!nextflowResolvedPath || !nextflowNowUsable) {
+        return false;
+      }
+      const selectedProfile =
+        inspection.preflight?.recommended_profile_details?.profile_kind ||
+        inspection.preflight?.recommended_profile ||
+        "personal_conda";
+      await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", {
+        body: {
+          host_key: currentHostKey,
+          selected_profile: selectedProfile,
+          resolved_at: new Date().toISOString(),
+          verification_status: "verified",
+          nextflow_path: nextflowResolvedPath,
+          nextflow_command: String(refreshedRuntime?.nextflow?.command || inspection.resolvedRuntime?.nextflow_command || "").trim() || nextflowResolvedPath,
+          nextflow_source: String(refreshedRuntime?.nextflow?.source || inspection.resolvedRuntime?.nextflow_source || "").trim(),
+          nextflow_message: String(refreshedRuntime?.nextflow?.message || inspection.resolvedRuntime?.nextflow_message || "").trim() || "已检测到 Nextflow，可直接使用",
+          java_path: javaResolvedPath,
+          java_home: String(refreshedRuntime?.java?.home || inspection.resolvedRuntime?.java_home || "").trim(),
+          java_message: String(refreshedRuntime?.java?.message || inspection.resolvedRuntime?.java_message || "").trim() || "已检测到 Java，可用于运行 Nextflow",
+        },
+      });
+      setDetectedResolvedRuntime({
+        hostKey: currentHostKey,
+        nextflowPath: nextflowResolvedPath,
+        javaPath: javaResolvedPath,
+        selectedProfile,
+        verificationStatus: "verified",
+      });
+      setResolvedNextflowPath(nextflowResolvedPath);
+      setResolvedJavaPath(javaResolvedPath);
+      setFlowNotice("");
+      setCurrentStep(4);
+      onPrepared?.({
+        nextflowPath: nextflowResolvedPath,
+        javaPath: javaResolvedPath,
+        selectedProfile,
+      });
+      return true;
+    },
+    [currentHostKey, onPrepared]
   );
-  const bootstrapSteps = runtimePrepareView.steps;
+
+  const runRecheck = useCallback(async () => {
+    setError("");
+    const inspection = await loadData();
+    if (!inspection) {
+      return;
+    }
+    const ready = await syncPreparedState(inspection);
+    if (!ready) {
+      setCurrentStep(3);
+      setFlowNotice("已完成重新检测。若终端中还有未执行的修复命令，请继续逐条发送；命令发送成功 ≠ 环境已修复成功。");
+    }
+  }, [loadData, syncPreparedState]);
+
+  const sendRemediationCommand = useCallback(
+    async (step: RemediationCommand) => {
+      setError("");
+      setFlowNotice("");
+      if (!onSendTerminalCommand) {
+        onOpenTerminal?.();
+        setError("终端命令发送钩子不可用，请先打开终端后手动执行该命令。");
+        return;
+      }
+      const sent = await onSendTerminalCommand(step.command);
+      if (!sent) {
+        setError("终端尚未就绪，无法发送修复命令。请先打开终端并确认 SSH 会话可输入。");
+        return;
+      }
+      setSentRemediationKeys((current) => ({ ...current, [step.key]: true }));
+      setCurrentStep(3);
+      setFlowNotice(`已发送“${step.label}”。请先在终端确认输出，再点击“重新检测”验证修复是否真正生效。`);
+    },
+    [onOpenTerminal, onSendTerminalCommand]
+  );
+
+  const checklist = useMemo(() => buildChecklist(preflight, envStatus, detectedResolvedRuntime), [detectedResolvedRuntime, envStatus, preflight]);
+  const checklistSections = useMemo(() => (preflight ? buildSections(checklist) : []), [checklist, preflight]);
+  const bashPath = useMemo(() => getCheckItemValue(checklist, "bash", "未检测到可用 Bash"), [checklist]);
+  const confirmationNextflowPath = useMemo(
+    () => getCheckItemValue(checklist, "nextflow", detectedResolvedRuntime?.nextflowPath || resolvedNextflowPath || "未解析到可用 Nextflow"),
+    [checklist, detectedResolvedRuntime?.nextflowPath, resolvedNextflowPath]
+  );
+  const confirmationJavaPath = useMemo(
+    () => getCheckItemValue(checklist, "java", detectedResolvedRuntime?.javaPath || resolvedJavaPath || "未解析到可用 Java"),
+    [checklist, detectedResolvedRuntime?.javaPath, resolvedJavaPath]
+  );
+  const remediationSections = useMemo(
+    () => buildRemediationSections({ checklist, preflight, resolvedRuntime: detectedResolvedRuntime }),
+    [checklist, detectedResolvedRuntime, preflight]
+  );
   const serverLabel = sshStatus ? `${sshStatus.user}@${sshStatus.host}:${sshStatus.port}` : "未连接服务器";
-  const showDockerChoices = Boolean(preflight) && !dockerUsable && !podmanUsable;
   const bootstrapBlockReason = useMemo(() => getBootstrapBlockReason(preflight, selectedDecision), [preflight, selectedDecision]);
-  const canRunBootstrap = selectedDecision !== null && selectedDecision !== "self_install_docker" && !bootstrapBlockReason;
   const canAdvanceFromDetection = Boolean(preflight) && !loading;
-  const recommendedDecision = preflight ? getRecommendedDecision(preflight) : null;
   const recommendedExplanation = getRecommendedExplanation({ dockerUsable, podmanUsable, preflight });
   const statusLabel = loading ? "检测中" : error && !preflight ? "检测失败" : runtimeReady ? "Runtime Ready" : "Runtime Missing";
   const statusClassName = loading
@@ -711,8 +902,30 @@ export function PrepareServerWizard({
                 <div className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">检测环境</h3>
                   <p className="text-sm leading-relaxed text-slate-500">
-                    先确认这台服务器是否具备运行条件，再决定是否继续走 Docker / Podman 容器模式，还是直接进入 Conda Runtime。
+                    系统会先按 Bash → Java → Nextflow 的固定顺序自动检测，再根据可用 Docker / Podman 自动选择执行后端；Conda 仅作为可选 fallback，不会阻塞一键配置。
                   </p>
+                </div>
+
+                <div className="grid gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">一键配置确认</p>
+                    <p className="text-sm font-medium text-slate-950">自动检测已完成，确认后将按推荐路径继续配置。</p>
+                    <p className="text-xs leading-relaxed text-slate-500">
+                      后续运行会优先复用已验证的固定路径，而不是依赖 PATH 或 shell 自动加载结果。
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <RuntimePath label="Bash" value={bashPath} />
+                    <RuntimePath label="Java" value={confirmationJavaPath} />
+                    <RuntimePath label="Nextflow" value={confirmationNextflowPath} />
+                    <RuntimePath
+                      label="推荐 Profile"
+                      value={preflight?.recommended_profile || detectedResolvedRuntime?.selectedProfile || "等待自动选择"}
+                    />
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs leading-relaxed text-blue-700">
+                    Conda Runtime 只作为容器运行时缺失时的补位能力，不会阻塞 Docker / Podman 的主路径确认。
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -795,54 +1008,83 @@ export function PrepareServerWizard({
                   {bootstrapBlockReason}
                 </div>
               ) : null}
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-700">
+                命令发送成功 ≠ 修复成功。所有 Java / Nextflow / Docker 修复都必须通过终端逐条发送，发送后请先在终端确认输出，再点击“重新检测”完成复检。
+              </div>
               <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
                 <p className="text-sm text-slate-700">
-                  当前推荐使用 <strong>{preflight?.recommended_profile || "personal_conda"}</strong>。
+                  自动检测确认当前推荐使用 <strong>{preflight?.recommended_profile || "personal_conda"}</strong>。
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">{recommendedExplanation}</p>
               </div>
               <div className="space-y-4">
-                {bootstrapSteps.map((step) => (
-                  <div key={step.key} className="flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {step.status === "done" ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      ) : step.status === "running" ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
-                      ) : step.status === "failed" ? (
-                        <AlertTriangle className="h-4 w-4 text-red-500" />
-                      ) : (
-                        <Circle className="h-4 w-4 text-slate-300" />
-                      )}
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{step.label}</p>
-                        {step.message ? <p className="text-xs text-slate-500">{step.message}</p> : null}
+                {remediationSections.map((section) => {
+                  const badge = remediationBadge(section);
+                  return (
+                    <section key={section.key} className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-900">{section.title}</h4>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-500">{section.summary}</p>
+                        </div>
+                        <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", badge.className)}>{badge.label}</span>
                       </div>
-                    </div>
-                    <span className="text-xs text-slate-400">{step.status}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="h-40 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-4 font-mono text-xs text-slate-200">
-                <pre>{installSnapshot?.log_text || runtimePrepareView.emptyLogText}</pre>
+                      {section.commands.length > 0 ? (
+                        <div className="mt-4 space-y-3">
+                          {section.commands.map((step, index) => {
+                            const sent = sentRemediationKeys[step.key] === true;
+                            return (
+                              <div key={step.key} className="rounded-lg border border-slate-100 px-4 py-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-medium text-slate-900">
+                                      {index + 1}. {step.label}
+                                    </p>
+                                    <p className="text-xs leading-relaxed text-slate-500">{step.description}</p>
+                                  </div>
+                                  <Button
+                                    variant={sent ? "outline" : "default"}
+                                    className={cn("shrink-0", sent ? "border-slate-200 text-slate-600" : "bg-slate-950 text-white hover:bg-slate-800")}
+                                    onClick={() => void sendRemediationCommand(step)}
+                                  >
+                                    {sent ? "再次发送" : "发送到终端"}
+                                  </Button>
+                                </div>
+                                <pre className="mt-3 overflow-auto rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] text-slate-100">
+                                  {step.command}
+                                </pre>
+                                <p className="mt-2 text-[11px] text-slate-500">
+                                  {sent ? "状态：命令已发送，待终端确认与重新检测。" : "状态：尚未发送。"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </section>
+                  );
+                })}
               </div>
             </div>
           ) : null}
 
           {currentStep === 4 ? (
             <div className="space-y-6">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">服务器已就绪</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">确认当前运行时配置</h3>
               <div className="grid gap-4 rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">当前 Profile</p>
                   <p className="mt-1 font-mono text-sm text-slate-600">{runtimeSummary?.selectedProfile || "personal_conda"}</p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <RuntimePath label="Bash" value={bashPath} />
                   <RuntimePath label="Runtime Home" value={runtimeSummary?.runtimeHome || "~/.h2ometa/runtime"} />
-                  <RuntimePath label="Nextflow" value={capabilities?.nextflow?.path || resolvedNextflowPath || runtimeSummary?.nextflowPath || "未解析到可用 Nextflow"} />
+                  <RuntimePath label="Nextflow" value={confirmationNextflowPath || runtimeSummary?.nextflowPath || "未解析到可用 Nextflow"} />
                   <RuntimePath label="Micromamba" value={runtimeSummary?.micromambaPath || "~/.h2ometa/runtime/bin/micromamba"} />
-                  <RuntimePath label="Java" value={capabilities?.java?.path || resolvedJavaPath || runtimeSummary?.javaPath || "使用系统 Java"} />
+                  <RuntimePath label="Java" value={confirmationJavaPath || runtimeSummary?.javaPath || "使用系统 Java"} />
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-xs leading-relaxed text-emerald-700">
+                  后续运行将优先使用这组已验证的 Bash / Java / Nextflow 固定路径，不再依赖 PATH 漂移或 Conda 自动激活。
                 </div>
               </div>
             </div>
@@ -879,11 +1121,11 @@ export function PrepareServerWizard({
             ) : null}
             {currentStep === 3 ? (
               <Button
-                className="rounded-lg bg-slate-950 px-8 text-white hover:bg-slate-800"
-                disabled={installRunning || !canRunBootstrap}
-                onClick={() => void beginBootstrap()}
+                variant="outline"
+                className="rounded-lg border-slate-200 text-slate-700"
+                onClick={() => void runRecheck()}
               >
-                {installRunning ? "配置中..." : "重新配置 Runtime"}
+                <RefreshCw className="mr-2 h-4 w-4" /> 重新检测
               </Button>
             ) : null}
             {currentStep === 4 ? (

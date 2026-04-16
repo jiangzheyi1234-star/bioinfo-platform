@@ -612,6 +612,77 @@ def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(r
     assert "当前不可正常调用" in nextflow_check["message"]
 
 
+def test_doctor_server_preserves_fixed_runtime_template_model(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    caps = SimpleNamespace(
+        arch="x86_64",
+        has_bash=True,
+        has_curl=True,
+        has_wget=False,
+        has_screen=True,
+        has_sha256sum=True,
+        has_java=True,
+        java_version='openjdk version "21.0.2" 2024-01-16',
+        has_nextflow=True,
+        nextflow_version="25.04.6",
+        has_docker=True,
+        has_podman=False,
+        has_apptainer=False,
+        has_micromamba=True,
+        has_conda=False,
+        has_sbatch=False,
+        free_disk_gb=42.0,
+        home_writable=True,
+        bootstrap_failures=lambda min_free_disk_gb=5.0: [],
+        runtime_failures=lambda: [],
+        warnings=lambda: [],
+    )
+
+    monkeypatch.setattr("core.app_runtime.service.probe_preflight", lambda _run: caps)
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_java",
+        lambda _run: {
+            "available": True,
+            "usable": True,
+            "supported": True,
+            "version": 'openjdk version "21.0.2" 2024-01-16',
+            "path": "/usr/lib/jvm/java-21-openjdk/bin/java",
+            "home": "/usr/lib/jvm/java-21-openjdk",
+            "message": "已检测到 Java，可用于运行 Nextflow",
+        },
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_nextflow",
+        lambda _run: {
+            "available": True,
+            "usable": True,
+            "version": "25.04.6",
+            "path": "/usr/local/bin/nextflow",
+            "command": "/usr/local/bin/nextflow",
+            "source": "path",
+            "message": "已检测到 Nextflow，可直接使用",
+        },
+    )
+    monkeypatch.setattr(runtime, "_remote_runtime_ok", lambda command: "docker ps" not in command)
+    monkeypatch.setattr(runtime, "get_remote_env_status", lambda: {"conda_runtime": {"installed": False}})
+
+    item = runtime.doctor_server(server_id="current")
+
+    assert item["recommended_profile"] == "personal_conda"
+    assert item["recommended_profile_details"] == {
+        "profile_id": "personal_conda",
+        "server_id": "current",
+        "profile_kind": "personal_conda",
+        "executor": "local",
+        "packaging_mode": "conda",
+        "container_runtime": "",
+        "work_dir": "~/.bioflow/runs/work",
+        "output_dir": "~/.bioflow/runs/output",
+        "cache_dir": "~/.bioflow/cache/conda",
+    }
+    assert item["supported_profile_kinds"] == ["personal_conda"]
+    assert item["runtime_capabilities"]["docker"] == {"available": True, "usable": False}
+
+
 def test_get_ssh_preflight_blocks_when_java_is_missing_even_if_docker_and_nextflow_are_usable(
     runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
