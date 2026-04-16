@@ -3,7 +3,7 @@
 ## Dev prerequisites
 - Rust toolchain
 - Node.js + npm
-- Python environment with `fastapi` and `uvicorn`
+- `uv` recommended for backend startup, or a Python environment with backend deps installed
 - Linux host dependencies: see `apps/desktop/PREREQUISITES.md`
 
 ## Run in dev mode
@@ -13,7 +13,12 @@ npm install
 npm run dev
 ```
 
-The shell spawns backend process with:
+The shell prefers spawning backend with:
+```bash
+uv run --isolated --no-project --with-requirements apps/api/requirements.txt python -m apps.api.run
+```
+
+If `uv` is unavailable it falls back to:
 ```bash
 python3 -m apps.api.run
 ```

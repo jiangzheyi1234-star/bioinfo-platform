@@ -30,12 +30,27 @@ struct SpawnedBackend {
 }
 
 fn candidate_python_commands() -> Vec<PythonCommand> {
+    let mut uv_commands = vec![
+        PythonCommand {
+            program: "uv".to_string(),
+            args: vec![
+                "run".to_string(),
+                "--isolated".to_string(),
+                "--no-project".to_string(),
+                "--with-requirements".to_string(),
+                "apps/api/requirements.txt".to_string(),
+                "python".to_string(),
+            ],
+        },
+    ];
     if let Ok(explicit) = std::env::var("H2OMETA_PYTHON") {
         if !explicit.trim().is_empty() {
-            return vec![PythonCommand {
+            let mut commands = vec![PythonCommand {
                 program: explicit,
                 args: vec![],
             }];
+            commands.extend(uv_commands);
+            return commands;
         }
     }
     if cfg!(windows) {
@@ -44,6 +59,7 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "bio_ui".to_string());
         let mut commands = Vec::new();
+        commands.append(&mut uv_commands);
 
         if let Ok(explicit_conda) = std::env::var("H2OMETA_CONDA_EXE") {
             if !explicit_conda.trim().is_empty() {
@@ -85,7 +101,7 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
         ]);
         return commands;
     }
-    vec![
+    uv_commands.extend(vec![
         PythonCommand {
             program: "python3".to_string(),
             args: vec![],
@@ -94,7 +110,8 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
             program: "python".to_string(),
             args: vec![],
         },
-    ]
+    ]);
+    uv_commands
 }
 
 fn has_backend_entry(path: &Path) -> bool {
