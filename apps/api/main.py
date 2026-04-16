@@ -176,10 +176,15 @@ async def stream_terminal_session(
     await websocket.accept()
     try:
         session = _runtime().get_terminal_session(session_id=session_id)
-    except (RuntimeServiceError, ValueError, TypeError) as exc:
-        await websocket.send_json(
-            {"type": "closed", "message": "终端会话不存在或已关闭"}
-        )
+    except (RuntimeServiceError, ValueError, TypeError):
+        await websocket.send_json({"type": "closed", "message": "终端会话不存在"})
+        await asyncio.sleep(0.1)
+        await websocket.close(code=1000)
+        return
+
+    if session is None:
+        await websocket.send_json({"type": "closed", "message": "终端会话已关闭"})
+        await asyncio.sleep(0.1)
         await websocket.close(code=1000)
         return
 
