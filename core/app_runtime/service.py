@@ -50,6 +50,10 @@ class RuntimeService:
         self._service_locator = service_locator or ServiceLocator()
         self._initialized = False
         self._terminal_sessions: dict[str, TerminalSession] = {}
+        self._auto_connect_attempted = False
+        self._auto_connect_failed = False
+        self._auto_connect_error = ""
+        self._auto_connect_notice_key = ""
 
     def initialize(self) -> None:
         with self._lock:
@@ -57,6 +61,7 @@ class RuntimeService:
                 return
             self._service_locator.initialize()
             self._initialized = True
+            self._attempt_startup_auto_connect()
 
     def shutdown(self) -> None:
         with self._lock:
@@ -232,6 +237,9 @@ class RuntimeService:
             self._service_locator.ssh_service = SSHService(
                 initial_client=result.client, connect_fn=_reconnect
             )
+            self._auto_connect_failed = False
+            self._auto_connect_error = ""
+            self._auto_connect_notice_key = ""
             return self.get_ssh_status()
 
     def disconnect_ssh(self) -> dict:
@@ -319,6 +327,61 @@ class RuntimeService:
         if ssh is None or not getattr(ssh, "is_connected", False):
             raise RuntimeServiceError("SSH disconnected")
         return ssh
+
+    def _attempt_startup_auto_connect(self) -> None:
+        if self._auto_connect_attempted:
+            return
+        self._auto_connect_attempted = True
+
+        cfg = get_config().get("ssh", {})
+        merged = dict(cfg) if isinstance(cfg, dict) else {}
+        host = str(merged.get("host", "")).strip()
+        user = str(merged.get("user", "")).strip()
+        if not host or not user:
+            return
+
+        port = int(merged.get("port", 22))
+        password = resolve_ssh_password(merged)
+        key_file = str(merged.get("key_file", "")).strip()
+        timeout = int(merged.get("timeout_sec", 5))
+
+        try:
+            result = ssh_connect(
+                ip=host,
+                port=port,
+                user=user,
+                password=password,
+                key_file=key_file,
+                timeout=timeout,
+            )
+            if not result.ok or result.client is None:
+                raise RuntimeServiceError(result.message)
+
+            def _reconnect():
+                reconnect = ssh_connect(
+                    ip=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    key_file=key_file,
+                    timeout=timeout,
+                )
+                if not reconnect.ok or reconnect.client is None:
+                    raise RuntimeError(reconnect.message)
+                return reconnect.client
+
+            self._service_locator.ssh_service = SSHService(
+                initial_client=result.client, connect_fn=_reconnect
+            )
+            self._auto_connect_failed = False
+            self._auto_connect_error = ""
+            self._auto_connect_notice_key = ""
+        except Exception as exc:
+            message = str(exc).strip() or "SSH 自动连接失败"
+            self._auto_connect_failed = True
+            self._auto_connect_error = message
+            self._auto_connect_notice_key = f"auto-connect-{int(time.time() * 1000)}"
+            logger.warning("Startup SSH auto-connect failed: %s", message)
 
     def _close_all_terminal_sessions(self) -> None:
         for session in list(self._terminal_sessions.values()):
