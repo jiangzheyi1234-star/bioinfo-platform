@@ -8,7 +8,7 @@ from core.remote.runtime_resolution import (
 )
 
 
-def test_resolve_remote_nextflow_prefers_usable_path_over_conda_fallback() -> None:
+def test_resolve_remote_nextflow_prefers_usable_path_over_missing_fixed_candidates() -> None:
     def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
         _ = timeout
         if 'NF_BIN="$(type -P nextflow 2>/dev/null || true)"' in command:
@@ -106,8 +106,54 @@ def test_resolve_remote_java_uses_path_lookup_without_probing_nxf_java_home() ->
     assert item["source"] == "path"
     assert item["home"] == "/usr/lib/jvm/java-21-openjdk"
     assert item["path"] == "/usr/lib/jvm/java-21-openjdk/bin/java"
-    assert all("$NXF_JAVA_HOME" not in command for command in seen)
-    assert all("$JAVA_HOME" not in command for command in seen)
+
+
+def test_resolve_remote_java_prefers_nxf_java_home_over_path() -> None:
+    seen: list[str] = []
+
+    def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
+        _ = timeout
+        seen.append(command)
+        if 'if [ -n "${NXF_JAVA_HOME:-}" ]' in command:
+            return 0, "/home/tester/nxf-java/bin/java\n", ""
+        if "/home/tester/nxf-java/bin/java -version" in command:
+            return 0, 'openjdk version "21.0.2" 2024-01-16\n', ""
+        if 'dirname "$(dirname "$JAVA_BIN")"' in command and "/home/tester/nxf-java/bin/java" in command:
+            return 0, "/home/tester/nxf-java\n", ""
+        raise AssertionError(f"unexpected command: {command}")
+
+    item = resolve_remote_java(ssh_run_fn)
+
+    assert item["usable"] is True
+    assert item["source"] == "nxf_java_home"
+    assert item["home"] == "/home/tester/nxf-java"
+    assert item["path"] == "/home/tester/nxf-java/bin/java"
+    assert all('type -P java' not in command for command in seen)
+
+
+def test_resolve_remote_java_uses_java_home_when_nxf_java_home_is_missing() -> None:
+    seen: list[str] = []
+
+    def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
+        _ = timeout
+        seen.append(command)
+        if 'if [ -n "${NXF_JAVA_HOME:-}" ]' in command:
+            return 0, "", ""
+        if 'if [ -n "${JAVA_HOME:-}" ]' in command:
+            return 0, "/home/tester/java-home/bin/java\n", ""
+        if "/home/tester/java-home/bin/java -version" in command:
+            return 0, 'openjdk version "21.0.2" 2024-01-16\n', ""
+        if 'dirname "$(dirname "$JAVA_BIN")"' in command and "/home/tester/java-home/bin/java" in command:
+            return 0, "/home/tester/java-home\n", ""
+        raise AssertionError(f"unexpected command: {command}")
+
+    item = resolve_remote_java(ssh_run_fn)
+
+    assert item["usable"] is True
+    assert item["source"] == "java_home"
+    assert item["home"] == "/home/tester/java-home"
+    assert item["path"] == "/home/tester/java-home/bin/java"
+    assert all('type -P java' not in command for command in seen)
 
 
 def test_resolve_remote_java_derives_absolute_binary_path_from_path_lookup() -> None:
@@ -132,6 +178,10 @@ def test_resolve_remote_java_derives_absolute_binary_path_from_path_lookup() -> 
 def test_resolve_remote_java_uses_sdkman_candidate_when_path_lookup_is_missing() -> None:
     def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
         _ = timeout
+        if 'if [ -n "${NXF_JAVA_HOME:-}" ]' in command:
+            return 0, "", ""
+        if 'if [ -n "${JAVA_HOME:-}" ]' in command:
+            return 0, "", ""
         if 'JAVA_BIN="$(type -P java 2>/dev/null || true)"' in command:
             return 0, "", ""
         if 'JAVA_BIN="$HOME/.sdkman/candidates/java/current/bin/java"' in command:

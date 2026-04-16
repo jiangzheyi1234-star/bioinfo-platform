@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from shlex import quote
 from typing import Optional
 
-from core.qt_compat import QObject, pyqtSignal
+from core.runtime_primitives import RuntimeObject, signal
 
 from core.data.project_manager import ProjectManager
 from core.remote.ssh_service import SSHService
@@ -49,7 +49,7 @@ class ExecutionDiskUsage:
     archived_count: int  # 已归档次数
 
 
-class ExecutionCleaner(QObject):
+class ExecutionCleaner(RuntimeObject):
     """执行清理器
 
     管理历史执行的磁盘占用，支持：
@@ -59,15 +59,15 @@ class ExecutionCleaner(QObject):
     """
 
     # 信号定义
-    archive_started = pyqtSignal(str)  # execution_id
-    archive_completed = pyqtSignal(str)  # execution_id
-    archive_failed = pyqtSignal(str, str)  # execution_id, error
+    archive_started = signal(str)  # execution_id
+    archive_completed = signal(str)  # execution_id
+    archive_failed = signal(str, str)  # execution_id, error
 
     def __init__(
         self,
         projects: ProjectManager,
         ssh: SSHService,
-        parent: Optional[QObject] = None,
+        parent: Optional[RuntimeObject] = None,
     ) -> None:
         super().__init__(parent)
         self._projects = projects
@@ -277,4 +277,3 @@ class ExecutionCleaner(QObject):
             )
 
         return results
-

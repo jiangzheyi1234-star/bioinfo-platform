@@ -77,10 +77,6 @@ class StorageManager:
 
         return self._parse_df_output(stdout.strip())
 
-    def check_disk_usage(self, remote_path: str = "/h2ometa") -> DiskUsage:
-        """Backward-compatible alias for older call sites."""
-        return self.get_disk_usage(remote_path)
-
     def get_storage_report(self, project_remote_base: str) -> StorageReport:
         """Get raw/intermediate/result size report."""
         tiers = ["raw", "intermediate", "result"]

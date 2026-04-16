@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from core.environment.detached_job import clear_remote_status_files, ensure_remote_dirs, write_remote_script
+from core.workflow.remote_job_utils import clear_remote_status_files, ensure_remote_dirs, write_remote_script
 
 from .bootstrap import BOOTSTRAP_DIR
 

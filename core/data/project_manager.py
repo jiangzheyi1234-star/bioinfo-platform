@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from core.qt_compat import QObject, pyqtSignal
+from core.runtime_primitives import RuntimeObject, signal
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ class ProjectInfo:
         )
 
 
-class ProjectManager(QObject):
+class ProjectManager(RuntimeObject):
     """项目生命周期管理器
 
     负责创建、打开、列出、归档项目，以及管理 SQLite 数据库连接。
@@ -183,17 +183,17 @@ class ProjectManager(QObject):
     """
 
     # 信号定义
-    project_created = pyqtSignal(str)   # project_id
-    project_opened = pyqtSignal(str)    # project_id
-    project_archived = pyqtSignal(str)  # project_id
-    project_deleted = pyqtSignal(str)   # project_id
+    project_created = signal(str)   # project_id
+    project_opened = signal(str)    # project_id
+    project_archived = signal(str)  # project_id
+    project_deleted = signal(str)   # project_id
 
     def __init__(
         self,
         projects_root: Optional[Path] = None,
         index_path: Optional[Path] = None,
         last_project_path: Optional[Path] = None,
-        parent: Optional[QObject] = None,
+        parent: Optional[RuntimeObject] = None,
     ) -> None:
         super().__init__(parent)
         self._projects_root = projects_root or DEFAULT_PROJECTS_ROOT

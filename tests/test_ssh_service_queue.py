@@ -70,7 +70,7 @@ class _FakeShellClient:
 
 class _FakeInteractiveChannel(_FakeTerminalChannel):
     def __init__(self):
-        super().__init__([])
+        super().__init__([b"$ "])
         self._buffer = ""
 
     def get_pty(self, term: str = "xterm-256color", width: int = 120, height: int = 28):
@@ -92,15 +92,15 @@ class _FakeInteractiveChannel(_FakeTerminalChannel):
         end_match = None
         import re
 
-        begin_match = re.search(r"printf '%s\\n' '(__OMX_BEGIN_[^']+__)'", data)
-        rc_match = re.search(r"printf '%s%s\\n' '(__OMX_RC_[^']+__)'", data)
-        end_match = re.search(r"printf '%s\\n' '(__OMX_END_[^']+__)'", data)
+        begin_match = re.search(r"echo '(__OMX_BEGIN_[^']+__)'", data)
+        rc_match = re.search(r"echo '(__OMX_RC_[^']+__)'", data)
+        end_match = re.search(r"echo '(__OMX_END_[^']+__)'", data)
         if begin_match and rc_match and end_match:
             payload = (
                 f"{begin_match.group(1)}\n"
                 "hello from interactive shell\n"
                 f"{rc_match.group(1)}0\n"
-                f"{end_match.group(1)}\n"
+                f"{end_match.group(1)} 0\n"
             )
             self._payloads.append(payload.encode("utf-8"))
         return len(data)
@@ -185,7 +185,11 @@ def test_ssh_service_priority_preemption() -> None:
     t3.join()
 
     service.close()
-    assert executed[:3] == ["cat /tmp/status.txt", "test -d /tmp", "cat /tmp/status.txt"]
+    assert executed[:3] == [
+        "cat /tmp/status.txt",
+        "test -d /tmp",
+        "cat /tmp/status.txt",
+    ]
 
 
 def test_execute_command_reads_streams_before_exit_status() -> None:
@@ -251,7 +255,9 @@ def test_open_terminal_session_reads_output_and_accepts_input() -> None:
     session.send("pwd\\n")
     session.resize(cols=132, rows=36)
     snapshot = session.snapshot(cursor=0)
-    waited, version = session.wait_for_update(cursor=len("hello\\nworld\\n"), version=-1, timeout=0.0)
+    waited, version = session.wait_for_update(
+        cursor=len("hello\\nworld\\n"), version=-1, timeout=0.0
+    )
 
     session.close(message="done", connected=False)
     service.close()
@@ -295,3 +301,72 @@ def test_run_interactive_executes_via_invoke_shell_and_parses_markers() -> None:
     assert "hello from interactive shell" in out
     assert err == ""
     assert any("stty -echo" in sent for sent in channel.sent)
+
+
+def test_run_interactive_parser_accepts_exit_code_on_end_marker_line() -> None:
+    service = SSHService(initial_client=_FakeClient())
+
+    rc, out, err = service._parse_interactive_command_output(  # type: ignore[attr-defined]
+        text="__OMX_BEGIN_case__\nhello from interactive shell\n__OMX_END_case__ 7\n",
+        begin_marker="__OMX_BEGIN_case__",
+        rc_marker="__OMX_RC_case__",
+        end_marker="__OMX_END_case__",
+    )
+    service.close()
+
+    assert rc == 7
+    assert out == "hello from interactive shell"
+    assert err == ""
+
+
+def test_run_interactive_parser_prefers_last_marker_set_when_command_echoes_payload() -> None:
+    service = SSHService(initial_client=_FakeClient())
+    text = "\n".join(
+        [
+            "stty -echo >/dev/null 2>&1",
+            "printf '%s\\n' '__OMX_BEGIN_case__'",
+            "printf '%s%s\\n' '__OMX_RC_case__' \"$__omx_status\"",
+            "printf '%s %s\\n' '__OMX_END_case__' \"$__omx_status\"",
+            "__OMX_BEGIN_case__",
+            "actual remote output",
+            "__OMX_END_case__ 0",
+        ]
+    )
+
+    rc, out, err = service._parse_interactive_command_output(  # type: ignore[attr-defined]
+        text=text,
+        begin_marker="__OMX_BEGIN_case__",
+        rc_marker="__OMX_RC_case__",
+        end_marker="__OMX_END_case__",
+    )
+    service.close()
+
+    assert rc == 0
+    assert out == "actual remote output"
+    assert err == ""
+
+
+def test_run_interactive_parser_ignores_echoed_marker_commands_after_real_output() -> None:
+    service = SSHService(initial_client=_FakeClient())
+    text = "\n".join(
+        [
+            "__OMX_BEGIN_case__",
+            "docker ps >/dev/null 2>&1",
+            "__OMX_RC_case__0",
+            "__OMX_END_case__ 0",
+            "echo '__OMX_RC_case__'\"$__omx_status\"",
+            "echo '__OMX_END_case__' \"$__omx_status\"",
+        ]
+    )
+
+    rc, out, err = service._parse_interactive_command_output(  # type: ignore[attr-defined]
+        text=text,
+        begin_marker="__OMX_BEGIN_case__",
+        rc_marker="__OMX_RC_case__",
+        end_marker="__OMX_END_case__",
+    )
+    service.close()
+
+    assert rc == 0
+    assert out == "docker ps >/dev/null 2>&1"
+    assert err == ""

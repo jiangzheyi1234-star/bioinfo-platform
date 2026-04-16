@@ -76,7 +76,7 @@ class TestParseDfOutput:
             StorageManager._parse_df_output("invalid")
 
 
-# ── check_disk_usage 测试 ─────────────────────────────────
+# ── get_disk_usage 测试 ───────────────────────────────────
 
 
 class TestCheckDiskUsage:
@@ -90,7 +90,7 @@ class TestCheckDiskUsage:
             "/dev/sda1  500107862016  200043544064  274624765952  43% /h2ometa",
         )
         mgr = StorageManager(ssh)
-        usage = mgr.check_disk_usage("/h2ometa")
+        usage = mgr.get_disk_usage("/h2ometa")
 
         assert abs(usage.percent - 0.43) < 0.01
         assert usage.mount_point == "/h2ometa"
@@ -100,7 +100,7 @@ class TestCheckDiskUsage:
         ssh.set_response("df -B1", 1, "", "No such file or directory")
         mgr = StorageManager(ssh)
         with pytest.raises(RuntimeError, match="df 命令失败"):
-            mgr.check_disk_usage("/nonexistent")
+            mgr.get_disk_usage("/nonexistent")
 
 
 # ── get_storage_report 测试 ───────────────────────────────

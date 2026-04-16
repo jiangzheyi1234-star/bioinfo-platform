@@ -1,7 +1,7 @@
-"""Minimal QtCore compatibility layer for headless/runtime services.
+"""Minimal runtime primitives for headless Python services.
 
-This module intentionally provides a tiny subset used by core services so the
-runtime no longer depends on PyQt6.
+This module provides the tiny signal/thread/mutex subset used by the backend
+without carrying any Qt naming or compatibility surface.
 """
 
 from __future__ import annotations
@@ -55,31 +55,34 @@ class _SignalDescriptor:
         return signal
 
 
-def pyqtSignal(*args: Any) -> _SignalDescriptor:  # noqa: ARG001
+def signal(*args: Any) -> _SignalDescriptor:  # noqa: ARG001
     return _SignalDescriptor(*args)
 
 
-def pyqtSlot(*args: Any, **kwargs: Any):  # noqa: ANN001, ARG001
+def slot(*args: Any, **kwargs: Any):  # noqa: ANN001, ARG001
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         return fn
 
     return decorator
 
 
-class QObject:
-    def __init__(self, parent: "QObject | None" = None) -> None:
+class RuntimeObject:
+    def __init__(self, parent: "RuntimeObject | None" = None) -> None:
         self._parent = parent
-        self._thread: QThread | None = None
+        self._thread: RuntimeThread | None = None
 
-    def moveToThread(self, thread: "QThread") -> None:
+    def move_to_thread(self, thread: "RuntimeThread") -> None:
         self._thread = thread
 
+    def moveToThread(self, thread: "RuntimeThread") -> None:
+        self.move_to_thread(thread)
 
-class QThread(QObject):
-    started = pyqtSignal()
-    finished = pyqtSignal()
 
-    def __init__(self, parent: QObject | None = None) -> None:
+class RuntimeThread(RuntimeObject):
+    started = signal()
+    finished = signal()
+
+    def __init__(self, parent: RuntimeObject | None = None) -> None:
         super().__init__(parent)
         self._thread: threading.Thread | None = None
         self._running = threading.Event()
@@ -124,7 +127,7 @@ class QThread(QObject):
         time.sleep(max(ms, 0) / 1000.0)
 
 
-class QMutex:
+class RuntimeMutex:
     def __init__(self) -> None:
         self._lock = threading.RLock()
 
@@ -135,13 +138,13 @@ class QMutex:
         self._lock.release()
 
 
-class QMutexLocker:
-    def __init__(self, mutex: QMutex) -> None:
+class RuntimeMutexLocker:
+    def __init__(self, mutex: RuntimeMutex) -> None:
         self._mutex = mutex
         self._locked = True
         self._mutex.lock()
 
-    def __enter__(self) -> "QMutexLocker":
+    def __enter__(self) -> "RuntimeMutexLocker":
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
@@ -156,11 +159,11 @@ class QMutexLocker:
         self.unlock()
 
 
-class QWaitCondition:
+class RuntimeWaitCondition:
     def __init__(self) -> None:
         self._condition = threading.Condition()
 
-    def wait(self, mutex: QMutex, timeout_ms: int | None = None) -> bool:
+    def wait(self, mutex: RuntimeMutex, timeout_ms: int | None = None) -> bool:
         timeout_s = None if timeout_ms is None or timeout_ms < 0 else timeout_ms / 1000.0
         with self._condition:
             mutex.unlock()
@@ -168,47 +171,60 @@ class QWaitCondition:
             mutex.lock()
             return notified
 
-    def wakeAll(self) -> None:
+    def wake_all(self) -> None:
         with self._condition:
             self._condition.notify_all()
 
+    def wakeAll(self) -> None:
+        self.wake_all()
 
-class QRunnable:
+
+class RuntimeRunnable:
     def __init__(self) -> None:
         self._auto_delete = True
 
-    def setAutoDelete(self, value: bool) -> None:
+    def set_auto_delete(self, value: bool) -> None:
         self._auto_delete = bool(value)
+
+    def setAutoDelete(self, value: bool) -> None:
+        self.set_auto_delete(value)
 
     def run(self) -> None:
         raise NotImplementedError
 
 
-class QThreadPool(QObject):
-    def __init__(self, parent: QObject | None = None) -> None:
+class RuntimeThreadPool(RuntimeObject):
+    def __init__(self, parent: RuntimeObject | None = None) -> None:
         super().__init__(parent)
         self._max_threads = 1
-        self._executor = ThreadPoolExecutor(max_workers=self._max_threads, thread_name_prefix="qt_compat_pool")
+        self._executor = ThreadPoolExecutor(
+            max_workers=self._max_threads, thread_name_prefix="runtime_pool"
+        )
         self._futures: set[Any] = set()
         self._lock = threading.RLock()
 
-    def setMaxThreadCount(self, count: int) -> None:
+    def set_max_thread_count(self, count: int) -> None:
         target = max(1, int(count))
         if target == self._max_threads:
             return
         with self._lock:
             old_executor = self._executor
-            self._executor = ThreadPoolExecutor(max_workers=target, thread_name_prefix="qt_compat_pool")
+            self._executor = ThreadPoolExecutor(
+                max_workers=target, thread_name_prefix="runtime_pool"
+            )
             self._max_threads = target
         old_executor.shutdown(wait=False, cancel_futures=False)
 
-    def start(self, runnable: QRunnable) -> None:
+    def setMaxThreadCount(self, count: int) -> None:
+        self.set_max_thread_count(count)
+
+    def start(self, runnable: RuntimeRunnable) -> None:
         with self._lock:
             future = self._executor.submit(runnable.run)
             self._futures.add(future)
             future.add_done_callback(self._futures.discard)
 
-    def waitForDone(self, timeout_ms: int = -1) -> bool:
+    def wait_for_done(self, timeout_ms: int = -1) -> bool:
         timeout_s = None if timeout_ms is None or timeout_ms < 0 else timeout_ms / 1000.0
         with self._lock:
             futures = list(self._futures)
@@ -216,3 +232,6 @@ class QThreadPool(QObject):
             return True
         done, pending = wait(futures, timeout=timeout_s)
         return len(pending) == 0
+
+    def waitForDone(self, timeout_ms: int = -1) -> bool:
+        return self.wait_for_done(timeout_ms)

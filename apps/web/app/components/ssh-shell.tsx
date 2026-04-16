@@ -21,8 +21,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PrepareServerWizard } from "@/app/components/prepare-server-wizard";
-import { deriveRuntimeStatus, loadRuntimeInspection, type RuntimeStatus } from "@/app/components/runtime-inspection";
 import { LocalApiError, apiBase, requestLocalApiJson } from "@/app/lib/local-api-client";
 import { readTerminalClipboard, writeTerminalClipboard } from "@/app/components/ssh-terminal-clipboard";
 import {
@@ -123,6 +121,7 @@ type XTermLike = {
 type TerminalHandle = {
   terminal: XTermLike;
   fitAddon: FitAddonLike;
+  disposed: boolean;
 };
 
 type SshShellContextValue = {
@@ -248,32 +247,15 @@ function readStoredTerminalHeight(): number {
   return clampTerminalHeight(parsed);
 }
 
-function runtimePreparedKey(status: Pick<SSHStatus, "host" | "port" | "user"> | null): string {
-  if (!status) {
-    return "";
-  }
-  const host = String(status.host || "").trim().toLowerCase();
-  const user = String(status.user || "").trim().toLowerCase();
-  const port = Number(status.port || 22);
-  if (!host || !user) {
-    return "";
-  }
-  return `${user}@${host}:${port}`;
-}
-
-type ResolvedRuntimeState = {
-  hostKey?: string;
-  nextflowPath?: string;
-  javaPath?: string;
-  selectedProfile?: string;
-  verificationStatus?: string;
-};
-
 function getTerminalGridSize(terminal: XTermLike | null | undefined): { cols: number; rows: number } {
   return {
     cols: clampTerminalCols(terminal?.cols || 120),
     rows: clampTerminalRows(terminal?.rows || 28),
   };
+}
+
+function isTerminalHandleActive(handle: TerminalHandle | null | undefined): handle is TerminalHandle {
+  return Boolean(handle && !handle.disposed);
 }
 
 export function SshShellProvider({ children }: { children: ReactNode }) {
@@ -297,18 +279,13 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const terminalSelectionRef = useRef("");
   const terminalInputEnabledRef = useRef(false);
   const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const lastSilentRuntimeCheckKeyRef = useRef("");
-
   const [status, setStatus] = useState<SSHStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [prepareDialogOpen, setPrepareDialogOpen] = useState(false);
   const [form, setForm] = useState<SSHFormState>(defaultForm);
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [formError, setFormError] = useState("");
-  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>("unknown");
-  const [resolvedRuntimeState, setResolvedRuntimeState] = useState<ResolvedRuntimeState | null>(null);
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
@@ -320,8 +297,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [terminalError, setTerminalError] = useState("");
   const [terminalGridLabel, setTerminalGridLabel] = useState("120x28");
-  const runtimeIdentityKey = runtimePreparedKey(status);
-
   const applyTerminalSnapshot = useCallback((item: TerminalSnapshot, mode: "replace" | "append" = "append") => {
     terminalCursorRef.current = item.cursor || 0;
     terminalSessionIdRef.current = item.session_id;
@@ -415,50 +390,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setTerminalHeight(readStoredTerminalHeight());
     void fetchStatus();
   }, [fetchStatus]);
-
-  const detectRuntimeReadiness = useCallback(async (): Promise<RuntimeStatus> => {
-    if (!status?.connected) {
-      setRuntimeStatus("unknown");
-      return "unknown";
-    }
-    try {
-      const inspection = await loadRuntimeInspection();
-      const nextStatus = deriveRuntimeStatus(inspection);
-      setRuntimeStatus(nextStatus);
-      const resolved = inspection.resolvedRuntime || {};
-      setResolvedRuntimeState({
-        hostKey: String(resolved.host_key || "").trim(),
-        nextflowPath: String(resolved.nextflow_path || "").trim(),
-        javaPath: String(resolved.java_path || "").trim(),
-        selectedProfile: String(resolved.selected_profile || "").trim(),
-        verificationStatus: String(resolved.verification_status || "").trim(),
-      });
-      if (nextStatus === "missing") {
-        if (String(resolved.host_key || "").trim() === runtimeIdentityKey && String(resolved.verification_status || "").trim() === "verified") {
-          await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", { body: { verification_status: "failed" } }).catch(() => undefined);
-          setResolvedRuntimeState((current) => (current ? { ...current, verificationStatus: "failed" } : current));
-        }
-      }
-      return nextStatus;
-    } catch {
-      setRuntimeStatus("unknown");
-      return "unknown";
-    }
-  }, [status]);
-
-  useEffect(() => {
-    if (!status?.connected) {
-      setRuntimeStatus("unknown");
-      setResolvedRuntimeState(null);
-      lastSilentRuntimeCheckKeyRef.current = "";
-      return;
-    }
-    if (!runtimeIdentityKey || lastSilentRuntimeCheckKeyRef.current === runtimeIdentityKey) {
-      return;
-    }
-    lastSilentRuntimeCheckKeyRef.current = runtimeIdentityKey;
-    void detectRuntimeReadiness();
-  }, [detectRuntimeReadiness, runtimeIdentityKey, status]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -565,10 +496,14 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
   const syncTerminalDimensions = useCallback(
     (handle: TerminalHandle | null, options?: { force?: boolean }) => {
-      if (!handle) {
+      if (!isTerminalHandleActive(handle)) {
         return;
       }
-      handle.fitAddon.fit();
+      try {
+        handle.fitAddon.fit();
+      } catch {
+        return;
+      }
       if (!terminalSessionIdRef.current || terminalSessionClosedRef.current) {
         return;
       }
@@ -715,8 +650,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(node);
+      const terminalHandle: TerminalHandle = { terminal, fitAddon, disposed: false };
       fitAddon.fit();
-      terminalHandleRef.current = { terminal, fitAddon };
+      terminalHandleRef.current = terminalHandle;
       terminalResizeStateRef.current = null;
       renderedTerminalOutputRef.current = "";
 
@@ -793,7 +729,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         selectionDisposable?.dispose();
         resizeObserver.disconnect();
         node.removeEventListener("paste", handlePaste);
-        terminalHandleRef.current = null;
+        terminalHandle.disposed = true;
+        if (terminalHandleRef.current === terminalHandle) {
+          terminalHandleRef.current = null;
+        }
         terminalResizeStateRef.current = null;
         renderedTerminalOutputRef.current = "";
         terminalSelectionRef.current = "";
@@ -813,7 +752,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handle = terminalHandleRef.current;
-    if (!handle) {
+    if (!isTerminalHandleActive(handle)) {
       return;
     }
     handle.terminal.options.disableStdin = !terminalInputEnabled;
@@ -821,7 +760,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handle = terminalHandleRef.current;
-    if (!handle) {
+    if (!isTerminalHandleActive(handle)) {
       return;
     }
 
@@ -855,7 +794,11 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       return;
     }
     const frame = window.requestAnimationFrame(() => {
-      terminalHandleRef.current?.terminal.focus();
+      const handle = terminalHandleRef.current;
+      if (!isTerminalHandleActive(handle)) {
+        return;
+      }
+      handle.terminal.focus();
     });
     return () => window.cancelAnimationFrame(frame);
   }, [terminalInputEnabled, terminalOpen, terminalSessionId]);
@@ -940,10 +883,11 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       creatingTerminalSessionRef.current = true;
       setTerminalBusy(true);
       try {
-        if (!terminalHandleRef.current) {
+        if (!isTerminalHandleActive(terminalHandleRef.current)) {
           await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
         }
-        const { cols, rows } = getTerminalGridSize(terminalHandleRef.current?.terminal);
+        const terminalHandle = isTerminalHandleActive(terminalHandleRef.current) ? terminalHandleRef.current : null;
+        const { cols, rows } = getTerminalGridSize(terminalHandle?.terminal);
         if (terminalSessionId) {
           await requestLocalApiJson("DELETE", `/api/v1/ssh/terminal/sessions/${terminalSessionId}`).catch(() => undefined);
           resetTerminalState();
@@ -1087,23 +1031,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                         setDialogOpen(true);
                         return;
                       }
-                      const checkedStatus = await detectRuntimeReadiness();
-                      if (checkedStatus === "missing") {
-                        setPrepareDialogOpen(true);
-                        return;
-                      }
-                      if (
-                        checkedStatus === "unknown" &&
-                        resolvedRuntimeState?.hostKey === runtimeIdentityKey &&
-                        resolvedRuntimeState?.verificationStatus === "verified"
-                      ) {
-                        router.push("/connect");
-                        return;
-                      }
-                      if (checkedStatus !== "ready") {
-                        setPrepareDialogOpen(true);
-                        return;
-                      }
                       router.push("/connect");
                     })()}
                   >
@@ -1123,13 +1050,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setPrepareDialogOpen(true);
-                          }}
-                        >
-                          运行时设置
-                        </DropdownMenuItem>
                         <DropdownMenuItem destructive onSelect={() => void submitDisconnect()}>
                           {disconnectBusy ? "断开中..." : "断开连接"}
                         </DropdownMenuItem>
@@ -1335,36 +1255,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           </div>
         </DialogContent>
       </Dialog>
-
-      <PrepareServerWizard
-        open={prepareDialogOpen}
-        sshStatus={
-          status?.connected
-            ? {
-                connected: status.connected,
-                host: status.host,
-                port: status.port,
-                user: status.user,
-              }
-            : null
-        }
-        runtimeReady={runtimeStatus === "ready"}
-        resolvedRuntime={resolvedRuntimeState}
-        onOpenChange={setPrepareDialogOpen}
-        onPrepared={(resolved) => {
-          setRuntimeStatus("ready");
-          setResolvedRuntimeState({
-            hostKey: runtimeIdentityKey,
-            nextflowPath: resolved?.nextflowPath || "",
-            javaPath: resolved?.javaPath || "",
-            selectedProfile: resolved?.selectedProfile || "",
-            verificationStatus: "verified",
-          });
-          void fetchStatus({ silent: true });
-        }}
-        onOpenTerminal={() => void startTerminalSession()}
-        onSendTerminalCommand={(command) => sendTerminalCommand(command)}
-      />
     </SshShellContext.Provider>
   );
 }

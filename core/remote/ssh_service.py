@@ -3,6 +3,7 @@
 提供远程命令执行、文件传输等功能。
 集成 SSHReconnector 实现连接丢失时的自动重连。
 """
+
 import logging
 import queue
 import re
@@ -11,10 +12,10 @@ import time
 import uuid
 from dataclasses import dataclass
 from threading import Condition, Event, RLock, Thread
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import paramiko
-from core.qt_compat import QObject, pyqtSignal
+from core.runtime_primitives import RuntimeObject, signal
 
 from core.remote.ssh_reconnector import SSHReconnector
 
@@ -24,6 +25,13 @@ _PRIO_USER_INTERACTIVE = 1
 _PRIO_TASK_SUBMIT = 3
 _PRIO_BACKGROUND_POLL = 9
 _STOP = "__SSH_QUEUE_STOP__"
+
+
+def _single_line_preview(text: str, limit: int = 220) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."
 
 
 class TerminalSession:
@@ -43,7 +51,11 @@ class TerminalSession:
         self._created_at = time.time()
         self._closed_at: float | None = None
         self._version = 0
-        self._reader = Thread(target=self._reader_loop, daemon=True, name=f"SSHTerminalReader-{session_id}")
+        self._reader = Thread(
+            target=self._reader_loop,
+            daemon=True,
+            name=f"SSHTerminalReader-{session_id}",
+        )
         self._reader.start()
 
     def snapshot(self, cursor: int = 0) -> dict[str, Any]:
@@ -70,7 +82,9 @@ class TerminalSession:
             try:
                 self._channel.send(data)
             except Exception as exc:
-                self._mark_closed(message=str(exc) or "Terminal session write failed", connected=False)
+                self._mark_closed(
+                    message=str(exc) or "Terminal session write failed", connected=False
+                )
                 raise
 
     def resize(self, *, cols: int, rows: int) -> None:
@@ -83,7 +97,10 @@ class TerminalSession:
             try:
                 resize_pty(width=max(40, int(cols)), height=max(12, int(rows)))
             except Exception as exc:
-                self._mark_closed(message=str(exc) or "Terminal session resize failed", connected=False)
+                self._mark_closed(
+                    message=str(exc) or "Terminal session resize failed",
+                    connected=False,
+                )
                 raise
 
     def wait_for_update(
@@ -101,7 +118,9 @@ class TerminalSession:
                 self._updates.wait(timeout=max(0.0, float(timeout)))
             return self.snapshot(cursor=safe_cursor), self._version
 
-    def close(self, *, message: str = "终端会话已结束", connected: bool = False) -> None:
+    def close(
+        self, *, message: str = "终端会话已结束", connected: bool = False
+    ) -> None:
         with self._lock:
             if self._closed:
                 if message and not self._message:
@@ -141,30 +160,45 @@ class TerminalSession:
         try:
             while not self._stop.is_set():
                 had_data = False
-                while not self._stop.is_set() and getattr(self._channel, "recv_ready", lambda: False)():
+                while (
+                    not self._stop.is_set()
+                    and getattr(self._channel, "recv_ready", lambda: False)()
+                ):
                     chunk = self._channel.recv(4096)
                     if not chunk:
                         break
                     self._append_output(chunk.decode("utf-8", errors="ignore"))
                     had_data = True
-                while not self._stop.is_set() and getattr(self._channel, "recv_stderr_ready", lambda: False)():
+                while (
+                    not self._stop.is_set()
+                    and getattr(self._channel, "recv_stderr_ready", lambda: False)()
+                ):
                     chunk = self._channel.recv_stderr(4096)
                     if not chunk:
                         break
                     self._append_output(chunk.decode("utf-8", errors="ignore"))
                     had_data = True
-                if getattr(self._channel, "closed", False) or getattr(self._channel, "exit_status_ready", lambda: False)():
+                if (
+                    getattr(self._channel, "closed", False)
+                    or getattr(self._channel, "exit_status_ready", lambda: False)()
+                ):
                     if not had_data:
                         with self._lock:
                             if not self._closed:
-                                self._mark_closed(message="终端会话已结束", connected=False)
+                                self._mark_closed(
+                                    message="终端会话已结束", connected=False
+                                )
                         return
                 time.sleep(0.05)
         except Exception as exc:
-            logger.debug("Interactive terminal reader stopped with error", exc_info=True)
+            logger.debug(
+                "Interactive terminal reader stopped with error", exc_info=True
+            )
             with self._lock:
                 if not self._closed:
-                    self._mark_closed(message=str(exc) or "终端会话已结束", connected=False)
+                    self._mark_closed(
+                        message=str(exc) or "终端会话已结束", connected=False
+                    )
         finally:
             self._stop.set()
 
@@ -183,7 +217,7 @@ class _CommandRequest:
     exc: Exception | None = None
 
 
-class SSHService(QObject):
+class SSHService(RuntimeObject):
     """SSH 服务封装
 
     封装 paramiko.SSHClient，提供命令执行、文件传输等功能。
@@ -193,14 +227,14 @@ class SSHService(QObject):
         connection_status_changed(bool): 连接状态变化 (True=已连接, False=断开)
     """
 
-    connection_status_changed = pyqtSignal(bool)
+    connection_status_changed = signal(bool)
 
     def __init__(
         self,
         initial_client: Optional[paramiko.SSHClient] = None,
         connect_fn: Optional[Callable[[], paramiko.SSHClient]] = None,
         max_retries: int = 5,
-        parent: Optional[QObject] = None,
+        parent: Optional[RuntimeObject] = None,
     ):
         """
         Args:
@@ -208,16 +242,20 @@ class SSHService(QObject):
             connect_fn: 重连函数，调用后返回新的 SSHClient。
                         若为 None，则不启用自动重连。
             max_retries: SSHReconnector 最大重试次数，默认 5
-            parent: 父 QObject
+            parent: 父运行时对象
         """
         super().__init__(parent)
         self._active_client: Optional[paramiko.SSHClient] = initial_client
         self._connect_fn = connect_fn
         self._io_lock = RLock()
-        self._queue: "queue.PriorityQueue[tuple[int, int, _CommandRequest | str]]" = queue.PriorityQueue()
+        self._queue: "queue.PriorityQueue[tuple[int, int, _CommandRequest | str]]" = (
+            queue.PriorityQueue()
+        )
         self._seq = 0
         self._queue_alive = True
-        self._worker = Thread(target=self._queue_loop, daemon=True, name="SSHServiceQueueWorker")
+        self._worker = Thread(
+            target=self._queue_loop, daemon=True, name="SSHServiceQueueWorker"
+        )
         self._worker.start()
         self._terminal_sessions: dict[str, TerminalSession] = {}
 
@@ -282,7 +320,9 @@ class SSHService(QObject):
             try:
                 old_client.close()
             except Exception:
-                logger.debug("Failed to close old SSH client after reconnection", exc_info=True)
+                logger.debug(
+                    "Failed to close old SSH client after reconnection", exc_info=True
+                )
         self.connection_status_changed.emit(True)
 
     def _on_connection_lost(self) -> None:
@@ -378,45 +418,6 @@ class SSHService(QObject):
         finally:
             sftp_client.close()
 
-    def check_command_exists(self, command: str) -> bool:
-        """检查远端是否存在某个命令"""
-        try:
-            rc, out, _ = self.run(f"command -v {command}", timeout=10)
-            return rc == 0 and out.strip() != ""
-        except Exception:
-            return False
-
-    def check_screen_session(self, session_name: str) -> bool:
-        """检查指定的 screen 会话是否存在"""
-        try:
-            rc, out, _ = self.run(f"screen -ls | grep -q {session_name}", timeout=10)
-            return rc == 0
-        except Exception:
-            return False
-
-    def kill_screen_session(self, session_name: str) -> bool:
-        """终止指定的 screen 会话"""
-        try:
-            rc, _, _ = self.run(f"screen -S {session_name} -X quit", timeout=10)
-            return rc == 0
-        except Exception:
-            return False
-
-    def list_screen_sessions(self) -> List[str]:
-        """列出所有 screen 会话"""
-        try:
-            rc, out, _ = self.run("screen -ls", timeout=10)
-            sessions = []
-            for line in out.split('\n'):
-                if '\t' in line and ('Detached' in line or 'Attached' in line):
-                    parts = line.strip().split('\t')
-                    if parts:
-                        session_id = parts[0].split('.')[1] if '.' in parts[0] else parts[0]
-                        sessions.append(session_id)
-            return sessions
-        except Exception:
-            return []
-
     def open_terminal(
         self,
         *,
@@ -431,7 +432,9 @@ class SSHService(QObject):
             if transport is None or not transport.is_active():
                 raise RuntimeError("SSH 未连接")
             channel = transport.open_session(timeout=10)
-            channel.get_pty(term=term, width=max(40, int(cols)), height=max(12, int(rows)))
+            channel.get_pty(
+                term=term, width=max(40, int(cols)), height=max(12, int(rows))
+            )
             channel.invoke_shell()
             channel.settimeout(0.0)
             return channel
@@ -452,7 +455,9 @@ class SSHService(QObject):
             except Exception:
                 logger.debug("Failed to close SSH client", exc_info=True)
 
-    def open_terminal_session(self, *, cols: int = 120, rows: int = 28) -> TerminalSession:
+    def open_terminal_session(
+        self, *, cols: int = 120, rows: int = 28
+    ) -> TerminalSession:
         with self._io_lock:
             client = self._ensure_connection()
             transport = client.get_transport()
@@ -466,7 +471,9 @@ class SSHService(QObject):
             )
             channel.invoke_shell()
             channel.settimeout(0.0)
-        session = TerminalSession(session_id=f"term_{uuid.uuid4().hex}", channel=channel)
+        session = TerminalSession(
+            session_id=f"term_{uuid.uuid4().hex}", channel=channel
+        )
         self._terminal_sessions[session.session_id] = session
         return session
 
@@ -490,13 +497,13 @@ class SSHService(QObject):
         rc_marker = f"__OMX_RC_{marker}__"
         end_marker = f"__OMX_END_{marker}__"
         payload = (
-            "stty -echo >/dev/null 2>&1\n"
-            f"printf '%s\\n' '{begin_marker}'\n"
+            "stty -echo >/dev/null 2>&1 || true\n"
+            f"echo '{begin_marker}'\n"
             f"{cmd}\n"
             "__omx_status=$?\n"
-            f"printf '%s%s\\n' '{rc_marker}' \"$__omx_status\"\n"
-            f"printf '%s\\n' '{end_marker}'\n"
-            "stty echo >/dev/null 2>&1\n"
+            f"echo '{rc_marker}'\"$__omx_status\"\n"
+            f"echo '{end_marker}' \"$__omx_status\"\n"
+            "stty echo >/dev/null 2>&1 || true\n"
         )
 
         with self._io_lock:
@@ -505,13 +512,30 @@ class SSHService(QObject):
             if transport is None or not transport.is_active():
                 raise RuntimeError("SSH 未连接")
             channel = transport.open_session(timeout=10)
-            channel.get_pty(term=term, width=max(40, int(cols)), height=max(12, int(rows)))
+            channel.get_pty(
+                term=term, width=max(40, int(cols)), height=max(12, int(rows))
+            )
             channel.invoke_shell()
             channel.settimeout(0.0)
 
             output_chunks: list[str] = []
             deadline = time.monotonic() + max(float(timeout), 0.1)
+            init_deadline = time.monotonic() + 2.0
             try:
+                while time.monotonic() < init_deadline:
+                    if getattr(channel, "recv_ready", lambda: False)():
+                        chunk = channel.recv(32768)
+                        if chunk:
+                            output_chunks.append(chunk.decode("utf-8", errors="ignore"))
+                        else:
+                            break
+                    else:
+                        if output_chunks:
+                            break
+                        time.sleep(0.05)
+                init_output = "".join(output_chunks)
+                if init_output:
+                    logger.debug("SSH interactive shell init: %r", init_output[:200])
                 channel.send(payload)
                 while True:
                     made_progress = False
@@ -536,14 +560,18 @@ class SSHService(QObject):
                             end_marker=end_marker,
                         )
                     if time.monotonic() >= deadline:
-                        raise TimeoutError(f"SSH interactive command timed out after {timeout}s: {self._build_tag(cmd)}")
+                        raise TimeoutError(
+                            f"SSH interactive command timed out after {timeout}s: {self._build_tag(cmd)}"
+                        )
                     if not made_progress:
                         time.sleep(0.05)
             finally:
                 try:
                     channel.close()
                 except Exception:
-                    logger.debug("Failed to close interactive SSH channel", exc_info=True)
+                    logger.debug(
+                        "Failed to close interactive SSH channel", exc_info=True
+                    )
 
     def _parse_interactive_command_output(
         self,
@@ -553,17 +581,46 @@ class SSHService(QObject):
         rc_marker: str,
         end_marker: str,
     ) -> Tuple[int, str, str]:
-        begin_index = text.find(begin_marker)
-        end_index = text.find(end_marker)
-        if begin_index < 0 or end_index < 0 or end_index < begin_index:
+        begin_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(begin_marker)}[ \t]*\r?$")
+        rc_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(rc_marker)}[ \t]*(\d+)[ \t]*\r?$")
+        end_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(end_marker)}(?:[ \t]+(\d+))?[ \t]*\r?$")
+
+        end_match = None
+        for match in end_pattern.finditer(text):
+            end_match = match
+        if end_match is None:
             raise RuntimeError("交互式 SSH 检测输出缺少完成标记")
-        content = text[begin_index + len(begin_marker):end_index]
-        content = content.lstrip("\r\n")
-        rc_match = re.search(rf"{re.escape(rc_marker)}\s*(\d+)", content)
-        if not rc_match:
-            raise RuntimeError("交互式 SSH 检测输出缺少退出码标记")
-        rc = int(rc_match.group(1))
-        stdout = content[: rc_match.start()].rstrip("\r\n")
+
+        begin_match = None
+        for match in begin_pattern.finditer(text, 0, end_match.start()):
+            begin_match = match
+        if begin_match is None or end_match.start() < begin_match.end():
+            raise RuntimeError("交互式 SSH 检测输出缺少完成标记")
+
+        end_line = end_match.group(0)
+        content = text[begin_match.end() : end_match.start()].lstrip("\r\n")
+        rc_match = None
+        for match in rc_pattern.finditer(content):
+            rc_match = match
+        end_rc = end_match.group(1)
+        if rc_match is not None:
+            rc = int(rc_match.group(1))
+            stdout = content[: rc_match.start()].rstrip("\r\n")
+        elif end_rc:
+            rc = int(end_rc)
+            stdout = content.rstrip("\r\n")
+        else:
+            logger.warning(
+                "SSH interactive parse failed: rc_marker=%s, end_line=%r, content_tail=%r",
+                rc_marker,
+                end_line[:200],
+                content[-500:] if len(content) > 500 else content,
+            )
+            raise RuntimeError(
+                "交互式 SSH 检测输出缺少退出码标记"
+                f"；结束行: {_single_line_preview(end_line, 120)}"
+                f"；输出片段: {_single_line_preview(content or text)}"
+            )
         return rc, stdout, ""
 
     def close_terminal_sessions(self, *, message: str, connected: bool = False) -> None:
@@ -573,7 +630,11 @@ class SSHService(QObject):
             try:
                 session.close(message=message, connected=connected)
             except Exception:
-                logger.debug("Failed to close terminal session %s", session.session_id, exc_info=True)
+                logger.debug(
+                    "Failed to close terminal session %s",
+                    session.session_id,
+                    exc_info=True,
+                )
 
     def _next_seq(self) -> int:
         with self._io_lock:
@@ -644,8 +705,12 @@ class SSHService(QObject):
                     try:
                         channel.close()
                     except Exception:
-                        logger.debug("Failed to close timed-out SSH channel", exc_info=True)
-                    raise TimeoutError(f"SSH command timed out after {timeout}s: {self._build_tag(cmd)}")
+                        logger.debug(
+                            "Failed to close timed-out SSH channel", exc_info=True
+                        )
+                    raise TimeoutError(
+                        f"SSH command timed out after {timeout}s: {self._build_tag(cmd)}"
+                    )
                 if not made_progress:
                     time.sleep(0.05)
 
@@ -660,10 +725,31 @@ class SSHService(QObject):
     def _classify_priority(self, cmd: str, async_mode: bool) -> int:
         lowered = str(cmd or "").lower()
         # 用户点击触发命令：目录浏览、权限校验、手动路径操作
-        if any(k in lowered for k in ("find ", "ls ", "test -d", "test -w", "test -x", "touch ", "mkdir -p")):
+        if any(
+            k in lowered
+            for k in (
+                "find ",
+                "ls ",
+                "test -d",
+                "test -w",
+                "test -x",
+                "touch ",
+                "mkdir -p",
+            )
+        ):
             return _PRIO_USER_INTERACTIVE
         # 后台轮询命令：状态文件、心跳、screen 列表、tail 日志
-        if any(k in lowered for k in ("status.txt", "heartbeat.txt", "exit_code.txt", "screen -ls", "tail -", "date +%s")):
+        if any(
+            k in lowered
+            for k in (
+                "status.txt",
+                "heartbeat.txt",
+                "exit_code.txt",
+                "screen -ls",
+                "tail -",
+                "date +%s",
+            )
+        ):
             return _PRIO_BACKGROUND_POLL
         # 任务提交/默认命令
         if async_mode:

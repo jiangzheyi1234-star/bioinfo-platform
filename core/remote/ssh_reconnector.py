@@ -1,14 +1,14 @@
-"""SSH 指数退避重连器
+"""SSH 指数退避重连器。
 
-在独立 QThread 中执行重连尝试，使用指数退避策略 (2/4/8/16/32/60s)。
-通过 pyqtSignal 通知重连状态变化。
+在独立运行时线程中执行重连尝试，使用指数退避策略 (2/4/8/16/32/60s)，
+并通过纯 Python 信号分发状态变化。
 """
 import logging
 import time
 from typing import Optional, Callable
 
 import paramiko
-from core.qt_compat import QObject, QThread, pyqtSignal, pyqtSlot
+from core.runtime_primitives import RuntimeObject, RuntimeThread, signal, slot
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 BACKOFF_DELAYS = [2, 4, 8, 16, 32, 60]
 
 
-class _ReconnectWorker(QObject):
-    """在 QThread 中执行实际重连操作的 Worker"""
+class _ReconnectWorker(RuntimeObject):
+    """在运行时线程中执行实际重连操作的 Worker。"""
 
     # 内部信号
-    attempt_made = pyqtSignal(int, int)  # (当前次数, 最大次数)
-    succeeded = pyqtSignal(object)  # paramiko.SSHClient
-    failed = pyqtSignal(str)  # 错误消息
+    attempt_made = signal(int, int)  # (当前次数, 最大次数)
+    succeeded = signal(object)  # paramiko.SSHClient
+    failed = signal(str)  # 错误消息
 
     def __init__(
         self,
@@ -38,7 +38,7 @@ class _ReconnectWorker(QObject):
         """请求取消重连"""
         self._cancelled = True
 
-    @pyqtSlot()
+    @slot()
     def run(self) -> None:
         """执行指数退避重连循环"""
         for attempt in range(1, self._max_retries + 1):
@@ -72,7 +72,7 @@ class _ReconnectWorker(QObject):
         self.failed.emit(f"SSH 重连失败: 已达最大尝试次数 ({self._max_retries})")
 
 
-class SSHReconnector(QObject):
+class SSHReconnector(RuntimeObject):
     """SSH 指数退避重连器
 
     使用指数退避策略在独立线程中尝试恢复 SSH 连接。
@@ -83,28 +83,28 @@ class SSHReconnector(QObject):
     """
 
     # 公开信号
-    reconnected = pyqtSignal(object)  # 重连成功，附带新的 paramiko.SSHClient
-    connection_lost = pyqtSignal()  # 连接丢失（开始重连前发出）
-    retry_attempt = pyqtSignal(int, int)  # (当前次数, 最大次数)
-    reconnect_failed = pyqtSignal(str)  # 重连最终失败，附带错误消息
+    reconnected = signal(object)  # 重连成功，附带新的 paramiko.SSHClient
+    connection_lost = signal()  # 连接丢失（开始重连前发出）
+    retry_attempt = signal(int, int)  # (当前次数, 最大次数)
+    reconnect_failed = signal(str)  # 重连最终失败，附带错误消息
 
     def __init__(
         self,
         connect_fn: Callable[[], paramiko.SSHClient],
         max_retries: int = 5,
-        parent: Optional[QObject] = None,
+        parent: Optional[RuntimeObject] = None,
     ):
         """
         Args:
             connect_fn: 可调用对象，调用后返回新的 paramiko.SSHClient 实例。
                         该函数应包含完整的连接逻辑（host/port/credentials）。
             max_retries: 最大重试次数，默认 5
-            parent: 父 QObject
+            parent: 父运行时对象
         """
         super().__init__(parent)
         self._connect_fn = connect_fn
         self.max_retries = max_retries
-        self._thread: Optional[QThread] = None
+        self._thread: Optional[RuntimeThread] = None
         self._worker: Optional[_ReconnectWorker] = None
         self._is_reconnecting = False
 
@@ -127,7 +127,7 @@ class SSHReconnector(QObject):
         logger.info("SSH 连接丢失，开始重连 (最大 %d 次)", self.max_retries)
 
         # 创建 worker 和 thread
-        self._thread = QThread()
+        self._thread = RuntimeThread()
         self._worker = _ReconnectWorker(self._connect_fn, self.max_retries)
         self._worker.moveToThread(self._thread)
 

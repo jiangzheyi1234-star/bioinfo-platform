@@ -11,8 +11,7 @@ from typing import Any, Dict, Optional
 
 from jinja2 import BaseLoader, Environment, TemplateSyntaxError, UndefinedError
 
-from core.environment.env_detector import expected_env_path
-from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
+from core.runtime_paths import H2O_CONDA_EXE, expected_env_path, is_managed_conda_executable
 from core.plugins.runtime_metadata import derive_conda_env_name
 
 logger = logging.getLogger(__name__)

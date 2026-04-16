@@ -61,7 +61,7 @@ def sanitize_terminal_line(text: str) -> str:
     return text
 
 
-# spinner 行正则（从 env_installer 提取）
+# spinner 行正则（从远端安装日志处理逻辑提取）
 _SPINNER_RE = re.compile(r"^[\s\-\\|/.:]+$")
 _SPINNER_TAIL_RE = re.compile(r"^.+:\s*[\\|/\-]\s*$")
 
@@ -69,7 +69,7 @@ _SPINNER_TAIL_RE = re.compile(r"^.+:\s*[\\|/\-]\s*$")
 def sanitize_log(text: str) -> str:
     """清理日志输出：去 ANSI 转义码，处理 \\r 覆写，过滤 spinner 行。
 
-    从 env_installer._sanitize_log 提取为公共函数，供 LogPage 等复用。
+    从远端安装日志清洗逻辑提取为公共函数，供 LogPage 等复用。
     """
     text = ANSI_RE.sub("", text)
     lines = []

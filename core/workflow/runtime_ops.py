@@ -9,7 +9,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from core.environment.detached_job import ensure_remote_dirs, expand_home_expr, write_remote_script
+from core.workflow.remote_job_utils import ensure_remote_dirs, expand_home_expr, write_remote_script
 from core.execution.artifact_store import ArtifactStore
 from core.remote.runtime_resolution import (
     build_runtime_env_exports,

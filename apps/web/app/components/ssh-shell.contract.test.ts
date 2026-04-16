@@ -32,6 +32,13 @@ test("ssh shell source mounts xterm.js inside the docked terminal buffer", () =>
   assert.doesNotMatch(source, /直接在终端区域内输入命令，按 Enter 执行/);
 });
 
+test("ssh shell source guards xterm calls behind an active handle check", () => {
+  assert.match(source, /disposed: boolean/);
+  assert.match(source, /function isTerminalHandleActive/);
+  assert.match(source, /if \(!isTerminalHandleActive\(handle\)\) \{/);
+  assert.match(source, /terminalHandle\.disposed = true/);
+});
+
 test("ssh shell package declares xterm dependencies", () => {
   assert.equal(packageJson.dependencies?.["@xterm/xterm"] !== undefined, true);
   assert.equal(packageJson.dependencies?.["@xterm/addon-fit"] !== undefined, true);
@@ -73,24 +80,14 @@ test("ssh shell source includes clipboard copy and paste handlers", () => {
 test("ssh shell exposes terminal command sending for remediation flows", () => {
   assert.match(source, /waitForTerminalInputReady/);
   assert.match(source, /const sendTerminalCommand = useCallback/);
-  assert.match(source, /onSendTerminalCommand=\{\(command\) => sendTerminalCommand\(command\)\}/);
+  assert.doesNotMatch(source, /onSendTerminalCommand=/);
 });
 
-test("ssh shell uses a single runtime settings entry", () => {
-  assert.match(source, /运行时设置/);
-  assert.doesNotMatch(source, /重新检查环境/);
-  assert.doesNotMatch(source, /prepareDialogMode/);
-});
-
-test("ssh shell remembers configured runtime per server identity and only blocks on confirmed missing state", () => {
-  assert.match(source, /lastSilentRuntimeCheckKeyRef/);
-  assert.match(source, /resolvedRuntimeState/);
-  assert.match(source, /const checkedStatus = await detectRuntimeReadiness\(\)/);
-  assert.match(source, /checkedStatus === "missing"/);
-  assert.match(source, /resolvedRuntimeState\?\.hostKey === runtimeIdentityKey/);
-  assert.match(source, /resolvedRuntimeState\?\.verificationStatus === "verified"/);
-  assert.doesNotMatch(source, /rememberRuntimePrepared/);
-  assert.doesNotMatch(source, /clearRememberedRuntimePrepared/);
+test("ssh shell no longer exposes runtime setup entry points", () => {
+  assert.doesNotMatch(source, /运行时设置/);
+  assert.doesNotMatch(source, /prepareDialogOpen/);
+  assert.doesNotMatch(source, /detectRuntimeReadiness/);
+  assert.doesNotMatch(source, /resolvedRuntimeState/);
 });
 
 test("desktop dev origin is allowed by api CORS config", () => {

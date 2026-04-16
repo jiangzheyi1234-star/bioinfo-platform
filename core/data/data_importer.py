@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from core.qt_compat import QObject, pyqtSignal
+from core.runtime_primitives import RuntimeObject, signal
 
 from core.data.data_registry import DataRegistry
 
@@ -24,7 +24,7 @@ class SSHServiceProtocol(Protocol):
     def upload(self, local_path: str, remote_path: str) -> None: ...
 
 
-class DataImporter(QObject):
+class DataImporter(RuntimeObject):
     """本地文件导入器
 
     负责将本地文件上传到远端服务器的项目目录中，
@@ -36,15 +36,15 @@ class DataImporter(QObject):
         import_failed(str, str): 导入失败，参数为文件名和错误信息
     """
 
-    upload_progress = pyqtSignal(str, int)   # filename, percent
-    import_completed = pyqtSignal(str)        # data_id
-    import_failed = pyqtSignal(str, str)      # filename, error
+    upload_progress = signal(str, int)   # filename, percent
+    import_completed = signal(str)        # data_id
+    import_failed = signal(str, str)      # filename, error
 
     def __init__(
         self,
         ssh_service: SSHServiceProtocol,
         registry: DataRegistry,
-        parent: Optional[QObject] = None,
+        parent: Optional[RuntimeObject] = None,
     ) -> None:
         super().__init__(parent)
         self._ssh = ssh_service

@@ -171,7 +171,7 @@ class TestReconnectWorker:
 
 
 class TestSSHReconnector:
-    """SSHReconnector 集成测试（不依赖真实 QThread）"""
+    """SSHReconnector 集成测试（不依赖真实运行时线程）"""
 
     def test_init_defaults(self):
         """测试默认参数"""
@@ -277,7 +277,7 @@ class TestSSHServiceReconnectIntegration:
             connect_fn=connect_fn,
         )
 
-        # 用 mock 替换 start，避免创建真实 QThread
+        # 用 mock 替换 start，避免创建真实运行时线程
         service.reconnector.start = MagicMock()
 
         with pytest.raises(RuntimeError, match="SSH 未连接"):
@@ -449,69 +449,3 @@ class TestSSHServiceFileTransfer:
 
         mock_sftp.get.assert_called_once_with("/remote/file.txt", "/local/file.txt")
         mock_sftp.close.assert_called_once()
-
-
-class TestSSHServiceLegacyCompat:
-    """确保旧 API 兼容性"""
-
-    def test_check_command_exists_success(self):
-        """check_command_exists 在命令存在时返回 True"""
-        mock_client = MagicMock(spec=paramiko.SSHClient)
-        mock_transport = MagicMock()
-        mock_transport.is_active.return_value = True
-        mock_client.get_transport.return_value = mock_transport
-
-        mock_stdout = MagicMock()
-        mock_stdout.read.return_value = b"/usr/bin/python3\n"
-        mock_stdout.channel.recv_exit_status.return_value = 0
-        mock_stderr = MagicMock()
-        mock_stderr.read.return_value = b""
-        mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
-
-        service = SSHService(initial_client=mock_client)
-        assert service.check_command_exists("python3") is True
-
-    def test_check_command_exists_not_found(self):
-        """check_command_exists 在命令不存在时返回 False"""
-        mock_client = MagicMock(spec=paramiko.SSHClient)
-        mock_transport = MagicMock()
-        mock_transport.is_active.return_value = True
-        mock_client.get_transport.return_value = mock_transport
-
-        mock_stdout = MagicMock()
-        mock_stdout.read.return_value = b""
-        mock_stdout.channel.recv_exit_status.return_value = 1
-        mock_stderr = MagicMock()
-        mock_stderr.read.return_value = b""
-        mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
-
-        service = SSHService(initial_client=mock_client)
-        assert service.check_command_exists("nonexistent") is False
-
-    def test_list_screen_sessions_empty(self):
-        """无 screen 会话时返回空列表"""
-        mock_client = MagicMock(spec=paramiko.SSHClient)
-        mock_transport = MagicMock()
-        mock_transport.is_active.return_value = True
-        mock_client.get_transport.return_value = mock_transport
-
-        mock_stdout = MagicMock()
-        mock_stdout.read.return_value = b"No Sockets found in /var/run/screen/S-user.\n"
-        mock_stdout.channel.recv_exit_status.return_value = 1
-        mock_stderr = MagicMock()
-        mock_stderr.read.return_value = b""
-        mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
-
-        service = SSHService(initial_client=mock_client)
-        assert service.list_screen_sessions() == []
-
-    def test_check_screen_session_disconnected(self):
-        """断连时 check_screen_session 应返回 False"""
-        service = SSHService(initial_client=None)
-        assert service.check_screen_session("test") is False
-
-    def test_kill_screen_session_disconnected(self):
-        """断连时 kill_screen_session 应返回 False"""
-        service = SSHService(initial_client=None)
-        assert service.kill_screen_session("test") is False
-
