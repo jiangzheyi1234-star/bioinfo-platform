@@ -5,6 +5,7 @@
 """
 import logging
 import queue
+import re
 import threading
 import time
 import uuid
@@ -468,6 +469,102 @@ class SSHService(QObject):
         session = TerminalSession(session_id=f"term_{uuid.uuid4().hex}", channel=channel)
         self._terminal_sessions[session.session_id] = session
         return session
+
+    def run_interactive(
+        self,
+        cmd: str,
+        *,
+        timeout: int = 15,
+        cols: int = 120,
+        rows: int = 28,
+        term: str = "xterm-256color",
+    ) -> Tuple[int, str, str]:
+        """Execute a command through an interactive invoke_shell channel.
+
+        This is used for one-click runtime detection so the probe path matches
+        the same interactive shell semantics as terminal-mediated remediation.
+        """
+
+        marker = uuid.uuid4().hex
+        begin_marker = f"__OMX_BEGIN_{marker}__"
+        rc_marker = f"__OMX_RC_{marker}__"
+        end_marker = f"__OMX_END_{marker}__"
+        payload = (
+            "stty -echo >/dev/null 2>&1\n"
+            f"printf '%s\\n' '{begin_marker}'\n"
+            f"{cmd}\n"
+            "__omx_status=$?\n"
+            f"printf '%s%s\\n' '{rc_marker}' \"$__omx_status\"\n"
+            f"printf '%s\\n' '{end_marker}'\n"
+            "stty echo >/dev/null 2>&1\n"
+        )
+
+        with self._io_lock:
+            client = self._ensure_connection()
+            transport = client.get_transport()
+            if transport is None or not transport.is_active():
+                raise RuntimeError("SSH 未连接")
+            channel = transport.open_session(timeout=10)
+            channel.get_pty(term=term, width=max(40, int(cols)), height=max(12, int(rows)))
+            channel.invoke_shell()
+            channel.settimeout(0.0)
+
+            output_chunks: list[str] = []
+            deadline = time.monotonic() + max(float(timeout), 0.1)
+            try:
+                channel.send(payload)
+                while True:
+                    made_progress = False
+                    while getattr(channel, "recv_ready", lambda: False)():
+                        chunk = channel.recv(32768)
+                        if not chunk:
+                            break
+                        output_chunks.append(chunk.decode("utf-8", errors="ignore"))
+                        made_progress = True
+                    while getattr(channel, "recv_stderr_ready", lambda: False)():
+                        chunk = channel.recv_stderr(32768)
+                        if not chunk:
+                            break
+                        output_chunks.append(chunk.decode("utf-8", errors="ignore"))
+                        made_progress = True
+                    text = "".join(output_chunks)
+                    if end_marker in text:
+                        return self._parse_interactive_command_output(
+                            text=text,
+                            begin_marker=begin_marker,
+                            rc_marker=rc_marker,
+                            end_marker=end_marker,
+                        )
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"SSH interactive command timed out after {timeout}s: {self._build_tag(cmd)}")
+                    if not made_progress:
+                        time.sleep(0.05)
+            finally:
+                try:
+                    channel.close()
+                except Exception:
+                    logger.debug("Failed to close interactive SSH channel", exc_info=True)
+
+    def _parse_interactive_command_output(
+        self,
+        *,
+        text: str,
+        begin_marker: str,
+        rc_marker: str,
+        end_marker: str,
+    ) -> Tuple[int, str, str]:
+        begin_index = text.find(begin_marker)
+        end_index = text.find(end_marker)
+        if begin_index < 0 or end_index < 0 or end_index < begin_index:
+            raise RuntimeError("交互式 SSH 检测输出缺少完成标记")
+        content = text[begin_index + len(begin_marker):end_index]
+        content = content.lstrip("\r\n")
+        rc_match = re.search(rf"{re.escape(rc_marker)}\s*(\d+)", content)
+        if not rc_match:
+            raise RuntimeError("交互式 SSH 检测输出缺少退出码标记")
+        rc = int(rc_match.group(1))
+        stdout = content[: rc_match.start()].rstrip("\r\n")
+        return rc, stdout, ""
 
     def close_terminal_sessions(self, *, message: str, connected: bool = False) -> None:
         sessions = list(self._terminal_sessions.values())

@@ -35,6 +35,17 @@ class _FakeTerminalChannel:
     def recv_stderr(self, _size: int):
         return b""
 
+    def settimeout(self, _timeout: float):
+        return None
+
+    def get_pty(self, term: str = "xterm-256color", width: int = 120, height: int = 28):
+        assert term == "xterm-256color"
+        assert width >= 40
+        assert height >= 12
+
+    def invoke_shell(self):
+        return self
+
     def exit_status_ready(self):
         return self.closed and not self._payloads
 
@@ -51,12 +62,68 @@ class _FakeTerminalChannel:
 
 class _FakeShellClient:
     def __init__(self, channel: _FakeTerminalChannel):
-        self._channel = channel
+        self._transport = _FakeTransport(channel)
 
-    def invoke_shell(self, width: int = 120, height: int = 28):
+    def get_transport(self):
+        return self._transport
+
+
+class _FakeInteractiveChannel(_FakeTerminalChannel):
+    def __init__(self):
+        super().__init__([])
+        self._buffer = ""
+
+    def get_pty(self, term: str = "xterm-256color", width: int = 120, height: int = 28):
+        assert term == "xterm-256color"
         assert width == 120
         assert height == 28
+
+    def invoke_shell(self):
+        return self
+
+    def settimeout(self, _timeout: float):
+        return None
+
+    def send(self, data: str):
+        self.sent.append(data)
+        self._buffer += data
+        begin_match = None
+        rc_match = None
+        end_match = None
+        import re
+
+        begin_match = re.search(r"printf '%s\\n' '(__OMX_BEGIN_[^']+__)'", data)
+        rc_match = re.search(r"printf '%s%s\\n' '(__OMX_RC_[^']+__)'", data)
+        end_match = re.search(r"printf '%s\\n' '(__OMX_END_[^']+__)'", data)
+        if begin_match and rc_match and end_match:
+            payload = (
+                f"{begin_match.group(1)}\n"
+                "hello from interactive shell\n"
+                f"{rc_match.group(1)}0\n"
+                f"{end_match.group(1)}\n"
+            )
+            self._payloads.append(payload.encode("utf-8"))
+        return len(data)
+
+
+class _FakeTransport:
+    def __init__(self, channel):
+        self._channel = channel
+
+    def is_active(self):
+        return True
+
+    def open_session(self, timeout: int = 10):
+        assert timeout == 10
         return self._channel
+
+
+class _FakeInteractiveClient:
+    def __init__(self, channel):
+        self._transport = _FakeTransport(channel)
+
+    def get_transport(self):
+        return self._transport
 
 
 def test_ssh_service_run_is_serialized() -> None:
@@ -125,6 +192,29 @@ def test_execute_command_reads_streams_before_exit_status() -> None:
     calls: list[str] = []
 
     class _FakeChannel:
+        def __init__(self):
+            self._stdout_pending = True
+            self._stderr_pending = True
+
+        def recv_ready(self):
+            return self._stdout_pending
+
+        def recv(self, _size: int):
+            self._stdout_pending = False
+            calls.append("stdout")
+            return b"ok"
+
+        def recv_stderr_ready(self):
+            return self._stderr_pending
+
+        def recv_stderr(self, _size: int):
+            self._stderr_pending = False
+            calls.append("stderr")
+            return b""
+
+        def exit_status_ready(self):
+            return not self._stdout_pending and not self._stderr_pending
+
         def recv_exit_status(self):
             calls.append("exit")
             assert calls == ["stdout", "stderr", "exit"]
@@ -135,10 +225,6 @@ def test_execute_command_reads_streams_before_exit_status() -> None:
             self._name = name
             self._payload = payload
             self.channel = _FakeChannel()
-
-        def read(self):
-            calls.append(self._name)
-            return self._payload.encode("utf-8")
 
     class _FakeExecClient:
         def exec_command(self, cmd: str, timeout: int = 10):
@@ -195,3 +281,17 @@ def test_terminal_session_close_marks_history_but_disables_input() -> None:
     assert snapshot["connected"] is False
     assert snapshot["input_enabled"] is False
     assert snapshot["message"] == "SSH 已断开，终端会话已结束"
+
+
+def test_run_interactive_executes_via_invoke_shell_and_parses_markers() -> None:
+    channel = _FakeInteractiveChannel()
+    service = SSHService(initial_client=_FakeClient())
+    service._ensure_connection = lambda: _FakeInteractiveClient(channel)  # type: ignore[method-assign]
+
+    rc, out, err = service.run_interactive("echo hello", timeout=5)
+    service.close()
+
+    assert rc == 0
+    assert "hello from interactive shell" in out
+    assert err == ""
+    assert any("stty -echo" in sent for sent in channel.sent)
