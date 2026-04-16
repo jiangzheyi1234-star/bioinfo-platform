@@ -314,16 +314,6 @@ class RuntimeService:
             session.close(message="终端会话已结束", connected=False)
             return {"session_id": session_id, "closed": True}
 
-    def read_app_log(self, tail_lines: int = 200) -> dict:
-        with self._lock:
-            log_path = get_app_root() / "logs" / "app.log"
-            if not log_path.exists():
-                return {"path": str(log_path), "lines": []}
-            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[
-                -tail_lines:
-            ]
-            return {"path": str(log_path), "lines": lines}
-
     def _ensure_initialized(self) -> None:
         if not self._initialized:
             raise RuntimeServiceError("not initialized")

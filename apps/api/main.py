@@ -121,24 +121,6 @@ async def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/v1/runtime/resolved")
-async def get_resolved_runtime_state() -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_resolved_runtime_state()}
-    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.put("/api/v1/runtime/resolved")
-async def update_resolved_runtime_state(
-    payload: UpdateSettingsRequest,
-) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().update_resolved_runtime_state(payload.patch)}
-    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
 @app.get("/api/v1/ssh/status")
 async def get_ssh_status() -> dict[str, Any]:
     try:
@@ -400,20 +382,3 @@ async def open_project(project_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-
-@app.get("/api/v1/logs/app")
-async def read_app_log(tail_lines: int = 200) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().read_app_log(tail_lines=tail_lines)}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/events/executions")
-async def list_runtime_events(after_seq: int = 0, limit: int = 200) -> dict[str, Any]:
-    try:
-        return {
-            "item": _runtime().list_runtime_events(after_seq=after_seq, limit=limit)
-        }
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
