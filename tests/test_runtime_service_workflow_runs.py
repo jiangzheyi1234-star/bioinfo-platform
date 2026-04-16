@@ -751,7 +751,7 @@ def test_get_ssh_preflight_blocks_when_java_is_missing_even_if_docker_and_nextfl
     assert item["ok"] is False
     assert item["recommended_profile"] == "personal_docker"
     assert item["supported_profile_kinds"] == ["personal_docker"]
-    assert "远端缺少 Java，无法运行 Nextflow" in item["failures"]
+    assert "未检测到 Java，无法运行 Nextflow" in item["failures"]
     java_check = next(check for check in item["checks"] if check["key"] == "java")
     assert java_check["status"] == "fail"
 
@@ -815,6 +815,68 @@ def test_get_ssh_preflight_blocks_when_probe_and_resolved_java_disagree(
 
     assert item["ok"] is False
     assert "未检测到 Java，无法运行 Nextflow" in item["failures"]
+
+
+def test_get_ssh_preflight_prefers_resolved_java_over_probe_path_visibility(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    caps = SimpleNamespace(
+        arch="x86_64",
+        has_bash=True,
+        has_curl=True,
+        has_wget=False,
+        has_screen=True,
+        has_sha256sum=True,
+        has_java=False,
+        java_version="",
+        has_nextflow=True,
+        nextflow_version="26.04.1",
+        has_docker=True,
+        has_podman=False,
+        has_apptainer=False,
+        has_micromamba=False,
+        has_conda=False,
+        has_sbatch=False,
+        free_disk_gb=42.0,
+        home_writable=True,
+        bootstrap_failures=lambda min_free_disk_gb=5.0: [],
+        runtime_failures=lambda: ["远端缺少 Java，无法运行 Nextflow"],
+        warnings=lambda: [],
+    )
+
+    monkeypatch.setattr("core.app_runtime.service.probe_preflight", lambda _run: caps)
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_java",
+        lambda _run: {
+            "available": True,
+            "usable": True,
+            "supported": True,
+            "version": 'openjdk version "21.0.2" 2024-01-16',
+            "path": "/home/tester/.sdkman/candidates/java/current/bin/java",
+            "home": "/home/tester/.sdkman/candidates/java/current",
+            "message": "已检测到 Java，可用于运行 Nextflow",
+        },
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.resolve_remote_nextflow",
+        lambda _run: {
+            "available": True,
+            "usable": True,
+            "version": "26.04.1",
+            "path": "/usr/local/bin/nextflow",
+            "command": "/usr/local/bin/nextflow",
+            "source": "path",
+            "message": "已检测到 Nextflow，可直接使用",
+        },
+    )
+    monkeypatch.setattr(runtime, "_remote_runtime_ok", lambda command: "docker ps" in command)
+    monkeypatch.setattr(runtime, "_remote_runtime_ok_interactive", lambda command: "docker ps" in command)
+
+    item = runtime.get_ssh_preflight()
+
+    assert item["ok"] is True
+    assert "远端缺少 Java，无法运行 Nextflow" not in item["failures"]
+    java_check = next(check for check in item["checks"] if check["key"] == "java")
+    assert java_check["status"] == "ok"
+    assert java_check["value"] == 'openjdk version "21.0.2" 2024-01-16'
 
 
 def test_get_ssh_preflight_uses_interactive_runner_for_detection(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:

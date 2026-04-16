@@ -937,7 +937,11 @@ class RuntimeService:
                     else "warn"
                     if runtime_capabilities["java"]["available"]
                     else "fail",
-                    "value": str(runtime_capabilities["java"].get("version") or ("available" if caps.has_java else "missing")),
+                    "value": str(
+                        runtime_capabilities["java"].get("version")
+                        or runtime_capabilities["java"].get("path")
+                        or ("available" if runtime_capabilities["java"]["available"] else "missing")
+                    ),
                     "message": "已检测到 Java，可用于运行 Nextflow"
                     if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
                     else str(runtime_capabilities["java"].get("message") or "未检测到 Java，无法运行 Nextflow"),
@@ -950,7 +954,11 @@ class RuntimeService:
                     else "warn"
                     if runtime_capabilities["nextflow"]["available"]
                     else "fail",
-                    "value": str(runtime_capabilities["nextflow"].get("version") or ("available" if caps.has_nextflow else "missing")),
+                    "value": str(
+                        runtime_capabilities["nextflow"].get("version")
+                        or runtime_capabilities["nextflow"].get("path")
+                        or ("available" if runtime_capabilities["nextflow"]["available"] else "missing")
+                    ),
                     "message": str(runtime_capabilities["nextflow"].get("message") or "未检测到 Nextflow"),
                 },
                 {
@@ -2256,7 +2264,7 @@ class RuntimeService:
         return supported
 
     def _runtime_failures_from_resolved_capabilities(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
-        failures = list(caps.runtime_failures())
+        failures: list[str] = []
         java_info = runtime_capabilities.get("java", {})
         nextflow_info = runtime_capabilities.get("nextflow", {})
 
