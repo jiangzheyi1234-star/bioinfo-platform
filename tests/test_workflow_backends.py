@@ -18,6 +18,21 @@ def test_slurm_submit_run_success(monkeypatch, tmp_path: Path, launch: SimpleNam
     backend = SlurmSSHBackend()
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
+    monkeypatch.setattr(
+        "core.workflow.backends.resolve_remote_nextflow",
+        lambda *_args, **_kwargs: {
+            "usable": True,
+            "path": "/usr/local/bin/nextflow",
+            "command": "/usr/local/bin/nextflow",
+        },
+    )
+    monkeypatch.setattr(
+        "core.workflow.backends.resolve_remote_java",
+        lambda *_args, **_kwargs: {
+            "usable": True,
+            "home": "/opt/jdk-21",
+        },
+    )
 
     monkeypatch.setattr(
         "core.workflow.backends.materialize_bundle",
@@ -69,6 +84,21 @@ def test_slurm_submit_run_raises_when_job_id_missing(monkeypatch, tmp_path: Path
     backend = SlurmSSHBackend()
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
+    monkeypatch.setattr(
+        "core.workflow.backends.resolve_remote_nextflow",
+        lambda *_args, **_kwargs: {
+            "usable": True,
+            "path": "/usr/local/bin/nextflow",
+            "command": "/usr/local/bin/nextflow",
+        },
+    )
+    monkeypatch.setattr(
+        "core.workflow.backends.resolve_remote_java",
+        lambda *_args, **_kwargs: {
+            "usable": True,
+            "home": "/opt/jdk-21",
+        },
+    )
 
     monkeypatch.setattr(
         "core.workflow.backends.materialize_bundle",

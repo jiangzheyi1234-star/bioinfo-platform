@@ -166,3 +166,57 @@ def test_save_config_omits_removed_linux_and_runtime_fields(tmp_path, monkeypatc
 
     assert "auto_installed" not in stored["linux"]
     assert "conda_profiles" not in stored["runtime"]
+
+
+def test_runtime_resolved_schema_persists_fixed_runtime_and_project_task_paths(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.json"
+    fake_keyring = FakeKeyring()
+    monkeypatch.setattr(config, "_CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(config, "_load_keyring_backend", lambda: fake_keyring)
+
+    schema = config.default_settings_schema()
+    schema["runtime"]["resolved"].update(
+        {
+            "host_key": "ssh://tester@example:22",
+            "selected_profile": "personal_docker",
+            "resolved_at": "2026-04-16T08:30:00Z",
+            "verification_status": "verified",
+            "bash_path": "/usr/bin/bash",
+            "nextflow_path": "/opt/nextflow/nextflow",
+            "nextflow_command": "/opt/nextflow/nextflow",
+            "nextflow_source": "fixed_path",
+            "nextflow_message": "已检测到 Nextflow，可直接使用",
+            "java_path": "/opt/jdk-21/bin/java",
+            "java_home": "/opt/jdk-21",
+            "java_message": "已检测到 Java，可用于运行 Nextflow",
+            "project_id": "proj_demo",
+            "task_id": "task_prepare",
+            "pipeline_id": "nf_rnaseq",
+            "pipeline_entry": "/srv/h2ometa/pipelines/nf_rnaseq/main.nf",
+            "pipeline_repo_dir": "/srv/h2ometa/pipelines",
+            "project_dir": "/srv/h2ometa/projects/proj_demo",
+            "work_dir": "/srv/h2ometa/projects/proj_demo/work",
+            "results_dir": "/srv/h2ometa/projects/proj_demo/results",
+        }
+    )
+
+    config.save_config(schema)
+    stored = _read_json(cfg_path)
+    loaded = config.get_config()
+
+    assert stored["runtime"]["resolved"]["pipeline_entry"] == "/srv/h2ometa/pipelines/nf_rnaseq/main.nf"
+    assert stored["runtime"]["resolved"]["pipeline_repo_dir"] == "/srv/h2ometa/pipelines"
+    assert stored["runtime"]["resolved"]["project_dir"] == "/srv/h2ometa/projects/proj_demo"
+    assert stored["runtime"]["resolved"]["work_dir"] == "/srv/h2ometa/projects/proj_demo/work"
+    assert stored["runtime"]["resolved"]["results_dir"] == "/srv/h2ometa/projects/proj_demo/results"
+    assert loaded["runtime"]["resolved"]["project_id"] == "proj_demo"
+    assert loaded["runtime"]["resolved"]["task_id"] == "task_prepare"
+
+
+def test_runtime_resolved_schema_drops_unknown_fields():
+    data = config.default_settings_schema()
+    data["runtime"]["resolved"]["unexpected"] = "nope"
+
+    normalized = config.normalize_config(data)
+
+    assert "unexpected" not in normalized["runtime"]["resolved"]

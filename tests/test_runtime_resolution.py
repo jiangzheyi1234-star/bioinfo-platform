@@ -8,10 +8,10 @@ def test_resolve_remote_nextflow_prefers_usable_path_over_conda_fallback() -> No
         _ = timeout
         if 'NF_BIN="$(type -P nextflow 2>/dev/null || true)"' in command:
             return 0, "/usr/local/bin/nextflow\n", ""
+        if "/usr/local/bin/nextflow -version 2>/dev/null" in command:
+            return 0, "25.04.6\n", ""
         if "/usr/local/bin/nextflow info" in command:
             return 0, "", ""
-        if """/usr/local/bin/nextflow -version 2>/dev/null | awk '/version/ {print $NF; exit}'""" in command:
-            return 0, "25.04.6\n", ""
         return 1, "", "not found"
 
     item = resolve_remote_nextflow(ssh_run_fn)
@@ -28,10 +28,10 @@ def test_resolve_remote_nextflow_uses_fixed_absolute_path_when_path_lookup_is_mi
             return 0, "", ""
         if 'NF_BIN="$HOME/.local/bin/nextflow"' in command:
             return 0, "/home/tester/.local/bin/nextflow\n", ""
+        if "/home/tester/.local/bin/nextflow -version 2>/dev/null" in command:
+            return 0, "25.04.6\n", ""
         if "/home/tester/.local/bin/nextflow info" in command:
             return 0, "", ""
-        if """/home/tester/.local/bin/nextflow -version 2>/dev/null | awk '/version/ {print $NF; exit}'""" in command:
-            return 0, "25.04.6\n", ""
         return 1, "", "not found"
 
     item = resolve_remote_nextflow(ssh_run_fn)
@@ -39,6 +39,46 @@ def test_resolve_remote_nextflow_uses_fixed_absolute_path_when_path_lookup_is_mi
     assert item["usable"] is True
     assert item["source"] == "fixed_path"
     assert item["command"] == "/home/tester/.local/bin/nextflow"
+
+
+def test_resolve_remote_nextflow_rejects_versions_below_minimum_and_keeps_candidate_list() -> None:
+    def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
+        _ = timeout
+        if 'NF_BIN="$(type -P nextflow 2>/dev/null || true)"' in command:
+            return 0, "/usr/local/bin/nextflow\n", ""
+        if "/usr/local/bin/nextflow -version 2>/dev/null" in command:
+            return 0, "24.10.0\n", ""
+        if "/usr/local/bin/nextflow info" in command:
+            return 0, "", ""
+        return 1, "", "not found"
+
+    item = resolve_remote_nextflow(ssh_run_fn)
+
+    assert item["available"] is True
+    assert item["usable"] is False
+    assert item["meets_minimum"] is False
+    assert "25.04.0" in item["message"]
+    assert item["candidates"][0]["path"] == "/usr/local/bin/nextflow"
+    assert item["candidates"][0]["usable"] is False
+
+
+def test_resolve_remote_nextflow_marks_agent_mode_support_for_recommended_versions() -> None:
+    def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
+        _ = timeout
+        if 'NF_BIN="$(type -P nextflow 2>/dev/null || true)"' in command:
+            return 0, "/usr/local/bin/nextflow\n", ""
+        if "/usr/local/bin/nextflow -version 2>/dev/null" in command:
+            return 0, "26.04.1\n", ""
+        if "/usr/local/bin/nextflow info" in command:
+            return 0, "", ""
+        return 1, "", "not found"
+
+    item = resolve_remote_nextflow(ssh_run_fn)
+
+    assert item["usable"] is True
+    assert item["recommended"] is True
+    assert item["agent_mode_supported"] is True
+    assert item["upgrade_recommended"] is False
 
 
 def test_resolve_remote_java_prefers_nxf_java_home_and_does_not_probe_java_home() -> None:

@@ -295,6 +295,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   const terminalSessionClosedRef = useRef(false);
   const terminalClosingRef = useRef(false);
   const terminalSelectionRef = useRef("");
+  const terminalInputEnabledRef = useRef(false);
   const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const lastSilentRuntimeCheckKeyRef = useRef("");
 
@@ -405,6 +406,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     terminalConnectedRef.current = Boolean(status?.connected);
   }, [status?.connected]);
+
+  useEffect(() => {
+    terminalInputEnabledRef.current = terminalInputEnabled;
+  }, [terminalInputEnabled]);
 
   useEffect(() => {
     setTerminalHeight(readStoredTerminalHeight());
@@ -530,22 +535,33 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   );
 
   const queueTerminalInput = useCallback(
-    (data: string) => {
+    (data: string): boolean => {
       if (!data) {
-        return;
+        return false;
       }
       if (!terminalSessionIdRef.current) {
         setTerminalError("终端会话尚未建立");
-        return;
+        return false;
       }
       if (!terminalInputEnabled) {
         setTerminalError(terminalMessage || "SSH 已断开，终端会话已结束");
-        return;
+        return false;
       }
-      sendTerminalStreamMessage({ type: "input", data });
+      return sendTerminalStreamMessage({ type: "input", data });
     },
     [sendTerminalStreamMessage, terminalInputEnabled, terminalMessage]
   );
+
+  const waitForTerminalInputReady = useCallback(async (timeoutMs = 3000): Promise<boolean> => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      if (terminalSessionIdRef.current && terminalInputEnabledRef.current) {
+        return true;
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+    }
+    return Boolean(terminalSessionIdRef.current && terminalInputEnabledRef.current);
+  }, []);
 
   const syncTerminalDimensions = useCallback(
     (handle: TerminalHandle | null, options?: { force?: boolean }) => {
@@ -951,6 +967,24 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     [applyTerminalSnapshot, connectTerminalStream, resetTerminalState, status?.connected, terminalInputEnabled, terminalSessionId]
   );
 
+  const sendTerminalCommand = useCallback(
+    async (command: string): Promise<boolean> => {
+      const nextCommand = String(command || "").trim();
+      if (!nextCommand) {
+        setTerminalError("修复命令为空，无法发送");
+        return false;
+      }
+      await startTerminalSession();
+      const ready = await waitForTerminalInputReady();
+      if (!ready) {
+        setTerminalError("终端尚未就绪，无法发送修复命令");
+        return false;
+      }
+      return queueTerminalInput(`${nextCommand}\n`);
+    },
+    [queueTerminalInput, startTerminalSession, waitForTerminalInputReady]
+  );
+
   const submitConnect = useCallback(async () => {
     setConnectBusy(true);
     setFormError("");
@@ -1329,6 +1363,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           void fetchStatus({ silent: true });
         }}
         onOpenTerminal={() => void startTerminalSession()}
+        onSendTerminalCommand={(command) => sendTerminalCommand(command)}
       />
     </SshShellContext.Provider>
   );

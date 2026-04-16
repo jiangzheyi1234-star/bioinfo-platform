@@ -101,9 +101,19 @@ def submit_local_nextflow_run(
     remote_work_dir: str,
     remote_output_dir: str,
     resume: bool,
+    packaging_mode: str = "",
+    container_runtime: str = "",
     timeout: int = 20,
 ) -> dict[str, Any]:
     ensure_remote_dirs(ssh_run_fn, [remote_task_dir, remote_bundle_dir, remote_work_dir, remote_output_dir], timeout)
+    normalized_packaging = str(packaging_mode or "").strip()
+    normalized_runtime = str(container_runtime or "").strip()
+    if normalized_packaging or normalized_runtime:
+        if normalized_packaging != "container" or normalized_runtime != "docker":
+            raise RuntimeError("执行型 workflow 当前仅支持 Docker 作为后端；不再允许 podman/conda/host fallback")
+        rc_docker, _stdout_docker, _stderr_docker = ssh_run_fn("docker ps >/dev/null 2>&1", timeout)
+        if rc_docker != 0:
+            raise RuntimeError("Docker 未就绪；当前 workflow profile 要求 Docker 作为执行后端，请先在终端完成修复并重新验证")
     nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=timeout)
     if not nextflow_info.get("usable", False):
         raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
@@ -127,7 +137,7 @@ def submit_local_nextflow_run(
         label="workflow launch script",
     )
     rc, stdout, stderr = ssh_run_fn(
-        f"nohup bash {script_path} >/dev/null 2>&1 & echo $!",
+        f"nohup bash -lc {shlex.quote(f'bash {script_path}')} >/dev/null 2>&1 & echo $!",
         timeout,
     )
     launcher_pid = str(stdout or "").strip()

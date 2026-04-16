@@ -70,6 +70,12 @@ test("ssh shell source includes clipboard copy and paste handlers", () => {
   assert.match(source, /node\.addEventListener\("paste"/);
 });
 
+test("ssh shell exposes terminal command sending for remediation flows", () => {
+  assert.match(source, /waitForTerminalInputReady/);
+  assert.match(source, /const sendTerminalCommand = useCallback/);
+  assert.match(source, /onSendTerminalCommand=\{\(command\) => sendTerminalCommand\(command\)\}/);
+});
+
 test("ssh shell uses a single runtime settings entry", () => {
   assert.match(source, /运行时设置/);
   assert.doesNotMatch(source, /重新检查环境/);

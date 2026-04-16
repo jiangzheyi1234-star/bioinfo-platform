@@ -92,8 +92,11 @@ def default_settings_schema() -> dict[str, Any]:
             "db_busy_timeout_ms": 20000,
             "db_journal_mode": "delete",
             "resolved": {
+                "host_key": "",
                 "selected_profile": "",
                 "resolved_at": "",
+                "verification_status": "",
+                "bash_path": "",
                 "nextflow_path": "",
                 "nextflow_command": "",
                 "nextflow_source": "",
@@ -101,6 +104,14 @@ def default_settings_schema() -> dict[str, Any]:
                 "java_path": "",
                 "java_home": "",
                 "java_message": "",
+                "project_id": "",
+                "task_id": "",
+                "pipeline_id": "",
+                "pipeline_entry": "",
+                "pipeline_repo_dir": "",
+                "project_dir": "",
+                "work_dir": "",
+                "results_dir": "",
             },
         },
     }
@@ -165,6 +176,15 @@ def normalize_config(data: Any) -> dict[str, Any]:
     schema["version"] = CONFIG_VERSION
     schema["linux"]["conda_executable"] = str(schema["linux"].get("conda_executable") or "")
     schema["runtime"]["local_output_dir"] = ensure_output_dir(str(schema["runtime"].get("local_output_dir") or ""))
+    resolved = schema["runtime"].get("resolved", {})
+    runtime_resolved_defaults = defaults["runtime"].get("resolved", {})
+    if isinstance(resolved, dict) and isinstance(runtime_resolved_defaults, dict):
+        schema["runtime"]["resolved"] = {
+            key: resolved.get(key, runtime_resolved_defaults[key])
+            for key in runtime_resolved_defaults.keys()
+        }
+    else:
+        schema["runtime"]["resolved"] = deepcopy(runtime_resolved_defaults)
     schema["ssh"]["password"] = str(schema["ssh"].get("password") or "")
     schema["ssh"]["password_ref"] = str(schema["ssh"].get("password_ref") or "")
     return schema

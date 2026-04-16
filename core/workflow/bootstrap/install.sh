@@ -16,6 +16,30 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+nextflow_version() {
+  local cmd="$1"
+  bash -lc "\"$cmd\" -version 2>/dev/null | awk '/version/ {print \$NF; exit}'"
+}
+
+nextflow_version_ge() {
+  local left="$1"
+  local right="$2"
+  python3 - "$left" "$right" <<'PY'
+import re
+import sys
+
+def parse(value: str):
+    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", value or "")
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
+
+left = parse(sys.argv[1])
+right = parse(sys.argv[2])
+raise SystemExit(0 if left is not None and right is not None and left >= right else 1)
+PY
+}
+
 resolve_nextflow_candidate() {
   local cmd="$1"
   local path_hint="$2"
@@ -25,7 +49,14 @@ resolve_nextflow_candidate() {
   if ! bash -lc "$cmd info >/dev/null 2>&1" >/dev/null 2>&1; then
     return 2
   fi
+  local version
+  version="$(nextflow_version "$cmd" 2>/dev/null || true)"
+  if ! nextflow_version_ge "$version" "25.04.0"; then
+    printf 'detected nextflow at %s but version %s is below minimum 25.04.0\n' "$path_hint" "${version:-<unknown>}" >&2
+    return 3
+  fi
   RESOLVED_NEXTFLOW_PATH="$path_hint"
+  RESOLVED_NEXTFLOW_VERSION="$version"
   return 0
 }
 
@@ -107,7 +138,7 @@ require_supported_java() {
   fi
   local major
   major="$(java_major 2>/dev/null || true)"
-  if [ -z "$major" ] || [ "$major" -lt 17 ] || [ "$major" -gt 24 ]; then
+  if [ -z "$major" ] || [ "$major" -lt 17 ] || [ "$major" -gt 25 ]; then
     printf 'Java version does not satisfy Nextflow runtime requirement (17-25)\n' >&2
     emit NEEDS_SYSTEM "java_17_25"
     emit_step "$step_key" "failed"
@@ -123,6 +154,7 @@ ensure_nextflow() {
   local first_found_error=""
   local first_found_path=""
   RESOLVED_NEXTFLOW_PATH=""
+  RESOLVED_NEXTFLOW_VERSION=""
 
   if has_cmd nextflow; then
     local path_cmd
@@ -130,6 +162,14 @@ ensure_nextflow() {
     if resolve_nextflow_candidate "${path_cmd:-nextflow}" "${path_cmd:-nextflow}"; then
       emit PRESENT nextflow
       emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
+      emit NEXTFLOW_VERSION "${RESOLVED_NEXTFLOW_VERSION}"
+      if nextflow_version_ge "${RESOLVED_NEXTFLOW_VERSION}" "26.04.0"; then
+        emit NEXTFLOW_AGENT_MODE_SUPPORTED "1"
+        emit NEXTFLOW_UPGRADE_RECOMMENDED "0"
+      else
+        emit NEXTFLOW_AGENT_MODE_SUPPORTED "0"
+        emit NEXTFLOW_UPGRADE_RECOMMENDED "1"
+      fi
       emit_step "$step_key" "done"
       return 0
     fi
@@ -144,6 +184,14 @@ ensure_nextflow() {
     if resolve_nextflow_candidate "$candidate" "$candidate"; then
       emit PRESENT nextflow
       emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
+      emit NEXTFLOW_VERSION "${RESOLVED_NEXTFLOW_VERSION}"
+      if nextflow_version_ge "${RESOLVED_NEXTFLOW_VERSION}" "26.04.0"; then
+        emit NEXTFLOW_AGENT_MODE_SUPPORTED "1"
+        emit NEXTFLOW_UPGRADE_RECOMMENDED "0"
+      else
+        emit NEXTFLOW_AGENT_MODE_SUPPORTED "0"
+        emit NEXTFLOW_UPGRADE_RECOMMENDED "1"
+      fi
       emit_step "$step_key" "done"
       return 0
     fi
@@ -181,8 +229,17 @@ ensure_nextflow() {
     return 1
   fi
   RESOLVED_NEXTFLOW_PATH="$HOME/.local/bin/nextflow"
+  RESOLVED_NEXTFLOW_VERSION="$(nextflow_version "$HOME/.local/bin/nextflow" 2>/dev/null || true)"
   emit INSTALLED nextflow
   emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
+  emit NEXTFLOW_VERSION "${RESOLVED_NEXTFLOW_VERSION}"
+  if nextflow_version_ge "${RESOLVED_NEXTFLOW_VERSION}" "26.04.0"; then
+    emit NEXTFLOW_AGENT_MODE_SUPPORTED "1"
+    emit NEXTFLOW_UPGRADE_RECOMMENDED "0"
+  else
+    emit NEXTFLOW_AGENT_MODE_SUPPORTED "0"
+    emit NEXTFLOW_UPGRADE_RECOMMENDED "1"
+  fi
   emit_step "$step_key" "done"
 }
 
