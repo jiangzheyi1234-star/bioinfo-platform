@@ -30,19 +30,17 @@ struct SpawnedBackend {
 }
 
 fn candidate_python_commands() -> Vec<PythonCommand> {
-    let mut uv_commands = vec![
-        PythonCommand {
-            program: "uv".to_string(),
-            args: vec![
-                "run".to_string(),
-                "--isolated".to_string(),
-                "--no-project".to_string(),
-                "--with-requirements".to_string(),
-                "apps/api/requirements.txt".to_string(),
-                "python".to_string(),
-            ],
-        },
-    ];
+    let mut uv_commands = vec![PythonCommand {
+        program: "uv".to_string(),
+        args: vec![
+            "run".to_string(),
+            "--isolated".to_string(),
+            "--no-project".to_string(),
+            "--with-requirements".to_string(),
+            "apps/api/requirements.txt".to_string(),
+            "python".to_string(),
+        ],
+    }];
     if let Ok(explicit) = std::env::var("H2OMETA_PYTHON") {
         if !explicit.trim().is_empty() {
             let mut commands = vec![PythonCommand {
@@ -54,52 +52,7 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
         }
     }
     if cfg!(windows) {
-        let conda_env = std::env::var("H2OMETA_CONDA_ENV")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "bio_ui".to_string());
-        let mut commands = Vec::new();
-        commands.append(&mut uv_commands);
-
-        if let Ok(explicit_conda) = std::env::var("H2OMETA_CONDA_EXE") {
-            if !explicit_conda.trim().is_empty() {
-                commands.push(PythonCommand {
-                    program: explicit_conda,
-                    args: vec![
-                        "run".to_string(),
-                        "-n".to_string(),
-                        conda_env.clone(),
-                        "python".to_string(),
-                    ],
-                });
-            }
-        }
-
-        commands.push(PythonCommand {
-            program: "C:\\Users\\Administrator\\miniconda3\\Scripts\\conda.exe".to_string(),
-            args: vec![
-                "run".to_string(),
-                "-n".to_string(),
-                conda_env,
-                "python".to_string(),
-            ],
-        });
-
-        commands.extend(vec![
-            PythonCommand {
-                program: "py".to_string(),
-                args: vec!["-3".to_string()],
-            },
-            PythonCommand {
-                program: "python".to_string(),
-                args: vec![],
-            },
-            PythonCommand {
-                program: "python3".to_string(),
-                args: vec![],
-            },
-        ]);
-        return commands;
+        return uv_commands;
     }
     uv_commands.extend(vec![
         PythonCommand {

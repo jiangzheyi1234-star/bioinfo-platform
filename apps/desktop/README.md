@@ -3,7 +3,8 @@
 ## Dev prerequisites
 - Rust toolchain
 - Node.js + npm
-- `uv` recommended for backend startup, or a Python environment with backend deps installed
+- `uv` required for Windows desktop/backend startup
+- A Python environment with backend deps installed if you explicitly override the launcher outside the default `uv` path
 - Linux host dependencies: see `apps/desktop/PREREQUISITES.md`
 
 ## Run in dev mode
@@ -13,14 +14,9 @@ npm install
 npm run dev
 ```
 
-The shell prefers spawning backend with:
+The shell spawns backend with:
 ```bash
 uv run --isolated --no-project --with-requirements apps/api/requirements.txt python -m apps.api.run
-```
-
-If `uv` is unavailable it falls back to:
-```bash
-python3 -m apps.api.run
 ```
 
 You can override binary/workdir:
