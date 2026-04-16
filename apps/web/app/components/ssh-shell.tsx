@@ -14,7 +14,7 @@ import {
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { usePathname, useRouter } from "next/navigation";
-import { Ellipsis, GripHorizontal, Link2, Terminal as TerminalIcon, X } from "lucide-react";
+import { CircleHelp, Ellipsis, GripHorizontal, Link2, Terminal as TerminalIcon, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,6 +40,8 @@ type SSHStatus = {
   use_key: boolean;
   key_file: string;
   has_password: boolean;
+  timeout_sec?: number;
+  auto_connect_on_startup?: boolean;
   message: string;
   auto_connect_attempted?: boolean;
   auto_connect_failed?: boolean;
@@ -197,7 +199,7 @@ function toForm(status: SSHStatus | null): SSHFormState {
     password: "",
     use_key: Boolean(status.use_key),
     key_file: status.key_file || "",
-    timeout_sec: "5",
+    timeout_sec: String(status.timeout_sec || 5),
   };
 }
 
@@ -344,7 +346,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   }, [closeTerminalStream]);
 
   const fetchStatus = useCallback(
-    async (options?: { silent?: boolean }) => {
+    async (options?: { silent?: boolean }): Promise<SSHStatus | null> => {
       if (!options?.silent) {
         setLoading(true);
       }
@@ -359,8 +361,10 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           setFormError("");
           return toForm(next);
         });
+        return next;
       } catch {
         setStatus(null);
+        return null;
       } finally {
         if (!options?.silent) {
           setLoading(false);
@@ -379,7 +383,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   }, [terminalOpen]);
 
   useEffect(() => {
-    terminalConnectedRef.current = Boolean(status?.connected);
+    terminalConnectedRef.current = terminalConnected;
   }, [status?.connected]);
 
   useEffect(() => {
@@ -559,6 +563,16 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
               setTerminalMessage(message.message || "");
               return;
             case "error":
+              if (/unknown session|unknown terminal session/i.test(message.message || "")) {
+                terminalSessionClosedRef.current = true;
+                terminalSessionIdRef.current = null;
+                setTerminalSessionId(null);
+                setTerminalConnected(false);
+                setTerminalInputEnabled(false);
+                setTerminalMessage("终端会话已失效，请重新打开终端");
+                setTerminalError("终端会话已失效，请重新打开终端");
+                return;
+              }
               setTerminalError(message.message || "终端流错误");
               return;
             case "closed":
@@ -571,19 +585,20 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
               return;
           }
         },
-        onClose: (event) => {
+        onClose: async (event) => {
           if (terminalStreamRef.current?.socket !== controller.socket) {
             return;
           }
           terminalStreamRef.current = null;
           setTerminalInputEnabled(false);
-          void fetchStatus({ silent: true });
+          const nextStatus = await fetchStatus({ silent: true });
           if (event.code === 1000) {
             return;
           }
           if (
             terminalClosingRef.current ||
             terminalSessionClosedRef.current ||
+            !nextStatus?.connected ||
             !terminalConnectedRef.current ||
             !terminalOpenRef.current ||
             terminalSessionIdRef.current !== sessionId
@@ -813,9 +828,11 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           host: form.host.trim(),
           port: Number(form.port || 22),
           user: form.user.trim(),
-          password: form.password,
+          password: "",
           use_key: form.use_key,
           key_file: form.key_file.trim(),
+          timeout_sec: Number(form.timeout_sec || 5),
+          auto_connect_on_startup: Boolean(form.use_key && form.key_file.trim()),
         },
       },
     };
@@ -936,10 +953,12 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
     setConnectBusy(true);
     setFormError("");
     try {
+      const host = form.host.trim();
+      const user = form.user.trim();
       const payload = {
-        host: form.host.trim(),
+        host,
         port: Number(form.port || 22),
-        user: form.user.trim(),
+        user,
         password: form.password,
         use_key: form.use_key,
         key_file: form.key_file.trim(),
@@ -980,6 +999,8 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
       setDisconnectBusy(false);
     }
   }, [router, terminalOpen]);
+
+  const keyConfigured = Boolean(status?.use_key && status?.key_file);
 
   const value = useMemo<SshShellContextValue>(
     () => ({
@@ -1136,24 +1157,14 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                           </div>
                         </div>
 
-                        {terminalError ? (
-                          <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-600">{terminalError}</div>
-                        ) : null}
-
                         <div
                           ref={terminalSurfaceRef}
                           className="relative flex-1 overflow-hidden bg-white"
                         >
                           <div
                             ref={terminalViewportRef}
-                            className={cn(
-                              "ssh-terminal h-full w-full",
-                              terminalInputEnabled ? "cursor-text" : "cursor-not-allowed opacity-90"
-                            )}
+                            className="ssh-terminal h-full w-full"
                           />
-                          {!terminalInputEnabled ? (
-                            <div className="absolute inset-0 bg-white/55" aria-hidden="true" />
-                          ) : null}
                         </div>
                       </div>
                     </section>
@@ -1177,7 +1188,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>SSH 连接</DialogTitle>
-            <DialogDescription>输入服务器信息后建立连接。</DialogDescription>
+            <DialogDescription>输入服务器信息后建立连接。若使用 SSH 密钥，请选择本地私钥文件。</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-4">
@@ -1202,9 +1213,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
             </div>
 
             {form.use_key ? (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                已切换到密钥认证模式，密码输入已停用。
-              </div>
+              null
             ) : (
               <div className="grid gap-2">
                 <Label htmlFor="ssh-password">密码</Label>
@@ -1227,6 +1236,13 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                 className="h-4 w-4 rounded border-slate-300"
               />
               <span>使用密钥文件</span>
+              <span
+                className="inline-flex text-slate-400"
+                title="请先在本地生成 SSH 密钥，再把公钥安装到服务器。可参考 ssh-keygen -t ed25519 和 ssh-copy-id user@host。"
+                aria-label="SSH 密钥登录说明"
+              >
+                <CircleHelp className="h-4 w-4" />
+              </span>
             </label>
 
             {form.use_key ? (

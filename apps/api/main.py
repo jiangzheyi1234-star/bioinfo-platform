@@ -161,6 +161,7 @@ async def create_terminal_session(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+
 @app.delete("/api/v1/ssh/terminal/sessions/{session_id}")
 async def close_terminal_session(session_id: str) -> dict[str, Any]:
     try:
