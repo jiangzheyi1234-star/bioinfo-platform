@@ -177,8 +177,10 @@ async def stream_terminal_session(
     try:
         session = _runtime().get_terminal_session(session_id=session_id)
     except (RuntimeServiceError, ValueError, TypeError) as exc:
-        await websocket.send_json({"type": "error", "message": str(exc)})
-        await websocket.close(code=1008)
+        await websocket.send_json(
+            {"type": "closed", "message": "终端会话不存在或已关闭"}
+        )
+        await websocket.close(code=1000)
         return
 
     async def pump_output() -> None:
@@ -380,5 +382,3 @@ async def open_project(project_id: str) -> dict[str, Any]:
         return {"item": _runtime().open_project(project_id)}
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
