@@ -165,7 +165,7 @@ const MIN_TERMINAL_COLS = 80;
 const LIGHT_TERMINAL_THEME: TerminalThemeLike = {
   background: "#ffffff",
   foreground: "#334155",
-  cursor: "#64748b",
+  cursor: "#94a3b8",
   selectionBackground: "#dbeafe",
   black: "#0f172a",
   red: "#dc2626",
@@ -687,6 +687,8 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         allowProposedApi: false,
         convertEol: false,
         cursorBlink: true,
+        cursorStyle: "bar",
+        cursorWidth: 2,
         fontFamily:
           '"JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
         fontSize: TERMINAL_FONT_SIZE,
