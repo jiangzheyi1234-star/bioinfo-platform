@@ -25,13 +25,13 @@ class _FakeRuntime:
     def get_ssh_preflight(self) -> dict[str, object]:
         return {
             "ok": True,
-            "recommended_profile": "personal_conda",
-            "recommended_profile_details": {"profile_kind": "personal_conda"},
-            "supported_profile_kinds": ["personal_conda"],
+            "recommended_profile": "personal_docker",
+            "recommended_profile_details": {"profile_kind": "personal_docker"},
+            "supported_profile_kinds": ["personal_docker"],
             "runtime_capabilities": {
                 "java": {"available": True, "usable": True, "version": "17.0.9", "path": "/usr/bin/java"},
                 "nextflow": {"available": True, "usable": True, "version": "25.04.0", "path": "/usr/local/bin/nextflow", "message": "已检测到 Nextflow，可直接使用"},
-                "docker": {"available": False, "usable": False},
+                "docker": {"available": True, "usable": True},
                 "podman": {"available": False, "usable": False},
                 "apptainer": {"available": False, "usable": False},
                 "micromamba": {"available": False, "usable": False},
@@ -40,7 +40,7 @@ class _FakeRuntime:
             "checks": [
                 {"key": "java", "label": "Java 17+", "status": "ok", "value": "17.0.9", "message": "已检测到 Java，可用于运行 Nextflow"},
                 {"key": "nextflow", "label": "Nextflow", "status": "ok", "value": "25.04.0", "message": "已检测到 Nextflow"},
-                {"key": "docker", "label": "Docker", "status": "fail", "value": "missing", "message": "未检测到 Docker"},
+                {"key": "docker", "label": "Docker", "status": "ok", "value": "usable", "message": "已检测到 Docker，可优先使用容器模式"},
                 {"key": "home_writable", "label": "HOME 可写", "status": "ok", "value": "writable", "message": "HOME 目录可写"},
             ],
             "failures": [],
@@ -117,7 +117,7 @@ def test_prepare_server_routes_expose_expected_shapes(monkeypatch) -> None:
             preflight = await client.post("/api/v1/ssh/preflight")
             assert preflight.status_code == 200
             preflight_item = preflight.json()["item"]
-            assert preflight_item["recommended_profile"] == "personal_conda"
+            assert preflight_item["recommended_profile"] == "personal_docker"
             assert preflight_item["runtime_capabilities"]["java"]["usable"] is True
             assert preflight_item["checks"][0]["key"] == "java"
 
@@ -128,12 +128,12 @@ def test_prepare_server_routes_expose_expected_shapes(monkeypatch) -> None:
 
             install = await client.post(
                 "/api/v1/ssh/env/install",
-                json={"target": "workflow_runtime", "profile_kind": "personal_conda"},
+                json={"target": "workflow_runtime", "profile_kind": "personal_docker"},
             )
             assert install.status_code == 200
             install_item = install.json()["item"]
             assert install_item["job_id"] == "job_runtime"
-            assert runtime.install_calls == [{"target": "workflow_runtime", "tool_id": "", "profile_kind": "personal_conda"}]
+            assert runtime.install_calls == [{"target": "workflow_runtime", "tool_id": "", "profile_kind": "personal_docker"}]
 
             install_status = await client.get("/api/v1/ssh/env/install/job_runtime")
             assert install_status.status_code == 200

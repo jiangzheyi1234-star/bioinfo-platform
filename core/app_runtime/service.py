@@ -49,9 +49,7 @@ from core.workflow.bootstrap_ops import (
     build_workflow_runtime_progress,
     docker_bootstrap_task_dir,
     read_docker_bootstrap_status,
-    submit_docker_runtime_bootstrap,
     read_workflow_bootstrap_status,
-    submit_workflow_runtime_bootstrap,
     workflow_bootstrap_task_dir,
 )
 
@@ -77,16 +75,6 @@ _FIXED_RUNTIME_PROFILE_TEMPLATES = {
         "executor": "local",
         "packaging_mode": "container",
         "container_runtime": "docker",
-    },
-    "personal_podman": {
-        "executor": "local",
-        "packaging_mode": "container",
-        "container_runtime": "podman",
-    },
-    "personal_conda": {
-        "executor": "local",
-        "packaging_mode": "conda",
-        "container_runtime": "",
     },
 }
 
@@ -1194,54 +1182,12 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             self._ensure_ssh_connected()
-            caps = probe_preflight(self._run_ssh_command)
-            self._service_locator.server_capabilities = caps
-            runtime_capabilities = self._runtime_capabilities_dict(caps)
-
             normalized_target = str(target or "").strip()
-            java_ready = bool(runtime_capabilities.get("java", {}).get("usable", False))
-            java_version = str(runtime_capabilities.get("java", {}).get("version") or "").strip()
-            java_block_message = (
-                f"已检测到 Java {java_version}，但版本不满足 Nextflow 要求（需 17-25）；请先修复 Java，再准备 Runtime"
-                if java_version
-                else "当前服务器缺少可用的 Java 17-25；请先修复 Java，再准备 Runtime"
-            )
-            if normalized_target == "docker_runtime":
-                if not java_ready:
-                    raise RuntimeServiceError(java_block_message)
-                item = submit_docker_runtime_bootstrap(self._run_ssh_command)
-                return {
-                    "target": "docker_runtime",
-                    "job_id": item["job_id"],
-                    "task_dir": item["task_dir"],
-                    "message": "已提交 Docker 协助安装任务（实验性）",
-                }
-
-            if normalized_target == "workflow_runtime":
-                normalized_profile_kind = str(profile_kind or "").strip()
-                if not normalized_profile_kind:
-                    raise RuntimeServiceError("profile_kind is required for workflow_runtime install")
-                nextflow_cap = runtime_capabilities.get("nextflow", {})
-                if not bool(nextflow_cap.get("usable", False)):
-                    raise RuntimeServiceError(str(nextflow_cap.get("message") or "当前服务器的 Nextflow 不可用；请先修复后再准备 Runtime"))
-                supported_profile_kinds = set(self._supported_profile_kinds_from_runtime(caps, runtime_capabilities))
-                if normalized_profile_kind not in supported_profile_kinds:
-                    if not java_ready:
-                        raise RuntimeServiceError(java_block_message)
-                    raise RuntimeServiceError(
-                        f"当前服务器尚未满足 {normalized_profile_kind} 的准备条件；请先补齐依赖并重新检测"
-                    )
-                item = submit_workflow_runtime_bootstrap(
-                    self._run_ssh_command,
-                    profile_kind=normalized_profile_kind,
+            if normalized_target in {"docker_runtime", "workflow_runtime"}:
+                raise RuntimeServiceError(
+                    "一键配置 Runtime 不再提交后台安装/bootstrap 任务；请先创建交互式 SSH 终端会话（invoke_shell），"
+                    "再逐条发送 Java / Nextflow / Docker 修复命令，并在终端确认输出后重新检测。"
                 )
-                return {
-                    "target": "workflow_runtime",
-                    "profile_kind": normalized_profile_kind,
-                    "job_id": item["job_id"],
-                    "task_dir": item["task_dir"],
-                    "message": f"已提交 {normalized_profile_kind} workflow runtime bootstrap 任务",
-                }
 
             if normalized_target != "tool_env":
                 raise RuntimeServiceError(f"unsupported env install target: {normalized_target}")
@@ -2210,9 +2156,9 @@ class RuntimeService:
             profile = ServerProfile(
                 profile_id=str(profile_payload.get("profile_id") or row.get("profile_id") or "").strip(),
                 server_id=str(profile_payload.get("server_id") or "current").strip(),
-                profile_kind=str(profile_payload.get("profile_kind") or "personal_conda").strip(),  # type: ignore[arg-type]
+                profile_kind=str(profile_payload.get("profile_kind") or "personal_docker").strip(),  # type: ignore[arg-type]
                 executor=str(profile_payload.get("executor") or row.get("executor") or "").strip(),
-                packaging_mode=str(profile_payload.get("packaging_mode") or row.get("packaging_mode") or "conda").strip(),  # type: ignore[arg-type]
+                packaging_mode=str(profile_payload.get("packaging_mode") or row.get("packaging_mode") or "container").strip(),  # type: ignore[arg-type]
                 container_runtime=str(profile_payload.get("container_runtime") or row.get("container_runtime") or "").strip(),
                 work_dir=str(profile_payload.get("work_dir") or row.get("remote_work_dir") or "").strip(),
                 output_dir=str(profile_payload.get("output_dir") or row.get("remote_output_dir") or "").strip(),
@@ -2222,10 +2168,10 @@ class RuntimeService:
             profile = ServerProfile(
                 profile_id=str(row.get("profile_id") or "").strip(),
                 server_id="current",
-                profile_kind="personal_conda",
+                profile_kind="personal_docker",
                 executor=str(row.get("executor") or "").strip(),
-                packaging_mode=str(row.get("packaging_mode") or "conda").strip(),  # type: ignore[arg-type]
-                container_runtime=str(row.get("container_runtime") or "").strip(),
+                packaging_mode=str(row.get("packaging_mode") or "container").strip(),  # type: ignore[arg-type]
+                container_runtime=str(row.get("container_runtime") or "docker").strip(),
                 work_dir=str(row.get("remote_work_dir") or "").strip(),
                 output_dir=str(row.get("remote_output_dir") or "").strip(),
                 cache_dir="",
@@ -2258,12 +2204,8 @@ class RuntimeService:
                 profile_id = "hpc_slurm_conda"
             else:
                 profile_id = "hpc_slurm_conda"
-        elif runtime_capabilities.get("docker", {}).get("usable", False):
-            profile_id = "personal_docker"
-        elif runtime_capabilities.get("podman", {}).get("usable", False):
-            profile_id = "personal_podman"
         else:
-            profile_id = "personal_conda"
+            profile_id = "personal_docker"
 
         profile_payload = self._profile_payload_for_kind(profile_id)
         return ServerProfile(
@@ -2286,12 +2228,8 @@ class RuntimeService:
             supported.append("hpc_slurm_apptainer")
         if caps.has_sbatch and (runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False)):
             supported.append("hpc_slurm_conda")
-        if runtime_capabilities.get("docker", {}).get("usable", False):
+        if not caps.has_sbatch and runtime_capabilities.get("docker", {}).get("usable", False):
             supported.append("personal_docker")
-        if runtime_capabilities.get("podman", {}).get("usable", False):
-            supported.append("personal_podman")
-        if runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False):
-            supported.append("personal_conda")
         return supported
 
     def _runtime_failures_from_resolved_capabilities(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
@@ -2308,15 +2246,19 @@ class RuntimeService:
             if message and message not in failures:
                 failures.append(message)
 
-        runtime_ready = any(
-            runtime_capabilities.get(key, {}).get("usable", False)
-            for key in ("docker", "podman", "apptainer", "micromamba", "conda")
+        runtime_ready = (
+            any(
+                runtime_capabilities.get(key, {}).get("usable", False)
+                for key in ("apptainer", "micromamba", "conda")
+            )
+            if caps.has_sbatch
+            else bool(runtime_capabilities.get("docker", {}).get("usable", False))
         )
         if not runtime_ready:
             message = (
                 "HPC 运行时缺少 Apptainer 或 micromamba/conda"
                 if caps.has_sbatch
-                else "个人服务器缺少 Docker/Podman 或 micromamba/conda"
+                else "个人服务器缺少可用 Docker；请通过交互式终端完成修复后重新检测"
             )
             if message not in failures:
                 failures.append(message)

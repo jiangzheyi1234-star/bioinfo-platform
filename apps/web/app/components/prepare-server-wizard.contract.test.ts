@@ -35,10 +35,38 @@ test("prepare server wizard uses one-click configuration instead of next-step fl
   assert.doesNotMatch(source, />\s*下一步\s*</);
 });
 
-test("prepare server wizard auto-detects bash, java, and nextflow before confirmation", () => {
+test("prepare server wizard auto-detects bash, java, and nextflow before direct execution", () => {
   assert.match(source, /Bash → Java → Nextflow/);
-  assert.match(source, /一键配置确认/);
-  assert.match(source, /RuntimePath label="Bash"/);
+  assert.match(source, /点击“一键配置 Runtime”后会直接进入执行态/);
+  assert.doesNotMatch(source, /一键配置确认/);
+});
+
+test("prepare server wizard keeps one-click execution on a single docker-centered path", () => {
+  assert.match(source, /一键配置统一沿同一条执行路径推进/);
+  assert.match(source, /统一执行路径/);
+  assert.match(source, /personal_docker/);
+  assert.doesNotMatch(source, /Podman 可用，配置流程会按 Podman 路线继续/);
+  assert.doesNotMatch(source, /当前推荐 profile 是 Podman/);
+  assert.doesNotMatch(source, /personal_podman/);
+  assert.doesNotMatch(source, /personal_conda/);
+  assert.doesNotMatch(source, /Micromamba \/ Conda 仅作为补位能力，不应阻塞一键配置主路径/);
+  assert.doesNotMatch(source, /RuntimePath label="Micromamba"/);
+  assert.doesNotMatch(source, /fallback_conda/);
+  assert.doesNotMatch(inspectionSource, /return "use_podman"/);
+  assert.doesNotMatch(inspectionSource, /return "fallback_conda"/);
+  assert.doesNotMatch(inspectionSource, /podmanAvailable/);
+  assert.doesNotMatch(inspectionSource, /micromambaAvailable/);
+  assert.doesNotMatch(inspectionSource, /condaAvailable/);
+});
+
+test("prepare server wizard only interrupts for multiple candidate selection and persists the chosen path", () => {
+  assert.match(source, /局部选择/);
+  assert.match(source, /检测到多个可用 Java 路径/);
+  assert.match(source, /检测到多个合规 Nextflow 路径/);
+  assert.match(source, /persistCandidateSelection/);
+  assert.match(source, /selectJavaCandidate/);
+  assert.match(source, /selectNextflowCandidate/);
+  assert.match(source, /nextflow_path: candidate\.path/);
 });
 
 test("prepare server wizard step 1 no longer renders the right-side strategy card", () => {
@@ -104,8 +132,7 @@ test("prepare server wizard requires explicit recheck after terminal remediation
   assert.match(source, /命令发送成功 ≠ 环境已修复成功/);
 });
 
-test("prepare server wizard keeps conda as an optional fallback instead of a hard blocker", () => {
-  assert.match(source, /Conda 仅作为可选 fallback，不会阻塞一键配置/);
-  assert.match(source, /Conda Runtime 只作为容器运行时缺失时的补位能力/);
+test("prepare server wizard keeps terminal remediation on the one-click path even when docker is missing", () => {
+  assert.match(source, /未检测到可用 Docker；一键配置仍保持同一条执行路径/);
   assert.match(source, /不再依赖 PATH 漂移或 Conda 自动激活/);
 });

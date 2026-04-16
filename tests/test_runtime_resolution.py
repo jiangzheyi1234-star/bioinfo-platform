@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from core.remote.runtime_resolution import build_runtime_env_exports, resolve_remote_java, resolve_remote_nextflow
+from core.remote.runtime_resolution import (
+    build_runtime_env_exports,
+    resolve_persisted_runtime_binding,
+    resolve_remote_java,
+    resolve_remote_nextflow,
+)
 
 
 def test_resolve_remote_nextflow_prefers_usable_path_over_conda_fallback() -> None:
@@ -81,22 +86,27 @@ def test_resolve_remote_nextflow_marks_agent_mode_support_for_recommended_versio
     assert item["upgrade_recommended"] is False
 
 
-def test_resolve_remote_java_prefers_nxf_java_home_and_does_not_probe_java_home() -> None:
+def test_resolve_remote_java_uses_path_lookup_without_probing_nxf_java_home() -> None:
     seen: list[str] = []
 
     def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
         _ = timeout
         seen.append(command)
-        if '$NXF_JAVA_HOME/bin/java -version' in command:
+        if 'if command -v java >/dev/null 2>&1; then java -version' in command:
             return 0, 'openjdk version "21.0.2" 2024-01-16\n', ""
+        if 'dirname "$(dirname "$JAVA_BIN")"' in command:
+            return 0, "/usr/lib/jvm/java-21-openjdk\n", ""
+        if 'readlink -f "$(command -v java)"' in command:
+            return 0, "/usr/lib/jvm/java-21-openjdk/bin/java\n", ""
         return 1, "", "not found"
 
     item = resolve_remote_java(ssh_run_fn)
 
     assert item["usable"] is True
-    assert item["source"] == "nxf_java_home"
-    assert item["home"] == "$NXF_JAVA_HOME"
-    assert item["path"] == "$NXF_JAVA_HOME/bin/java"
+    assert item["source"] == "path"
+    assert item["home"] == "/usr/lib/jvm/java-21-openjdk"
+    assert item["path"] == "/usr/lib/jvm/java-21-openjdk/bin/java"
+    assert all("$NXF_JAVA_HOME" not in command for command in seen)
     assert all("$JAVA_HOME" not in command for command in seen)
 
 
@@ -123,3 +133,54 @@ def test_build_runtime_env_exports_only_exports_nxf_java_home() -> None:
     exports = build_runtime_env_exports({"home": "/opt/jdk-21"})
 
     assert exports == "export NXF_JAVA_HOME=/opt/jdk-21\n"
+
+
+def test_resolve_persisted_runtime_binding_uses_saved_fixed_paths_only() -> None:
+    seen: list[str] = []
+
+    def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
+        _ = timeout
+        seen.append(command)
+        if "/opt/nextflow/nextflow -version" in command:
+            return 0, "26.04.1\n", ""
+        if "/opt/nextflow/nextflow info" in command:
+            return 0, "", ""
+        if "/opt/jdk-21/bin/java -version" in command:
+            return 0, 'openjdk version "21.0.2" 2024-01-16\n', ""
+        return 1, "", "not found"
+
+    item = resolve_persisted_runtime_binding(
+        ssh_run_fn,
+        {
+            "verification_status": "verified",
+            "nextflow_path": "/opt/nextflow/nextflow",
+            "nextflow_command": "/opt/nextflow/nextflow",
+            "java_path": "/opt/jdk-21/bin/java",
+            "java_home": "/opt/jdk-21",
+        },
+    )
+
+    assert item["nextflow_command"] == "/opt/nextflow/nextflow"
+    assert item["java_home"] == "/opt/jdk-21"
+    assert item["agent_mode_supported"] is True
+    assert all("command -v java" not in command for command in seen)
+    assert all("type -P nextflow" not in command for command in seen)
+
+
+def test_resolve_persisted_runtime_binding_requires_verified_saved_state() -> None:
+    def ssh_run_fn(command: str, timeout: int) -> tuple[int, str, str]:
+        raise AssertionError(f"unexpected command: {command}")
+
+    try:
+        resolve_persisted_runtime_binding(
+            ssh_run_fn,
+            {
+                "verification_status": "failed",
+                "nextflow_path": "/opt/nextflow/nextflow",
+                "java_home": "/opt/jdk-21",
+            },
+        )
+    except RuntimeError as exc:
+        assert "未完成验证" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected RuntimeError")

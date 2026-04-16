@@ -14,6 +14,7 @@ import {
   loadRuntimeInspection,
   type EnvStatusPayload,
   type PreflightPayload,
+  type RuntimeCandidate,
   type RuntimeInspection,
 } from "@/app/components/runtime-inspection";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
@@ -38,7 +39,6 @@ type RuntimeReadySummary = {
   selectedProfile: string;
   runtimeHome: string;
   nextflowPath: string;
-  micromambaPath: string;
   javaPath?: string;
 };
 
@@ -102,6 +102,53 @@ function toInspectionResolvedRuntime(
 
 function getCheckItemValue(items: RuntimeCheckItem[], key: string, fallback: string): string {
   return items.find((item) => item.key === key)?.value || fallback;
+}
+
+type CandidateOption = {
+  path: string;
+  label: string;
+  version: string;
+  message: string;
+  source: string;
+  command: string;
+  home: string;
+};
+
+function deriveJavaHome(javaPath: string): string {
+  const normalized = String(javaPath || "").trim();
+  if (!normalized.startsWith("/")) {
+    return "";
+  }
+  if (normalized.endsWith("/bin/java")) {
+    return normalized.slice(0, -"/bin/java".length);
+  }
+  return "";
+}
+
+function buildCandidateOptions(candidates: RuntimeCandidate[] | undefined): CandidateOption[] {
+  const rows = Array.isArray(candidates) ? candidates : [];
+  const seen = new Set<string>();
+  const options: CandidateOption[] = [];
+  for (const row of rows) {
+    if (!row || row.usable !== true) {
+      continue;
+    }
+    const path = String(row.path || row.command || "").trim();
+    if (!path || seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+    options.push({
+      path,
+      label: path,
+      version: String(row.version || "").trim(),
+      message: String(row.message || "").trim(),
+      source: String(row.source || "").trim(),
+      command: String(row.command || row.path || "").trim() || path,
+      home: String(row.home || "").trim() || deriveJavaHome(path),
+    });
+  }
+  return options;
 }
 
 type RemediationCommand = {
@@ -361,15 +408,9 @@ function buildSections(items: RuntimeCheckItem[]): CheckSection[] {
     },
     {
       key: "execution-backend",
-      title: "执行后端",
-      description: "优先确认 Docker / Podman 是否可直接作为统一执行后端。",
-      keys: ["docker", "podman", "apptainer"],
-    },
-    {
-      key: "optional-fallback",
-      title: "可选 fallback",
-      description: "Micromamba / Conda 仅作为补位能力，不应阻塞一键配置主路径。",
-      keys: ["micromamba", "conda"],
+      title: "统一执行路径",
+      description: "一键配置统一围绕 Docker 执行路径推进；其他运行时信息不再作为主路径展示。",
+      keys: ["docker"],
     },
     {
       key: "server-baseline",
@@ -395,19 +436,15 @@ function hasSectionWarnings(section: CheckSection): boolean {
 
 function getRecommendedExplanation(args: {
   dockerUsable: boolean;
-  podmanUsable: boolean;
   preflight: PreflightPayload | null;
 }): string {
   if (!args.preflight) {
-    return "请先完成一次真实检测，系统再按固定路径与推荐 profile 自动推进。";
+    return "请先完成一次真实检测，系统再按统一的一键执行路径自动推进。";
   }
   if (args.dockerUsable) {
-    return "已检测到 Docker，配置流程会优先固定 Docker 执行路径。";
+    return "已检测到 Docker，一键配置会沿同一条 Docker 执行路径继续。";
   }
-  if (args.podmanUsable) {
-    return "未检测到 Docker，但 Podman 可用，配置流程会按 Podman 路线继续。";
-  }
-  return "未检测到可用容器运行时，将继续准备 Micromamba / Conda fallback；Conda 仅作为可选补位，不会阻塞整体检测。";
+  return "未检测到可用 Docker；一键配置仍保持同一条执行路径，并会引导你通过终端逐步修复 Docker 后再重新检测。";
 }
 
 function buildRemediationSections(args: {
@@ -526,10 +563,7 @@ function buildRemediationSections(args: {
         key: "docker",
         title: "Docker 修复",
         status: "repair",
-        summary:
-          preflight?.recommended_profile === "personal_podman"
-            ? "当前推荐 profile 是 Podman，但若后续需要统一 Docker 执行后端，请先在终端完成显式 Docker 修复并重新检测。"
-            : "Docker 尚未就绪。请通过终端逐条发送命令，修复后再重新检测。",
+        summary: "Docker 尚未就绪。请通过终端逐条发送命令，修复后再重新检测。",
         commands: [
           {
             key: "docker-check-sudo",
@@ -573,8 +607,6 @@ function remediationBadge(section: RemediationSection): { label: string; classNa
 
 function profileKindForDecision(selectedDecision: RuntimeDecisionOption | null): string {
   if (selectedDecision === "use_docker") return "personal_docker";
-  if (selectedDecision === "use_podman") return "personal_podman";
-  if (selectedDecision === "fallback_conda") return "personal_conda";
   return "";
 }
 
@@ -632,13 +664,7 @@ export function PrepareServerWizard({
 
   const capabilities = preflight?.runtime_capabilities;
   const dockerUsable = capabilities?.docker?.usable === true;
-  const podmanUsable = capabilities?.podman?.usable === true;
   const javaAvailable = capabilities?.java?.usable === true;
-  const nextflowAvailable = capabilities?.nextflow?.usable === true;
-  const condaAvailable =
-    capabilities?.micromamba?.usable === true ||
-    capabilities?.conda?.usable === true ||
-    envStatus?.conda_runtime?.installed === true;
 
   const runtimeReadyDetected = isRuntimeReady(preflight, envStatus, resolvedRuntimeForInspection);
   const runtimeReady = preflight
@@ -659,17 +685,97 @@ export function PrepareServerWizard({
     }
     const runtimeHome = "~/.h2ometa/runtime";
     return {
-      selectedProfile:
-        preflight?.recommended_profile_details?.profile_kind ||
-        preflight?.recommended_profile ||
-        detectedResolvedRuntime?.selectedProfile ||
-        "personal_conda",
+      selectedProfile: "personal_docker",
       runtimeHome,
       nextflowPath: detectedResolvedRuntime?.nextflowPath || `${runtimeHome}/bin/nextflow`,
-      micromambaPath: `${runtimeHome}/bin/micromamba`,
       javaPath: detectedResolvedRuntime?.javaPath || (javaAvailable ? `${runtimeHome}/java/bin/java` : undefined),
     };
   }, [detectedResolvedRuntime, javaAvailable, preflight, runtimeReady]);
+
+  const javaCandidateOptions = useMemo(
+    () => buildCandidateOptions(capabilities?.java?.candidates),
+    [capabilities?.java?.candidates]
+  );
+  const nextflowCandidateOptions = useMemo(
+    () => buildCandidateOptions(capabilities?.nextflow?.candidates),
+    [capabilities?.nextflow?.candidates]
+  );
+  const requiresJavaChoice = javaCandidateOptions.length > 1;
+  const requiresNextflowChoice = nextflowCandidateOptions.length > 1;
+
+  useEffect(() => {
+    if (javaCandidateOptions.length === 1 && !resolvedJavaPath) {
+      setResolvedJavaPath(javaCandidateOptions[0].path);
+    }
+  }, [javaCandidateOptions, resolvedJavaPath]);
+
+  useEffect(() => {
+    if (nextflowCandidateOptions.length === 1 && !resolvedNextflowPath) {
+      setResolvedNextflowPath(nextflowCandidateOptions[0].path);
+    }
+  }, [nextflowCandidateOptions, resolvedNextflowPath]);
+
+  const persistCandidateSelection = useCallback(
+    async (patch: Record<string, string>) => {
+      if (!currentHostKey) {
+        return;
+      }
+      try {
+        await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", {
+          body: {
+            host_key: currentHostKey,
+            selected_profile: "personal_docker",
+            resolved_at: new Date().toISOString(),
+            ...patch,
+          },
+        });
+      } catch {
+        // Best-effort persistence; explicit recheck still verifies the final state.
+      }
+    },
+    [currentHostKey]
+  );
+
+  const selectJavaCandidate = useCallback(
+    (candidate: CandidateOption) => {
+      setResolvedJavaPath(candidate.path);
+      setDetectedResolvedRuntime((current) =>
+        current
+          ? {
+              ...current,
+              javaPath: candidate.path,
+            }
+          : current
+      );
+      void persistCandidateSelection({
+        java_path: candidate.path,
+        java_home: candidate.home,
+        java_message: candidate.message || "已选择固定 Java 路径",
+      });
+    },
+    [persistCandidateSelection]
+  );
+
+  const selectNextflowCandidate = useCallback(
+    (candidate: CandidateOption) => {
+      setResolvedNextflowPath(candidate.path);
+      setDetectedResolvedRuntime((current) =>
+        current
+          ? {
+              ...current,
+              nextflowPath: candidate.path,
+            }
+          : current
+      );
+      void persistCandidateSelection({
+        nextflow_path: candidate.path,
+        nextflow_command: candidate.command || candidate.path,
+        nextflow_source: candidate.source,
+        nextflow_message: candidate.message || "已选择固定 Nextflow 路径",
+      });
+    },
+    [persistCandidateSelection]
+  );
 
   useEffect(() => {
     setDetectedResolvedRuntime(resolvedRuntime ?? null);
@@ -727,7 +833,15 @@ export function PrepareServerWizard({
     if (!preflight) {
       return;
     }
-    const effectiveDecision = selectedDecision || getRecommendedDecision(preflight) || "fallback_conda";
+    if (requiresJavaChoice && !resolvedJavaPath) {
+      setError("检测到多个可用 Java 路径；请先选择一个固定路径后再继续一键配置。");
+      return;
+    }
+    if (requiresNextflowChoice && !resolvedNextflowPath) {
+      setError("检测到多个可用 Nextflow 路径；请先选择一个固定路径后再继续一键配置。");
+      return;
+    }
+    const effectiveDecision = selectedDecision || getRecommendedDecision(preflight) || "use_docker";
     const blockReason = getBootstrapBlockReason(preflight, effectiveDecision);
     if (blockReason) {
       setError(blockReason);
@@ -736,21 +850,22 @@ export function PrepareServerWizard({
     setCurrentStep(3);
     setError("");
     setFlowNotice("请按顺序通过终端逐条发送修复命令；每发一步都要在终端确认输出，再点击“重新检测”完成复检。");
-  }, [preflight, selectedDecision]);
+  }, [preflight, requiresJavaChoice, requiresNextflowChoice, resolvedJavaPath, resolvedNextflowPath, selectedDecision]);
 
   const syncPreparedState = useCallback(
     async (inspection: RuntimeInspection) => {
       const refreshedRuntime = inspection.preflight?.runtime_capabilities || {};
       const nextflowNowUsable = refreshedRuntime?.nextflow?.usable === true;
-      const nextflowResolvedPath = String(refreshedRuntime?.nextflow?.path || inspection.resolvedRuntime?.nextflow_path || "").trim();
-      const javaResolvedPath = String(refreshedRuntime?.java?.path || inspection.resolvedRuntime?.java_path || "").trim();
+      const nextflowResolvedPath = String(
+        resolvedNextflowPath || refreshedRuntime?.nextflow?.path || inspection.resolvedRuntime?.nextflow_path || ""
+      ).trim();
+      const javaResolvedPath = String(
+        resolvedJavaPath || refreshedRuntime?.java?.path || inspection.resolvedRuntime?.java_path || ""
+      ).trim();
       if (!nextflowResolvedPath || !nextflowNowUsable) {
         return false;
       }
-      const selectedProfile =
-        inspection.preflight?.recommended_profile_details?.profile_kind ||
-        inspection.preflight?.recommended_profile ||
-        "personal_conda";
+      const selectedProfile = "personal_docker";
       await requestLocalApiJson("PUT", "/api/v1/runtime/resolved", {
         body: {
           host_key: currentHostKey,
@@ -784,7 +899,7 @@ export function PrepareServerWizard({
       });
       return true;
     },
-    [currentHostKey, onPrepared]
+    [currentHostKey, onPrepared, resolvedJavaPath, resolvedNextflowPath]
   );
 
   const runRecheck = useCallback(async () => {
@@ -839,7 +954,7 @@ export function PrepareServerWizard({
   const serverLabel = sshStatus ? `${sshStatus.user}@${sshStatus.host}:${sshStatus.port}` : "未连接服务器";
   const bootstrapBlockReason = useMemo(() => getBootstrapBlockReason(preflight, selectedDecision), [preflight, selectedDecision]);
   const canAdvanceFromDetection = Boolean(preflight) && !loading;
-  const recommendedExplanation = getRecommendedExplanation({ dockerUsable, podmanUsable, preflight });
+  const recommendedExplanation = getRecommendedExplanation({ dockerUsable, preflight });
   const statusLabel = loading ? "检测中" : error && !preflight ? "检测失败" : runtimeReady ? "Runtime Ready" : "Runtime Missing";
   const statusClassName = loading
     ? "border-slate-200 bg-slate-50 text-slate-500"
@@ -902,31 +1017,43 @@ export function PrepareServerWizard({
                 <div className="space-y-2">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">检测环境</h3>
                   <p className="text-sm leading-relaxed text-slate-500">
-                    系统会先按 Bash → Java → Nextflow 的固定顺序自动检测，再根据可用 Docker / Podman 自动选择执行后端；Conda 仅作为可选 fallback，不会阻塞一键配置。
+                    系统会先按 Bash → Java → Nextflow 的固定顺序自动检测，再确认 Docker 是否就绪；一键配置统一沿同一条执行路径推进。
+                  </p>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    点击“一键配置 Runtime”后会直接进入执行态，不会再出现额外的汇总确认卡。
                   </p>
                 </div>
 
-                <div className="grid gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">一键配置确认</p>
-                    <p className="text-sm font-medium text-slate-950">自动检测已完成，确认后将按推荐路径继续配置。</p>
-                    <p className="text-xs leading-relaxed text-slate-500">
-                      后续运行会优先复用已验证的固定路径，而不是依赖 PATH 或 shell 自动加载结果。
-                    </p>
+                {requiresJavaChoice || requiresNextflowChoice ? (
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-5">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">局部选择</p>
+                      <p className="text-sm text-amber-900">
+                        仅在检测到多个可用候选路径时才会暂停。请选择固定路径后继续一键配置。
+                      </p>
+                    </div>
+                    <div className="mt-4 space-y-4">
+                      {requiresJavaChoice ? (
+                        <CandidateSelector
+                          title="选择 Java 路径"
+                          description="检测到多个可用 Java 路径。请选择一个固定路径作为后续 Nextflow 运行绑定。"
+                          options={javaCandidateOptions}
+                          selectedPath={resolvedJavaPath}
+                          onSelect={selectJavaCandidate}
+                        />
+                      ) : null}
+                      {requiresNextflowChoice ? (
+                        <CandidateSelector
+                          title="选择 Nextflow 路径"
+                          description="检测到多个合规 Nextflow 路径。请选择一个固定路径，并在后续运行时持续复用。"
+                          options={nextflowCandidateOptions}
+                          selectedPath={resolvedNextflowPath}
+                          onSelect={selectNextflowCandidate}
+                        />
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <RuntimePath label="Bash" value={bashPath} />
-                    <RuntimePath label="Java" value={confirmationJavaPath} />
-                    <RuntimePath label="Nextflow" value={confirmationNextflowPath} />
-                    <RuntimePath
-                      label="推荐 Profile"
-                      value={preflight?.recommended_profile || detectedResolvedRuntime?.selectedProfile || "等待自动选择"}
-                    />
-                  </div>
-                  <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs leading-relaxed text-blue-700">
-                    Conda Runtime 只作为容器运行时缺失时的补位能力，不会阻塞 Docker / Podman 的主路径确认。
-                  </div>
-                </div>
+                ) : null}
 
                 <div className="space-y-4">
                   {checklistSections.map((section) => (
@@ -1013,7 +1140,7 @@ export function PrepareServerWizard({
               </div>
               <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
                 <p className="text-sm text-slate-700">
-                  自动检测确认当前推荐使用 <strong>{preflight?.recommended_profile || "personal_conda"}</strong>。
+                  自动检测确认当前统一按 <strong>personal_docker</strong> 这条一键执行路径推进。
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">{recommendedExplanation}</p>
               </div>
@@ -1074,13 +1201,12 @@ export function PrepareServerWizard({
               <div className="grid gap-4 rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">当前 Profile</p>
-                  <p className="mt-1 font-mono text-sm text-slate-600">{runtimeSummary?.selectedProfile || "personal_conda"}</p>
+                  <p className="mt-1 font-mono text-sm text-slate-600">{runtimeSummary?.selectedProfile || "personal_docker"}</p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <RuntimePath label="Bash" value={bashPath} />
                   <RuntimePath label="Runtime Home" value={runtimeSummary?.runtimeHome || "~/.h2ometa/runtime"} />
                   <RuntimePath label="Nextflow" value={confirmationNextflowPath || runtimeSummary?.nextflowPath || "未解析到可用 Nextflow"} />
-                  <RuntimePath label="Micromamba" value={runtimeSummary?.micromambaPath || "~/.h2ometa/runtime/bin/micromamba"} />
                   <RuntimePath label="Java" value={confirmationJavaPath || runtimeSummary?.javaPath || "使用系统 Java"} />
                 </div>
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-xs leading-relaxed text-emerald-700">
@@ -1146,5 +1272,60 @@ function RuntimePath({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-slate-400">{label}</p>
       <p className="mt-1 font-mono text-sm text-slate-700">{value}</p>
     </div>
+  );
+}
+
+function CandidateSelector({
+  title,
+  description,
+  options,
+  selectedPath,
+  onSelect,
+}: {
+  title: string;
+  description: string;
+  options: CandidateOption[];
+  selectedPath: string;
+  onSelect: (candidate: CandidateOption) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-amber-100 bg-white/80 p-4">
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-slate-900">{title}</p>
+        <p className="text-xs leading-relaxed text-slate-500">{description}</p>
+      </div>
+      <div className="mt-3 space-y-2">
+        {options.map((option) => {
+          const selected = option.path === selectedPath;
+          return (
+            <button
+              key={option.path}
+              type="button"
+              className={cn(
+                "w-full rounded-lg border px-4 py-3 text-left",
+                selected ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-300"
+              )}
+              onClick={() => onSelect(option)}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-slate-700 break-all">{option.label}</p>
+                  {option.version ? <p className="mt-1 text-xs text-slate-500">版本：{option.version}</p> : null}
+                  {option.message ? <p className="mt-1 text-xs leading-relaxed text-slate-500">{option.message}</p> : null}
+                </div>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border px-2 py-0.5 text-[11px]",
+                    selected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-500"
+                  )}
+                >
+                  {selected ? "已选择" : "选择"}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }

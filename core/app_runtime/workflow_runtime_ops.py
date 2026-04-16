@@ -40,18 +40,6 @@ _PROFILE_TEMPLATES = (
         "packaging_mode": "container",
         "container_runtime": "docker",
     },
-    {
-        "profile_id": "personal_podman",
-        "executor": "local",
-        "packaging_mode": "container",
-        "container_runtime": "podman",
-    },
-    {
-        "profile_id": "personal_conda",
-        "executor": "local",
-        "packaging_mode": "conda",
-        "container_runtime": "",
-    },
 )
 
 
@@ -581,10 +569,6 @@ def _profile_is_available(profile_id: str, runtime_caps: dict[str, Any]) -> bool
         )
     if profile_id == "personal_docker":
         return _runtime_capability_available(runtime_caps, "docker")
-    if profile_id == "personal_podman":
-        return _runtime_capability_available(runtime_caps, "podman")
-    if profile_id == "personal_conda":
-        return _runtime_capability_available(runtime_caps, "micromamba") or _runtime_capability_available(runtime_caps, "conda")
     return False
 
 
@@ -594,9 +578,17 @@ def _supported_profile_kinds(preflight: dict[str, Any]) -> list[str]:
         kinds = [_safe_text(item) for item in raw]
         return [item for item in kinds if item]
     runtime_caps = preflight.get("runtime_capabilities")
-    if not isinstance(runtime_caps, dict):
-        return []
-    return [entry["profile_id"] for entry in _PROFILE_TEMPLATES if _profile_is_available(entry["profile_id"], runtime_caps)]
+    if isinstance(runtime_caps, dict):
+        supported = [entry["profile_id"] for entry in _PROFILE_TEMPLATES if _profile_is_available(entry["profile_id"], runtime_caps)]
+        if supported:
+            return supported
+    recommended = preflight.get("recommended_profile_details")
+    if isinstance(recommended, dict):
+        fallback = _safe_text(recommended.get("profile_id")) or _safe_text(recommended.get("profile_kind"))
+        if fallback:
+            return [fallback]
+    fallback = _safe_text(preflight.get("recommended_profile"))
+    return [fallback] if fallback else []
 
 
 def _profile_cache_dir(packaging_mode: str) -> str:
@@ -916,12 +908,14 @@ def create_run(runtime: Any, *, project_id: str, task_id: str, launch: dict[str,
     row["result_path"] = str(layout.get("remote_output_dir") or "")
     created = _commit_run_sync(runtime, row, insert=True)
     backend = create_workflow_backend(launch_spec.profile)
+    resolved_runtime = runtime.get_resolved_runtime_state()
     try:
         submission = backend.submit_prepared_run(
             ssh_service=ssh,
             ssh_run_fn=runtime._run_ssh_command,
             layout=layout,
             launch=launch_spec,
+            resolved_runtime=resolved_runtime,
         )
     except Exception as exc:
         return _mark_run_failed(runtime, created, str(exc))
