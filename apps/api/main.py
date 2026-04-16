@@ -11,8 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
     CreateProjectRequest,
-    CreateSampleRequest,
-    DatabaseInstallRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
     UpdateProjectRequest,
@@ -105,14 +103,6 @@ async def get_version() -> dict[str, Any]:
             "backend_source": os.environ.get("H2OMETA_BACKEND_SOURCE", "unknown"),
         }
     }
-
-
-@app.get("/api/v1/workflows/tools/{tool_id}/descriptor")
-async def get_workflow_tool_descriptor(tool_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_tool_descriptor(tool_id=tool_id)}
-    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/settings")
@@ -409,70 +399,6 @@ async def open_project(project_id: str) -> dict[str, Any]:
     except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-@app.get("/api/v1/projects/{project_id}/samples")
-async def list_samples(project_id: str) -> dict[str, Any]:
-    try:
-        return {"items": _runtime().list_samples(project_id=project_id)}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/v1/projects/{project_id}/samples")
-async def create_sample(
-    project_id: str, payload: CreateSampleRequest
-) -> dict[str, Any]:
-    try:
-        item = _runtime().create_sample(
-            project_id=project_id,
-            name=payload.name,
-            source=payload.source,
-            metadata=payload.metadata,
-        )
-        return {"item": item}
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/databases")
-async def list_databases(
-    project_id: str, include_status: bool = False
-) -> dict[str, Any]:
-    try:
-        return {
-            "items": _runtime().list_databases(
-                project_id=project_id, include_status=include_status
-            )
-        }
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/v1/projects/{project_id}/databases/{db_id}/install")
-async def install_database(
-    project_id: str, db_id: str, payload: DatabaseInstallRequest | None = None
-) -> dict[str, Any]:
-    try:
-        mirror_index = payload.mirror_index if payload is not None else 0
-        return {
-            "item": _runtime().install_database(
-                project_id=project_id, db_id=db_id, mirror_index=mirror_index
-            )
-        }
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/projects/{project_id}/databases/{db_id}/install")
-async def get_database_install_status(project_id: str, db_id: str) -> dict[str, Any]:
-    try:
-        return {
-            "item": _runtime().get_database_install_status(
-                project_id=project_id, db_id=db_id
-            )
-        }
-    except (RuntimeServiceError, KeyError, ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/logs/app")

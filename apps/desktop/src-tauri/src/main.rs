@@ -30,7 +30,25 @@ struct SpawnedBackend {
 }
 
 fn candidate_python_commands() -> Vec<PythonCommand> {
-    let mut uv_commands = vec![PythonCommand {
+    let mut commands = vec![];
+    
+    // Prefer project .venv if exists
+    if let Ok(workdir) = repo_backend_workdir() {
+        let venv_python = if cfg!(windows) {
+            workdir.join(".venv").join("Scripts").join("python.exe")
+        } else {
+            workdir.join(".venv").join("bin").join("python")
+        };
+        if venv_python.exists() {
+            commands.push(PythonCommand {
+                program: venv_python.display().to_string(),
+                args: vec![],
+            });
+        }
+    }
+    
+    // Fallback to uv
+    commands.push(PythonCommand {
         program: "uv".to_string(),
         args: vec![
             "run".to_string(),
@@ -40,21 +58,22 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
             "apps/api/requirements.txt".to_string(),
             "python".to_string(),
         ],
-    }];
+    });
+    
     if let Ok(explicit) = std::env::var("H2OMETA_PYTHON") {
         if !explicit.trim().is_empty() {
-            let mut commands = vec![PythonCommand {
+            commands.insert(0, PythonCommand {
                 program: explicit,
                 args: vec![],
-            }];
-            commands.extend(uv_commands);
-            return commands;
+            });
         }
     }
+    
     if cfg!(windows) {
-        return uv_commands;
+        return commands;
     }
-    uv_commands.extend(vec![
+    
+    commands.extend(vec![
         PythonCommand {
             program: "python3".to_string(),
             args: vec![],
@@ -64,7 +83,7 @@ fn candidate_python_commands() -> Vec<PythonCommand> {
             args: vec![],
         },
     ]);
-    uv_commands
+    commands
 }
 
 fn has_backend_entry(path: &Path) -> bool {
