@@ -15,8 +15,9 @@
 - 已接上单机 Linux 最小 launcher 闭环：
   - bundle 本地落盘
   - SSH 上传 bundle
-  - 远端 detached wrapper 提交，并由 wrapper 持有真实 Nextflow pid
-  - `status/exit_code/heartbeat/task.log/nextflow.pid` 查询
+  - 先解析远端 Nextflow 绝对路径，再由 `launch.sh` / `launch.sbatch` 通过 SSH 执行
+  - Java 侧只显式注入 `NXF_JAVA_HOME`，不再依赖 `JAVA_HOME`/PATH 的隐式继承
+  - 通过 `status.txt` / `pid` / `nextflow.pid` / `heartbeat.txt` / `task.log` 做远端状态跟踪
   - `trace/report/timeline/dag` artifact 下载
   - run 记录本地持久化后可重新加载
 

@@ -14,6 +14,8 @@
 5. 视觉布局接近用户截图：右上角小图标触发、内容区底部横向终端区域
 6. 终端打开后为上下分屏布局，而不是浮层抽屉
 7. 终端内容区使用 xterm.js，而不是“输出区 + 独立输入框”的假终端结构
+8. 终端 IO 主路径使用 websocket，而不是 HTTP 轮询输出
+9. 终端支持选区复制与粘贴
 
 ## UI state checks
 1. 未连接状态：
@@ -38,12 +40,15 @@
 4. 输入 `echo hello` 可以得到输出
 5. 长输出命令（如 `ls -la`）可正常显示并滚动
 6. 输入直接在终端缓冲区中进行，而不是下方独立表单输入栏
+7. 选中文本后 `Ctrl/Cmd+C` 可复制
+8. `Ctrl/Cmd+V` 或右键粘贴可把文本送入远端终端
 
 ## Session lifecycle checks
 1. 打开 drawer 时创建 session
 2. 关闭 drawer 时 session 被清理
 3. 重新打开 drawer 会创建新 session
 4. 不依赖“每条命令新起一次 run(cmd)”伪装成终端
+5. websocket 断流但 SSH 仍存活时，前端会自动重连同一 session
 
 ## Disconnect behavior checks
 1. SSH 断开时：

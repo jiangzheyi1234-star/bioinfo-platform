@@ -25,7 +25,6 @@ resolve_nextflow_candidate() {
   if ! bash -lc "$cmd info >/dev/null 2>&1" >/dev/null 2>&1; then
     return 2
   fi
-  RESOLVED_NEXTFLOW_CMD="$cmd"
   RESOLVED_NEXTFLOW_PATH="$path_hint"
   return 0
 }
@@ -123,20 +122,19 @@ ensure_nextflow() {
   emit_step "$step_key" "running"
   local first_found_error=""
   local first_found_path=""
-  RESOLVED_NEXTFLOW_CMD=""
   RESOLVED_NEXTFLOW_PATH=""
 
   if has_cmd nextflow; then
     local path_cmd
-    path_cmd="$(command -v nextflow 2>/dev/null || true)"
-    if resolve_nextflow_candidate "nextflow" "${path_cmd:-nextflow}"; then
+    path_cmd="$(type -P nextflow 2>/dev/null || true)"
+    if resolve_nextflow_candidate "${path_cmd:-nextflow}" "${path_cmd:-nextflow}"; then
       emit PRESENT nextflow
       emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
       emit_step "$step_key" "done"
       return 0
     fi
     first_found_path="${path_cmd:-nextflow}"
-    first_found_error="$(bash -lc 'nextflow info' 2>&1 || true)"
+    first_found_error="$(bash -lc "\"${path_cmd:-nextflow}\" info" 2>&1 || true)"
   fi
 
   for candidate in "$HOME/.local/bin/nextflow" "/usr/local/bin/nextflow" "/opt/nextflow/nextflow"; do
@@ -152,15 +150,6 @@ ensure_nextflow() {
     if [ -z "$first_found_error" ]; then
       first_found_path="$candidate"
       first_found_error="$(bash -lc "$candidate info" 2>&1 || true)"
-    fi
-  done
-
-  for candidate in "conda run -n base nextflow" "$HOME/miniconda3/bin/conda run -n base nextflow" "$HOME/anaconda3/bin/conda run -n base nextflow" "$HOME/mambaforge/bin/conda run -n base nextflow" "$HOME/miniforge3/bin/conda run -n base nextflow"; do
-    if resolve_nextflow_candidate "$candidate" "$candidate"; then
-      emit PRESENT nextflow
-      emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"
-      emit_step "$step_key" "done"
-      return 0
     fi
   done
 
@@ -191,7 +180,6 @@ ensure_nextflow() {
     emit_step "$step_key" "failed"
     return 1
   fi
-  RESOLVED_NEXTFLOW_CMD="$HOME/.local/bin/nextflow"
   RESOLVED_NEXTFLOW_PATH="$HOME/.local/bin/nextflow"
   emit INSTALLED nextflow
   emit NEXTFLOW_PATH "${RESOLVED_NEXTFLOW_PATH}"

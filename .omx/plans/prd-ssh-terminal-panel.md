@@ -93,7 +93,7 @@
 OMX 可以自行决定：
 - 终端按钮的具体图标样式
 - drawer 的默认高度与最小/最大尺寸
-- v1 输出刷新的技术形式（轮询优先即可）
+- websocket 重连退避的具体时间参数
 - 断线态文案的具体措辞
 
 OMX 不得自行扩展：
@@ -159,11 +159,12 @@ OMX 不得自行扩展：
 ### Minimal backend capability needed
 需要补一组终端 session 能力：
 - create terminal session
-- read terminal output
-- send terminal input
+- websocket stream terminal output
+- websocket stream terminal input
+- resize terminal session
 - close terminal session
 
-具体协议形式（轮询 / streaming）v1 可偏保守，优先保证稳定性。
+具体协议形式冻结为：REST 负责创建/关闭 session，WebSocket 负责同一 session 的输入、输出、状态与断流重连。
 
 ### Preferred UI implementation
 前端布局优先采用 **垂直 resizable panel** 思路实现：
@@ -178,6 +179,8 @@ OMX 不得自行扩展：
 本轮执行目标改为：
 - 在固定底部终端面板中接入 **`xterm.js`**
 - 输入直接发生在终端区域内部，而不是单独的表单输入栏
+- 终端输入/输出通过同一条 websocket 连接传输，并支持对同一 session 自动重连
+- 终端支持选区复制，以及 `Ctrl/Cmd+V` / 右键粘贴
 - 终端区与输出共享同一缓冲区语义，尽量贴近 VS Code / Cursor 风格
 
 仍延后的内容：

@@ -20,4 +20,5 @@ This UI targets the local FastAPI backend in `apps/api`.
 - The SSH shell host lives in `app/components/ssh-shell.tsx`.
 - After SSH connects, the top-right terminal icon opens a fixed bottom dock inside the content area.
 - The dock uses a draggable horizontal split and renders the session with `xterm.js` + `@xterm/addon-fit`.
-- Terminal input happens directly in the xterm buffer; disconnect keeps prior output visible and disables further input until a new session is opened.
+- Terminal I/O now flows through a single WebSocket stream per session; disconnect keeps prior output visible and disables further input until a new session is opened.
+- Clipboard support covers selection copy with `Ctrl/Cmd+C` and paste via `Ctrl/Cmd+V` or the browser/webview paste event.

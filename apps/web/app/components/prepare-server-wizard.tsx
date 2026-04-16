@@ -128,7 +128,11 @@ function normalizeValue(value: string): string {
   }
 }
 
-function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatusPayload | null): RuntimeCheckItem[] {
+function buildChecklist(
+  preflight: PreflightPayload | null,
+  envStatus: EnvStatusPayload | null,
+  resolvedRuntime?: PrepareServerWizardProps["resolvedRuntime"]
+): RuntimeCheckItem[] {
   if (!preflight) {
     return [];
   }
@@ -137,6 +141,9 @@ function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatus
   const runtime = preflight.runtime_capabilities || {};
   const condaInstalled = envStatus?.conda_runtime?.installed === true;
   const condaExecutable = envStatus?.conda_runtime?.conda_executable || "";
+  const resolvedVerified = resolvedRuntime?.hostKey === undefined || resolvedRuntime?.verificationStatus === "verified";
+  const resolvedJavaAvailable = Boolean(resolvedVerified && resolvedRuntime?.javaPath);
+  const resolvedNextflowAvailable = Boolean(resolvedVerified && resolvedRuntime?.nextflowPath);
 
   const makeRuntimeItem = (args: {
     key: string;
@@ -156,32 +163,36 @@ function buildChecklist(preflight: PreflightPayload | null, envStatus: EnvStatus
   };
 
   const items: RuntimeCheckItem[] = [
-    makeRuntimeItem({
+    {
       key: "java",
-      fallbackLabel: "Java 17+",
-      fallbackStatus: runtime.java?.usable ? "ready" : runtime.java?.available ? "blocked" : "missing",
-      fallbackValue: runtime.java?.version || (runtime.java?.available ? "installed" : "missing"),
-      fallbackMessage: runtime.java?.usable
+      label: "Java 17+",
+      status: runtime.java?.usable || resolvedJavaAvailable ? "ready" : runtime.java?.available ? "blocked" : "missing",
+      value: normalizeValue(
+        String(resolvedRuntime?.javaPath || runtime.java?.version || (runtime.java?.available ? "installed" : "missing"))
+      ),
+      message: runtime.java?.usable || resolvedJavaAvailable
         ? "已检测到 Java，可用于运行 Nextflow"
         : runtime.java?.message
           ? runtime.java.message
           : runtime.java?.available
             ? "已检测到 Java，但当前不可正常调用"
             : "未检测到 Java，无法运行 Nextflow",
-    }),
-    makeRuntimeItem({
+    },
+    {
       key: "nextflow",
-      fallbackLabel: "Nextflow",
-      fallbackStatus: runtime.nextflow?.usable ? "ready" : runtime.nextflow?.available ? "blocked" : "missing",
-      fallbackValue: runtime.nextflow?.version || (runtime.nextflow?.available ? "installed" : "missing"),
-      fallbackMessage: runtime.nextflow?.usable
+      label: "Nextflow",
+      status: runtime.nextflow?.usable || resolvedNextflowAvailable ? "ready" : runtime.nextflow?.available ? "blocked" : "missing",
+      value: normalizeValue(
+        String(resolvedRuntime?.nextflowPath || runtime.nextflow?.version || (runtime.nextflow?.available ? "installed" : "missing"))
+      ),
+      message: runtime.nextflow?.usable || resolvedNextflowAvailable
         ? "已检测到 Nextflow"
         : runtime.nextflow?.message
           ? runtime.nextflow.message
           : runtime.nextflow?.available
             ? "已检测到 Nextflow，但当前不可正常调用"
             : "未检测到 Nextflow",
-    }),
+    },
     makeRuntimeItem({
       key: "docker",
       fallbackLabel: "Docker",
@@ -584,7 +595,7 @@ export function PrepareServerWizard({
     if (!preflight) {
       return;
     }
-    const effectiveDecision = selectedDecision || recommendedDecision || "fallback_conda";
+    const effectiveDecision = selectedDecision || getRecommendedDecision(preflight) || "fallback_conda";
     const blockReason = getBootstrapBlockReason(preflight, effectiveDecision);
     if (blockReason) {
       setError(blockReason);
@@ -616,9 +627,9 @@ export function PrepareServerWizard({
       setInstallRunning(false);
       setError(formatApiFetchError(nextError, "无法启动 Runtime 准备流程。"));
     }
-  }, [preflight, recommendedDecision, selectedDecision]);
+  }, [preflight, selectedDecision]);
 
-  const checklist = useMemo(() => buildChecklist(preflight, envStatus), [envStatus, preflight]);
+  const checklist = useMemo(() => buildChecklist(preflight, envStatus, resolvedRuntime), [envStatus, preflight, resolvedRuntime]);
   const checklistSections = useMemo(() => (preflight ? buildSections(checklist) : []), [checklist, preflight]);
   const runtimePrepareView = useMemo(
     () =>

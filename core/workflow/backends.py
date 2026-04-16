@@ -177,7 +177,7 @@ class SlurmSSHBackend(WorkflowBackend):
                 remote_work_dir=layout["remote_work_dir"],
                 remote_output_dir=layout["remote_output_dir"],
                 resume=bool(launch.resume),
-                nextflow_command=str(nextflow_info.get("command") or "nextflow"),
+                nextflow_bin=str(nextflow_info.get("path") or nextflow_info.get("command") or "nextflow"),
                 runtime_env_exports=build_runtime_env_exports(java_info),
             ),
             20,
@@ -332,7 +332,7 @@ def _build_slurm_launcher(
     remote_work_dir: str,
     remote_output_dir: str,
     resume: bool,
-    nextflow_command: str,
+    nextflow_bin: str,
     runtime_env_exports: str,
 ) -> str:
     task_dir = _shell_expr(remote_task_dir)
@@ -351,14 +351,14 @@ STATUS_FILE="$TASK_DIR/status.txt"
 EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
 HEARTBEAT_FILE="$TASK_DIR/heartbeat.txt"
 JOB_ID_FILE="$TASK_DIR/scheduler_job_id.txt"
-LAUNCHER_PID_FILE="$TASK_DIR/launcher.pid"
+PID_FILE="$TASK_DIR/pid"
 LOG_FILE="$TASK_DIR/task.log"
 CANCEL_FILE="$TASK_DIR/cancel_requested"
-NEXTFLOW_CMD={shlex.quote(nextflow_command)}
+NEXTFLOW_BIN={shlex.quote(nextflow_bin)}
 
 mkdir -p "$TASK_DIR" "$BUNDLE_DIR" "$WORK_DIR" "$OUTPUT_DIR"
 echo "PENDING" > "$STATUS_FILE"
-echo "$$" > "$LAUNCHER_PID_FILE"
+echo "$$" > "$PID_FILE"
 echo "${{SLURM_JOB_ID:-}}" > "$JOB_ID_FILE"
 exec > "$LOG_FILE" 2>&1
 
@@ -398,7 +398,7 @@ trap _cleanup EXIT
 cd "$BUNDLE_DIR"
 echo "RUNNING" > "$STATUS_FILE"
 
-eval "$NEXTFLOW_CMD" -C resolved.config run main.nf \\
+"$NEXTFLOW_BIN" -C resolved.config run main.nf \\
   -params-file params/run.yaml \\
   -work-dir "$WORK_DIR" \\
 {resume_line}  -with-report report.html \\
@@ -532,7 +532,7 @@ def _query_slurm_status_files(ssh_run_fn: Any, remote_task_dir: str, timeout: in
         + shlex.quote(f"{remote_task_dir}/exit_code.txt")
         + " 2>/dev/null || true; "
         "printf '__LAUNCHER__\\n'; cat "
-        + shlex.quote(f"{remote_task_dir}/launcher.pid")
+        + shlex.quote(f"{remote_task_dir}/pid")
         + " 2>/dev/null || true; "
         "printf '__HEARTBEAT__\\n'; cat "
         + shlex.quote(f"{remote_task_dir}/heartbeat.txt")

@@ -29,6 +29,17 @@ export function apiBase(): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
+export function apiWebSocketBase(): string {
+  const base = apiBase();
+  if (base.startsWith("https://")) {
+    return `wss://${base.slice("https://".length)}`;
+  }
+  if (base.startsWith("http://")) {
+    return `ws://${base.slice("http://".length)}`;
+  }
+  return base.replace(/^http/, "ws");
+}
+
 function classifyNetworkFailure(error: unknown): LocalApiError {
   const message = error instanceof Error ? error.message.trim() : String(error || "").trim();
   if (/timed out|timeout/i.test(message)) {
