@@ -12,11 +12,9 @@ import shutil
 import sqlite3
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
-
-from core.runtime_primitives import RuntimeObject, signal
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +152,7 @@ class ProjectInfo:
     description: str
     created_at: float
     status: str = "active"  # active / archived
-    remote_base: str = ""   # ~/h2ometa/projects/{project_id}
+    remote_base: str = ""  # ~/h2ometa/projects/{project_id}
     last_opened_at: float = 0.0  # 最后打开时间戳
 
     def to_dict(self) -> dict:
@@ -175,27 +173,18 @@ class ProjectInfo:
         )
 
 
-class ProjectManager(RuntimeObject):
+class ProjectManager:
     """项目生命周期管理器
 
     负责创建、打开、列出、归档项目，以及管理 SQLite 数据库连接。
-    继承 QObject 以便使用 pyqtSignal 通知 UI 层。
     """
-
-    # 信号定义
-    project_created = signal(str)   # project_id
-    project_opened = signal(str)    # project_id
-    project_archived = signal(str)  # project_id
-    project_deleted = signal(str)   # project_id
 
     def __init__(
         self,
         projects_root: Optional[Path] = None,
         index_path: Optional[Path] = None,
         last_project_path: Optional[Path] = None,
-        parent: Optional[RuntimeObject] = None,
     ) -> None:
-        super().__init__(parent)
         self._projects_root = projects_root or DEFAULT_PROJECTS_ROOT
         self._index_path = index_path or DEFAULT_INDEX_PATH
         self._last_project_path = last_project_path or DEFAULT_LAST_PROJECT_PATH
@@ -209,13 +198,11 @@ class ProjectManager(RuntimeObject):
         self._db_conn: Optional[sqlite3.Connection] = None
         self._db_read_only: bool = False
 
-        # 确保根目录存在
         self._projects_root.mkdir(parents=True, exist_ok=True)
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
         for path in self._last_project_paths:
             path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 加载项目索引
         self._index: dict[str, dict] = self._load_index()
         self._restore_last_opened_project()
 
@@ -223,8 +210,13 @@ class ProjectManager(RuntimeObject):
         """重新从磁盘加载项目索引，同步外部变更。"""
         self._index = self._load_index()
         # 如果当前打开的项目已被外部删除，清除引用
-        if self._current_project and self._current_project.project_id not in self._index:
-            logger.warning("当前项目 %s 已被外部删除，自动关闭", self._current_project.project_id)
+        if (
+            self._current_project
+            and self._current_project.project_id not in self._index
+        ):
+            logger.warning(
+                "当前项目 %s 已被外部删除，自动关闭", self._current_project.project_id
+            )
             self._close_db()
             self._current_project = None
 
@@ -271,7 +263,6 @@ class ProjectManager(RuntimeObject):
         self._save_project_metadata(ProjectInfo.from_dict(self._index[project_id]))
 
         logger.info("项目已创建: %s (%s)", name, project_id)
-        self.project_created.emit(project_id)
         return project_id
 
     def open_project(self, project_id: str) -> ProjectInfo:
@@ -326,27 +317,13 @@ class ProjectManager(RuntimeObject):
                 except sqlite3.OperationalError as exc_retry:
                     if self._is_sqlite_disk_io_error(exc_retry):
                         logger.warning(
-                            "Retry still hit disk I/O error, attempting backup restore: %s",
+                            "Retry still hit disk I/O error: %s",
                             db_path,
                         )
                         self._close_db()
-                        if self._restore_project_db_from_latest_backup(project_id, db_path):
-                            self._cleanup_sqlite_sidecars(db_path)
-                            try:
-                                self._db_conn = self._open_project_db(db_path)
-                                self._db_read_only = False
-                            except Exception:
-                                logger.exception("Failed to open restored project database: %s", db_path)
-                                self._close_db()
-                                # Final fallback: open project in readonly immutable mode.
-                                self._db_conn = self._open_project_db_readonly(db_path)
-                                self._db_read_only = True
-                        else:
-                            logger.exception("Failed to open project database: %s", db_path)
-                            self._close_db()
-                            # Final fallback: open project in readonly immutable mode.
-                            self._db_conn = self._open_project_db_readonly(db_path)
-                            self._db_read_only = True
+                        # Final fallback: open project in readonly immutable mode.
+                        self._db_conn = self._open_project_db_readonly(db_path)
+                        self._db_read_only = True
                     else:
                         logger.exception("Failed to open project database: %s", db_path)
                         self._close_db()
@@ -372,17 +349,20 @@ class ProjectManager(RuntimeObject):
         except OSError:
             # 打开项目的主路径是“可读 DB + 建立连接”；
             # 索引落盘失败不应阻断项目打开（常见于权限/只读目录）。
-            logger.warning("保存项目索引失败，但项目已打开: %s", project_id, exc_info=True)
+            logger.warning(
+                "保存项目索引失败，但项目已打开: %s", project_id, exc_info=True
+            )
         try:
             self._save_last_opened_project(project_id)
         except OSError:
-            logger.warning("写入 last_project 失败，但项目已打开: %s", project_id, exc_info=True)
+            logger.warning(
+                "写入 last_project 失败，但项目已打开: %s", project_id, exc_info=True
+            )
 
         if self._db_read_only:
             logger.warning("项目以只读模式打开: %s (%s)", project.name, project_id)
         else:
             logger.info("项目已打开: %s (%s)", project.name, project_id)
-        self.project_opened.emit(project_id)
         return project
 
     def _open_project_db(self, db_path: Path) -> sqlite3.Connection:
@@ -394,7 +374,6 @@ class ProjectManager(RuntimeObject):
         try:
             self._apply_sqlite_runtime(conn, runtime)
             conn.row_factory = sqlite3.Row
-            self._migrate_database(conn)
         except Exception:
             conn.close()
             raise
@@ -420,55 +399,13 @@ class ProjectManager(RuntimeObject):
                 if sidecar.exists():
                     sidecar.unlink()
             except PermissionError:
-                logger.warning("SQLite sidecar is in use and cannot be removed now: %s", sidecar)
+                logger.warning(
+                    "SQLite sidecar is in use and cannot be removed now: %s", sidecar
+                )
             except OSError:
-                logger.warning("Failed to cleanup sqlite sidecar: %s", sidecar, exc_info=True)
-
-    def _find_latest_backup_db(self, project_id: str) -> Optional[Path]:
-        backup_roots = [
-            self._projects_root / "_backups" / project_id,
-            self._projects_root / project_id / "_backups",
-        ]
-        candidates: list[tuple[float, Path]] = []
-        for root in backup_roots:
-            if not root.exists():
-                continue
-            try:
-                for d in root.iterdir():
-                    if not d.is_dir():
-                        continue
-                    db = d / "project.db"
-                    if not db.exists():
-                        continue
-                    try:
-                        ts = float(d.stat().st_mtime)
-                    except OSError:
-                        ts = 0.0
-                    candidates.append((ts, db))
-            except OSError:
-                logger.warning("Failed to scan backup root: %s", root, exc_info=True)
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        return candidates[0][1]
-
-    def _restore_project_db_from_latest_backup(self, project_id: str, db_path: Path) -> bool:
-        backup_db = self._find_latest_backup_db(project_id)
-        if backup_db is None:
-            logger.warning("No backup DB found for project restore: %s", project_id)
-            return False
-        try:
-            if db_path.exists():
-                ts = time.strftime("%Y%m%d_%H%M%S")
-                broken_copy = db_path.with_name(f"project.db.ioerror.{ts}.bak")
-                shutil.copy2(db_path, broken_copy)
-                logger.warning("Current project DB copied before restore: %s", broken_copy)
-            shutil.copy2(backup_db, db_path)
-            logger.info("Project DB restored from backup: %s -> %s", backup_db, db_path)
-            return True
-        except OSError:
-            logger.exception("Failed restoring project DB from backup: %s", backup_db)
-            return False
+                logger.warning(
+                    "Failed to cleanup sqlite sidecar: %s", sidecar, exc_info=True
+                )
 
     def list_projects(self, sort_by: str = "created_at") -> list[ProjectInfo]:
         """列出所有项目
@@ -510,7 +447,6 @@ class ProjectManager(RuntimeObject):
             self._clear_last_opened_project()
 
         logger.info("项目已归档: %s", project_id)
-        self.project_archived.emit(project_id)
 
     def restore_project(self, project_id: str) -> ProjectInfo:
         """将归档项目恢复为活跃项目。"""
@@ -530,7 +466,13 @@ class ProjectManager(RuntimeObject):
         logger.info("项目已恢复: %s", project_id)
         return project
 
-    def update_project(self, project_id: str, *, name: str | None = None, description: str | None = None) -> ProjectInfo:
+    def update_project(
+        self,
+        project_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> ProjectInfo:
         """更新项目名称或描述。"""
         if project_id not in self._index:
             raise KeyError(f"项目不存在: {project_id}")
@@ -581,6 +523,7 @@ class ProjectManager(RuntimeObject):
         project_dir = self._projects_root / project_id
         if project_dir.exists():
             import shutil
+
             shutil.rmtree(project_dir)
             logger.info("已删除项目目录: %s", project_dir)
 
@@ -591,7 +534,6 @@ class ProjectManager(RuntimeObject):
             self._clear_last_opened_project()
 
         logger.info("项目已删除: %s", project_id)
-        self.project_deleted.emit(project_id)
 
     @property
     def current_project(self) -> Optional[ProjectInfo]:
@@ -633,51 +575,6 @@ class ProjectManager(RuntimeObject):
         self._close_db()
         self._current_project = None
 
-    def backup_current_project(self, reason: str = "manual") -> Path:
-        """备份当前项目数据库和项目索引。"""
-        if self._current_project is None:
-            raise RuntimeError("没有打开的项目")
-
-        project_id = self._current_project.project_id
-        project_dir = self._projects_root / project_id
-        db_path = project_dir / "project.db"
-        if not db_path.exists():
-            raise FileNotFoundError(f"项目数据库不存在: {db_path}")
-
-        backups_root = self._projects_root / "_backups" / project_id
-        try:
-            backups_root.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            backups_root = project_dir / "_backups"
-            backups_root.mkdir(parents=True, exist_ok=True)
-
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        backup_dir = backups_root / f"{timestamp}_{reason}"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-
-        backup_db = backup_dir / "project.db"
-        if self._db_conn is not None:
-            dest = sqlite3.connect(str(backup_db))
-            try:
-                self._db_conn.backup(dest)
-            finally:
-                dest.close()
-        else:
-            shutil.copy2(db_path, backup_db)
-
-        for candidate in (project_dir / "project.db-wal", project_dir / "project.db-shm"):
-            if candidate.exists():
-                try:
-                    shutil.copy2(candidate, backup_dir / candidate.name)
-                except OSError:
-                    logger.warning("Failed to copy SQLite sidecar during backup: %s", candidate)
-
-        if self._index_path.exists():
-            shutil.copy2(self._index_path, backup_dir / "projects.json")
-
-        logger.info("已备份当前项目: %s -> %s", project_id, backup_dir)
-        return backup_dir
-
     # ── 内部方法 ──────────────────────────────────────────────
 
     def _resolve_db_runtime_options(self) -> dict[str, float | int | str]:
@@ -715,7 +612,9 @@ class ProjectManager(RuntimeObject):
         }
 
     @staticmethod
-    def _safe_float(value: object, default: float, *, min_value: float, max_value: float) -> float:
+    def _safe_float(
+        value: object, default: float, *, min_value: float, max_value: float
+    ) -> float:
         try:
             parsed = float(value)
         except (TypeError, ValueError):
@@ -723,7 +622,9 @@ class ProjectManager(RuntimeObject):
         return max(min_value, min(max_value, parsed))
 
     @staticmethod
-    def _safe_int(value: object, default: int, *, min_value: int, max_value: int) -> int:
+    def _safe_int(
+        value: object, default: int, *, min_value: int, max_value: int
+    ) -> int:
         try:
             parsed = int(value)
         except (TypeError, ValueError):
@@ -737,7 +638,9 @@ class ProjectManager(RuntimeObject):
             return default
         return normalized
 
-    def _apply_sqlite_runtime(self, conn: sqlite3.Connection, runtime: dict[str, float | int | str]) -> None:
+    def _apply_sqlite_runtime(
+        self, conn: sqlite3.Connection, runtime: dict[str, float | int | str]
+    ) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute(f"PRAGMA busy_timeout={int(runtime['busy_timeout_ms'])}")
         self._apply_journal_mode(conn, str(runtime["journal_mode"]))
@@ -775,293 +678,6 @@ class ProjectManager(RuntimeObject):
             logger.debug("数据库已初始化: %s", db_path)
         finally:
             conn.close()
-
-    def _migrate_database(self, conn: sqlite3.Connection) -> None:
-        """迁移数据库 schema 到最新版本
-
-        添加新字段：
-        - executions.is_final_version: 标记为最终版本
-        - executions.archived_at: 文件清理时间戳
-        - executions.task_id: 任务归属
-        - tasks: 长时程任务表
-        """
-        cursor = conn.cursor()
-
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasks (
-                task_id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL CHECK(status IN ('pending','queued','in_progress','completed','failed','cancelled')),
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                last_activity_at REAL NOT NULL,
-                latest_execution_id TEXT REFERENCES executions(execution_id),
-                summary TEXT NOT NULL DEFAULT '',
-                result_snapshot TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS workflow_snapshots (
-                workflow_snapshot_id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                task_id TEXT NOT NULL REFERENCES tasks(task_id),
-                workflow_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                version TEXT NOT NULL DEFAULT '0.1.0',
-                workflow_definition_json TEXT NOT NULL,
-                params_schema_json TEXT NOT NULL DEFAULT '{}',
-                workflow_hash TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                UNIQUE(task_id)
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS workflow_runs (
-                run_id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                task_id TEXT NOT NULL REFERENCES tasks(task_id),
-                workflow_snapshot_id TEXT NOT NULL REFERENCES workflow_snapshots(workflow_snapshot_id),
-                execution_id TEXT NOT NULL UNIQUE REFERENCES executions(execution_id),
-                workflow_id TEXT NOT NULL,
-                profile_id TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed','cancelled')),
-                snapshot_hash TEXT NOT NULL,
-                snapshot_payload_json TEXT NOT NULL,
-                bundle_id TEXT NOT NULL DEFAULT '',
-                message TEXT NOT NULL DEFAULT '',
-                result_path TEXT NOT NULL DEFAULT '',
-                metadata_json TEXT NOT NULL DEFAULT '{}',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                started_at REAL,
-                finished_at REAL,
-                error_text TEXT NOT NULL DEFAULT ''
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS workflow_results (
-                workflow_result_id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                task_id TEXT NOT NULL REFERENCES tasks(task_id),
-                workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(run_id),
-                result_kind TEXT NOT NULL DEFAULT 'artifacts',
-                summary_json TEXT NOT NULL DEFAULT '{}',
-                result_path TEXT NOT NULL DEFAULT '',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                UNIQUE(workflow_run_id, result_kind)
-            )
-            """
-        )
-
-        # 检查 is_final_version 字段是否存在
-        cursor.execute("PRAGMA table_info(executions)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if "is_final_version" not in columns:
-            logger.info("迁移数据库：添加 is_final_version 字段")
-            conn.execute(
-                "ALTER TABLE executions ADD COLUMN is_final_version INTEGER DEFAULT 0"
-            )
-
-        if "archived_at" not in columns:
-            logger.info("迁移数据库：添加 archived_at 字段")
-            conn.execute(
-                "ALTER TABLE executions ADD COLUMN archived_at REAL"
-            )
-
-        if "task_id" not in columns:
-            logger.info("迁移数据库：添加 task_id 字段")
-            conn.execute(
-                "ALTER TABLE executions ADD COLUMN task_id TEXT REFERENCES tasks(task_id)"
-            )
-
-        self._migrate_orphan_executions_into_legacy_task(conn)
-
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_exec_active_created
-            ON executions(created_at)
-            WHERE archived_at IS NULL
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_exec_task_created
-            ON executions(task_id, created_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_exec_sample_tool_created
-            ON executions(sample_id, tool_id, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_exec_status_tool_completed
-            ON executions(status, tool_id, completed_at, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_data_sample_type_tier_created
-            ON data_items(sample_id, data_type, tier, created_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_eio_exec_dir
-            ON execution_io(execution_id, direction)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_tasks_project_activity
-            ON tasks(project_id, last_activity_at DESC, created_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workflow_snapshots_task
-            ON workflow_snapshots(task_id, updated_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workflow_runs_project_created
-            ON workflow_runs(project_id, created_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workflow_runs_task_created
-            ON workflow_runs(task_id, created_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workflow_runs_execution
-            ON workflow_runs(execution_id)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workflow_results_run_created
-            ON workflow_results(workflow_run_id, created_at DESC)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workflow_results_task_created
-            ON workflow_results(task_id, created_at DESC)
-            """
-        )
-
-        conn.commit()
-
-    def _migrate_orphan_executions_into_legacy_task(self, conn: sqlite3.Connection) -> None:
-        current_project = self._current_project
-        if current_project is None:
-            return
-
-        orphan_row = conn.execute(
-            "SELECT COUNT(*) FROM executions WHERE task_id IS NULL"
-        ).fetchone()
-        orphan_count = int(orphan_row[0]) if orphan_row else 0
-        if orphan_count <= 0:
-            return
-
-        legacy_task_row = conn.execute(
-            """
-            SELECT task_id
-            FROM tasks
-            WHERE project_id = ? AND title = ?
-            ORDER BY created_at ASC
-            LIMIT 1
-            """,
-            (current_project.project_id, "Imported history"),
-        ).fetchone()
-        if legacy_task_row is not None:
-            legacy_task_id = str(legacy_task_row[0])
-        else:
-            now = time.time()
-            legacy_task_id = f"task_{uuid.uuid4().hex[:12]}"
-            conn.execute(
-                """
-                INSERT INTO tasks (
-                    task_id, project_id, title, description, status,
-                    created_at, updated_at, last_activity_at,
-                    latest_execution_id, summary, result_snapshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    legacy_task_id,
-                    current_project.project_id,
-                    "Imported history",
-                    "Auto-created during task migration for executions that predate the task model.",
-                    "completed",
-                    now,
-                    now,
-                    now,
-                    None,
-                    "Legacy executions imported during workspace migration.",
-                    "{}",
-                ),
-            )
-
-        conn.execute(
-            "UPDATE executions SET task_id = ? WHERE task_id IS NULL",
-            (legacy_task_id,),
-        )
-
-        latest_execution_row = conn.execute(
-            """
-            SELECT execution_id, created_at, status, error
-            FROM executions
-            WHERE task_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (legacy_task_id,),
-        ).fetchone()
-        if latest_execution_row is None:
-            return
-
-        latest_created_at = float(latest_execution_row["created_at"] or time.time())
-        latest_status = str(latest_execution_row["status"] or "completed")
-        mapped_status = {
-            "pending": "queued",
-            "running": "in_progress",
-            "retrying": "in_progress",
-            "completed": "completed",
-            "failed": "failed",
-        }.get(latest_status, "completed")
-        conn.execute(
-            """
-            UPDATE tasks
-            SET latest_execution_id = ?, updated_at = ?, last_activity_at = ?, status = ?, summary = ?
-            WHERE task_id = ?
-            """,
-            (
-                str(latest_execution_row["execution_id"]),
-                latest_created_at,
-                latest_created_at,
-                mapped_status,
-                "Imported legacy executions",
-                legacy_task_id,
-            ),
-        )
 
     def _close_db(self) -> None:
         """安全关闭当前数据库连接"""
@@ -1139,7 +755,11 @@ class ProjectManager(RuntimeObject):
 
             rebuilt = self._rebuild_index_from_projects(cleaned)
             if removed or rebuilt != cleaned:
-                logger.warning("项目索引中移除了 %d 个无效条目: %s", len(removed), ", ".join(removed))
+                logger.warning(
+                    "项目索引中移除了 %d 个无效条目: %s",
+                    len(removed),
+                    ", ".join(removed),
+                )
                 try:
                     self._index = rebuilt
                     self._save_index()
@@ -1176,7 +796,9 @@ class ProjectManager(RuntimeObject):
                 changed = True
 
         if changed:
-            logger.warning("项目索引缺失，已从磁盘恢复 %d 个项目", len(rebuilt) - len(index))
+            logger.warning(
+                "项目索引缺失，已从磁盘恢复 %d 个项目", len(rebuilt) - len(index)
+            )
         return rebuilt
 
     def _restore_project_record(self, project_id: str, db_path: Path) -> dict:
@@ -1194,12 +816,10 @@ class ProjectManager(RuntimeObject):
                     restored.setdefault("description", "")
                     restored.setdefault("created_at", db_path.stat().st_mtime)
                     restored.setdefault("status", "active")
-                    restored.setdefault("remote_base", f"~/.h2ometa/projects/{project_id}")
+                    restored.setdefault(
+                        "remote_base", f"~/.h2ometa/projects/{project_id}"
+                    )
                     return restored
-
-        backup_record = self._load_project_record_from_backups(project_id)
-        if backup_record is not None:
-            return backup_record
 
         created_at = db_path.stat().st_mtime
         return ProjectInfo(
@@ -1210,38 +830,6 @@ class ProjectManager(RuntimeObject):
             status="active",
             remote_base=f"~/.h2ometa/projects/{project_id}",
         ).to_dict()
-
-    def _load_project_record_from_backups(self, project_id: str) -> Optional[dict]:
-        """读取最近一次备份里的 projects.json，恢复项目名等元数据。"""
-        backup_roots = [
-            self._projects_root / "_backups" / project_id,
-            self._projects_root / project_id / "_backups",
-        ]
-        for backups_root in backup_roots:
-            if not backups_root.exists():
-                continue
-            candidates = sorted(
-                (path / "projects.json" for path in backups_root.iterdir() if path.is_dir()),
-                reverse=True,
-            )
-            for candidate in candidates:
-                if not candidate.exists():
-                    continue
-                try:
-                    payload = json.loads(candidate.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError):
-                    logger.warning("读取项目备份索引失败: %s", candidate, exc_info=True)
-                    continue
-                raw = payload.get(project_id)
-                if isinstance(raw, dict):
-                    restored = dict(raw)
-                    restored.setdefault("project_id", project_id)
-                    restored.setdefault("description", "")
-                    restored.setdefault("created_at", candidate.stat().st_mtime)
-                    restored.setdefault("status", "active")
-                    restored.setdefault("remote_base", f"~/.h2ometa/projects/{project_id}")
-                    return restored
-        return None
 
     def _save_project_metadata(self, project: ProjectInfo) -> None:
         """为每个项目写入独立元数据，避免主索引丢失后项目名丢失。"""
@@ -1267,7 +855,7 @@ class ProjectManager(RuntimeObject):
         candidates = self._load_last_opened_project_candidates()
         if candidates:
             return candidates[0][0]
-        return ''
+        return ""
 
     def _load_last_opened_project_candidates(self) -> list[tuple[str, Path, float]]:
         """Load all non-empty last_project markers, newest first.
@@ -1279,7 +867,7 @@ class ProjectManager(RuntimeObject):
             try:
                 if not path.exists():
                     continue
-                value = path.read_text(encoding='utf-8').strip()
+                value = path.read_text(encoding="utf-8").strip()
                 if not value:
                     continue
                 try:
@@ -1288,19 +876,23 @@ class ProjectManager(RuntimeObject):
                     mtime = 0.0
                 candidates.append((value, path, mtime))
             except OSError:
-                logger.warning("Failed to read last_project marker: %s", path, exc_info=True)
+                logger.warning(
+                    "Failed to read last_project marker: %s", path, exc_info=True
+                )
         candidates.sort(key=lambda item: item[2], reverse=True)
         return candidates
 
     def _save_last_opened_project(self, project_id: str) -> None:
-        normalized = str(project_id or '').strip()
+        normalized = str(project_id or "").strip()
         if not normalized:
             return
         for path in self._last_project_paths:
             try:
-                path.write_text(normalized, encoding='utf-8')
+                path.write_text(normalized, encoding="utf-8")
             except OSError:
-                logger.warning("Failed to write last_project marker: %s", path, exc_info=True)
+                logger.warning(
+                    "Failed to write last_project marker: %s", path, exc_info=True
+                )
 
     def _clear_last_opened_project(self) -> None:
         for path in self._last_project_paths:
@@ -1308,19 +900,26 @@ class ProjectManager(RuntimeObject):
                 if path.exists():
                     path.unlink()
             except OSError:
-                logger.warning("Failed to clear last_project marker: %s", path, exc_info=True)
+                logger.warning(
+                    "Failed to clear last_project marker: %s", path, exc_info=True
+                )
 
     def _clear_last_opened_project_path(self, path: Path) -> None:
         try:
             if path.exists():
                 path.unlink()
         except OSError:
-            logger.warning("Failed to clear last_project marker: %s", path, exc_info=True)
+            logger.warning(
+                "Failed to clear last_project marker: %s", path, exc_info=True
+            )
 
     @staticmethod
     def _is_sqlite_disk_io_error(exc: Exception) -> bool:
         try:
-            return isinstance(exc, sqlite3.OperationalError) and "disk i/o error" in str(exc).lower()
+            return (
+                isinstance(exc, sqlite3.OperationalError)
+                and "disk i/o error" in str(exc).lower()
+            )
         except Exception:
             return False
 
@@ -1350,7 +949,11 @@ class ProjectManager(RuntimeObject):
                 restored = True
                 break
             except Exception as exc:
-                logger.warning("Failed to restore last opened project: %s", project_id, exc_info=True)
+                logger.warning(
+                    "Failed to restore last opened project: %s",
+                    project_id,
+                    exc_info=True,
+                )
                 # Disk I/O error usually means transient storage/locking issue.
                 # Keep marker and do not fallback to another project, otherwise
                 # user may observe "closed on A but reopened on B".
@@ -1370,7 +973,9 @@ class ProjectManager(RuntimeObject):
             self.open_project(fallback)
             logger.info("Opened fallback most-recent active project: %s", fallback)
         except Exception:
-            logger.warning("Failed to open fallback project: %s", fallback, exc_info=True)
+            logger.warning(
+                "Failed to open fallback project: %s", fallback, exc_info=True
+            )
 
     def _select_most_recent_active_project_id(self) -> str:
         active: list[tuple[str, float]] = []

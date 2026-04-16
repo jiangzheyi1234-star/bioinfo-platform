@@ -20,15 +20,9 @@ from config import (
     resolve_ssh_password,
     save_config,
 )
-from core.data.database_service import DatabaseService
-from core.data.data_registry import DataRegistry
-from core.data.execution_query_service import ExecutionQueryService
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.runtime_paths import H2O_CONDA_EXE, is_managed_conda_executable
-from core.plugins.runtime_metadata import derive_conda_env_name
-from core.remote.server_capabilities import PreflightError
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
-from core.remote.runtime_resolution import resolve_remote_java, resolve_remote_nextflow
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
@@ -66,7 +60,6 @@ class RuntimeService:
         self._project_manager = project_manager or ProjectManager()
         self._service_locator = service_locator or ServiceLocator()
         self._initialized = False
-        self._signals_connected = False
         self._events: deque[dict[str, Any]] = deque(maxlen=2000)
         self._event_seq = 0
         self._auto_connect_attempted = False
@@ -80,7 +73,6 @@ class RuntimeService:
             if self._initialized:
                 return
             self._service_locator.initialize()
-            self._connect_runtime_signals()
             self._initialized = True
             self._attempt_startup_auto_connect()
 
@@ -91,31 +83,8 @@ class RuntimeService:
             self._close_all_terminal_sessions(
                 message="终端会话已结束", drop_sessions=True
             )
-            self._disconnect_runtime_signals()
             self._service_locator.shutdown()
             self._initialized = False
-
-    def list_tools(self) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            registry = self._service_locator.plugin_registry
-            ids = sorted(registry.list_all_ids())
-            return [registry.get_index_entry(tool_id) for tool_id in ids]
-
-    def get_tool_descriptor(self, *, tool_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            normalized_tool_id = str(tool_id or "").strip()
-            if not normalized_tool_id:
-                raise RuntimeServiceError("tool_id is required")
-            descriptor = self._service_locator.plugin_registry.get_descriptor(
-                normalized_tool_id
-            )
-            if not isinstance(descriptor, dict) or not descriptor:
-                raise RuntimeServiceError(
-                    f"Tool descriptor not found: {normalized_tool_id}"
-                )
-            return descriptor
 
     def list_projects(
         self, *, sort_by: str = "created_at", include_archived: bool = False
@@ -205,49 +174,6 @@ class RuntimeService:
             self._ensure_initialized()
             project = self._project_manager.open_project(project_id)
             return self._project_to_dict(project)
-
-    def list_samples(self, *, project_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            registry = DataRegistry(self._project_manager.db)
-            return [sample.__dict__ for sample in registry.list_samples()]
-
-    def create_sample(
-        self,
-        *,
-        project_id: str,
-        name: str,
-        source: str = "",
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            registry = DataRegistry(self._project_manager.db)
-            sample_id = registry.add_sample(
-                name=name, source=source or None, metadata=metadata or {}
-            )
-            sample = registry.get_sample(sample_id)
-            if sample is None:
-                raise RuntimeServiceError(
-                    f"Sample created but cannot be reloaded: {sample_id}"
-                )
-            return sample.__dict__
-
-    def list_executions(
-        self,
-        *,
-        project_id: str,
-        limit: int = 50,
-        archived: bool = False,
-    ) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            query = ExecutionQueryService(self._project_manager.db)
-            rows = query.list_recent_executions(limit=limit, archived=archived)
-            return [self._normalize_execution_row(row) for row in rows]
 
     def read_app_log(self, *, tail_lines: int = 200) -> dict[str, Any]:
         with self._lock:
@@ -487,192 +413,6 @@ class RuntimeService:
                 "status": self.get_ssh_status(),
             }
 
-    def install_database(
-        self, *, project_id: str, db_id: str, mirror_index: int = 0
-    ) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            self._ensure_ssh_connected()
-            config = get_config()
-            databases_cfg = config.get("databases", {})
-            if not isinstance(databases_cfg, dict):
-                raise RuntimeServiceError("settings.databases must be an object")
-            db_root = str(databases_cfg.get("db_root", "") or "")
-            service = DatabaseService()
-            item = service.submit_install(
-                self._run_ssh_command,
-                self._service_locator.server_capabilities,
-                str(db_id or "").strip(),
-                db_root,
-                conda_exe=self._service_locator.conda_executable,
-                mirror_index=int(mirror_index),
-            )
-            return {
-                "db_id": str(db_id or "").strip(),
-                "job_id": item["job_id"],
-                "task_dir": item["task_dir"],
-                "message": "已提交数据库后台安装任务",
-            }
-
-    def get_database_install_status(
-        self, *, project_id: str, db_id: str
-    ) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            self._ensure_ssh_connected()
-            normalized_db_id = str(db_id or "").strip()
-            if not normalized_db_id:
-                raise RuntimeServiceError("db_id is required")
-            service = DatabaseService()
-            task_dir = f"{service.INSTALL_BASE}/{normalized_db_id}"
-            raw_status = service.check_install_status(self._run_ssh_command, task_dir)
-            stage = self._normalize_job_stage(
-                status=str(raw_status.get("status") or ""),
-                exit_code=str(raw_status.get("exit_code") or ""),
-                session_alive=bool(raw_status.get("screen_running")),
-                heartbeat=str(raw_status.get("heartbeat") or ""),
-            )
-            log_text = service.read_install_log(
-                self._run_ssh_command, task_dir, tail=120
-            )
-            return self._build_job_snapshot(
-                job_id=f"h2o_dbinstall_{normalized_db_id}",
-                stage=stage,
-                raw_status=raw_status,
-                log_text=log_text,
-                progress=service.parse_progress(log_text),
-            )
-
-    def list_databases(
-        self, *, project_id: str, include_status: bool = False
-    ) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            config = get_config()
-            databases_cfg = config.get("databases", {})
-            if not isinstance(databases_cfg, dict):
-                raise RuntimeServiceError("settings.databases must be an object")
-            db_root = str(databases_cfg.get("db_root", "") or "")
-            raw_overrides = databases_cfg.get("overrides", {})
-            overrides: dict[str, str] = {}
-            if isinstance(raw_overrides, dict):
-                overrides = {
-                    str(key): str(value)
-                    for key, value in raw_overrides.items()
-                    if str(value or "").strip()
-                }
-
-            service = DatabaseService()
-            ssh = self._service_locator.ssh_service
-            status_enabled = bool(
-                include_status
-                and ssh is not None
-                and getattr(ssh, "is_connected", False)
-            )
-
-            items: list[dict[str, Any]] = []
-            for info in service.list_all():
-                resolved_path = service.resolve_binding_value(
-                    info.db_id, db_root, overrides=overrides
-                )
-                item = {
-                    "db_id": info.db_id,
-                    "name": info.name,
-                    "description": info.description,
-                    "category": info.category,
-                    "size_mb": info.size_mb,
-                    "tools": info.tools,
-                    "binding_mode": info.binding_mode,
-                    "binding_leaf": info.binding_leaf,
-                    "resolved_path": resolved_path,
-                    "configured_override": overrides.get(info.db_id, ""),
-                    "installable": service.is_installable(info.db_id),
-                }
-                if include_status:
-                    if status_enabled:
-                        install_status = service.check_install_status(
-                            self._run_ssh_command,
-                            f"{service.INSTALL_BASE}/{info.db_id}",
-                        )
-                        install_stage = self._normalize_job_stage(
-                            status=str(install_status.get("status") or ""),
-                            exit_code=str(install_status.get("exit_code") or ""),
-                            session_alive=bool(install_status.get("screen_running")),
-                            heartbeat=str(install_status.get("heartbeat") or ""),
-                        )
-                        if install_stage == "running":
-                            item["status"] = "installing"
-                            item["status_message"] = "数据库后台安装中"
-                        else:
-                            status = service.check_status(
-                                self._run_ssh_command,
-                                info.db_id,
-                                db_root,
-                                overrides=overrides,
-                            )
-                            item["status"] = status.status.value
-                            item["status_message"] = status.message
-                        item["install_job_id"] = f"h2o_dbinstall_{info.db_id}"
-                        item["install_stage"] = install_stage
-                    else:
-                        item["status"] = "unknown"
-                        item["status_message"] = "SSH disconnected"
-                        item["install_job_id"] = f"h2o_dbinstall_{info.db_id}"
-                        item["install_stage"] = "idle"
-                items.append(item)
-            return items
-
-    def list_execution_history(
-        self, *, project_id: str, limit: int = 50, task_id: str | None = None
-    ) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            query = ExecutionQueryService(self._project_manager.db)
-            rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
-            return [self._normalize_execution_row(row) for row in rows]
-
-    def list_execution_history_summary(
-        self, *, project_id: str, limit: int = 20
-    ) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            query = ExecutionQueryService(self._project_manager.db)
-            rows = query.get_execution_history_summary_for_ui(limit=limit)
-            return [self._normalize_execution_row(row) for row in rows]
-
-    def list_task_executions(
-        self, *, project_id: str, task_id: str, limit: int = 50
-    ) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            self._assert_task_exists(project_id=project_id, task_id=task_id)
-            query = ExecutionQueryService(self._project_manager.db)
-            rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
-            return [self._normalize_execution_row(row) for row in rows]
-
-    def archive_execution(
-        self, *, project_id: str, execution_id: str
-    ) -> dict[str, str]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            query = ExecutionQueryService(self._project_manager.db)
-            result = query.archive_execution(execution_id)
-            if result.get("status") != "ok":
-                raise RuntimeServiceError(
-                    str(result.get("message") or "archive failed")
-                )
-            return {
-                "status": "ok",
-                "message": str(result.get("message") or ""),
-            }
-
     def list_runtime_events(
         self, *, after_seq: int = 0, limit: int = 200
     ) -> dict[str, Any]:
@@ -734,65 +474,6 @@ class RuntimeService:
             current, {"linux": {"conda_executable": normalized}}
         )
         save_config(merged)
-
-    def _collect_tool_env_specs(self) -> list[dict[str, Any]]:
-        registry = self._service_locator.plugin_registry
-        grouped: dict[str, dict[str, Any]] = {}
-        for tool_id in sorted(registry.list_all_ids()):
-            descriptor = registry.get_descriptor(tool_id)
-            env_name = derive_conda_env_name(descriptor)
-            if not env_name:
-                continue
-            grouped_entry = grouped.get(env_name)
-            if grouped_entry is None:
-                grouped_entry = {
-                    "tool_id": str(tool_id),
-                    "name": str(descriptor.get("name", tool_id) or tool_id),
-                    "env_name": env_name,
-                    "version": str(descriptor.get("version", "") or ""),
-                    "install_cmd": str(descriptor.get("install_cmd", "") or "").strip(),
-                    "verify_cmd": str(
-                        descriptor.get("detection", {}).get("command", "") or ""
-                    ).strip()
-                    if isinstance(descriptor.get("detection"), dict)
-                    else "",
-                    "version_regex": str(
-                        descriptor.get("detection", {}).get("version_regex", "") or ""
-                    ).strip()
-                    if isinstance(descriptor.get("detection"), dict)
-                    else "",
-                    "shared_tool_ids": [str(tool_id)],
-                    "installable": bool(
-                        str(descriptor.get("install_cmd", "") or "").strip()
-                    ),
-                }
-                grouped[env_name] = grouped_entry
-                continue
-            grouped_entry["shared_tool_ids"].append(str(tool_id))
-            install_cmd = str(descriptor.get("install_cmd", "") or "").strip()
-            if install_cmd and not grouped_entry["install_cmd"]:
-                grouped_entry["tool_id"] = str(tool_id)
-                grouped_entry["name"] = str(descriptor.get("name", tool_id) or tool_id)
-                grouped_entry["version"] = str(descriptor.get("version", "") or "")
-                grouped_entry["install_cmd"] = install_cmd
-                grouped_entry["installable"] = True
-                if isinstance(descriptor.get("detection"), dict):
-                    grouped_entry["verify_cmd"] = str(
-                        descriptor["detection"].get("command", "") or ""
-                    ).strip()
-                    grouped_entry["version_regex"] = str(
-                        descriptor["detection"].get("version_regex", "") or ""
-                    ).strip()
-        return list(grouped.values())
-
-    def _get_tool_env_spec(self, tool_id: str) -> dict[str, Any]:
-        normalized_tool_id = str(tool_id or "").strip()
-        if not normalized_tool_id:
-            raise RuntimeServiceError("tool_id is required")
-        for spec in self._collect_tool_env_specs():
-            if spec["tool_id"] == normalized_tool_id:
-                return spec
-        raise RuntimeServiceError(f"tool env not found: {normalized_tool_id}")
 
     @staticmethod
     def _normalize_job_stage(
@@ -869,22 +550,6 @@ class RuntimeService:
                 continue
             return stripped
         return log_lines[-1] if log_lines else ""
-
-    @staticmethod
-    def _describe_tool_env_status(
-        *, status: str, conda_message: str, installable: bool
-    ) -> str:
-        if status == "installed":
-            return "环境已就绪"
-        if status == "installing":
-            return "后台安装中"
-        if status == "failed":
-            return "最近一次安装失败，请展开日志查看原因"
-        if status == "blocked":
-            return conda_message or "Conda Runtime 未就绪"
-        if not installable:
-            return "当前工具未声明自动安装命令"
-        return "尚未安装"
 
     def _ensure_initialized(self) -> None:
         if not self._initialized:
@@ -1162,12 +827,6 @@ class RuntimeService:
             str(getattr(result, "stderr", "")),
         )
 
-    def _connect_runtime_signals(self) -> None:
-        if self._signals_connected:
-            return
-        self._service_locator.ssh_changed.connect(self._on_ssh_changed)
-        self._signals_connected = True
-
     def _remote_runtime_ok(self, command: str) -> bool:
         try:
             rc, _stdout, _stderr = self._run_ssh_command(command, 15)
@@ -1182,15 +841,6 @@ class RuntimeService:
         except Exception:
             return False
 
-    def _disconnect_runtime_signals(self) -> None:
-        if not self._signals_connected:
-            return
-        try:
-            self._service_locator.ssh_changed.disconnect(self._on_ssh_changed)
-        except (TypeError, RuntimeError):
-            pass
-        self._signals_connected = False
-
     def _append_event(self, event_type: str, payload: dict[str, Any]) -> None:
         self._event_seq += 1
         self._events.append(
@@ -1201,7 +851,3 @@ class RuntimeService:
                 "payload": payload,
             }
         )
-
-    def _on_ssh_changed(self, connected: bool) -> None:
-        with self._lock:
-            self._append_event("ssh_changed", {"connected": bool(connected)})

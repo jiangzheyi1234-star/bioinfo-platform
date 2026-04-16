@@ -17,7 +17,7 @@ if "%H2OMETA_CONDA_ENV%"=="" (
     endlocal & exit /b 1
 )
 
-set "PATH=%USERPROFILE%\.cargo\bin;C:\msys64\ucrt64\bin;%PATH%"
+set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;C:\msys64\ucrt64\bin;%PATH%"
 
 cd /d "%H2OMETA_WORKDIR%\apps\desktop"
 npm run dev

@@ -15,7 +15,6 @@ from threading import Condition, Event, RLock, Thread
 from typing import Any, Callable, Optional, Tuple
 
 import paramiko
-from core.runtime_primitives import RuntimeObject, signal
 
 from core.remote.ssh_reconnector import SSHReconnector
 
@@ -217,24 +216,18 @@ class _CommandRequest:
     exc: Exception | None = None
 
 
-class SSHService(RuntimeObject):
+class SSHService:
     """SSH 服务封装
 
     封装 paramiko.SSHClient，提供命令执行、文件传输等功能。
     集成 SSHReconnector，在连接丢失时自动触发重连。
-
-    Signals:
-        connection_status_changed(bool): 连接状态变化 (True=已连接, False=断开)
     """
-
-    connection_status_changed = signal(bool)
 
     def __init__(
         self,
         initial_client: Optional[paramiko.SSHClient] = None,
         connect_fn: Optional[Callable[[], paramiko.SSHClient]] = None,
         max_retries: int = 5,
-        parent: Optional[RuntimeObject] = None,
     ):
         """
         Args:
@@ -242,9 +235,7 @@ class SSHService(RuntimeObject):
             connect_fn: 重连函数，调用后返回新的 SSHClient。
                         若为 None，则不启用自动重连。
             max_retries: SSHReconnector 最大重试次数，默认 5
-            parent: 父运行时对象
         """
-        super().__init__(parent)
         self._active_client: Optional[paramiko.SSHClient] = initial_client
         self._connect_fn = connect_fn
         self._io_lock = RLock()
@@ -259,21 +250,18 @@ class SSHService(RuntimeObject):
         self._worker.start()
         self._terminal_sessions: dict[str, TerminalSession] = {}
 
-        # 初始化重连器（仅在提供 connect_fn 时）
         self._reconnector: Optional[SSHReconnector] = None
         if connect_fn:
             self._reconnector = SSHReconnector(
                 connect_fn=connect_fn,
                 max_retries=max_retries,
-                parent=self,
+                on_success=self._on_reconnected,
+                on_failure=self._on_reconnect_failed,
+                on_connection_lost=self._on_connection_lost,
             )
-            self._reconnector.reconnected.connect(self._on_reconnected)
-            self._reconnector.connection_lost.connect(self._on_connection_lost)
-            self._reconnector.reconnect_failed.connect(self._on_reconnect_failed)
 
     @property
     def reconnector(self) -> Optional[SSHReconnector]:
-        """获取重连器实例（可用于外部连接信号）"""
         return self._reconnector
 
     @property
@@ -323,19 +311,16 @@ class SSHService(RuntimeObject):
                 logger.debug(
                     "Failed to close old SSH client after reconnection", exc_info=True
                 )
-        self.connection_status_changed.emit(True)
 
     def _on_connection_lost(self) -> None:
         """连接丢失回调"""
         logger.warning("SSH 连接已丢失")
         self.close_terminal_sessions(message="SSH 已断开，终端会话已结束")
-        self.connection_status_changed.emit(False)
 
     def _on_reconnect_failed(self, error: str) -> None:
         """重连失败回调"""
         logger.error("SSH 重连最终失败: %s", error)
         self.close_terminal_sessions(message="SSH 已断开，终端会话已结束")
-        self.connection_status_changed.emit(False)
 
     def run(self, cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
         """执行远程命令
@@ -582,8 +567,12 @@ class SSHService(RuntimeObject):
         end_marker: str,
     ) -> Tuple[int, str, str]:
         begin_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(begin_marker)}[ \t]*\r?$")
-        rc_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(rc_marker)}[ \t]*(\d+)[ \t]*\r?$")
-        end_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(end_marker)}(?:[ \t]+(\d+))?[ \t]*\r?$")
+        rc_pattern = re.compile(
+            rf"(?m)^[ \t]*{re.escape(rc_marker)}[ \t]*(\d+)[ \t]*\r?$"
+        )
+        end_pattern = re.compile(
+            rf"(?m)^[ \t]*{re.escape(end_marker)}(?:[ \t]+(\d+))?[ \t]*\r?$"
+        )
 
         end_match = None
         for match in end_pattern.finditer(text):

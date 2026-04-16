@@ -42,7 +42,3 @@ class SSHConnectionRequest(BaseModel):
 class SSHTerminalCreateRequest(BaseModel):
     cols: int = Field(default=120, ge=40, le=240)
     rows: int = Field(default=28, ge=12, le=80)
-
-
-class DatabaseInstallRequest(BaseModel):
-    mirror_index: int = Field(default=0, ge=0)

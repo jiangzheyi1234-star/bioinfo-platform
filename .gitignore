@@ -71,3 +71,4 @@ test_detection_page_*.py
 *.backup
 启动*.bat
 .omx/
+.venv/
