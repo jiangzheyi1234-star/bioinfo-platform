@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PLUGINS_DIR = get_app_root() / "plugins"
 
 
-class ServiceLocator(QObject):
+class ServiceLocator(RuntimeObject):
     """Connect core services into a runnable application graph."""
 
     ssh_changed = signal(bool)
