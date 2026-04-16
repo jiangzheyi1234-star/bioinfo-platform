@@ -14,8 +14,6 @@ _CANONICAL_PROFILE_ORDER = (
     "hpc_slurm_apptainer",
     "hpc_slurm_conda",
     "personal_docker",
-    "personal_podman",
-    "personal_conda",
 )
 
 
@@ -87,11 +85,7 @@ class ServerCapabilities:
                 return "hpc_slurm_apptainer"
             if self.has_micromamba or self.has_conda:
                 return "hpc_slurm_conda"
-        if self.has_docker:
-            return "personal_docker"
-        if self.has_podman:
-            return "personal_podman"
-        return "personal_conda"
+        return "personal_docker"
 
     def supports_profile_kind(self, profile_kind: str) -> bool:
         normalized = str(profile_kind or "").strip()
@@ -101,10 +95,6 @@ class ServerCapabilities:
             return self.has_sbatch and (self.has_micromamba or self.has_conda)
         if normalized == "personal_docker":
             return self.has_docker
-        if normalized == "personal_podman":
-            return self.has_podman
-        if normalized == "personal_conda":
-            return self.has_micromamba or self.has_conda
         return False
 
     @property
@@ -117,14 +107,12 @@ class ServerCapabilities:
 
     @property
     def recommended_packaging_mode(self) -> Literal["container", "conda"]:
-        return "container" if self.recommended_profile_kind.endswith(("docker", "podman", "apptainer")) else "conda"
+        return "container" if self.recommended_profile_kind.endswith(("docker", "apptainer")) else "conda"
 
     @property
     def recommended_container_runtime(self) -> str:
         if self.recommended_profile_kind == "personal_docker":
             return "docker"
-        if self.recommended_profile_kind == "personal_podman":
-            return "podman"
         if self.recommended_profile_kind == "hpc_slurm_apptainer":
             return "apptainer"
         return ""
@@ -158,8 +146,8 @@ class ServerCapabilities:
                 failures.append("缺少 sbatch，无法使用 Slurm backend")
             if not self.has_apptainer and not (self.has_micromamba or self.has_conda):
                 failures.append("HPC 运行时缺少 Apptainer 或 micromamba/conda")
-        elif not (self.has_docker or self.has_podman or self.has_micromamba or self.has_conda):
-            failures.append("个人服务器缺少 Docker/Podman 或 micromamba/conda")
+        elif not self.has_docker:
+            failures.append("个人服务器缺少可用 Docker；请通过交互式终端完成修复后重新检测")
         return failures
 
     def warnings(self) -> list[str]:

@@ -6,9 +6,23 @@ import {
 
 export type RuntimeStatus = "unknown" | "missing" | "ready";
 
+export type RuntimeCandidate = {
+  available?: boolean;
+  usable?: boolean;
+  version?: string;
+  path?: string;
+  command?: string;
+  home?: string;
+  message?: string;
+  source?: string;
+  recommended?: boolean;
+  meets_minimum?: boolean;
+  agent_mode_supported?: boolean;
+};
+
 export type RuntimeCapabilities = {
-  java?: { available?: boolean; usable?: boolean; version?: string; path?: string; home?: string; message?: string };
-  nextflow?: { available?: boolean; usable?: boolean; version?: string; path?: string; command?: string; message?: string };
+  java?: { available?: boolean; usable?: boolean; version?: string; path?: string; home?: string; message?: string; candidates?: RuntimeCandidate[] };
+  nextflow?: { available?: boolean; usable?: boolean; version?: string; path?: string; command?: string; message?: string; candidates?: RuntimeCandidate[] };
   docker?: { available?: boolean; usable?: boolean };
   podman?: { available?: boolean; usable?: boolean };
   apptainer?: { available?: boolean; usable?: boolean };
@@ -135,10 +149,7 @@ export function isRuntimeReady(preflight: PreflightPayload | null, envStatus: En
   const javaAvailable = runtimeCapabilities?.java?.usable === true || (resolvedVerified && Boolean(resolvedJava));
   const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true || (resolvedVerified && Boolean(resolvedNextflow));
   const dockerAvailable = runtimeCapabilities?.docker?.usable === true;
-  const podmanAvailable = runtimeCapabilities?.podman?.usable === true;
-  const micromambaAvailable = runtimeCapabilities?.micromamba?.usable === true;
-  const condaAvailable = runtimeCapabilities?.conda?.usable === true || envStatus?.conda_runtime?.installed === true;
-  return Boolean(javaAvailable && nextflowAvailable && (dockerAvailable || podmanAvailable || micromambaAvailable || condaAvailable));
+  return Boolean(javaAvailable && nextflowAvailable && dockerAvailable);
 }
 
 export function deriveRuntimeStatus(inspection: RuntimeInspection | null): RuntimeStatus {
@@ -148,13 +159,6 @@ export function deriveRuntimeStatus(inspection: RuntimeInspection | null): Runti
   return isRuntimeReady(inspection.preflight, inspection.envStatus, inspection.resolvedRuntime) ? "ready" : "missing";
 }
 
-export function getRecommendedDecision(preflight: PreflightPayload | null): "use_docker" | "use_podman" | "fallback_conda" {
-  const runtime = preflight?.runtime_capabilities || {};
-  if (preflight?.recommended_profile === "personal_docker" && runtime?.docker?.usable === true) {
-    return "use_docker";
-  }
-  if (preflight?.recommended_profile === "personal_podman" && runtime?.podman?.usable === true) {
-    return "use_podman";
-  }
-  return "fallback_conda";
+export function getRecommendedDecision(_preflight: PreflightPayload | null): "use_docker" {
+  return "use_docker";
 }

@@ -59,10 +59,7 @@ def _version_gte(left: tuple[int, int, int] | None, right: tuple[int, int, int])
 
 
 def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[str, Any]:
-    candidates = (
-        {"cmd": '$NXF_JAVA_HOME/bin/java', "home": "$NXF_JAVA_HOME", "source": "nxf_java_home"},
-        {"cmd": "java", "home": "", "source": "path"},
-    )
+    candidates = ({"cmd": "java", "home": "", "source": "path"},)
     first_found_failure: dict[str, Any] | None = None
     for candidate in candidates:
         cmd = candidate["cmd"]
@@ -270,3 +267,68 @@ def build_runtime_env_exports(java_info: dict[str, Any]) -> str:
         return ""
     quoted_home = shlex.quote(home)
     return f"export NXF_JAVA_HOME={quoted_home}\n"
+
+
+def resolve_persisted_runtime_binding(
+    ssh_run_fn: Any,
+    resolved_runtime: dict[str, Any],
+    timeout: int = SHELL_TIMEOUT,
+) -> dict[str, Any]:
+    verification_status = str(resolved_runtime.get("verification_status") or "").strip()
+    if verification_status != "verified":
+        raise RuntimeError("已保存的 Runtime 配置未完成验证；请先重新执行一键配置并完成复检")
+
+    nextflow_path = str(resolved_runtime.get("nextflow_path") or "").strip()
+    nextflow_command = str(resolved_runtime.get("nextflow_command") or nextflow_path).strip()
+    java_home = str(resolved_runtime.get("java_home") or "").strip()
+    java_path = str(resolved_runtime.get("java_path") or "").strip()
+    if not nextflow_path.startswith("/"):
+        raise RuntimeError("已保存的 Runtime 配置缺少固定 Nextflow 绝对路径；请重新检测并保存")
+    if not java_home.startswith("/"):
+        raise RuntimeError("已保存的 Runtime 配置缺少固定 Java HOME；请重新检测并保存")
+    java_bin = java_path if java_path.startswith("/") else f"{java_home.rstrip('/')}/bin/java"
+    if not java_bin.startswith("/"):
+        raise RuntimeError("已保存的 Runtime 配置缺少固定 Java 可执行路径；请重新检测并保存")
+
+    quoted_nextflow = shlex.quote(nextflow_path)
+    rc_version, stdout_version, _stderr_version = _run_shell(
+        ssh_run_fn,
+        f"""{quoted_nextflow} -version 2>/dev/null | awk '/version/ {{print $NF; exit}}'""",
+        timeout,
+    )
+    version = str(stdout_version or "").strip() if rc_version == 0 else ""
+    parsed_version = _parse_nextflow_version(version)
+    meets_minimum = _version_gte(parsed_version, MIN_RUNNABLE_NEXTFLOW_VERSION)
+    meets_recommended = _version_gte(parsed_version, RECOMMENDED_NEXTFLOW_VERSION)
+    rc_info, stdout_info, stderr_info = _run_shell(ssh_run_fn, f"{quoted_nextflow} info", timeout)
+    if rc_info != 0:
+        detail = _extract_error(stdout_info, stderr_info, "Nextflow health check failed")
+        raise RuntimeError(f"已保存的 Nextflow 路径当前不可正常调用：{detail}")
+    if not meets_minimum:
+        raise RuntimeError(
+            f"已保存的 Nextflow 版本 {version or '<unknown>'} 低于最低要求 25.04.0；请先显式升级并重新验证"
+        )
+
+    quoted_java = shlex.quote(java_bin)
+    rc_java, stdout_java, stderr_java = _run_shell(
+        ssh_run_fn,
+        f'{quoted_java} -version 2>&1 | awk "NR==1{{print $0; exit}}"',
+        timeout,
+    )
+    version_line = str(stdout_java or "").strip()
+    if rc_java != 0 or not version_line:
+        detail = _extract_error(stdout_java, stderr_java, "Java health check failed")
+        raise RuntimeError(f"已保存的 Java 路径当前不可正常调用：{detail}")
+    major = _major_from_java_version(version_line)
+    if major is None or not 17 <= major <= 25:
+        raise RuntimeError("已保存的 Java 版本不满足 Nextflow 要求（需 17-25）；请先修复并重新验证")
+
+    return {
+        "nextflow_path": nextflow_path,
+        "nextflow_command": nextflow_command if nextflow_command.startswith("/") else nextflow_path,
+        "nextflow_version": version,
+        "java_home": java_home,
+        "java_path": java_bin,
+        "java_version": version_line,
+        "agent_mode_supported": meets_recommended,
+    }

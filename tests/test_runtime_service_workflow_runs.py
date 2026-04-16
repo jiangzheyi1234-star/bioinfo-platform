@@ -187,12 +187,12 @@ def _workflow_payload() -> dict[str, object]:
 def _launch_payload() -> dict[str, object]:
     return {
         "profile": {
-            "profile_id": "personal_conda",
+            "profile_id": "personal_docker",
             "server_id": "current",
-            "profile_kind": "personal_conda",
+            "profile_kind": "personal_docker",
             "executor": "local",
-            "packaging_mode": "conda",
-            "container_runtime": "",
+            "packaging_mode": "container",
+            "container_runtime": "docker",
             "work_dir": "",
             "output_dir": "",
             "cache_dir": "",
@@ -400,9 +400,10 @@ def test_task_scoped_runs_results_and_workspace(runtime: RuntimeService, monkeyp
         "get_ssh_preflight",
         lambda: {
             "ok": True,
-            "recommended_profile": "personal_conda",
-            "recommended_profile_details": {"profile_id": "personal_conda"},
-            "runtime_capabilities": {"nextflow": {"status": "ok"}},
+            "recommended_profile": "personal_docker",
+            "recommended_profile_details": {"profile_id": "personal_docker"},
+            "supported_profile_kinds": ["personal_docker"],
+            "runtime_capabilities": {"nextflow": {"status": "ok"}, "docker": {"available": True}},
             "checks": [],
             "failures": [],
             "warnings": [],
@@ -479,10 +480,10 @@ def test_task_scoped_runs_results_and_workspace(runtime: RuntimeService, monkeyp
     assert workspace["workflow_snapshot"]["task_id"] == runtime._test_task_id  # type: ignore[attr-defined]
     assert workspace["runs_summary"]["total"] == 1
     assert workspace["results_summary"]["total"] == 1
-    assert workspace["compatibility"]["selected_profile"]["profile_id"] == "personal_conda"
+    assert workspace["compatibility"]["selected_profile"]["profile_id"] == "personal_docker"
 
 
-def test_task_workflow_compatibility_uses_backend_selection_and_falls_back_to_conda(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_task_workflow_compatibility_keeps_one_click_profile_on_docker_only(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         runtime,
         "get_ssh_preflight",
@@ -500,7 +501,7 @@ def test_task_workflow_compatibility_uses_backend_selection_and_falls_back_to_co
                 "output_dir": "~/.bioflow/runs/output",
                 "cache_dir": "~/.bioflow/cache/containers",
             },
-            "supported_profile_kinds": ["personal_docker", "personal_conda"],
+            "supported_profile_kinds": ["personal_docker"],
             "runtime_capabilities": {
                 "docker": {"available": True},
                 "podman": {"available": False},
@@ -534,10 +535,10 @@ def test_task_workflow_compatibility_uses_backend_selection_and_falls_back_to_co
         task_id=runtime._test_task_id,  # type: ignore[attr-defined]
     )
 
-    assert item["compatible"] is True
-    assert item["selected_profile"]["profile_id"] == "personal_conda"
-    assert "改用 personal_conda" in item["selection_reason"]
-    assert len(item["server_profiles"]) == 2
+    assert item["compatible"] is False
+    assert item["selected_profile"] is None
+    assert "没有可直接提交的 profile" in item["selection_reason"]
+    assert len(item["server_profiles"]) == 1
     assert any(reason.endswith("缺少 runtime.container") for reason in item["workflow_profiles"][0]["incompatibility_reasons"])
 
 
@@ -562,6 +563,7 @@ def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(r
         free_disk_gb=42.0,
         home_writable=True,
         bootstrap_failures=lambda min_free_disk_gb=5.0: [],
+        runtime_failures=lambda: [],
         warnings=lambda: [],
     )
 
@@ -602,8 +604,8 @@ def test_get_ssh_preflight_distinguishes_installed_vs_usable_container_runtime(r
     docker_cap = item["runtime_capabilities"]["docker"]
     assert docker_cap["available"] is True
     assert docker_cap["usable"] is False
-    assert item["recommended_profile"] == "personal_conda"
-    assert "personal_docker" not in item["supported_profile_kinds"]
+    assert item["recommended_profile"] == "personal_docker"
+    assert item["supported_profile_kinds"] == []
     docker_check = next(check for check in item["checks"] if check["key"] == "docker")
     assert docker_check["status"] == "warn"
     assert "当前用户不可直接使用" in docker_check["message"]
@@ -667,19 +669,19 @@ def test_doctor_server_preserves_fixed_runtime_template_model(runtime: RuntimeSe
 
     item = runtime.doctor_server(server_id="current")
 
-    assert item["recommended_profile"] == "personal_conda"
+    assert item["recommended_profile"] == "personal_docker"
     assert item["recommended_profile_details"] == {
-        "profile_id": "personal_conda",
+        "profile_id": "personal_docker",
         "server_id": "current",
-        "profile_kind": "personal_conda",
+        "profile_kind": "personal_docker",
         "executor": "local",
-        "packaging_mode": "conda",
-        "container_runtime": "",
+        "packaging_mode": "container",
+        "container_runtime": "docker",
         "work_dir": "~/.bioflow/runs/work",
         "output_dir": "~/.bioflow/runs/output",
-        "cache_dir": "~/.bioflow/cache/conda",
+        "cache_dir": "~/.bioflow/cache/containers",
     }
-    assert item["supported_profile_kinds"] == ["personal_conda"]
+    assert item["supported_profile_kinds"] == []
     assert item["runtime_capabilities"]["docker"] == {"available": True, "usable": False}
 
 
@@ -807,69 +809,14 @@ def test_get_ssh_preflight_blocks_when_probe_and_resolved_java_disagree(
     assert "未检测到 Java，无法运行 Nextflow" in item["failures"]
 
 
-def test_install_remote_env_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "core.app_runtime.service.probe_preflight",
-        lambda _run: SimpleNamespace(),
-    )
-    monkeypatch.setattr(
-        "core.app_runtime.service.submit_docker_runtime_bootstrap",
-        lambda _run: {"job_id": "h2o_docker_runtime_bootstrap", "task_dir": "~/.bioflow/docker_runtime_bootstrap"},
-    )
-
-    item = runtime.install_remote_env(target="docker_runtime")
-
-    assert item["target"] == "docker_runtime"
-    assert item["job_id"] == "h2o_docker_runtime_bootstrap"
-    assert "Docker 协助安装任务" in item["message"]
-
-
-def test_install_remote_env_rejects_workflow_runtime_when_java_is_unsupported(
-    runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "core.app_runtime.service.probe_preflight",
-        lambda _run: SimpleNamespace(
-            has_java=True,
-            has_supported_java=False,
-            java_version="11.0.22",
-            has_nextflow=False,
-            nextflow_version="",
-            has_docker=False,
-            has_podman=False,
-            has_apptainer=False,
-            has_micromamba=False,
-            has_conda=False,
-            has_sbatch=False,
-        ),
-    )
-
-    with pytest.raises(RuntimeServiceError, match="Java .*17-25"):
-        runtime.install_remote_env(target="workflow_runtime", profile_kind="personal_conda")
-
-
-def test_install_remote_env_rejects_docker_runtime_assist_when_java_is_unsupported(
-    runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "core.app_runtime.service.probe_preflight",
-        lambda _run: SimpleNamespace(
-            has_java=True,
-            has_supported_java=False,
-            java_version="11.0.22",
-            has_nextflow=False,
-            nextflow_version="",
-            has_docker=False,
-            has_podman=False,
-            has_apptainer=False,
-            has_micromamba=False,
-            has_conda=False,
-            has_sbatch=False,
-        ),
-    )
-
-    with pytest.raises(RuntimeServiceError, match="Java .*17-25"):
+def test_install_remote_env_rejects_docker_runtime_in_favor_of_interactive_terminal(runtime: RuntimeService) -> None:
+    with pytest.raises(RuntimeServiceError, match="交互式 SSH 终端会话.*invoke_shell"):
         runtime.install_remote_env(target="docker_runtime")
+
+
+def test_install_remote_env_rejects_workflow_runtime_in_favor_of_interactive_terminal(runtime: RuntimeService) -> None:
+    with pytest.raises(RuntimeServiceError, match="交互式 SSH 终端会话.*invoke_shell"):
+        runtime.install_remote_env(target="workflow_runtime", profile_kind="personal_docker")
 
 
 def test_get_remote_env_install_status_supports_docker_runtime_assist(runtime: RuntimeService, monkeypatch: pytest.MonkeyPatch) -> None:

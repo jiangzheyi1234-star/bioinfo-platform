@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from core.environment.detached_job import ensure_remote_dirs, write_remote_script
-from core.remote.runtime_resolution import build_runtime_env_exports, resolve_remote_java, resolve_remote_nextflow
+from core.remote.runtime_resolution import (
+    build_runtime_env_exports,
+    resolve_persisted_runtime_binding,
+    resolve_remote_java,
+    resolve_remote_nextflow,
+)
 
 from .runtime_ops import (
     cancel_local_nextflow_run,
@@ -30,6 +35,7 @@ class WorkflowBackend:
         ssh_run_fn: Any,
         layout: dict[str, str],
         launch: Any,
+        resolved_runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -73,6 +79,7 @@ class LocalSSHBackend(WorkflowBackend):
         ssh_run_fn: Any,
         layout: dict[str, str],
         launch: Any,
+        resolved_runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         recursive_upload_directory(ssh_service, Path(layout["local_bundle_dir"]), layout["remote_bundle_dir"])
         remote_submission = submit_local_nextflow_run(
@@ -84,6 +91,7 @@ class LocalSSHBackend(WorkflowBackend):
             resume=bool(launch.resume),
             packaging_mode=str(getattr(launch.profile, "packaging_mode", "") or ""),
             container_runtime=str(getattr(launch.profile, "container_runtime", "") or ""),
+            resolved_runtime=resolved_runtime,
         )
         return {
             "backend_kind": self.backend_kind,
@@ -157,13 +165,22 @@ class SlurmSSHBackend(WorkflowBackend):
         ssh_run_fn: Any,
         layout: dict[str, str],
         launch: Any,
+        resolved_runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=20)
-        if not nextflow_info.get("usable", False):
-            raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
-        java_info = resolve_remote_java(ssh_run_fn, timeout=20)
-        if not java_info.get("usable", False):
-            raise RuntimeError(str(java_info.get("message") or "Java 未就绪"))
+        if isinstance(resolved_runtime, dict) and resolved_runtime:
+            binding = resolve_persisted_runtime_binding(ssh_run_fn, resolved_runtime, timeout=20)
+            nextflow_bin = str(binding.get("nextflow_command") or binding.get("nextflow_path") or "").strip()
+            java_info = {"home": str(binding.get("java_home") or "").strip()}
+            enable_nxf_agent_mode = bool(binding.get("agent_mode_supported", False))
+        else:
+            nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=20)
+            if not nextflow_info.get("usable", False):
+                raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
+            java_info = resolve_remote_java(ssh_run_fn, timeout=20)
+            if not java_info.get("usable", False):
+                raise RuntimeError(str(java_info.get("message") or "Java 未就绪"))
+            nextflow_bin = str(nextflow_info.get("path") or nextflow_info.get("command") or "nextflow")
+            enable_nxf_agent_mode = bool(nextflow_info.get("agent_mode_supported", False))
         ensure_remote_dirs(
             ssh_run_fn,
             [layout["remote_task_dir"], layout["remote_bundle_dir"], layout["remote_work_dir"], layout["remote_output_dir"]],
@@ -179,8 +196,9 @@ class SlurmSSHBackend(WorkflowBackend):
                 remote_work_dir=layout["remote_work_dir"],
                 remote_output_dir=layout["remote_output_dir"],
                 resume=bool(launch.resume),
-                nextflow_bin=str(nextflow_info.get("path") or nextflow_info.get("command") or "nextflow"),
+                nextflow_bin=nextflow_bin,
                 runtime_env_exports=build_runtime_env_exports(java_info),
+                enable_nxf_agent_mode=enable_nxf_agent_mode,
             ),
             20,
             label="Slurm launcher script",

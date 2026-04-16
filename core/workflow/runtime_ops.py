@@ -11,7 +11,12 @@ from typing import Any
 
 from core.environment.detached_job import ensure_remote_dirs, expand_home_expr, write_remote_script
 from core.execution.artifact_store import ArtifactStore
-from core.remote.runtime_resolution import build_runtime_env_exports, resolve_remote_java, resolve_remote_nextflow
+from core.remote.runtime_resolution import (
+    build_runtime_env_exports,
+    resolve_persisted_runtime_binding,
+    resolve_remote_java,
+    resolve_remote_nextflow,
+)
 
 _KNOWN_ARTIFACTS = (
     ".nextflow.log",
@@ -103,6 +108,7 @@ def submit_local_nextflow_run(
     resume: bool,
     packaging_mode: str = "",
     container_runtime: str = "",
+    resolved_runtime: dict[str, Any] | None = None,
     timeout: int = 20,
 ) -> dict[str, Any]:
     ensure_remote_dirs(ssh_run_fn, [remote_task_dir, remote_bundle_dir, remote_work_dir, remote_output_dir], timeout)
@@ -114,20 +120,30 @@ def submit_local_nextflow_run(
         rc_docker, _stdout_docker, _stderr_docker = ssh_run_fn("docker ps >/dev/null 2>&1", timeout)
         if rc_docker != 0:
             raise RuntimeError("Docker 未就绪；当前 workflow profile 要求 Docker 作为执行后端，请先在终端完成修复并重新验证")
-    nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=timeout)
-    if not nextflow_info.get("usable", False):
-        raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
-    java_info = resolve_remote_java(ssh_run_fn, timeout=timeout)
-    if not java_info.get("usable", False):
-        raise RuntimeError(str(java_info.get("message") or "Java 未就绪"))
+    binding = None
+    if isinstance(resolved_runtime, dict) and resolved_runtime:
+        binding = resolve_persisted_runtime_binding(ssh_run_fn, resolved_runtime, timeout=timeout)
+        nextflow_bin = str(binding.get("nextflow_command") or binding.get("nextflow_path") or "").strip()
+        java_info = {"home": str(binding.get("java_home") or "").strip()}
+        enable_nxf_agent_mode = bool(binding.get("agent_mode_supported", False))
+    else:
+        nextflow_info = resolve_remote_nextflow(ssh_run_fn, timeout=timeout)
+        if not nextflow_info.get("usable", False):
+            raise RuntimeError(str(nextflow_info.get("message") or "Nextflow 未就绪"))
+        java_info = resolve_remote_java(ssh_run_fn, timeout=timeout)
+        if not java_info.get("usable", False):
+            raise RuntimeError(str(java_info.get("message") or "Java 未就绪"))
+        nextflow_bin = str(nextflow_info.get("path") or nextflow_info.get("command") or "nextflow")
+        enable_nxf_agent_mode = bool(nextflow_info.get("agent_mode_supported", False))
     script = _build_local_nextflow_launcher(
         remote_task_dir=remote_task_dir,
         remote_bundle_dir=remote_bundle_dir,
         remote_work_dir=remote_work_dir,
         remote_output_dir=remote_output_dir,
         resume=resume,
-        nextflow_bin=str(nextflow_info.get("path") or nextflow_info.get("command") or "nextflow"),
+        nextflow_bin=nextflow_bin,
         runtime_env_exports=build_runtime_env_exports(java_info),
+        enable_nxf_agent_mode=enable_nxf_agent_mode,
     )
     script_path = write_remote_script(
         ssh_run_fn,
@@ -293,6 +309,7 @@ def _build_local_nextflow_launcher(
     resume: bool,
     nextflow_bin: str,
     runtime_env_exports: str,
+    enable_nxf_agent_mode: bool,
 ) -> str:
     task_dir_expr = f"$(eval echo {expand_home_expr(remote_task_dir)})"
     bundle_dir_expr = f"$(eval echo {expand_home_expr(remote_bundle_dir)})"
@@ -320,6 +337,7 @@ echo "$$" > "$PID_FILE"
 exec > "$LOG_FILE" 2>&1
 
 {runtime_env_exports.rstrip()}
+{"export NXF_AGENT_MODE=true" if enable_nxf_agent_mode else ""}
 
 _heartbeat() {{
   while true; do
