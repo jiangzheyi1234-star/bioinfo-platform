@@ -1,7 +1,6 @@
-"""SSH 服务封装 - 远程命令执行、文件传输、终端会话。"""
+"""SSH 服务 - 远程命令执行、文件传输、终端会话、自动重连。"""
 
 import logging
-import re
 import threading
 import time
 import uuid
@@ -10,9 +9,9 @@ from typing import Any, Callable, Optional, Tuple
 
 import paramiko
 
-from core.remote.ssh_reconnector import SSHReconnector
-
 logger = logging.getLogger(__name__)
+
+BACKOFF_DELAYS = [2, 4, 8, 16, 32, 60]
 
 
 class TerminalSession:
@@ -26,7 +25,6 @@ class TerminalSession:
         self._closed = False
         self._message = ""
         self._created_at = time.time()
-
         threading.Thread(target=self._reader_loop, daemon=True).start()
 
     def snapshot(self, cursor: int = 0) -> dict:
@@ -86,27 +84,53 @@ class TerminalSession:
                 self._closed = True
 
 
+class SSHReconnector:
+    """SSH 指数退避重连器"""
+
+    def __init__(self, connect_fn, max_retries=5, on_success=None, on_failure=None):
+        self._connect_fn = connect_fn
+        self._max_retries = max_retries
+        self._on_success = on_success
+        self._on_failure = on_failure
+        self._cancelled = False
+
+    def start(self):
+        self._cancelled = False
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def cancel(self):
+        self._cancelled = True
+
+    def _run(self):
+        for attempt in range(1, self._max_retries + 1):
+            if self._cancelled:
+                return
+            delay = BACKOFF_DELAYS[min(attempt - 1, len(BACKOFF_DELAYS) - 1)]
+            time.sleep(delay)
+            try:
+                client = self._connect_fn()
+                if client.get_transport() and client.get_transport().is_active():
+                    if self._on_success:
+                        self._on_success(client)
+                    return
+            except Exception as e:
+                logger.warning("SSH 重连尝试 %d 失败: %s", attempt, e)
+        if self._on_failure:
+            self._on_failure("SSH 重连失败")
+
+
 class SSHService:
     """SSH 服务 - 命令执行、文件传输、终端"""
 
-    def __init__(
-        self,
-        initial_client: Optional[paramiko.SSHClient] = None,
-        connect_fn: Optional[Callable] = None,
-        max_retries: int = 5,
-    ):
+    def __init__(self, initial_client=None, connect_fn=None, max_retries=5):
         self._client = initial_client
         self._connect_fn = connect_fn
         self._lock = RLock()
-        self._sessions: dict[str, TerminalSession] = {}
-
+        self._sessions = {}
         self._reconnector = None
         if connect_fn:
             self._reconnector = SSHReconnector(
-                connect_fn=connect_fn,
-                max_retries=max_retries,
-                on_success=self._on_reconnect,
-                on_failure=self._on_failed,
+                connect_fn, max_retries, self._on_reconnect, self._on_failed
             )
 
     @property
@@ -124,9 +148,11 @@ class SSHService:
             if not self._client:
                 raise RuntimeError("SSH not connected")
             stdin, stdout, stderr = self._client.exec_command(cmd, timeout=timeout)
-            out = stdout.read().decode("utf-8", errors="ignore")
-            err = stderr.read().decode("utf-8", errors="ignore")
-            return stdout.channel.recv_exit_status(), out, err
+            return (
+                stdout.channel.recv_exit_status(),
+                stdout.read().decode("utf-8", errors="ignore"),
+                stderr.read().decode("utf-8", errors="ignore"),
+            )
 
     def upload(self, local: str, remote: str) -> None:
         with self._lock:
@@ -140,14 +166,13 @@ class SSHService:
             sftp.get(remote, local)
             sftp.close()
 
-    def open_terminal_session(self, cols: int = 120, rows: int = 28) -> TerminalSession:
+    def open_terminal_session(self, cols=120, rows=28) -> TerminalSession:
         with self._lock:
             t = self._client.get_transport()
             ch = t.open_session()
             ch.get_pty("xterm-256color", cols, rows)
             ch.invoke_shell()
             ch.settimeout(0)
-
         sid = f"term_{uuid.uuid4().hex}"
         session = TerminalSession(sid, ch)
         self._sessions[sid] = session
@@ -161,11 +186,11 @@ class SSHService:
             self._client.close()
             self._client = None
 
-    def _on_reconnect(self, client: paramiko.SSHClient) -> None:
+    def _on_reconnect(self, client):
         logger.info("SSH reconnected")
         self._client = client
 
-    def _on_failed(self, error: str) -> None:
+    def _on_failed(self, error):
         logger.error("SSH reconnect failed: %s", error)
         for s in list(self._sessions.values()):
             s.close(message="SSH disconnected")

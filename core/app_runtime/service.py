@@ -1,17 +1,13 @@
 """Runtime service layer shared by API and desktop shell."""
 
-from __future__ import annotations
-
 import logging
 import threading
-from pathlib import Path
 from typing import Any, Optional
 
 from config import get_config, resolve_ssh_password, save_config
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
-from core.utils import get_app_root
 
 logger = logging.getLogger(__name__)
 
