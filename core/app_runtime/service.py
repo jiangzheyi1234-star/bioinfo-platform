@@ -9,40 +9,30 @@ import threading
 import time
 import uuid
 from collections import deque
-from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from config import CONFIG_VERSION, default_settings_schema, get_config, resolve_ssh_password, save_config
-from . import workbench_runtime_ops, workflow_runtime_ops
+from config import (
+    CONFIG_VERSION,
+    default_settings_schema,
+    get_config,
+    resolve_ssh_password,
+    save_config,
+)
 from core.data.database_service import DatabaseService
 from core.data.data_registry import DataRegistry
 from core.data.execution_query_service import ExecutionQueryService
 from core.data.project_manager import ProjectInfo, ProjectManager
-from core.environment import env_batch_checker, env_detector
-from core.environment.env_installer import EnvInstaller
-from core.environment.h2o_env_paths import H2O_CONDA_EXE, is_managed_conda_executable
+from core.runtime_paths import H2O_CONDA_EXE, is_managed_conda_executable
 from core.plugins.runtime_metadata import derive_conda_env_name
-from core.environment.server_preflight import MIN_FREE_DISK_GB, probe_preflight
-from core.execution.artifact_store import ArtifactStore
 from core.remote.server_capabilities import PreflightError
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.runtime_resolution import resolve_remote_java, resolve_remote_nextflow
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.service_locator import ServiceLocator
 from core.utils import get_app_root
-from core.workflow import (
-    LaunchSpec,
-    LocalSSHBackend,
-    ServerProfile,
-    SlurmSSHBackend,
-    WorkflowEdge,
-    WorkflowNode,
-    WorkflowSpec,
-    compile_workflow_bundle,
-    create_workflow_backend,
-)
+from core.workflow import ServerProfile
 from core.workflow.bootstrap_ops import (
     DOCKER_BOOTSTRAP_JOB_ID,
     WORKFLOW_BOOTSTRAP_PREFIX,
@@ -78,6 +68,7 @@ _FIXED_RUNTIME_PROFILE_TEMPLATES = {
     },
 }
 
+
 class RuntimeServiceError(RuntimeError):
     """Raised when runtime actions cannot be completed safely."""
 
@@ -96,21 +87,6 @@ def _parse_json_field(field_name: str, raw_value: Any, *, execution_id: str) -> 
         ) from exc
 
 
-@dataclass(frozen=True)
-class ExecutionSubmitRequest:
-    project_id: str
-    task_id: str
-    tool_id: str
-    input_data_ids: list[str]
-    parameters: dict[str, Any]
-    sample_id: str = ""
-    sample_name: str = ""
-    sample_source: str = ""
-    sample_metadata: Optional[dict[str, Any]] = None
-    triggered_by: str = "api"
-    database_paths: Optional[dict[str, str]] = None
-
-
 class RuntimeService:
     """Thread-safe facade around ProjectManager + ServiceLocator."""
 
@@ -121,17 +97,19 @@ class RuntimeService:
     ) -> None:
         self._lock = threading.RLock()
         self._project_manager = project_manager or ProjectManager()
-        self._service_locator = service_locator or ServiceLocator(project_manager=self._project_manager)
+        self._service_locator = service_locator or ServiceLocator(
+            project_manager=self._project_manager
+        )
         self._initialized = False
         self._signals_connected = False
         self._events: deque[dict[str, Any]] = deque(maxlen=2000)
         self._event_seq = 0
-        self._tool_bridge_service: Optional[Any] = None
         self._auto_connect_attempted = False
         self._auto_connect_failed = False
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
         self._terminal_sessions: dict[str, TerminalSession] = {}
+
     def initialize(self) -> None:
         with self._lock:
             if self._initialized:
@@ -145,10 +123,11 @@ class RuntimeService:
         with self._lock:
             if not self._initialized:
                 return
-            self._close_all_terminal_sessions(message="终端会话已结束", drop_sessions=True)
+            self._close_all_terminal_sessions(
+                message="终端会话已结束", drop_sessions=True
+            )
             self._disconnect_runtime_signals()
             self._service_locator.shutdown()
-            self._tool_bridge_service = None
             self._initialized = False
 
     def list_tools(self) -> list[dict[str, Any]]:
@@ -158,114 +137,31 @@ class RuntimeService:
             ids = sorted(registry.list_all_ids())
             return [registry.get_index_entry(tool_id) for tool_id in ids]
 
-    def compile_workflow(self, *, project_id: str, workflow: dict[str, Any], launch: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            workflow_spec = self._build_workflow_spec(workflow)
-            launch_spec = self._build_launch_spec(project_id=project_id, launch=launch)
-            return compile_workflow_bundle(
-                workflow_spec,
-                launch_spec,
-                plugin_registry=self._service_locator.plugin_registry,
-            )
-
-    def list_runs(self, *, project_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.list_runs(self, project_id=project_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_run(self, project_id=project_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def create_run(self, *, project_id: str, task_id: str, launch: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.create_run(
-                    self,
-                    project_id=project_id,
-                    task_id=task_id,
-                    launch=launch,
-                )
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def cancel_run(self, *, project_id: str, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.cancel_run(self, project_id=project_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_run_artifacts(self, *, project_id: str, run_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_run_artifacts(self, project_id=project_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_run_resolved_config(self, *, project_id: str, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_run_resolved_config(self, project_id=project_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def doctor_server(self, *, server_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            if str(server_id or "").strip() != "current":
-                raise RuntimeServiceError("Only server_id='current' is supported during the workflow-first skeleton phase.")
-            self._ensure_ssh_connected()
-            preflight = self.get_ssh_preflight()
-            env_status = self.get_remote_env_status()
-            caps = probe_preflight(self._run_ssh_command_interactive)
-            runtime_capabilities = self._runtime_capabilities_dict(
-                caps,
-                ssh_run_fn=self._run_ssh_command_interactive,
-                runtime_ok_fn=self._remote_runtime_ok_interactive,
-            )
-            recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
-            return {
-                "server_id": "current",
-                "doctor_phase": "workflow_runtime",
-                "preflight": preflight,
-                "env_status": env_status,
-                "recommended_profile": recommended_profile.profile_id,
-                "recommended_profile_details": recommended_profile.to_dict(),
-                "supported_profile_kinds": self._supported_profile_kinds_from_runtime(caps, runtime_capabilities),
-                "runtime_capabilities": runtime_capabilities,
-            }
-
     def get_tool_descriptor(self, *, tool_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             normalized_tool_id = str(tool_id or "").strip()
             if not normalized_tool_id:
                 raise RuntimeServiceError("tool_id is required")
-            descriptor = self._service_locator.plugin_registry.get_descriptor(normalized_tool_id)
+            descriptor = self._service_locator.plugin_registry.get_descriptor(
+                normalized_tool_id
+            )
             if not isinstance(descriptor, dict) or not descriptor:
-                raise RuntimeServiceError(f"Tool descriptor not found: {normalized_tool_id}")
+                raise RuntimeServiceError(
+                    f"Tool descriptor not found: {normalized_tool_id}"
+                )
             return descriptor
 
-    def list_projects(self, *, sort_by: str = "created_at", include_archived: bool = False) -> list[dict[str, Any]]:
+    def list_projects(
+        self, *, sort_by: str = "created_at", include_archived: bool = False
+    ) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             projects = self._project_manager.list_projects(sort_by=sort_by)
             if not include_archived:
-                projects = [project for project in projects if project.status != "archived"]
+                projects = [
+                    project for project in projects if project.status != "archived"
+                ]
             return [self._project_to_dict(project) for project in projects]
 
     def get_current_project(self) -> Optional[dict[str, Any]]:
@@ -276,20 +172,32 @@ class RuntimeService:
                 return None
             return self._project_to_dict(project)
 
-    def create_project(self, *, name: str, description: str = "", open_after_create: bool = True) -> dict[str, Any]:
+    def create_project(
+        self, *, name: str, description: str = "", open_after_create: bool = True
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            project_id = self._project_manager.create_project(name=name, description=description)
+            project_id = self._project_manager.create_project(
+                name=name, description=description
+            )
             if open_after_create:
                 project = self._project_manager.open_project(project_id)
             else:
-                matches = [p for p in self._project_manager.list_projects() if p.project_id == project_id]
+                matches = [
+                    p
+                    for p in self._project_manager.list_projects()
+                    if p.project_id == project_id
+                ]
                 if not matches:
-                    raise RuntimeServiceError(f"Created project cannot be found: {project_id}")
+                    raise RuntimeServiceError(
+                        f"Created project cannot be found: {project_id}"
+                    )
                 project = matches[0]
             return self._project_to_dict(project)
 
-    def update_project(self, *, project_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+    def update_project(
+        self, *, project_id: str, patch: dict[str, Any]
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             if not isinstance(patch, dict):
@@ -333,308 +241,6 @@ class RuntimeService:
             project = self._project_manager.open_project(project_id)
             return self._project_to_dict(project)
 
-    def list_tasks(self, *, project_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            rows = self._project_manager.db.execute(
-                """
-                SELECT
-                    t.task_id,
-                    t.project_id,
-                    t.title,
-                    t.description,
-                    t.status,
-                    t.created_at,
-                    t.updated_at,
-                    t.last_activity_at,
-                    t.latest_execution_id,
-                    t.summary,
-                    t.result_snapshot,
-                    COUNT(e.execution_id) AS execution_count,
-                    SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END) AS failed_execution_count,
-                    MAX(e.created_at) AS latest_execution_created_at
-                FROM tasks t
-                LEFT JOIN executions e ON e.task_id = t.task_id
-                WHERE t.project_id = ?
-                GROUP BY t.task_id
-                ORDER BY t.last_activity_at DESC, t.created_at DESC
-                """,
-                (project_id,),
-            ).fetchall()
-            return [self._normalize_task_row(dict(row)) for row in rows]
-
-    def create_task(self, *, project_id: str, title: str, description: str = "") -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            normalized_title = str(title or "").strip()
-            if not normalized_title:
-                raise RuntimeServiceError("task title is required")
-            now = time.time()
-            task_id = f"task_{uuid.uuid4().hex[:12]}"
-            self._project_manager.db.execute(
-                """
-                INSERT INTO tasks (
-                    task_id, project_id, title, description, status,
-                    created_at, updated_at, last_activity_at,
-                    latest_execution_id, summary, result_snapshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    task_id,
-                    project_id,
-                    normalized_title,
-                    str(description or "").strip(),
-                    "pending",
-                    now,
-                    now,
-                    now,
-                    None,
-                    "",
-                    "{}",
-                ),
-            )
-            self._project_manager.db.commit()
-            return self.get_task(project_id=project_id, task_id=task_id)
-
-    def delete_task(self, *, project_id: str, task_id: str) -> dict[str, str]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            self._assert_task_exists(project_id=project_id, task_id=task_id)
-            execution_count = self._project_manager.db.execute(
-                "SELECT COUNT(*) FROM executions WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-            if execution_count and int(execution_count[0] or 0) > 0:
-                raise RuntimeServiceError("cannot delete task with executions; archive/cleanup flow is not implemented yet")
-            self._project_manager.db.execute(
-                "DELETE FROM workflow_results WHERE project_id = ? AND task_id = ?",
-                (project_id, task_id),
-            )
-            self._project_manager.db.execute(
-                "DELETE FROM workflow_runs WHERE project_id = ? AND task_id = ?",
-                (project_id, task_id),
-            )
-            self._project_manager.db.execute(
-                "DELETE FROM workflow_snapshots WHERE project_id = ? AND task_id = ?",
-                (project_id, task_id),
-            )
-            self._project_manager.db.execute(
-                "DELETE FROM tasks WHERE project_id = ? AND task_id = ?",
-                (project_id, task_id),
-            )
-            self._project_manager.db.commit()
-            return {"task_id": task_id, "status": "deleted"}
-
-    def get_task(self, *, project_id: str, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            row = self._project_manager.db.execute(
-                """
-                SELECT
-                    t.task_id,
-                    t.project_id,
-                    t.title,
-                    t.description,
-                    t.status,
-                    t.created_at,
-                    t.updated_at,
-                    t.last_activity_at,
-                    t.latest_execution_id,
-                    t.summary,
-                    t.result_snapshot,
-                    COUNT(e.execution_id) AS execution_count,
-                    SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END) AS failed_execution_count,
-                    MAX(e.created_at) AS latest_execution_created_at
-                FROM tasks t
-                LEFT JOIN executions e ON e.task_id = t.task_id
-                WHERE t.project_id = ? AND t.task_id = ?
-                GROUP BY t.task_id
-                """,
-                (project_id, task_id),
-            ).fetchone()
-            if row is None:
-                raise RuntimeServiceError(f"Task not found: {task_id}")
-            return self._normalize_task_row(dict(row))
-
-    def get_task_workflow(self, *, project_id: str, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_workflow(self, project_id=project_id, task_id=task_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def put_task_workflow(self, *, project_id: str, task_id: str, workflow: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.put_task_workflow(self, project_id=project_id, task_id=task_id, workflow=workflow)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def compile_task_workflow(self, *, project_id: str, task_id: str, launch: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.compile_task_workflow(self, project_id=project_id, task_id=task_id, launch=launch)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_task_workflow_compatibility(self, *, project_id: str, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_workflow_compatibility(self, project_id=project_id, task_id=task_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def update_task(self, *, project_id: str, task_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            if not isinstance(patch, dict):
-                raise RuntimeServiceError("task patch must be an object")
-            allowed_status = {"pending", "queued", "in_progress", "completed", "failed", "cancelled"}
-            updates: list[str] = []
-            values: list[Any] = []
-
-            if "title" in patch:
-                title = str(patch.get("title") or "").strip()
-                if not title:
-                    raise RuntimeServiceError("task title cannot be empty")
-                updates.append("title = ?")
-                values.append(title)
-            if "description" in patch:
-                updates.append("description = ?")
-                values.append(str(patch.get("description") or "").strip())
-            if "status" in patch:
-                status = str(patch.get("status") or "").strip()
-                if status not in allowed_status:
-                    raise RuntimeServiceError(f"invalid task status: {status}")
-                updates.append("status = ?")
-                values.append(status)
-            if "summary" in patch:
-                updates.append("summary = ?")
-                values.append(str(patch.get("summary") or "").strip())
-
-            workflow_patch = patch.get("workflow")
-            if workflow_patch is not None and not isinstance(workflow_patch, dict):
-                raise RuntimeServiceError("workflow patch must be an object")
-
-            if not updates and workflow_patch is None:
-                raise RuntimeServiceError("task patch is empty")
-
-            cursor = None
-            if updates:
-                now = time.time()
-                updates.append("updated_at = ?")
-                values.append(now)
-                updates.append("last_activity_at = ?")
-                values.append(now)
-                values.extend([project_id, task_id])
-                cursor = self._project_manager.db.execute(
-                    f"UPDATE tasks SET {', '.join(updates)} WHERE project_id = ? AND task_id = ?",
-                    tuple(values),
-                )
-                if cursor.rowcount <= 0:
-                    raise RuntimeServiceError(f"Task not found: {task_id}")
-            else:
-                self._assert_task_exists(project_id=project_id, task_id=task_id)
-            if isinstance(workflow_patch, dict):
-                workflow_runtime_ops.upsert_task_workflow_snapshot(
-                    self,
-                    project_id=project_id,
-                    task_id=task_id,
-                    workflow_payload=self._build_workflow_spec(workflow_patch).to_dict(),
-                )
-                now = time.time()
-                self._project_manager.db.execute(
-                    """
-                    UPDATE tasks
-                    SET updated_at = ?, last_activity_at = ?
-                    WHERE project_id = ? AND task_id = ?
-                    """,
-                    (now, now, project_id, task_id),
-                )
-            self._project_manager.db.commit()
-            return self.get_task(project_id=project_id, task_id=task_id)
-
-    def list_task_runs(self, *, project_id: str, task_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.list_task_runs(self, project_id=project_id, task_id=task_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_task_run(self, *, project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_run(self, project_id=project_id, task_id=task_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def create_task_run(self, *, project_id: str, task_id: str, launch: dict[str, Any]) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.create_task_run(self, project_id=project_id, task_id=task_id, launch=launch)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def cancel_task_run(self, *, project_id: str, task_id: str, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.cancel_task_run(self, project_id=project_id, task_id=task_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def list_task_results(self, *, project_id: str, task_id: str, run_id: str | None = None) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.list_task_results(self, project_id=project_id, task_id=task_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_task_results_summary(self, *, project_id: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_results_summary(self, project_id=project_id, task_id=task_id, run_id=run_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_task_result(self, *, project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_result(self, project_id=project_id, task_id=task_id, result_id=result_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_task_result_content(self, *, project_id: str, task_id: str, result_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_result_content(self, project_id=project_id, task_id=task_id, result_id=result_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_task_workspace(self, *, project_id: str, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workflow_runtime_ops.get_task_workspace(self, project_id=project_id, task_id=task_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
     def list_samples(self, *, project_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
@@ -654,10 +260,14 @@ class RuntimeService:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
             registry = DataRegistry(self._project_manager.db)
-            sample_id = registry.add_sample(name=name, source=source or None, metadata=metadata or {})
+            sample_id = registry.add_sample(
+                name=name, source=source or None, metadata=metadata or {}
+            )
             sample = registry.get_sample(sample_id)
             if sample is None:
-                raise RuntimeServiceError(f"Sample created but cannot be reloaded: {sample_id}")
+                raise RuntimeServiceError(
+                    f"Sample created but cannot be reloaded: {sample_id}"
+                )
             return sample.__dict__
 
     def list_executions(
@@ -674,45 +284,6 @@ class RuntimeService:
             rows = query.list_recent_executions(limit=limit, archived=archived)
             return [self._normalize_execution_row(row) for row in rows]
 
-    def get_execution(self, *, project_id: str, execution_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            row = self._project_manager.db.execute(
-                """
-                SELECT execution_id, sample_id, tool_id, status, parameters,
-                       created_at, completed_at, error, archived_at
-                FROM executions
-                WHERE execution_id = ?
-                """,
-                (execution_id,),
-            ).fetchone()
-            if row is None:
-                raise RuntimeServiceError(f"Execution not found: {execution_id}")
-
-            execution = self._normalize_execution_row(dict(row))
-            execution["artifacts"] = self.get_execution_artifacts(
-                project_id=project_id,
-                execution_id=execution_id,
-            )
-            return execution
-
-    def submit_execution(self, request: ExecutionSubmitRequest) -> dict[str, str]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(request.project_id)
-            raise RuntimeServiceError(
-                "Legacy single-tool execution is disabled for new submissions. "
-                "Use the workflow/run APIs from /workspace instead."
-            )
-
-    def get_execution_artifacts(self, *, project_id: str, execution_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            store = ArtifactStore(lambda: self._project_manager.current_project_dir)
-            return store.list_local_execution_artifacts(execution_id)
-
     def read_app_log(self, *, tail_lines: int = 200) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
@@ -728,7 +299,11 @@ class RuntimeService:
             self._ensure_initialized()
             current = get_config()
             sanitized = dict(current)
-            ssh = dict(current.get("ssh", {})) if isinstance(current.get("ssh"), dict) else {}
+            ssh = (
+                dict(current.get("ssh", {}))
+                if isinstance(current.get("ssh"), dict)
+                else {}
+            )
             ssh["password"] = ""
             ssh.pop("password_ref", None)
             sanitized["ssh"] = ssh
@@ -743,7 +318,11 @@ class RuntimeService:
             merged = self._merge_settings_patch(current, patch)
             save_config(merged)
             updated = get_config()
-            ssh = dict(updated.get("ssh", {})) if isinstance(updated.get("ssh"), dict) else {}
+            ssh = (
+                dict(updated.get("ssh", {}))
+                if isinstance(updated.get("ssh"), dict)
+                else {}
+            )
             ssh["password"] = ""
             ssh.pop("password_ref", None)
             updated["ssh"] = ssh
@@ -753,8 +332,16 @@ class RuntimeService:
         with self._lock:
             self._ensure_initialized()
             current = get_config()
-            runtime = current.get("runtime", {}) if isinstance(current.get("runtime"), dict) else {}
-            resolved = runtime.get("resolved", {}) if isinstance(runtime.get("resolved"), dict) else {}
+            runtime = (
+                current.get("runtime", {})
+                if isinstance(current.get("runtime"), dict)
+                else {}
+            )
+            resolved = (
+                runtime.get("resolved", {})
+                if isinstance(runtime.get("resolved"), dict)
+                else {}
+            )
             return dict(resolved)
 
     def update_resolved_runtime_state(self, patch: dict[str, Any]) -> dict[str, Any]:
@@ -763,11 +350,21 @@ class RuntimeService:
             if not isinstance(patch, dict):
                 raise RuntimeServiceError("runtime.resolved patch must be an object")
             current = get_config()
-            merged = self._merge_settings_patch(current, {"runtime": {"resolved": patch}})
+            merged = self._merge_settings_patch(
+                current, {"runtime": {"resolved": patch}}
+            )
             save_config(merged)
             updated = get_config()
-            runtime = updated.get("runtime", {}) if isinstance(updated.get("runtime"), dict) else {}
-            resolved = runtime.get("resolved", {}) if isinstance(runtime.get("resolved"), dict) else {}
+            runtime = (
+                updated.get("runtime", {})
+                if isinstance(updated.get("runtime"), dict)
+                else {}
+            )
+            resolved = (
+                runtime.get("resolved", {})
+                if isinstance(runtime.get("resolved"), dict)
+                else {}
+            )
             return dict(resolved)
 
     def get_ssh_status(self) -> dict[str, Any]:
@@ -775,7 +372,9 @@ class RuntimeService:
             self._ensure_initialized()
             ssh_settings = self._resolve_ssh_settings()
             ssh_service = self._service_locator.ssh_service
-            connected = bool(ssh_service is not None and getattr(ssh_service, "is_connected", False))
+            connected = bool(
+                ssh_service is not None and getattr(ssh_service, "is_connected", False)
+            )
             configured = bool(ssh_settings["host"] and ssh_settings["user"])
             return {
                 "configured": configured,
@@ -815,14 +414,18 @@ class RuntimeService:
                     port=ssh_settings["port"],
                     user=ssh_settings["user"],
                     password=ssh_settings["password"],
-                    key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                    key_file=ssh_settings["key_file"]
+                    if ssh_settings["use_key"]
+                    else "",
                     timeout=timeout,
                 )
                 if not reconnect.ok or reconnect.client is None:
                     raise RuntimeError(reconnect.message)
                 return reconnect.client
 
-            ssh_service = SSHService(initial_client=result.client, connect_fn=_connect_fn)
+            ssh_service = SSHService(
+                initial_client=result.client, connect_fn=_connect_fn
+            )
             self._service_locator.ssh_service = ssh_service
             self._auto_connect_failed = False
             self._auto_connect_error = ""
@@ -834,7 +437,9 @@ class RuntimeService:
     def disconnect_ssh(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            self._close_all_terminal_sessions(message="SSH 已断开，终端会话已结束", drop_sessions=False)
+            self._close_all_terminal_sessions(
+                message="SSH 已断开，终端会话已结束", drop_sessions=False
+            )
             self._service_locator.ssh_service = None
             self._auto_connect_failed = False
             self._auto_connect_error = ""
@@ -843,7 +448,9 @@ class RuntimeService:
             status["message"] = "SSH disconnected"
             return status
 
-    def create_terminal_session(self, *, cols: int = 120, rows: int = 28) -> dict[str, Any]:
+    def create_terminal_session(
+        self, *, cols: int = 120, rows: int = 28
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             ssh = self._ensure_ssh_connected()
@@ -863,12 +470,19 @@ class RuntimeService:
             session.send(data)
             return {"session_id": session_id, "accepted": True}
 
-    def resize_terminal_session(self, *, session_id: str, cols: int, rows: int) -> dict[str, Any]:
+    def resize_terminal_session(
+        self, *, session_id: str, cols: int, rows: int
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             session = self._get_terminal_session(session_id)
             session.resize(cols=cols, rows=rows)
-            return {"session_id": session_id, "accepted": True, "cols": cols, "rows": rows}
+            return {
+                "session_id": session_id,
+                "accepted": True,
+                "cols": cols,
+                "rows": rows,
+            }
 
     def close_terminal_session(self, *, session_id: str) -> dict[str, Any]:
         with self._lock:
@@ -879,7 +493,9 @@ class RuntimeService:
             session.close(message="终端会话已结束", connected=False)
             return {"session_id": session_id, "closed": True}
 
-    def test_ssh_connection(self, patch: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    def test_ssh_connection(
+        self, patch: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             ssh_settings = self._resolve_ssh_settings(patch)
@@ -887,449 +503,32 @@ class RuntimeService:
                 ip=ssh_settings["host"],
                 port=ssh_settings["port"],
                 user=ssh_settings["user"],
-                password=ssh_settings["password"] if not ssh_settings["use_key"] else "",
+                password=ssh_settings["password"]
+                if not ssh_settings["use_key"]
+                else "",
                 key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
-                existing_client=getattr(self._service_locator.ssh_service, "_client", lambda: None)(),
+                existing_client=getattr(
+                    self._service_locator.ssh_service, "_client", lambda: None
+                )(),
             )
             ok = all(step.status == "ok" for step in steps)
             return {
                 "ok": ok,
                 "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
-                "steps": [{"name": step.name, "status": step.status, "message": step.message} for step in steps],
+                "steps": [
+                    {"name": step.name, "status": step.status, "message": step.message}
+                    for step in steps
+                ],
                 "status": self.get_ssh_status(),
             }
 
-    def get_ssh_preflight(self) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_ssh_connected()
-            caps = probe_preflight(self._run_ssh_command_interactive)
-            self._service_locator.server_capabilities = caps
-            runtime_capabilities = self._runtime_capabilities_dict(
-                caps,
-                ssh_run_fn=self._run_ssh_command_interactive,
-                runtime_ok_fn=self._remote_runtime_ok_interactive,
-            )
-            recommended_profile = self._profile_from_runtime(caps, runtime_capabilities)
-            failures = caps.bootstrap_failures(min_free_disk_gb=MIN_FREE_DISK_GB)
-            runtime_failures = self._runtime_failures_from_resolved_capabilities(caps, runtime_capabilities)
-            failures.extend(message for message in runtime_failures if message not in failures)
-            checks = [
-                {
-                    "key": "arch",
-                    "label": "架构",
-                    "status": "ok" if caps.arch in {"x86_64", "aarch64"} else "fail",
-                    "value": caps.arch or "unknown",
-                    "message": f"服务器架构: {caps.arch or 'unknown'}",
-                },
-                {
-                    "key": "bash",
-                    "label": "bash",
-                    "status": "ok" if caps.has_bash else "fail",
-                    "value": "available" if caps.has_bash else "missing",
-                    "message": "bash 可用" if caps.has_bash else "缺少 bash，无法执行 workflow launcher",
-                },
-                {
-                    "key": "java",
-                    "label": "Java 17+",
-                    "status": "ok"
-                    if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["java"]["available"]
-                    else "fail",
-                    "value": str(
-                        runtime_capabilities["java"].get("version")
-                        or runtime_capabilities["java"].get("path")
-                        or ("available" if runtime_capabilities["java"]["available"] else "missing")
-                    ),
-                    "message": "已检测到 Java，可用于运行 Nextflow"
-                    if runtime_capabilities["java"]["available"] and runtime_capabilities["java"].get("usable", False)
-                    else str(runtime_capabilities["java"].get("message") or "未检测到 Java，无法运行 Nextflow"),
-                },
-                {
-                    "key": "nextflow",
-                    "label": "Nextflow",
-                    "status": "ok"
-                    if runtime_capabilities["nextflow"]["available"] and runtime_capabilities["nextflow"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["nextflow"]["available"]
-                    else "fail",
-                    "value": str(
-                        runtime_capabilities["nextflow"].get("version")
-                        or runtime_capabilities["nextflow"].get("path")
-                        or ("available" if runtime_capabilities["nextflow"]["available"] else "missing")
-                    ),
-                    "message": str(runtime_capabilities["nextflow"].get("message") or "未检测到 Nextflow"),
-                },
-                {
-                    "key": "docker",
-                    "label": "Docker",
-                    "status": "ok"
-                    if runtime_capabilities["docker"]["available"] and runtime_capabilities["docker"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["docker"]["available"]
-                    else "fail",
-                    "value": "usable"
-                    if runtime_capabilities["docker"].get("usable", False)
-                    else "installed"
-                    if runtime_capabilities["docker"]["available"]
-                    else "missing",
-                    "message": "已检测到 Docker，可优先使用容器模式"
-                    if runtime_capabilities["docker"]["available"] and runtime_capabilities["docker"].get("usable", False)
-                    else "已检测到 Docker，但当前用户不可直接使用"
-                    if runtime_capabilities["docker"]["available"]
-                    else "未检测到 Docker",
-                },
-                {
-                    "key": "podman",
-                    "label": "Podman",
-                    "status": "ok"
-                    if runtime_capabilities["podman"]["available"] and runtime_capabilities["podman"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["podman"]["available"]
-                    else "fail",
-                    "value": "usable"
-                    if runtime_capabilities["podman"].get("usable", False)
-                    else "installed"
-                    if runtime_capabilities["podman"]["available"]
-                    else "missing",
-                    "message": "已检测到 Podman，可作为容器模式替代"
-                    if runtime_capabilities["podman"]["available"] and runtime_capabilities["podman"].get("usable", False)
-                    else "已检测到 Podman，但当前用户不可直接使用"
-                    if runtime_capabilities["podman"]["available"]
-                    else "未检测到 Podman",
-                },
-                {
-                    "key": "apptainer",
-                    "label": "Apptainer",
-                    "status": "ok"
-                    if runtime_capabilities["apptainer"]["available"] and runtime_capabilities["apptainer"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["apptainer"]["available"]
-                    else "fail",
-                    "value": "usable"
-                    if runtime_capabilities["apptainer"].get("usable", False)
-                    else "installed"
-                    if runtime_capabilities["apptainer"]["available"]
-                    else "missing",
-                    "message": "已检测到 Apptainer（更适合共享/HPC 场景）"
-                    if runtime_capabilities["apptainer"]["available"] and runtime_capabilities["apptainer"].get("usable", False)
-                    else "已检测到 Apptainer，但当前不可正常调用"
-                    if runtime_capabilities["apptainer"]["available"]
-                    else "未检测到 Apptainer（个人服务器不作为默认）",
-                },
-                {
-                    "key": "micromamba",
-                    "label": "Micromamba",
-                    "status": "ok"
-                    if runtime_capabilities["micromamba"]["available"] and runtime_capabilities["micromamba"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["micromamba"]["available"]
-                    else "fail",
-                    "value": "usable"
-                    if runtime_capabilities["micromamba"].get("usable", False)
-                    else "installed"
-                    if runtime_capabilities["micromamba"]["available"]
-                    else "missing",
-                    "message": "已检测到 Micromamba"
-                    if runtime_capabilities["micromamba"]["available"] and runtime_capabilities["micromamba"].get("usable", False)
-                    else "已检测到 Micromamba，但当前不可正常调用"
-                    if runtime_capabilities["micromamba"]["available"]
-                    else "未检测到 Micromamba",
-                },
-                {
-                    "key": "conda",
-                    "label": "Conda",
-                    "status": "ok"
-                    if runtime_capabilities["conda"]["available"] and runtime_capabilities["conda"].get("usable", False)
-                    else "warn"
-                    if runtime_capabilities["conda"]["available"]
-                    else "fail",
-                    "value": "usable"
-                    if runtime_capabilities["conda"].get("usable", False)
-                    else "installed"
-                    if runtime_capabilities["conda"]["available"]
-                    else "missing",
-                    "message": "已检测到 Conda Runtime"
-                    if runtime_capabilities["conda"]["available"] and runtime_capabilities["conda"].get("usable", False)
-                    else "已检测到 Conda，但当前不可正常调用"
-                    if runtime_capabilities["conda"]["available"]
-                    else "未检测到 Conda Runtime",
-                },
-                {
-                    "key": "downloader",
-                    "label": "下载器",
-                    "status": "ok" if caps.has_curl or caps.has_wget else "fail",
-                    "value": "curl" if caps.has_curl else "wget" if caps.has_wget else "missing",
-                    "message": "已检测到 curl/wget" if caps.has_curl or caps.has_wget else "缺少 curl/wget，无法下载运行时",
-                },
-                {
-                    "key": "sha256sum",
-                    "label": "sha256sum",
-                    "status": "ok" if caps.has_sha256sum else "fail",
-                    "value": "available" if caps.has_sha256sum else "missing",
-                    "message": "支持下载校验" if caps.has_sha256sum else "缺少 sha256sum，无法校验下载内容",
-                },
-                {
-                    "key": "home_writable",
-                    "label": "HOME 可写",
-                    "status": "ok" if caps.home_writable else "fail",
-                    "value": "writable" if caps.home_writable else "read_only",
-                    "message": "HOME 目录可写" if caps.home_writable else "HOME 目录不可写，无法创建 workflow 运行目录",
-                },
-                {
-                    "key": "screen",
-                    "label": "screen",
-                    "status": "ok" if caps.has_screen else "warn",
-                    "value": "available" if caps.has_screen else "missing",
-                    "message": "screen 可用于旧后台安装流程" if caps.has_screen else "screen 缺失，但不会阻塞 workflow run",
-                },
-                {
-                    "key": "disk",
-                    "label": "磁盘空间",
-                    "status": "ok" if caps.free_disk_gb >= MIN_FREE_DISK_GB else "fail",
-                    "value": f"{caps.free_disk_gb:.1f} GB",
-                    "message": f"可用磁盘空间 {caps.free_disk_gb:.1f} GB",
-                },
-            ]
-            return {
-                "ok": not failures,
-                "arch": caps.arch,
-                "free_disk_gb": caps.free_disk_gb,
-                "recommended_profile": recommended_profile.profile_kind,
-                "recommended_profile_details": recommended_profile.to_dict(),
-                "supported_profile_kinds": self._supported_profile_kinds_from_runtime(caps, runtime_capabilities),
-                "runtime_capabilities": runtime_capabilities,
-                "checks": checks,
-                "failures": failures,
-                "warnings": caps.warnings() + [item["message"] for item in checks if item["status"] == "warn"],
-            }
-
-    def get_remote_env_status(self) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_ssh_connected()
-
-            conda_detect = env_detector.detect(self._run_ssh_command)
-            conda_executable = str(conda_detect.executable or "").strip()
-            if conda_detect.status == env_detector.CondaStatus.OK and conda_executable:
-                self._remember_managed_conda(conda_executable)
-            else:
-                self._service_locator.conda_executable = ""
-
-            tool_specs = self._collect_tool_env_specs()
-            env_checks: dict[str, bool] = {}
-            existing_env_paths: list[str] = []
-            if conda_detect.status == env_detector.CondaStatus.OK and conda_executable:
-                check_results, existing_env_paths = env_batch_checker.check_all_envs(
-                    self._run_ssh_command,
-                    [{"id": spec["tool_id"], "conda_env": spec["env_name"]} for spec in tool_specs],
-                    conda_executable=conda_executable,
-                )
-                env_checks = {row.tool_id: bool(row.ok) for row in check_results}
-
-            install_probe_rows = EnvInstaller.batch_probe(
-                self._run_ssh_command,
-                [spec["tool_id"] for spec in tool_specs if spec["installable"]],
-            )
-            install_probe_by_tool = {str(row.get("tool_id") or ""): row for row in install_probe_rows}
-
-            tool_envs: list[dict[str, Any]] = []
-            for spec in tool_specs:
-                probe_row = install_probe_by_tool.get(spec["tool_id"], {})
-                session_alive = bool(probe_row.get("session_alive"))
-                install_stage = self._normalize_job_stage(
-                    status=str(probe_row.get("status") or ""),
-                    exit_code=str(probe_row.get("exit_code") or ""),
-                    session_alive=session_alive,
-                )
-                installed = bool(env_checks.get(spec["tool_id"]))
-                if install_stage == "running":
-                    status = "installing"
-                elif installed:
-                    status = "installed"
-                elif install_stage == "failed":
-                    status = "failed"
-                elif conda_detect.status != env_detector.CondaStatus.OK:
-                    status = "blocked"
-                else:
-                    status = "not_installed"
-
-                tool_envs.append(
-                    {
-                        "tool_id": spec["tool_id"],
-                        "name": spec["name"],
-                        "env_name": spec["env_name"],
-                        "version": spec["version"],
-                        "installed": installed,
-                        "installable": spec["installable"],
-                        "status": status,
-                        "message": self._describe_tool_env_status(
-                            status=status,
-                            conda_message=conda_detect.message,
-                            installable=spec["installable"],
-                        ),
-                        "job_id": f"h2o_install_{spec['tool_id']}" if spec["installable"] else "",
-                        "log_text": str(probe_row.get("log_text") or ""),
-                        "log_size": int(probe_row.get("log_size") or 0),
-                        "shared_tool_ids": spec["shared_tool_ids"],
-                    }
-                )
-
-            installed_envs = sum(1 for row in tool_envs if row["installed"])
-            return {
-                "conda_runtime": {
-                    "installed": conda_detect.status == env_detector.CondaStatus.OK,
-                    "status": "installed" if conda_detect.status == env_detector.CondaStatus.OK else "missing",
-                    "version": str(conda_detect.version or ""),
-                    "conda_executable": conda_executable,
-                    "message": conda_detect.message,
-                },
-                "tool_envs": tool_envs,
-                "summary": {
-                    "total": len(tool_envs),
-                    "installed": installed_envs,
-                    "missing": max(len(tool_envs) - installed_envs, 0),
-                    "env_paths": existing_env_paths,
-                },
-            }
-
-    def install_remote_env(self, *, target: str, tool_id: str = "", profile_kind: str = "") -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_ssh_connected()
-            normalized_target = str(target or "").strip()
-            if normalized_target in {"docker_runtime", "workflow_runtime"}:
-                raise RuntimeServiceError(
-                    "一键配置 Runtime 不再提交后台安装/bootstrap 任务；请先创建交互式 SSH 终端会话（invoke_shell），"
-                    "再逐条发送 Java / Nextflow / Docker 修复命令，并在终端确认输出后重新检测。"
-                )
-
-            if normalized_target != "tool_env":
-                raise RuntimeServiceError(f"unsupported env install target: {normalized_target}")
-
-            normalized_tool_id = str(tool_id or "").strip()
-            if not normalized_tool_id:
-                raise RuntimeServiceError("tool_id is required for tool_env install")
-
-            spec = self._get_tool_env_spec(normalized_tool_id)
-            if not spec["installable"]:
-                raise RuntimeServiceError(f"tool env is not installable: {normalized_tool_id}")
-
-            conda_detect = env_detector.detect(self._run_ssh_command)
-            if conda_detect.status != env_detector.CondaStatus.OK or not conda_detect.executable:
-                raise RuntimeServiceError(conda_detect.message)
-            self._remember_managed_conda(conda_detect.executable)
-
-            item = EnvInstaller.submit(
-                self._run_ssh_command,
-                normalized_tool_id,
-                spec["install_cmd"],
-                conda_executable=conda_detect.executable,
-                verify_cmd=spec["verify_cmd"],
-                version_regex=spec["version_regex"],
-            )
-            return {
-                "target": "tool_env",
-                "tool_id": normalized_tool_id,
-                "job_id": item["job_id"],
-                "task_dir": item["task_dir"],
-                "message": f"已提交 {spec['name']} 环境安装任务",
-            }
-
-    def get_remote_env_install_status(self, *, job_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_ssh_connected()
-            normalized_job_id = str(job_id or "").strip()
-            if not normalized_job_id:
-                raise RuntimeServiceError("job_id is required")
-
-            if normalized_job_id == DOCKER_BOOTSTRAP_JOB_ID:
-                task_dir = docker_bootstrap_task_dir()
-                raw_status, session_alive, log_text = read_docker_bootstrap_status(
-                    self._run_ssh_command,
-                    task_dir=task_dir,
-                )
-                stage = self._normalize_job_stage(
-                    status=str(raw_status.get("status") or ""),
-                    exit_code=str(raw_status.get("exit_code") or ""),
-                    session_alive=session_alive,
-                    heartbeat=str(raw_status.get("heartbeat") or ""),
-                )
-                return self._build_job_snapshot(
-                    job_id=normalized_job_id,
-                    stage=stage,
-                    raw_status=raw_status,
-                    log_text=log_text,
-                    progress={"kind": "docker_runtime"},
-                )
-
-            if normalized_job_id.startswith(WORKFLOW_BOOTSTRAP_PREFIX):
-                profile_kind = normalized_job_id[len(WORKFLOW_BOOTSTRAP_PREFIX):].strip()
-                if not profile_kind:
-                    raise RuntimeServiceError(f"invalid workflow bootstrap job_id: {normalized_job_id}")
-                task_dir = workflow_bootstrap_task_dir(profile_kind)
-                raw_status, session_alive, log_text = read_workflow_bootstrap_status(
-                    self._run_ssh_command,
-                    task_dir=task_dir,
-                )
-                stage = self._normalize_job_stage(
-                    status=str(raw_status.get("status") or ""),
-                    exit_code=str(raw_status.get("exit_code") or ""),
-                    session_alive=session_alive,
-                    heartbeat=str(raw_status.get("heartbeat") or ""),
-                )
-                progress = {
-                    **build_workflow_runtime_progress(
-                        profile_kind=profile_kind,
-                        stage=stage,
-                        log_text=log_text,
-                    ),
-                    "pid": str(raw_status.get("pid") or ""),
-                }
-                if raw_status.get("log_preview"):
-                    progress["log_preview"] = raw_status["log_preview"]
-                return self._build_job_snapshot(
-                    job_id=normalized_job_id,
-                    stage=stage,
-                    raw_status=raw_status,
-                    log_text=log_text,
-                    progress=progress,
-                )
-
-            prefix = "h2o_install_"
-            if not normalized_job_id.startswith(prefix):
-                raise RuntimeServiceError(f"unsupported env install job_id: {normalized_job_id}")
-
-            tool_id = normalized_job_id[len(prefix):].strip()
-            if not tool_id:
-                raise RuntimeServiceError(f"invalid env install job_id: {normalized_job_id}")
-            task_dir = f"{EnvInstaller.INSTALL_BASE}/{tool_id}"
-            raw_status = EnvInstaller.check_status(self._run_ssh_command, task_dir)
-            session_alive = EnvInstaller.is_session_alive(self._run_ssh_command, normalized_job_id)
-            log_text = EnvInstaller.read_log(self._run_ssh_command, task_dir)
-            stage = self._normalize_job_stage(
-                status=str(raw_status.get("status") or ""),
-                exit_code=str(raw_status.get("exit_code") or ""),
-                session_alive=session_alive,
-            )
-            return self._build_job_snapshot(
-                job_id=normalized_job_id,
-                stage=stage,
-                raw_status=raw_status,
-                log_text=log_text,
-            )
-
-    def install_database(self, *, project_id: str, db_id: str, mirror_index: int = 0) -> dict[str, Any]:
+    def install_database(
+        self, *, project_id: str, db_id: str, mirror_index: int = 0
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
             self._ensure_ssh_connected()
-            caps = probe_preflight(self._run_ssh_command)
-            failures = caps.failures(min_free_disk_gb=MIN_FREE_DISK_GB)
-            if failures:
-                raise RuntimeServiceError("；".join(failures))
             config = get_config()
             databases_cfg = config.get("databases", {})
             if not isinstance(databases_cfg, dict):
@@ -1338,7 +537,7 @@ class RuntimeService:
             service = DatabaseService()
             item = service.submit_install(
                 self._run_ssh_command,
-                caps,
+                self._service_locator.server_capabilities,
                 str(db_id or "").strip(),
                 db_root,
                 conda_exe=self._service_locator.conda_executable,
@@ -1351,7 +550,9 @@ class RuntimeService:
                 "message": "已提交数据库后台安装任务",
             }
 
-    def get_database_install_status(self, *, project_id: str, db_id: str) -> dict[str, Any]:
+    def get_database_install_status(
+        self, *, project_id: str, db_id: str
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
@@ -1368,7 +569,9 @@ class RuntimeService:
                 session_alive=bool(raw_status.get("screen_running")),
                 heartbeat=str(raw_status.get("heartbeat") or ""),
             )
-            log_text = service.read_install_log(self._run_ssh_command, task_dir, tail=120)
+            log_text = service.read_install_log(
+                self._run_ssh_command, task_dir, tail=120
+            )
             return self._build_job_snapshot(
                 job_id=f"h2o_dbinstall_{normalized_db_id}",
                 stage=stage,
@@ -1377,7 +580,9 @@ class RuntimeService:
                 progress=service.parse_progress(log_text),
             )
 
-    def list_databases(self, *, project_id: str, include_status: bool = False) -> list[dict[str, Any]]:
+    def list_databases(
+        self, *, project_id: str, include_status: bool = False
+    ) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
@@ -1397,11 +602,17 @@ class RuntimeService:
 
             service = DatabaseService()
             ssh = self._service_locator.ssh_service
-            status_enabled = bool(include_status and ssh is not None and getattr(ssh, "is_connected", False))
+            status_enabled = bool(
+                include_status
+                and ssh is not None
+                and getattr(ssh, "is_connected", False)
+            )
 
             items: list[dict[str, Any]] = []
             for info in service.list_all():
-                resolved_path = service.resolve_binding_value(info.db_id, db_root, overrides=overrides)
+                resolved_path = service.resolve_binding_value(
+                    info.db_id, db_root, overrides=overrides
+                )
                 item = {
                     "db_id": info.db_id,
                     "name": info.name,
@@ -1449,7 +660,9 @@ class RuntimeService:
                 items.append(item)
             return items
 
-    def list_execution_history(self, *, project_id: str, limit: int = 50, task_id: str | None = None) -> list[dict[str, Any]]:
+    def list_execution_history(
+        self, *, project_id: str, limit: int = 50, task_id: str | None = None
+    ) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
@@ -1457,7 +670,9 @@ class RuntimeService:
             rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
             return [self._normalize_execution_row(row) for row in rows]
 
-    def list_execution_history_summary(self, *, project_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    def list_execution_history_summary(
+        self, *, project_id: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
@@ -1465,7 +680,9 @@ class RuntimeService:
             rows = query.get_execution_history_summary_for_ui(limit=limit)
             return [self._normalize_execution_row(row) for row in rows]
 
-    def list_task_executions(self, *, project_id: str, task_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    def list_task_executions(
+        self, *, project_id: str, task_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
@@ -1474,110 +691,26 @@ class RuntimeService:
             rows = query.get_execution_history_for_ui(limit=limit, task_id=task_id)
             return [self._normalize_execution_row(row) for row in rows]
 
-    def archive_execution(self, *, project_id: str, execution_id: str) -> dict[str, str]:
+    def archive_execution(
+        self, *, project_id: str, execution_id: str
+    ) -> dict[str, str]:
         with self._lock:
             self._ensure_initialized()
             self._ensure_project_open(project_id)
             query = ExecutionQueryService(self._project_manager.db)
             result = query.archive_execution(execution_id)
             if result.get("status") != "ok":
-                raise RuntimeServiceError(str(result.get("message") or "archive failed"))
+                raise RuntimeServiceError(
+                    str(result.get("message") or "archive failed")
+                )
             return {
                 "status": "ok",
                 "message": str(result.get("message") or ""),
             }
 
-    def list_workbench_tools(self, *, project_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workbench_runtime_ops.list_workbench_tools(self, project_id=project_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_workbench_config(self, *, project_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workbench_runtime_ops.get_workbench_config(self, project_id=project_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_workbench_history(self, *, project_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workbench_runtime_ops.get_workbench_history(self, project_id=project_id)
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_workbench_result(self, *, project_id: str, execution_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workbench_runtime_ops.get_workbench_result(
-                    self,
-                    project_id=project_id,
-                    execution_id=execution_id,
-                )
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_workbench_remote_status(self, *, project_id: str, execution_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workbench_runtime_ops.get_workbench_remote_status(
-                    self,
-                    project_id=project_id,
-                    execution_id=execution_id,
-                )
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def run_workbench_tool(
-        self,
-        *,
-        project_id: str,
-        task_id: str | None,
-        tool_id: str,
-        params: dict[str, Any],
+    def list_runtime_events(
+        self, *, after_seq: int = 0, limit: int = 200
     ) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            normalized_task_id = str(task_id or "").strip()
-            if not normalized_task_id:
-                raise RuntimeServiceError("task_id is required for workbench runs")
-            self._assert_task_exists(project_id=project_id, task_id=normalized_task_id)
-            try:
-                return workbench_runtime_ops.run_workbench_tool(
-                    self,
-                    project_id=project_id,
-                    task_id=normalized_task_id,
-                    tool_id=tool_id,
-                    params=params,
-                )
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def get_workbench_remote_primer_results(
-        self,
-        *,
-        project_id: str,
-        remote_result_dir: str,
-    ) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            try:
-                return workbench_runtime_ops.get_workbench_remote_primer_results(
-                    self,
-                    project_id=project_id,
-                    remote_result_dir=remote_result_dir,
-                )
-            except (RuntimeError, ValueError) as exc:
-                raise RuntimeServiceError(str(exc)) from exc
-
-    def list_runtime_events(self, *, after_seq: int = 0, limit: int = 200) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             if limit <= 0:
@@ -1591,36 +724,6 @@ class RuntimeService:
                 "latest_seq": self._event_seq,
             }
 
-    def get_project_results(self, *, project_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            self._ensure_project_open(project_id)
-            rows = self._project_manager.db.execute(
-                """
-                SELECT
-                    t.task_id,
-                    t.title,
-                    t.status AS task_status,
-                    t.summary,
-                    t.last_activity_at,
-                    t.latest_execution_id,
-                    e.status AS latest_execution_status,
-                    e.tool_id AS latest_tool_id,
-                    e.error AS latest_error,
-                    COUNT(all_exec.execution_id) AS execution_count,
-                    SUM(CASE WHEN all_exec.status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
-                    SUM(CASE WHEN all_exec.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
-                FROM tasks t
-                LEFT JOIN executions e ON e.execution_id = t.latest_execution_id
-                LEFT JOIN executions all_exec ON all_exec.task_id = t.task_id
-                WHERE t.project_id = ?
-                GROUP BY t.task_id
-                ORDER BY t.last_activity_at DESC, t.created_at DESC
-                """,
-                (project_id,),
-            ).fetchall()
-            return [dict(row) for row in rows]
-
     def _ensure_ssh_connected(self) -> SSHService:
         ssh = self._service_locator.ssh_service
         if ssh is None or not getattr(ssh, "is_connected", False):
@@ -1633,12 +736,18 @@ class RuntimeService:
             raise RuntimeServiceError(f"unknown terminal session: {session_id}")
         return session
 
-    def _close_all_terminal_sessions(self, *, message: str, drop_sessions: bool) -> None:
+    def _close_all_terminal_sessions(
+        self, *, message: str, drop_sessions: bool
+    ) -> None:
         for session in list(self._terminal_sessions.values()):
             try:
                 session.close(message=message, connected=False)
             except Exception:
-                logger.debug("Failed to close terminal session %s", session.session_id, exc_info=True)
+                logger.debug(
+                    "Failed to close terminal session %s",
+                    session.session_id,
+                    exc_info=True,
+                )
         if drop_sessions:
             self._terminal_sessions.clear()
 
@@ -1649,10 +758,16 @@ class RuntimeService:
         self._service_locator.conda_executable = normalized
         current = get_config()
         linux = current.get("linux", {})
-        current_value = str(linux.get("conda_executable", "") or "").strip() if isinstance(linux, dict) else ""
+        current_value = (
+            str(linux.get("conda_executable", "") or "").strip()
+            if isinstance(linux, dict)
+            else ""
+        )
         if current_value == normalized:
             return
-        merged = self._merge_settings_patch(current, {"linux": {"conda_executable": normalized}})
+        merged = self._merge_settings_patch(
+            current, {"linux": {"conda_executable": normalized}}
+        )
         save_config(merged)
 
     def _collect_tool_env_specs(self) -> list[dict[str, Any]]:
@@ -1671,14 +786,20 @@ class RuntimeService:
                     "env_name": env_name,
                     "version": str(descriptor.get("version", "") or ""),
                     "install_cmd": str(descriptor.get("install_cmd", "") or "").strip(),
-                    "verify_cmd": str(descriptor.get("detection", {}).get("command", "") or "").strip()
+                    "verify_cmd": str(
+                        descriptor.get("detection", {}).get("command", "") or ""
+                    ).strip()
                     if isinstance(descriptor.get("detection"), dict)
                     else "",
-                    "version_regex": str(descriptor.get("detection", {}).get("version_regex", "") or "").strip()
+                    "version_regex": str(
+                        descriptor.get("detection", {}).get("version_regex", "") or ""
+                    ).strip()
                     if isinstance(descriptor.get("detection"), dict)
                     else "",
                     "shared_tool_ids": [str(tool_id)],
-                    "installable": bool(str(descriptor.get("install_cmd", "") or "").strip()),
+                    "installable": bool(
+                        str(descriptor.get("install_cmd", "") or "").strip()
+                    ),
                 }
                 grouped[env_name] = grouped_entry
                 continue
@@ -1691,8 +812,12 @@ class RuntimeService:
                 grouped_entry["install_cmd"] = install_cmd
                 grouped_entry["installable"] = True
                 if isinstance(descriptor.get("detection"), dict):
-                    grouped_entry["verify_cmd"] = str(descriptor["detection"].get("command", "") or "").strip()
-                    grouped_entry["version_regex"] = str(descriptor["detection"].get("version_regex", "") or "").strip()
+                    grouped_entry["verify_cmd"] = str(
+                        descriptor["detection"].get("command", "") or ""
+                    ).strip()
+                    grouped_entry["version_regex"] = str(
+                        descriptor["detection"].get("version_regex", "") or ""
+                    ).strip()
         return list(grouped.values())
 
     def _get_tool_env_spec(self, tool_id: str) -> dict[str, Any]:
@@ -1781,7 +906,9 @@ class RuntimeService:
         return log_lines[-1] if log_lines else ""
 
     @staticmethod
-    def _describe_tool_env_status(*, status: str, conda_message: str, installable: bool) -> str:
+    def _describe_tool_env_status(
+        *, status: str, conda_message: str, installable: bool
+    ) -> str:
         if status == "installed":
             return "环境已就绪"
         if status == "installing":
@@ -1817,24 +944,6 @@ class RuntimeService:
         if row is None:
             raise RuntimeServiceError(f"Task not found: {normalized_task_id}")
 
-    def _resolve_sample_id(self, request: ExecutionSubmitRequest) -> str:
-        registry = DataRegistry(self._project_manager.db)
-        sample_id = str(request.sample_id or "").strip()
-        if sample_id:
-            sample = registry.get_sample(sample_id)
-            if sample is None:
-                raise RuntimeServiceError(f"Sample not found: {sample_id}")
-            return sample_id
-
-        sample_name = str(request.sample_name or "").strip()
-        if not sample_name:
-            raise RuntimeServiceError("sample_id or sample_name is required")
-        return registry.add_sample(
-            name=sample_name,
-            source=request.sample_source or None,
-            metadata=request.sample_metadata or {},
-        )
-
     @staticmethod
     def _project_to_dict(project: ProjectInfo) -> dict[str, Any]:
         return {
@@ -1862,38 +971,6 @@ class RuntimeService:
         return normalized
 
     @staticmethod
-    def _normalize_task_row(row: dict[str, Any]) -> dict[str, Any]:
-        task_id = str(row.get("task_id") or "").strip()
-        if not task_id:
-            raise RuntimeServiceError("Invalid task row: missing task_id")
-        result_snapshot = row.get("result_snapshot")
-        if isinstance(result_snapshot, str):
-            try:
-                parsed_snapshot = json.loads(result_snapshot) if result_snapshot.strip() else {}
-            except json.JSONDecodeError as exc:
-                raise RuntimeServiceError(f"Task {task_id} has invalid result snapshot: {exc}") from exc
-        elif isinstance(result_snapshot, dict):
-            parsed_snapshot = result_snapshot
-        else:
-            parsed_snapshot = {}
-        return {
-            "task_id": task_id,
-            "project_id": str(row.get("project_id") or ""),
-            "title": str(row.get("title") or task_id),
-            "description": str(row.get("description") or ""),
-            "status": str(row.get("status") or "pending"),
-            "created_at": float(row.get("created_at") or 0.0),
-            "updated_at": float(row.get("updated_at") or 0.0),
-            "last_activity_at": float(row.get("last_activity_at") or 0.0),
-            "latest_execution_id": str(row.get("latest_execution_id") or ""),
-            "summary": str(row.get("summary") or ""),
-            "result_snapshot": parsed_snapshot,
-            "execution_count": int(row.get("execution_count") or 0),
-            "failed_execution_count": int(row.get("failed_execution_count") or 0),
-            "latest_execution_created_at": float(row.get("latest_execution_created_at") or 0.0),
-        }
-
-    @staticmethod
     def _tail_file(path: Path, *, max_lines: int) -> list[str]:
         text = path.read_text(encoding="utf-8", errors="replace")
         if max_lines <= 0:
@@ -1902,7 +979,9 @@ class RuntimeService:
         return lines[-max_lines:]
 
     @staticmethod
-    def _merge_settings_patch(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    def _merge_settings_patch(
+        current: dict[str, Any], patch: dict[str, Any]
+    ) -> dict[str, Any]:
         merged = dict(current)
         defaults = default_settings_schema()
         allowed_sections = {"ssh", "linux", "databases", "blast", "ncbi", "runtime"}
@@ -1912,7 +991,9 @@ class RuntimeService:
             if section not in allowed_sections:
                 raise RuntimeServiceError(f"unknown settings section: {section}")
             if not isinstance(value, dict):
-                raise RuntimeServiceError(f"settings section '{section}' must be an object")
+                raise RuntimeServiceError(
+                    f"settings section '{section}' must be an object"
+                )
             allowed_keys = set(defaults[section].keys())
             for key in value:
                 if key not in allowed_keys:
@@ -1925,11 +1006,17 @@ class RuntimeService:
                 resolved_defaults = defaults["runtime"].get("resolved", {})
                 resolved_patch = value.get("resolved")
                 if not isinstance(resolved_patch, dict):
-                    raise RuntimeServiceError("settings key runtime.resolved must be an object")
-                unknown_runtime_resolved = set(resolved_patch.keys()) - set(resolved_defaults.keys())
+                    raise RuntimeServiceError(
+                        "settings key runtime.resolved must be an object"
+                    )
+                unknown_runtime_resolved = set(resolved_patch.keys()) - set(
+                    resolved_defaults.keys()
+                )
                 if unknown_runtime_resolved:
                     bad = sorted(str(item) for item in unknown_runtime_resolved)
-                    raise RuntimeServiceError(f"unknown settings key: runtime.resolved.{bad[0]}")
+                    raise RuntimeServiceError(
+                        f"unknown settings key: runtime.resolved.{bad[0]}"
+                    )
                 existing_resolved = next_section.get("resolved", {})
                 if not isinstance(existing_resolved, dict):
                     existing_resolved = {}
@@ -1944,7 +1031,9 @@ class RuntimeService:
             try:
                 version = int(patch["version"])
             except (TypeError, ValueError) as exc:
-                raise RuntimeServiceError(f"invalid settings version: {patch['version']}") from exc
+                raise RuntimeServiceError(
+                    f"invalid settings version: {patch['version']}"
+                ) from exc
             if version != CONFIG_VERSION:
                 raise RuntimeServiceError(
                     f"unsupported settings version: {patch['version']}, expected {CONFIG_VERSION}"
@@ -1980,12 +1069,18 @@ class RuntimeService:
         host = str(merged.get("host", "") or "").strip()
         user = str(merged.get("user", "") or "").strip()
         key_file = str(merged.get("key_file", "") or "").strip()
-        password = str(patch.get("password", "") or "") if isinstance(patch, dict) and "password" in patch else resolve_ssh_password(merged)
+        password = (
+            str(patch.get("password", "") or "")
+            if isinstance(patch, dict) and "password" in patch
+            else resolve_ssh_password(merged)
+        )
         use_key = bool(merged.get("use_key", False))
         try:
             port = int(merged.get("port", 22))
         except (TypeError, ValueError) as exc:
-            raise RuntimeServiceError(f"invalid ssh port: {merged.get('port')}") from exc
+            raise RuntimeServiceError(
+                f"invalid ssh port: {merged.get('port')}"
+            ) from exc
 
         if not host:
             raise RuntimeServiceError("ssh.host is required")
@@ -1994,7 +1089,9 @@ class RuntimeService:
         if port <= 0 or port > 65535:
             raise RuntimeServiceError(f"invalid ssh port: {port}")
         if use_key and not key_file:
-            raise RuntimeServiceError("ssh.key_file is required when ssh.use_key is true")
+            raise RuntimeServiceError(
+                "ssh.key_file is required when ssh.use_key is true"
+            )
 
         return {
             "host": host,
@@ -2038,14 +1135,18 @@ class RuntimeService:
                     port=ssh_settings["port"],
                     user=ssh_settings["user"],
                     password=ssh_settings["password"],
-                    key_file=ssh_settings["key_file"] if ssh_settings["use_key"] else "",
+                    key_file=ssh_settings["key_file"]
+                    if ssh_settings["use_key"]
+                    else "",
                     timeout=timeout,
                 )
                 if not reconnect.ok or reconnect.client is None:
                     raise RuntimeError(reconnect.message)
                 return reconnect.client
 
-            self._service_locator.ssh_service = SSHService(initial_client=result.client, connect_fn=_connect_fn)
+            self._service_locator.ssh_service = SSHService(
+                initial_client=result.client, connect_fn=_connect_fn
+            )
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""
@@ -2067,14 +1168,22 @@ class RuntimeService:
         code = getattr(result, "exit_code", None)
         if code is None:
             raise RuntimeServiceError("SSH run result is invalid")
-        return int(code), str(getattr(result, "stdout", "")), str(getattr(result, "stderr", ""))
+        return (
+            int(code),
+            str(getattr(result, "stdout", "")),
+            str(getattr(result, "stderr", "")),
+        )
 
-    def _run_ssh_command_interactive(self, cmd: str, timeout: int) -> tuple[int, str, str]:
+    def _run_ssh_command_interactive(
+        self, cmd: str, timeout: int
+    ) -> tuple[int, str, str]:
         ssh = self._service_locator.ssh_service
         if ssh is None:
             raise RuntimeServiceError("SSH service is not available")
         if not hasattr(ssh, "run_interactive"):
-            raise RuntimeServiceError("SSH service does not support interactive invoke_shell execution")
+            raise RuntimeServiceError(
+                "SSH service does not support interactive invoke_shell execution"
+            )
         result = ssh.run_interactive(cmd, timeout=timeout)
         if isinstance(result, tuple):
             code, stdout, stderr = result
@@ -2082,138 +1191,27 @@ class RuntimeService:
         code = getattr(result, "exit_code", None)
         if code is None:
             raise RuntimeServiceError("SSH interactive run result is invalid")
-        return int(code), str(getattr(result, "stdout", "")), str(getattr(result, "stderr", ""))
+        return (
+            int(code),
+            str(getattr(result, "stdout", "")),
+            str(getattr(result, "stderr", "")),
+        )
 
     def _connect_runtime_signals(self) -> None:
         if self._signals_connected:
             return
-        self._service_locator.execution_started.connect(self._on_execution_started)
-        self._service_locator.execution_completed.connect(self._on_execution_completed)
-        self._service_locator.execution_failed.connect(self._on_execution_failed)
         self._service_locator.ssh_changed.connect(self._on_ssh_changed)
         self._signals_connected = True
 
-    def _build_workflow_spec(self, payload: dict[str, Any]) -> WorkflowSpec:
-        if not isinstance(payload, dict):
-            raise RuntimeServiceError("workflow payload must be an object")
-        workflow_id = str(payload.get("workflow_id") or "").strip()
-        name = str(payload.get("name") or "").strip()
-        if not workflow_id or not name:
-            raise RuntimeServiceError("workflow_id and name are required")
-        raw_nodes = payload.get("nodes", [])
-        raw_edges = payload.get("edges", [])
-        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
-            raise RuntimeServiceError("workflow nodes/edges must be arrays")
-        nodes = [
-            WorkflowNode(
-                node_id=str(item.get("node_id") or "").strip(),
-                tool_id=str(item.get("tool_id") or "").strip(),
-                label=str(item.get("label") or "").strip(),
-                params=item.get("params", {}) if isinstance(item.get("params", {}), dict) else {},
-            )
-            for item in raw_nodes
-        ]
-        edges = [
-            WorkflowEdge(
-                edge_id=str(item.get("edge_id") or "").strip(),
-                source_node_id=str(item.get("source_node_id") or "").strip(),
-                target_node_id=str(item.get("target_node_id") or "").strip(),
-                output_name=str(item.get("output_name") or "").strip(),
-                input_name=str(item.get("input_name") or "").strip(),
-            )
-            for item in raw_edges
-        ]
-        for node in nodes:
-            if not node.node_id or not node.tool_id or not node.label:
-                raise RuntimeServiceError("workflow node requires node_id, tool_id, and label")
-        if len({node.node_id for node in nodes}) != len(nodes):
-            raise RuntimeServiceError("workflow node_id must be unique")
-        for edge in edges:
-            if not edge.edge_id or not edge.source_node_id or not edge.target_node_id:
-                raise RuntimeServiceError("workflow edge requires edge_id, source_node_id, and target_node_id")
-        if len({edge.edge_id for edge in edges}) != len(edges):
-            raise RuntimeServiceError("workflow edge_id must be unique")
-        params_schema = payload.get("params_schema", {})
-        if not isinstance(params_schema, dict):
-            raise RuntimeServiceError("workflow params_schema must be an object")
-        return WorkflowSpec(
-            workflow_id=workflow_id,
-            name=name,
-            version=str(payload.get("version") or "0.1.0").strip() or "0.1.0",
-            nodes=nodes,
-            edges=edges,
-            params_schema=params_schema,
-        )
-
-    def _build_launch_spec(self, *, project_id: str, launch: dict[str, Any]) -> LaunchSpec:
-        if not isinstance(launch, dict):
-            raise RuntimeServiceError("launch payload must be an object")
-        raw_profile = launch.get("profile", {})
-        if not isinstance(raw_profile, dict):
-            raise RuntimeServiceError("launch.profile must be an object")
-        profile_id = str(raw_profile.get("profile_id") or "").strip()
-        server_id = str(raw_profile.get("server_id") or "").strip()
-        profile_kind = str(raw_profile.get("profile_kind") or "").strip()
-        executor = str(raw_profile.get("executor") or "").strip()
-        packaging_mode = str(raw_profile.get("packaging_mode") or "").strip()
-        if not profile_id or not server_id or not profile_kind or not executor or not packaging_mode:
-            raise RuntimeServiceError("launch.profile is incomplete")
-        profile = ServerProfile(
-            profile_id=profile_id,
-            server_id=server_id,
-            profile_kind=profile_kind,  # type: ignore[arg-type]
-            executor=executor,
-            packaging_mode=packaging_mode,  # type: ignore[arg-type]
-            container_runtime=str(raw_profile.get("container_runtime") or "").strip(),
-            work_dir=str(raw_profile.get("work_dir") or "").strip(),
-            output_dir=str(raw_profile.get("output_dir") or "").strip(),
-            cache_dir=str(raw_profile.get("cache_dir") or "").strip(),
-        )
-        params = launch.get("params", {})
-        data_refs = launch.get("data_refs", [])
-        if not isinstance(params, dict) or not isinstance(data_refs, list):
-            raise RuntimeServiceError("launch params/data_refs have invalid format")
-        return LaunchSpec(
-            project_id=project_id,
-            profile=profile,
-            params=params,
-            data_refs=[str(item) for item in data_refs],
-            resume=bool(launch.get("resume", True)),
-        )
-
-    def _workflow_backend_for_row(self, row: dict[str, Any]) -> LocalSSHBackend | SlurmSSHBackend:
-        profile_payload = row.get("profile", {})
-        if isinstance(profile_payload, dict) and profile_payload:
-            profile = ServerProfile(
-                profile_id=str(profile_payload.get("profile_id") or row.get("profile_id") or "").strip(),
-                server_id=str(profile_payload.get("server_id") or "current").strip(),
-                profile_kind=str(profile_payload.get("profile_kind") or "personal_docker").strip(),  # type: ignore[arg-type]
-                executor=str(profile_payload.get("executor") or row.get("executor") or "").strip(),
-                packaging_mode=str(profile_payload.get("packaging_mode") or row.get("packaging_mode") or "container").strip(),  # type: ignore[arg-type]
-                container_runtime=str(profile_payload.get("container_runtime") or row.get("container_runtime") or "").strip(),
-                work_dir=str(profile_payload.get("work_dir") or row.get("remote_work_dir") or "").strip(),
-                output_dir=str(profile_payload.get("output_dir") or row.get("remote_output_dir") or "").strip(),
-                cache_dir=str(profile_payload.get("cache_dir") or "").strip(),
-            )
-        else:
-            profile = ServerProfile(
-                profile_id=str(row.get("profile_id") or "").strip(),
-                server_id="current",
-                profile_kind="personal_docker",
-                executor=str(row.get("executor") or "").strip(),
-                packaging_mode=str(row.get("packaging_mode") or "container").strip(),  # type: ignore[arg-type]
-                container_runtime=str(row.get("container_runtime") or "docker").strip(),
-                work_dir=str(row.get("remote_work_dir") or "").strip(),
-                output_dir=str(row.get("remote_output_dir") or "").strip(),
-                cache_dir="",
-            )
-        return create_workflow_backend(profile)
-
-    def _profile_payload_for_kind(self, profile_kind: str, *, server_id: str = "current") -> dict[str, Any]:
+    def _profile_payload_for_kind(
+        self, profile_kind: str, *, server_id: str = "current"
+    ) -> dict[str, Any]:
         normalized_profile_kind = str(profile_kind or "").strip()
         template = _FIXED_RUNTIME_PROFILE_TEMPLATES.get(normalized_profile_kind)
         if template is None:
-            raise RuntimeServiceError(f"unsupported workflow profile template: {normalized_profile_kind or '<empty>'}")
+            raise RuntimeServiceError(
+                f"unsupported workflow profile template: {normalized_profile_kind or '<empty>'}"
+            )
         packaging_mode = str(template["packaging_mode"])
         return {
             "profile_id": normalized_profile_kind,
@@ -2227,11 +1225,15 @@ class RuntimeService:
             "cache_dir": _PROFILE_CACHE_DIRS[packaging_mode],
         }
 
-    def _profile_from_runtime(self, caps: Any, runtime_capabilities: dict[str, Any]) -> ServerProfile:
+    def _profile_from_runtime(
+        self, caps: Any, runtime_capabilities: dict[str, Any]
+    ) -> ServerProfile:
         if caps.has_sbatch:
             if runtime_capabilities.get("apptainer", {}).get("usable", False):
                 profile_id = "hpc_slurm_apptainer"
-            elif runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False):
+            elif runtime_capabilities.get("micromamba", {}).get(
+                "usable", False
+            ) or runtime_capabilities.get("conda", {}).get("usable", False):
                 profile_id = "hpc_slurm_conda"
             else:
                 profile_id = "hpc_slurm_conda"
@@ -2251,29 +1253,45 @@ class RuntimeService:
             cache_dir=str(profile_payload["cache_dir"]),
         )
 
-    def _supported_profile_kinds_from_runtime(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
+    def _supported_profile_kinds_from_runtime(
+        self, caps: Any, runtime_capabilities: dict[str, Any]
+    ) -> list[str]:
         supported: list[str] = []
         if not runtime_capabilities.get("nextflow", {}).get("usable", False):
             return supported
-        if caps.has_sbatch and runtime_capabilities.get("apptainer", {}).get("usable", False):
+        if caps.has_sbatch and runtime_capabilities.get("apptainer", {}).get(
+            "usable", False
+        ):
             supported.append("hpc_slurm_apptainer")
-        if caps.has_sbatch and (runtime_capabilities.get("micromamba", {}).get("usable", False) or runtime_capabilities.get("conda", {}).get("usable", False)):
+        if caps.has_sbatch and (
+            runtime_capabilities.get("micromamba", {}).get("usable", False)
+            or runtime_capabilities.get("conda", {}).get("usable", False)
+        ):
             supported.append("hpc_slurm_conda")
-        if not caps.has_sbatch and runtime_capabilities.get("docker", {}).get("usable", False):
+        if not caps.has_sbatch and runtime_capabilities.get("docker", {}).get(
+            "usable", False
+        ):
             supported.append("personal_docker")
         return supported
 
-    def _runtime_failures_from_resolved_capabilities(self, caps: Any, runtime_capabilities: dict[str, Any]) -> list[str]:
+    def _runtime_failures_from_resolved_capabilities(
+        self, caps: Any, runtime_capabilities: dict[str, Any]
+    ) -> list[str]:
         failures: list[str] = []
         java_info = runtime_capabilities.get("java", {})
         nextflow_info = runtime_capabilities.get("nextflow", {})
 
         if not java_info.get("usable", False):
-            message = str(java_info.get("message") or "远端缺少 Java，无法运行 Nextflow").strip()
+            message = str(
+                java_info.get("message") or "远端缺少 Java，无法运行 Nextflow"
+            ).strip()
             if message and message not in failures:
                 failures.append(message)
         if not nextflow_info.get("usable", False):
-            message = str(nextflow_info.get("message") or "远端缺少 Nextflow，可先在连接页安装运行时").strip()
+            message = str(
+                nextflow_info.get("message")
+                or "远端缺少 Nextflow，可先在连接页安装运行时"
+            ).strip()
             if message and message not in failures:
                 failures.append(message)
 
@@ -2327,25 +1345,21 @@ class RuntimeService:
             },
             "apptainer": {
                 "available": caps.has_apptainer,
-                "usable": caps.has_apptainer and runtime_ok("apptainer --version >/dev/null 2>&1"),
+                "usable": caps.has_apptainer
+                and runtime_ok("apptainer --version >/dev/null 2>&1"),
             },
             "micromamba": {
                 "available": caps.has_micromamba,
-                "usable": caps.has_micromamba and runtime_ok("micromamba --version >/dev/null 2>&1"),
+                "usable": caps.has_micromamba
+                and runtime_ok("micromamba --version >/dev/null 2>&1"),
             },
             "conda": {
                 "available": caps.has_conda,
-                "usable": caps.has_conda and runtime_ok("conda --version >/dev/null 2>&1"),
+                "usable": caps.has_conda
+                and runtime_ok("conda --version >/dev/null 2>&1"),
             },
             "sbatch": {"available": caps.has_sbatch},
         }
-
-    def _remote_command_available(self, command: str) -> bool:
-        try:
-            rc, stdout, _stderr = self._run_ssh_command(f"command -v {shlex.quote(command)}", 10)
-            return rc == 0 and bool(stdout.strip())
-        except Exception:
-            return False
 
     def _remote_runtime_ok(self, command: str) -> bool:
         try:
@@ -2365,18 +1379,6 @@ class RuntimeService:
         if not self._signals_connected:
             return
         try:
-            self._service_locator.execution_started.disconnect(self._on_execution_started)
-        except (TypeError, RuntimeError):
-            pass
-        try:
-            self._service_locator.execution_completed.disconnect(self._on_execution_completed)
-        except (TypeError, RuntimeError):
-            pass
-        try:
-            self._service_locator.execution_failed.disconnect(self._on_execution_failed)
-        except (TypeError, RuntimeError):
-            pass
-        try:
             self._service_locator.ssh_changed.disconnect(self._on_ssh_changed)
         except (TypeError, RuntimeError):
             pass
@@ -2392,21 +1394,6 @@ class RuntimeService:
                 "payload": payload,
             }
         )
-
-    def _on_execution_started(self, execution_id: str) -> None:
-        with self._lock:
-            self._append_event("execution_started", {"execution_id": execution_id})
-
-    def _on_execution_completed(self, execution_id: str) -> None:
-        with self._lock:
-            self._append_event("execution_completed", {"execution_id": execution_id})
-
-    def _on_execution_failed(self, execution_id: str, error: str) -> None:
-        with self._lock:
-            self._append_event(
-                "execution_failed",
-                {"execution_id": execution_id, "error": str(error or "")},
-            )
 
     def _on_ssh_changed(self, connected: bool) -> None:
         with self._lock:

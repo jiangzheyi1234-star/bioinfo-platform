@@ -8,6 +8,7 @@ if "%H2OMETA_WORKDIR%"=="" (
 )
 
 cd /d "%H2OMETA_WORKDIR%"
+set "UV_CACHE_DIR=%H2OMETA_WORKDIR%\.uv-cache"
 where uv >nul 2>nul
 if not "%ERRORLEVEL%"=="0" (
     echo [ERROR] uv is required for local API startup on Windows.

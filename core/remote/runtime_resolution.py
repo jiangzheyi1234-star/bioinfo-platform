@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 SHELL_TIMEOUT = 20
 MIN_RUNNABLE_NEXTFLOW_VERSION = (25, 4, 0)
@@ -17,6 +20,8 @@ _COMMON_NEXTFLOW_PATHS = (
 )
 _COMMON_JAVA_PATHS = (
     "$HOME/.sdkman/candidates/java/current/bin/java",
+    "$HOME/.asdf/shims/java",
+    "$HOME/.jabba/current/bin/java",
     "/usr/bin/java",
     "/usr/local/bin/java",
     "/usr/lib/jvm/default-java/bin/java",
@@ -25,7 +30,9 @@ _COMMON_JAVA_PATHS = (
 _JAVA_VERSION_RE = re.compile(r'version "(\d+)(?:\.(\d+))?')
 
 
-def _run_shell(ssh_run_fn: Any, script: str, timeout: int = SHELL_TIMEOUT) -> tuple[int, str, str]:
+def _run_shell(
+    ssh_run_fn: Any, script: str, timeout: int = SHELL_TIMEOUT
+) -> tuple[int, str, str]:
     return ssh_run_fn(f"bash -lc {shlex.quote(script)}", timeout)
 
 
@@ -60,17 +67,26 @@ def _parse_nextflow_version(raw: str) -> tuple[int, int, int] | None:
     return (major, minor, patch)
 
 
-def _version_gte(left: tuple[int, int, int] | None, right: tuple[int, int, int]) -> bool:
+def _version_gte(
+    left: tuple[int, int, int] | None, right: tuple[int, int, int]
+) -> bool:
     return left is not None and left >= right
 
 
-def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[str, Any]:
-    candidate_rows: list[dict[str, Any]] = []
+def _build_java_probe_candidates() -> list[dict[str, str]]:
     candidates = [
+        {
+            "probe": 'if [ -n "${NXF_JAVA_HOME:-}" ] && [ -x "${NXF_JAVA_HOME%/}/bin/java" ]; then readlink -f "${NXF_JAVA_HOME%/}/bin/java" 2>/dev/null || printf "%s\\n" "${NXF_JAVA_HOME%/}/bin/java"; fi',
+            "source": "nxf_java_home",
+        },
+        {
+            "probe": 'if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME%/}/bin/java" ]; then readlink -f "${JAVA_HOME%/}/bin/java" 2>/dev/null || printf "%s\\n" "${JAVA_HOME%/}/bin/java"; fi',
+            "source": "java_home",
+        },
         {
             "probe": 'JAVA_BIN="$(type -P java 2>/dev/null || true)"; if [ -n "$JAVA_BIN" ] && [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi',
             "source": "path",
-        }
+        },
     ]
     candidates.extend(
         {
@@ -78,25 +94,65 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
                 f'JAVA_BIN="{path}"; '
                 'if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi'
             ),
-            "source": "fixed_path" if not path.startswith("$HOME/.sdkman") else "sdkman_current",
+            "source": (
+                "sdkman_current"
+                if path.startswith("$HOME/.sdkman")
+                else "asdf_shim"
+                if path.startswith("$HOME/.asdf/shims")
+                else "jabba_current"
+                if path.startswith("$HOME/.jabba")
+                else "fixed_path"
+            ),
         }
         for path in _COMMON_JAVA_PATHS
     )
-    candidates.append(
-        {
-            "probe": 'for JAVA_BIN in /usr/lib/jvm/*/bin/java /opt/jdk*/bin/java; do if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi; done | awk \'NF {print; exit}\'',
-            "source": "fixed_path",
-        }
+    candidates.extend(
+        [
+            {
+                "probe": 'for JAVA_BIN in "$HOME"/.asdf/installs/java/*/bin/java; do if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi; done | awk \'NF {print; exit}\'',
+                "source": "asdf_install",
+            },
+            {
+                "probe": 'for JAVA_BIN in "$HOME"/.jabba/jdk/*/bin/java; do if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi; done | awk \'NF {print; exit}\'',
+                "source": "jabba_install",
+            },
+            {
+                "probe": 'for JAVA_BIN in /usr/lib/jvm/*/bin/java /opt/jdk*/bin/java; do if [ -x "$JAVA_BIN" ]; then readlink -f "$JAVA_BIN" 2>/dev/null || printf "%s\\n" "$JAVA_BIN"; fi; done | awk \'NF {print; exit}\'',
+                "source": "fixed_path",
+            },
+        ]
     )
+    return candidates
+
+
+def resolve_remote_java(
+    ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT
+) -> dict[str, Any]:
+    candidate_rows: list[dict[str, Any]] = []
+    candidates = _build_java_probe_candidates()
     first_found_failure: dict[str, Any] | None = None
     for candidate in candidates:
-        rc_found, stdout_found, _stderr_found = _run_shell(ssh_run_fn, candidate["probe"], timeout)
+        rc_found, stdout_found, stderr_found = _run_shell(
+            ssh_run_fn, candidate["probe"], timeout
+        )
         raw_path = str(stdout_found or "").strip()
         found = rc_found == 0 and bool(raw_path) and raw_path.startswith("/")
+        logger.debug(
+            "Java probe source=%s rc=%d raw_path=%r stderr=%r found=%s",
+            candidate["source"],
+            rc_found,
+            raw_path[:100] if raw_path else "",
+            stderr_found[:200] if stderr_found else "",
+            found,
+        )
         if not found:
             continue
         quoted_path = shlex.quote(raw_path)
-        rc, stdout, stderr = _run_shell(ssh_run_fn, f'{quoted_path} -version 2>&1 | awk "NR==1{{print $0; exit}}"', timeout)
+        rc, stdout, stderr = _run_shell(
+            ssh_run_fn,
+            f'{quoted_path} -version 2>&1 | awk "NR==1{{print $0; exit}}"',
+            timeout,
+        )
         version_line = str(stdout or "").strip()
         if rc != 0 or not version_line:
             candidate_rows.append(
@@ -107,7 +163,9 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
                     "path": raw_path,
                     "home": "",
                     "source": candidate["source"],
-                    "message": _extract_error(stdout, stderr, "Java health check failed"),
+                    "message": _extract_error(
+                        stdout, stderr, "Java health check failed"
+                    ),
                 }
             )
             continue
@@ -135,12 +193,23 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
         candidate_rows.append(item.copy())
         if supported:
             item["candidates"] = candidate_rows
+            logger.info(
+                "Java resolved: path=%s version=%s major=%s",
+                raw_path,
+                version_line[:50],
+                major,
+            )
             return item
         if first_found_failure is None:
             first_found_failure = item
     if first_found_failure is not None:
         first_found_failure["candidates"] = candidate_rows
+        logger.warning(
+            "Java found but not supported: %s",
+            first_found_failure.get("version", "")[:50],
+        )
         return first_found_failure
+    logger.warning("Java not found after probing %d candidates", len(candidates))
     return {
         "available": False,
         "usable": False,
@@ -155,7 +224,9 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
     }
 
 
-def resolve_remote_nextflow(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[str, Any]:
+def resolve_remote_nextflow(
+    ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT
+) -> dict[str, Any]:
     candidate_rows: list[dict[str, Any]] = []
     candidates: list[dict[str, str]] = [
         {
@@ -197,14 +268,16 @@ def resolve_remote_nextflow(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> di
         meets_minimum = _version_gte(parsed_version, MIN_RUNNABLE_NEXTFLOW_VERSION)
         meets_recommended = _version_gte(parsed_version, RECOMMENDED_NEXTFLOW_VERSION)
         agent_mode_supported = meets_recommended
-        rc_info, stdout_info, stderr_info = _run_shell(ssh_run_fn, f"{quoted_path} info", timeout)
+        rc_info, stdout_info, stderr_info = _run_shell(
+            ssh_run_fn, f"{quoted_path} info", timeout
+        )
         if rc_info == 0:
             if not meets_minimum:
-                message = (
-                    f"已解析 Nextflow 绝对路径，但版本 {version or '<unknown>'} 低于最低要求 25.04.0；请先显式升级后再继续"
-                )
+                message = f"已解析 Nextflow 绝对路径，但版本 {version or '<unknown>'} 低于最低要求 25.04.0；请先显式升级后再继续"
             elif meets_recommended:
-                message = f"已解析 Nextflow 绝对路径，可通过 launcher 脚本执行：{raw_path}"
+                message = (
+                    f"已解析 Nextflow 绝对路径，可通过 launcher 脚本执行：{raw_path}"
+                )
             else:
                 message = (
                     f"已解析 Nextflow 绝对路径，可通过 launcher 脚本执行：{raw_path}；"
@@ -240,7 +313,9 @@ def resolve_remote_nextflow(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> di
                 "candidates": candidate_rows,
                 "message": message,
             }
-        detail = _extract_error(stdout_info, stderr_info, "Nextflow health check failed")
+        detail = _extract_error(
+            stdout_info, stderr_info, "Nextflow health check failed"
+        )
         candidate_rows.append(
             {
                 "path": raw_path,
@@ -308,19 +383,29 @@ def resolve_persisted_runtime_binding(
 ) -> dict[str, Any]:
     verification_status = str(resolved_runtime.get("verification_status") or "").strip()
     if verification_status != "verified":
-        raise RuntimeError("已保存的 Runtime 配置未完成验证；请先重新执行一键配置并完成复检")
+        raise RuntimeError(
+            "已保存的 Runtime 配置未完成验证；请先重新执行一键配置并完成复检"
+        )
 
     nextflow_path = str(resolved_runtime.get("nextflow_path") or "").strip()
-    nextflow_command = str(resolved_runtime.get("nextflow_command") or nextflow_path).strip()
+    nextflow_command = str(
+        resolved_runtime.get("nextflow_command") or nextflow_path
+    ).strip()
     java_home = str(resolved_runtime.get("java_home") or "").strip()
     java_path = str(resolved_runtime.get("java_path") or "").strip()
     if not nextflow_path.startswith("/"):
-        raise RuntimeError("已保存的 Runtime 配置缺少固定 Nextflow 绝对路径；请重新检测并保存")
+        raise RuntimeError(
+            "已保存的 Runtime 配置缺少固定 Nextflow 绝对路径；请重新检测并保存"
+        )
     if not java_home.startswith("/"):
         raise RuntimeError("已保存的 Runtime 配置缺少固定 Java HOME；请重新检测并保存")
-    java_bin = java_path if java_path.startswith("/") else f"{java_home.rstrip('/')}/bin/java"
+    java_bin = (
+        java_path if java_path.startswith("/") else f"{java_home.rstrip('/')}/bin/java"
+    )
     if not java_bin.startswith("/"):
-        raise RuntimeError("已保存的 Runtime 配置缺少固定 Java 可执行路径；请重新检测并保存")
+        raise RuntimeError(
+            "已保存的 Runtime 配置缺少固定 Java 可执行路径；请重新检测并保存"
+        )
 
     quoted_nextflow = shlex.quote(nextflow_path)
     rc_version, stdout_version, _stderr_version = _run_shell(
@@ -332,9 +417,13 @@ def resolve_persisted_runtime_binding(
     parsed_version = _parse_nextflow_version(version)
     meets_minimum = _version_gte(parsed_version, MIN_RUNNABLE_NEXTFLOW_VERSION)
     meets_recommended = _version_gte(parsed_version, RECOMMENDED_NEXTFLOW_VERSION)
-    rc_info, stdout_info, stderr_info = _run_shell(ssh_run_fn, f"{quoted_nextflow} info", timeout)
+    rc_info, stdout_info, stderr_info = _run_shell(
+        ssh_run_fn, f"{quoted_nextflow} info", timeout
+    )
     if rc_info != 0:
-        detail = _extract_error(stdout_info, stderr_info, "Nextflow health check failed")
+        detail = _extract_error(
+            stdout_info, stderr_info, "Nextflow health check failed"
+        )
         raise RuntimeError(f"已保存的 Nextflow 路径当前不可正常调用：{detail}")
     if not meets_minimum:
         raise RuntimeError(
@@ -353,11 +442,15 @@ def resolve_persisted_runtime_binding(
         raise RuntimeError(f"已保存的 Java 路径当前不可正常调用：{detail}")
     major = _major_from_java_version(version_line)
     if major is None or not 17 <= major <= 25:
-        raise RuntimeError("已保存的 Java 版本不满足 Nextflow 要求（需 17-25）；请先修复并重新验证")
+        raise RuntimeError(
+            "已保存的 Java 版本不满足 Nextflow 要求（需 17-25）；请先修复并重新验证"
+        )
 
     return {
         "nextflow_path": nextflow_path,
-        "nextflow_command": nextflow_command if nextflow_command.startswith("/") else nextflow_path,
+        "nextflow_command": nextflow_command
+        if nextflow_command.startswith("/")
+        else nextflow_path,
         "nextflow_version": version,
         "java_home": java_home,
         "java_path": java_bin,
