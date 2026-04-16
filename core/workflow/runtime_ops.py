@@ -116,7 +116,7 @@ def submit_local_nextflow_run(
         remote_work_dir=remote_work_dir,
         remote_output_dir=remote_output_dir,
         resume=resume,
-        nextflow_command=str(nextflow_info.get("command") or "nextflow"),
+        nextflow_bin=str(nextflow_info.get("path") or nextflow_info.get("command") or "nextflow"),
         runtime_env_exports=build_runtime_env_exports(java_info),
     )
     script_path = write_remote_script(
@@ -146,7 +146,7 @@ def query_local_nextflow_run(ssh_run_fn, *, remote_task_dir: str, timeout: int =
     command = (
         "echo __STATUS__; cat " + shlex.quote(f"{remote_task_dir}/status.txt") + " 2>/dev/null || true; "
         "echo __EXIT__; cat " + shlex.quote(f"{remote_task_dir}/exit_code.txt") + " 2>/dev/null || true; "
-        "echo __PID__; cat " + shlex.quote(f"{remote_task_dir}/launcher.pid") + " 2>/dev/null || true; "
+        "echo __PID__; cat " + shlex.quote(f"{remote_task_dir}/pid") + " 2>/dev/null || true; "
         "echo __NFPID__; cat " + shlex.quote(f"{remote_task_dir}/nextflow.pid") + " 2>/dev/null || true; "
         "echo __HEARTBEAT__; cat " + shlex.quote(f"{remote_task_dir}/heartbeat.txt") + " 2>/dev/null || true; "
         "echo __LOG__; tail -n 60 " + shlex.quote(f"{remote_task_dir}/task.log") + " 2>/dev/null || true"
@@ -183,13 +183,13 @@ TASK_DIR=$(eval echo {expand_home_expr(remote_task_dir)})
 STATUS_FILE="$TASK_DIR/status.txt"
 EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
 CANCEL_FILE="$TASK_DIR/cancel_requested"
-LAUNCHER_PID_FILE="$TASK_DIR/launcher.pid"
+PID_FILE="$TASK_DIR/pid"
 NEXTFLOW_PID_FILE="$TASK_DIR/nextflow.pid"
 touch "$CANCEL_FILE"
 launcher_pid=""
 nextflow_pid=""
-if [ -f "$LAUNCHER_PID_FILE" ]; then
-  launcher_pid=$(cat "$LAUNCHER_PID_FILE" 2>/dev/null || true)
+if [ -f "$PID_FILE" ]; then
+  launcher_pid=$(cat "$PID_FILE" 2>/dev/null || true)
 fi
 if [ -f "$NEXTFLOW_PID_FILE" ]; then
   nextflow_pid=$(cat "$NEXTFLOW_PID_FILE" 2>/dev/null || true)
@@ -281,7 +281,7 @@ def _build_local_nextflow_launcher(
     remote_work_dir: str,
     remote_output_dir: str,
     resume: bool,
-    nextflow_command: str,
+    nextflow_bin: str,
     runtime_env_exports: str,
 ) -> str:
     task_dir_expr = f"$(eval echo {expand_home_expr(remote_task_dir)})"
@@ -299,11 +299,11 @@ OUTPUT_DIR="{output_dir_expr}"
 STATUS_FILE="$TASK_DIR/status.txt"
 EXIT_CODE_FILE="$TASK_DIR/exit_code.txt"
 HEARTBEAT_FILE="$TASK_DIR/heartbeat.txt"
-PID_FILE="$TASK_DIR/launcher.pid"
+PID_FILE="$TASK_DIR/pid"
 NEXTFLOW_PID_FILE="$TASK_DIR/nextflow.pid"
 CANCEL_FILE="$TASK_DIR/cancel_requested"
 LOG_FILE="$TASK_DIR/task.log"
-NEXTFLOW_CMD={shlex.quote(nextflow_command)}
+NEXTFLOW_BIN={shlex.quote(nextflow_bin)}
 
 echo "PENDING" > "$STATUS_FILE"
 echo "$$" > "$PID_FILE"
@@ -350,7 +350,7 @@ rm -f "$CANCEL_FILE"
 cd "$BUNDLE_DIR"
 echo "RUNNING" > "$STATUS_FILE"
 
-eval "$NEXTFLOW_CMD" -C resolved.config run main.nf \\
+"$NEXTFLOW_BIN" -C resolved.config run main.nf \\
   -params-file params/run.yaml \\
   -work-dir "$WORK_DIR" \\
 {resume_line}  -with-report report.html \\

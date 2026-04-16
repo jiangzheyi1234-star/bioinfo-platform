@@ -14,14 +14,6 @@ _COMMON_NEXTFLOW_PATHS = (
     "/opt/nextflow/nextflow",
 )
 
-_COMMON_CONDA_COMMANDS = (
-    "conda run -n base nextflow",
-    "$HOME/miniconda3/bin/conda run -n base nextflow",
-    "$HOME/anaconda3/bin/conda run -n base nextflow",
-    "$HOME/mambaforge/bin/conda run -n base nextflow",
-    "$HOME/miniforge3/bin/conda run -n base nextflow",
-)
-
 _JAVA_VERSION_RE = re.compile(r'version "(\d+)(?:\.(\d+))?')
 
 
@@ -50,7 +42,6 @@ def _major_from_java_version(raw: str) -> int | None:
 def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[str, Any]:
     candidates = (
         {"cmd": '$NXF_JAVA_HOME/bin/java', "home": "$NXF_JAVA_HOME", "source": "nxf_java_home"},
-        {"cmd": '$JAVA_HOME/bin/java', "home": "$JAVA_HOME", "source": "java_home"},
         {"cmd": "java", "home": "", "source": "path"},
     )
     first_found_failure: dict[str, Any] | None = None
@@ -74,6 +65,15 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
             )
             if rc_home == 0 and stdout_home.strip():
                 home = stdout_home.strip()
+        path = cmd if cmd != "java" else "java"
+        if cmd == "java":
+            rc_path, stdout_path, _stderr_path = _run_shell(
+                ssh_run_fn,
+                'readlink -f "$(command -v java)"',
+                timeout,
+            )
+            if rc_path == 0 and stdout_path.strip():
+                path = stdout_path.strip()
         supported = major is not None and 17 <= major <= 25
         item = {
             "available": True,
@@ -81,7 +81,7 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
             "supported": supported,
             "version": version_line,
             "major": major,
-            "path": cmd if cmd != "java" else "java",
+            "path": path,
             "home": home,
             "source": candidate["source"],
             "message": "已检测到 Java，可用于运行 Nextflow"
@@ -108,28 +108,41 @@ def resolve_remote_java(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[s
 
 
 def resolve_remote_nextflow(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> dict[str, Any]:
-    candidates: list[dict[str, str]] = [{"cmd": "nextflow", "path_expr": 'command -v nextflow', "source": "path"}]
-    candidates.extend({"cmd": path, "path_expr": f'printf "%s\\n" {shlex.quote(path)}', "source": "fixed_path"} for path in _COMMON_NEXTFLOW_PATHS)
-    candidates.extend({"cmd": cmd, "path_expr": f'printf "%s\\n" {shlex.quote(cmd)}', "source": "conda_fallback"} for cmd in _COMMON_CONDA_COMMANDS)
+    candidates: list[dict[str, str]] = [
+        {
+            "probe": 'NF_BIN="$(type -P nextflow 2>/dev/null || true)"; '
+            'if [ -n "$NF_BIN" ] && [ -x "$NF_BIN" ]; then readlink -f "$NF_BIN" 2>/dev/null || printf "%s\\n" "$NF_BIN"; fi',
+            "source": "path",
+        }
+    ]
+    candidates.extend(
+        {
+            "probe": (
+                f'NF_BIN="{path}"; '
+                'if [ -x "$NF_BIN" ]; then readlink -f "$NF_BIN" 2>/dev/null || printf "%s\\n" "$NF_BIN"; fi'
+            ),
+            "source": "fixed_path",
+        }
+        for path in _COMMON_NEXTFLOW_PATHS
+    )
 
     first_found_failure: dict[str, Any] | None = None
     for candidate in candidates:
-        command = candidate["cmd"]
-        path_expr = candidate["path_expr"]
         rc_found, stdout_found, _stderr_found = _run_shell(
             ssh_run_fn,
-            f'if {command} -version >/dev/null 2>&1; then {path_expr}; fi',
+            candidate["probe"],
             timeout,
         )
         raw_path = str(stdout_found or "").strip()
-        found = rc_found == 0 and bool(raw_path)
+        found = rc_found == 0 and bool(raw_path) and raw_path.startswith("/")
         if not found:
             continue
-        rc_info, stdout_info, stderr_info = _run_shell(ssh_run_fn, f"{command} info", timeout)
+        quoted_path = shlex.quote(raw_path)
+        rc_info, stdout_info, stderr_info = _run_shell(ssh_run_fn, f"{quoted_path} info", timeout)
         if rc_info == 0:
             rc_version, stdout_version, _stderr_version = _run_shell(
                 ssh_run_fn,
-                f"""{command} -version 2>/dev/null | awk '/version/ {{print $NF; exit}}'""",
+                f"""{quoted_path} -version 2>/dev/null | awk '/version/ {{print $NF; exit}}'""",
                 timeout,
             )
             version = str(stdout_version or "").strip() if rc_version == 0 else ""
@@ -138,9 +151,9 @@ def resolve_remote_nextflow(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> di
                 "usable": True,
                 "version": version,
                 "path": raw_path,
-                "command": command,
+                "command": raw_path,
                 "source": candidate["source"],
-                "message": "已检测到 Nextflow，可直接使用",
+                "message": f"已解析 Nextflow 绝对路径，可通过 launcher 脚本执行：{raw_path}",
             }
         detail = _extract_error(stdout_info, stderr_info, "Nextflow health check failed")
         if first_found_failure is None:
@@ -149,9 +162,9 @@ def resolve_remote_nextflow(ssh_run_fn: Any, timeout: int = SHELL_TIMEOUT) -> di
                 "usable": False,
                 "version": "",
                 "path": raw_path,
-                "command": command,
+                "command": raw_path,
                 "source": candidate["source"],
-                "message": f"已检测到 Nextflow，但当前不可正常调用：{detail}",
+                "message": f"已解析 Nextflow 绝对路径，但当前不可正常调用：{detail}",
             }
     if first_found_failure is not None:
         return first_found_failure
@@ -171,8 +184,4 @@ def build_runtime_env_exports(java_info: dict[str, Any]) -> str:
     if not home:
         return ""
     quoted_home = shlex.quote(home)
-    return (
-        f"export NXF_JAVA_HOME={quoted_home}\n"
-        f"export JAVA_HOME={quoted_home}\n"
-        'export PATH="$JAVA_HOME/bin:$PATH"\n'
-    )
+    return f"export NXF_JAVA_HOME={quoted_home}\n"

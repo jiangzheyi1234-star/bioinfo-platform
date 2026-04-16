@@ -1,0 +1,4 @@
+{
+  "build_id": "terminal-websocket-v1",
+  "terminal_transport": "websocket"
+}

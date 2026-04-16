@@ -3,9 +3,12 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 use std::{env, net::TcpStream, thread};
 use tauri::Manager;
+
+const TERMINAL_RUNTIME_BUILD_ID: &str = "terminal-websocket-v1";
 
 struct BackendState(Mutex<Option<Child>>);
 
@@ -18,6 +21,7 @@ struct BackendCommand {
     program: String,
     args: Vec<String>,
     workdir: Option<PathBuf>,
+    source: String,
 }
 
 struct SpawnedBackend {
@@ -157,6 +161,7 @@ fn explicit_backend_command() -> Result<Option<BackendCommand>, String> {
         program,
         args: vec![],
         workdir,
+        source: "explicit".to_string(),
     }))
 }
 
@@ -174,6 +179,7 @@ fn sibling_sidecar_command() -> Result<Option<BackendCommand>, String> {
         program: candidate.display().to_string(),
         args: vec![],
         workdir: candidate.parent().map(|path| path.to_path_buf()),
+        source: "sidecar".to_string(),
     }))
 }
 
@@ -206,6 +212,7 @@ fn dev_repo_backend_command() -> Result<Option<BackendCommand>, String> {
         program: String::new(),
         args: vec![],
         workdir: Some(workdir),
+        source: "repo".to_string(),
     }))
 }
 
@@ -235,6 +242,8 @@ fn spawn_explicit_backend(cmd_spec: BackendCommand) -> Result<SpawnedBackend, St
 
     let mut cmd = Command::new(&cmd_spec.program);
     cmd.args(cmd_spec.args.iter())
+        .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
+        .env("H2OMETA_BACKEND_SOURCE", &cmd_spec.source)
         .env("WSL_UTF8", "1")
         .env("PYTHONUTF8", "1")
         .stdout(Stdio::from(log_file))
@@ -268,13 +277,17 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
             .arg("-m")
             .arg("apps.api.run")
             .current_dir(&workdir)
+            .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
+            .env("H2OMETA_BACKEND_SOURCE", "repo")
             .env("WSL_UTF8", "1")
             .env("PYTHONUTF8", "1")
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_file_err));
 
         match cmd.spawn() {
-            Ok(child) => return Ok(SpawnedBackend { child, log_path }),
+            Ok(child) => {
+                return Ok(SpawnedBackend { child, log_path })
+            }
             Err(err) => {
                 last_error = format!("spawn backend failed with {}: {}", cmd_spec.program, err);
             }
@@ -316,6 +329,36 @@ fn read_log_tail(log_path: &Path, max_chars: usize) -> String {
         .collect()
 }
 
+fn fetch_local_backend_version() -> Result<String, String> {
+    let mut stream =
+        TcpStream::connect("127.0.0.1:8765").map_err(|err| format!("connect backend version failed: {}", err))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|err| format!("set backend read timeout failed: {}", err))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|err| format!("set backend write timeout failed: {}", err))?;
+    stream
+        .write_all(
+            b"GET /api/v1/version HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nConnection: close\r\n\r\n",
+        )
+        .map_err(|err| format!("write backend version request failed: {}", err))?;
+    let mut raw = String::new();
+    stream
+        .read_to_string(&mut raw)
+        .map_err(|err| format!("read backend version response failed: {}", err))?;
+    let body = raw
+        .split("\r\n\r\n")
+        .nth(1)
+        .ok_or_else(|| "backend version response missing body".to_string())?;
+    Ok(body.to_string())
+}
+
+fn backend_matches_expected_build() -> Result<bool, String> {
+    let payload = fetch_local_backend_version()?;
+    Ok(payload.contains(&format!("\"build_id\":\"{}\"", TERMINAL_RUNTIME_BUILD_ID)))
+}
+
 fn wait_backend_ready(child: &mut Child, log_path: &Path, timeout: Duration) -> Result<(), String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -347,7 +390,24 @@ fn main() {
         .manage(BackendState(Mutex::new(None)))
         .setup(|app| {
             if TcpStream::connect("127.0.0.1:8765").is_ok() {
-                return Ok(());
+                if cfg!(debug_assertions) {
+                    if backend_matches_expected_build().unwrap_or(false) {
+                        return Ok(());
+                    }
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        format!(
+                            "backend on 127.0.0.1:8765 is not the expected repo build {}. Stop the stale backend before launching desktop dev.",
+                            TERMINAL_RUNTIME_BUILD_ID
+                        ),
+                    )
+                    .into());
+                }
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrInUse,
+                    "packaged desktop will not reuse an existing backend on 127.0.0.1:8765; stop it before launch",
+                )
+                .into());
             }
             let state: tauri::State<BackendState> = app.state();
             let mut spawned =

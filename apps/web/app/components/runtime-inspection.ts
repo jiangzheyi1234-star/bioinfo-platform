@@ -130,8 +130,10 @@ export function formatRuntimeInspectionError(error: unknown): string {
 export function isRuntimeReady(preflight: PreflightPayload | null, envStatus: EnvStatusPayload | null, resolvedRuntime?: RuntimeInspection["resolvedRuntime"] | null): boolean {
   const runtimeCapabilities = preflight?.runtime_capabilities || {};
   const resolvedNextflow = String(resolvedRuntime?.nextflow_path || "").trim();
-  const javaAvailable = runtimeCapabilities?.java?.usable === true;
-  const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true || Boolean(resolvedNextflow);
+  const resolvedJava = String(resolvedRuntime?.java_path || "").trim();
+  const resolvedVerified = String(resolvedRuntime?.verification_status || "").trim() === "verified";
+  const javaAvailable = runtimeCapabilities?.java?.usable === true || (resolvedVerified && Boolean(resolvedJava));
+  const nextflowAvailable = runtimeCapabilities?.nextflow?.usable === true || (resolvedVerified && Boolean(resolvedNextflow));
   const dockerAvailable = runtimeCapabilities?.docker?.usable === true;
   const podmanAvailable = runtimeCapabilities?.podman?.usable === true;
   const micromambaAvailable = runtimeCapabilities?.micromamba?.usable === true;
