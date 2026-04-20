@@ -20,6 +20,7 @@ def ssh_connect(
     user: str,
     password: str = "",
     key_file: str = "",
+    use_agent: bool = False,
     timeout: int = 5,
 ) -> ConnectResult:
     """建立 SSH 连接."""
@@ -37,12 +38,12 @@ def ssh_connect(
             "port": port,
             "username": user,
             "timeout": timeout,
-            "allow_agent": False,
-            "look_for_keys": False,
+            "allow_agent": use_agent,
+            "look_for_keys": use_agent,
         }
         if key_file:
             kwargs["key_filename"] = key_file
-        else:
+        elif not use_agent:
             kwargs["password"] = password
         client.connect(**kwargs)
     except paramiko.AuthenticationException:
@@ -61,7 +62,7 @@ def ssh_connect(
 
 
 def run_diagnostics(
-    ip: str, port: int, user: str, password: str = "", key_file: str = ""
+    ip: str, port: int, user: str, password: str = "", key_file: str = "", use_agent: bool = False
 ) -> list:
     """SSH 诊断步骤."""
     steps = []
@@ -103,12 +104,12 @@ def run_diagnostics(
             "port": port,
             "username": user,
             "timeout": 5,
-            "allow_agent": False,
-            "look_for_keys": False,
+            "allow_agent": use_agent,
+            "look_for_keys": use_agent,
         }
         if key_file:
             kwargs["key_filename"] = key_file
-        else:
+        elif not use_agent:
             kwargs["password"] = password
         c.connect(**kwargs)
         c.close()

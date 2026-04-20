@@ -7,6 +7,12 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import keyring
+import paramiko
+
+SSH_KEYRING_SERVICE = "H2OMeta.SSH"
+SSH_AUTH_MODES = {"password_ref", "key_file", "ssh_config", "agent"}
+
 def get_app_data_dir() -> Path:
     if os.name == "nt":
         appdata = str(os.getenv("APPDATA", "") or "").strip()
@@ -40,12 +46,14 @@ _LOCK = threading.RLock()
 def default_config() -> dict:
     return {
         "ssh": {
+            "auth_mode": "password_ref",
+            "ssh_host_alias": "",
+            "password_ref": "",
+            "identity_ref": "",
+            "remember_auth": True,
             "host": "",
             "port": 22,
             "user": "",
-            "password": "",
-            "use_key": False,
-            "key_file": "",
             "timeout_sec": 5,
             "auto_connect_on_startup": False,
         },
@@ -77,9 +85,107 @@ def save_config(cfg: dict) -> None:
         _CACHE = cfg
 
 
+def normalize_ssh_config(ssh_cfg: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(ssh_cfg or {})
+    auth_mode = str(raw.get("auth_mode", "") or "").strip()
+    ssh_host_alias = str(raw.get("ssh_host_alias", "") or "").strip()
+    identity_ref = str(raw.get("identity_ref", "") or "").strip()
+    password_ref = str(raw.get("password_ref", "") or "").strip()
+
+    if auth_mode not in SSH_AUTH_MODES:
+        auth_mode = "password_ref"
+
+    if auth_mode == "key_file":
+        ssh_host_alias = ""
+        password_ref = ""
+    elif auth_mode == "ssh_config":
+        password_ref = ""
+    elif auth_mode == "agent":
+        identity_ref = ""
+        ssh_host_alias = ""
+        password_ref = ""
+    else:
+        identity_ref = ""
+        ssh_host_alias = ""
+
+    return {
+        "auth_mode": auth_mode,
+        "ssh_host_alias": ssh_host_alias,
+        "password_ref": password_ref,
+        "identity_ref": identity_ref,
+        "remember_auth": bool(raw.get("remember_auth", True)),
+        "host": str(raw.get("host", "") or "").strip(),
+        "port": int(raw.get("port", 22) or 22),
+        "user": str(raw.get("user", "") or "").strip(),
+        "timeout_sec": int(raw.get("timeout_sec", 5) or 5),
+        "auto_connect_on_startup": bool(raw.get("auto_connect_on_startup", False)),
+    }
+
+
+def make_ssh_password_ref(host: str, port: int, user: str) -> str:
+    return f"ssh://{user}@{host}:{port}"
+
+
+def store_ssh_password(*, host: str, port: int, user: str, password: str) -> str:
+    password_ref = make_ssh_password_ref(host=host, port=port, user=user)
+    keyring.set_password(SSH_KEYRING_SERVICE, password_ref, password)
+    return password_ref
+
+
+def delete_ssh_password(password_ref: str) -> None:
+    if not password_ref:
+        return
+    try:
+        keyring.delete_password(SSH_KEYRING_SERVICE, password_ref)
+    except keyring.errors.PasswordDeleteError:
+        return
+    except keyring.errors.KeyringError:
+        raise
+    except Exception:
+        return
+
+
 def resolve_ssh_password(cfg: dict) -> str:
-    ssh = cfg.get("ssh", {})
-    pwd = str(ssh.get("password", "") or "")
-    if pwd:
-        return pwd
-    return ""
+    ssh = normalize_ssh_config(cfg.get("ssh", {}))
+    password_ref = str(ssh.get("password_ref", "") or "").strip()
+    if not password_ref:
+        return ""
+    password = keyring.get_password(SSH_KEYRING_SERVICE, password_ref)
+    return str(password or "")
+
+
+def get_default_ssh_config_path() -> Path:
+    return Path.home() / ".ssh" / "config"
+
+
+def resolve_ssh_config_target(ssh_cfg: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_ssh_config(ssh_cfg)
+    alias = str(normalized.get("ssh_host_alias", "") or normalized.get("host", "") or "").strip()
+    if not alias:
+        raise ValueError("ssh_host_alias required for ssh_config auth mode")
+
+    config_path = get_default_ssh_config_path()
+    if not config_path.exists():
+        raise FileNotFoundError(f"ssh config not found: {config_path}")
+
+    parser = paramiko.SSHConfig()
+    with config_path.open("r", encoding="utf-8") as handle:
+        parser.parse(handle)
+    resolved = parser.lookup(alias)
+    host = str(resolved.get("hostname", alias) or alias).strip()
+    user = str(normalized.get("user", "") or resolved.get("user", "") or "").strip()
+    port = int(str(resolved.get("port", normalized.get("port", 22)) or 22))
+    identity_value = resolved.get("identityfile", []) or []
+    identity_ref = normalized.get("identity_ref", "")
+    if not identity_ref and identity_value:
+        if isinstance(identity_value, list):
+            identity_ref = str(identity_value[0] or "").strip()
+        else:
+            identity_ref = str(identity_value).strip()
+    return {
+        **normalized,
+        "host": host,
+        "user": user,
+        "port": port,
+        "identity_ref": str(identity_ref or "").strip(),
+    }

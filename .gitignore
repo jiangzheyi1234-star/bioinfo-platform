@@ -60,6 +60,8 @@ logs/
 .tmp_*
 *.tmp
 *.log
+*.swp
+*.swo
 
 # Dev/debug scripts
 diagnose_*.py

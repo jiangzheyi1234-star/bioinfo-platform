@@ -218,6 +218,46 @@ fn backend_log_path(workdir: Option<&Path>) -> Result<PathBuf, String> {
     Ok(temp_logs.join("desktop_backend_boot.log"))
 }
 
+fn repo_uv_cache_dir(workdir: &Path) -> PathBuf {
+    if let Ok(explicit) = env::var("H2OMETA_UV_CACHE_DIR") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    if let Ok(explicit) = env::var("UV_CACHE_DIR") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    if cfg!(windows) {
+        if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+            let trimmed = local_app_data.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed)
+                    .join("H2OMeta")
+                    .join("dev-cache")
+                    .join("uv-cache");
+            }
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        let trimmed = home.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed)
+                .join(".cache")
+                .join("h2ometa")
+                .join("uv-cache");
+        }
+    }
+
+    workdir.join(".uv-cache")
+}
+
 fn spawn_explicit_backend(cmd_spec: BackendCommand) -> Result<SpawnedBackend, String> {
     let log_path = backend_log_path(cmd_spec.workdir.as_deref())?;
     let log_file = std::fs::OpenOptions::new()
@@ -262,7 +302,8 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
             .map_err(|err| format!("clone backend log handle failed: {}", err))?;
 
         let mut cmd = Command::new(&cmd_spec.program);
-        let uv_cache_dir = workdir.join(".uv-cache");
+        let uv_cache_dir = repo_uv_cache_dir(&workdir);
+        let _ = std::fs::create_dir_all(&uv_cache_dir);
         cmd.args(cmd_spec.args.iter())
             .arg("-m")
             .arg("apps.api.run")

@@ -5,8 +5,6 @@ title H2OMeta Launcher
 
 set "REPO_ROOT=%~dp0"
 if "%REPO_ROOT:~-1%"=="\" set "REPO_ROOT=%REPO_ROOT:~0,-1%"
-
-set "DESKTOP_EXE=%REPO_ROOT%\apps\desktop\src-tauri\target\debug\h2ometa-desktop.exe"
 set "API_URL=http://127.0.0.1:8765"
 set "WEB_URL=http://127.0.0.1:3100"
 set "DESKTOP_DEV_DIR=%REPO_ROOT%\apps\desktop"
@@ -17,11 +15,17 @@ set "RUN_DESKTOP_DEV=%REPO_ROOT%\scripts\run-desktop-dev.bat"
 set "RUN_WEB_DEV=%REPO_ROOT%\scripts\run-web-dev.bat"
 set "LOCAL_CONDA_ENV=bio_ui"
 set "LOCAL_CONDA_EXE=C:\Users\Administrator\miniconda3\Scripts\conda.exe"
+set "DEFAULT_DEV_CACHE_ROOT=%LOCALAPPDATA%\H2OMeta\dev-cache"
 
 set "MODE=%~1"
 if "%MODE%"=="" (
     set "MODE=--desktop"
 )
+
+if "%H2OMETA_DEV_CACHE_ROOT%"=="" set "H2OMETA_DEV_CACHE_ROOT=%DEFAULT_DEV_CACHE_ROOT%"
+if "%H2OMETA_UV_CACHE_DIR%"=="" set "H2OMETA_UV_CACHE_DIR=%H2OMETA_DEV_CACHE_ROOT%\uv-cache"
+if "%H2OMETA_CARGO_TARGET_DIR%"=="" set "H2OMETA_CARGO_TARGET_DIR=%H2OMETA_DEV_CACHE_ROOT%\cargo-target\bio_ui"
+set "DESKTOP_EXE=%H2OMETA_CARGO_TARGET_DIR%\debug\h2ometa-desktop.exe"
 
 if /I "%MODE%"=="--help" goto :help
 if /I "%MODE%"=="-h" goto :help
@@ -50,6 +54,10 @@ echo.
 echo URLs:
 echo   API: %API_URL%
 echo   Web: %WEB_URL%
+echo.
+echo Dev cache defaults:
+echo   UV cache: %H2OMETA_UV_CACHE_DIR%
+echo   Cargo target: %H2OMETA_CARGO_TARGET_DIR%
 endlocal & exit /b 0
 
 :check
@@ -83,6 +91,8 @@ echo [INFO] Repo root: %REPO_ROOT%
 echo [INFO] Tauri dev URL: %WEB_URL%
 echo [INFO] API URL: %API_URL%
 echo [INFO] H2OMETA_WORKDIR=%H2OMETA_WORKDIR%
+echo [INFO] H2OMETA_UV_CACHE_DIR=%H2OMETA_UV_CACHE_DIR%
+echo [INFO] H2OMETA_CARGO_TARGET_DIR=%H2OMETA_CARGO_TARGET_DIR%
 echo.
 
 if not exist "%LOCAL_CONDA_EXE%" (

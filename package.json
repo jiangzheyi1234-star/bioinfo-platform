@@ -1,1 +1,9 @@
-{"devDependencies":{"@next/swc-linux-x64-gnu":"15.2.4","lightningcss-linux-x64-gnu":"^1.32.0"}}
+{
+  "scripts": {
+    "clean:dev-cache": "bash ./scripts/clean-dev-cache.sh"
+  },
+  "devDependencies": {
+    "@next/swc-linux-x64-gnu": "15.2.4",
+    "lightningcss-linux-x64-gnu": "^1.32.0"
+  }
+}
