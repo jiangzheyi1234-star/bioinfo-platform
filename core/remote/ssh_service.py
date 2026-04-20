@@ -132,6 +132,7 @@ class SSHService:
         self._lock = RLock()
         self._sessions = {}
         self._reconnector = None
+        self._reconnecting = False
         if connect_fn:
             self._reconnector = SSHReconnector(
                 connect_fn, max_retries, self._on_reconnect, self._on_failed
@@ -143,8 +144,12 @@ class SSHService:
             return False
         try:
             t = self._client.get_transport()
-            return t and t.is_active()
+            active = bool(t and t.is_active())
+            if not active:
+                self._start_reconnect()
+            return active
         except Exception:
+            self._start_reconnect()
             return False
 
     def run(self, cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
@@ -204,6 +209,8 @@ class SSHService:
         return session
 
     def close(self) -> None:
+        if self._reconnector:
+            self._reconnector.cancel()
         for s in list(self._sessions.values()):
             s.close()
         self._sessions.clear()
@@ -211,11 +218,19 @@ class SSHService:
             self._client.close()
             self._client = None
 
+    def _start_reconnect(self) -> None:
+        if not self._reconnector or self._reconnecting:
+            return
+        self._reconnecting = True
+        self._reconnector.start()
+
     def _on_reconnect(self, client):
         logger.info("SSH reconnected")
+        self._reconnecting = False
         self._client = client
 
     def _on_failed(self, error):
+        self._reconnecting = False
         logger.error("SSH reconnect failed: %s", error)
         for s in list(self._sessions.values()):
             s.close(message="SSH disconnected")

@@ -5,7 +5,15 @@ import threading
 import time
 from typing import Any, Optional
 
-from config import get_config, resolve_ssh_password, save_config
+from config import (
+    delete_ssh_password,
+    get_config,
+    normalize_ssh_config,
+    resolve_ssh_config_target,
+    resolve_ssh_password,
+    save_config,
+    store_ssh_password,
+)
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
@@ -145,8 +153,7 @@ class RuntimeService:
             cfg = {**current}
             ssh_current = current.get("ssh", {})
             if isinstance(ssh_current, dict):
-                ssh = {**ssh_current}
-                ssh["password"] = ""
+                ssh = normalize_ssh_config(ssh_current)
                 cfg["ssh"] = ssh
             return cfg
 
@@ -155,6 +162,9 @@ class RuntimeService:
             self._ensure_initialized()
             current = get_config()
             merged = self._merge_patch(current, patch)
+            if isinstance(merged.get("ssh"), dict):
+                normalized_ssh = normalize_ssh_config(merged["ssh"])
+                merged["ssh"] = normalized_ssh
             save_config(merged)
             return self.get_settings()
 
@@ -163,15 +173,19 @@ class RuntimeService:
             self._ensure_initialized()
             ssh = self._service_locator.ssh_service
             connected = ssh is not None and getattr(ssh, "is_connected", False)
-            cfg = get_config().get("ssh", {})
+            cfg = normalize_ssh_config(get_config().get("ssh", {}))
+            auth_mode = str(cfg.get("auth_mode", "password_ref") or "password_ref")
+            identity_ref = str(cfg.get("identity_ref", "") or "").strip()
             return {
                 "connected": connected,
                 "host": cfg.get("host", ""),
                 "port": cfg.get("port", 22),
                 "user": cfg.get("user", ""),
-                "use_key": cfg.get("use_key", False),
-                "key_file": cfg.get("key_file", ""),
-                "has_password": bool(cfg.get("password")),
+                "auth_mode": auth_mode,
+                "ssh_host_alias": cfg.get("ssh_host_alias", ""),
+                "identity_ref": identity_ref,
+                "remember_auth": bool(cfg.get("remember_auth", True)),
+                "has_password": bool(cfg.get("password_ref")),
                 "timeout_sec": cfg.get("timeout_sec", 5),
                 "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
                 "auto_connect_attempted": self._auto_connect_attempted,
@@ -183,46 +197,52 @@ class RuntimeService:
     def connect_ssh(self, patch: Optional[dict] = None) -> dict:
         with self._lock:
             self._ensure_initialized()
-            cfg = get_config().get("ssh", {})
-            if isinstance(cfg, dict):
-                merged = dict(cfg)
-            else:
-                merged = {}
+            merged = normalize_ssh_config(get_config().get("ssh", {}))
 
             if patch:
                 for k in (
+                    "auth_mode",
+                    "ssh_host_alias",
+                    "identity_ref",
+                    "remember_auth",
+                    "auto_connect_on_startup",
                     "host",
                     "port",
                     "user",
-                    "password",
-                    "use_key",
-                    "key_file",
                     "timeout_sec",
                 ):
                     if k in patch and patch[k] is not None:
                         merged[k] = patch[k]
 
-            host = str(merged.get("host", "")).strip()
-            port = int(merged.get("port", 22))
-            user = str(merged.get("user", "")).strip()
+            merged = normalize_ssh_config(merged)
+            auth_mode = str(merged.get("auth_mode", "password_ref") or "password_ref")
+            if auth_mode == "ssh_config":
+                resolved = resolve_ssh_config_target(merged)
+            else:
+                resolved = merged
+
+            host = str(resolved.get("host", "")).strip()
+            port = int(resolved.get("port", 22))
+            user = str(resolved.get("user", "")).strip()
             password = (
                 str(patch.get("password", ""))
                 if patch and "password" in patch
-                else resolve_ssh_password(merged)
+                else resolve_ssh_password({"ssh": merged})
             )
-            use_key = bool(merged.get("use_key", False))
-            key_file = str(merged.get("key_file", "")).strip()
-            timeout = int(merged.get("timeout_sec", 5))
+            identity_ref = str(resolved.get("identity_ref", "") or "").strip()
+            timeout = int(resolved.get("timeout_sec", 5))
 
             if not host or not user:
                 raise RuntimeServiceError("ssh.host and ssh.user required")
 
+            use_agent = auth_mode == "agent"
             result = ssh_connect(
                 ip=host,
                 port=port,
                 user=user,
                 password=password,
-                key_file=key_file,
+                key_file=identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
+                use_agent=use_agent,
                 timeout=timeout,
             )
             if not result.ok or result.client is None:
@@ -234,7 +254,8 @@ class RuntimeService:
                     port=port,
                     user=user,
                     password=password,
-                    key_file=key_file,
+                    key_file=identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
+                    use_agent=use_agent,
                     timeout=timeout,
                 )
                 if not r.ok:
@@ -245,17 +266,49 @@ class RuntimeService:
                 initial_client=result.client, connect_fn=_reconnect
             )
             current = get_config()
+            previous_password_ref = str(merged.get("password_ref", "") or "").strip()
+            next_password_ref = previous_password_ref
+            if auth_mode == "key_file":
+                delete_ssh_password(previous_password_ref)
+                next_password_ref = ""
+            elif auth_mode == "ssh_config":
+                delete_ssh_password(previous_password_ref)
+                next_password_ref = ""
+            elif auth_mode == "agent":
+                delete_ssh_password(previous_password_ref)
+                next_password_ref = ""
+            elif patch and "password" in patch:
+                if password:
+                    next_password_ref = store_ssh_password(
+                        host=host,
+                        port=port,
+                        user=user,
+                        password=password,
+                    )
+                else:
+                    delete_ssh_password(previous_password_ref)
+                    next_password_ref = ""
             persisted = {
                 **merged,
-                "host": host,
-                "port": port,
-                "user": user,
-                "password": "",
-                "use_key": use_key,
-                "key_file": key_file,
+                "auth_mode": auth_mode,
+                "ssh_host_alias": str(merged.get("ssh_host_alias", "") or "").strip(),
+                "remember_auth": bool(merged.get("remember_auth", True)),
+                "password_ref": next_password_ref,
+                "identity_ref": identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
+                "host": host if auth_mode != "ssh_config" else "",
+                "port": port if auth_mode != "ssh_config" else 22,
+                "user": user if auth_mode != "ssh_config" else "",
                 "timeout_sec": timeout,
-                "auto_connect_on_startup": bool(use_key and key_file),
+                "auto_connect_on_startup": bool(
+                    merged.get("remember_auth", True)
+                    and merged.get("auto_connect_on_startup", False)
+                ),
             }
+            if not persisted["remember_auth"]:
+                persisted["password_ref"] = ""
+                persisted["identity_ref"] = ""
+                persisted["ssh_host_alias"] = ""
+                persisted["auto_connect_on_startup"] = False
             save_config(self._merge_patch(current, {"ssh": persisted}))
             self._auto_connect_failed = False
             self._auto_connect_error = ""
@@ -268,7 +321,7 @@ class RuntimeService:
             self._close_all_terminal_sessions()
             self._service_locator.ssh_service = None
             current = get_config()
-            ssh_cfg = dict(current.get("ssh", {})) if isinstance(current.get("ssh", {}), dict) else {}
+            ssh_cfg = normalize_ssh_config(current.get("ssh", {}))
             ssh_cfg["auto_connect_on_startup"] = False
             save_config(self._merge_patch(current, {"ssh": ssh_cfg}))
             self._auto_connect_failed = False
@@ -279,21 +332,24 @@ class RuntimeService:
     def test_ssh_connection(self, patch: Optional[dict] = None) -> dict:
         with self._lock:
             self._ensure_initialized()
-            cfg = get_config().get("ssh", {})
-            merged = dict(cfg) if isinstance(cfg, dict) else {}
+            merged = normalize_ssh_config(get_config().get("ssh", {}))
             if patch:
-                for k in ("host", "port", "user", "password", "use_key", "key_file"):
+                for k in ("auth_mode", "ssh_host_alias", "identity_ref", "remember_auth", "host", "port", "user", "timeout_sec"):
                     if k in patch and patch[k] is not None:
                         merged[k] = patch[k]
+            merged = normalize_ssh_config(merged)
+            auth_mode = str(merged.get("auth_mode", "password_ref") or "password_ref")
+            resolved = resolve_ssh_config_target(merged) if auth_mode == "ssh_config" else merged
 
             steps = run_diagnostics(
-                ip=merged.get("host", ""),
-                port=int(merged.get("port", 22)),
-                user=merged.get("user", ""),
-                password=merged.get("password", "")
-                if not merged.get("use_key")
-                else "",
-                key_file=merged.get("key_file", "") if merged.get("use_key") else "",
+                ip=resolved.get("host", ""),
+                port=int(resolved.get("port", 22)),
+                user=resolved.get("user", ""),
+                password=str(patch.get("password", ""))
+                if patch and "password" in patch
+                else (resolve_ssh_password({"ssh": merged}) if auth_mode == "password_ref" else ""),
+                key_file=resolved.get("identity_ref", "") if auth_mode in {"key_file", "ssh_config"} else "",
+                use_agent=auth_mode == "agent",
             )
             ok = all(s.status == "ok" for s in steps)
             return {
@@ -360,20 +416,24 @@ class RuntimeService:
             return
         self._auto_connect_attempted = True
 
-        cfg = get_config().get("ssh", {})
-        merged = dict(cfg) if isinstance(cfg, dict) else {}
-        host = str(merged.get("host", "")).strip()
-        user = str(merged.get("user", "")).strip()
-        use_key = bool(merged.get("use_key", False))
-        key_file = str(merged.get("key_file", "")).strip()
-        if not host or not user or not use_key or not key_file:
+        merged = normalize_ssh_config(get_config().get("ssh", {}))
+        auth_mode = str(merged.get("auth_mode", "password_ref") or "password_ref")
+        resolved = resolve_ssh_config_target(merged) if auth_mode == "ssh_config" else merged
+        host = str(resolved.get("host", "")).strip()
+        user = str(resolved.get("user", "")).strip()
+        key_file = str(resolved.get("identity_ref", "")).strip()
+        password = resolve_ssh_password({"ssh": merged}) if auth_mode == "password_ref" else ""
+        if not host or not user:
             return
         if not bool(merged.get("auto_connect_on_startup", False)):
             return
+        if auth_mode in {"key_file", "ssh_config"} and not key_file:
+            return
+        if auth_mode == "password_ref" and not password:
+            return
 
-        port = int(merged.get("port", 22))
-        password = ""
-        timeout = int(merged.get("timeout_sec", 5))
+        port = int(resolved.get("port", 22))
+        timeout = int(resolved.get("timeout_sec", 5))
 
         try:
             result = ssh_connect(
@@ -381,7 +441,8 @@ class RuntimeService:
                 port=port,
                 user=user,
                 password=password,
-                key_file=key_file,
+                key_file=key_file if auth_mode in {"key_file", "ssh_config"} else "",
+                use_agent=auth_mode == "agent",
                 timeout=timeout,
             )
             if not result.ok or result.client is None:
@@ -393,7 +454,8 @@ class RuntimeService:
                     port=port,
                     user=user,
                     password=password,
-                    key_file=key_file,
+                    key_file=key_file if auth_mode in {"key_file", "ssh_config"} else "",
+                    use_agent=auth_mode == "agent",
                     timeout=timeout,
                 )
                 if not reconnect.ok or reconnect.client is None:

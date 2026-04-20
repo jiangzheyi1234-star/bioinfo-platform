@@ -24,6 +24,20 @@ You can override binary/workdir:
 H2OMETA_PYTHON=python H2OMETA_WORKDIR=/path/to/repo npm run dev
 ```
 
+## Cache management
+- Rust/Tauri build artifacts can grow to multiple GB over time.
+- The repo launcher `run.bat` now defaults `CARGO_TARGET_DIR` to `%LOCALAPPDATA%\H2OMeta\dev-cache\cargo-target\bio_ui`, which keeps `target` outside the repository.
+- The Windows backend launcher defaults `UV_CACHE_DIR` to `%LOCALAPPDATA%\H2OMeta\dev-cache\uv-cache`, which keeps `.uv-cache` out of the repository.
+- If you still need to clear repo-local caches, run:
+
+```powershell
+scripts\clean-dev-cache.bat
+```
+
+```bash
+npm run clean:dev-cache
+```
+
 ## Build desktop package
 ```bash
 cd apps/desktop
