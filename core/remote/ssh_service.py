@@ -264,27 +264,6 @@ class SSHService:
             sftp.get(remote, local)
             sftp.close()
 
-    def ensure_remote_authorized_key(self, public_key: str) -> None:
-        key_text = str(public_key or "").strip()
-        if not key_text:
-            raise RuntimeError("public key is required")
-        with self._lock:
-            if not self._client:
-                raise RuntimeError("SSH not connected")
-            commands = [
-                "mkdir -p ~/.ssh",
-                "chmod 700 ~/.ssh",
-                "touch ~/.ssh/authorized_keys",
-                "chmod 600 ~/.ssh/authorized_keys",
-                "grep -qxF {key} ~/.ssh/authorized_keys || echo {key} >> ~/.ssh/authorized_keys",
-            ]
-            quoted_key = "'" + key_text.replace("'", "'\''") + "'"
-            script = " && ".join(cmd.format(key=quoted_key) for cmd in commands)
-            stdin, stdout, stderr = self._client.exec_command(script, timeout=10)
-            exit_code = stdout.channel.recv_exit_status()
-            if exit_code != 0:
-                raise RuntimeError(stderr.read().decode("utf-8", errors="ignore") or "failed to install authorized key")
-
     def open_terminal_session(self, cols=120, rows=28) -> TerminalSession:
         with self._lock:
             t = self._client.get_transport()

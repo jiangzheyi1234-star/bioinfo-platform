@@ -163,25 +163,6 @@ def persist_upload(
     return row
 
 
-def fetch_upload(cfg: RemoteRunnerConfig, upload_id: str) -> dict[str, Any] | None:
-    with get_connection(cfg) as connection:
-        row = connection.execute(
-            "SELECT upload_id, filename, path, size_bytes, sha256, mime_type, uploaded_at FROM uploads WHERE upload_id = ?",
-            (upload_id,),
-        ).fetchone()
-    if row is None:
-        return None
-    return {
-        "uploadId": row["upload_id"],
-        "filename": row["filename"],
-        "path": row["path"],
-        "sizeBytes": row["size_bytes"],
-        "sha256": row["sha256"],
-        "mimeType": row["mime_type"],
-        "uploadedAt": row["uploaded_at"],
-    }
-
-
 def create_run_record(
     cfg: RemoteRunnerConfig,
     *,

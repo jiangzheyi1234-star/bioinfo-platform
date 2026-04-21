@@ -69,13 +69,6 @@ export type RunArtifact = {
   createdAt: string;
 };
 
-export const homeSummary = [
-  { label: "Connected Server", value: "omics-prod-01" },
-  { label: "Runner Ready", value: "Ready" },
-  { label: "Running Runs", value: "03" },
-  { label: "New Results Today", value: "12" },
-] as const;
-
 export const serverReadiness: ReadinessCheck[] = [
   { key: "startup", label: "Startup", status: "ok", value: "Healthy" },
   { key: "live", label: "Live", status: "ok", value: "Reachable" },

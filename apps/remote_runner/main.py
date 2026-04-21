@@ -18,7 +18,6 @@ from .storage import (
     fetch_run,
     fetch_run_events,
     fetch_run_results,
-    fetch_upload,
     list_results,
     list_runs,
     persist_upload,
