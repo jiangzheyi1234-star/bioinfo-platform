@@ -19,7 +19,7 @@ from config import (
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
-from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from core.remote_runner.manager import RemoteRunnerManager
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 
