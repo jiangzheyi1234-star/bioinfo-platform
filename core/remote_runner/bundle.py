@@ -42,8 +42,22 @@ class RemoteRunnerBundleBuilder:
             'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             'cd "$RUN_DIR"\n'
             'export H2OMETA_REMOTE_CONFIG="$CONFIG_PATH"\n'
-            'nohup "$RUN_DIR/.venv/bin/python" -m remote_runner.run >>"$LOG_PATH" 2>&1 &\n'
+            'nohup "$RUN_DIR/launch_remote_runner.sh" >>"$LOG_PATH" 2>&1 &\n'
             'echo $! > "$RUN_DIR/runner.pid"\n',
+            encoding="utf-8",
+        )
+        (bundle_dir / "launch_remote_runner.sh").write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            'if [ -n "${H2OMETA_REMOTE_CONFIG:-}" ]; then\n'
+            '  SHARED_ROOT="$(cd "$(dirname "$H2OMETA_REMOTE_CONFIG")/.." && pwd)"\n'
+            '  TOOLS_BIN="$SHARED_ROOT/tools/bin"\n'
+            '  if [ -d "$TOOLS_BIN" ]; then\n'
+            '    export PATH="$TOOLS_BIN:$PATH"\n'
+            "  fi\n"
+            "fi\n"
+            'exec "$RUN_DIR/.venv/bin/python" -m remote_runner.run\n',
             encoding="utf-8",
         )
         (bundle_dir / "check_service.sh").write_text(
@@ -72,7 +86,7 @@ class RemoteRunnerBundleBuilder:
             "Type=simple\n"
             "WorkingDirectory=%h/.h2ometa/runner/current\n"
             "Environment=H2OMETA_REMOTE_CONFIG=%h/.h2ometa/runner/shared/config/runner.json\n"
-            "ExecStart=%h/.h2ometa/runner/current/.venv/bin/python -m remote_runner.run\n"
+            "ExecStart=%h/.h2ometa/runner/current/launch_remote_runner.sh\n"
             "Restart=on-failure\n"
             "RestartSec=2\n\n"
             "[Install]\n"
