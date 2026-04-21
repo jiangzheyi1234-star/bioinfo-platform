@@ -20,12 +20,11 @@ from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from core.app_runtime.errors import RuntimeServiceError
+from core.app_runtime.runner_ops import RunnerOperationsMixin
 
 logger = logging.getLogger(__name__)
 
-
-class RuntimeServiceError(RuntimeError):
-    pass
 
 class ServiceLocator:
     def __init__(
@@ -55,7 +54,7 @@ class ServiceLocator:
             self._ssh = None
 
 
-class RuntimeService:
+class RuntimeService(RunnerOperationsMixin):
     def __init__(
         self,
         project_manager: Optional[ProjectManager] = None,
@@ -176,42 +175,75 @@ class RuntimeService:
     def list_servers(self) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
-            server = self._build_primary_server()
-            return [server] if server else []
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None:
+                return []
+            registry_entry = self._get_server_registry_entry(server["serverId"])
+            ssh = self._service_locator.ssh_service if server["connected"] else None
+        health = self._build_server_health(
+            server_id=server["serverId"],
+            ssh_status=ssh_status,
+            registry_entry=registry_entry,
+            ssh=ssh,
+        )
+        return [self._compose_server_payload(server=server, registry_entry=registry_entry, health=health)]
 
     def get_server(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server = self._build_primary_server()
-            if not server or server["serverId"] != server_id:
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
-            return server
+            registry_entry = self._get_server_registry_entry(server_id)
+            ssh = self._service_locator.ssh_service if server["connected"] else None
+        health = self._build_server_health(
+            server_id=server_id,
+            ssh_status=ssh_status,
+            registry_entry=registry_entry,
+            ssh=ssh,
+        )
+        return self._compose_server_payload(server=server, registry_entry=registry_entry, health=health)
 
     def get_server_health(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server = self._build_primary_server()
-            if not server or server["serverId"] != server_id:
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
-            return server["health"]
+            registry_entry = self._get_server_registry_entry(server_id)
+            ssh = self._service_locator.ssh_service if server["connected"] else None
+        return self._build_server_health(
+            server_id=server_id,
+            ssh_status=ssh_status,
+            registry_entry=registry_entry,
+            ssh=ssh,
+        )
 
     def refresh_server_health(self, server_id: str) -> dict[str, Any]:
-        with self._lock:
-            return {"data": self.get_server_health(server_id)}
+        return {"data": self.get_server_health(server_id)}
 
     def bootstrap_server(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server = self._build_primary_server()
-            if not server or server["serverId"] != server_id:
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
             ssh = self._ensure_ssh_connected()
-            result = self._service_locator.remote_runner_manager.bootstrap(
-                server_id=server_id,
-                server=server,
-                ssh_service=ssh,
-                server_record=self._get_server_registry_entry(server_id),
-            )
+            manager = self._service_locator.remote_runner_manager
+            server_record = self._get_server_registry_entry(server_id)
+        result = self._call_remote_runner(
+            manager.bootstrap,
+            server_id=server_id,
+            server=server,
+            ssh_service=ssh,
+            server_record=server_record,
+        )
+        bootstrapped_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._lock:
             self._save_server_registry_entry(
                 server_id,
                 {
@@ -221,17 +253,18 @@ class RuntimeService:
                     "service_port": result["service_port"],
                     "token_ref": result["token_ref"],
                     "last_health_snapshot": result["health"],
-                    "bootstrapped_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "bootstrapped_at": bootstrapped_at,
                 },
             )
-            health = result["health"]
-            return {"data": health}
+        health = result["health"]
+        return {"data": health}
 
     def accept_server_host_key(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server = self._build_primary_server()
-            if not server or server["serverId"] != server_id:
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
             state = self._server_action_state.setdefault(server_id, {})
             state["host_key_trusted"] = True
@@ -240,22 +273,30 @@ class RuntimeService:
     def rotate_server_token(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server = self._build_primary_server()
-            if not server or server["serverId"] != server_id:
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
             record = self._get_server_registry_entry(server_id)
-            rotated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             if record.get("bootstrap_version"):
                 ssh = self._ensure_ssh_connected()
-                result = self._service_locator.remote_runner_manager.rotate_token(
-                    server_id=server_id,
-                    server=server,
-                    ssh_service=ssh,
-                    server_record=record,
-                )
-                token_ref = result["token_ref"]
+                manager = self._service_locator.remote_runner_manager
             else:
-                token_ref = store_runner_token(server_id=server_id, token=uuid.uuid4().hex)
+                ssh = None
+                manager = None
+        rotated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if record.get("bootstrap_version"):
+            result = self._call_remote_runner(
+                manager.rotate_token,
+                server_id=server_id,
+                server=server,
+                ssh_service=ssh,
+                server_record=record,
+            )
+            token_ref = result["token_ref"]
+        else:
+            token_ref = store_runner_token(server_id=server_id, token=uuid.uuid4().hex)
+        with self._lock:
             self._save_server_registry_entry(
                 server_id,
                 {
@@ -263,135 +304,7 @@ class RuntimeService:
                     "token_rotated_at": rotated_at,
                 },
             )
-            return {"data": {"serverId": server_id, "tokenRotated": True, "rotatedAt": rotated_at}}
-
-    def list_runs(self) -> list[dict[str, Any]]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return self._service_locator.remote_runner_manager.list_runs(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-            )
-
-    def upload_file(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            body = dict(payload or {})
-            server_id, ssh, record = self._require_bootstrapped_runner(
-                preferred_server_id=body.get("serverId")
-            )
-            return self._service_locator.remote_runner_manager.upload_content(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                filename=str(body.get("filename") or ""),
-                content_base64=str(body.get("contentBase64") or ""),
-                mime_type=str(body.get("mimeType") or "application/octet-stream"),
-            )
-
-    def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            body = dict(payload or {})
-            request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
-            run_spec = dict(body.get("runSpec") or {})
-            preferred_server_id = body.get("serverId") or run_spec.get("serverId")
-            server_id, ssh, record = self._require_bootstrapped_runner(
-                preferred_server_id=preferred_server_id
-            )
-            return self._service_locator.remote_runner_manager.submit_run(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                payload={
-                    "serverId": server_id,
-                    "requestId": request_id,
-                    "runSpec": run_spec,
-                },
-                idempotency_key=f"idem_{request_id}",
-                request_id=request_id,
-            )
-
-    def get_run(self, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": self._service_locator.remote_runner_manager.get_run(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                run_id=run_id,
-            )}
-
-    def get_run_events(self, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": self._service_locator.remote_runner_manager.get_run_events(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                run_id=run_id,
-            )}
-
-    def get_run_logs(self, run_id: str, stream: str = "stdout", cursor: Optional[str] = None) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": self._service_locator.remote_runner_manager.get_run_logs(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                run_id=run_id,
-                stream=stream,
-                cursor=cursor,
-            )}
-
-    def get_run_results(self, run_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": self._service_locator.remote_runner_manager.get_run_results(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                run_id=run_id,
-            )}
-
-    def list_results(self) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": {"items": self._service_locator.remote_runner_manager.list_results(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-            )}}
-
-    def get_result(self, result_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": self._service_locator.remote_runner_manager.get_result(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                result_id=result_id,
-            )}
-
-    def get_result_preview(self, result_id: str, artifact_id: Optional[str] = None) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
-            return {"data": self._service_locator.remote_runner_manager.get_result_preview(
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                result_id=result_id,
-                artifact_id=artifact_id,
-            )}
+        return {"data": {"serverId": server_id, "tokenRotated": True, "rotatedAt": rotated_at}}
 
     def update_settings(self, patch: dict) -> dict:
         with self._lock:
@@ -407,28 +320,7 @@ class RuntimeService:
     def get_ssh_status(self) -> dict:
         with self._lock:
             self._ensure_initialized()
-            ssh = self._service_locator.ssh_service
-            connected = ssh is not None and getattr(ssh, "is_connected", False)
-            cfg = normalize_ssh_config(get_config().get("ssh", {}))
-            auth_mode = str(cfg.get("auth_mode", "password_ref") or "password_ref")
-            identity_ref = str(cfg.get("identity_ref", "") or "").strip()
-            return {
-                "connected": connected,
-                "host": cfg.get("host", ""),
-                "port": cfg.get("port", 22),
-                "user": cfg.get("user", ""),
-                "auth_mode": auth_mode,
-                "ssh_host_alias": cfg.get("ssh_host_alias", ""),
-                "identity_ref": identity_ref,
-                "remember_auth": bool(cfg.get("remember_auth", True)),
-                "has_password": bool(cfg.get("password_ref")),
-                "timeout_sec": cfg.get("timeout_sec", 5),
-                "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
-                "auto_connect_attempted": self._auto_connect_attempted,
-                "auto_connect_failed": self._auto_connect_failed,
-                "auto_connect_error": self._auto_connect_error,
-                "message": "SSH connected" if connected else "SSH disconnected",
-            }
+            return self._get_ssh_status_unlocked()
 
     def connect_ssh(self, patch: Optional[dict] = None) -> dict:
         with self._lock:
@@ -471,8 +363,26 @@ class RuntimeService:
             if not host or not user:
                 raise RuntimeServiceError("ssh.host and ssh.user required")
 
-            use_agent = auth_mode == "agent"
-            result = ssh_connect(
+            current = get_config()
+            previous_password_ref = str(merged.get("password_ref", "") or "").strip()
+            remember_auth = bool(merged.get("remember_auth", True))
+            auto_connect_requested = bool(merged.get("auto_connect_on_startup", False))
+
+        use_agent = auth_mode == "agent"
+        result = ssh_connect(
+            ip=host,
+            port=port,
+            user=user,
+            password=password,
+            key_file=identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
+            use_agent=use_agent,
+            timeout=timeout,
+        )
+        if not result.ok or result.client is None:
+            raise RuntimeServiceError(result.message)
+
+        def _reconnect():
+            r = ssh_connect(
                 ip=host,
                 port=port,
                 user=user,
@@ -481,36 +391,16 @@ class RuntimeService:
                 use_agent=use_agent,
                 timeout=timeout,
             )
-            if not result.ok or result.client is None:
-                raise RuntimeServiceError(result.message)
+            if not r.ok:
+                raise RuntimeError(r.message)
+            return r.client
 
-            def _reconnect():
-                r = ssh_connect(
-                    ip=host,
-                    port=port,
-                    user=user,
-                    password=password,
-                    key_file=identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
-                    use_agent=use_agent,
-                    timeout=timeout,
-                )
-                if not r.ok:
-                    raise RuntimeError(r.message)
-                return r.client
-
+        with self._lock:
             self._service_locator.ssh_service = SSHService(
                 initial_client=result.client, connect_fn=_reconnect
             )
-            current = get_config()
-            previous_password_ref = str(merged.get("password_ref", "") or "").strip()
             next_password_ref = previous_password_ref
-            if auth_mode == "key_file":
-                delete_ssh_password(previous_password_ref)
-                next_password_ref = ""
-            elif auth_mode == "ssh_config":
-                delete_ssh_password(previous_password_ref)
-                next_password_ref = ""
-            elif auth_mode == "agent":
+            if auth_mode in {"key_file", "ssh_config", "agent"}:
                 delete_ssh_password(previous_password_ref)
                 next_password_ref = ""
             elif patch and "password" in patch:
@@ -528,17 +418,14 @@ class RuntimeService:
                 **merged,
                 "auth_mode": auth_mode,
                 "ssh_host_alias": str(merged.get("ssh_host_alias", "") or "").strip(),
-                "remember_auth": bool(merged.get("remember_auth", True)),
+                "remember_auth": remember_auth,
                 "password_ref": next_password_ref,
                 "identity_ref": identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
                 "host": host if auth_mode != "ssh_config" else "",
                 "port": port if auth_mode != "ssh_config" else 22,
                 "user": user if auth_mode != "ssh_config" else "",
                 "timeout_sec": timeout,
-                "auto_connect_on_startup": bool(
-                    merged.get("remember_auth", True)
-                    and merged.get("auto_connect_on_startup", False)
-                ),
+                "auto_connect_on_startup": bool(remember_auth and auto_connect_requested),
             }
             if not persisted["remember_auth"]:
                 persisted["password_ref"] = ""
@@ -549,7 +436,7 @@ class RuntimeService:
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""
-            return self.get_ssh_status()
+            return self._get_ssh_status_unlocked()
 
     def disconnect_ssh(self) -> dict:
         with self._lock:
@@ -563,7 +450,7 @@ class RuntimeService:
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""
-            return self.get_ssh_status()
+            return self._get_ssh_status_unlocked()
 
     def test_ssh_connection(self, patch: Optional[dict] = None) -> dict:
         with self._lock:
@@ -576,27 +463,28 @@ class RuntimeService:
             merged = normalize_ssh_config(merged)
             auth_mode = str(merged.get("auth_mode", "password_ref") or "password_ref")
             resolved = resolve_ssh_config_target(merged) if auth_mode == "ssh_config" else merged
-
-            steps = run_diagnostics(
-                ip=resolved.get("host", ""),
-                port=int(resolved.get("port", 22)),
-                user=resolved.get("user", ""),
-                password=str(patch.get("password", ""))
+            diagnostics_kwargs = {
+                "ip": resolved.get("host", ""),
+                "port": int(resolved.get("port", 22)),
+                "user": resolved.get("user", ""),
+                "password": str(patch.get("password", ""))
                 if patch and "password" in patch
                 else (resolve_ssh_password({"ssh": merged}) if auth_mode == "password_ref" else ""),
-                key_file=resolved.get("identity_ref", "") if auth_mode in {"key_file", "ssh_config"} else "",
-                use_agent=auth_mode == "agent",
-            )
-            ok = all(s.status == "ok" for s in steps)
-            return {
-                "ok": ok,
-                "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
-                "steps": [
-                    {"name": s.name, "status": s.status, "message": s.message}
-                    for s in steps
-                ],
-                "status": self.get_ssh_status(),
+                "key_file": resolved.get("identity_ref", "") if auth_mode in {"key_file", "ssh_config"} else "",
+                "use_agent": auth_mode == "agent",
             }
+        steps = run_diagnostics(**diagnostics_kwargs)
+        ok = all(s.status == "ok" for s in steps)
+        status = self.get_ssh_status()
+        return {
+            "ok": ok,
+            "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
+            "steps": [
+                {"name": s.name, "status": s.status, "message": s.message}
+                for s in steps
+            ],
+            "status": status,
+        }
 
     def create_terminal_session(self, cols: int = 120, rows: int = 28) -> dict:
         with self._lock:
@@ -756,7 +644,8 @@ class RuntimeService:
         *,
         preferred_server_id: Optional[str] = None,
     ) -> tuple[str, SSHService, dict[str, Any]]:
-        server = self._build_primary_server()
+        ssh_status = self._get_ssh_status_unlocked()
+        server = self._build_primary_server_identity(ssh_status=ssh_status)
         if server is None:
             raise RuntimeServiceError("No server configured")
         server_id = str(preferred_server_id or server["serverId"] or "").strip() or server["serverId"]
@@ -768,8 +657,7 @@ class RuntimeService:
         ssh = self._ensure_ssh_connected()
         return server_id, ssh, record
 
-    def _build_primary_server(self) -> Optional[dict[str, Any]]:
-        ssh_status = self.get_ssh_status()
+    def _build_primary_server_identity(self, *, ssh_status: dict[str, Any]) -> Optional[dict[str, Any]]:
         host = str(ssh_status.get("host", "") or "").strip()
         alias = str(ssh_status.get("ssh_host_alias", "") or "").strip()
         user = str(ssh_status.get("user", "") or "").strip()
@@ -778,8 +666,6 @@ class RuntimeService:
             return None
         stable_key = f"{host or alias}:{port}:{user or 'unknown'}"
         server_id = f"srv_{uuid.uuid5(uuid.NAMESPACE_DNS, stable_key).hex[:12]}"
-        registry_entry = self._get_server_registry_entry(server_id)
-        health = self._build_server_health(server_id=server_id, ssh_status=ssh_status)
         return {
             "serverId": server_id,
             "label": alias or host,
@@ -787,18 +673,18 @@ class RuntimeService:
             "port": port,
             "user": user,
             "connected": bool(ssh_status.get("connected")),
-            "ready": bool(health["ready"]["ok"]),
-            "reasonCode": health.get("reasonCode", ""),
-            "message": health["ready"]["message"],
-            "health": health,
-            "bootstrapVersion": registry_entry.get("bootstrap_version", ""),
-            "runnerMode": registry_entry.get("runner_mode", ""),
         }
 
-    def _build_server_health(self, *, server_id: str, ssh_status: dict[str, Any]) -> dict[str, Any]:
+    def _build_server_health(
+        self,
+        *,
+        server_id: str,
+        ssh_status: dict[str, Any],
+        registry_entry: dict[str, Any],
+        ssh: Optional[SSHService],
+    ) -> dict[str, Any]:
         connected = bool(ssh_status.get("connected"))
         configured = bool(ssh_status.get("host") or ssh_status.get("ssh_host_alias"))
-        registry_entry = self._get_server_registry_entry(server_id)
         startup = {
             "ok": configured,
             "message": "Local backend has server configuration." if configured else "No SSH target configured.",
@@ -818,8 +704,10 @@ class RuntimeService:
             ready_message = "Bootstrap the remote runner before using this server."
         else:
             try:
-                ssh = self._ensure_ssh_connected()
-                remote_health = self._service_locator.remote_runner_manager.get_health(
+                if ssh is None or not getattr(ssh, "is_connected", False):
+                    raise RuntimeServiceError("SSH disconnected")
+                remote_health = self._call_remote_runner(
+                    self._service_locator.remote_runner_manager.get_health,
                     server_id=server_id,
                     ssh_service=ssh,
                     server_record=registry_entry,
@@ -829,8 +717,9 @@ class RuntimeService:
                 ready_ok = bool(remote_health["ready"]["ok"])
                 ready_message = str(remote_health["ready"]["message"])
                 reason_code = str(remote_health.get("reasonCode", "") or "")
-                self._save_server_registry_entry(server_id, {"last_health_snapshot": remote_health})
-            except RemoteRunnerManagerError as exc:
+                with self._lock:
+                    self._save_server_registry_entry(server_id, {"last_health_snapshot": remote_health})
+            except RuntimeServiceError as exc:
                 reason_code = "RUNNER_NOT_READY"
                 ready_message = str(exc) or "Remote runner control plane is not reachable."
         return {
@@ -840,6 +729,47 @@ class RuntimeService:
             "ready": {"ok": ready_ok, "message": ready_message},
             "reasonCode": reason_code,
             "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+    def _compose_server_payload(
+        self,
+        *,
+        server: dict[str, Any],
+        registry_entry: dict[str, Any],
+        health: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            **server,
+            "ready": bool(health["ready"]["ok"]),
+            "reasonCode": health.get("reasonCode", ""),
+            "message": health["ready"]["message"],
+            "health": health,
+            "bootstrapVersion": registry_entry.get("bootstrap_version", ""),
+            "runnerMode": registry_entry.get("runner_mode", ""),
+        }
+
+    def _get_ssh_status_unlocked(self) -> dict[str, Any]:
+        ssh = self._service_locator.ssh_service
+        connected = ssh is not None and getattr(ssh, "is_connected", False)
+        cfg = normalize_ssh_config(get_config().get("ssh", {}))
+        auth_mode = str(cfg.get("auth_mode", "password_ref") or "password_ref")
+        identity_ref = str(cfg.get("identity_ref", "") or "").strip()
+        return {
+            "connected": connected,
+            "host": cfg.get("host", ""),
+            "port": cfg.get("port", 22),
+            "user": cfg.get("user", ""),
+            "auth_mode": auth_mode,
+            "ssh_host_alias": cfg.get("ssh_host_alias", ""),
+            "identity_ref": identity_ref,
+            "remember_auth": bool(cfg.get("remember_auth", True)),
+            "has_password": bool(cfg.get("password_ref")),
+            "timeout_sec": cfg.get("timeout_sec", 5),
+            "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
+            "auto_connect_attempted": self._auto_connect_attempted,
+            "auto_connect_failed": self._auto_connect_failed,
+            "auto_connect_error": self._auto_connect_error,
+            "message": "SSH connected" if connected else "SSH disconnected",
         }
 
     @staticmethod

@@ -20,108 +20,119 @@ class RemoteRunnerManager:
         self._bundle_builder = bundle_builder or RemoteRunnerBundleBuilder()
 
     def bootstrap(self, **kwargs) -> dict[str, Any]:
-        server_id = str(kwargs["server_id"])
-        server = kwargs["server"]
-        ssh_service = kwargs["ssh_service"]
-        version = REMOTE_RUNNER_VERSION
-        bundle = self._bundle_builder.build(version=version)
-        home_dir = self._resolve_remote_home(ssh_service)
-        mode = self._detect_mode(ssh_service)
-        token = secrets.token_urlsafe(24)
+        try:
+            server_id = str(kwargs["server_id"])
+            server = kwargs["server"]
+            ssh_service = kwargs["ssh_service"]
+            version = REMOTE_RUNNER_VERSION
+            bundle = self._bundle_builder.build(version=version)
+            home_dir = self._resolve_remote_home(ssh_service)
+            mode = self._detect_mode(ssh_service)
+            token = secrets.token_urlsafe(24)
 
-        remote_root = f"{home_dir}/.h2ometa/runner"
-        remote_release = f"{remote_root}/releases/{version}"
-        remote_shared = f"{remote_root}/shared"
-        remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"
-        remote_config = f"{remote_shared}/config/runner.json"
-        remote_log = f"{remote_shared}/logs/runner.log"
-        remote_current = f"{remote_root}/current"
-        remote_port = REMOTE_RUNNER_PORT
+            remote_root = f"{home_dir}/.h2ometa/runner"
+            remote_release = f"{remote_root}/releases/{version}"
+            remote_shared = f"{remote_root}/shared"
+            remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"
+            remote_config = f"{remote_shared}/config/runner.json"
+            remote_log = f"{remote_shared}/logs/runner.log"
+            remote_current = f"{remote_root}/current"
+            remote_port = REMOTE_RUNNER_PORT
 
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "service_name": "h2ometa-remote",
-                    "version": version,
-                    "mode": mode,
-                    "bind_host": "127.0.0.1",
-                    "bind_port": remote_port,
-                    "token": token,
-                    "data_root": f"{remote_shared}",
-                    "db_path": f"{remote_shared}/data/runner.db",
-                    "uploads_dir": f"{remote_shared}/uploads",
-                    "results_dir": f"{remote_shared}/results",
-                    "work_dir": f"{remote_shared}/work",
-                    "logs_dir": f"{remote_shared}/logs",
-                    "release_dir": remote_release,
-                },
-                handle,
-                indent=2,
-            )
-            local_config_path = Path(handle.name)
+            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "service_name": "h2ometa-remote",
+                        "version": version,
+                        "mode": mode,
+                        "bind_host": "127.0.0.1",
+                        "bind_port": remote_port,
+                        "token": token,
+                        "data_root": f"{remote_shared}",
+                        "db_path": f"{remote_shared}/data/runner.db",
+                        "uploads_dir": f"{remote_shared}/uploads",
+                        "results_dir": f"{remote_shared}/results",
+                        "work_dir": f"{remote_shared}/work",
+                        "logs_dir": f"{remote_shared}/logs",
+                        "release_dir": remote_release,
+                    },
+                    handle,
+                    indent=2,
+                )
+                local_config_path = Path(handle.name)
 
-        self._run_checked(
-            ssh_service,
-            f"mkdir -p {remote_root}/releases {remote_shared}/config {remote_shared}/data {remote_shared}/logs {remote_shared}/uploads {remote_shared}/results {remote_shared}/work",
-            step="prepare remote runner directories",
-            timeout=20,
-        )
-        ssh_service.upload(str(bundle.archive_path), remote_bundle)
-        ssh_service.upload(str(local_config_path), remote_config)
-        self._run_checked(
-            ssh_service,
-            f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release}",
-            step="extract remote runner bundle",
-            timeout=60,
-        )
-        self._run_checked(
-            ssh_service,
-            f"python3 -m venv {remote_release}/.venv && {remote_release}/.venv/bin/pip install -r {remote_release}/remote_runner/requirements.txt",
-            step="install remote runner dependencies",
-            timeout=180,
-        )
-        self._run_checked(
-            ssh_service,
-            f'H2OMETA_REMOTE_CONFIG="{remote_config}" {remote_release}/.venv/bin/python -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
-            step="initialize remote runner layout",
-            timeout=60,
-        )
-        if mode == "systemd_user":
             self._run_checked(
                 ssh_service,
-                f"mkdir -p ~/.config/systemd/user && cp {remote_release}/h2ometa-remote.service ~/.config/systemd/user/h2ometa-remote.service && ln -sfn {remote_release} {remote_current} && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service",
-                step="start remote runner service",
+                f"mkdir -p {remote_root}/releases {remote_shared}/config {remote_shared}/data {remote_shared}/logs {remote_shared}/uploads {remote_shared}/results {remote_shared}/work",
+                step="prepare remote runner directories",
+                timeout=20,
+            )
+            ssh_service.upload(str(bundle.archive_path), remote_bundle)
+            ssh_service.upload(str(local_config_path), remote_config)
+            self._run_checked(
+                ssh_service,
+                f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release}",
+                step="extract remote runner bundle",
                 timeout=60,
             )
-        else:
             self._run_checked(
                 ssh_service,
-                f"ln -sfn {remote_release} {remote_current} && bash {remote_current}/start_service.sh {remote_config} {remote_log}",
-                step="start remote runner service",
-                timeout=30,
+                f"python3 -m venv {remote_release}/.venv && {remote_release}/.venv/bin/pip install -r {remote_release}/remote_runner/requirements.txt",
+                step="install remote runner dependencies",
+                timeout=180,
             )
+            self._run_checked(
+                ssh_service,
+                "if command -v conda >/dev/null 2>&1 || command -v mamba >/dev/null 2>&1 || command -v micromamba >/dev/null 2>&1; then exit 0; fi; echo 'conda/mamba is required for Snakemake --use-conda' >&2; exit 1",
+                step="verify workflow runtime prerequisites",
+                timeout=20,
+            )
+            self._run_checked(
+                ssh_service,
+                f'cd {remote_release} && H2OMETA_REMOTE_CONFIG="{remote_config}" ./.venv/bin/python -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
+                step="initialize remote runner layout",
+                timeout=60,
+            )
+            if mode == "systemd_user":
+                self._run_checked(
+                    ssh_service,
+                    f"mkdir -p ~/.config/systemd/user && cp {remote_release}/h2ometa-remote.service ~/.config/systemd/user/h2ometa-remote.service && ln -sfn {remote_release} {remote_current} && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service",
+                    step="start remote runner service",
+                    timeout=60,
+                )
+            else:
+                self._run_checked(
+                    ssh_service,
+                    f"ln -sfn {remote_release} {remote_current} && bash {remote_current}/start_service.sh {remote_config} {remote_log}",
+                    step="start remote runner service",
+                    timeout=30,
+                )
 
-        tunnel = ssh_service.ensure_local_tunnel(
-            f"runner-{server_id}",
-            remote_host="127.0.0.1",
-            remote_port=remote_port,
-        )
-        client = RemoteRunnerHttpClient(
-            base_url=f"http://127.0.0.1:{tunnel.local_port}",
-            token=token,
-            timeout=5,
-        )
-        health = client.get_health()
-        token_ref = store_runner_token(server_id=server_id, token=token)
-        return {
-            "bootstrap_version": version,
-            "runner_mode": mode,
-            "tunnel_port": tunnel.local_port,
-            "token_ref": token_ref,
-            "health": health,
-            "service_port": remote_port,
-            "server_label": server.get("label", ""),
-        }
+            tunnel = ssh_service.ensure_local_tunnel(
+                f"runner-{server_id}",
+                remote_host="127.0.0.1",
+                remote_port=remote_port,
+            )
+            client = RemoteRunnerHttpClient(
+                base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                token=token,
+                timeout=5,
+            )
+            health = client.get_health()
+            token_ref = store_runner_token(server_id=server_id, token=token)
+            return {
+                "bootstrap_version": version,
+                "runner_mode": mode,
+                "tunnel_port": tunnel.local_port,
+                "token_ref": token_ref,
+                "health": health,
+                "service_port": remote_port,
+                "server_label": server.get("label", ""),
+            }
+        except RemoteRunnerManagerError:
+            raise
+        except Exception as exc:
+            raise RemoteRunnerManagerError(str(exc) or "remote runner bootstrap failed") from exc
 
     def get_health(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
@@ -268,97 +279,107 @@ class RemoteRunnerManager:
             raise RemoteRunnerManagerError(str(exc)) from exc
 
     def rotate_token(self, **kwargs) -> dict[str, Any]:
-        server_id = str(kwargs["server_id"])
-        record = kwargs["server_record"]
-        ssh_service = kwargs["ssh_service"]
-        version = str(record.get("bootstrap_version") or "").strip()
-        if not version:
-            raise RemoteRunnerManagerError("runner is not bootstrapped")
-        token = secrets.token_urlsafe(24)
-        home_dir = self._resolve_remote_home(ssh_service)
-        remote_config = f"{home_dir}/.h2ometa/runner/shared/config/runner.json"
-        old_config_path: Path | None = None
-        with tempfile.NamedTemporaryFile("w+b", delete=False, suffix=".json") as handle:
-            old_config_path = Path(handle.name)
         try:
-            ssh_service.download(remote_config, str(old_config_path))
-        except Exception:
-            old_config_path = None
+            server_id = str(kwargs["server_id"])
+            record = kwargs["server_record"]
+            ssh_service = kwargs["ssh_service"]
+            version = str(record.get("bootstrap_version") or "").strip()
+            if not version:
+                raise RemoteRunnerManagerError("runner is not bootstrapped")
+            token = secrets.token_urlsafe(24)
+            home_dir = self._resolve_remote_home(ssh_service)
+            remote_config = f"{home_dir}/.h2ometa/runner/shared/config/runner.json"
+            old_config_path: Path | None = None
+            with tempfile.NamedTemporaryFile("w+b", delete=False, suffix=".json") as handle:
+                old_config_path = Path(handle.name)
+            try:
+                ssh_service.download(remote_config, str(old_config_path))
+            except Exception:
+                old_config_path = None
 
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "service_name": "h2ometa-remote",
-                    "version": version,
-                    "mode": str(record.get("runner_mode") or "background_process"),
-                    "bind_host": "127.0.0.1",
-                    "bind_port": int(record.get("service_port") or REMOTE_RUNNER_PORT),
-                    "token": token,
-                    "data_root": f"{home_dir}/.h2ometa/runner/shared",
-                    "db_path": f"{home_dir}/.h2ometa/runner/shared/data/runner.db",
-                    "uploads_dir": f"{home_dir}/.h2ometa/runner/shared/uploads",
-                    "results_dir": f"{home_dir}/.h2ometa/runner/shared/results",
-                    "work_dir": f"{home_dir}/.h2ometa/runner/shared/work",
-                    "logs_dir": f"{home_dir}/.h2ometa/runner/shared/logs",
-                    "release_dir": f"{home_dir}/.h2ometa/runner/releases/{version}",
-                },
-                handle,
-                indent=2,
-            )
-            local_config_path = Path(handle.name)
-        try:
-            ssh_service.upload(str(local_config_path), remote_config)
-            if str(record.get("runner_mode")) == "systemd_user":
-                ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
-            else:
-                ssh_service.run("pkill -f 'remote_runner.run' || true", timeout=10)
-                ssh_service.run(
-                    f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
-                    timeout=30,
+            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "service_name": "h2ometa-remote",
+                        "version": version,
+                        "mode": str(record.get("runner_mode") or "background_process"),
+                        "bind_host": "127.0.0.1",
+                        "bind_port": int(record.get("service_port") or REMOTE_RUNNER_PORT),
+                        "token": token,
+                        "data_root": f"{home_dir}/.h2ometa/runner/shared",
+                        "db_path": f"{home_dir}/.h2ometa/runner/shared/data/runner.db",
+                        "uploads_dir": f"{home_dir}/.h2ometa/runner/shared/uploads",
+                        "results_dir": f"{home_dir}/.h2ometa/runner/shared/results",
+                        "work_dir": f"{home_dir}/.h2ometa/runner/shared/work",
+                        "logs_dir": f"{home_dir}/.h2ometa/runner/shared/logs",
+                        "release_dir": f"{home_dir}/.h2ometa/runner/releases/{version}",
+                    },
+                    handle,
+                    indent=2,
                 )
+                local_config_path = Path(handle.name)
+            try:
+                ssh_service.upload(str(local_config_path), remote_config)
+                if str(record.get("runner_mode")) == "systemd_user":
+                    ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
+                else:
+                    ssh_service.run("pkill -f 'remote_runner.run' || true", timeout=10)
+                    ssh_service.run(
+                        f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
+                        timeout=30,
+                    )
+                tunnel = ssh_service.ensure_local_tunnel(
+                    f"runner-{server_id}",
+                    remote_host="127.0.0.1",
+                    remote_port=int(record.get("service_port") or REMOTE_RUNNER_PORT),
+                )
+                client = RemoteRunnerHttpClient(
+                    base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                    token=token,
+                    timeout=5,
+                )
+                client.get_health()
+            except Exception:
+                if old_config_path and old_config_path.exists():
+                    try:
+                        ssh_service.upload(str(old_config_path), remote_config)
+                        if str(record.get("runner_mode")) == "systemd_user":
+                            ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
+                        else:
+                            ssh_service.run(
+                                f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
+                                timeout=30,
+                            )
+                    except Exception:
+                        pass
+                raise
+            token_ref = store_runner_token(server_id=server_id, token=token)
+            return {"token_ref": token_ref}
+        except RemoteRunnerManagerError:
+            raise
+        except Exception as exc:
+            raise RemoteRunnerManagerError(str(exc) or "runner token rotation failed") from exc
+
+    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any]) -> RemoteRunnerHttpClient:
+        try:
+            token = resolve_runner_token(str(record.get("token_ref", "") or ""))
+            if not token:
+                raise RemoteRunnerManagerError("runner token not available")
+            remote_port = int(record.get("service_port") or REMOTE_RUNNER_PORT)
             tunnel = ssh_service.ensure_local_tunnel(
                 f"runner-{server_id}",
                 remote_host="127.0.0.1",
-                remote_port=int(record.get("service_port") or REMOTE_RUNNER_PORT),
+                remote_port=remote_port,
             )
-            client = RemoteRunnerHttpClient(
+            return RemoteRunnerHttpClient(
                 base_url=f"http://127.0.0.1:{tunnel.local_port}",
                 token=token,
                 timeout=5,
             )
-            client.get_health()
-        except Exception:
-            if old_config_path and old_config_path.exists():
-                try:
-                    ssh_service.upload(str(old_config_path), remote_config)
-                    if str(record.get("runner_mode")) == "systemd_user":
-                        ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
-                    else:
-                        ssh_service.run(
-                            f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
-                            timeout=30,
-                        )
-                except Exception:
-                    pass
+        except RemoteRunnerManagerError:
             raise
-        token_ref = store_runner_token(server_id=server_id, token=token)
-        return {"token_ref": token_ref}
-
-    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any]) -> RemoteRunnerHttpClient:
-        token = resolve_runner_token(str(record.get("token_ref", "") or ""))
-        if not token:
-            raise RemoteRunnerManagerError("runner token not available")
-        remote_port = int(record.get("service_port") or REMOTE_RUNNER_PORT)
-        tunnel = ssh_service.ensure_local_tunnel(
-            f"runner-{server_id}",
-            remote_host="127.0.0.1",
-            remote_port=remote_port,
-        )
-        return RemoteRunnerHttpClient(
-            base_url=f"http://127.0.0.1:{tunnel.local_port}",
-            token=token,
-            timeout=5,
-        )
+        except Exception as exc:
+            raise RemoteRunnerManagerError(str(exc) or "runner tunnel setup failed") from exc
 
     @staticmethod
     def _detect_mode(ssh_service) -> str:

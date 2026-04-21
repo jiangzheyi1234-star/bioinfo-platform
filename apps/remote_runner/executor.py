@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import threading
 from pathlib import Path
 import time
@@ -15,6 +16,10 @@ from .storage import (
 
 
 _EXECUTION_LOCK = threading.Lock()
+
+
+def _snakemake_command() -> list[str]:
+    return [sys.executable, "-m", "snakemake"]
 
 
 def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str, run_spec: dict) -> None:
@@ -81,7 +86,7 @@ def run_snakemake_execution(
         )
 
         dry_run_cmd = [
-            "snakemake",
+            *_snakemake_command(),
             "--snakefile",
             str(snakefile),
             "--directory",
@@ -116,7 +121,7 @@ def run_snakemake_execution(
             request_id=request_id,
         )
         run_cmd = [
-            "snakemake",
+            *_snakemake_command(),
             "--snakefile",
             str(snakefile),
             "--directory",

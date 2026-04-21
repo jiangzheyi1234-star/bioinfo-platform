@@ -49,6 +49,18 @@ def _runtime():
     return get_runtime_service()
 
 
+async def _run_sync(
+    func,
+    *,
+    status_code: int,
+    handled_errors: tuple[type[Exception], ...],
+):
+    try:
+        return await asyncio.to_thread(func)
+    except handled_errors as exc:
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
 def _terminal_state_event(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "state",
@@ -109,123 +121,143 @@ async def get_version() -> dict[str, Any]:
 
 @app.get("/api/v1/settings")
 async def get_settings() -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_settings()}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        _runtime().get_settings,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"item": item}
 
 
 @app.put("/api/v1/settings")
 async def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().update_settings(payload.patch)}
-    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        lambda: _runtime().update_settings(payload.patch),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+    )
+    return {"item": item}
 
 
 @app.get("/api/v1/ssh/status")
 async def get_ssh_status() -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_ssh_status()}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        _runtime().get_ssh_status,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"item": item}
 
 
 @app.get("/api/v1/servers")
 async def list_servers() -> dict[str, Any]:
-    try:
-        return {"data": {"items": _runtime().list_servers()}}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    items = await _run_sync(
+        _runtime().list_servers,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"data": {"items": items}}
 
 
 @app.get("/api/v1/servers/{server_id}")
 async def get_server(server_id: str) -> dict[str, Any]:
-    try:
-        return {"data": _runtime().get_server(server_id)}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    data = await _run_sync(
+        lambda: _runtime().get_server(server_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"data": data}
 
 
 @app.get("/api/v1/servers/{server_id}/health")
 async def get_server_health(server_id: str) -> dict[str, Any]:
-    try:
-        return {"data": _runtime().get_server_health(server_id)}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    data = await _run_sync(
+        lambda: _runtime().get_server_health(server_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"data": data}
 
 
 @app.post("/api/v1/servers/{server_id}/health/refresh")
 async def refresh_server_health(server_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().refresh_server_health(server_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().refresh_server_health(server_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.post("/api/v1/servers/{server_id}/bootstrap")
 async def bootstrap_server(server_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().bootstrap_server(server_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().bootstrap_server(server_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.post("/api/v1/servers/{server_id}/host-key/accept")
 async def accept_server_host_key(server_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().accept_server_host_key(server_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().accept_server_host_key(server_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.post("/api/v1/servers/{server_id}/token/rotate")
 async def rotate_server_token(server_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().rotate_server_token(server_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().rotate_server_token(server_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.post("/api/v1/ssh/connect")
 async def connect_ssh(payload: SSHConnectionRequest | None = None) -> dict[str, Any]:
-    try:
-        patch = payload.model_dump(exclude_none=True) if payload is not None else None
-        return {"item": _runtime().connect_ssh(patch)}
-    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    patch = payload.model_dump(exclude_none=True) if payload is not None else None
+    item = await _run_sync(
+        lambda: _runtime().connect_ssh(patch),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+    )
+    return {"item": item}
 
 
 @app.post("/api/v1/ssh/disconnect")
 async def disconnect_ssh() -> dict[str, Any]:
-    try:
-        return {"item": _runtime().disconnect_ssh()}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        _runtime().disconnect_ssh,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"item": item}
 
 
 @app.post("/api/v1/ssh/terminal/sessions")
 async def create_terminal_session(
     payload: SSHTerminalCreateRequest | None = None,
 ) -> dict[str, Any]:
-    try:
-        request = payload or SSHTerminalCreateRequest()
-        return {
-            "item": _runtime().create_terminal_session(
-                cols=request.cols, rows=request.rows
-            )
-        }
-    except (RuntimeServiceError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    request = payload or SSHTerminalCreateRequest()
+    item = await _run_sync(
+        lambda: _runtime().create_terminal_session(cols=request.cols, rows=request.rows),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError),
+    )
+    return {"item": item}
 
 
 
 @app.delete("/api/v1/ssh/terminal/sessions/{session_id}")
 async def close_terminal_session(session_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().close_terminal_session(session_id=session_id)}
-    except (RuntimeServiceError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        lambda: _runtime().close_terminal_session(session_id=session_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError),
+    )
+    return {"item": item}
 
 
 @app.websocket("/api/v1/ssh/terminal/sessions/{session_id}/stream")
@@ -308,10 +340,13 @@ async def stream_terminal_session(
                 data = str(payload.get("data") or "")
                 if not data:
                     continue
-                _runtime().send_terminal_input(session_id=session_id, data=data)
+                await asyncio.to_thread(
+                    _runtime().send_terminal_input, session_id=session_id, data=data
+                )
                 continue
             if message_type == "resize":
-                _runtime().resize_terminal_session(
+                await asyncio.to_thread(
+                    _runtime().resize_terminal_session,
                     session_id=session_id,
                     cols=int(payload.get("cols") or 120),
                     rows=int(payload.get("rows") or 28),
@@ -363,178 +398,209 @@ async def stream_terminal_session(
 async def test_ssh_connection(
     payload: SSHConnectionRequest | None = None,
 ) -> dict[str, Any]:
-    try:
-        patch = payload.model_dump(exclude_none=True) if payload is not None else None
-        return {"item": _runtime().test_ssh_connection(patch)}
-    except (RuntimeServiceError, ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    patch = payload.model_dump(exclude_none=True) if payload is not None else None
+    item = await _run_sync(
+        lambda: _runtime().test_ssh_connection(patch),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+    )
+    return {"item": item}
 
 
 @app.get("/api/v1/projects")
 async def list_projects(
     sort_by: str = "created_at", include_archived: bool = False
 ) -> dict[str, Any]:
-    try:
-        return {
-            "items": _runtime().list_projects(
-                sort_by=sort_by, include_archived=include_archived
-            )
-        }
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    items = await _run_sync(
+        lambda: _runtime().list_projects(
+            sort_by=sort_by, include_archived=include_archived
+        ),
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"items": items}
 
 
 @app.get("/api/v1/runs")
 async def list_runs() -> dict[str, Any]:
-    try:
-        return {"data": {"items": _runtime().list_runs()}}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    items = await _run_sync(
+        _runtime().list_runs,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"data": {"items": items}}
 
 
 @app.post("/api/v1/uploads")
 async def upload_file(payload: UploadSubmitRequest) -> dict[str, Any]:
-    try:
-        return {"data": _runtime().upload_file(payload.model_dump(exclude_none=True))}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = await _run_sync(
+        lambda: _runtime().upload_file(payload.model_dump(exclude_none=True)),
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"data": data}
 
 
 @app.post("/api/v1/runs", status_code=202)
 async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str, Any]:
-    try:
-        result = _runtime().submit_run(payload.model_dump(exclude_none=True))
-        response.headers["Location"] = result["location"]
-        response.headers["Retry-After"] = str(result["retryAfter"])
-        response.headers["X-Request-Id"] = result["requestId"]
-        return result
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = await _run_sync(
+        lambda: _runtime().submit_run(payload.model_dump(exclude_none=True)),
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    response.headers["Location"] = result["location"]
+    response.headers["Retry-After"] = str(result["retryAfter"])
+    response.headers["X-Request-Id"] = result["requestId"]
+    return result
 
 
 @app.get("/api/v1/runs/{run_id}")
 async def get_run(run_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().get_run(run_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().get_run(run_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/runs/{run_id}/events")
 async def get_run_events(run_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().get_run_events(run_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().get_run_events(run_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/runs/{run_id}/logs")
 async def get_run_logs(run_id: str, stream: str = "stdout", cursor: str | None = None) -> dict[str, Any]:
-    try:
-        return _runtime().get_run_logs(run_id=run_id, stream=stream, cursor=cursor)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().get_run_logs(run_id=run_id, stream=stream, cursor=cursor),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/runs/{run_id}/results")
 async def get_run_results(run_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().get_run_results(run_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().get_run_results(run_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/results")
 async def list_results() -> dict[str, Any]:
-    try:
-        return _runtime().list_results()
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _run_sync(
+        _runtime().list_results,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/results/{result_id}")
 async def get_result(result_id: str) -> dict[str, Any]:
-    try:
-        return _runtime().get_result(result_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().get_result(result_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/results/{result_id}/preview")
 async def get_result_preview(result_id: str, artifact_id: str | None = None) -> dict[str, Any]:
-    try:
-        return _runtime().get_result_preview(result_id=result_id, artifact_id=artifact_id)
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _run_sync(
+        lambda: _runtime().get_result_preview(
+            result_id=result_id, artifact_id=artifact_id
+        ),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/projects/current")
 async def get_current_project() -> dict[str, Any]:
-    try:
-        return {"item": _runtime().get_current_project()}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        _runtime().get_current_project,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"item": item}
 
 
 @app.get("/api/v1/projects/{project_id}")
 async def get_project(project_id: str) -> dict[str, Any]:
-    try:
-        return {"data": _runtime().get_project(project_id)}
-    except RuntimeServiceError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    data = await _run_sync(
+        lambda: _runtime().get_project(project_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
+    return {"data": data}
 
 
 @app.post("/api/v1/projects")
 async def create_project(payload: CreateProjectRequest) -> dict[str, Any]:
-    try:
-        item = _runtime().create_project(
+    item = await _run_sync(
+        lambda: _runtime().create_project(
             name=payload.name,
             description=payload.description,
             open_after_create=payload.open_after_create,
-        )
-        return {"item": item}
-    except (RuntimeServiceError, ValueError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        ),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, KeyError),
+    )
+    return {"item": item}
 
 
 @app.patch("/api/v1/projects/{project_id}")
 async def update_project(
     project_id: str, payload: UpdateProjectRequest
 ) -> dict[str, Any]:
-    try:
-        patch = payload.model_dump(exclude_none=True)
-        return {"item": _runtime().update_project(project_id=project_id, patch=patch)}
-    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    patch = payload.model_dump(exclude_none=True)
+    item = await _run_sync(
+        lambda: _runtime().update_project(project_id=project_id, patch=patch),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
+    )
+    return {"item": item}
 
 
 @app.post("/api/v1/projects/{project_id}/archive")
 async def archive_project(project_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().archive_project(project_id=project_id)}
-    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        lambda: _runtime().archive_project(project_id=project_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
+    )
+    return {"item": item}
 
 
 @app.post("/api/v1/projects/{project_id}/restore")
 async def restore_project(project_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().restore_project(project_id=project_id)}
-    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        lambda: _runtime().restore_project(project_id=project_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
+    )
+    return {"item": item}
 
 
 @app.delete("/api/v1/projects/{project_id}")
 async def delete_project(project_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().delete_project(project_id=project_id)}
-    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        lambda: _runtime().delete_project(project_id=project_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
+    )
+    return {"item": item}
 
 
 @app.post("/api/v1/projects/{project_id}/open")
 async def open_project(project_id: str) -> dict[str, Any]:
-    try:
-        return {"item": _runtime().open_project(project_id)}
-    except (RuntimeServiceError, ValueError, KeyError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _run_sync(
+        lambda: _runtime().open_project(project_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
+    )
+    return {"item": item}

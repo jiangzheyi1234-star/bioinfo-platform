@@ -26,6 +26,8 @@ from .storage import (
 
 app = FastAPI(title="H2OMeta Remote Runner", version="0.1.0-control-plane")
 _STARTED_AT = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+MAX_PREVIEW_BYTES = 256 * 1024
+MAX_PREVIEW_TABLE_ROWS = 200
 
 
 class UploadCreateRequest(BaseModel):
@@ -98,12 +100,17 @@ async def create_upload(
 ) -> dict[str, Any]:
     cfg = load_remote_runner_config()
     _require_auth(authorization, cfg.token)
-    item = persist_upload(
-        cfg,
-        filename=payload.filename,
-        content_base64=payload.contentBase64,
-        mime_type=payload.mimeType,
-    )
+    try:
+        item = persist_upload(
+            cfg,
+            filename=payload.filename,
+            content_base64=payload.contentBase64,
+            mime_type=payload.mimeType,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 413 if detail == "UPLOAD_TOO_LARGE" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     return {"data": item}
 
 
@@ -239,12 +246,22 @@ async def get_result_preview_api(
     path = artifact["path"]
     preview: dict[str, Any]
     if artifact["mimeType"] == "text/tab-separated-values":
-        rows = Path(path).read_text(encoding="utf-8").splitlines()
-        preview = {"kind": "table", "columns": rows[0].split("\t"), "rows": [row.split("\t") for row in rows[1:]]}
+        raw, truncated = _read_preview_text(Path(path))
+        rows = raw.splitlines()
+        columns = rows[0].split("\t") if rows else []
+        preview_rows = [row.split("\t") for row in rows[1 : 1 + MAX_PREVIEW_TABLE_ROWS]]
+        preview = {
+            "kind": "table",
+            "columns": columns,
+            "rows": preview_rows,
+            "truncated": truncated or max(0, len(rows) - 1) > MAX_PREVIEW_TABLE_ROWS,
+        }
     elif artifact["mimeType"].startswith("text/html"):
-        preview = {"kind": "html", "content": Path(path).read_text(encoding="utf-8")}
+        content, truncated = _read_preview_text(Path(path))
+        preview = {"kind": "html", "content": content, "truncated": truncated}
     else:
-        preview = {"kind": "text", "content": Path(path).read_text(encoding="utf-8")}
+        content, truncated = _read_preview_text(Path(path))
+        preview = {"kind": "text", "content": content, "truncated": truncated}
     return {
         "data": {
             "resultId": result_id,
@@ -253,3 +270,10 @@ async def get_result_preview_api(
             "preview": preview,
         }
     }
+
+
+def _read_preview_text(path: Path, *, limit: int = MAX_PREVIEW_BYTES) -> tuple[str, bool]:
+    with path.open("rb") as handle:
+        payload = handle.read(limit + 1)
+    truncated = len(payload) > limit
+    return payload[:limit].decode("utf-8", errors="ignore"), truncated

@@ -43,7 +43,20 @@ class RemoteRunnerHttpClient:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            raise RemoteRunnerClientError(f"runner http error {exc.code}") from exc
+            detail = ""
+            try:
+                payload = exc.read().decode("utf-8")
+            except Exception:
+                payload = ""
+            if payload:
+                try:
+                    detail = str(json.loads(payload).get("detail") or "").strip()
+                except Exception:
+                    detail = payload.strip()
+            message = f"runner http error {exc.code}"
+            if detail:
+                message = f"{message}: {detail}"
+            raise RemoteRunnerClientError(message) from exc
         except urllib.error.URLError as exc:
             raise RemoteRunnerClientError(str(exc.reason) or "runner unreachable") from exc
 

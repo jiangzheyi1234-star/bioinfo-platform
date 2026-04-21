@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -85,6 +86,8 @@ CREATE TABLE IF NOT EXISTS idempotency (
 );
 """
 
+MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
 
 def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -126,7 +129,15 @@ def persist_upload(
 ) -> dict[str, Any]:
     uploads_dir = Path(cfg.uploads_dir)
     uploads_dir.mkdir(parents=True, exist_ok=True)
-    content = base64.b64decode(content_base64.encode("utf-8"))
+    estimated_size = _estimate_base64_size(content_base64)
+    if estimated_size > MAX_UPLOAD_BYTES:
+        raise ValueError("UPLOAD_TOO_LARGE")
+    try:
+        content = base64.b64decode(content_base64.encode("utf-8"), validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("INVALID_UPLOAD_BASE64") from exc
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise ValueError("UPLOAD_TOO_LARGE")
     upload_id = f"upl_{uuid.uuid4().hex[:12]}"
     target = uploads_dir / f"{upload_id}_{Path(filename).name}"
     temp = target.with_suffix(target.suffix + ".tmp")
@@ -161,6 +172,14 @@ def persist_upload(
         )
         connection.commit()
     return row
+
+
+def _estimate_base64_size(content_base64: str) -> int:
+    raw = "".join(str(content_base64 or "").split())
+    if not raw:
+        return 0
+    padding = len(raw) - len(raw.rstrip("="))
+    return max(0, (len(raw) * 3) // 4 - padding)
 
 
 def create_run_record(
@@ -532,4 +551,3 @@ def fetch_result(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
         "artifactCount": len(results["artifacts"]),
         "artifacts": results["artifacts"],
     }
-

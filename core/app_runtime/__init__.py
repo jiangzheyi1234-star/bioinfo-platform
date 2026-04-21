@@ -1,1 +1,2 @@
-from .service import RuntimeService, ServiceLocator, RuntimeServiceError
+from .errors import RuntimeServiceError
+from .service import RuntimeService, ServiceLocator

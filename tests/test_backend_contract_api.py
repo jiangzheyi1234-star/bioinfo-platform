@@ -720,6 +720,63 @@ def test_upload_file_routes_to_remote_runner_manager(monkeypatch, tmp_path: Path
     assert payload["data"]["sha256"] == "abc123"
 
 
+def test_upload_file_normalizes_runtime_transport_failures(monkeypatch, tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = {
+        "ssh": {
+            "host": "192.168.0.10",
+            "port": 22,
+            "user": "tester",
+            "auth_mode": "key_file",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+        },
+        "servers": {
+            "srv_8ab95fcf95a7": {
+                "bootstrap_version": "phase2-test",
+                "runner_mode": "background_process",
+                "service_port": 8876,
+                "token_ref": "runner://srv_test",
+            }
+        },
+    }
+
+    class FakeRemoteRunnerManager:
+        def upload_content(self, **kwargs):
+            raise RuntimeError("SSH transport is not active")
+
+        def get_health(self, **kwargs):
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-21T12:00:00Z",
+            }
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
+    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    try:
+        asyncio.run(
+            upload_file(
+                UploadSubmitRequest(
+                    serverId="srv_8ab95fcf95a7",
+                    filename="reads.fastq",
+                    contentBase64="QEdPQgo=",
+                    mimeType="text/plain",
+                )
+            )
+        )
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 400
+        assert "SSH transport is not active" in str(exc.detail)
+    else:
+        raise AssertionError("transport failures should surface as handled HTTP errors")
+
+
 def test_local_api_keeps_removed_remote_environment_routes_absent() -> None:
     paths = {route.path for route in app.routes}
     removed_paths = (
