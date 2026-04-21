@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -308,10 +309,161 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
     )
 
     assert len(calls) == 2
-    assert calls[0][0] == "snakemake"
+    assert calls[0][:3] == [sys.executable, "-m", "snakemake"]
     assert "--use-conda" in calls[0]
     assert "-n" in calls[0]
     assert "--use-conda" in calls[1]
+
+
+def test_remote_runner_upload_rejects_oversized_payload(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase2-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    monkeypatch.setattr("apps.remote_runner.storage.MAX_UPLOAD_BYTES", 8)
+    payload = UploadCreateRequest(
+        filename="reads.fastq",
+        contentBase64="QUJDREVGR0hJSg==",
+        mimeType="text/plain",
+    )
+
+    try:
+        asyncio.run(create_upload(payload, authorization="Bearer phase2-token"))
+    except HTTPException as exc:
+        assert exc.status_code == 413
+        assert exc.detail == "UPLOAD_TOO_LARGE"
+    else:
+        raise AssertionError("oversized upload should be rejected")
+
+
+def test_result_preview_truncates_large_text_payload(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase2-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    ensure_runtime_layout(load_remote_runner_config())
+
+    cfg = load_remote_runner_config()
+    run_id = "run_preview_large"
+    result_dir = Path(cfg.results_dir) / run_id
+    result_dir.mkdir(parents=True, exist_ok=True)
+    large_text = "x" * (300 * 1024)
+    artifact_path = result_dir / "raw-log.txt"
+    artifact_path.write_text(large_text, encoding="utf-8")
+
+    from apps.remote_runner.storage import (
+        fetch_result,
+        get_connection,
+        persist_artifact,
+        update_run_state,
+    )
+
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            INSERT INTO runs (
+                run_id, server_id, project_id, pipeline_id, pipeline_version, run_spec_version,
+                status, stage, state_version, message, started_at, finished_at, result_dir,
+                last_error_json, last_updated_at, request_id, submitted_at, run_spec_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                "srv_demo",
+                "proj_demo",
+                "taxonomy-v1",
+                "0.1.0",
+                "2026-04-21",
+                "running",
+                "submitted",
+                1,
+                "Run accepted",
+                None,
+                None,
+                "",
+                None,
+                "2026-04-21T12:00:00Z",
+                "req_preview_large",
+                "2026-04-21T12:00:00Z",
+                "{}",
+            ),
+        )
+        connection.commit()
+
+    update_run_state(
+        cfg,
+        run_id=run_id,
+        status="completed",
+        stage="finalize",
+        message="done",
+        request_id="req_preview_large",
+        result_dir=str(result_dir),
+    )
+    artifact = persist_artifact(
+        cfg,
+        run_id=run_id,
+        kind="log",
+        path=artifact_path,
+        mime_type="text/plain",
+    )
+    result_id = fetch_result(cfg, f"res_{run_id}")["resultId"]
+
+    preview = asyncio.run(
+        get_result_preview_api(
+            result_id,
+            artifact_id=artifact["artifactId"],
+            authorization="Bearer phase2-token",
+        )
+    )["data"]["preview"]
+
+    assert preview["kind"] == "text"
+    assert preview["truncated"] is True
+    assert len(preview["content"]) <= 256 * 1024
+
+
+def test_manager_wraps_tunnel_setup_failures(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+
+    class FakeSSH:
+        def ensure_local_tunnel(self, *args, **kwargs):
+            raise RuntimeError("SSH transport is not active")
+
+    monkeypatch.setattr("core.remote_runner.manager.resolve_runner_token", lambda _ref: "phase2-token")
+
+    try:
+        manager.list_results(
+            server_id="srv_demo",
+            ssh_service=FakeSSH(),
+            server_record={"token_ref": "runner://srv_demo", "service_port": 8876},
+        )
+    except RemoteRunnerManagerError as exc:
+        assert "SSH transport is not active" in str(exc)
+    else:
+        raise AssertionError("tunnel setup errors should be normalized")
 
 
 def test_bootstrap_does_not_persist_local_token_before_remote_service_is_healthy(monkeypatch) -> None:
@@ -401,5 +553,49 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
             assert "install remote runner dependencies" in str(exc)
         else:
             raise AssertionError("bootstrap should fail when dependency install exits non-zero")
+
+    store_token.assert_not_called()
+
+
+def test_bootstrap_fails_fast_when_workflow_runtime_is_missing(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+
+    class FakeBundle:
+        archive_path = Path(__file__)
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "background_process\n", ""
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "python3 -m venv" in cmd:
+                return 0, "", ""
+            if "conda/mamba is required" in cmd:
+                return 1, "", "conda/mamba is required for Snakemake --use-conda"
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            return None
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.store_runner_token"
+    ) as store_token:
+        try:
+            manager.bootstrap(
+                server_id="srv_test",
+                server={"label": "demo"},
+                ssh_service=FakeSSH(),
+                server_record={},
+            )
+        except RemoteRunnerManagerError as exc:
+            assert "verify workflow runtime prerequisites" in str(exc)
+            assert "conda/mamba is required" in str(exc)
+        else:
+            raise AssertionError("bootstrap should fail when workflow runtime is missing")
 
     store_token.assert_not_called()

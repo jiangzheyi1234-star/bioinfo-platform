@@ -1,0 +1,2 @@
+class RuntimeServiceError(RuntimeError):
+    pass

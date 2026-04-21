@@ -41,6 +41,7 @@ class RemoteRunnerBundleBuilder:
             'LOG_PATH="${2:?log path required}"\n'
             'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             'cd "$RUN_DIR"\n'
+            'export H2OMETA_REMOTE_CONFIG="$CONFIG_PATH"\n'
             'nohup "$RUN_DIR/.venv/bin/python" -m remote_runner.run >>"$LOG_PATH" 2>&1 &\n'
             'echo $! > "$RUN_DIR/runner.pid"\n',
             encoding="utf-8",
@@ -87,4 +88,3 @@ class RemoteRunnerBundleBuilder:
             archive.add(bundle_dir, arcname=".")
 
         return BuiltBootstrapBundle(version=version, bundle_dir=bundle_dir, archive_path=archive_path)
-
