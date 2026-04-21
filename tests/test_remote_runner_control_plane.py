@@ -398,7 +398,9 @@ def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, 
     for call in calls:
         env = call["env"]
         assert isinstance(env, dict)
+        assert env["CONDA_EXE"] == str(managed_conda_command)
         assert env["H2OMETA_MANAGED_CONDA_COMMAND"] == str(managed_conda_command)
+        assert env["MAMBA_EXE"] == str(managed_conda_command)
         assert env["MAMBA_ROOT_PREFIX"] == str(managed_conda_root_prefix)
         assert env["PATH"].split(os.pathsep)[0] == str(managed_conda_command.parent)
 

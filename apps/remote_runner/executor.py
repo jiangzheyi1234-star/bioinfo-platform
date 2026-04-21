@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -20,6 +21,22 @@ _EXECUTION_LOCK = threading.Lock()
 
 def _snakemake_command() -> list[str]:
     return [sys.executable, "-m", "snakemake"]
+
+
+def _snakemake_environment(cfg: RemoteRunnerConfig) -> dict[str, str]:
+    env = dict(os.environ)
+    managed_conda_command = str(cfg.managed_conda_command or "").strip()
+    if managed_conda_command:
+        managed_bin_dir = str(Path(managed_conda_command).parent)
+        current_path = env.get("PATH", "")
+        env["PATH"] = os.pathsep.join(part for part in (managed_bin_dir, current_path) if part)
+        env["CONDA_EXE"] = managed_conda_command
+        env["MAMBA_EXE"] = managed_conda_command
+        env["H2OMETA_MANAGED_CONDA_COMMAND"] = managed_conda_command
+    managed_conda_root_prefix = str(cfg.managed_conda_root_prefix or "").strip()
+    if managed_conda_root_prefix:
+        env["MAMBA_ROOT_PREFIX"] = managed_conda_root_prefix
+    return env
 
 
 def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str, run_spec: dict) -> None:
@@ -98,7 +115,12 @@ def run_snakemake_execution(
             str(config_path),
             "-n",
         ]
-        dry_run = subprocess.run(dry_run_cmd, capture_output=True, text=True)
+        dry_run = subprocess.run(
+            dry_run_cmd,
+            capture_output=True,
+            text=True,
+            env=_snakemake_environment(cfg),
+        )
         append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
         append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
         if dry_run.returncode != 0:
@@ -132,7 +154,12 @@ def run_snakemake_execution(
             "--configfile",
             str(config_path),
         ]
-        run_result = subprocess.run(run_cmd, capture_output=True, text=True)
+        run_result = subprocess.run(
+            run_cmd,
+            capture_output=True,
+            text=True,
+            env=_snakemake_environment(cfg),
+        )
         stdout_log.write_text(run_result.stdout or "", encoding="utf-8")
         stderr_log.write_text(run_result.stderr or "", encoding="utf-8")
         append_log_lines(cfg, run_id, "stdout", [line for line in run_result.stdout.splitlines() if line])
