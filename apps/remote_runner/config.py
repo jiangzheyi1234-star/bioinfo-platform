@@ -29,6 +29,7 @@ class RemoteRunnerConfig:
     work_dir: str = str(DEFAULT_DATA_ROOT / "work")
     logs_dir: str = str(DEFAULT_DATA_ROOT / "logs")
     release_dir: str = ""
+    runner_python: str = ""
     managed_conda_command: str = ""
     managed_conda_root_prefix: str = ""
 
