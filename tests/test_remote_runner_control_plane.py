@@ -197,7 +197,7 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
     ensure_runtime_layout(load_remote_runner_config())
-    monkeypatch.setattr("apps.remote_runner.main.start_run_execution", lambda cfg, run_id, request_id: None)
+    monkeypatch.setattr("apps.remote_runner.main.start_run_execution", lambda cfg, run_id, request_id, run_spec: None)
 
     submit = asyncio.run(
         create_run(
