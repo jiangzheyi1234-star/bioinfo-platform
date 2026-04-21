@@ -43,3 +43,17 @@ class SSHConnectionRequest(BaseModel):
 class SSHTerminalCreateRequest(BaseModel):
     cols: int = Field(default=120, ge=40, le=240)
     rows: int = Field(default=28, ge=12, le=80)
+
+
+class RunSubmitRequest(BaseModel):
+    runId: str | None = None
+    requestId: str | None = None
+    pipelineId: str | None = None
+    runSpec: dict[str, Any] = Field(default_factory=dict)
+
+
+class UploadSubmitRequest(BaseModel):
+    serverId: str | None = None
+    filename: str = Field(min_length=1)
+    contentBase64: str = Field(min_length=1)
+    mimeType: str = "application/octet-stream"

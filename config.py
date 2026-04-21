@@ -11,6 +11,7 @@ import keyring
 import paramiko
 
 SSH_KEYRING_SERVICE = "H2OMeta.SSH"
+RUNNER_KEYRING_SERVICE = "H2OMeta.Runner"
 SSH_AUTH_MODES = {"password_ref", "key_file", "ssh_config", "agent"}
 
 def get_app_data_dir() -> Path:
@@ -59,6 +60,7 @@ def default_config() -> dict:
         },
         "linux": {"conda_executable": ""},
         "databases": {"db_root": ""},
+        "servers": {},
     }
 
 
@@ -121,15 +123,24 @@ def normalize_ssh_config(ssh_cfg: dict[str, Any] | None) -> dict[str, Any]:
         "auto_connect_on_startup": bool(raw.get("auto_connect_on_startup", False)),
     }
 
-
 def make_ssh_password_ref(host: str, port: int, user: str) -> str:
     return f"ssh://{user}@{host}:{port}"
+
+
+def make_runner_token_ref(server_id: str) -> str:
+    return f"runner://{server_id}"
 
 
 def store_ssh_password(*, host: str, port: int, user: str, password: str) -> str:
     password_ref = make_ssh_password_ref(host=host, port=port, user=user)
     keyring.set_password(SSH_KEYRING_SERVICE, password_ref, password)
     return password_ref
+
+
+def store_runner_token(*, server_id: str, token: str) -> str:
+    token_ref = make_runner_token_ref(server_id)
+    keyring.set_password(RUNNER_KEYRING_SERVICE, token_ref, token)
+    return token_ref
 
 
 def delete_ssh_password(password_ref: str) -> None:
@@ -145,6 +156,19 @@ def delete_ssh_password(password_ref: str) -> None:
         return
 
 
+def delete_runner_token(token_ref: str) -> None:
+    if not token_ref:
+        return
+    try:
+        keyring.delete_password(RUNNER_KEYRING_SERVICE, token_ref)
+    except keyring.errors.PasswordDeleteError:
+        return
+    except keyring.errors.KeyringError:
+        raise
+    except Exception:
+        return
+
+
 def resolve_ssh_password(cfg: dict) -> str:
     ssh = normalize_ssh_config(cfg.get("ssh", {}))
     password_ref = str(ssh.get("password_ref", "") or "").strip()
@@ -152,6 +176,13 @@ def resolve_ssh_password(cfg: dict) -> str:
         return ""
     password = keyring.get_password(SSH_KEYRING_SERVICE, password_ref)
     return str(password or "")
+
+
+def resolve_runner_token(token_ref: str) -> str:
+    if not token_ref:
+        return ""
+    token = keyring.get_password(RUNNER_KEYRING_SERVICE, token_ref)
+    return str(token or "")
 
 
 def get_default_ssh_config_path() -> Path:

@@ -1,5 +1,9 @@
 # H2OMeta Local API
 
+> **Authority note:** this README reflects the current route surface in `apps/api/main.py`.
+> The canonical v1 target backend contract lives in `docs/backend-contract-v1.md`.
+> If this README conflicts with that document, `docs/backend-contract-v1.md` wins.
+
 ## Run
 ```bash
 python3 -m apps.api.run

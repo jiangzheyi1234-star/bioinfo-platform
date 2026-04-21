@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from config import get_ssh_key_dir, make_ssh_password_ref, resolve_ssh_password
 from core.app_runtime.service import RuntimeService, ServiceLocator
+from core.remote.ssh_service import SSHService
 
 
 class DummyTransport:
@@ -13,6 +14,25 @@ class DummyTransport:
 class DummyClient:
     def get_transport(self) -> DummyTransport:
         return DummyTransport()
+
+    def close(self) -> None:
+        return None
+
+
+class MutableTransport:
+    def __init__(self, active: bool = True) -> None:
+        self.active = active
+
+    def is_active(self) -> bool:
+        return self.active
+
+
+class MutableClient:
+    def __init__(self, transport: MutableTransport):
+        self._transport = transport
+
+    def get_transport(self) -> MutableTransport:
+        return self._transport
 
     def close(self) -> None:
         return None
@@ -78,7 +98,7 @@ def test_connect_ssh_persists_key_mode_only() -> None:
         status = service.connect_ssh({"auth_mode": "key_file", "identity_ref": "C:/keys/id_ed25519"})
 
     assert status["connected"] is True
-    assert saved["ssh"]["auto_connect_on_startup"] is True
+    assert saved["ssh"]["auto_connect_on_startup"] is False
     assert saved["ssh"]["identity_ref"] == "C:/keys/id_ed25519"
     assert saved["ssh"]["auth_mode"] == "key_file"
 
@@ -155,7 +175,7 @@ def test_connect_ssh_persists_password_ref_for_password_auth() -> None:
 
     assert status["connected"] is True
     assert saved["ssh"]["password_ref"] == "ssh://tester@192.168.0.10:22"
-    assert saved["ssh"]["auto_connect_on_startup"] is True
+    assert saved["ssh"]["auto_connect_on_startup"] is False
     assert saved["ssh"]["auth_mode"] == "password_ref"
     store_password.assert_called_once()
 
@@ -242,6 +262,22 @@ def test_connect_ssh_uses_agent_mode_without_password_or_identity() -> None:
 
     assert status["connected"] is True
     assert saved["ssh"]["auth_mode"] == "agent"
-    assert saved["ssh"]["auto_connect_on_startup"] is True
+    assert saved["ssh"]["auto_connect_on_startup"] is False
     connect_mock.assert_called_once()
     assert connect_mock.call_args.kwargs["use_agent"] is True
+
+
+def test_ssh_reconnect_closes_existing_tunnels() -> None:
+    transport = MutableTransport(active=True)
+    service = SSHService(initial_client=MutableClient(transport))
+    closed = {"count": 0}
+
+    class FakeTunnel:
+        def close(self) -> None:
+            closed["count"] += 1
+
+    service._tunnels["runner-srv"] = FakeTunnel()
+    service._on_reconnect(MutableClient(MutableTransport(active=True)))
+
+    assert closed["count"] == 1
+    assert service._tunnels == {}

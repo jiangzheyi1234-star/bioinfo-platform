@@ -1,5 +1,13 @@
 # H2OMeta Web UI (Next.js)
 
+> **Authority note:** this README describes the current frontend baseline.
+> The canonical v1 frontend principles and target plan live in:
+>
+> - `docs/frontend-best-practices.md`
+> - `docs/frontend-plan-v1.md`
+>
+> If this README conflicts with those documents, the docs under `docs/` win.
+
 ## Dev
 ```bash
 cd apps/web
