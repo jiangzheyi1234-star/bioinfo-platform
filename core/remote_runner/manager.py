@@ -60,29 +60,44 @@ class RemoteRunnerManager:
             )
             local_config_path = Path(handle.name)
 
-        ssh_service.run(
+        self._run_checked(
+            ssh_service,
             f"mkdir -p {remote_root}/releases {remote_shared}/config {remote_shared}/data {remote_shared}/logs {remote_shared}/uploads {remote_shared}/results {remote_shared}/work",
+            step="prepare remote runner directories",
             timeout=20,
         )
         ssh_service.upload(str(bundle.archive_path), remote_bundle)
         ssh_service.upload(str(local_config_path), remote_config)
-        ssh_service.run(f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release}", timeout=60)
-        ssh_service.run(
+        self._run_checked(
+            ssh_service,
+            f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release}",
+            step="extract remote runner bundle",
+            timeout=60,
+        )
+        self._run_checked(
+            ssh_service,
             f"python3 -m venv {remote_release}/.venv && {remote_release}/.venv/bin/pip install -r {remote_release}/remote_runner/requirements.txt",
+            step="install remote runner dependencies",
             timeout=180,
         )
-        ssh_service.run(
+        self._run_checked(
+            ssh_service,
             f'H2OMETA_REMOTE_CONFIG="{remote_config}" {remote_release}/.venv/bin/python -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
+            step="initialize remote runner layout",
             timeout=60,
         )
         if mode == "systemd_user":
-            ssh_service.run(
+            self._run_checked(
+                ssh_service,
                 f"mkdir -p ~/.config/systemd/user && cp {remote_release}/h2ometa-remote.service ~/.config/systemd/user/h2ometa-remote.service && ln -sfn {remote_release} {remote_current} && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service",
+                step="start remote runner service",
                 timeout=60,
             )
         else:
-            ssh_service.run(
+            self._run_checked(
+                ssh_service,
                 f"ln -sfn {remote_release} {remote_current} && bash {remote_current}/start_service.sh {remote_config} {remote_log}",
+                step="start remote runner service",
                 timeout=30,
             )
 
@@ -364,3 +379,11 @@ class RemoteRunnerManager:
         if not home_dir:
             raise RemoteRunnerManagerError("remote home directory is empty")
         return home_dir
+
+    @staticmethod
+    def _run_checked(ssh_service, cmd: str, *, step: str, timeout: int) -> tuple[int, str, str]:
+        exit_code, stdout, stderr = ssh_service.run(cmd, timeout=timeout)
+        if exit_code != 0:
+            detail = stderr.strip() or stdout.strip() or f"{step} failed"
+            raise RemoteRunnerManagerError(f"{step}: {detail}")
+        return exit_code, stdout, stderr
