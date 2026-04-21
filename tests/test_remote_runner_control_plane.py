@@ -359,3 +359,47 @@ def test_bootstrap_does_not_persist_local_token_before_remote_service_is_healthy
             raise AssertionError("bootstrap should fail when service startup fails")
 
     store_token.assert_not_called()
+
+
+def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+
+    class FakeBundle:
+        archive_path = Path(__file__)
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "background_process\n", ""
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "python3 -m venv" in cmd:
+                return 1, "", "pip install failed"
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            return None
+
+    fake_ssh = FakeSSH()
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.store_runner_token"
+    ) as store_token:
+        try:
+            manager.bootstrap(
+                server_id="srv_test",
+                server={"label": "demo"},
+                ssh_service=fake_ssh,
+                server_record={},
+            )
+        except RemoteRunnerManagerError as exc:
+            assert "pip install failed" in str(exc)
+            assert "install remote runner dependencies" in str(exc)
+        else:
+            raise AssertionError("bootstrap should fail when dependency install exits non-zero")
+
+    store_token.assert_not_called()
