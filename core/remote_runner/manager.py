@@ -4,6 +4,7 @@ import json
 import secrets
 import shlex
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,8 @@ class RemoteRunnerManager:
             remote_managed_root_prefix = f"{remote_tools_root}/micromamba-root"
             remote_managed_micromamba = f"{remote_tools_bin}/micromamba"
             remote_managed_conda = f"{remote_tools_bin}/conda"
+            remote_runner_environment = f"{remote_tools_root}/runner-env"
+            remote_runner_python = f"{remote_runner_environment}/bin/python"
             bootstrap_metadata: dict[str, Any] = {
                 "preflight": {
                     "launcher": {
@@ -53,25 +56,19 @@ class RemoteRunnerManager:
                 "tooling": {},
             }
 
-            bootstrap_metadata["preflight"]["python"] = self._preflight_python(ssh_service)
-
             with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
                 json.dump(
-                    {
-                        "service_name": "h2ometa-remote",
-                        "version": version,
-                        "mode": mode,
-                        "bind_host": "127.0.0.1",
-                        "bind_port": remote_port,
-                        "token": token,
-                        "data_root": f"{remote_shared}",
-                        "db_path": f"{remote_shared}/data/runner.db",
-                        "uploads_dir": f"{remote_shared}/uploads",
-                        "results_dir": f"{remote_shared}/results",
-                        "work_dir": f"{remote_shared}/work",
-                        "logs_dir": f"{remote_shared}/logs",
-                        "release_dir": remote_release,
-                    },
+                    self._build_remote_config_payload(
+                        version=version,
+                        mode=mode,
+                        remote_port=remote_port,
+                        token=token,
+                        remote_shared=remote_shared,
+                        remote_release=remote_release,
+                        runner_python=remote_runner_python,
+                        managed_conda_command=remote_managed_conda,
+                        managed_conda_root_prefix=remote_managed_root_prefix,
+                    ),
                     handle,
                     indent=2,
                 )
@@ -87,33 +84,24 @@ class RemoteRunnerManager:
             ssh_service.upload(str(local_config_path), remote_config)
             self._run_checked(
                 ssh_service,
-                f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release}",
+                f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release} && chmod 0755 {remote_release}/*.sh",
                 step="extract remote runner bundle",
                 timeout=60,
             )
-            self._run_checked(
+            bootstrap_metadata["tooling"] = self._ensure_managed_tooling(
                 ssh_service,
-                f"python3 -m venv {remote_release}/.venv",
-                step="create remote runner virtualenv",
-                timeout=60,
-            )
-            self._run_checked(
-                ssh_service,
-                f"{remote_release}/.venv/bin/pip install -r {remote_release}/remote_runner/requirements.txt",
-                step="install remote runner dependencies",
-                timeout=180,
-            )
-            bootstrap_metadata["tooling"]["workflow_runtime"] = self._ensure_workflow_runtime(
-                ssh_service,
+                remote_release=remote_release,
                 remote_tools_root=remote_tools_root,
                 remote_tools_bin=remote_tools_bin,
                 remote_managed_root_prefix=remote_managed_root_prefix,
                 remote_managed_micromamba=remote_managed_micromamba,
                 remote_managed_conda=remote_managed_conda,
+                remote_runner_environment=remote_runner_environment,
+                remote_runner_python=remote_runner_python,
             )
             self._run_checked(
                 ssh_service,
-                f'cd {remote_release} && H2OMETA_REMOTE_CONFIG="{remote_config}" ./.venv/bin/python -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
+                f'cd {remote_release} && H2OMETA_REMOTE_CONFIG="{remote_config}" {remote_runner_python} -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
                 step="initialize remote runner layout",
                 timeout=60,
             )
@@ -142,7 +130,7 @@ class RemoteRunnerManager:
                 token=token,
                 timeout=5,
             )
-            health = client.get_health()
+            health = self._wait_for_runner_health(client)
             token_ref = store_runner_token(server_id=server_id, token=token)
             return {
                 "bootstrap_version": version,
@@ -324,21 +312,26 @@ class RemoteRunnerManager:
 
             with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
                 json.dump(
-                    {
-                        "service_name": "h2ometa-remote",
-                        "version": version,
-                        "mode": str(record.get("runner_mode") or "background_process"),
-                        "bind_host": "127.0.0.1",
-                        "bind_port": int(record.get("service_port") or REMOTE_RUNNER_PORT),
-                        "token": token,
-                        "data_root": f"{home_dir}/.h2ometa/runner/shared",
-                        "db_path": f"{home_dir}/.h2ometa/runner/shared/data/runner.db",
-                        "uploads_dir": f"{home_dir}/.h2ometa/runner/shared/uploads",
-                        "results_dir": f"{home_dir}/.h2ometa/runner/shared/results",
-                        "work_dir": f"{home_dir}/.h2ometa/runner/shared/work",
-                        "logs_dir": f"{home_dir}/.h2ometa/runner/shared/logs",
-                        "release_dir": f"{home_dir}/.h2ometa/runner/releases/{version}",
-                    },
+                    self._build_remote_config_payload(
+                        version=version,
+                        mode=str(record.get("runner_mode") or "background_process"),
+                        remote_port=int(record.get("service_port") or REMOTE_RUNNER_PORT),
+                        token=token,
+                        remote_shared=f"{home_dir}/.h2ometa/runner/shared",
+                        remote_release=f"{home_dir}/.h2ometa/runner/releases/{version}",
+                        runner_python=str(
+                            (((record.get("bootstrap_metadata") or {}).get("tooling") or {}).get("runner_runtime") or {}).get("python")
+                            or ""
+                        ),
+                        managed_conda_command=str(
+                            (((record.get("bootstrap_metadata") or {}).get("tooling") or {}).get("workflow_runtime") or {}).get("command")
+                            or ""
+                        ),
+                        managed_conda_root_prefix=str(
+                            (((record.get("bootstrap_metadata") or {}).get("tooling") or {}).get("workflow_runtime") or {}).get("root_prefix")
+                            or ""
+                        ),
+                    ),
                     handle,
                     indent=2,
                 )
@@ -426,33 +419,51 @@ class RemoteRunnerManager:
             raise RemoteRunnerManagerError("remote home directory is empty")
         return home_dir
 
-    def _preflight_python(self, ssh_service) -> dict[str, Any]:
-        _exit_code, stdout, _stderr = self._run_checked(
-            ssh_service,
-            """python3 -c "import json, platform, sys; print(json.dumps({'executable': sys.executable, 'version': platform.python_version()}))" """,
-            step="verify remote python3 availability",
-            timeout=20,
-        )
-        details = json.loads(stdout.strip() or "{}")
+    @staticmethod
+    def _build_remote_config_payload(
+        *,
+        version: str,
+        mode: str,
+        remote_port: int,
+        token: str,
+        remote_shared: str,
+        remote_release: str,
+        runner_python: str,
+        managed_conda_command: str,
+        managed_conda_root_prefix: str,
+    ) -> dict[str, Any]:
         return {
-            "ok": True,
-            "executable": str(details.get("executable") or "python3"),
-            "version": str(details.get("version") or ""),
+            "service_name": "h2ometa-remote",
+            "version": version,
+            "mode": mode,
+            "bind_host": "127.0.0.1",
+            "bind_port": remote_port,
+            "token": token,
+            "data_root": f"{remote_shared}",
+            "db_path": f"{remote_shared}/data/runner.db",
+            "uploads_dir": f"{remote_shared}/uploads",
+            "results_dir": f"{remote_shared}/results",
+            "work_dir": f"{remote_shared}/work",
+            "logs_dir": f"{remote_shared}/logs",
+            "release_dir": remote_release,
+            "runner_python": runner_python,
+            "managed_conda_command": managed_conda_command,
+            "managed_conda_root_prefix": managed_conda_root_prefix,
         }
 
-    def _ensure_workflow_runtime(
+    def _ensure_managed_tooling(
         self,
         ssh_service,
         *,
+        remote_release: str,
         remote_tools_root: str,
         remote_tools_bin: str,
         remote_managed_root_prefix: str,
         remote_managed_micromamba: str,
         remote_managed_conda: str,
+        remote_runner_environment: str,
+        remote_runner_python: str,
     ) -> dict[str, Any]:
-        existing = self._detect_workflow_runtime(ssh_service)
-        if existing is not None:
-            return existing
         self._install_managed_micromamba(
             ssh_service,
             remote_tools_root=remote_tools_root,
@@ -461,31 +472,63 @@ class RemoteRunnerManager:
             remote_managed_micromamba=remote_managed_micromamba,
             remote_managed_conda=remote_managed_conda,
         )
+        self._create_managed_runner_environment(
+            ssh_service,
+            remote_release=remote_release,
+            remote_managed_root_prefix=remote_managed_root_prefix,
+            remote_managed_micromamba=remote_managed_micromamba,
+            remote_runner_environment=remote_runner_environment,
+            remote_runner_python=remote_runner_python,
+        )
         return {
-            "source": "managed",
-            "provider": "micromamba",
-            "command": remote_managed_conda,
-            "executable": remote_managed_micromamba,
-            "root_prefix": remote_managed_root_prefix,
-            "bin_dir": remote_tools_bin,
+            "workflow_runtime": {
+                "source": "managed",
+                "provider": "micromamba",
+                "command": remote_managed_conda,
+                "executable": remote_managed_micromamba,
+                "root_prefix": remote_managed_root_prefix,
+                "bin_dir": remote_tools_bin,
+            },
+            "runner_runtime": {
+                "source": "managed",
+                "provider": "micromamba",
+                "environment": remote_runner_environment,
+                "python": remote_runner_python,
+                "root_prefix": remote_managed_root_prefix,
+            },
         }
 
-    @staticmethod
-    def _detect_workflow_runtime(ssh_service) -> dict[str, Any] | None:
-        for provider in ("conda", "mamba", "micromamba"):
-            _exit_code, stdout, _stderr = ssh_service.run(
-                f"command -v {provider} >/dev/null 2>&1 && command -v {provider} || true",
-                timeout=10,
-            )
-            command = stdout.strip()
-            if command:
-                return {
-                    "source": "system",
-                    "provider": provider,
-                    "command": command,
-                    "executable": command,
-                }
-        return None
+    def _create_managed_runner_environment(
+        self,
+        ssh_service,
+        *,
+        remote_release: str,
+        remote_managed_root_prefix: str,
+        remote_managed_micromamba: str,
+        remote_runner_environment: str,
+        remote_runner_python: str,
+    ) -> None:
+        self._run_checked(
+            ssh_service,
+            f"""
+set -euo pipefail
+export MAMBA_ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)}
+MICROMAMBA_BIN={shlex.quote(remote_managed_micromamba)}
+RUNNER_ENV={shlex.quote(remote_runner_environment)}
+if [ -x {shlex.quote(remote_runner_python)} ]; then
+  exit 0
+fi
+"$MICROMAMBA_BIN" create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip
+""",
+            step="create managed runner environment",
+            timeout=240,
+        )
+        self._run_checked(
+            ssh_service,
+            f"{remote_runner_python} -m pip install -r {remote_release}/remote_runner/requirements.txt",
+            step="install remote runner dependencies into managed environment",
+            timeout=240,
+        )
 
     def _install_managed_micromamba(
         self,
@@ -504,6 +547,9 @@ TOOLS_BIN={shlex.quote(remote_tools_bin)}
 ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)}
 MICROMAMBA_BIN={shlex.quote(remote_managed_micromamba)}
 CONDA_SHIM={shlex.quote(remote_managed_conda)}
+if [ -x "$MICROMAMBA_BIN" ] && [ -x "$CONDA_SHIM" ]; then
+  exit 0
+fi
 TMPDIR="$(mktemp -d)"
 cleanup() {{
   rm -rf "$TMPDIR"
@@ -541,6 +587,24 @@ ln -sfn "$MICROMAMBA_BIN" "$TOOLS_BIN/mamba"
             step="install managed workflow runtime",
             timeout=180,
         )
+
+    @staticmethod
+    def _wait_for_runner_health(
+        client: RemoteRunnerHttpClient,
+        *,
+        attempts: int = 8,
+        delay_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return client.get_health()
+            except Exception as exc:
+                last_error = exc
+                if attempt == attempts - 1:
+                    break
+                time.sleep(delay_seconds)
+        raise RemoteRunnerManagerError(str(last_error) or "remote runner health check failed")
 
     @staticmethod
     def _run_checked(ssh_service, cmd: str, *, step: str, timeout: int) -> tuple[int, str, str]:

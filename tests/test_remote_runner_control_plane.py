@@ -31,6 +31,7 @@ from apps.remote_runner.main import (
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.executor import run_snakemake_execution
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
+from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 
 
@@ -51,7 +52,79 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "run_workflow.sh").exists()
     assert "launch_remote_runner.sh" in (bundle.bundle_dir / "start_service.sh").read_text(encoding="utf-8")
     assert "launch_remote_runner.sh" in (bundle.bundle_dir / "h2ometa-remote.service").read_text(encoding="utf-8")
+    launch_script_path = bundle.bundle_dir / "launch_remote_runner.sh"
+    launch_script = launch_script_path.read_text(encoding="utf-8")
+    assert "RUNNER_PYTHON" in launch_script
+    assert "runner_python" in launch_script
+    assert 'cd "$RUN_DIR"' in launch_script
+    assert b"\r\n" not in launch_script_path.read_bytes()
     assert bundle.archive_path.exists()
+
+
+def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    executed: list[str] = []
+
+    class FakeBundle:
+        archive_path = Path(__file__)
+
+    class FakeTunnel:
+        local_port = 18765
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            executed.append(cmd)
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "background_process\n", ""
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+                return 0, "", ""
+            if 'create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip' in cmd:
+                return 0, "", ""
+            if "runner-env/bin/python -m pip install -r" in cmd:
+                return 0, "", ""
+            if "ensure_runtime_layout" in cmd:
+                return 0, "", ""
+            if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            return None
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            return FakeTunnel()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch("core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"):
+        manager.bootstrap(
+            server_id="srv_test",
+            server={"label": "demo"},
+            ssh_service=FakeSSH(),
+            server_record={},
+        )
+
+    extract_cmd = next(cmd for cmd in executed if "tar -xzf" in cmd)
+    assert "chmod 0755" in extract_cmd
 
 
 def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
@@ -613,16 +686,16 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
                 return 0, "/home/tester", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if "python3 -c" in cmd and "platform.python_version" in cmd:
-                return 0, '{"executable":"/usr/bin/python3","version":"3.12.2"}', ""
+            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+                return 0, "", ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "/.venv/bin/pip install -r" in cmd:
-                return 1, "", "pip install failed"
-            if "python3 -m venv" in cmd:
+            if 'create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip' in cmd:
                 return 0, "", ""
+            if "runner-env/bin/python -m pip install -r" in cmd:
+                return 1, "", "pip install failed"
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
@@ -661,19 +734,11 @@ def test_bootstrap_fails_fast_when_managed_workflow_runtime_install_fails(monkey
                 return 0, "/home/tester", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if "python3 -c" in cmd and "platform.python_version" in cmd:
-                return 0, '{"executable":"/usr/bin/python3","version":"3.12.2"}', ""
             if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
                 return 1, "", "curl or wget is required to install managed micromamba"
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
-                return 0, "", ""
-            if "python3 -m venv" in cmd:
-                return 0, "", ""
-            if "/.venv/bin/pip install -r" in cmd:
-                return 0, "", ""
-            if "command -v conda" in cmd or "command -v mamba" in cmd or "command -v micromamba" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
@@ -716,20 +781,16 @@ def test_bootstrap_auto_installs_managed_micromamba_when_host_runtime_is_missing
                 return 0, "/home/tester", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if "python3 -c" in cmd and "platform.python_version" in cmd:
-                return 0, '{"executable":"/usr/bin/python3","version":"3.12.2"}', ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "python3 -m venv" in cmd:
+            if 'create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip' in cmd:
                 return 0, "", ""
-            if "/.venv/bin/pip install -r" in cmd:
-                return 0, "", ""
-            if "command -v conda" in cmd or "command -v mamba" in cmd or "command -v micromamba" in cmd:
+            if "runner-env/bin/python -m pip install -r" in cmd:
                 return 0, "", ""
             if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
-                return 0, "/home/tester/.h2ometa/runner/shared/tools/bin/micromamba", ""
+                return 0, "", ""
             if "ensure_runtime_layout" in cmd:
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
@@ -766,16 +827,96 @@ def test_bootstrap_auto_installs_managed_micromamba_when_host_runtime_is_missing
         )
 
     metadata = result["bootstrap_metadata"]
-    assert metadata["preflight"]["python"]["version"] == "3.12.2"
     assert metadata["tooling"]["workflow_runtime"]["source"] == "managed"
     assert metadata["tooling"]["workflow_runtime"]["provider"] == "micromamba"
     assert metadata["tooling"]["workflow_runtime"]["command"] == "/home/tester/.h2ometa/runner/shared/tools/bin/conda"
     assert metadata["tooling"]["workflow_runtime"]["root_prefix"] == "/home/tester/.h2ometa/runner/shared/tools/micromamba-root"
+    assert metadata["tooling"]["runner_runtime"]["source"] == "managed"
+    assert metadata["tooling"]["runner_runtime"]["environment"] == "/home/tester/.h2ometa/runner/shared/tools/runner-env"
+    assert metadata["tooling"]["runner_runtime"]["python"] == "/home/tester/.h2ometa/runner/shared/tools/runner-env/bin/python"
     assert any("micro.mamba.pm/api/micromamba/linux-64/latest" in cmd for cmd in executed)
+    assert not any("python3 -m venv" in cmd for cmd in executed)
 
 
-def test_bootstrap_fails_fast_when_python3_is_missing(monkeypatch) -> None:
+def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> None:
     manager = RemoteRunnerManager()
+
+    class FakeBundle:
+        archive_path = Path(__file__)
+
+    class FakeTunnel:
+        local_port = 18765
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "systemd_user\n", ""
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+                return 0, "", ""
+            if 'create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip' in cmd:
+                return 0, "", ""
+            if "runner-env/bin/python -m pip install -r" in cmd:
+                return 0, "", ""
+            if "ensure_runtime_layout" in cmd:
+                return 0, "", ""
+            if "systemctl --user restart h2ometa-remote.service" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            return None
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            return FakeTunnel()
+
+    health_calls = {"count": 0}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            health_calls["count"] += 1
+            if health_calls["count"] < 3:
+                raise RemoteRunnerClientError("runner unreachable")
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+    monkeypatch.setattr("core.remote_runner.manager.time.sleep", lambda *_args, **_kwargs: None)
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch("core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"):
+        result = manager.bootstrap(
+            server_id="srv_test",
+            server={"label": "demo"},
+            ssh_service=FakeSSH(),
+            server_record={},
+        )
+
+    assert health_calls["count"] == 3
+    assert result["health"]["ready"]["ok"] is True
+
+
+def test_bootstrap_succeeds_without_system_python3_when_managed_runtime_is_available(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+
+    class FakeBundle:
+        archive_path = Path(__file__)
+
+    class FakeTunnel:
+        local_port = 18765
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
@@ -783,24 +924,49 @@ def test_bootstrap_fails_fast_when_python3_is_missing(monkeypatch) -> None:
                 return 0, "/home/tester", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if "python3 -c" in cmd and "platform.python_version" in cmd:
-                return 127, "", "python3: command not found"
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+                return 0, "", ""
+            if 'create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip' in cmd:
+                return 0, "", ""
+            if "runner-env/bin/python -m pip install -r" in cmd:
+                return 0, "", ""
+            if "ensure_runtime_layout" in cmd:
+                return 0, "", ""
+            if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
+                return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
-    with patch("core.remote_runner.manager.store_runner_token") as store_token:
-        try:
-            manager.bootstrap(
-                server_id="srv_test",
-                server={"label": "demo"},
-                ssh_service=FakeSSH(),
-                server_record={},
-            )
-        except RemoteRunnerManagerError as exc:
-            assert "verify remote python3 availability" in str(exc)
-            assert "python3: command not found" in str(exc)
-        else:
-            raise AssertionError("bootstrap should fail when python3 is unavailable")
+        def upload(self, local: str, remote: str) -> None:
+            return None
 
-    store_token.assert_not_called()
+        def ensure_local_tunnel(self, *args, **kwargs):
+            return FakeTunnel()
 
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
 
+        def get_health(self) -> dict[str, object]:
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch("core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"):
+        result = manager.bootstrap(
+            server_id="srv_test",
+            server={"label": "demo"},
+            ssh_service=FakeSSH(),
+            server_record={},
+        )
+
+    assert result["bootstrap_metadata"]["tooling"]["runner_runtime"]["python"].endswith("/shared/tools/runner-env/bin/python")
