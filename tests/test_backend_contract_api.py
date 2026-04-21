@@ -10,6 +10,10 @@ from apps.api.main import (
     accept_server_host_key,
     app,
     bootstrap_server,
+    close_terminal_session,
+    connect_ssh,
+    create_terminal_session,
+    disconnect_ssh,
     get_project,
     get_run,
     get_run_events,
@@ -17,14 +21,23 @@ from apps.api.main import (
     get_result,
     get_result_preview,
     get_server_health,
+    get_settings,
+    get_ssh_status,
     list_results,
     list_servers,
     refresh_server_health,
     rotate_server_token,
     submit_run,
+    update_settings,
     upload_file,
 )
-from apps.api.models import RunSubmitRequest, UploadSubmitRequest
+from apps.api.models import (
+    RunSubmitRequest,
+    SSHConnectionRequest,
+    SSHTerminalCreateRequest,
+    UpdateSettingsRequest,
+    UploadSubmitRequest,
+)
 from core.app_runtime.service import RuntimeService, ServiceLocator
 from core.data.project_manager import ProjectManager
 
@@ -39,6 +52,54 @@ def make_service(tmp_path: Path) -> RuntimeService:
     return service
 
 
+class FakeTerminalSession:
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+        self.closed = False
+        self.message = ""
+        self.resize_calls: list[tuple[int, int]] = []
+
+    def snapshot(self, cursor: int = 0) -> dict[str, object]:
+        return {
+            "session_id": self.session_id,
+            "cursor": cursor,
+            "output": "",
+            "connected": not self.closed,
+            "input_enabled": not self.closed,
+            "closed": self.closed,
+            "message": self.message,
+            "created_at": 0.0,
+            "closed_at": 1.0 if self.closed else None,
+        }
+
+    def send(self, data: str) -> None:
+        return None
+
+    def resize(self, cols: int, rows: int) -> None:
+        self.resize_calls.append((cols, rows))
+
+    def close(self, message: str = "终端会话已结束") -> None:
+        self.closed = True
+        self.message = message
+
+
+class FakeShellService:
+    def __init__(self) -> None:
+        self.is_connected = True
+        self.open_calls: list[tuple[int, int]] = []
+        self.sessions: dict[str, FakeTerminalSession] = {}
+
+    def open_terminal_session(self, cols: int = 120, rows: int = 28) -> FakeTerminalSession:
+        self.open_calls.append((cols, rows))
+        session_id = f"term_{len(self.sessions) + 1}"
+        session = FakeTerminalSession(session_id)
+        self.sessions[session_id] = session
+        return session
+
+    def close(self) -> None:
+        self.is_connected = False
+
+
 def test_get_project_contract(monkeypatch, tmp_path: Path) -> None:
     service = make_service(tmp_path)
     created = service.create_project("Project Alpha", "omics batch", open_after_create=False)
@@ -47,6 +108,133 @@ def test_get_project_contract(monkeypatch, tmp_path: Path) -> None:
     payload = asyncio.run(get_project(created["project_id"]))
     assert payload["data"]["project_id"] == created["project_id"]
     assert payload["data"]["name"] == "Project Alpha"
+
+
+def test_settings_contract_normalizes_ssh_shape_for_shell_main_path(monkeypatch, tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    cfg = {
+        "ssh": {
+            "auth_mode": "ssh_config",
+            "ssh_host_alias": "prod-box",
+            "password_ref": "ssh://legacy@192.168.0.10:22",
+            "identity_ref": "C:/keys/id_ed25519",
+            "host": "192.168.0.10",
+            "port": 22,
+            "user": "tester",
+            "timeout_sec": 5,
+            "remember_auth": True,
+            "auto_connect_on_startup": False,
+        }
+    }
+
+    def save_capture(next_cfg: dict) -> None:
+        cfg.clear()
+        cfg.update(next_cfg)
+
+    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    settings = asyncio.run(get_settings())["item"]
+    assert settings["ssh"]["auth_mode"] == "ssh_config"
+    assert settings["ssh"]["ssh_host_alias"] == "prod-box"
+    assert settings["ssh"]["password_ref"] == ""
+    assert settings["ssh"]["identity_ref"] == "C:/keys/id_ed25519"
+
+    updated = asyncio.run(
+        update_settings(
+            UpdateSettingsRequest(
+                patch={
+                    "ssh": {
+                        "auth_mode": "agent",
+                        "host": "192.168.0.20",
+                        "user": "runner",
+                        "identity_ref": "C:/keys/ignored_ed25519",
+                        "password_ref": "ssh://runner@192.168.0.20:22",
+                    }
+                }
+            )
+        )
+    )["item"]
+
+    assert updated["ssh"]["auth_mode"] == "agent"
+    assert updated["ssh"]["identity_ref"] == ""
+    assert updated["ssh"]["ssh_host_alias"] == ""
+    assert updated["ssh"]["password_ref"] == ""
+    assert cfg["ssh"]["host"] == "192.168.0.20"
+    assert cfg["ssh"]["user"] == "runner"
+
+
+def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
+    monkeypatch, tmp_path: Path
+) -> None:
+    service = make_service(tmp_path)
+    cfg = {
+        "ssh": {
+            "auth_mode": "key_file",
+            "ssh_host_alias": "",
+            "password_ref": "",
+            "identity_ref": "",
+            "remember_auth": True,
+            "host": "192.168.0.10",
+            "port": 22,
+            "user": "tester",
+            "timeout_sec": 5,
+            "auto_connect_on_startup": False,
+        }
+    }
+    fake_shell = FakeShellService()
+
+    def save_capture(next_cfg: dict) -> None:
+        cfg.clear()
+        cfg.update(next_cfg)
+
+    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr(
+        "core.app_runtime.service.ssh_connect",
+        lambda **kwargs: SimpleNamespace(ok=True, client=object(), message=""),
+    )
+    monkeypatch.setattr("core.app_runtime.service.SSHService", lambda *args, **kwargs: fake_shell)
+    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    connected = asyncio.run(
+        connect_ssh(
+            SSHConnectionRequest(
+                auth_mode="key_file",
+                host="192.168.0.10",
+                port=22,
+                user="tester",
+                identity_ref="C:/keys/id_ed25519",
+            )
+        )
+    )["item"]
+    assert connected["connected"] is True
+    assert connected["identity_ref"] == "C:/keys/id_ed25519"
+    assert connected["message"] == "SSH connected"
+    assert cfg["ssh"]["auth_mode"] == "key_file"
+    assert cfg["ssh"]["identity_ref"] == "C:/keys/id_ed25519"
+
+    status = asyncio.run(get_ssh_status())["item"]
+    assert status["connected"] is True
+    assert status["host"] == "192.168.0.10"
+    assert status["user"] == "tester"
+
+    terminal = asyncio.run(
+        create_terminal_session(SSHTerminalCreateRequest(cols=132, rows=33))
+    )["item"]
+    assert terminal["session_id"] == "term_1"
+    assert terminal["connected"] is True
+    assert fake_shell.open_calls == [(132, 33)]
+
+    closed = asyncio.run(close_terminal_session("term_1"))["item"]
+    assert closed == {"session_id": "term_1", "closed": True}
+    assert fake_shell.sessions["term_1"].closed is True
+
+    disconnected = asyncio.run(disconnect_ssh())["item"]
+    assert disconnected["connected"] is False
+    assert disconnected["message"] == "SSH disconnected"
+    assert disconnected["auto_connect_on_startup"] is False
 
 
 def test_servers_health_contract_exposes_reason_code(monkeypatch, tmp_path: Path) -> None:
