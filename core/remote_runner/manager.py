@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,21 @@ class RemoteRunnerManager:
             remote_log = f"{remote_shared}/logs/runner.log"
             remote_current = f"{remote_root}/current"
             remote_port = REMOTE_RUNNER_PORT
+            remote_tools_root = f"{remote_shared}/tools"
+            remote_tools_bin = f"{remote_tools_root}/bin"
+            remote_managed_root_prefix = f"{remote_tools_root}/micromamba-root"
+            remote_managed_micromamba = f"{remote_tools_bin}/micromamba"
+            remote_managed_conda = f"{remote_tools_bin}/conda"
+            bootstrap_metadata: dict[str, Any] = {
+                "preflight": {
+                    "launcher": {
+                        "mode": mode,
+                    }
+                },
+                "tooling": {},
+            }
+
+            bootstrap_metadata["preflight"]["python"] = self._preflight_python(ssh_service)
 
             with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
                 json.dump(
@@ -63,7 +79,7 @@ class RemoteRunnerManager:
 
             self._run_checked(
                 ssh_service,
-                f"mkdir -p {remote_root}/releases {remote_shared}/config {remote_shared}/data {remote_shared}/logs {remote_shared}/uploads {remote_shared}/results {remote_shared}/work",
+                f"mkdir -p {remote_root}/releases {remote_shared}/config {remote_shared}/data {remote_shared}/logs {remote_shared}/uploads {remote_shared}/results {remote_shared}/work {remote_tools_bin}",
                 step="prepare remote runner directories",
                 timeout=20,
             )
@@ -77,15 +93,23 @@ class RemoteRunnerManager:
             )
             self._run_checked(
                 ssh_service,
-                f"python3 -m venv {remote_release}/.venv && {remote_release}/.venv/bin/pip install -r {remote_release}/remote_runner/requirements.txt",
-                step="install remote runner dependencies",
-                timeout=180,
+                f"python3 -m venv {remote_release}/.venv",
+                step="create remote runner virtualenv",
+                timeout=60,
             )
             self._run_checked(
                 ssh_service,
-                "if command -v conda >/dev/null 2>&1 || command -v mamba >/dev/null 2>&1 || command -v micromamba >/dev/null 2>&1; then exit 0; fi; echo 'conda/mamba is required for Snakemake --use-conda' >&2; exit 1",
-                step="verify workflow runtime prerequisites",
-                timeout=20,
+                f"{remote_release}/.venv/bin/pip install -r {remote_release}/remote_runner/requirements.txt",
+                step="install remote runner dependencies",
+                timeout=180,
+            )
+            bootstrap_metadata["tooling"]["workflow_runtime"] = self._ensure_workflow_runtime(
+                ssh_service,
+                remote_tools_root=remote_tools_root,
+                remote_tools_bin=remote_tools_bin,
+                remote_managed_root_prefix=remote_managed_root_prefix,
+                remote_managed_micromamba=remote_managed_micromamba,
+                remote_managed_conda=remote_managed_conda,
             )
             self._run_checked(
                 ssh_service,
@@ -128,6 +152,7 @@ class RemoteRunnerManager:
                 "health": health,
                 "service_port": remote_port,
                 "server_label": server.get("label", ""),
+                "bootstrap_metadata": bootstrap_metadata,
             }
         except RemoteRunnerManagerError:
             raise
@@ -400,6 +425,122 @@ class RemoteRunnerManager:
         if not home_dir:
             raise RemoteRunnerManagerError("remote home directory is empty")
         return home_dir
+
+    def _preflight_python(self, ssh_service) -> dict[str, Any]:
+        _exit_code, stdout, _stderr = self._run_checked(
+            ssh_service,
+            """python3 -c "import json, platform, sys; print(json.dumps({'executable': sys.executable, 'version': platform.python_version()}))" """,
+            step="verify remote python3 availability",
+            timeout=20,
+        )
+        details = json.loads(stdout.strip() or "{}")
+        return {
+            "ok": True,
+            "executable": str(details.get("executable") or "python3"),
+            "version": str(details.get("version") or ""),
+        }
+
+    def _ensure_workflow_runtime(
+        self,
+        ssh_service,
+        *,
+        remote_tools_root: str,
+        remote_tools_bin: str,
+        remote_managed_root_prefix: str,
+        remote_managed_micromamba: str,
+        remote_managed_conda: str,
+    ) -> dict[str, Any]:
+        existing = self._detect_workflow_runtime(ssh_service)
+        if existing is not None:
+            return existing
+        self._install_managed_micromamba(
+            ssh_service,
+            remote_tools_root=remote_tools_root,
+            remote_tools_bin=remote_tools_bin,
+            remote_managed_root_prefix=remote_managed_root_prefix,
+            remote_managed_micromamba=remote_managed_micromamba,
+            remote_managed_conda=remote_managed_conda,
+        )
+        return {
+            "source": "managed",
+            "provider": "micromamba",
+            "command": remote_managed_conda,
+            "executable": remote_managed_micromamba,
+            "root_prefix": remote_managed_root_prefix,
+            "bin_dir": remote_tools_bin,
+        }
+
+    @staticmethod
+    def _detect_workflow_runtime(ssh_service) -> dict[str, Any] | None:
+        for provider in ("conda", "mamba", "micromamba"):
+            _exit_code, stdout, _stderr = ssh_service.run(
+                f"command -v {provider} >/dev/null 2>&1 && command -v {provider} || true",
+                timeout=10,
+            )
+            command = stdout.strip()
+            if command:
+                return {
+                    "source": "system",
+                    "provider": provider,
+                    "command": command,
+                    "executable": command,
+                }
+        return None
+
+    def _install_managed_micromamba(
+        self,
+        ssh_service,
+        *,
+        remote_tools_root: str,
+        remote_tools_bin: str,
+        remote_managed_root_prefix: str,
+        remote_managed_micromamba: str,
+        remote_managed_conda: str,
+    ) -> None:
+        install_cmd = f"""
+set -euo pipefail
+TOOLS_ROOT={shlex.quote(remote_tools_root)}
+TOOLS_BIN={shlex.quote(remote_tools_bin)}
+ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)}
+MICROMAMBA_BIN={shlex.quote(remote_managed_micromamba)}
+CONDA_SHIM={shlex.quote(remote_managed_conda)}
+TMPDIR="$(mktemp -d)"
+cleanup() {{
+  rm -rf "$TMPDIR"
+}}
+trap cleanup EXIT
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64|Linux:amd64) URL="https://micro.mamba.pm/api/micromamba/linux-64/latest" ;;
+  Linux:aarch64|Linux:arm64) URL="https://micro.mamba.pm/api/micromamba/linux-aarch64/latest" ;;
+  Darwin:x86_64) URL="https://micro.mamba.pm/api/micromamba/osx-64/latest" ;;
+  Darwin:arm64) URL="https://micro.mamba.pm/api/micromamba/osx-arm64/latest" ;;
+  *) echo "unsupported platform for managed micromamba: $(uname -s):$(uname -m)" >&2; exit 1 ;;
+esac
+mkdir -p "$TOOLS_BIN" "$ROOT_PREFIX"
+if command -v curl >/dev/null 2>&1; then
+  curl -Ls "$URL" | tar -xvj -C "$TMPDIR" bin/micromamba >/dev/null
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO- "$URL" | tar -xvj -C "$TMPDIR" bin/micromamba >/dev/null
+else
+  echo "curl or wget is required to install managed micromamba" >&2
+  exit 1
+fi
+cp "$TMPDIR/bin/micromamba" "$MICROMAMBA_BIN"
+chmod 0755 "$MICROMAMBA_BIN"
+cat > "$CONDA_SHIM" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exec {shlex.quote(remote_managed_micromamba)} "$@"
+EOF
+chmod 0755 "$CONDA_SHIM"
+ln -sfn "$MICROMAMBA_BIN" "$TOOLS_BIN/mamba"
+"""
+        self._run_checked(
+            ssh_service,
+            install_cmd,
+            step="install managed workflow runtime",
+            timeout=180,
+        )
 
     @staticmethod
     def _run_checked(ssh_service, cmd: str, *, step: str, timeout: int) -> tuple[int, str, str]:
