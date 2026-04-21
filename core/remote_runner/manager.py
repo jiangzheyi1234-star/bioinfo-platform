@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from config import resolve_runner_token, store_runner_token
-from core.remote_runner.bundle import REMOTE_RUNNER_PORT, REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
+from core.remote_runner.bundle import (
+    REMOTE_RUNNER_PORT,
+    REMOTE_RUNNER_VERSION,
+    LocalRunnerRuntimePackager,
+    RemoteRunnerBundleBuilder,
+)
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 
 
@@ -18,8 +23,13 @@ class RemoteRunnerManagerError(RuntimeError):
 
 
 class RemoteRunnerManager:
-    def __init__(self, bundle_builder: RemoteRunnerBundleBuilder | None = None):
+    def __init__(
+        self,
+        bundle_builder: RemoteRunnerBundleBuilder | None = None,
+        runtime_packager: LocalRunnerRuntimePackager | None = None,
+    ):
         self._bundle_builder = bundle_builder or RemoteRunnerBundleBuilder()
+        self._runtime_packager = runtime_packager or LocalRunnerRuntimePackager()
 
     def bootstrap(self, **kwargs) -> dict[str, Any]:
         try:
@@ -27,7 +37,9 @@ class RemoteRunnerManager:
             server = kwargs["server"]
             ssh_service = kwargs["ssh_service"]
             version = REMOTE_RUNNER_VERSION
+            remote_platform = self._detect_remote_platform(ssh_service)
             bundle = self._bundle_builder.build(version=version)
+            runtime_artifact = self._runtime_packager.build(target_platform=remote_platform)
             home_dir = self._resolve_remote_home(ssh_service)
             mode = self._detect_mode(ssh_service)
             token = secrets.token_urlsafe(24)
@@ -36,6 +48,7 @@ class RemoteRunnerManager:
             remote_release = f"{remote_root}/releases/{version}"
             remote_shared = f"{remote_root}/shared"
             remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"
+            remote_runtime_archive = f"{remote_root}/runner-runtime-{runtime_artifact.fingerprint}.tar.gz"
             remote_config = f"{remote_shared}/config/runner.json"
             remote_log = f"{remote_shared}/logs/runner.log"
             remote_current = f"{remote_root}/current"
@@ -45,13 +58,14 @@ class RemoteRunnerManager:
             remote_managed_root_prefix = f"{remote_tools_root}/micromamba-root"
             remote_managed_micromamba = f"{remote_tools_bin}/micromamba"
             remote_managed_conda = f"{remote_tools_bin}/conda"
-            remote_runner_environment = f"{remote_tools_root}/runner-env"
-            remote_runner_python = f"{remote_runner_environment}/bin/python"
+            remote_runner_environment = f"{remote_release}/runner-env"
+            remote_runner_python = f"{remote_release}/{runtime_artifact.python_relative_path}"
             bootstrap_metadata: dict[str, Any] = {
                 "preflight": {
                     "launcher": {
                         "mode": mode,
-                    }
+                    },
+                    "platform": remote_platform,
                 },
                 "tooling": {},
             }
@@ -81,24 +95,28 @@ class RemoteRunnerManager:
                 timeout=20,
             )
             ssh_service.upload(str(bundle.archive_path), remote_bundle)
+            ssh_service.upload(str(runtime_artifact.archive_path), remote_runtime_archive)
             ssh_service.upload(str(local_config_path), remote_config)
             self._run_checked(
                 ssh_service,
-                f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release} && chmod 0755 {remote_release}/*.sh",
+                f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release} && tar -xzf {remote_runtime_archive} -C {remote_release} && chmod 0755 {remote_release}/*.sh",
                 step="extract remote runner bundle",
                 timeout=60,
             )
-            bootstrap_metadata["tooling"] = self._ensure_managed_tooling(
+            bootstrap_metadata["tooling"] = self._ensure_workflow_runtime(
                 ssh_service,
-                remote_release=remote_release,
                 remote_tools_root=remote_tools_root,
                 remote_tools_bin=remote_tools_bin,
                 remote_managed_root_prefix=remote_managed_root_prefix,
                 remote_managed_micromamba=remote_managed_micromamba,
                 remote_managed_conda=remote_managed_conda,
-                remote_runner_environment=remote_runner_environment,
-                remote_runner_python=remote_runner_python,
             )
+            bootstrap_metadata["tooling"]["runner_runtime"] = {
+                "source": "bundled",
+                "artifact": runtime_artifact.fingerprint,
+                "environment": remote_runner_environment,
+                "python": remote_runner_python,
+            }
             self._run_checked(
                 ssh_service,
                 f'cd {remote_release} && H2OMETA_REMOTE_CONFIG="{remote_config}" {remote_runner_python} -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
@@ -410,6 +428,22 @@ class RemoteRunnerManager:
         return "background_process"
 
     @staticmethod
+    def _detect_remote_platform(ssh_service) -> str:
+        exit_code, stdout, stderr = ssh_service.run('printf "%s:%s" "$(uname -s)" "$(uname -m)"', timeout=10)
+        if exit_code != 0:
+            raise RemoteRunnerManagerError(stderr.strip() or stdout.strip() or "failed to detect remote platform")
+        mapping = {
+            "Linux:x86_64": "linux-64",
+            "Linux:amd64": "linux-64",
+            "Linux:aarch64": "linux-aarch64",
+            "Linux:arm64": "linux-aarch64",
+        }
+        signature = stdout.strip()
+        if signature not in mapping:
+            raise RemoteRunnerManagerError(f"unsupported remote platform: {signature or 'unknown'}")
+        return mapping[signature]
+
+    @staticmethod
     def _resolve_remote_home(ssh_service) -> str:
         exit_code, stdout, stderr = ssh_service.run('printf "%s" "$HOME"', timeout=10)
         if exit_code != 0:
@@ -451,18 +485,15 @@ class RemoteRunnerManager:
             "managed_conda_root_prefix": managed_conda_root_prefix,
         }
 
-    def _ensure_managed_tooling(
+    def _ensure_workflow_runtime(
         self,
         ssh_service,
         *,
-        remote_release: str,
         remote_tools_root: str,
         remote_tools_bin: str,
         remote_managed_root_prefix: str,
         remote_managed_micromamba: str,
         remote_managed_conda: str,
-        remote_runner_environment: str,
-        remote_runner_python: str,
     ) -> dict[str, Any]:
         self._install_managed_micromamba(
             ssh_service,
@@ -471,14 +502,6 @@ class RemoteRunnerManager:
             remote_managed_root_prefix=remote_managed_root_prefix,
             remote_managed_micromamba=remote_managed_micromamba,
             remote_managed_conda=remote_managed_conda,
-        )
-        self._create_managed_runner_environment(
-            ssh_service,
-            remote_release=remote_release,
-            remote_managed_root_prefix=remote_managed_root_prefix,
-            remote_managed_micromamba=remote_managed_micromamba,
-            remote_runner_environment=remote_runner_environment,
-            remote_runner_python=remote_runner_python,
         )
         return {
             "workflow_runtime": {
@@ -489,46 +512,7 @@ class RemoteRunnerManager:
                 "root_prefix": remote_managed_root_prefix,
                 "bin_dir": remote_tools_bin,
             },
-            "runner_runtime": {
-                "source": "managed",
-                "provider": "micromamba",
-                "environment": remote_runner_environment,
-                "python": remote_runner_python,
-                "root_prefix": remote_managed_root_prefix,
-            },
         }
-
-    def _create_managed_runner_environment(
-        self,
-        ssh_service,
-        *,
-        remote_release: str,
-        remote_managed_root_prefix: str,
-        remote_managed_micromamba: str,
-        remote_runner_environment: str,
-        remote_runner_python: str,
-    ) -> None:
-        self._run_checked(
-            ssh_service,
-            f"""
-set -euo pipefail
-export MAMBA_ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)}
-MICROMAMBA_BIN={shlex.quote(remote_managed_micromamba)}
-RUNNER_ENV={shlex.quote(remote_runner_environment)}
-if [ -x {shlex.quote(remote_runner_python)} ]; then
-  exit 0
-fi
-"$MICROMAMBA_BIN" create -y -r "$MAMBA_ROOT_PREFIX" -p "$RUNNER_ENV" -c conda-forge python=3.12 pip
-""",
-            step="create managed runner environment",
-            timeout=240,
-        )
-        self._run_checked(
-            ssh_service,
-            f"{remote_runner_python} -m pip install -r {remote_release}/remote_runner/requirements.txt",
-            step="install remote runner dependencies into managed environment",
-            timeout=240,
-        )
 
     def _install_managed_micromamba(
         self,
