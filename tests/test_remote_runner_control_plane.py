@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -116,6 +117,34 @@ def test_remote_runner_health_does_not_create_runtime_layout(tmp_path: Path, mon
     assert startup["status"] == "failed"
     assert ready["status"] == "failed"
     assert not Path(tmp_path / "shared" / "data" / "runner.db").exists()
+
+
+def test_load_remote_runner_config_preserves_managed_conda_metadata(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    managed_conda_command = tmp_path / "tooling" / "bin" / "micromamba"
+    managed_conda_root_prefix = tmp_path / "tooling" / "micromamba-root"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase2-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+                "managed_conda_command": str(managed_conda_command),
+                "managed_conda_root_prefix": str(managed_conda_root_prefix),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+
+    cfg = load_remote_runner_config()
+
+    assert cfg.managed_conda_command == str(managed_conda_command)
+    assert cfg.managed_conda_root_prefix == str(managed_conda_root_prefix)
 
 
 def test_rotate_token_does_not_persist_local_token_before_remote_update_succeeds(monkeypatch) -> None:
@@ -316,6 +345,62 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
     assert "--use-conda" in calls[0]
     assert "-n" in calls[0]
     assert "--use-conda" in calls[1]
+
+
+def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, monkeypatch) -> None:
+    managed_conda_command = tmp_path / "tooling" / "bin" / "micromamba"
+    managed_conda_root_prefix = tmp_path / "tooling" / "micromamba-root"
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        managed_conda_command=str(managed_conda_command),
+        managed_conda_root_prefix=str(managed_conda_root_prefix),
+    )
+    ensure_runtime_layout(cfg)
+    managed_conda_command.parent.mkdir(parents=True, exist_ok=True)
+    managed_conda_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (Path(cfg.release_dir) / "workflow" / "envs").mkdir(parents=True, exist_ok=True)
+    (Path(cfg.release_dir) / "workflow" / "scripts").mkdir(parents=True, exist_ok=True)
+    (Path(cfg.release_dir) / "workflow" / "Snakefile").write_text("rule all:\n  input: 'done.txt'\n", encoding="utf-8")
+    (Path(cfg.release_dir) / "workflow" / "envs" / "base.yaml").write_text("channels: [conda-forge]\ndependencies: [python=3.12]\n", encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+
+    class Result:
+        def __init__(self) -> None:
+            self.returncode = 0
+            self.stdout = "ok"
+            self.stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append({"cmd": cmd, "env": kwargs.get("env")})
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda cfg, run_id, result_dir: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_phase2_managed_conda",
+        request_id="req_phase2_managed_conda",
+        run_spec={"pipelineId": "taxonomy-v1", "projectId": "proj_demo", "inputs": []},
+    )
+
+    assert len(calls) == 2
+    for call in calls:
+        env = call["env"]
+        assert isinstance(env, dict)
+        assert env["H2OMETA_MANAGED_CONDA_COMMAND"] == str(managed_conda_command)
+        assert env["MAMBA_ROOT_PREFIX"] == str(managed_conda_root_prefix)
+        assert env["PATH"].split(os.pathsep)[0] == str(managed_conda_command.parent)
 
 
 def test_remote_runner_upload_rejects_oversized_payload(tmp_path: Path, monkeypatch) -> None:
