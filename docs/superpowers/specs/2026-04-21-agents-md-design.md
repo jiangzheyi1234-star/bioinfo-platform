@@ -2,158 +2,79 @@
 
 ## Goal
 
-Recreate a root-level `AGENTS.md` for the whole repository with a minimal, durable rule set.
+Recreate a root-level `AGENTS.md` for the whole repository as a short list of hard rules.
 
-This document is intentionally narrow. It should define the highest-signal repository rules without turning into a workflow manual.
+The file should be concise enough to read in under a minute. It should not become a workflow handbook.
 
 ## Scope
 
-The new `AGENTS.md` applies to the entire repository at `bio_ui/`.
+The new `AGENTS.md` applies to the whole `bio_ui/` repository.
 
-It should guide future agents working in:
+## Required Rules
 
-- `apps/web`
-- `apps/api`
-- `core`
-- supporting docs and tests
+The final `AGENTS.md` must encode these repository-wide rules:
 
-## Constraints
+1. Do not require `pytest` by default.
+2. Keep single files under 800 lines.
+3. Reuse the current frontend component system: Tailwind + shadcn/ui.
+4. Reuse existing frontend components before adding new ones.
+5. Do not add backward-compatibility shims, silent fallbacks, or legacy support branches unless the user explicitly asks for them.
+6. When old behavior is unsupported, fail loudly with a clear error instead of silently degrading.
 
-The document must encode these explicit user requirements:
+## Repository Pointers
 
-1. `pytest` is not required by default.
-2. A single file should not exceed 800 lines.
-3. Frontend work should reuse the current Tailwind + shadcn/ui component system.
+The file should briefly anchor the current structure:
 
-## Proposed Content
+- frontend: `apps/web`
+- backend: `apps/api`
+- runtime and remote execution: `core`
+- preferred frontend reuse targets: `apps/web/components/ui` and `apps/web/app/components`
 
-The root `AGENTS.md` should stay short and contain four sections.
+## Style
 
-### 1. Repository Direction
+The final `AGENTS.md` should be:
 
-State the current architecture at a high level:
-
-- desktop-first pathogen analysis workbench
-- frontend in `apps/web`
-- backend in `apps/api`
-- runtime and remote execution logic in `core`
-
-This section should discourage cross-layer changes unless necessary.
-
-### 2. Validation Rules
-
-State that `pytest` is not a default completion requirement.
-
-Preferred verification should be the checks most relevant to the actual change, such as:
-
-- targeted build commands
-- type checks
-- frontend lint
-- focused manual or API validation
-
-If the user explicitly requests `pytest`, it becomes required for that task.
-
-### 3. File Size Rule
-
-State a hard preference that a single file should remain under 800 lines.
-
-When an edit would push a file past the limit, the preferred action is to split responsibilities into smaller modules instead of continuing to grow the file.
-
-This rule should apply to both new files and modified files.
-
-### 4. Frontend Reuse Rule
-
-State that frontend changes should reuse the existing Tailwind + shadcn/ui stack.
-
-The preferred reuse targets are:
-
-- `apps/web/components/ui`
-- `apps/web/app/components`
-
-Agents should avoid creating duplicate primitives such as:
-
-- buttons
-- inputs
-- dialogs
-- layout shells
-
-New components are acceptable only when the existing component inventory cannot support the change cleanly.
-
-## Non-Goals
-
-The root `AGENTS.md` should not:
-
-- duplicate long process instructions
-- define a full planning workflow
-- require global refactors
-- require `pytest` for every change
-- introduce a second frontend component system
-
-## Recommended Shape
-
-The final file should be concise enough to scan quickly during task startup.
-
-Recommended length:
-
-- roughly 20 to 40 lines
-
-Recommended tone:
-
+- short
 - direct
 - repository-specific
-- low-ambiguity
+- easy to scan
 
-## Example Structure
+Target length:
+
+- roughly 10 to 20 lines
+
+## Exclusions
+
+The final file should not:
+
+- include long planning instructions
+- describe a full implementation workflow
+- require `pytest` for every task
+- allow silent fallback behavior by default
+- encourage duplicate frontend primitives
+
+## Recommended Final Shape
 
 ```md
 # Repository Instructions
 
-## Architecture
-- ...
-
-## Validation
-- ...
-
-## File Size
-- ...
-
-## Frontend
-- ...
+- Frontend lives in `apps/web`; backend in `apps/api`; runtime logic in `core`.
+- Do not require `pytest` by default. Run only the verification relevant to the change unless the user explicitly asks for `pytest`.
+- Keep single files under 800 lines. Split responsibilities instead of growing past the limit.
+- Frontend work must reuse the existing Tailwind + shadcn/ui system.
+- Reuse `apps/web/components/ui` and `apps/web/app/components` before adding new components.
+- Do not add backward-compatibility layers, silent fallbacks, or legacy branches unless explicitly requested.
+- When older behavior is unsupported, fail loudly and clearly instead of degrading silently.
 ```
-
-## Risks
-
-### Risk 1: Too much policy
-
-If the file grows into a full workflow handbook, agents will ignore or inconsistently apply it.
-
-Mitigation:
-
-Keep only the repository rules that are stable and repeatedly useful.
-
-### Risk 2: Frontend rule too vague
-
-If the component reuse rule does not name the current reuse targets, future agents may still create parallel component trees.
-
-Mitigation:
-
-Name the existing component locations explicitly.
-
-### Risk 3: Validation rule misread as "no testing"
-
-Saying "`pytest` is not required" could be misread as "verification is optional."
-
-Mitigation:
-
-State that verification is still required, but should be relevant to the change instead of defaulting to `pytest`.
 
 ## Acceptance Criteria
 
 The resulting `AGENTS.md` is successful if it:
 
 - exists at the repository root
-- applies to the whole repository
+- applies to the entire repository
+- stays short
 - does not require `pytest` by default
-- enforces the 800-line file limit
-- tells agents to reuse the current Tailwind + shadcn/ui component system
-- remains short and easy to scan
+- enforces the 800-line limit
+- requires reuse of the current Tailwind + shadcn/ui component system
+- forbids silent fallback and default backward-compatibility work
