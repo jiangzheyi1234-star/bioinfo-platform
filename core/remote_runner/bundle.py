@@ -49,8 +49,11 @@ class LocalRunnerRuntimePackager:
         archive_path = self._cache_root / f"runner-runtime-{fingerprint}.tar.gz"
         if archive_path.exists():
             return BuiltRunnerRuntimeArtifact(fingerprint=fingerprint, archive_path=archive_path)
-        if platform.system() == "Windows" and target_platform.startswith("linux"):
-            return self._build_in_wsl(fingerprint=fingerprint, archive_path=archive_path)
+        if target_platform and not self._can_build_target_locally(target_platform):
+            raise RuntimeError(
+                "prebuilt runner runtime artifact required for "
+                f"{target_platform}; WSL-based builds are not supported"
+            )
 
         with tempfile.TemporaryDirectory(prefix=f"runner-runtime-{fingerprint}-") as tmp:
             tmp_path = Path(tmp)
@@ -90,49 +93,6 @@ class LocalRunnerRuntimePackager:
         hasher.update(version.encode("utf-8"))
         return hasher.hexdigest()[:16]
 
-    def _build_in_wsl(self, *, fingerprint: str, archive_path: Path) -> BuiltRunnerRuntimeArtifact:
-        requirements_wsl = self._to_wsl_path(self._requirements_path)
-        cache_wsl = self._to_wsl_path(self._cache_root)
-        script_contents = f"""#!/usr/bin/env bash
-set -euo pipefail
-REQ={requirements_wsl!r}
-CACHE={cache_wsl!r}
-ARCHIVE="$CACHE/runner-runtime-{fingerprint}.tar.gz"
-if [ -f "$ARCHIVE" ]; then
-  exit 0
-fi
-mkdir -p "$CACHE"
-TMPDIR="$(mktemp -d)"
-cleanup() {{
-  rm -rf "$TMPDIR"
-}}
-trap cleanup EXIT
-python3 -m venv "$TMPDIR/runner-env"
-"$TMPDIR/runner-env/bin/python" -m pip install --upgrade pip
-"$TMPDIR/runner-env/bin/python" -m pip install -r "$REQ"
-tar -czf "$ARCHIVE.tmp" -C "$TMPDIR" runner-env
-mv "$ARCHIVE.tmp" "$ARCHIVE"
-"""
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sh", dir=self._cache_root, encoding="utf-8", newline="\n") as handle:
-            handle.write(script_contents)
-            script_path = Path(handle.name)
-        try:
-            script_wsl = self._to_wsl_path(script_path)
-            completed = subprocess.run(
-                ["wsl.exe", "bash", script_wsl],
-                check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "build runner runtime artifact in WSL failed").strip()
-                raise RuntimeError(f"build runner runtime artifact in WSL: {detail}")
-            return BuiltRunnerRuntimeArtifact(fingerprint=fingerprint, archive_path=archive_path)
-        finally:
-            script_path.unlink(missing_ok=True)
-
     @staticmethod
     def _run_local(cmd: list[str], *, step: str) -> None:
         completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
@@ -141,24 +101,17 @@ mv "$ARCHIVE.tmp" "$ARCHIVE"
             raise RuntimeError(f"{step}: {detail}")
 
     @staticmethod
-    def _to_wsl_path(path: Path) -> str:
-        raw = str(path)
-        if len(raw) >= 3 and raw[1:3] == ":\\":
-            drive = raw[0].lower()
-            suffix = raw[3:].replace("\\", "/")
-            return f"/mnt/{drive}/{suffix}"
-        completed = subprocess.run(
-            ["wsl.exe", "wslpath", "-a", str(path)],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "wslpath failed").strip()
-            raise RuntimeError(f"resolve WSL path: {detail}")
-        return completed.stdout.strip()
+    def _can_build_target_locally(target_platform: str) -> bool:
+        if not target_platform:
+            return True
+        local_platform = f"{platform.system().lower()}-{platform.machine().lower()}"
+        aliases = {
+            "linux-x86_64": "linux-64",
+            "linux-amd64": "linux-64",
+            "linux-aarch64": "linux-aarch64",
+            "linux-arm64": "linux-aarch64",
+        }
+        return aliases.get(local_platform, local_platform) == target_platform
 
 
 class RemoteRunnerBundleBuilder:

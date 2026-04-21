@@ -30,7 +30,7 @@ from apps.remote_runner.main import (
 )
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.executor import run_snakemake_execution
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
+from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, LocalRunnerRuntimePackager, RemoteRunnerBundleBuilder
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 
@@ -39,6 +39,24 @@ class FakeRuntimeArtifact:
     fingerprint = "runtime1234"
     archive_path = Path(__file__)
     python_relative_path = "runner-env/bin/python"
+
+
+def test_local_runner_runtime_packager_requires_prebuilt_artifact_when_target_platform_is_not_local(
+    tmp_path: Path, monkeypatch
+) -> None:
+    requirements_path = tmp_path / "requirements.txt"
+    requirements_path.write_text("fastapi>=0.115.0\n", encoding="utf-8")
+    packager = LocalRunnerRuntimePackager(requirements_path=requirements_path, cache_root=tmp_path / "cache")
+    monkeypatch.setattr("core.remote_runner.bundle.platform.system", lambda: "Windows")
+    monkeypatch.setattr("core.remote_runner.bundle.platform.machine", lambda: "AMD64")
+
+    try:
+        packager.build(target_platform="linux-64")
+    except RuntimeError as exc:
+        assert "prebuilt runner runtime artifact required" in str(exc)
+        assert "WSL-based builds are not supported" in str(exc)
+    else:
+        raise AssertionError("cross-platform runtime artifact builds should fail loudly without a prebuilt artifact")
 
 
 def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> None:
