@@ -833,11 +833,6 @@ class RuntimeService:
             except RemoteRunnerManagerError as exc:
                 reason_code = "RUNNER_NOT_READY"
                 ready_message = str(exc) or "Remote runner control plane is not reachable."
-        action_state = self._server_action_state.get(server_id, {})
-        if "ready_override" in action_state:
-            ready_ok = bool(action_state["ready_override"])
-            reason_code = str(action_state.get("reasonCode_override", reason_code))
-            ready_message = str(action_state.get("message_override", ready_message))
         return {
             "serverId": server_id,
             "startup": startup,

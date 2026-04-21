@@ -19,12 +19,6 @@ class UpdateProjectRequest(BaseModel):
     description: str | None = None
 
 
-class CreateSampleRequest(BaseModel):
-    name: str = Field(min_length=1)
-    source: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 class UpdateSettingsRequest(BaseModel):
     patch: dict[str, Any] = Field(default_factory=dict)
 

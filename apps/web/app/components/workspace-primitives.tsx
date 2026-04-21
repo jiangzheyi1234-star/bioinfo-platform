@@ -1,10 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowUpRight, ChevronRight, Copy, FileWarning, TerminalSquare } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Copy, TerminalSquare } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-
-import type { RunStatus } from "./workspace-mocks";
 
 export function WorkspaceEyebrow({ children }: { children: ReactNode }) {
   return <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{children}</p>;
@@ -136,67 +134,6 @@ export function WorkspaceSection({
       </div>
       <div className="mt-4">{children}</div>
     </section>
-  );
-}
-
-const STATUS_STYLES: Record<RunStatus, { dot: string; text: string; bg: string }> = {
-  queued: { dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-100" },
-  running: { dot: "bg-sky-500", text: "text-sky-700", bg: "bg-sky-50" },
-  completed: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50" },
-  failed: { dot: "bg-rose-500", text: "text-rose-700", bg: "bg-rose-50" },
-};
-
-export function StatusBadge({ status }: { status: RunStatus }) {
-  const style = STATUS_STYLES[status];
-  return (
-    <span className={cn("inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[12px] font-medium", style.bg, style.text)}>
-      <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
-      {status}
-    </span>
-  );
-}
-
-export function FilterPill({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex h-9 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50",
-        wide ? "min-w-[240px]" : "min-w-[120px]"
-      )}
-    >
-      <span>{children}</span>
-      <ChevronRight className="h-4 w-4 rotate-90 text-slate-400" />
-    </button>
-  );
-}
-
-export function SearchField({ placeholder }: { placeholder: string }) {
-  return (
-    <div className="flex h-9 min-w-[280px] items-center rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-500">
-      <span>{placeholder}</span>
-    </div>
-  );
-}
-
-export function EmptyState({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-12 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-300">
-        <FileWarning className="h-8 w-8" />
-      </div>
-      <h3 className="mt-4 text-[15px] font-medium text-slate-900">{title}</h3>
-      <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">{description}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
-    </div>
   );
 }
 
