@@ -29,6 +29,8 @@ class RemoteRunnerConfig:
     work_dir: str = str(DEFAULT_DATA_ROOT / "work")
     logs_dir: str = str(DEFAULT_DATA_ROOT / "logs")
     release_dir: str = ""
+    managed_conda_command: str = ""
+    managed_conda_root_prefix: str = ""
 
 
 def get_config_path() -> Path:
