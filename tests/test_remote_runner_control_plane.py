@@ -613,12 +613,16 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
                 return 0, "/home/tester", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
+            if "python3 -c" in cmd and "platform.python_version" in cmd:
+                return 0, '{"executable":"/usr/bin/python3","version":"3.12.2"}', ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "python3 -m venv" in cmd:
+            if "/.venv/bin/pip install -r" in cmd:
                 return 1, "", "pip install failed"
+            if "python3 -m venv" in cmd:
+                return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
@@ -645,7 +649,7 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
     store_token.assert_not_called()
 
 
-def test_bootstrap_fails_fast_when_workflow_runtime_is_missing(monkeypatch) -> None:
+def test_bootstrap_fails_fast_when_managed_workflow_runtime_install_fails(monkeypatch) -> None:
     manager = RemoteRunnerManager()
 
     class FakeBundle:
@@ -657,14 +661,20 @@ def test_bootstrap_fails_fast_when_workflow_runtime_is_missing(monkeypatch) -> N
                 return 0, "/home/tester", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
+            if "python3 -c" in cmd and "platform.python_version" in cmd:
+                return 0, '{"executable":"/usr/bin/python3","version":"3.12.2"}', ""
+            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+                return 1, "", "curl or wget is required to install managed micromamba"
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
             if "python3 -m venv" in cmd:
                 return 0, "", ""
-            if "conda/mamba is required" in cmd:
-                return 1, "", "conda/mamba is required for Snakemake --use-conda"
+            if "/.venv/bin/pip install -r" in cmd:
+                return 0, "", ""
+            if "command -v conda" in cmd or "command -v mamba" in cmd or "command -v micromamba" in cmd:
+                return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
@@ -681,10 +691,10 @@ def test_bootstrap_fails_fast_when_workflow_runtime_is_missing(monkeypatch) -> N
                 server_record={},
             )
         except RemoteRunnerManagerError as exc:
-            assert "verify workflow runtime prerequisites" in str(exc)
-            assert "conda/mamba is required" in str(exc)
+            assert "install managed workflow runtime" in str(exc)
+            assert "curl or wget is required" in str(exc)
         else:
-            raise AssertionError("bootstrap should fail when workflow runtime is missing")
+            raise AssertionError("bootstrap should fail when managed workflow runtime install fails")
 
     store_token.assert_not_called()
 
