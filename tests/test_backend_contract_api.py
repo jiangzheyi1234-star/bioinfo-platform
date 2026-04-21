@@ -422,6 +422,127 @@ def test_bootstrap_server_uses_remote_runner_manager_and_persists_server_registr
     assert result["data"]["reasonCode"] == ""
 
 
+def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure_snapshot(
+    monkeypatch, tmp_path: Path
+) -> None:
+    service = make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = {
+        "ssh": {
+            "host": "192.168.0.10",
+            "port": 22,
+            "user": "tester",
+            "auth_mode": "key_file",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+        },
+        "servers": {},
+    }
+
+    class FakeRemoteRunnerManager:
+        def bootstrap(self, **kwargs):
+            return {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "background_process",
+                "tunnel_port": 18765,
+                "service_port": 8876,
+                "token_ref": "runner://srv_test",
+                "bootstrap_metadata": {
+                    "preflight": {"python": {"command": "python3", "ok": True}},
+                    "workflowRuntime": {"command": "micromamba", "managed": True},
+                },
+                "health": {
+                    "startup": {"ok": True, "message": "Remote runner config loaded."},
+                    "live": {"ok": True, "message": "Remote runner process is alive."},
+                    "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                    "reasonCode": "",
+                    "checkedAt": "2026-04-21T12:00:00Z",
+                },
+            }
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+
+    def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
+        cfg.clear()
+        cfg.update(snapshot)
+
+    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "last_health_snapshot": {
+            "serverId": server_id,
+            "startup": {"ok": False, "message": "Old startup failure."},
+            "live": {"ok": False, "message": "Old live failure."},
+            "ready": {"ok": False, "message": "Old ready failure."},
+            "reasonCode": "REMOTE_PYTHON_MISSING",
+            "checkedAt": "2026-04-21T11:00:00Z",
+        }
+    }
+
+    result = asyncio.run(bootstrap_server(server_id))
+
+    assert result["data"]["ready"]["ok"] is True
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == ""
+    assert cfg["servers"][server_id]["bootstrap_metadata"] == {
+        "preflight": {"python": {"command": "python3", "ok": True}},
+        "workflowRuntime": {"command": "micromamba", "managed": True},
+    }
+
+
+def test_failed_bootstrap_persists_specific_readiness_reason_for_followup_health_checks(
+    monkeypatch, tmp_path: Path
+) -> None:
+    service = make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = {
+        "ssh": {
+            "host": "192.168.0.10",
+            "port": 22,
+            "user": "tester",
+            "auth_mode": "key_file",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+        },
+        "servers": {},
+    }
+
+    class FakeRemoteRunnerManager:
+        def bootstrap(self, **kwargs):
+            raise RuntimeError(
+                "verify workflow runtime prerequisites: conda/mamba is required for Snakemake --use-conda"
+            )
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+
+    def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
+        cfg.clear()
+        cfg.update(snapshot)
+
+    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+
+    try:
+        asyncio.run(bootstrap_server(server_id))
+    except Exception as exc:
+        assert "conda/mamba is required" in str(exc)
+    else:
+        raise AssertionError("bootstrap should fail when workflow runtime is missing")
+
+    health = asyncio.run(get_server_health(server_id))["data"]
+
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "WORKFLOW_ENGINE_MISSING"
+    assert health["reasonCode"] == "WORKFLOW_ENGINE_MISSING"
+    assert "conda/mamba" in health["ready"]["message"]
+
+
 def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     service = make_service(tmp_path)
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)

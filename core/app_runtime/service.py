@@ -235,13 +235,27 @@ class RuntimeService(RunnerOperationsMixin):
             ssh = self._ensure_ssh_connected()
             manager = self._service_locator.remote_runner_manager
             server_record = self._get_server_registry_entry(server_id)
-        result = self._call_remote_runner(
-            manager.bootstrap,
-            server_id=server_id,
-            server=server,
-            ssh_service=ssh,
-            server_record=server_record,
-        )
+        try:
+            result = self._call_remote_runner(
+                manager.bootstrap,
+                server_id=server_id,
+                server=server,
+                ssh_service=ssh,
+                server_record=server_record,
+            )
+        except RuntimeServiceError as exc:
+            failure_snapshot = self._build_bootstrap_failure_snapshot(
+                server_id=server_id,
+                detail=str(exc),
+            )
+            with self._lock:
+                self._save_server_registry_entry(
+                    server_id,
+                    {
+                        "last_health_snapshot": failure_snapshot,
+                    },
+                )
+            raise
         bootstrapped_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock:
             self._save_server_registry_entry(
@@ -253,6 +267,7 @@ class RuntimeService(RunnerOperationsMixin):
                     "service_port": result["service_port"],
                     "token_ref": result["token_ref"],
                     "last_health_snapshot": result["health"],
+                    "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
                     "bootstrapped_at": bootstrapped_at,
                 },
             )
@@ -700,8 +715,19 @@ class RuntimeService(RunnerOperationsMixin):
             reason_code = "SSH_NOT_CONNECTED"
             ready_message = "Connect to the remote server before submitting runs."
         elif not registry_entry.get("bootstrap_version"):
-            reason_code = "RUNNER_NOT_READY"
-            ready_message = "Bootstrap the remote runner before using this server."
+            snapshot = self._get_saved_readiness_snapshot(
+                server_id=server_id,
+                registry_entry=registry_entry,
+            )
+            if snapshot is not None:
+                startup = snapshot["startup"]
+                live = snapshot["live"]
+                ready_ok = bool(snapshot["ready"]["ok"])
+                ready_message = str(snapshot["ready"]["message"])
+                reason_code = str(snapshot.get("reasonCode", "") or "RUNNER_NOT_READY")
+            else:
+                reason_code = "RUNNER_NOT_READY"
+                ready_message = "Bootstrap the remote runner before using this server."
         else:
             try:
                 if ssh is None or not getattr(ssh, "is_connected", False):
@@ -730,6 +756,79 @@ class RuntimeService(RunnerOperationsMixin):
             "reasonCode": reason_code,
             "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
+
+    @staticmethod
+    def _get_saved_readiness_snapshot(
+        *,
+        server_id: str,
+        registry_entry: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        snapshot = registry_entry.get("last_health_snapshot")
+        if not isinstance(snapshot, dict):
+            return None
+        reason_code = str(snapshot.get("reasonCode") or "").strip()
+        ready = snapshot.get("ready")
+        startup = snapshot.get("startup")
+        live = snapshot.get("live")
+        if not reason_code or not isinstance(ready, dict) or not isinstance(startup, dict) or not isinstance(live, dict):
+            return None
+        return {
+            "serverId": str(snapshot.get("serverId") or server_id),
+            "startup": startup,
+            "live": live,
+            "ready": ready,
+            "reasonCode": reason_code,
+            "checkedAt": str(snapshot.get("checkedAt") or ""),
+        }
+
+    @classmethod
+    def _build_bootstrap_failure_snapshot(
+        cls,
+        *,
+        server_id: str,
+        detail: str,
+    ) -> dict[str, Any]:
+        reason_code, ready_message, live_message = cls._classify_bootstrap_failure(detail)
+        checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        return {
+            "serverId": server_id,
+            "startup": {"ok": False, "message": ready_message},
+            "live": {"ok": False, "message": live_message},
+            "ready": {"ok": False, "message": ready_message},
+            "reasonCode": reason_code,
+            "checkedAt": checked_at,
+        }
+
+    @staticmethod
+    def _classify_bootstrap_failure(detail: str) -> tuple[str, str, str]:
+        message = str(detail or "").strip() or "remote runner bootstrap failed"
+        lowered = message.lower()
+        if (
+            "verify workflow runtime prerequisites" in lowered
+            or "conda/mamba is required" in lowered
+            or "micromamba" in lowered
+        ):
+            ready_message = f"Remote workflow runtime is unavailable: {message}"
+            return "WORKFLOW_ENGINE_MISSING", ready_message, "Remote runner process is not running."
+        if "install remote runner dependencies" in lowered:
+            if "python3" in lowered and (
+                "not found" in lowered or "command not found" in lowered or "no such file" in lowered
+            ):
+                ready_message = f"Remote host is missing python3 required for bootstrap: {message}"
+                return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
+            ready_message = (
+                "Remote runner dependency installation failed while setting up the Python environment: "
+                f"{message}"
+            )
+            return "RUNNER_DEPENDENCY_INSTALL_FAILED", ready_message, "Remote runner process is not running."
+        if "start remote runner service" in lowered or "service failed to start" in lowered:
+            ready_message = f"Remote runner service failed to start: {message}"
+            return "SERVICE_START_FAILED", ready_message, "Remote runner process failed to stay alive."
+        if "python3" in lowered and ("not found" in lowered or "command not found" in lowered):
+            ready_message = f"Remote host is missing python3 required for bootstrap: {message}"
+            return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
+        ready_message = f"Remote runner bootstrap failed: {message}"
+        return "BOOTSTRAP_FAILED", ready_message, "Remote runner process is not running."
 
     def _compose_server_payload(
         self,
