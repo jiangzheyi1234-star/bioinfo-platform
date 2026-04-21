@@ -39,7 +39,7 @@ class RemoteRunnerManager:
             version = REMOTE_RUNNER_VERSION
             remote_platform = self._detect_remote_platform(ssh_service)
             bundle = self._bundle_builder.build(version=version)
-            runtime_artifact = self._runtime_packager.build(target_platform=remote_platform)
+            runtime_artifact = self._runtime_packager.build(target_platform=remote_platform, version=version)
             home_dir = self._resolve_remote_home(ssh_service)
             mode = self._detect_mode(ssh_service)
             token = secrets.token_urlsafe(24)

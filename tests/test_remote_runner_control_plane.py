@@ -54,9 +54,60 @@ def test_local_runner_runtime_packager_requires_prebuilt_artifact_when_target_pl
         packager.build(target_platform="linux-64")
     except RuntimeError as exc:
         assert "prebuilt runner runtime artifact required" in str(exc)
-        assert "WSL-based builds are not supported" in str(exc)
+        assert "configure H2OMETA_RUNNER_ARTIFACT_GITHUB_REPO" in str(exc)
     else:
         raise AssertionError("cross-platform runtime artifact builds should fail loudly without a prebuilt artifact")
+
+
+def test_local_runner_runtime_packager_downloads_release_asset_and_verifies_checksum(
+    tmp_path: Path, monkeypatch
+) -> None:
+    requirements_path = tmp_path / "requirements.txt"
+    requirements_path.write_text("fastapi>=0.115.0\n", encoding="utf-8")
+    packager = LocalRunnerRuntimePackager(
+        requirements_path=requirements_path,
+        cache_root=tmp_path / "cache",
+        github_repo="demo/repo",
+        github_release_tag="v1.2.3",
+    )
+    monkeypatch.setattr("core.remote_runner.bundle.platform.system", lambda: "Windows")
+    monkeypatch.setattr("core.remote_runner.bundle.platform.machine", lambda: "AMD64")
+
+    payload = b"runtime-archive"
+    checksum = __import__("hashlib").sha256(payload).hexdigest()
+    fetched: list[tuple[str, str]] = []
+
+    def fake_download(url: str, *, accept: str = "application/octet-stream") -> bytes:
+        fetched.append((url, accept))
+        if url.endswith("/releases/tags/v1.2.3"):
+            return json.dumps(
+                {
+                    "assets": [
+                        {
+                            "name": "runner-runtime-linux-64-0.1.0-control-plane.tar.gz",
+                            "browser_download_url": "https://example.test/runtime.tgz",
+                        },
+                        {
+                            "name": "runner-runtime-linux-64-0.1.0-control-plane.tar.gz.sha256",
+                            "browser_download_url": "https://example.test/runtime.tgz.sha256",
+                        },
+                    ]
+                }
+            ).encode("utf-8")
+        if url.endswith("runtime.tgz"):
+            return payload
+        if url.endswith("runtime.tgz.sha256"):
+            return f"{checksum}  runner-runtime-linux-64-0.1.0-control-plane.tar.gz\n".encode("utf-8")
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(packager, "_download_bytes", fake_download)
+
+    artifact = packager.build(target_platform="linux-64")
+
+    assert artifact.archive_path.exists()
+    assert artifact.archive_path.read_bytes() == payload
+    assert Path(f"{artifact.archive_path}.sha256").exists()
+    assert fetched[0][0].endswith("/releases/tags/v1.2.3")
 
 
 def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> None:
