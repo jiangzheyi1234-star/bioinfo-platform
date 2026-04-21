@@ -1,5 +1,14 @@
 # H2OMeta Architecture (2026-04)
 
+> **Authority note:** this file summarizes repository state and migration context.
+> The canonical target architecture now lives in:
+>
+> - `docs/backend-contract-v1.md`
+> - `docs/frontend-best-practices.md`
+> - `docs/frontend-plan-v1.md`
+>
+> If this file conflicts with those documents, the docs under `docs/` win.
+
 ## Current Stack
 
 - Desktop shell: Tauri (Rust)
@@ -35,4 +44,4 @@
 
 - Default entry is Tauri desktop shell (`run.bat`).
 - Legacy `ui/` PyQt application code is removed from repository runtime path.
-- Core signal and thread primitives are provided by `core/qt_compat.py`.
+- No PyQt compatibility adapter remains in the active runtime path.

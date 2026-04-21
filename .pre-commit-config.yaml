@@ -1,8 +1,0 @@
-repos:
-  - repo: local
-    hooks:
-      - id: encoding-guard
-        name: encoding-guard (utf-8 no bom)
-        entry: python scripts/encoding_guard.py
-        language: system
-        pass_filenames: false

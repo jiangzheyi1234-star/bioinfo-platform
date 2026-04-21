@@ -6,13 +6,15 @@ import asyncio
 import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
     CreateProjectRequest,
+    RunSubmitRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
+    UploadSubmitRequest,
     UpdateProjectRequest,
     UpdateSettingsRequest,
 )
@@ -127,6 +129,62 @@ async def get_ssh_status() -> dict[str, Any]:
         return {"item": _runtime().get_ssh_status()}
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/servers")
+async def list_servers() -> dict[str, Any]:
+    try:
+        return {"data": {"items": _runtime().list_servers()}}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/servers/{server_id}")
+async def get_server(server_id: str) -> dict[str, Any]:
+    try:
+        return {"data": _runtime().get_server(server_id)}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/servers/{server_id}/health")
+async def get_server_health(server_id: str) -> dict[str, Any]:
+    try:
+        return {"data": _runtime().get_server_health(server_id)}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/servers/{server_id}/health/refresh")
+async def refresh_server_health(server_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().refresh_server_health(server_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/servers/{server_id}/bootstrap")
+async def bootstrap_server(server_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().bootstrap_server(server_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/servers/{server_id}/host-key/accept")
+async def accept_server_host_key(server_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().accept_server_host_key(server_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/servers/{server_id}/token/rotate")
+async def rotate_server_token(server_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().rotate_server_token(server_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/ssh/connect")
@@ -326,12 +384,104 @@ async def list_projects(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/runs")
+async def list_runs() -> dict[str, Any]:
+    try:
+        return {"data": {"items": _runtime().list_runs()}}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/uploads")
+async def upload_file(payload: UploadSubmitRequest) -> dict[str, Any]:
+    try:
+        return {"data": _runtime().upload_file(payload.model_dump(exclude_none=True))}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/runs", status_code=202)
+async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str, Any]:
+    try:
+        result = _runtime().submit_run(payload.model_dump(exclude_none=True))
+        response.headers["Location"] = result["location"]
+        response.headers["Retry-After"] = str(result["retryAfter"])
+        response.headers["X-Request-Id"] = result["requestId"]
+        return result
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/runs/{run_id}")
+async def get_run(run_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_run(run_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/runs/{run_id}/events")
+async def get_run_events(run_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_run_events(run_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/runs/{run_id}/logs")
+async def get_run_logs(run_id: str, stream: str = "stdout", cursor: str | None = None) -> dict[str, Any]:
+    try:
+        return _runtime().get_run_logs(run_id=run_id, stream=stream, cursor=cursor)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/runs/{run_id}/results")
+async def get_run_results(run_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_run_results(run_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/results")
+async def list_results() -> dict[str, Any]:
+    try:
+        return _runtime().list_results()
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/results/{result_id}")
+async def get_result(result_id: str) -> dict[str, Any]:
+    try:
+        return _runtime().get_result(result_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/results/{result_id}/preview")
+async def get_result_preview(result_id: str, artifact_id: str | None = None) -> dict[str, Any]:
+    try:
+        return _runtime().get_result_preview(result_id=result_id, artifact_id=artifact_id)
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/projects/current")
 async def get_current_project() -> dict[str, Any]:
     try:
         return {"item": _runtime().get_current_project()}
     except RuntimeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}")
+async def get_project(project_id: str) -> dict[str, Any]:
+    try:
+        return {"data": _runtime().get_project(project_id)}
+    except RuntimeServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/projects")

@@ -1,6 +1,8 @@
 """SSH 服务 - 远程命令执行、文件传输、终端会话、自动重连。"""
 
 import logging
+import select
+import socketserver
 import threading
 import time
 import uuid
@@ -12,6 +14,92 @@ import paramiko
 logger = logging.getLogger(__name__)
 
 BACKOFF_DELAYS = [2, 4, 8, 16, 32, 60]
+
+
+class LocalTunnel:
+    def __init__(
+        self,
+        *,
+        name: str,
+        transport: Any,
+        remote_host: str,
+        remote_port: int,
+        local_host: str = "127.0.0.1",
+        local_port: int = 0,
+    ) -> None:
+        self.name = name
+        self.local_host = local_host
+        self.remote_host = remote_host
+        self.remote_port = remote_port
+        self._transport = transport
+        self._server: Optional[socketserver.ThreadingTCPServer] = None
+        self._thread: Optional[threading.Thread] = None
+        self._requested_port = local_port
+
+    @property
+    def local_port(self) -> int:
+        if self._server is None:
+            return 0
+        return int(self._server.server_address[1])
+
+    @property
+    def is_active(self) -> bool:
+        return self._server is not None and self._thread is not None and self._thread.is_alive()
+
+    def start(self) -> None:
+        if self.is_active:
+            return
+
+        remote_host = self.remote_host
+        remote_port = self.remote_port
+        transport = self._transport
+
+        class _ForwardHandler(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                try:
+                    channel = transport.open_channel(
+                        "direct-tcpip",
+                        (remote_host, remote_port),
+                        self.request.getpeername(),
+                    )
+                except Exception:
+                    logger.exception("Failed to open direct-tcpip channel")
+                    return
+                if channel is None:
+                    return
+                try:
+                    while True:
+                        readable, _, _ = select.select([self.request, channel], [], [], 1.0)
+                        if self.request in readable:
+                            data = self.request.recv(4096)
+                            if not data:
+                                break
+                            channel.sendall(data)
+                        if channel in readable:
+                            data = channel.recv(4096)
+                            if not data:
+                                break
+                            self.request.sendall(data)
+                finally:
+                    try:
+                        channel.close()
+                    except Exception:
+                        pass
+
+        class _ForwardServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        self._server = _ForwardServer((self.local_host, self._requested_port), _ForwardHandler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def close(self) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+        self._server = None
+        self._thread = None
 
 
 class TerminalSession:
@@ -131,6 +219,7 @@ class SSHService:
         self._connect_fn = connect_fn
         self._lock = RLock()
         self._sessions = {}
+        self._tunnels: dict[str, LocalTunnel] = {}
         self._reconnector = None
         self._reconnecting = False
         if connect_fn:
@@ -208,15 +297,51 @@ class SSHService:
         self._sessions[sid] = session
         return session
 
+    def ensure_local_tunnel(
+        self,
+        name: str,
+        *,
+        remote_host: str,
+        remote_port: int,
+        local_host: str = "127.0.0.1",
+        local_port: int = 0,
+    ) -> LocalTunnel:
+        with self._lock:
+            if not self._client:
+                raise RuntimeError("SSH not connected")
+            existing = self._tunnels.get(name)
+            if existing and existing.is_active:
+                return existing
+            transport = self._client.get_transport()
+            if transport is None or not transport.is_active():
+                raise RuntimeError("SSH transport is not active")
+            tunnel = LocalTunnel(
+                name=name,
+                transport=transport,
+                remote_host=remote_host,
+                remote_port=remote_port,
+                local_host=local_host,
+                local_port=local_port,
+            )
+            tunnel.start()
+            self._tunnels[name] = tunnel
+            return tunnel
+
     def close(self) -> None:
         if self._reconnector:
             self._reconnector.cancel()
+        self._close_tunnels()
         for s in list(self._sessions.values()):
             s.close()
         self._sessions.clear()
         if self._client:
             self._client.close()
             self._client = None
+
+    def _close_tunnels(self) -> None:
+        for tunnel in list(self._tunnels.values()):
+            tunnel.close()
+        self._tunnels.clear()
 
     def _start_reconnect(self) -> None:
         if not self._reconnector or self._reconnecting:
@@ -227,11 +352,13 @@ class SSHService:
     def _on_reconnect(self, client):
         logger.info("SSH reconnected")
         self._reconnecting = False
+        self._close_tunnels()
         self._client = client
 
     def _on_failed(self, error):
         self._reconnecting = False
         logger.error("SSH reconnect failed: %s", error)
+        self._close_tunnels()
         for s in list(self._sessions.values()):
             s.close(message="SSH disconnected")
         self._sessions.clear()

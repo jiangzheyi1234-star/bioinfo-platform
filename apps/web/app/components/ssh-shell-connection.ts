@@ -14,10 +14,6 @@ import {
   toForm,
 } from "./ssh-shell-model";
 
-type RouterLike = {
-  push: (href: string) => void;
-};
-
 export type UseSshConnectionResult = {
   contextValue: SshShellContextValue;
   status: SSHStatus | null;
@@ -32,7 +28,7 @@ export type UseSshConnectionResult = {
   refreshStatus: (options?: { silent?: boolean }) => Promise<SSHStatus | null>;
 };
 
-export function useSshConnection(router: RouterLike): UseSshConnectionResult {
+export function useSshConnection(): UseSshConnectionResult {
   const [status, setStatus] = useState<SSHStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -181,13 +177,12 @@ export function useSshConnection(router: RouterLike): UseSshConnectionResult {
           : `已连接到 ${targetLabel}，本次不会保存为下次默认连接。`
       );
       setDialogOpen(false);
-      router.push("/connect");
     } catch (error) {
       setFormError(normalizeFetchError(error) || "连接失败");
     } finally {
       setConnectBusy(false);
     }
-  }, [form, persistSettings, router]);
+  }, [form, persistSettings]);
 
   const submitDisconnect = useCallback(async () => {
     setDisconnectBusy(true);
@@ -197,13 +192,12 @@ export function useSshConnection(router: RouterLike): UseSshConnectionResult {
       const next = (data?.item || null) as SSHStatus | null;
       setStatus(next);
       setForm(toForm(next));
-      router.push("/");
     } catch (error) {
       setFormError(normalizeFetchError(error) || "断开失败");
     } finally {
       setDisconnectBusy(false);
     }
-  }, [router]);
+  }, []);
 
   const connectDisabled =
     connectBusy ||

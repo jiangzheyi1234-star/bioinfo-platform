@@ -1,0 +1,20 @@
+configfile: "run-config.json"
+
+
+rule all:
+    input:
+        report=lambda wildcards: config["outputs"]["report"],
+        summary=lambda wildcards: config["outputs"]["summary"],
+        raw_log=lambda wildcards: config["outputs"]["raw_log"],
+
+
+rule generate_outputs:
+    output:
+        report=lambda wildcards: config["outputs"]["report"],
+        summary=lambda wildcards: config["outputs"]["summary"],
+        raw_log=lambda wildcards: config["outputs"]["raw_log"],
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/generate_outputs.py"
+

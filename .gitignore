@@ -24,16 +24,12 @@ plugins/**/workflow/software/mfeprimer
 # IDE
 .vscode/
 .idea/
-.codex/
 *.swp
 *.swo
 
 # Agent tools
 .claude/
-.agents/
 .opencode/
-skills-lock.json
-.user_preferences.md
 
 # Test temp directories
 tests/.pytest_cache/
@@ -72,5 +68,5 @@ test_detection_page_*.py
 *_debug.py
 *.backup
 启动*.bat
-.omx/
 .venv/
+.omx/

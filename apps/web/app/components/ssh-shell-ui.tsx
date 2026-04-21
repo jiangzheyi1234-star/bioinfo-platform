@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Ellipsis, GripHorizontal, Link2, Terminal as TerminalIcon, X } from "lucide-react";
+import { CircleHelp, Ellipsis, GripHorizontal, Link2, Server, Settings2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -20,35 +21,45 @@ type SshSidebarProps = {
   onDisconnect: () => void;
 };
 
+const NAV_ITEMS = [
+  { href: "/servers", label: "Servers", icon: Server, match: (pathname: string) => pathname.startsWith("/servers") },
+] as const;
+
 export function SshSidebar({ pathname, status, disconnectBusy, onOpenConnect, onDisconnect }: SshSidebarProps) {
+  const settingsActive = pathname.startsWith("/settings");
+
   return (
-    <aside className="border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r">
-      <div className="flex h-full flex-col gap-2 p-3">
-        <nav className="flex flex-col gap-1">
-          <div
-            className={cn(
-              "group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700",
-              pathname === "/connect" && "bg-slate-300 text-slate-950"
-            )}
-          >
+    <aside className="border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r md:border-slate-200">
+      <div className="flex h-full flex-col gap-3 p-3">
+        <div className="rounded-xl px-2 py-2">
+          <div className="flex items-start gap-2">
             <button
               type="button"
+              disabled={Boolean(status?.connected)}
+              onClick={() => {
+                if (!status?.connected) {
+                  onOpenConnect();
+                }
+              }}
               className={cn(
-                "appearance-none border-0 bg-transparent shadow-none outline-none flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-0 py-0 text-left text-sm transition-colors",
-                status?.connected ? "text-slate-900" : "text-slate-700"
+                "flex min-w-0 flex-1 items-start gap-2 rounded-lg text-left transition",
+                status?.connected ? "cursor-default" : "hover:bg-slate-100/90"
               )}
-              onClick={onOpenConnect}
             >
-              <Link2 className={cn("h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-500")} />
-              <span>连接</span>
+              <Link2 className={cn("mt-0.5 h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-400")} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-900">Connection</p>
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  {status?.connected ? `${status.user}@${status.host}:${status.port}` : "未连接远端服务器"}
+                </p>
+              </div>
             </button>
-
             {status?.connected ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="invisible appearance-none rounded-md border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-200/70 hover:text-slate-700 group-hover:visible"
+                    className="appearance-none rounded-lg border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700"
                     aria-label="连接菜单"
                   >
                     <Ellipsis className="h-4 w-4" />
@@ -62,7 +73,42 @@ export function SshSidebar({ pathname, status, disconnectBusy, onOpenConnect, on
               </DropdownMenu>
             ) : null}
           </div>
+        </div>
+
+        <nav className="flex flex-col gap-1">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const active = item.match(pathname);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition",
+                  active ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0 text-slate-500" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
+
+        <div className="mt-auto pt-3">
+          <Link
+            href="/settings"
+            aria-current={settingsActive ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition",
+              settingsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
+            )}
+          >
+            <Settings2 className="h-4 w-4 shrink-0 text-slate-500" />
+            <span>Settings</span>
+          </Link>
+        </div>
       </div>
     </aside>
   );
@@ -105,12 +151,12 @@ export function SshTerminalPanel({
       </div>
 
       <section
-        className="border-t border-slate-200 bg-white"
+        className="border-t border-slate-200 bg-white/95"
         style={{ height: `${terminalHeight}px` }}
         aria-label="远程终端 · 当前服务器"
       >
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-2">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-600">终端</p>
               <p className="truncate text-[11px] text-slate-400">
@@ -123,7 +169,7 @@ export function SshTerminalPanel({
                 type="button"
                 aria-label="关闭终端"
                 onClick={onClose}
-                className="appearance-none rounded-md border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-white hover:text-slate-700"
+                className="appearance-none rounded-lg border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -243,21 +289,21 @@ export function SshConnectDialog({
             </>
           ) : (
             <>
-          <div className="grid gap-2">
-            <Label htmlFor="ssh-host">主机地址</Label>
-            <Input id="ssh-host" value={form.host} onChange={(event) => onFieldChange("host", event.target.value)} />
-          </div>
+              <div className="grid gap-2">
+                <Label htmlFor="ssh-host">主机地址</Label>
+                <Input id="ssh-host" value={form.host} onChange={(event) => onFieldChange("host", event.target.value)} />
+              </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="ssh-port">端口</Label>
-              <Input id="ssh-port" value={form.port} onChange={(event) => onFieldChange("port", event.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="ssh-user">用户名</Label>
-              <Input id="ssh-user" value={form.user} onChange={(event) => onFieldChange("user", event.target.value)} />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="ssh-port">端口</Label>
+                  <Input id="ssh-port" value={form.port} onChange={(event) => onFieldChange("port", event.target.value)} />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="ssh-user">用户名</Label>
+                  <Input id="ssh-user" value={form.user} onChange={(event) => onFieldChange("user", event.target.value)} />
+                </div>
+              </div>
             </>
           )}
 

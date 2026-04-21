@@ -3,6 +3,7 @@
 import logging
 import threading
 import time
+import uuid
 from typing import Any, Optional
 
 from config import (
@@ -12,11 +13,13 @@ from config import (
     resolve_ssh_config_target,
     resolve_ssh_password,
     save_config,
+    store_runner_token,
     store_ssh_password,
 )
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
+from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +27,14 @@ logger = logging.getLogger(__name__)
 class RuntimeServiceError(RuntimeError):
     pass
 
-
 class ServiceLocator:
-    def __init__(self, ssh_service: Optional[SSHService] = None):
+    def __init__(
+        self,
+        ssh_service: Optional[SSHService] = None,
+        remote_runner_manager: Optional[RemoteRunnerManager] = None,
+    ):
         self._ssh = ssh_service
+        self.remote_runner_manager = remote_runner_manager or RemoteRunnerManager()
 
     def initialize(self):
         return 0
@@ -63,6 +70,7 @@ class RuntimeService:
         self._auto_connect_failed = False
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
+        self._server_action_state: dict[str, dict[str, Any]] = {}
 
     def initialize(self) -> None:
         with self._lock:
@@ -95,6 +103,14 @@ class RuntimeService:
             self._ensure_initialized()
             p = self._project_manager.current_project
             return self._project_to_dict(p) if p else None
+
+    def get_project(self, project_id: str) -> dict:
+        with self._lock:
+            self._ensure_initialized()
+            project = next((p for p in self._project_manager.list_projects() if p.project_id == project_id), None)
+            if project is None:
+                raise RuntimeServiceError(f"Project not found: {project_id}")
+            return self._project_to_dict(project)
 
     def create_project(
         self, name: str, description: str = "", open_after_create: bool = True
@@ -156,6 +172,226 @@ class RuntimeService:
                 ssh = normalize_ssh_config(ssh_current)
                 cfg["ssh"] = ssh
             return cfg
+
+    def list_servers(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            server = self._build_primary_server()
+            return [server] if server else []
+
+    def get_server(self, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server = self._build_primary_server()
+            if not server or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            return server
+
+    def get_server_health(self, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server = self._build_primary_server()
+            if not server or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            return server["health"]
+
+    def refresh_server_health(self, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            return {"data": self.get_server_health(server_id)}
+
+    def bootstrap_server(self, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server = self._build_primary_server()
+            if not server or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            ssh = self._ensure_ssh_connected()
+            result = self._service_locator.remote_runner_manager.bootstrap(
+                server_id=server_id,
+                server=server,
+                ssh_service=ssh,
+                server_record=self._get_server_registry_entry(server_id),
+            )
+            self._save_server_registry_entry(
+                server_id,
+                {
+                    "bootstrap_version": result["bootstrap_version"],
+                    "runner_mode": result["runner_mode"],
+                    "tunnel_port": result["tunnel_port"],
+                    "service_port": result["service_port"],
+                    "token_ref": result["token_ref"],
+                    "last_health_snapshot": result["health"],
+                    "bootstrapped_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+            )
+            health = result["health"]
+            return {"data": health}
+
+    def accept_server_host_key(self, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server = self._build_primary_server()
+            if not server or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            state = self._server_action_state.setdefault(server_id, {})
+            state["host_key_trusted"] = True
+            return {"data": {"serverId": server_id, "hostKeyTrusted": True}}
+
+    def rotate_server_token(self, server_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server = self._build_primary_server()
+            if not server or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            record = self._get_server_registry_entry(server_id)
+            rotated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            if record.get("bootstrap_version"):
+                ssh = self._ensure_ssh_connected()
+                result = self._service_locator.remote_runner_manager.rotate_token(
+                    server_id=server_id,
+                    server=server,
+                    ssh_service=ssh,
+                    server_record=record,
+                )
+                token_ref = result["token_ref"]
+            else:
+                token_ref = store_runner_token(server_id=server_id, token=uuid.uuid4().hex)
+            self._save_server_registry_entry(
+                server_id,
+                {
+                    "token_ref": token_ref,
+                    "token_rotated_at": rotated_at,
+                },
+            )
+            return {"data": {"serverId": server_id, "tokenRotated": True, "rotatedAt": rotated_at}}
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return self._service_locator.remote_runner_manager.list_runs(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+            )
+
+    def upload_file(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            body = dict(payload or {})
+            server_id, ssh, record = self._require_bootstrapped_runner(
+                preferred_server_id=body.get("serverId")
+            )
+            return self._service_locator.remote_runner_manager.upload_content(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                filename=str(body.get("filename") or ""),
+                content_base64=str(body.get("contentBase64") or ""),
+                mime_type=str(body.get("mimeType") or "application/octet-stream"),
+            )
+
+    def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            body = dict(payload or {})
+            request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
+            run_spec = dict(body.get("runSpec") or {})
+            preferred_server_id = body.get("serverId") or run_spec.get("serverId")
+            server_id, ssh, record = self._require_bootstrapped_runner(
+                preferred_server_id=preferred_server_id
+            )
+            return self._service_locator.remote_runner_manager.submit_run(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                payload={
+                    "serverId": server_id,
+                    "requestId": request_id,
+                    "runSpec": run_spec,
+                },
+                idempotency_key=f"idem_{request_id}",
+                request_id=request_id,
+            )
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": self._service_locator.remote_runner_manager.get_run(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                run_id=run_id,
+            )}
+
+    def get_run_events(self, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": self._service_locator.remote_runner_manager.get_run_events(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                run_id=run_id,
+            )}
+
+    def get_run_logs(self, run_id: str, stream: str = "stdout", cursor: Optional[str] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": self._service_locator.remote_runner_manager.get_run_logs(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                run_id=run_id,
+                stream=stream,
+                cursor=cursor,
+            )}
+
+    def get_run_results(self, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": self._service_locator.remote_runner_manager.get_run_results(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                run_id=run_id,
+            )}
+
+    def list_results(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": {"items": self._service_locator.remote_runner_manager.list_results(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+            )}}
+
+    def get_result(self, result_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": self._service_locator.remote_runner_manager.get_result(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                result_id=result_id,
+            )}
+
+    def get_result_preview(self, result_id: str, artifact_id: Optional[str] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_bootstrapped_runner()
+            return {"data": self._service_locator.remote_runner_manager.get_result_preview(
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                result_id=result_id,
+                artifact_id=artifact_id,
+            )}
 
     def update_settings(self, patch: dict) -> dict:
         with self._lock:
@@ -493,6 +729,122 @@ class RuntimeService:
             "created_at": p.created_at,
             "last_opened_at": getattr(p, "last_opened_at", 0),
             "remote_base": getattr(p, "remote_base", ""),
+        }
+
+    def _get_server_registry(self) -> dict[str, dict[str, Any]]:
+        current = get_config()
+        raw = current.get("servers", {})
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    def _get_server_registry_entry(self, server_id: str) -> dict[str, Any]:
+        registry = self._get_server_registry()
+        entry = registry.get(server_id, {})
+        return dict(entry) if isinstance(entry, dict) else {}
+
+    def _save_server_registry_entry(self, server_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        current = get_config()
+        registry = self._get_server_registry()
+        entry = dict(registry.get(server_id, {}) or {})
+        entry.update({key: value for key, value in patch.items() if value is not None})
+        registry[server_id] = entry
+        current["servers"] = registry
+        save_config(current)
+        return entry
+
+    def _require_bootstrapped_runner(
+        self,
+        *,
+        preferred_server_id: Optional[str] = None,
+    ) -> tuple[str, SSHService, dict[str, Any]]:
+        server = self._build_primary_server()
+        if server is None:
+            raise RuntimeServiceError("No server configured")
+        server_id = str(preferred_server_id or server["serverId"] or "").strip() or server["serverId"]
+        if server_id != server["serverId"]:
+            raise RuntimeServiceError(f"Server not found: {server_id}")
+        record = self._get_server_registry_entry(server_id)
+        if not record.get("bootstrap_version"):
+            raise RuntimeServiceError("Remote runner is not bootstrapped")
+        ssh = self._ensure_ssh_connected()
+        return server_id, ssh, record
+
+    def _build_primary_server(self) -> Optional[dict[str, Any]]:
+        ssh_status = self.get_ssh_status()
+        host = str(ssh_status.get("host", "") or "").strip()
+        alias = str(ssh_status.get("ssh_host_alias", "") or "").strip()
+        user = str(ssh_status.get("user", "") or "").strip()
+        port = int(ssh_status.get("port", 22) or 22)
+        if not host and not alias:
+            return None
+        stable_key = f"{host or alias}:{port}:{user or 'unknown'}"
+        server_id = f"srv_{uuid.uuid5(uuid.NAMESPACE_DNS, stable_key).hex[:12]}"
+        registry_entry = self._get_server_registry_entry(server_id)
+        health = self._build_server_health(server_id=server_id, ssh_status=ssh_status)
+        return {
+            "serverId": server_id,
+            "label": alias or host,
+            "host": host,
+            "port": port,
+            "user": user,
+            "connected": bool(ssh_status.get("connected")),
+            "ready": bool(health["ready"]["ok"]),
+            "reasonCode": health.get("reasonCode", ""),
+            "message": health["ready"]["message"],
+            "health": health,
+            "bootstrapVersion": registry_entry.get("bootstrap_version", ""),
+            "runnerMode": registry_entry.get("runner_mode", ""),
+        }
+
+    def _build_server_health(self, *, server_id: str, ssh_status: dict[str, Any]) -> dict[str, Any]:
+        connected = bool(ssh_status.get("connected"))
+        configured = bool(ssh_status.get("host") or ssh_status.get("ssh_host_alias"))
+        registry_entry = self._get_server_registry_entry(server_id)
+        startup = {
+            "ok": configured,
+            "message": "Local backend has server configuration." if configured else "No SSH target configured.",
+        }
+        live = {
+            "ok": connected,
+            "message": "SSH tunnel reachable." if connected else "SSH connection is not active.",
+        }
+        reason_code = ""
+        ready_ok = False
+        ready_message = "Remote runner is not ready."
+        if not configured or not connected:
+            reason_code = "SSH_NOT_CONNECTED"
+            ready_message = "Connect to the remote server before submitting runs."
+        elif not registry_entry.get("bootstrap_version"):
+            reason_code = "RUNNER_NOT_READY"
+            ready_message = "Bootstrap the remote runner before using this server."
+        else:
+            try:
+                ssh = self._ensure_ssh_connected()
+                remote_health = self._service_locator.remote_runner_manager.get_health(
+                    server_id=server_id,
+                    ssh_service=ssh,
+                    server_record=registry_entry,
+                )
+                startup = remote_health["startup"]
+                live = remote_health["live"]
+                ready_ok = bool(remote_health["ready"]["ok"])
+                ready_message = str(remote_health["ready"]["message"])
+                reason_code = str(remote_health.get("reasonCode", "") or "")
+                self._save_server_registry_entry(server_id, {"last_health_snapshot": remote_health})
+            except RemoteRunnerManagerError as exc:
+                reason_code = "RUNNER_NOT_READY"
+                ready_message = str(exc) or "Remote runner control plane is not reachable."
+        action_state = self._server_action_state.get(server_id, {})
+        if "ready_override" in action_state:
+            ready_ok = bool(action_state["ready_override"])
+            reason_code = str(action_state.get("reasonCode_override", reason_code))
+            ready_message = str(action_state.get("message_override", ready_message))
+        return {
+            "serverId": server_id,
+            "startup": startup,
+            "live": live,
+            "ready": {"ok": ready_ok, "message": ready_message},
+            "reasonCode": reason_code,
+            "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
 
     @staticmethod
