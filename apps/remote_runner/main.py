@@ -136,7 +136,12 @@ async def create_run(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if idem_status == "accepted":
-        start_run_execution(cfg, run_id=run["runId"], request_id=request_id)
+        start_run_execution(
+            cfg,
+            run_id=run["runId"],
+            request_id=request_id,
+            run_spec=run_spec,
+        )
     return {
         "data": {
             "requestId": run["requestId"],
