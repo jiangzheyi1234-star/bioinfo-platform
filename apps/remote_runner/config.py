@@ -32,6 +32,10 @@ class RemoteRunnerConfig:
     runner_python: str = ""
     managed_conda_command: str = ""
     managed_conda_root_prefix: str = ""
+    workflow_runtime_provider: str = ""
+    workflow_runtime_source: str = ""
+    snakemake_command: str = ""
+    snakemake_version: str = ""
 
 
 def get_config_path() -> Path:

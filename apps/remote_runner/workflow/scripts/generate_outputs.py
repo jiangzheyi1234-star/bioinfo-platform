@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -30,4 +28,3 @@ raw_log_path.write_text(
     ),
     encoding="utf-8",
 )
-

@@ -13,14 +13,33 @@ import paramiko
 SSH_KEYRING_SERVICE = "H2OMeta.SSH"
 RUNNER_KEYRING_SERVICE = "H2OMeta.Runner"
 SSH_AUTH_MODES = {"password_ref", "key_file", "ssh_config", "agent"}
+_NATIVE_PATH_CLS = type(Path.cwd())
+
+
+def _native_path(raw: str) -> Path:
+    return _NATIVE_PATH_CLS(raw)
+
 
 def get_app_data_dir() -> Path:
     if os.name == "nt":
         appdata = str(os.getenv("APPDATA", "") or "").strip()
         if appdata:
-            return Path(appdata) / "H2OMeta"
-        return Path.home() / "AppData" / "Roaming" / "H2OMeta"
-    return Path.home() / ".h2ometa"
+            return _native_path(appdata) / "H2OMeta"
+        return _native_path(str(Path.home())) / "AppData" / "Roaming" / "H2OMeta"
+    return _native_path(str(Path.home())) / ".h2ometa"
+
+
+def get_app_cache_dir() -> Path:
+    if os.name == "nt":
+        localappdata = str(os.getenv("LOCALAPPDATA", "") or "").strip()
+        if localappdata:
+            return _native_path(localappdata) / "H2OMeta" / "Cache"
+        return _native_path(str(Path.home())) / "AppData" / "Local" / "H2OMeta" / "Cache"
+
+    xdg_cache_home = str(os.getenv("XDG_CACHE_HOME", "") or "").strip()
+    if xdg_cache_home:
+        return _native_path(xdg_cache_home) / "h2ometa"
+    return _native_path(str(Path.home())) / ".cache" / "h2ometa"
 
 
 def get_ssh_key_dir() -> Path:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import threading
 from pathlib import Path
 import time
@@ -19,8 +18,11 @@ from .storage import (
 _EXECUTION_LOCK = threading.Lock()
 
 
-def _snakemake_command() -> list[str]:
-    return [sys.executable, "-m", "snakemake"]
+def _snakemake_command(cfg: RemoteRunnerConfig) -> list[str]:
+    snakemake_command = str(cfg.snakemake_command or "").strip()
+    if not snakemake_command:
+        raise RuntimeError("snakemake command not configured")
+    return [snakemake_command]
 
 
 def _snakemake_environment(cfg: RemoteRunnerConfig) -> dict[str, str]:
@@ -31,7 +33,6 @@ def _snakemake_environment(cfg: RemoteRunnerConfig) -> dict[str, str]:
         current_path = env.get("PATH", "")
         env["PATH"] = os.pathsep.join(part for part in (managed_bin_dir, current_path) if part)
         env["CONDA_EXE"] = managed_conda_command
-        env["MAMBA_EXE"] = managed_conda_command
         env["H2OMETA_MANAGED_CONDA_COMMAND"] = managed_conda_command
     managed_conda_root_prefix = str(cfg.managed_conda_root_prefix or "").strip()
     if managed_conda_root_prefix:
@@ -103,7 +104,7 @@ def run_snakemake_execution(
         )
 
         dry_run_cmd = [
-            *_snakemake_command(),
+            *_snakemake_command(cfg),
             "--snakefile",
             str(snakefile),
             "--directory",
@@ -143,7 +144,7 @@ def run_snakemake_execution(
             request_id=request_id,
         )
         run_cmd = [
-            *_snakemake_command(),
+            *_snakemake_command(cfg),
             "--snakefile",
             str(snakefile),
             "--directory",
@@ -228,7 +229,7 @@ def _mark_failed(
         request_id=request_id,
         result_dir=result_dir,
         last_error={
-            "code": "WORKFLOW_ENGINE_MISSING" if scope == "validate" else "WORKFLOW_EXECUTION_FAILED",
+            "code": "WORKFLOW_RUNTIME_MISSING" if scope == "validate" else "WORKFLOW_EXECUTION_FAILED",
             "message": stderr.strip() or message,
             "requestId": request_id,
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

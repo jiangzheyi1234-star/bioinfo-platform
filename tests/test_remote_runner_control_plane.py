@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -30,84 +29,16 @@ from apps.remote_runner.main import (
 )
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.executor import run_snakemake_execution
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, LocalRunnerRuntimePackager, RemoteRunnerBundleBuilder
+from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from config import get_app_cache_dir
 
 
-class FakeRuntimeArtifact:
-    fingerprint = "runtime1234"
-    archive_path = Path(__file__)
-    python_relative_path = "runner-env/bin/python"
-
-
-def test_local_runner_runtime_packager_requires_prebuilt_artifact_when_target_platform_is_not_local(
-    tmp_path: Path, monkeypatch
-) -> None:
-    requirements_path = tmp_path / "requirements.txt"
-    requirements_path.write_text("fastapi>=0.115.0\n", encoding="utf-8")
-    packager = LocalRunnerRuntimePackager(requirements_path=requirements_path, cache_root=tmp_path / "cache")
-    monkeypatch.setattr("core.remote_runner.bundle.platform.system", lambda: "Windows")
-    monkeypatch.setattr("core.remote_runner.bundle.platform.machine", lambda: "AMD64")
-
-    try:
-        packager.build(target_platform="linux-64")
-    except RuntimeError as exc:
-        assert "prebuilt runner runtime artifact required" in str(exc)
-        assert "configure H2OMETA_RUNNER_ARTIFACT_GITHUB_REPO" in str(exc)
-    else:
-        raise AssertionError("cross-platform runtime artifact builds should fail loudly without a prebuilt artifact")
-
-
-def test_local_runner_runtime_packager_downloads_release_asset_and_verifies_checksum(
-    tmp_path: Path, monkeypatch
-) -> None:
-    requirements_path = tmp_path / "requirements.txt"
-    requirements_path.write_text("fastapi>=0.115.0\n", encoding="utf-8")
-    packager = LocalRunnerRuntimePackager(
-        requirements_path=requirements_path,
-        cache_root=tmp_path / "cache",
-        github_repo="demo/repo",
-        github_release_tag="v1.2.3",
-    )
-    monkeypatch.setattr("core.remote_runner.bundle.platform.system", lambda: "Windows")
-    monkeypatch.setattr("core.remote_runner.bundle.platform.machine", lambda: "AMD64")
-
-    payload = b"runtime-archive"
-    checksum = __import__("hashlib").sha256(payload).hexdigest()
-    fetched: list[tuple[str, str]] = []
-
-    def fake_download(url: str, *, accept: str = "application/octet-stream") -> bytes:
-        fetched.append((url, accept))
-        if url.endswith("/releases/tags/v1.2.3"):
-            return json.dumps(
-                {
-                    "assets": [
-                        {
-                            "name": "runner-runtime-linux-64-0.1.0-control-plane.tar.gz",
-                            "browser_download_url": "https://example.test/runtime.tgz",
-                        },
-                        {
-                            "name": "runner-runtime-linux-64-0.1.0-control-plane.tar.gz.sha256",
-                            "browser_download_url": "https://example.test/runtime.tgz.sha256",
-                        },
-                    ]
-                }
-            ).encode("utf-8")
-        if url.endswith("runtime.tgz"):
-            return payload
-        if url.endswith("runtime.tgz.sha256"):
-            return f"{checksum}  runner-runtime-linux-64-0.1.0-control-plane.tar.gz\n".encode("utf-8")
-        raise AssertionError(f"unexpected url: {url}")
-
-    monkeypatch.setattr(packager, "_download_bytes", fake_download)
-
-    artifact = packager.build(target_platform="linux-64")
-
-    assert artifact.archive_path.exists()
-    assert artifact.archive_path.read_bytes() == payload
-    assert Path(f"{artifact.archive_path}.sha256").exists()
-    assert fetched[0][0].endswith("/releases/tags/v1.2.3")
+def test_get_app_cache_dir_prefers_platform_cache_locations(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("config.os.name", "nt")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-appdata"))
+    assert get_app_cache_dir() == tmp_path / "local-appdata" / "H2OMeta" / "Cache"
 
 
 def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> None:
@@ -130,10 +61,12 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     launch_script_path = bundle.bundle_dir / "launch_remote_runner.sh"
     launch_script = launch_script_path.read_text(encoding="utf-8")
     assert "RUNNER_PYTHON" in launch_script
-    assert "runner_python" in launch_script
+    assert '.venv/bin/python' in launch_script
     assert 'cd "$RUN_DIR"' in launch_script
     assert b"\r\n" not in launch_script_path.read_bytes()
     assert bundle.archive_path.exists()
+    requirements = (bundle.bundle_dir / "remote_runner" / "requirements.txt").read_text(encoding="utf-8")
+    assert "snakemake" not in requirements
 
 
 def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> None:
@@ -153,15 +86,23 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                 return 0, "/home/tester", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
+            if 'command -v python3' in cmd:
+                return 0, "/usr/bin/python3\n", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+            if "python3 -m venv" in cmd:
                 return 0, "", ""
-            if "ensure_runtime_layout" in cmd:
+            if ".venv/bin/python -m pip install" in cmd:
+                return 0, "", ""
+            if "tools/bin/micromamba" in cmd:
+                return 0, "", ""
+            if "workflow-env/bin/snakemake --version" in cmd:
+                return 0, "9.1.0\n", ""
+            if ".venv/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
@@ -186,9 +127,9 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: FakeRuntimeArtifact())
-    ), patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient), patch(
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch(
         "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
     ):
         manager.bootstrap(
@@ -200,7 +141,45 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
 
     extract_cmd = next(cmd for cmd in executed if "tar -xzf" in cmd)
     assert "chmod 0755" in extract_cmd
-    assert "runner-runtime-runtime1234.tar.gz" in extract_cmd
+    assert "bundle-0.1.0-control-plane.tar.gz" in extract_cmd
+
+
+def test_bootstrap_fails_fast_when_python3_is_missing() -> None:
+    manager = RemoteRunnerManager()
+
+    class FakeBundle:
+        archive_path = Path(__file__)
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
+                return 0, "Linux:x86_64", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "background_process\n", ""
+            if 'command -v python3' in cmd:
+                return 1, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            return None
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            raise AssertionError("bootstrap should fail before tunnel setup")
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())):
+        try:
+            manager.bootstrap(
+                server_id="srv_test",
+                server={"label": "demo"},
+                ssh_service=FakeSSH(),
+                server_record={},
+            )
+        except RemoteRunnerManagerError as exc:
+            assert "python3" in str(exc)
+        else:
+            raise AssertionError("bootstrap should fail when python3 is missing")
 
 
 def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
@@ -268,10 +247,11 @@ def test_remote_runner_health_does_not_create_runtime_layout(tmp_path: Path, mon
     assert not Path(tmp_path / "shared" / "data" / "runner.db").exists()
 
 
-def test_load_remote_runner_config_preserves_managed_conda_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"
     managed_conda_command = tmp_path / "tooling" / "bin" / "micromamba"
     managed_conda_root_prefix = tmp_path / "tooling" / "micromamba-root"
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     config_path.write_text(
         json.dumps(
             {
@@ -284,6 +264,10 @@ def test_load_remote_runner_config_preserves_managed_conda_metadata(tmp_path: Pa
                 "logs_dir": str(tmp_path / "shared" / "logs"),
                 "managed_conda_command": str(managed_conda_command),
                 "managed_conda_root_prefix": str(managed_conda_root_prefix),
+                "workflow_runtime_provider": "micromamba",
+                "workflow_runtime_source": "managed",
+                "snakemake_command": str(snakemake_command),
+                "snakemake_version": "9.1.0",
             }
         ),
         encoding="utf-8",
@@ -294,6 +278,10 @@ def test_load_remote_runner_config_preserves_managed_conda_metadata(tmp_path: Pa
 
     assert cfg.managed_conda_command == str(managed_conda_command)
     assert cfg.managed_conda_root_prefix == str(managed_conda_root_prefix)
+    assert cfg.workflow_runtime_provider == "micromamba"
+    assert cfg.workflow_runtime_source == "managed"
+    assert cfg.snakemake_command == str(snakemake_command)
+    assert cfg.snakemake_version == "9.1.0"
 
 
 def test_rotate_token_does_not_persist_local_token_before_remote_update_succeeds(monkeypatch) -> None:
@@ -449,6 +437,7 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
 
 
 def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     cfg = RemoteRunnerConfig(
         token="phase2-token",
         data_root=str(tmp_path / "shared"),
@@ -458,8 +447,11 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
         work_dir=str(tmp_path / "shared" / "work"),
         logs_dir=str(tmp_path / "shared" / "logs"),
         release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
     )
     ensure_runtime_layout(cfg)
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     (Path(cfg.release_dir) / "workflow" / "envs").mkdir(parents=True, exist_ok=True)
     (Path(cfg.release_dir) / "workflow" / "scripts").mkdir(parents=True, exist_ok=True)
     (Path(cfg.release_dir) / "workflow" / "Snakefile").write_text("rule all:\n  input: 'done.txt'\n", encoding="utf-8")
@@ -490,7 +482,7 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
     )
 
     assert len(calls) == 2
-    assert calls[0][:3] == [sys.executable, "-m", "snakemake"]
+    assert calls[0][0] == str(snakemake_command)
     assert "--use-conda" in calls[0]
     assert "-n" in calls[0]
     assert "--use-conda" in calls[1]
@@ -499,6 +491,7 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
 def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, monkeypatch) -> None:
     managed_conda_command = tmp_path / "tooling" / "bin" / "micromamba"
     managed_conda_root_prefix = tmp_path / "tooling" / "micromamba-root"
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     cfg = RemoteRunnerConfig(
         token="phase2-token",
         data_root=str(tmp_path / "shared"),
@@ -510,10 +503,13 @@ def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, 
         release_dir=str(tmp_path / "release"),
         managed_conda_command=str(managed_conda_command),
         managed_conda_root_prefix=str(managed_conda_root_prefix),
+        snakemake_command=str(snakemake_command),
     )
     ensure_runtime_layout(cfg)
     managed_conda_command.parent.mkdir(parents=True, exist_ok=True)
     managed_conda_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     (Path(cfg.release_dir) / "workflow" / "envs").mkdir(parents=True, exist_ok=True)
     (Path(cfg.release_dir) / "workflow" / "scripts").mkdir(parents=True, exist_ok=True)
     (Path(cfg.release_dir) / "workflow" / "Snakefile").write_text("rule all:\n  input: 'done.txt'\n", encoding="utf-8")
@@ -715,13 +711,23 @@ def test_bootstrap_does_not_persist_local_token_before_remote_service_is_healthy
                 return 0, "/home/tester", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
+            if 'command -v python3' in cmd:
+                return 0, "/usr/bin/python3\n", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "ensure_runtime_layout" in cmd:
+            if "python3 -m venv" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -m pip install" in cmd:
+                return 0, "", ""
+            if "tools/bin/micromamba" in cmd:
+                return 0, "", ""
+            if "workflow-env/bin/snakemake --version" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 raise RuntimeError("service failed to start")
@@ -732,9 +738,9 @@ def test_bootstrap_does_not_persist_local_token_before_remote_service_is_healthy
 
     fake_ssh = FakeSSH()
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: FakeRuntimeArtifact())
-    ), patch("core.remote_runner.manager.store_runner_token") as store_token:
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.store_runner_token"
+    ) as store_token:
         try:
             manager.bootstrap(
                 server_id="srv_test",
@@ -762,6 +768,8 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
                 return 0, "/home/tester", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
+            if 'command -v python3' in cmd:
+                return 0, "/usr/bin/python3\n", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
             if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
@@ -770,6 +778,12 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
+            if "python3 -m venv" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -m pip install --upgrade pip" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -m pip install -r" in cmd:
+                return 1, "", "pip install failed"
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
@@ -777,9 +791,9 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
 
     fake_ssh = FakeSSH()
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("build runtime artifact: pip install failed")))
-    ), patch("core.remote_runner.manager.store_runner_token") as store_token:
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.store_runner_token"
+    ) as store_token:
         try:
             manager.bootstrap(
                 server_id="srv_test",
@@ -789,14 +803,14 @@ def test_bootstrap_fails_fast_when_remote_dependency_install_returns_nonzero(mon
             )
         except RemoteRunnerManagerError as exc:
             assert "pip install failed" in str(exc)
-            assert "build runtime artifact" in str(exc)
+            assert "install remote runner service dependencies" in str(exc)
         else:
-            raise AssertionError("bootstrap should fail when local runtime artifact build exits non-zero")
+            raise AssertionError("bootstrap should fail when service dependency installation exits non-zero")
 
     store_token.assert_not_called()
 
 
-def test_bootstrap_fails_fast_when_managed_workflow_runtime_install_fails(monkeypatch) -> None:
+def test_bootstrap_uses_bundled_workflow_runtime_without_remote_installer(monkeypatch) -> None:
     manager = RemoteRunnerManager()
 
     class FakeBundle:
@@ -808,36 +822,60 @@ def test_bootstrap_fails_fast_when_managed_workflow_runtime_install_fails(monkey
                 return 0, "/home/tester", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
+            if 'command -v python3' in cmd:
+                return 0, "/usr/bin/python3\n", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
-                return 1, "", "curl or wget is required to install managed micromamba"
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "python3 -m venv" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -m pip install" in cmd:
+                return 0, "", ""
+            if "tools/bin/micromamba" in cmd:
+                return 0, "", ""
+            if "workflow-env/bin/snakemake --version" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+                return 0, "", ""
+            if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
             return None
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: FakeRuntimeArtifact())
-    ), patch("core.remote_runner.manager.store_runner_token") as store_token:
-        try:
-            manager.bootstrap(
-                server_id="srv_test",
-                server={"label": "demo"},
-                ssh_service=FakeSSH(),
-                server_record={},
-            )
-        except RemoteRunnerManagerError as exc:
-            assert "install managed workflow runtime" in str(exc)
-            assert "curl or wget is required" in str(exc)
-        else:
-            raise AssertionError("bootstrap should fail when managed workflow runtime install fails")
+        def ensure_local_tunnel(self, *args, **kwargs):
+            return SimpleNamespace(local_port=18765)
 
-    store_token.assert_not_called()
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch(
+        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    ):
+        result = manager.bootstrap(
+            server_id="srv_test",
+            server={"label": "demo"},
+            ssh_service=FakeSSH(),
+            server_record={},
+        )
+
+    assert result["bootstrap_metadata"]["tooling"]["workflow_runtime"]["provider"] == "micromamba"
 
 
 def test_bootstrap_auto_installs_managed_micromamba_when_host_runtime_is_missing(monkeypatch) -> None:
@@ -857,15 +895,27 @@ def test_bootstrap_auto_installs_managed_micromamba_when_host_runtime_is_missing
                 return 0, "/home/tester", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
+            if 'command -v python3' in cmd:
+                return 0, "/usr/bin/python3\n", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
+            if "python3 -m venv" in cmd:
+                return 0, "", ""
+            if ".venv/bin/python -m pip install" in cmd:
+                return 0, "", ""
             if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
                 return 0, "", ""
-            if "ensure_runtime_layout" in cmd:
+            if "micromamba create -y -p /home/tester/.h2ometa/runner/shared/tools/workflow-env" in cmd:
+                return 0, "", ""
+            if "micromamba install -y -p /home/tester/.h2ometa/runner/shared/tools/workflow-env" in cmd:
+                return 0, "", ""
+            if "workflow-env/bin/snakemake --version" in cmd:
+                return 0, "9.1.0\n", ""
+            if ".venv/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 return 0, "", ""
@@ -890,9 +940,9 @@ def test_bootstrap_auto_installs_managed_micromamba_when_host_runtime_is_missing
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: FakeRuntimeArtifact())
-    ), patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient), patch(
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch(
         "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
     ):
         result = manager.bootstrap(
@@ -905,15 +955,14 @@ def test_bootstrap_auto_installs_managed_micromamba_when_host_runtime_is_missing
     metadata = result["bootstrap_metadata"]
     assert metadata["tooling"]["workflow_runtime"]["source"] == "managed"
     assert metadata["tooling"]["workflow_runtime"]["provider"] == "micromamba"
-    assert metadata["tooling"]["workflow_runtime"]["command"] == "/home/tester/.h2ometa/runner/shared/tools/bin/conda"
+    assert metadata["tooling"]["workflow_runtime"]["command"] == "/home/tester/.h2ometa/runner/shared/tools/bin/micromamba"
     assert metadata["tooling"]["workflow_runtime"]["root_prefix"] == "/home/tester/.h2ometa/runner/shared/tools/micromamba-root"
-    assert metadata["tooling"]["runner_runtime"]["source"] == "bundled"
-    assert metadata["tooling"]["runner_runtime"]["artifact"] == "runtime1234"
-    assert metadata["tooling"]["runner_runtime"]["environment"] == "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane/runner-env"
-    assert metadata["tooling"]["runner_runtime"]["python"] == "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane/runner-env/bin/python"
+    assert metadata["tooling"]["workflow_runtime"]["snakemake_command"] == "/home/tester/.h2ometa/runner/shared/tools/workflow-env/bin/snakemake"
+    assert metadata["tooling"]["service_runtime"]["provider"] == "venv"
+    assert metadata["tooling"]["service_runtime"]["python"] == "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane/.venv/bin/python"
     assert any("micro.mamba.pm/api/micromamba/linux-64/latest" in cmd for cmd in executed)
-    assert not any("python3 -m venv" in cmd for cmd in executed)
-    assert not any("runner-env/bin/python -m pip install -r" in cmd for cmd in executed)
+    assert any("python3 -m venv" in cmd for cmd in executed)
+    assert any(".venv/bin/python -m pip install -r" in cmd for cmd in executed)
 
 
 def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> None:
@@ -931,15 +980,23 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return 0, "/home/tester", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
+            if 'command -v python3' in cmd:
+                return 0, "/usr/bin/python3\n", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "systemd_user\n", ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
+            if "python3 -m venv" in cmd:
                 return 0, "", ""
-            if "ensure_runtime_layout" in cmd:
+            if ".venv/bin/python -m pip install" in cmd:
+                return 0, "", ""
+            if "tools/bin/micromamba" in cmd:
+                return 0, "", ""
+            if "workflow-env/bin/snakemake --version" in cmd:
+                return 0, "9.1.0\n", ""
+            if ".venv/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
                 return 0, "", ""
             if "systemctl --user restart h2ometa-remote.service" in cmd:
                 return 0, "", ""
@@ -971,9 +1028,9 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
 
     monkeypatch.setattr("core.remote_runner.manager.time.sleep", lambda *_args, **_kwargs: None)
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: FakeRuntimeArtifact())
-    ), patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient), patch(
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch(
         "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
     ):
         result = manager.bootstrap(
@@ -987,7 +1044,7 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
     assert result["health"]["ready"]["ok"] is True
 
 
-def test_bootstrap_succeeds_without_system_python3_when_managed_runtime_is_available(monkeypatch) -> None:
+def test_bootstrap_requires_system_python3_before_managed_runtime_install(monkeypatch) -> None:
     manager = RemoteRunnerManager()
 
     class FakeBundle:
@@ -1004,16 +1061,8 @@ def test_bootstrap_succeeds_without_system_python3_when_managed_runtime_is_avail
                 return 0, "Linux:x86_64", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
-            if "mkdir -p" in cmd:
-                return 0, "", ""
-            if "tar -xzf" in cmd:
-                return 0, "", ""
-            if "micro.mamba.pm/api/micromamba/linux-64/latest" in cmd:
-                return 0, "", ""
-            if "ensure_runtime_layout" in cmd:
-                return 0, "", ""
-            if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
-                return 0, "", ""
+            if 'command -v python3' in cmd:
+                return 1, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
@@ -1035,16 +1084,17 @@ def test_bootstrap_succeeds_without_system_python3_when_managed_runtime_is_avail
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch.object(
-        manager, "_runtime_packager", SimpleNamespace(build=lambda *args, **kwargs: FakeRuntimeArtifact())
-    ), patch("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient), patch(
-        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
-    ):
-        result = manager.bootstrap(
-            server_id="srv_test",
-            server={"label": "demo"},
-            ssh_service=FakeSSH(),
-            server_record={},
-        )
-
-    assert result["bootstrap_metadata"]["tooling"]["runner_runtime"]["python"].endswith("/releases/0.1.0-control-plane/runner-env/bin/python")
+    with patch.object(manager, "_bundle_builder", SimpleNamespace(build=lambda version: FakeBundle())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch("core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"):
+        try:
+            manager.bootstrap(
+                server_id="srv_test",
+                server={"label": "demo"},
+                ssh_service=FakeSSH(),
+                server_record={},
+            )
+        except RemoteRunnerManagerError as exc:
+            assert "python3" in str(exc)
+        else:
+            raise AssertionError("bootstrap should require system python3")
