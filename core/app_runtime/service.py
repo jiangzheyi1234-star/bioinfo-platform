@@ -805,11 +805,16 @@ class RuntimeService(RunnerOperationsMixin):
         lowered = message.lower()
         if (
             "verify workflow runtime prerequisites" in lowered
+            or "workflow runtime" in lowered
             or "conda/mamba is required" in lowered
             or "micromamba" in lowered
+            or "snakemake command not configured" in lowered
         ):
             ready_message = f"Remote workflow runtime is unavailable: {message}"
-            return "WORKFLOW_ENGINE_MISSING", ready_message, "Remote runner process is not running."
+            return "WORKFLOW_RUNTIME_MISSING", ready_message, "Remote runner process is not running."
+        if "python3 required" in lowered:
+            ready_message = f"Remote host is missing python3 required for bootstrap: {message}"
+            return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
         if "install remote runner dependencies" in lowered:
             if "python3" in lowered and (
                 "not found" in lowered or "command not found" in lowered or "no such file" in lowered
@@ -820,7 +825,7 @@ class RuntimeService(RunnerOperationsMixin):
                 "Remote runner dependency installation failed while setting up the Python environment: "
                 f"{message}"
             )
-            return "RUNNER_DEPENDENCY_INSTALL_FAILED", ready_message, "Remote runner process is not running."
+            return "SERVICE_RUNTIME_SETUP_FAILED", ready_message, "Remote runner process is not running."
         if "start remote runner service" in lowered or "service failed to start" in lowered:
             ready_message = f"Remote runner service failed to start: {message}"
             return "SERVICE_START_FAILED", ready_message, "Remote runner process failed to stay alive."

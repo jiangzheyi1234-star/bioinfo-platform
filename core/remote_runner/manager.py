@@ -12,7 +12,6 @@ from config import resolve_runner_token, store_runner_token
 from core.remote_runner.bundle import (
     REMOTE_RUNNER_PORT,
     REMOTE_RUNNER_VERSION,
-    LocalRunnerRuntimePackager,
     RemoteRunnerBundleBuilder,
 )
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
@@ -23,13 +22,8 @@ class RemoteRunnerManagerError(RuntimeError):
 
 
 class RemoteRunnerManager:
-    def __init__(
-        self,
-        bundle_builder: RemoteRunnerBundleBuilder | None = None,
-        runtime_packager: LocalRunnerRuntimePackager | None = None,
-    ):
+    def __init__(self, bundle_builder: RemoteRunnerBundleBuilder | None = None):
         self._bundle_builder = bundle_builder or RemoteRunnerBundleBuilder()
-        self._runtime_packager = runtime_packager or LocalRunnerRuntimePackager()
 
     def bootstrap(self, **kwargs) -> dict[str, Any]:
         try:
@@ -37,18 +31,17 @@ class RemoteRunnerManager:
             server = kwargs["server"]
             ssh_service = kwargs["ssh_service"]
             version = REMOTE_RUNNER_VERSION
-            remote_platform = self._detect_remote_platform(ssh_service)
-            bundle = self._bundle_builder.build(version=version)
-            runtime_artifact = self._runtime_packager.build(target_platform=remote_platform, version=version)
             home_dir = self._resolve_remote_home(ssh_service)
             mode = self._detect_mode(ssh_service)
+            remote_platform = self._detect_remote_platform(ssh_service)
+            python_info = self._verify_remote_python(ssh_service)
+            bundle = self._bundle_builder.build(version=version)
             token = secrets.token_urlsafe(24)
 
             remote_root = f"{home_dir}/.h2ometa/runner"
             remote_release = f"{remote_root}/releases/{version}"
             remote_shared = f"{remote_root}/shared"
             remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"
-            remote_runtime_archive = f"{remote_root}/runner-runtime-{runtime_artifact.fingerprint}.tar.gz"
             remote_config = f"{remote_shared}/config/runner.json"
             remote_log = f"{remote_shared}/logs/runner.log"
             remote_current = f"{remote_root}/current"
@@ -56,19 +49,66 @@ class RemoteRunnerManager:
             remote_tools_root = f"{remote_shared}/tools"
             remote_tools_bin = f"{remote_tools_root}/bin"
             remote_managed_root_prefix = f"{remote_tools_root}/micromamba-root"
-            remote_managed_micromamba = f"{remote_tools_bin}/micromamba"
-            remote_managed_conda = f"{remote_tools_bin}/conda"
-            remote_runner_environment = f"{remote_release}/runner-env"
-            remote_runner_python = f"{remote_release}/{runtime_artifact.python_relative_path}"
+            remote_managed_conda = f"{remote_tools_bin}/micromamba"
+            remote_workflow_env = f"{remote_tools_root}/workflow-env"
+            remote_snakemake_command = f"{remote_workflow_env}/bin/snakemake"
+            remote_service_env = f"{remote_release}/.venv"
+            remote_service_python = f"{remote_service_env}/bin/python"
             bootstrap_metadata: dict[str, Any] = {
                 "preflight": {
-                    "launcher": {
-                        "mode": mode,
-                    },
+                    "launcher": {"mode": mode},
                     "platform": remote_platform,
+                    "python": python_info,
                 },
                 "tooling": {},
             }
+
+            self._run_checked(
+                ssh_service,
+                "mkdir -p "
+                + " ".join(
+                    shlex.quote(path)
+                    for path in (
+                        f"{remote_root}/releases",
+                        f"{remote_shared}/config",
+                        f"{remote_shared}/data",
+                        f"{remote_shared}/logs",
+                        f"{remote_shared}/uploads",
+                        f"{remote_shared}/results",
+                        f"{remote_shared}/work",
+                        remote_tools_bin,
+                    )
+                ),
+                step="prepare remote runner directories",
+                timeout=20,
+            )
+            ssh_service.upload(str(bundle.archive_path), remote_bundle)
+            self._run_checked(
+                ssh_service,
+                "rm -rf {release} && mkdir -p {release} && tar -xzf {bundle} -C {release} && chmod 0755 {release}/*.sh".format(
+                    release=shlex.quote(remote_release),
+                    bundle=shlex.quote(remote_bundle),
+                ),
+                step="extract remote runner bundle",
+                timeout=60,
+            )
+
+            bootstrap_metadata["tooling"]["service_runtime"] = self._ensure_service_runtime(
+                ssh_service=ssh_service,
+                remote_python="python3",
+                remote_service_env=remote_service_env,
+                remote_service_python=remote_service_python,
+                remote_release=remote_release,
+            )
+            workflow_runtime = self._ensure_workflow_runtime(
+                ssh_service=ssh_service,
+                remote_platform=remote_platform,
+                remote_managed_conda=remote_managed_conda,
+                remote_managed_root_prefix=remote_managed_root_prefix,
+                remote_workflow_env=remote_workflow_env,
+                remote_snakemake_command=remote_snakemake_command,
+            )
+            bootstrap_metadata["tooling"]["workflow_runtime"] = workflow_runtime
 
             with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
                 json.dump(
@@ -79,61 +119,50 @@ class RemoteRunnerManager:
                         token=token,
                         remote_shared=remote_shared,
                         remote_release=remote_release,
-                        runner_python=remote_runner_python,
+                        runner_python=remote_service_python,
                         managed_conda_command=remote_managed_conda,
                         managed_conda_root_prefix=remote_managed_root_prefix,
+                        workflow_runtime_provider=str(workflow_runtime["provider"]),
+                        workflow_runtime_source=str(workflow_runtime["source"]),
+                        snakemake_command=remote_snakemake_command,
+                        snakemake_version=str(workflow_runtime["snakemake_version"]),
                     ),
                     handle,
                     indent=2,
                 )
                 local_config_path = Path(handle.name)
-
-            self._run_checked(
-                ssh_service,
-                f"mkdir -p {remote_root}/releases {remote_shared}/config {remote_shared}/data {remote_shared}/logs {remote_shared}/uploads {remote_shared}/results {remote_shared}/work {remote_tools_bin}",
-                step="prepare remote runner directories",
-                timeout=20,
-            )
-            ssh_service.upload(str(bundle.archive_path), remote_bundle)
-            ssh_service.upload(str(runtime_artifact.archive_path), remote_runtime_archive)
             ssh_service.upload(str(local_config_path), remote_config)
             self._run_checked(
                 ssh_service,
-                f"mkdir -p {remote_release} && tar -xzf {remote_bundle} -C {remote_release} && tar -xzf {remote_runtime_archive} -C {remote_release} && chmod 0755 {remote_release}/*.sh",
-                step="extract remote runner bundle",
-                timeout=60,
-            )
-            bootstrap_metadata["tooling"] = self._ensure_workflow_runtime(
-                ssh_service,
-                remote_tools_root=remote_tools_root,
-                remote_tools_bin=remote_tools_bin,
-                remote_managed_root_prefix=remote_managed_root_prefix,
-                remote_managed_micromamba=remote_managed_micromamba,
-                remote_managed_conda=remote_managed_conda,
-            )
-            bootstrap_metadata["tooling"]["runner_runtime"] = {
-                "source": "bundled",
-                "artifact": runtime_artifact.fingerprint,
-                "environment": remote_runner_environment,
-                "python": remote_runner_python,
-            }
-            self._run_checked(
-                ssh_service,
-                f'cd {remote_release} && H2OMETA_REMOTE_CONFIG="{remote_config}" {remote_runner_python} -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"',
+                'cd {release} && H2OMETA_REMOTE_CONFIG={config} {python} -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"'.format(
+                    release=shlex.quote(remote_release),
+                    config=shlex.quote(remote_config),
+                    python=shlex.quote(remote_service_python),
+                ),
                 step="initialize remote runner layout",
                 timeout=60,
             )
             if mode == "systemd_user":
                 self._run_checked(
                     ssh_service,
-                    f"mkdir -p ~/.config/systemd/user && cp {remote_release}/h2ometa-remote.service ~/.config/systemd/user/h2ometa-remote.service && ln -sfn {remote_release} {remote_current} && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service",
+                    "mkdir -p ~/.config/systemd/user && cp {service} ~/.config/systemd/user/h2ometa-remote.service && ln -sfn {release} {current} && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service".format(
+                        service=shlex.quote(f"{remote_release}/h2ometa-remote.service"),
+                        release=shlex.quote(remote_release),
+                        current=shlex.quote(remote_current),
+                    ),
                     step="start remote runner service",
                     timeout=60,
                 )
             else:
                 self._run_checked(
                     ssh_service,
-                    f"ln -sfn {remote_release} {remote_current} && bash {remote_current}/start_service.sh {remote_config} {remote_log}",
+                    "ln -sfn {release} {current} && bash {start} {config} {log}".format(
+                        release=shlex.quote(remote_release),
+                        current=shlex.quote(remote_current),
+                        start=shlex.quote(f"{remote_current}/start_service.sh"),
+                        config=shlex.quote(remote_config),
+                        log=shlex.quote(remote_log),
+                    ),
                     step="start remote runner service",
                     timeout=30,
                 )
@@ -320,6 +349,9 @@ class RemoteRunnerManager:
             token = secrets.token_urlsafe(24)
             home_dir = self._resolve_remote_home(ssh_service)
             remote_config = f"{home_dir}/.h2ometa/runner/shared/config/runner.json"
+            tooling = (record.get("bootstrap_metadata") or {}).get("tooling") or {}
+            service_runtime = tooling.get("service_runtime") or {}
+            workflow_runtime = tooling.get("workflow_runtime") or {}
             old_config_path: Path | None = None
             with tempfile.NamedTemporaryFile("w+b", delete=False, suffix=".json") as handle:
                 old_config_path = Path(handle.name)
@@ -337,18 +369,13 @@ class RemoteRunnerManager:
                         token=token,
                         remote_shared=f"{home_dir}/.h2ometa/runner/shared",
                         remote_release=f"{home_dir}/.h2ometa/runner/releases/{version}",
-                        runner_python=str(
-                            (((record.get("bootstrap_metadata") or {}).get("tooling") or {}).get("runner_runtime") or {}).get("python")
-                            or ""
-                        ),
-                        managed_conda_command=str(
-                            (((record.get("bootstrap_metadata") or {}).get("tooling") or {}).get("workflow_runtime") or {}).get("command")
-                            or ""
-                        ),
-                        managed_conda_root_prefix=str(
-                            (((record.get("bootstrap_metadata") or {}).get("tooling") or {}).get("workflow_runtime") or {}).get("root_prefix")
-                            or ""
-                        ),
+                        runner_python=str(service_runtime.get("python") or ""),
+                        managed_conda_command=str(workflow_runtime.get("command") or ""),
+                        managed_conda_root_prefix=str(workflow_runtime.get("root_prefix") or ""),
+                        workflow_runtime_provider=str(workflow_runtime.get("provider") or ""),
+                        workflow_runtime_source=str(workflow_runtime.get("source") or ""),
+                        snakemake_command=str(workflow_runtime.get("snakemake_command") or ""),
+                        snakemake_version=str(workflow_runtime.get("snakemake_version") or ""),
                     ),
                     handle,
                     indent=2,
@@ -454,6 +481,131 @@ class RemoteRunnerManager:
         return home_dir
 
     @staticmethod
+    def _verify_remote_python(ssh_service) -> dict[str, Any]:
+        exit_code, stdout, stderr = ssh_service.run("command -v python3 >/dev/null 2>&1 && python3 --version", timeout=20)
+        if exit_code != 0:
+            detail = stderr.strip() or stdout.strip() or "python3 is required on the remote host"
+            raise RemoteRunnerManagerError(f"python3 required: {detail}")
+        return {
+            "command": "python3",
+            "version": stdout.strip(),
+            "ok": True,
+        }
+
+    def _ensure_service_runtime(
+        self,
+        *,
+        ssh_service,
+        remote_python: str,
+        remote_service_env: str,
+        remote_service_python: str,
+        remote_release: str,
+    ) -> dict[str, Any]:
+        self._run_checked(
+            ssh_service,
+            f"{shlex.quote(remote_python)} -m venv {shlex.quote(remote_service_env)}",
+            step="create remote runner service runtime",
+            timeout=120,
+        )
+        self._run_checked(
+            ssh_service,
+            f"{shlex.quote(remote_service_python)} -m pip install --upgrade pip",
+            step="upgrade remote runner service pip",
+            timeout=120,
+        )
+        self._run_checked(
+            ssh_service,
+            f"{shlex.quote(remote_service_python)} -m pip install -r {shlex.quote(f'{remote_release}/remote_runner/requirements.txt')}",
+            step="install remote runner service dependencies",
+            timeout=240,
+        )
+        return {
+            "provider": "venv",
+            "environment": remote_service_env,
+            "python": remote_service_python,
+        }
+
+    def _ensure_workflow_runtime(
+        self,
+        *,
+        ssh_service,
+        remote_platform: str,
+        remote_managed_conda: str,
+        remote_managed_root_prefix: str,
+        remote_workflow_env: str,
+        remote_snakemake_command: str,
+    ) -> dict[str, Any]:
+        self._ensure_managed_micromamba(
+            ssh_service=ssh_service,
+            remote_platform=remote_platform,
+            remote_managed_conda=remote_managed_conda,
+        )
+        create_or_update = (
+            f'if [ -x {shlex.quote(remote_snakemake_command)} ]; then '
+            f'MAMBA_ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)} {shlex.quote(remote_managed_conda)} install -y -p {shlex.quote(remote_workflow_env)} -c conda-forge -c bioconda "snakemake>=9.0.0,<10.0.0"; '
+            f'else MAMBA_ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)} {shlex.quote(remote_managed_conda)} create -y -p {shlex.quote(remote_workflow_env)} -c conda-forge -c bioconda "snakemake>=9.0.0,<10.0.0"; fi'
+        )
+        self._run_checked(
+            ssh_service,
+            create_or_update,
+            step="install workflow runtime",
+            timeout=300,
+        )
+        _exit_code, stdout, _stderr = self._run_checked(
+            ssh_service,
+            f"{shlex.quote(remote_snakemake_command)} --version",
+            step="verify workflow runtime prerequisites",
+            timeout=30,
+        )
+        return {
+            "provider": "micromamba",
+            "source": "managed",
+            "command": remote_managed_conda,
+            "root_prefix": remote_managed_root_prefix,
+            "environment": remote_workflow_env,
+            "snakemake_command": remote_snakemake_command,
+            "snakemake_version": self._extract_snakemake_version(stdout),
+        }
+
+    def _ensure_managed_micromamba(
+        self,
+        *,
+        ssh_service,
+        remote_platform: str,
+        remote_managed_conda: str,
+    ) -> None:
+        download_url = self._micromamba_download_url(remote_platform)
+        installer_cmd = (
+            f'if [ ! -x {shlex.quote(remote_managed_conda)} ]; then '
+            f'python3 -c "import io, pathlib, tarfile, urllib.request; '
+            f'data=urllib.request.urlopen({download_url!r}, timeout=30).read(); '
+            f'path=pathlib.Path({remote_managed_conda!r}); '
+            f'path.parent.mkdir(parents=True, exist_ok=True); '
+            f'tar=tarfile.open(fileobj=io.BytesIO(data), mode=\'r:bz2\'); '
+            f'member=next(m for m in tar.getmembers() if m.name == \'bin/micromamba\' or m.name.endswith(\'/bin/micromamba\')); '
+            f'path.write_bytes(tar.extractfile(member).read()); '
+            f'path.chmod(0o755)"; '
+            f'fi'
+        )
+        self._run_checked(
+            ssh_service,
+            installer_cmd,
+            step="install managed workflow runtime",
+            timeout=120,
+        )
+
+    @staticmethod
+    def _micromamba_download_url(remote_platform: str) -> str:
+        mapping = {
+            "linux-64": "https://micro.mamba.pm/api/micromamba/linux-64/latest",
+            "linux-aarch64": "https://micro.mamba.pm/api/micromamba/linux-aarch64/latest",
+        }
+        try:
+            return mapping[remote_platform]
+        except KeyError as exc:
+            raise RemoteRunnerManagerError(f"unsupported workflow runtime platform: {remote_platform}") from exc
+
+    @staticmethod
     def _build_remote_config_payload(
         *,
         version: str,
@@ -465,6 +617,10 @@ class RemoteRunnerManager:
         runner_python: str,
         managed_conda_command: str,
         managed_conda_root_prefix: str,
+        workflow_runtime_provider: str,
+        workflow_runtime_source: str,
+        snakemake_command: str,
+        snakemake_version: str,
     ) -> dict[str, Any]:
         return {
             "service_name": "h2ometa-remote",
@@ -479,98 +635,19 @@ class RemoteRunnerManager:
             "results_dir": f"{remote_shared}/results",
             "work_dir": f"{remote_shared}/work",
             "logs_dir": f"{remote_shared}/logs",
-            "release_dir": remote_release,
+            "release_dir": f"{remote_release}/remote_runner",
             "runner_python": runner_python,
             "managed_conda_command": managed_conda_command,
             "managed_conda_root_prefix": managed_conda_root_prefix,
+            "workflow_runtime_provider": workflow_runtime_provider,
+            "workflow_runtime_source": workflow_runtime_source,
+            "snakemake_command": snakemake_command,
+            "snakemake_version": snakemake_version,
         }
 
-    def _ensure_workflow_runtime(
-        self,
-        ssh_service,
-        *,
-        remote_tools_root: str,
-        remote_tools_bin: str,
-        remote_managed_root_prefix: str,
-        remote_managed_micromamba: str,
-        remote_managed_conda: str,
-    ) -> dict[str, Any]:
-        self._install_managed_micromamba(
-            ssh_service,
-            remote_tools_root=remote_tools_root,
-            remote_tools_bin=remote_tools_bin,
-            remote_managed_root_prefix=remote_managed_root_prefix,
-            remote_managed_micromamba=remote_managed_micromamba,
-            remote_managed_conda=remote_managed_conda,
-        )
-        return {
-            "workflow_runtime": {
-                "source": "managed",
-                "provider": "micromamba",
-                "command": remote_managed_conda,
-                "executable": remote_managed_micromamba,
-                "root_prefix": remote_managed_root_prefix,
-                "bin_dir": remote_tools_bin,
-            },
-        }
-
-    def _install_managed_micromamba(
-        self,
-        ssh_service,
-        *,
-        remote_tools_root: str,
-        remote_tools_bin: str,
-        remote_managed_root_prefix: str,
-        remote_managed_micromamba: str,
-        remote_managed_conda: str,
-    ) -> None:
-        install_cmd = f"""
-set -euo pipefail
-TOOLS_ROOT={shlex.quote(remote_tools_root)}
-TOOLS_BIN={shlex.quote(remote_tools_bin)}
-ROOT_PREFIX={shlex.quote(remote_managed_root_prefix)}
-MICROMAMBA_BIN={shlex.quote(remote_managed_micromamba)}
-CONDA_SHIM={shlex.quote(remote_managed_conda)}
-if [ -x "$MICROMAMBA_BIN" ] && [ -x "$CONDA_SHIM" ]; then
-  exit 0
-fi
-TMPDIR="$(mktemp -d)"
-cleanup() {{
-  rm -rf "$TMPDIR"
-}}
-trap cleanup EXIT
-case "$(uname -s):$(uname -m)" in
-  Linux:x86_64|Linux:amd64) URL="https://micro.mamba.pm/api/micromamba/linux-64/latest" ;;
-  Linux:aarch64|Linux:arm64) URL="https://micro.mamba.pm/api/micromamba/linux-aarch64/latest" ;;
-  Darwin:x86_64) URL="https://micro.mamba.pm/api/micromamba/osx-64/latest" ;;
-  Darwin:arm64) URL="https://micro.mamba.pm/api/micromamba/osx-arm64/latest" ;;
-  *) echo "unsupported platform for managed micromamba: $(uname -s):$(uname -m)" >&2; exit 1 ;;
-esac
-mkdir -p "$TOOLS_BIN" "$ROOT_PREFIX"
-if command -v curl >/dev/null 2>&1; then
-  curl -Ls "$URL" | tar -xvj -C "$TMPDIR" bin/micromamba >/dev/null
-elif command -v wget >/dev/null 2>&1; then
-  wget -qO- "$URL" | tar -xvj -C "$TMPDIR" bin/micromamba >/dev/null
-else
-  echo "curl or wget is required to install managed micromamba" >&2
-  exit 1
-fi
-cp "$TMPDIR/bin/micromamba" "$MICROMAMBA_BIN"
-chmod 0755 "$MICROMAMBA_BIN"
-cat > "$CONDA_SHIM" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-exec {shlex.quote(remote_managed_micromamba)} "$@"
-EOF
-chmod 0755 "$CONDA_SHIM"
-ln -sfn "$MICROMAMBA_BIN" "$TOOLS_BIN/mamba"
-"""
-        self._run_checked(
-            ssh_service,
-            install_cmd,
-            step="install managed workflow runtime",
-            timeout=180,
-        )
+    @staticmethod
+    def _extract_snakemake_version(stdout: str) -> str:
+        return str((stdout or "").strip().splitlines()[0] if stdout else "").strip()
 
     @staticmethod
     def _wait_for_runner_health(

@@ -317,6 +317,10 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
 
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr(
+        "core.app_runtime.service.store_runner_token",
+        lambda **kwargs: "runner://srv_test_local",
+    )
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
 
     server = asyncio.run(list_servers())["data"]["items"][0]
@@ -449,7 +453,16 @@ def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure
                 "token_ref": "runner://srv_test",
                 "bootstrap_metadata": {
                     "preflight": {"python": {"command": "python3", "ok": True}},
-                    "workflowRuntime": {"command": "micromamba", "managed": True},
+                    "tooling": {
+                        "workflow_runtime": {
+                            "command": "micromamba",
+                            "provider": "micromamba",
+                            "source": "managed",
+                            "root_prefix": "/remote/tools/micromamba-root",
+                            "snakemake_command": "/remote/tools/workflow-env/bin/snakemake",
+                            "snakemake_version": "9.1.0",
+                        }
+                    },
                 },
                 "health": {
                     "startup": {"ok": True, "message": "Remote runner config loaded."},
@@ -489,7 +502,16 @@ def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure
     assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == ""
     assert cfg["servers"][server_id]["bootstrap_metadata"] == {
         "preflight": {"python": {"command": "python3", "ok": True}},
-        "workflowRuntime": {"command": "micromamba", "managed": True},
+        "tooling": {
+            "workflow_runtime": {
+                "command": "micromamba",
+                "provider": "micromamba",
+                "source": "managed",
+                "root_prefix": "/remote/tools/micromamba-root",
+                "snakemake_command": "/remote/tools/workflow-env/bin/snakemake",
+                "snakemake_version": "9.1.0",
+            }
+        },
     }
 
 
@@ -538,8 +560,8 @@ def test_failed_bootstrap_persists_specific_readiness_reason_for_followup_health
 
     health = asyncio.run(get_server_health(server_id))["data"]
 
-    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "WORKFLOW_ENGINE_MISSING"
-    assert health["reasonCode"] == "WORKFLOW_ENGINE_MISSING"
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "WORKFLOW_RUNTIME_MISSING"
+    assert health["reasonCode"] == "WORKFLOW_RUNTIME_MISSING"
     assert "conda/mamba" in health["ready"]["message"]
 
 
