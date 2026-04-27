@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { EmptyWorkspacePage } from "./components/empty-workspace-page";
 
 export default function Page() {
-  redirect("/servers");
+  return <EmptyWorkspacePage />;
 }

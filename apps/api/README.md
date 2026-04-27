@@ -44,6 +44,18 @@ Default bind:
 - `DELETE /api/v1/projects/{project_id}`
 - `POST /api/v1/projects/{project_id}/open`
 
+### Workflow template mock contracts
+- `GET /api/v1/workflow-templates`
+- `GET /api/v1/workflow-templates/{template_id}`
+- `GET /api/v1/workflow-modules`
+- `GET /api/v1/workflow-drafts`
+- `POST /api/v1/workflow-drafts/validate`
+- `POST /api/v1/workflow-drafts`
+
+These endpoints are a thin UI contract for modular workflow design. They do not
+submit Snakemake runs yet. Use them to build the template library, module editor,
+parameter panel, validation panel, and draft save flow.
+
 ## Note
 
 Older task/workflow/run endpoint docs were removed because they no longer matched `apps/api/main.py`.

@@ -56,6 +56,8 @@ export function useSshTerminal({
   const terminalSessionClosedRef = useRef(false);
   const terminalClosingRef = useRef(false);
   const terminalInputEnabledRef = useRef(false);
+  const pendingTerminalResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const pendingTerminalInputRef = useRef("");
   const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const terminalGridRef = useRef(DEFAULT_TERMINAL_GRID);
 
@@ -66,18 +68,29 @@ export function useSshTerminal({
   const [terminalInputEnabled, setTerminalInputEnabled] = useState(false);
   const [terminalGridLabel, setTerminalGridLabel] = useState("120x28");
 
-  const sendTerminalStreamMessage = useCallback((message: TerminalStreamClientMessage): boolean => {
-    const controller = terminalStreamRef.current;
-    if (!controller || controller.socket.readyState !== WebSocket.OPEN) {
-      setTerminalMessage("终端连接不可用，正在尝试重新连接");
-      return false;
-    }
-    const sent = controller.send(message);
-    if (!sent) {
-      setTerminalMessage("终端连接不可用，正在尝试重新连接");
-    }
-    return sent;
-  }, []);
+  const sendTerminalStreamMessage = useCallback(
+    (message: TerminalStreamClientMessage, options?: { queueInput?: boolean; queueResize?: boolean }): boolean => {
+      const controller = terminalStreamRef.current;
+      if (!controller || controller.socket.readyState !== WebSocket.OPEN) {
+        if (message.type === "input" && options?.queueInput) {
+          pendingTerminalInputRef.current += message.data;
+        }
+        if (message.type === "resize" && options?.queueResize) {
+          pendingTerminalResizeRef.current = { cols: message.cols, rows: message.rows };
+        }
+        return false;
+      }
+      const sent = controller.send(message);
+      if (message.type === "input" && !sent && options?.queueInput) {
+        pendingTerminalInputRef.current += message.data;
+      }
+      if (message.type === "resize" && options?.queueResize) {
+        pendingTerminalResizeRef.current = sent ? null : { cols: message.cols, rows: message.rows };
+      }
+      return sent;
+    },
+    []
+  );
 
   const queueTerminalInput = useCallback(
     (data: string) => {
@@ -92,10 +105,30 @@ export function useSshTerminal({
         setTerminalMessage("SSH 已断开，终端会话已结束");
         return;
       }
-      sendTerminalStreamMessage({ type: "input", data });
+      sendTerminalStreamMessage({ type: "input", data }, { queueInput: true });
     },
     [sendTerminalStreamMessage]
   );
+
+  const flushPendingTerminalInput = useCallback(() => {
+    const data = pendingTerminalInputRef.current;
+    if (!data) {
+      return;
+    }
+    pendingTerminalInputRef.current = "";
+    sendTerminalStreamMessage({ type: "input", data }, { queueInput: true });
+  }, [sendTerminalStreamMessage]);
+
+  const flushPendingTerminalResize = useCallback(() => {
+    const pending = pendingTerminalResizeRef.current;
+    if (!pending) {
+      return;
+    }
+    sendTerminalStreamMessage(
+      { type: "resize", cols: pending.cols, rows: pending.rows },
+      { queueResize: true }
+    );
+  }, [sendTerminalStreamMessage]);
 
   const terminalViewport = useSshTerminalViewport({
     surfaceRef,
@@ -105,7 +138,7 @@ export function useSshTerminal({
       terminalGridRef.current = { cols, rows };
       setTerminalGridLabel(`${cols}x${rows}`);
       if (terminalSessionIdRef.current && !terminalSessionClosedRef.current) {
-        sendTerminalStreamMessage({ type: "resize", cols, rows });
+        sendTerminalStreamMessage({ type: "resize", cols, rows }, { queueResize: true });
       }
     },
     onMessage: setTerminalMessage,
@@ -132,6 +165,8 @@ export function useSshTerminal({
     terminalCursorRef.current = 0;
     terminalSessionIdRef.current = null;
     terminalSessionClosedRef.current = false;
+    pendingTerminalResizeRef.current = null;
+    pendingTerminalInputRef.current = "";
     setTerminalSessionId(null);
     setTerminalMessage("");
     setTerminalInputEnabled(false);
@@ -166,6 +201,8 @@ export function useSshTerminal({
         onOpen: () => {
           setTerminalMessage("");
           terminalViewport.fit({ force: true });
+          flushPendingTerminalResize();
+          flushPendingTerminalInput();
         },
         onMessage: (message: TerminalStreamServerMessage) => {
           if (terminalStreamRef.current?.socket !== controller.socket) {
@@ -238,13 +275,11 @@ export function useSshTerminal({
             connectTerminalStream(sessionId, terminalCursorRef.current);
           }, TERMINAL_RECONNECT_DELAY_MS);
         },
-        onError: () => {
-          setTerminalMessage("终端连接异常，正在重连");
-        },
+        onError: () => {},
       });
       terminalStreamRef.current = controller;
     },
-    [clearTerminalReconnectTimer, refreshStatus, terminalViewport]
+    [clearTerminalReconnectTimer, flushPendingTerminalInput, flushPendingTerminalResize, refreshStatus, terminalViewport]
   );
 
   useEffect(() => {

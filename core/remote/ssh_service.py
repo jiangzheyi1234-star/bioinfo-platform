@@ -6,7 +6,7 @@ import socketserver
 import threading
 import time
 import uuid
-from threading import RLock
+from threading import Condition, RLock
 from typing import Any, Callable, Optional, Tuple
 
 import paramiko
@@ -109,6 +109,8 @@ class TerminalSession:
         self.session_id = session_id
         self._channel = channel
         self._lock = RLock()
+        self._updated = Condition(self._lock)
+        self._version = 0
         self._output = ""
         self._closed = False
         self._message = ""
@@ -145,13 +147,25 @@ class TerminalSession:
     def wait_for_update(
         self, cursor: int = 0, version: int = -1, timeout: float = 1.0
     ) -> Tuple[dict, int]:
-        time.sleep(min(timeout, 0.5))
-        return self.snapshot(cursor), version
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._updated:
+            while (
+                self._version == version
+                and len(self._output) <= max(0, cursor)
+                and not self._closed
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._updated.wait(remaining)
+            return self.snapshot(cursor), self._version
 
     def close(self, message: str = "终端会话已结束") -> None:
-        with self._lock:
+        with self._updated:
             self._closed = True
             self._message = message
+            self._version += 1
+            self._updated.notify_all()
         try:
             self._channel.close()
         except Exception:
@@ -163,17 +177,23 @@ class TerminalSession:
                 if self._channel.recv_ready():
                     data = self._channel.recv(4096)
                     if data:
-                        with self._lock:
+                        with self._updated:
                             self._output += data.decode("utf-8", errors="ignore")
+                            self._version += 1
+                            self._updated.notify_all()
                 elif self._channel.closed or self._channel.exit_status_ready():
-                    with self._lock:
+                    with self._updated:
                         self._closed = True
                         self._message = "终端会话已结束"
+                        self._version += 1
+                        self._updated.notify_all()
                     break
                 time.sleep(0.05)
         except Exception:
-            with self._lock:
+            with self._updated:
                 self._closed = True
+                self._version += 1
+                self._updated.notify_all()
 
 
 class SSHReconnector:
@@ -290,7 +310,10 @@ class SSHService:
                 raise RuntimeError("SSH not connected")
             existing = self._tunnels.get(name)
             if existing and existing.is_active:
-                return existing
+                if existing.remote_host == remote_host and existing.remote_port == remote_port:
+                    return existing
+                existing.close()
+                self._tunnels.pop(name, None)
             transport = self._client.get_transport()
             if transport is None or not transport.is_active():
                 raise RuntimeError("SSH transport is not active")
