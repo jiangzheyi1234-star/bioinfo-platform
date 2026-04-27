@@ -19,6 +19,15 @@ export type SSHStatus = {
   auto_connect_attempted?: boolean;
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
+  runner?: {
+    state: "preparing" | "ready" | "repair_needed" | "failed" | string;
+    ready: boolean;
+    message: string;
+    reasonCode: string;
+    deploymentAction?: string;
+    servicePort?: number;
+    tunnelPort?: number;
+  };
 };
 
 export type SSHFormState = {

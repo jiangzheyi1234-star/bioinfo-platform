@@ -65,6 +65,8 @@ class RuntimeService(RunnerOperationsMixin):
         self._service_locator = service_locator or ServiceLocator()
         self._initialized = False
         self._terminal_sessions: dict[str, TerminalSession] = {}
+        self._runner_ensure_mutex = threading.Lock()
+        self._runner_ensure_inflight: set[str] = set()
         self._auto_connect_attempted = False
         self._auto_connect_failed = False
         self._auto_connect_error = ""
@@ -225,7 +227,35 @@ class RuntimeService(RunnerOperationsMixin):
     def refresh_server_health(self, server_id: str) -> dict[str, Any]:
         return {"data": self.get_server_health(server_id)}
 
-    def bootstrap_server(self, server_id: str) -> dict[str, Any]:
+    def list_remote_listening_ports(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            ssh = self._ensure_ssh_connected()
+        command = (
+            "if command -v ss >/dev/null 2>&1; then "
+            "printf 'COMMAND ss -lntup\\n'; ss -lntup 2>/dev/null || ss -lntu; "
+            "elif command -v lsof >/dev/null 2>&1; then "
+            "printf 'COMMAND lsof -nP -iTCP -iUDP\\n'; lsof -nP -iTCP -iUDP 2>/dev/null; "
+            "elif command -v netstat >/dev/null 2>&1; then "
+            "printf 'COMMAND netstat -tulpen\\n'; netstat -tulpen 2>/dev/null || netstat -tuln; "
+            "else "
+            "printf 'No ss, lsof, or netstat command is available on the remote host.\\n'; exit 127; "
+            "fi"
+        )
+        try:
+            exit_code, stdout, stderr = ssh.run(command, timeout=15)
+        except Exception as exc:
+            raise RuntimeServiceError(str(exc) or "failed to list remote listening ports") from exc
+        output = (stdout or stderr or "").strip()
+        return {
+            "data": {
+                "exitCode": exit_code,
+                "ok": exit_code == 0,
+                "output": output,
+            }
+        }
+
+    def ensure_remote_runner_ready(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             ssh_status = self._get_ssh_status_unlocked()
@@ -236,15 +266,16 @@ class RuntimeService(RunnerOperationsMixin):
             manager = self._service_locator.remote_runner_manager
             server_record = self._get_server_registry_entry(server_id)
         try:
-            result = self._call_remote_runner(
-                manager.bootstrap,
-                server_id=server_id,
-                server=server,
-                ssh_service=ssh,
-                server_record=server_record,
-            )
+            with self._runner_ensure_mutex:
+                result = self._call_remote_runner(
+                    manager.bootstrap,
+                    server_id=server_id,
+                    server=server,
+                    ssh_service=ssh,
+                    server_record=server_record,
+                )
         except RuntimeServiceError as exc:
-            failure_snapshot = self._build_bootstrap_failure_snapshot(
+            failure_snapshot = self._build_runner_ensure_failure_snapshot(
                 server_id=server_id,
                 detail=str(exc),
             )
@@ -256,7 +287,7 @@ class RuntimeService(RunnerOperationsMixin):
                     },
                 )
             raise
-        bootstrapped_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ensured_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock:
             self._save_server_registry_entry(
                 server_id,
@@ -268,11 +299,21 @@ class RuntimeService(RunnerOperationsMixin):
                     "token_ref": result["token_ref"],
                     "last_health_snapshot": result["health"],
                     "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
-                    "bootstrapped_at": bootstrapped_at,
+                    "runner_ensured_at": ensured_at,
                 },
             )
         health = result["health"]
-        return {"data": health}
+        runner = self._compose_runner_payload(
+            registry_entry={
+                "bootstrap_version": result["bootstrap_version"],
+                "runner_mode": result["runner_mode"],
+                "tunnel_port": result["tunnel_port"],
+                "service_port": result["service_port"],
+                "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
+            },
+            health=health,
+        )
+        return {"data": {"serverId": server_id, "runner": runner, "health": health}}
 
     def accept_server_host_key(self, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -335,7 +376,27 @@ class RuntimeService(RunnerOperationsMixin):
     def get_ssh_status(self) -> dict:
         with self._lock:
             self._ensure_initialized()
-            return self._get_ssh_status_unlocked()
+            status = self._get_ssh_status_unlocked()
+            if not bool(status.get("connected")):
+                return status
+            server = self._build_primary_server_identity(ssh_status=status)
+            if server is None:
+                return status
+            server_id = str(server["serverId"])
+            registry_entry = self._get_server_registry_entry(server_id)
+            if not registry_entry.get("bootstrap_version"):
+                return status
+            ssh = self._service_locator.ssh_service
+            manager = self._service_locator.remote_runner_manager
+            if not hasattr(manager, "get_health"):
+                return status
+        return self._refresh_runner_status_or_recover(
+            status=status,
+            server_id=server_id,
+            ssh=ssh,
+            manager=manager,
+            registry_entry=registry_entry,
+        )
 
     def connect_ssh(self, patch: Optional[dict] = None) -> dict:
         with self._lock:
@@ -451,7 +512,22 @@ class RuntimeService(RunnerOperationsMixin):
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""
-            return self._get_ssh_status_unlocked()
+            status = self._get_ssh_status_unlocked()
+
+        server = self._build_primary_server_identity(ssh_status=status)
+        if server is None:
+            return status
+        try:
+            ensure_result = self.ensure_remote_runner_ready(str(server["serverId"]))
+            status["runner"] = ensure_result["data"]["runner"]
+        except RuntimeServiceError as exc:
+            status["runner"] = {
+                "state": "repair_needed",
+                "message": str(exc) or "Remote runner is not ready.",
+                "ready": False,
+                "reasonCode": "RUNNER_NOT_READY",
+            }
+        return status
 
     def disconnect_ssh(self) -> dict:
         with self._lock:
@@ -561,14 +637,14 @@ class RuntimeService(RunnerOperationsMixin):
         host = str(resolved.get("host", "")).strip()
         user = str(resolved.get("user", "")).strip()
         key_file = str(resolved.get("identity_ref", "")).strip()
-        password = resolve_ssh_password({"ssh": merged}) if auth_mode == "password_ref" else ""
         if not host or not user:
             return
         if not bool(merged.get("auto_connect_on_startup", False)):
             return
-        if auth_mode in {"key_file", "ssh_config"} and not key_file:
-            return
+        password = resolve_ssh_password({"ssh": merged}) if auth_mode == "password_ref" else ""
         if auth_mode == "password_ref" and not password:
+            return
+        if auth_mode in {"key_file", "ssh_config"} and not key_file:
             return
 
         port = int(resolved.get("port", 22))
@@ -604,6 +680,15 @@ class RuntimeService(RunnerOperationsMixin):
             self._service_locator.ssh_service = SSHService(
                 initial_client=result.client, connect_fn=_reconnect
             )
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is not None:
+                server_id = str(server["serverId"])
+                self._save_runner_preparing_snapshot(
+                    server_id=server_id,
+                    message="Checking remote runner...",
+                )
+                self._ensure_runner_ready_in_background(server_id)
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""
@@ -621,6 +706,83 @@ class RuntimeService(RunnerOperationsMixin):
             except Exception:
                 pass
         self._terminal_sessions.clear()
+
+    def _save_runner_preparing_snapshot(
+        self,
+        *,
+        server_id: str,
+        message: str,
+        state: str = "preparing",
+    ) -> None:
+        checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self._save_server_registry_entry(
+            server_id,
+            {
+                "last_health_snapshot": {
+                    "serverId": server_id,
+                    "state": state,
+                    "startup": {"ok": False, "message": message},
+                    "live": {"ok": False, "message": "Remote runner is starting."},
+                    "ready": {"ok": False, "message": message},
+                    "reasonCode": "",
+                    "checkedAt": checked_at,
+                }
+            },
+        )
+
+    def _refresh_runner_status_or_recover(
+        self,
+        *,
+        status: dict[str, Any],
+        server_id: str,
+        ssh,
+        manager,
+        registry_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            if ssh is None or not getattr(ssh, "is_connected", False):
+                return status
+            health = self._call_remote_runner(
+                manager.get_health,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=registry_entry,
+            )
+        except RuntimeServiceError:
+            with self._lock:
+                self._save_runner_preparing_snapshot(
+                    server_id=server_id,
+                    message="远程服务正在恢复...",
+                    state="recovering",
+                )
+            self._ensure_runner_ready_in_background(server_id)
+            with self._lock:
+                return self._get_ssh_status_unlocked()
+        with self._lock:
+            self._save_server_registry_entry(server_id, {"last_health_snapshot": health})
+            return self._get_ssh_status_unlocked()
+
+    def _ensure_runner_ready_in_background(self, server_id: str) -> None:
+        with self._lock:
+            if server_id in self._runner_ensure_inflight:
+                return
+            self._runner_ensure_inflight.add(server_id)
+
+        def _worker() -> None:
+            try:
+                self.ensure_remote_runner_ready(server_id)
+            except Exception as exc:
+                logger.warning("Startup remote runner ensure failed for %s: %s", server_id, exc)
+            finally:
+                with self._lock:
+                    self._runner_ensure_inflight.discard(server_id)
+
+        thread = threading.Thread(
+            target=_worker,
+            name=f"h2ometa-ensure-runner-{server_id}",
+            daemon=True,
+        )
+        thread.start()
 
     @staticmethod
     def _project_to_dict(p: ProjectInfo) -> dict:
@@ -654,7 +816,7 @@ class RuntimeService(RunnerOperationsMixin):
         save_config(current)
         return entry
 
-    def _require_bootstrapped_runner(
+    def _require_runner_ready(
         self,
         *,
         preferred_server_id: Optional[str] = None,
@@ -666,10 +828,23 @@ class RuntimeService(RunnerOperationsMixin):
         server_id = str(preferred_server_id or server["serverId"] or "").strip() or server["serverId"]
         if server_id != server["serverId"]:
             raise RuntimeServiceError(f"Server not found: {server_id}")
-        record = self._get_server_registry_entry(server_id)
-        if not record.get("bootstrap_version"):
-            raise RuntimeServiceError("Remote runner is not bootstrapped")
         ssh = self._ensure_ssh_connected()
+        manager = self._service_locator.remote_runner_manager
+        record = self._get_server_registry_entry(server_id)
+        if record.get("bootstrap_version"):
+            try:
+                health = self._call_remote_runner(
+                    manager.get_health,
+                    server_id=server_id,
+                    ssh_service=ssh,
+                    server_record=record,
+                )
+                if bool((health.get("ready") or {}).get("ok")):
+                    return server_id, ssh, record
+            except RuntimeServiceError:
+                pass
+        self.ensure_remote_runner_ready(server_id)
+        record = self._get_server_registry_entry(server_id)
         return server_id, ssh, record
 
     def _build_primary_server_identity(self, *, ssh_status: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -727,7 +902,7 @@ class RuntimeService(RunnerOperationsMixin):
                 reason_code = str(snapshot.get("reasonCode", "") or "RUNNER_NOT_READY")
             else:
                 reason_code = "RUNNER_NOT_READY"
-                ready_message = "Bootstrap the remote runner before using this server."
+                ready_message = "Prepare the remote workspace before using this server."
         else:
             try:
                 if ssh is None or not getattr(ssh, "is_connected", False):
@@ -782,13 +957,13 @@ class RuntimeService(RunnerOperationsMixin):
         }
 
     @classmethod
-    def _build_bootstrap_failure_snapshot(
+    def _build_runner_ensure_failure_snapshot(
         cls,
         *,
         server_id: str,
         detail: str,
     ) -> dict[str, Any]:
-        reason_code, ready_message, live_message = cls._classify_bootstrap_failure(detail)
+        reason_code, ready_message, live_message = cls._classify_runner_ensure_failure(detail)
         checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         return {
             "serverId": server_id,
@@ -800,8 +975,8 @@ class RuntimeService(RunnerOperationsMixin):
         }
 
     @staticmethod
-    def _classify_bootstrap_failure(detail: str) -> tuple[str, str, str]:
-        message = str(detail or "").strip() or "remote runner bootstrap failed"
+    def _classify_runner_ensure_failure(detail: str) -> tuple[str, str, str]:
+        message = str(detail or "").strip() or "remote runner ensure failed"
         lowered = message.lower()
         if (
             "verify workflow runtime prerequisites" in lowered
@@ -813,13 +988,13 @@ class RuntimeService(RunnerOperationsMixin):
             ready_message = f"Remote workflow runtime is unavailable: {message}"
             return "WORKFLOW_RUNTIME_MISSING", ready_message, "Remote runner process is not running."
         if "python3 required" in lowered:
-            ready_message = f"Remote host is missing python3 required for bootstrap: {message}"
+            ready_message = f"Remote host is missing python3 required for runner setup: {message}"
             return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
         if "install remote runner dependencies" in lowered:
             if "python3" in lowered and (
                 "not found" in lowered or "command not found" in lowered or "no such file" in lowered
             ):
-                ready_message = f"Remote host is missing python3 required for bootstrap: {message}"
+                ready_message = f"Remote host is missing python3 required for runner setup: {message}"
                 return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
             ready_message = (
                 "Remote runner dependency installation failed while setting up the Python environment: "
@@ -830,10 +1005,10 @@ class RuntimeService(RunnerOperationsMixin):
             ready_message = f"Remote runner service failed to start: {message}"
             return "SERVICE_START_FAILED", ready_message, "Remote runner process failed to stay alive."
         if "python3" in lowered and ("not found" in lowered or "command not found" in lowered):
-            ready_message = f"Remote host is missing python3 required for bootstrap: {message}"
+            ready_message = f"Remote host is missing python3 required for runner setup: {message}"
             return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
-        ready_message = f"Remote runner bootstrap failed: {message}"
-        return "BOOTSTRAP_FAILED", ready_message, "Remote runner process is not running."
+        ready_message = f"Remote runner setup failed: {message}"
+        return "RUNNER_SETUP_FAILED", ready_message, "Remote runner process is not running."
 
     def _compose_server_payload(
         self,
@@ -848,8 +1023,39 @@ class RuntimeService(RunnerOperationsMixin):
             "reasonCode": health.get("reasonCode", ""),
             "message": health["ready"]["message"],
             "health": health,
-            "bootstrapVersion": registry_entry.get("bootstrap_version", ""),
+            "runner": self._compose_runner_payload(registry_entry=registry_entry, health=health),
+            "runnerVersion": registry_entry.get("bootstrap_version", ""),
             "runnerMode": registry_entry.get("runner_mode", ""),
+        }
+
+    @staticmethod
+    def _compose_runner_payload(
+        *,
+        registry_entry: dict[str, Any],
+        health: dict[str, Any],
+    ) -> dict[str, Any]:
+        ready = bool((health.get("ready") or {}).get("ok"))
+        metadata = registry_entry.get("bootstrap_metadata") if isinstance(registry_entry.get("bootstrap_metadata"), dict) else {}
+        deployment_action = str((metadata or {}).get("deployment_action") or "")
+        reason_code = str(health.get("reasonCode") or "")
+        if ready:
+            state = "ready"
+        elif str(health.get("state") or "") in {"preparing", "recovering"}:
+            state = str(health.get("state") or "")
+        elif reason_code:
+            state = "repair_needed"
+        else:
+            state = "preparing"
+        return {
+            "state": state,
+            "ready": ready,
+            "message": str((health.get("ready") or {}).get("message") or ""),
+            "reasonCode": reason_code,
+            "version": registry_entry.get("bootstrap_version", ""),
+            "runnerMode": registry_entry.get("runner_mode", ""),
+            "deploymentAction": deployment_action,
+            "servicePort": registry_entry.get("service_port"),
+            "tunnelPort": registry_entry.get("tunnel_port"),
         }
 
     def _get_ssh_status_unlocked(self) -> dict[str, Any]:
@@ -858,7 +1064,7 @@ class RuntimeService(RunnerOperationsMixin):
         cfg = normalize_ssh_config(get_config().get("ssh", {}))
         auth_mode = str(cfg.get("auth_mode", "password_ref") or "password_ref")
         identity_ref = str(cfg.get("identity_ref", "") or "").strip()
-        return {
+        status = {
             "connected": connected,
             "host": cfg.get("host", ""),
             "port": cfg.get("port", 22),
@@ -875,6 +1081,13 @@ class RuntimeService(RunnerOperationsMixin):
             "auto_connect_error": self._auto_connect_error,
             "message": "SSH connected" if connected else "SSH disconnected",
         }
+        server = self._build_primary_server_identity(ssh_status=status)
+        if connected and server is not None:
+            registry_entry = self._get_server_registry_entry(str(server["serverId"]))
+            snapshot = registry_entry.get("last_health_snapshot")
+            if isinstance(snapshot, dict):
+                status["runner"] = self._compose_runner_payload(registry_entry=registry_entry, health=snapshot)
+        return status
 
     @staticmethod
     def _merge_patch(current: dict, patch: dict) -> dict:

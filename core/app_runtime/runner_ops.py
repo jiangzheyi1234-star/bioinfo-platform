@@ -12,7 +12,7 @@ class RunnerOperationsMixin:
     def list_runs(self) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return self._call_remote_runner(
             manager.list_runs,
@@ -25,7 +25,7 @@ class RunnerOperationsMixin:
         with self._lock:
             self._ensure_initialized()
             body = dict(payload or {})
-            server_id, ssh, record = self._require_bootstrapped_runner(
+            server_id, ssh, record = self._require_runner_ready(
                 preferred_server_id=body.get("serverId")
             )
             manager = self._service_locator.remote_runner_manager
@@ -39,6 +39,37 @@ class RunnerOperationsMixin:
             mime_type=str(body.get("mimeType") or "application/octet-stream"),
         )
 
+    def list_pipelines(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": {
+                "items": self._call_remote_runner(
+                    manager.list_pipelines,
+                    server_id=server_id,
+                    ssh_service=ssh,
+                    server_record=record,
+                )
+            }
+        }
+
+    def get_pipeline(self, pipeline_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": self._call_remote_runner(
+                manager.get_pipeline,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                pipeline_id=pipeline_id,
+            )
+        }
+
     def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
@@ -46,7 +77,7 @@ class RunnerOperationsMixin:
             request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
             run_spec = dict(body.get("runSpec") or {})
             preferred_server_id = body.get("serverId") or run_spec.get("serverId")
-            server_id, ssh, record = self._require_bootstrapped_runner(
+            server_id, ssh, record = self._require_runner_ready(
                 preferred_server_id=preferred_server_id
             )
             manager = self._service_locator.remote_runner_manager
@@ -67,7 +98,7 @@ class RunnerOperationsMixin:
     def get_run(self, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": self._call_remote_runner(
@@ -82,7 +113,7 @@ class RunnerOperationsMixin:
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": self._call_remote_runner(
@@ -102,7 +133,7 @@ class RunnerOperationsMixin:
     ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": self._call_remote_runner(
@@ -119,7 +150,7 @@ class RunnerOperationsMixin:
     def get_run_results(self, run_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": self._call_remote_runner(
@@ -134,7 +165,7 @@ class RunnerOperationsMixin:
     def list_results(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": {
@@ -150,7 +181,7 @@ class RunnerOperationsMixin:
     def get_result(self, result_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": self._call_remote_runner(
@@ -169,7 +200,7 @@ class RunnerOperationsMixin:
     ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            server_id, ssh, record = self._require_bootstrapped_runner()
+            server_id, ssh, record = self._require_runner_ready()
             manager = self._service_locator.remote_runner_manager
         return {
             "data": self._call_remote_runner(

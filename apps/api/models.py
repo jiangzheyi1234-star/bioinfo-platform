@@ -27,6 +27,8 @@ class SSHConnectionRequest(BaseModel):
     auth_mode: Literal["password_ref", "key_file", "ssh_config", "agent"] | None = None
     ssh_host_alias: str | None = None
     identity_ref: str | None = None
+    remember_auth: bool | None = None
+    auto_connect_on_startup: bool | None = None
     host: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
     user: str | None = None
@@ -51,3 +53,9 @@ class UploadSubmitRequest(BaseModel):
     filename: str = Field(min_length=1)
     contentBase64: str = Field(min_length=1)
     mimeType: str = "application/octet-stream"
+
+
+class WorkflowDraftRequest(BaseModel):
+    templateId: str = Field(min_length=1)
+    name: str | None = None
+    modules: list[dict[str, Any]] | None = None

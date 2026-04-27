@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -59,6 +60,8 @@ class RemoteRunnerHttpClient:
             raise RemoteRunnerClientError(message) from exc
         except urllib.error.URLError as exc:
             raise RemoteRunnerClientError(str(exc.reason) or "runner unreachable") from exc
+        except (http.client.RemoteDisconnected, ConnectionError, OSError) as exc:
+            raise RemoteRunnerClientError(str(exc) or "runner unreachable") from exc
 
     def get_json(self, path: str) -> dict[str, Any]:
         return self._request_json("GET", path)
@@ -77,6 +80,12 @@ class RemoteRunnerHttpClient:
         live = self.get_json("/health/live")
         ready = self.get_json("/health/ready")
         checked_at = ready.get("startedAt") or live.get("startedAt") or startup.get("startedAt") or ""
+        workflow = ready.get("workflowRuntime") if isinstance(ready.get("workflowRuntime"), dict) else {}
+        pipeline_registry = ready.get("pipelineRegistry") if isinstance(ready.get("pipelineRegistry"), dict) else {}
+        workflow_ok = workflow.get("ok")
+        workflow_message = str(workflow.get("message") or "")
+        pipeline_ok = pipeline_registry.get("ok")
+        pipeline_message = str(pipeline_registry.get("message") or "")
         return {
             "startup": {
                 "ok": startup.get("status") == "ok",
@@ -89,6 +98,22 @@ class RemoteRunnerHttpClient:
             "ready": {
                 "ok": ready.get("status") == "ok",
                 "message": "Remote runner control plane is ready." if ready.get("status") == "ok" else "Remote runner control plane is not ready.",
+            },
+            "workflowRuntime": {
+                "ok": bool(workflow_ok) if workflow_ok is not None else ready.get("status") == "ok",
+                "message": workflow_message or ("Workflow runtime is ready." if ready.get("status") == "ok" else "Workflow runtime is not ready."),
+                "provider": str(workflow.get("provider") or ""),
+                "source": str(workflow.get("source") or ""),
+                "version": str(workflow.get("version") or ""),
+                "snakemakeCommand": str(workflow.get("snakemakeCommand") or ""),
+                "snakemakeVersion": str(workflow.get("snakemakeVersion") or ""),
+            },
+            "pipelineRegistry": {
+                "ok": bool(pipeline_ok) if pipeline_ok is not None else ready.get("status") == "ok",
+                "message": pipeline_message
+                or ("Pipeline registry is ready." if ready.get("status") == "ok" else "Pipeline registry is not ready."),
+                "count": int(pipeline_registry.get("count") or 0),
+                "items": pipeline_registry.get("items") if isinstance(pipeline_registry.get("items"), list) else [],
             },
             "reasonCode": "" if ready.get("status") == "ok" else "RUNNER_NOT_READY",
             "checkedAt": checked_at,

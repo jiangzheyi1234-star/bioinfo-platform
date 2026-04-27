@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
@@ -17,13 +18,35 @@ from apps.api.models import (
     UploadSubmitRequest,
     UpdateProjectRequest,
     UpdateSettingsRequest,
+    WorkflowDraftRequest,
 )
 from apps.api.runtime import get_runtime_service
+from apps.api.workflow_templates import (
+    create_workflow_draft,
+    get_workflow_template,
+    list_workflow_drafts,
+    list_workflow_modules,
+    list_workflow_templates,
+    validate_workflow_draft,
+)
 from core.app_runtime import RuntimeServiceError
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    get_runtime_service()
+    try:
+        yield
+    finally:
+        runtime = get_runtime_service()
+        runtime.shutdown()
+        get_runtime_service.cache_clear()
+
 
 app = FastAPI(
     title="H2OMeta Local API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 TERMINAL_RUNTIME_BUILD_ID = "terminal-websocket-v1"
@@ -87,18 +110,6 @@ async def _send_terminal_snapshot(
     if state != last_state and not bool(snapshot.get("closed")):
         await websocket.send_json(_terminal_state_event(snapshot))
     return int(snapshot.get("cursor") or 0), state
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    _runtime()
-
-
-@app.on_event("shutdown")
-async def on_shutdown() -> None:
-    runtime = get_runtime_service()
-    runtime.shutdown()
-    get_runtime_service.cache_clear()
 
 
 @app.get("/health")
@@ -188,10 +199,10 @@ async def refresh_server_health(server_id: str) -> dict[str, Any]:
     )
 
 
-@app.post("/api/v1/servers/{server_id}/bootstrap")
-async def bootstrap_server(server_id: str) -> dict[str, Any]:
+@app.post("/api/v1/servers/{server_id}/ensure-runner")
+async def ensure_server_runner(server_id: str) -> dict[str, Any]:
     return await _run_sync(
-        lambda: _runtime().bootstrap_server(server_id),
+        lambda: _runtime().ensure_remote_runner_ready(server_id),
         status_code=404,
         handled_errors=(RuntimeServiceError,),
     )
@@ -234,6 +245,15 @@ async def disconnect_ssh() -> dict[str, Any]:
         handled_errors=(RuntimeServiceError,),
     )
     return {"item": item}
+
+
+@app.get("/api/v1/ssh/listening-ports")
+async def list_ssh_listening_ports() -> dict[str, Any]:
+    return await _run_sync(
+        _runtime().list_remote_listening_ports,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.post("/api/v1/ssh/terminal/sessions")
@@ -452,6 +472,63 @@ async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str,
     response.headers["Retry-After"] = str(result["retryAfter"])
     response.headers["X-Request-Id"] = result["requestId"]
     return result
+
+
+@app.get("/api/v1/pipelines")
+async def list_pipelines() -> dict[str, Any]:
+    return await _run_sync(
+        _runtime().list_pipelines,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.get("/api/v1/pipelines/{pipeline_id}")
+async def get_pipeline(pipeline_id: str) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().get_pipeline(pipeline_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.get("/api/v1/workflow-templates")
+async def get_workflow_templates() -> dict[str, Any]:
+    return list_workflow_templates()
+
+
+@app.get("/api/v1/workflow-templates/{template_id}")
+async def get_workflow_template_api(template_id: str) -> dict[str, Any]:
+    try:
+        return get_workflow_template(template_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/workflow-modules")
+async def get_workflow_modules() -> dict[str, Any]:
+    return list_workflow_modules()
+
+
+@app.post("/api/v1/workflow-drafts/validate")
+async def validate_workflow_draft_api(payload: WorkflowDraftRequest) -> dict[str, Any]:
+    try:
+        return validate_workflow_draft(payload.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/workflow-drafts")
+async def get_workflow_drafts() -> dict[str, Any]:
+    return list_workflow_drafts()
+
+
+@app.post("/api/v1/workflow-drafts", status_code=201)
+async def create_workflow_draft_api(payload: WorkflowDraftRequest) -> dict[str, Any]:
+    try:
+        return create_workflow_draft(payload.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/runs/{run_id}")

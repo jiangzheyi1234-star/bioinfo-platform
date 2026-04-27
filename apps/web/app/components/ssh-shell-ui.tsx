@@ -1,71 +1,308 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Ellipsis, GripHorizontal, Link2, Server, Settings2, X } from "lucide-react";
+import { CircleHelp, Ellipsis, GripHorizontal, RefreshCw, Server, Settings, Workflow, X } from "lucide-react";
 
+import { requestLocalApiJson } from "@/app/lib/local-api-client";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import type { SSHFormState, SSHStatus } from "./ssh-shell-model";
+import { normalizeFetchError, type SSHFormState, type SSHStatus } from "./ssh-shell-model";
+
+function resolveRemoteStatus(status: SSHStatus | null) {
+  if (!status?.connected) {
+    return {
+      label: "未连接",
+      message: "",
+      dotClass: "bg-slate-300",
+      toneClass: "text-slate-500",
+      stages: ["SSH 未连接", "远程服务未启动"],
+    };
+  }
+  const target = status.host ? `SSH: ${status.host}` : "SSH";
+  if (!status.runner) {
+    return {
+      label: target,
+      message: target,
+      dotClass: "animate-pulse bg-blue-500",
+      toneClass: "text-blue-700",
+      stages: ["SSH 已连接", "正在检查远程服务", "正在打开安全通道"],
+    };
+  }
+  if (status.runner.ready) {
+    return {
+      label: target,
+      message: target,
+      dotClass: "bg-emerald-500",
+      toneClass: "text-blue-700",
+      stages: ["SSH 已连接", "远程服务已就绪", "安全通道已打开", "健康检查通过"],
+    };
+  }
+  if (status.runner.state === "recovering") {
+    return {
+      label: target,
+      message: status.runner.message || "远程服务正在恢复...",
+      dotClass: "animate-pulse bg-blue-500",
+      toneClass: "text-blue-700",
+      stages: ["SSH 已连接", "远程服务正在恢复", "正在重建安全通道"],
+    };
+  }
+  const failed = status.runner.state === "repair_needed" || status.runner.state === "failed";
+  return {
+    label: failed ? "SSH: 需要修复远程服务" : target,
+    message: status.runner.message || "",
+    dotClass: failed ? "bg-amber-500" : "animate-pulse bg-blue-500",
+    toneClass: failed ? "text-amber-700" : "text-blue-700",
+    stages: failed
+      ? ["SSH 已连接", "远程服务需要修复", status.runner.reasonCode || "请查看详情"]
+      : ["SSH 已连接", "正在检查远程服务", "正在同步环境", "正在启动远程服务", "正在打开安全通道"],
+  };
+}
+
+function formatRunnerPort(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : "未记录";
+}
+
+export function RemoteStatusBar({
+  status,
+  ensureRunnerBusy,
+  onEnsureRunner,
+}: {
+  status: SSHStatus | null;
+  ensureRunnerBusy: boolean;
+  onEnsureRunner: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [portsLoading, setPortsLoading] = useState(false);
+  const [portsOutput, setPortsOutput] = useState("");
+  const [portsError, setPortsError] = useState("");
+  const remote = resolveRemoteStatus(status);
+  const runner = status?.runner;
+  const connectedTone = Boolean(status?.connected && remote.toneClass === "text-blue-700");
+  const remotePreparing = Boolean(
+    status?.connected &&
+      !status.runner?.ready &&
+      status.runner?.state !== "repair_needed" &&
+      status.runner?.state !== "failed"
+  );
+  const canEnsureRunner = Boolean(status?.connected && !status.runner?.ready);
+  const loadListeningPorts = async () => {
+    if (!status?.connected || portsLoading) {
+      return;
+    }
+    setPortsLoading(true);
+    setPortsError("");
+    try {
+      const payload = await requestLocalApiJson("GET", "/api/v1/ssh/listening-ports", { cache: "no-store" });
+      const output = String(payload?.data?.output || "").trim();
+      setPortsOutput(output || "远端没有返回监听端口信息。");
+    } catch (error) {
+      setPortsError(normalizeFetchError(error));
+    } finally {
+      setPortsLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative border-t border-slate-200 bg-[#f7f7f5] text-slate-700">
+      {remotePreparing ? (
+        <div className="absolute inset-x-0 -top-px h-0.5 overflow-hidden bg-blue-100">
+          <div className="remote-progress-bar h-full w-1/4 bg-blue-500/70" />
+        </div>
+      ) : null}
+      {expanded ? (
+        <div className="absolute bottom-full left-2 z-30 mb-1 w-[340px] rounded-md border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold text-slate-900">{remote.label}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="关闭远程状态详情"
+              onClick={() => setExpanded(false)}
+              className="size-6 text-slate-400 hover:text-slate-700"
+            >
+              <X />
+            </Button>
+          </div>
+          <p className="mt-1 truncate text-[11px] text-slate-500">{remote.message}</p>
+          <div className="mt-2 space-y-1">
+            {remote.stages.map((stage) => (
+              <div key={stage} className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span className="h-1 w-1 rounded-full bg-slate-300" />
+                <span>{stage}</span>
+              </div>
+            ))}
+          </div>
+          {runner ? (
+            <div className="mt-2 border-t border-slate-100 pt-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold text-slate-400">远端服务端口</p>
+                {canEnsureRunner ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={ensureRunnerBusy}
+                    onClick={onEnsureRunner}
+                    className="h-6 px-2 text-[11px] text-slate-600"
+                  >
+                    <RefreshCw className={cn("mr-1 size-3", ensureRunnerBusy ? "animate-spin" : "")} />
+                    {ensureRunnerBusy ? "准备中" : "准备远程服务"}
+                  </Button>
+                ) : null}
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1">
+                  <p className="text-[10px] text-slate-400">远端服务</p>
+                  <p className="font-mono text-slate-700">{formatRunnerPort(runner.servicePort)}</p>
+                </div>
+                <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1">
+                  <p className="text-[10px] text-slate-400">本地隧道</p>
+                  <p className="font-mono text-slate-700">{formatRunnerPort(runner.tunnelPort)}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-2 border-t border-slate-100 pt-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold text-slate-400">远端监听端口</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!status?.connected || portsLoading}
+                onClick={loadListeningPorts}
+                className="h-6 px-2 text-[11px] text-slate-600"
+              >
+                <RefreshCw className={cn("mr-1 size-3", portsLoading ? "animate-spin" : "")} />
+                {portsLoading ? "读取中" : "刷新"}
+              </Button>
+            </div>
+            {portsError ? <p className="mt-1 text-[11px] text-red-600">{portsError}</p> : null}
+            {portsOutput ? (
+              <pre className="mt-2 max-h-48 overflow-auto rounded border border-slate-100 bg-slate-950 px-2 py-2 font-mono text-[10px] leading-relaxed text-slate-100">
+                {portsOutput}
+              </pre>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-400">点击刷新查看远端正在监听的端口和进程。</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex h-5 items-center justify-between gap-3 px-1 text-[11px] leading-none">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => setExpanded((value) => !value)}
+          className={cn(
+            "h-full min-w-0 justify-start rounded-none px-2 text-left hover:bg-slate-200/70",
+            remote.toneClass,
+            connectedTone ? "bg-blue-100 hover:bg-blue-200/70" : ""
+          )}
+        >
+          <span className="shrink-0 font-medium">{remote.label}</span>
+        </Button>
+        <div />
+      </div>
+    </div>
+  );
+}
 
 type SshSidebarProps = {
   pathname: string;
   status: SSHStatus | null;
   disconnectBusy: boolean;
+  ensureRunnerBusy: boolean;
   onOpenConnect: () => void;
   onDisconnect: () => void;
+  onEnsureRunner: () => void;
 };
 
-const NAV_ITEMS = [
-  { href: "/servers", label: "Servers", icon: Server, match: (pathname: string) => pathname.startsWith("/servers") },
-] as const;
-
-export function SshSidebar({ pathname, status, disconnectBusy, onOpenConnect, onDisconnect }: SshSidebarProps) {
+export function SshSidebar({
+  pathname,
+  status,
+  disconnectBusy,
+  ensureRunnerBusy,
+  onOpenConnect,
+  onDisconnect,
+  onEnsureRunner,
+}: SshSidebarProps) {
   const settingsActive = pathname.startsWith("/settings");
+  const workflowsActive = pathname.startsWith("/workflows");
+  const remotePreparing = Boolean(
+    status?.connected &&
+      !status.runner?.ready &&
+      status.runner?.state !== "repair_needed" &&
+      status.runner?.state !== "failed"
+  );
+  const canRepairRunner = Boolean(status?.connected && !status.runner?.ready);
 
   return (
     <aside className="border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r md:border-slate-200">
       <div className="flex h-full flex-col gap-3 p-3">
-        <div className="rounded-xl px-2 py-2">
-          <div className="flex items-start gap-2">
-            <button
+        <div className="rounded-xl px-2 py-1">
+          <div
+            className={cn(
+              "flex h-8 items-center overflow-hidden rounded-lg",
+              status?.connected ? "bg-transparent" : "hover:bg-slate-100/90"
+            )}
+          >
+            <Button
               type="button"
-              disabled={Boolean(status?.connected)}
+              variant="ghost"
+              aria-disabled={Boolean(status?.connected)}
               onClick={() => {
                 if (!status?.connected) {
                   onOpenConnect();
                 }
               }}
               className={cn(
-                "flex min-w-0 flex-1 items-start gap-2 rounded-lg text-left transition",
-                status?.connected ? "cursor-default" : "hover:bg-slate-100/90"
+                "h-full min-w-0 flex-1 justify-start rounded-none bg-transparent px-0 text-left hover:bg-transparent",
+                status?.connected ? "cursor-default" : ""
               )}
             >
-              <Link2 className={cn("mt-0.5 h-4 w-4 shrink-0", status?.connected ? "text-blue-600" : "text-slate-400")} />
+              {remotePreparing ? (
+                <RefreshCw strokeWidth={1.5} className="animate-spin text-blue-600 size-4 mr-2" />
+              ) : (
+                <Server
+                  strokeWidth={1.5}
+                  className={cn("size-4 mr-2", status?.connected ? "text-blue-600" : "text-zinc-500")}
+                />
+              )}
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-900">Connection</p>
-                <p className="mt-1 truncate text-xs text-slate-500">
-                  {status?.connected ? `${status.user}@${status.host}:${status.port}` : "未连接远端服务器"}
-                </p>
+                <p className="text-sm font-medium text-slate-900">连接</p>
               </div>
-            </button>
+            </Button>
             {status?.connected ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
-                    className="appearance-none rounded-lg border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 appearance-none rounded-none border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700"
                     aria-label="连接菜单"
                   >
-                    <Ellipsis className="h-4 w-4" />
-                  </button>
+                    <Ellipsis />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {canRepairRunner ? (
+                    <DropdownMenuItem onSelect={onEnsureRunner}>
+                      {ensureRunnerBusy ? "修复中..." : "修复远程服务"}
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuItem destructive onSelect={onDisconnect}>
                     {disconnectBusy ? "断开中..." : "断开连接"}
                   </DropdownMenuItem>
@@ -75,39 +312,46 @@ export function SshSidebar({ pathname, status, disconnectBusy, onOpenConnect, on
           </div>
         </div>
 
-        <nav className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const active = item.match(pathname);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition",
-                  active ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0 text-slate-500" />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="mt-auto pt-3">
-          <Link
-            href="/settings"
-            aria-current={settingsActive ? "page" : undefined}
+        <div className="px-2 space-y-1">
+           <Button
+            asChild
+            variant="ghost"
             className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition",
+              "w-full justify-start h-8 px-0",
+              workflowsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
+            )}
+          >
+            <Link href="/workflows" aria-current={workflowsActive ? "page" : undefined}>
+              <span className="w-6 flex justify-center">
+                <Workflow
+                  strokeWidth={1.5}
+                  className={cn("size-4", workflowsActive ? "text-zinc-900" : "text-zinc-500")}
+                />
+              </span>
+              <span>流程和数据库</span>
+            </Link>
+          </Button>
+        </div>
+
+        <div className="mt-auto pt-3 px-2">
+          <Button
+            asChild
+            variant="ghost"
+            className={cn(
+              "w-full justify-start h-8 px-0",
               settingsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
             )}
           >
-            <Settings2 className="h-4 w-4 shrink-0 text-slate-500" />
-            <span>Settings</span>
-          </Link>
+            <Link href="/settings" aria-current={settingsActive ? "page" : undefined}>
+              <span className="w-6 flex justify-center">
+                <Settings
+                  strokeWidth={1.5}
+                  className={cn("size-4", settingsActive ? "text-zinc-900" : "text-zinc-500")}
+                />
+              </span>
+              <span>设置</span>
+            </Link>
+          </Button>
         </div>
       </div>
     </aside>
@@ -138,16 +382,17 @@ export function SshTerminalPanel({
   return (
     <>
       <div className="relative h-px bg-slate-200">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           aria-label="调整终端高度"
           onPointerDown={onResizeStart}
-          className="absolute inset-x-0 -top-2 inline-flex h-4 w-full appearance-none cursor-row-resize items-center justify-center border-0 bg-transparent text-slate-300 shadow-none outline-none transition hover:text-slate-500"
+          className="absolute inset-x-0 -top-2 h-4 w-full cursor-row-resize rounded-none bg-transparent p-0 text-slate-300 shadow-none hover:bg-transparent hover:text-slate-500"
         >
           <span className="bg-white px-2">
-            <GripHorizontal className="h-4 w-4" />
+            <GripHorizontal />
           </span>
-        </button>
+        </Button>
       </div>
 
       <section
@@ -165,14 +410,16 @@ export function SshTerminalPanel({
             </div>
             <div className="flex items-center gap-3">
               <span className="text-[11px] font-mono text-slate-400">{terminalGridLabel}</span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 aria-label="关闭终端"
                 onClick={onClose}
-                className="appearance-none rounded-lg border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700"
+                className="size-7 text-slate-400 hover:text-slate-700"
               >
-                <X className="h-4 w-4" />
-              </button>
+                <X />
+              </Button>
             </div>
           </div>
 
@@ -212,6 +459,8 @@ export function SshConnectDialog({
   onCancel,
   onSubmit,
 }: SshConnectDialogProps) {
+  const autoConnectAllowed = form.remember_auth;
+
   return (
     <Dialog
       open={open}
@@ -230,22 +479,29 @@ export function SshConnectDialog({
 
         <div className="grid gap-4 py-4">
           {formError ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{formError}</div>
+            <Alert variant="destructive">
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
           ) : null}
 
           <div className="grid gap-2">
             <Label htmlFor="ssh-auth-mode">认证方式</Label>
-            <select
-              id="ssh-auth-mode"
+            <Select
               value={form.auth_mode}
-              onChange={(event) => onFieldChange("auth_mode", event.target.value as SSHFormState["auth_mode"])}
-              className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+              onValueChange={(value) => onFieldChange("auth_mode", value as SSHFormState["auth_mode"])}
             >
-              <option value="password_ref">密码</option>
-              <option value="key_file">私钥文件</option>
-              <option value="ssh_config">OpenSSH 配置</option>
-              <option value="agent">系统 SSH Agent</option>
-            </select>
+              <SelectTrigger id="ssh-auth-mode">
+                <SelectValue placeholder="选择认证方式" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="password_ref">密码</SelectItem>
+                  <SelectItem value="key_file">私钥文件</SelectItem>
+                  <SelectItem value="ssh_config">OpenSSH 配置</SelectItem>
+                  <SelectItem value="agent">系统 SSH Agent</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
 
           {form.auth_mode === "ssh_config" ? (
@@ -342,22 +598,18 @@ export function SshConnectDialog({
           ) : null}
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={form.remember_auth}
-              onChange={(event) => onFieldChange("remember_auth", event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
+              onCheckedChange={(checked) => onFieldChange("remember_auth", checked === true)}
             />
             <span>记住此认证方式</span>
           </label>
 
-          <label className={form.remember_auth ? "flex items-center gap-2 text-sm text-slate-700" : "flex items-center gap-2 text-sm text-slate-400"}>
-            <input
-              type="checkbox"
-              checked={form.auto_connect_on_startup}
-              disabled={!form.remember_auth}
-              onChange={(event) => onFieldChange("auto_connect_on_startup", event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
+          <label className={autoConnectAllowed ? "flex items-center gap-2 text-sm text-slate-700" : "flex items-center gap-2 text-sm text-slate-400"}>
+            <Checkbox
+              checked={autoConnectAllowed && form.auto_connect_on_startup}
+              disabled={!autoConnectAllowed}
+              onCheckedChange={(checked) => onFieldChange("auto_connect_on_startup", checked === true)}
             />
             <span>应用启动时自动连接到此主机</span>
           </label>
