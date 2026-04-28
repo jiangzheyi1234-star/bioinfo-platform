@@ -15,12 +15,14 @@ from apps.api.models import (
     RunSubmitRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
+    ToolManifestRequest,
     UploadSubmitRequest,
     UpdateProjectRequest,
     UpdateSettingsRequest,
     WorkflowDraftRequest,
 )
 from apps.api.runtime import get_runtime_service
+from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.workflow_templates import (
     create_workflow_draft,
     get_workflow_template,
@@ -245,6 +247,15 @@ async def disconnect_ssh() -> dict[str, Any]:
         handled_errors=(RuntimeServiceError,),
     )
     return {"item": item}
+
+
+@app.post("/api/v1/ssh/remote-service/stop")
+async def stop_ssh_remote_service() -> dict[str, Any]:
+    return await _run_sync(
+        _runtime().stop_remote_runner_service,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.get("/api/v1/ssh/listening-ports")
@@ -508,6 +519,55 @@ async def get_workflow_template_api(template_id: str) -> dict[str, Any]:
 @app.get("/api/v1/workflow-modules")
 async def get_workflow_modules() -> dict[str, Any]:
     return list_workflow_modules()
+
+
+@app.get("/api/v1/tool-capabilities/search")
+async def search_tool_capabilities_api(q: str = "", limit: int = 20) -> dict[str, Any]:
+    try:
+        bounded_limit = max(1, min(int(limit), 50))
+        return await _run_sync(
+            lambda: search_tool_capabilities(q, limit=bounded_limit),
+            status_code=502,
+            handled_errors=(ValueError, TimeoutError, OSError),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/tools")
+async def list_tools_api() -> dict[str, Any]:
+    return await _run_sync(
+        _runtime().list_tools,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.post("/api/v1/tools", status_code=201)
+async def add_tool_api(payload: ToolManifestRequest) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().add_tool(payload.model_dump(exclude_none=True)),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+    )
+
+
+@app.delete("/api/v1/tools/{tool_id}")
+async def delete_tool_api(tool_id: str) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().delete_tool(tool_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.post("/api/v1/tools/{tool_id}/check")
+async def check_tool_api(tool_id: str) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().check_tool(tool_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
 
 
 @app.post("/api/v1/workflow-drafts/validate")

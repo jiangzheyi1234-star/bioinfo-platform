@@ -8,30 +8,47 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-REMOTE_RUNNER_VERSION = "0.1.0-control-plane"
-REMOTE_RUNNER_PORT = 8876
+REMOTE_RUNNER_VERSION = "0.1.1-control-plane"
 
 
 @dataclass
 class BuiltBootstrapBundle:
     version: str
+    platform: str
     bundle_dir: Path
     archive_path: Path
 
 
 class RemoteRunnerBundleBuilder:
-    def build(self, version: str = REMOTE_RUNNER_VERSION) -> BuiltBootstrapBundle:
+    def build(
+        self,
+        version: str = REMOTE_RUNNER_VERSION,
+        *,
+        platform: str = "linux-64",
+        runtime_dir: Path,
+    ) -> BuiltBootstrapBundle:
+        if not runtime_dir.exists():
+            raise FileNotFoundError(f"remote runner runtime directory not found: {runtime_dir}")
+        runtime_python = runtime_dir / "bin" / "python"
+        if not runtime_python.exists():
+            raise FileNotFoundError(f"remote runner runtime python not found: {runtime_python}")
+
         root = Path(tempfile.mkdtemp(prefix="h2ometa-remote-bundle-"))
         bundle_dir = root / "bundle"
         bundle_dir.mkdir(parents=True, exist_ok=True)
 
         source_pkg = Path(__file__).resolve().parents[2] / "apps" / "remote_runner"
         shutil.copytree(source_pkg, bundle_dir / "remote_runner")
+        shutil.copytree(runtime_dir, bundle_dir / "runtime", symlinks=True)
 
         manifest = {
             "service": "h2ometa-remote",
             "version": version,
-            "port": REMOTE_RUNNER_PORT,
+            "platform": platform,
+            "runtime": {
+                "provider": "bundled",
+                "python": "runtime/bin/python",
+            },
         }
         self._write_text_lf(bundle_dir / "bootstrap_manifest.json", json.dumps(manifest, indent=2))
         self._write_text_lf(
@@ -64,7 +81,11 @@ class RemoteRunnerBundleBuilder:
             "  fi\n"
             "fi\n"
             'if [ -z "$RUNNER_PYTHON" ]; then\n'
-            '  RUNNER_PYTHON="$RUN_DIR/.venv/bin/python"\n'
+            '  RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"\n'
+            "fi\n"
+            'if [ -x "$RUN_DIR/runtime/bin/conda-unpack" ] && [ ! -f "$RUN_DIR/runtime/.h2ometa-conda-unpacked" ]; then\n'
+            '  "$RUN_DIR/runtime/bin/python" "$RUN_DIR/runtime/bin/conda-unpack"\n'
+            '  touch "$RUN_DIR/runtime/.h2ometa-conda-unpacked"\n'
             "fi\n"
             'exec "$RUNNER_PYTHON" -m remote_runner.run\n',
         )
@@ -105,11 +126,11 @@ class RemoteRunnerBundleBuilder:
         for path in bundle_dir.glob("*.sh"):
             path.chmod(0o755)
 
-        archive_path = root / f"h2ometa-remote-{version}.tar.gz"
+        archive_path = root / f"h2ometa-remote-runner-{version}-{platform}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
             archive.add(bundle_dir, arcname=".")
 
-        return BuiltBootstrapBundle(version=version, bundle_dir=bundle_dir, archive_path=archive_path)
+        return BuiltBootstrapBundle(version=version, platform=platform, bundle_dir=bundle_dir, archive_path=archive_path)
 
     @staticmethod
     def _write_text_lf(path: Path, content: str) -> None:

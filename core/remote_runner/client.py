@@ -75,6 +75,9 @@ class RemoteRunnerHttpClient:
     ) -> dict[str, Any]:
         return self._request_json("POST", path, payload=payload, extra_headers=extra_headers)
 
+    def delete_json(self, path: str) -> dict[str, Any]:
+        return self._request_json("DELETE", path)
+
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup")
         live = self.get_json("/health/live")

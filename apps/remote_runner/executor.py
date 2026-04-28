@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import threading
 from pathlib import Path
 import time
 
-from .config import RemoteRunnerConfig
+from .config import RemoteRunnerConfig, build_workflow_runtime_environment
+from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
+from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
 from .storage import (
     append_log_lines,
+    fetch_upload,
     persist_artifact,
     update_run_state,
 )
@@ -26,18 +28,7 @@ def _snakemake_command(cfg: RemoteRunnerConfig) -> list[str]:
 
 
 def _snakemake_environment(cfg: RemoteRunnerConfig) -> dict[str, str]:
-    env = dict(os.environ)
-    managed_conda_command = str(cfg.managed_conda_command or "").strip()
-    if managed_conda_command:
-        managed_bin_dir = str(Path(managed_conda_command).parent)
-        current_path = env.get("PATH", "")
-        env["PATH"] = os.pathsep.join(part for part in (managed_bin_dir, current_path) if part)
-        env["CONDA_EXE"] = managed_conda_command
-        env["H2OMETA_MANAGED_CONDA_COMMAND"] = managed_conda_command
-    managed_conda_root_prefix = str(cfg.managed_conda_root_prefix or "").strip()
-    if managed_conda_root_prefix:
-        env["MAMBA_ROOT_PREFIX"] = managed_conda_root_prefix
-    return env
+    return build_workflow_runtime_environment(cfg)
 
 
 def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str, run_spec: dict) -> None:
@@ -65,8 +56,6 @@ def run_snakemake_execution(
         result_dir = Path(cfg.results_dir) / run_id
         work_dir = Path(cfg.work_dir) / run_id
         logs_dir = Path(cfg.logs_dir)
-        workflow_root = Path(cfg.release_dir) / "workflow"
-        snakefile = workflow_root / "Snakefile"
         config_path = work_dir / "run-config.json"
         stdout_log = logs_dir / f"{run_id}.stdout.log"
         stderr_log = logs_dir / f"{run_id}.stderr.log"
@@ -75,24 +64,65 @@ def run_snakemake_execution(
         work_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
 
-        config_path.write_text(
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "request_id": request_id,
-                    "project_id": str(run_spec.get("projectId") or "proj_default"),
-                    "pipeline_id": str(run_spec.get("pipelineId") or "taxonomy-v1"),
-                    "inputs": list(run_spec.get("inputs") or []),
-                    "outputs": {
-                        "report": str(result_dir / "run-report.html"),
-                        "summary": str(result_dir / "summary.tsv"),
-                        "raw_log": str(result_dir / "raw-log.txt"),
-                    },
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="running",
+            stage="validate",
+            message="Validating pipeline and run inputs.",
+            request_id=request_id,
         )
+        try:
+            pipeline_id = str(run_spec.get("pipelineId") or "")
+            if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
+                resolved_inputs = _resolve_run_inputs(cfg, run_spec)
+                generated = prepare_generated_tool_workflow(
+                    cfg,
+                    run_id=run_id,
+                    request_id=request_id,
+                    run_spec=run_spec,
+                    resolved_inputs=resolved_inputs,
+                    work_dir=work_dir,
+                    result_dir=result_dir,
+                )
+                snakefile = generated.snakefile
+                config_path = generated.config_path
+            else:
+                pipeline = get_pipeline(cfg, pipeline_id)
+                validate_run_spec_for_pipeline(pipeline, run_spec)
+                resolved_inputs = _resolve_run_inputs(cfg, run_spec)
+                snakefile = pipeline.snakefile
+                config_path.write_text(
+                    json.dumps(
+                        {
+                            "run_id": run_id,
+                            "request_id": request_id,
+                            "project_id": str(run_spec.get("projectId") or "proj_default"),
+                            "pipeline_id": pipeline.pipeline_id,
+                            "pipeline_version": pipeline.version,
+                            "params": dict(run_spec.get("params") or {}),
+                            "inputs": resolved_inputs,
+                            "outputs": {
+                                "report": str(result_dir / "run-report.html"),
+                                "summary": str(result_dir / "summary.tsv"),
+                                "raw_log": str(result_dir / "raw-log.txt"),
+                            },
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+        except (PipelineRegistryError, ValueError) as exc:
+            _mark_failed(
+                cfg,
+                run_id=run_id,
+                request_id=request_id,
+                message="Run validation failed.",
+                scope="validate",
+                code=str(exc) or "RUN_VALIDATION_FAILED",
+                stderr=str(exc) or "Run validation failed.",
+            )
+            return
 
         update_run_state(
             cfg,
@@ -210,6 +240,38 @@ def _collect_artifacts(cfg: RemoteRunnerConfig, run_id: str, result_dir: Path) -
     return artifacts
 
 
+def _resolve_run_inputs(cfg: RemoteRunnerConfig, run_spec: dict) -> list[dict]:
+    raw_inputs = run_spec.get("inputs") or []
+    if not isinstance(raw_inputs, list) or not raw_inputs:
+        raise ValueError("INPUT_REQUIRED")
+    resolved: list[dict] = []
+    for index, item in enumerate(raw_inputs):
+        if not isinstance(item, dict):
+            raise ValueError("INPUT_INVALID")
+        upload_id = str(item.get("uploadId") or "").strip()
+        if not upload_id:
+            raise ValueError("INPUT_UPLOAD_ID_REQUIRED")
+        upload = fetch_upload(cfg, upload_id)
+        if upload is None:
+            raise ValueError("INPUT_NOT_FOUND")
+        path = Path(str(upload["path"]))
+        if not path.exists():
+            raise ValueError("INPUT_FILE_MISSING")
+        resolved.append(
+            {
+                "uploadId": upload["uploadId"],
+                "filename": str(item.get("filename") or upload["filename"]),
+                "role": str(item.get("role") or "input"),
+                "path": str(path),
+                "sizeBytes": upload["sizeBytes"],
+                "sha256": upload["sha256"],
+                "mimeType": upload["mimeType"],
+                "index": index,
+            }
+        )
+    return resolved
+
+
 def _mark_failed(
     cfg: RemoteRunnerConfig,
     *,
@@ -218,6 +280,7 @@ def _mark_failed(
     message: str,
     scope: str,
     stderr: str,
+    code: str | None = None,
     result_dir: str = "",
 ) -> None:
     update_run_state(
@@ -229,10 +292,11 @@ def _mark_failed(
         request_id=request_id,
         result_dir=result_dir,
         last_error={
-            "code": "WORKFLOW_RUNTIME_MISSING" if scope == "validate" else "WORKFLOW_EXECUTION_FAILED",
+            "code": code or ("WORKFLOW_RUNTIME_MISSING" if scope == "validate" else "WORKFLOW_EXECUTION_FAILED"),
             "message": stderr.strip() or message,
             "requestId": request_id,
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "scope": scope,
+            "stage": scope,
         },
     )

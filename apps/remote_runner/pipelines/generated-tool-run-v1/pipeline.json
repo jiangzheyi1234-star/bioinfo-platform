@@ -1,0 +1,50 @@
+{
+  "pipelineId": "generated-tool-run-v1",
+  "name": "Generated Tool Run",
+  "version": "0.1.0",
+  "description": "Run one registered tool or an ordered tool workflow as generated Snakemake rules with per-rule conda environments.",
+  "category": "Tool Workflows",
+  "icon": "wrench",
+  "tags": ["tools", "snakemake", "generated"],
+  "author": "H2OMeta",
+  "license": "internal",
+  "status": "installed",
+  "enabled": true,
+  "snakefile": "Snakefile",
+  "inputsSchema": {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+      "type": "object",
+      "required": ["uploadId"],
+      "properties": {
+        "uploadId": { "type": "string", "minLength": 1 },
+        "filename": { "type": "string" },
+        "role": { "type": "string", "default": "input" }
+      }
+    }
+  },
+  "paramsSchema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "artifacts": [
+      { "kind": "log", "mimeType": "text/plain", "name": "tool-output.txt" }
+    ]
+  },
+  "uiSchema": {
+    "inputs": {
+      "widget": "file-upload",
+      "accept": "*",
+      "roleDefault": "input"
+    },
+    "tool": {
+      "widget": "tool-picker"
+    },
+    "workflow": {
+      "widget": "linear-tool-workflow"
+    }
+  }
+}

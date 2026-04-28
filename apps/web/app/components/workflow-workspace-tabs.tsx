@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { href: "/workflows", label: "流程" },
   { href: "/workflows/databases", label: "数据库" },
+  { href: "/workflows/tools", label: "工具" },
 ];
 
 export function WorkflowWorkspaceTabs() {
