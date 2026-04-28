@@ -739,6 +739,9 @@ class RuntimeService(RunnerOperationsMixin):
         manager,
         registry_entry: dict[str, Any],
     ) -> dict[str, Any]:
+        snapshot = registry_entry.get("last_health_snapshot")
+        if isinstance(snapshot, dict) and str(snapshot.get("reasonCode") or "") == "RUNNER_STOPPED":
+            return status
         try:
             if ssh is None or not getattr(ssh, "is_connected", False):
                 return status

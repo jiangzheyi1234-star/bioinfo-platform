@@ -84,6 +84,27 @@ CREATE TABLE IF NOT EXISTS idempotency (
     status TEXT NOT NULL,
     PRIMARY KEY (server_id, idempotency_key)
 );
+
+CREATE TABLE IF NOT EXISTS tools (
+    tool_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_label TEXT NOT NULL,
+    version TEXT NOT NULL,
+    package_spec TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    target_platform TEXT NOT NULL,
+    target_platform_supported INTEGER NOT NULL,
+    platforms_json TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    test_command TEXT NOT NULL,
+    rule_template_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_checked_at TEXT
+);
 """
 
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
@@ -98,8 +119,15 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
+    _ensure_tools_columns(connection)
     connection.commit()
     return connection
+
+
+def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(tools)").fetchall()}
+    if "rule_template_json" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN rule_template_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
@@ -174,6 +202,156 @@ def persist_upload(
     return row
 
 
+def fetch_upload(cfg: RemoteRunnerConfig, upload_id: str) -> dict[str, Any] | None:
+    with get_connection(cfg) as connection:
+        row = connection.execute("SELECT * FROM uploads WHERE upload_id = ?", (upload_id,)).fetchone()
+    if row is None:
+        return None
+    return {
+        "uploadId": row["upload_id"],
+        "filename": row["filename"],
+        "path": row["path"],
+        "sizeBytes": row["size_bytes"],
+        "sha256": row["sha256"],
+        "mimeType": row["mime_type"],
+        "uploadedAt": row["uploaded_at"],
+    }
+
+
+def _tool_row_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["tool_id"],
+        "name": row["name"],
+        "source": row["source"],
+        "sourceLabel": row["source_label"],
+        "version": row["version"],
+        "packageSpec": row["package_spec"],
+        "summary": row["summary"],
+        "targetPlatform": row["target_platform"],
+        "targetPlatformSupported": bool(row["target_platform_supported"]),
+        "platforms": json.loads(row["platforms_json"] or "[]"),
+        "sourceUrl": row["source_url"],
+        "testCommand": row["test_command"],
+        "ruleTemplate": json.loads(row["rule_template_json"] or "{}"),
+        "status": row["status"],
+        "message": row["message"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+        "lastCheckedAt": row["last_checked_at"],
+    }
+
+
+def list_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
+    with get_connection(cfg) as connection:
+        rows = connection.execute("SELECT * FROM tools ORDER BY updated_at DESC, name ASC").fetchall()
+    return [_tool_row_to_dict(row) for row in rows]
+
+
+def fetch_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, Any] | None:
+    with get_connection(cfg) as connection:
+        row = connection.execute("SELECT * FROM tools WHERE tool_id = ?", (tool_id,)).fetchone()
+    return _tool_row_to_dict(row) if row is not None else None
+
+
+def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]:
+    tool_id = str(tool.get("id") or "").strip()
+    name = str(tool.get("name") or "").strip()
+    source = str(tool.get("source") or "").strip()
+    package_spec = str(tool.get("packageSpec") or "").strip()
+    if not tool_id or not name or not source or not package_spec:
+        raise ValueError("TOOL_MANIFEST_INVALID")
+
+    now = now_iso()
+    existing = fetch_tool(cfg, tool_id)
+    status = str(tool.get("status") or (existing or {}).get("status") or "declared")
+    message = str(tool.get("message") or (existing or {}).get("message") or "Tool declared.")
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            INSERT INTO tools (
+                tool_id, name, source, source_label, version, package_spec, summary,
+                target_platform, target_platform_supported, platforms_json, source_url,
+                test_command, rule_template_json, status, message, created_at, updated_at, last_checked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tool_id) DO UPDATE SET
+                name = excluded.name,
+                source = excluded.source,
+                source_label = excluded.source_label,
+                version = excluded.version,
+                package_spec = excluded.package_spec,
+                summary = excluded.summary,
+                target_platform = excluded.target_platform,
+                target_platform_supported = excluded.target_platform_supported,
+                platforms_json = excluded.platforms_json,
+                source_url = excluded.source_url,
+                test_command = excluded.test_command,
+                rule_template_json = excluded.rule_template_json,
+                status = excluded.status,
+                message = excluded.message,
+                updated_at = excluded.updated_at
+            """,
+            (
+                tool_id,
+                name,
+                source,
+                str(tool.get("sourceLabel") or source),
+                str(tool.get("version") or ""),
+                package_spec,
+                str(tool.get("summary") or ""),
+                str(tool.get("targetPlatform") or "linux-64"),
+                1 if bool(tool.get("targetPlatformSupported")) else 0,
+                json.dumps(list(tool.get("platforms") or [])),
+                str(tool.get("sourceUrl") or ""),
+                str(tool.get("testCommand") or ""),
+                json.dumps(dict(tool.get("ruleTemplate") or {}), ensure_ascii=False),
+                status,
+                message,
+                (existing or {}).get("createdAt") or now,
+                now,
+                (existing or {}).get("lastCheckedAt"),
+            ),
+        )
+        connection.commit()
+    saved = fetch_tool(cfg, tool_id)
+    if saved is None:
+        raise KeyError(tool_id)
+    return saved
+
+
+def delete_tool(cfg: RemoteRunnerConfig, tool_id: str) -> None:
+    with get_connection(cfg) as connection:
+        cursor = connection.execute("DELETE FROM tools WHERE tool_id = ?", (tool_id,))
+        connection.commit()
+    if cursor.rowcount == 0:
+        raise KeyError(tool_id)
+
+
+def update_tool_status(
+    cfg: RemoteRunnerConfig,
+    *,
+    tool_id: str,
+    status: str,
+    message: str,
+) -> dict[str, Any]:
+    checked_at = now_iso()
+    with get_connection(cfg) as connection:
+        cursor = connection.execute(
+            """
+            UPDATE tools
+            SET status = ?, message = ?, updated_at = ?, last_checked_at = ?
+            WHERE tool_id = ?
+            """,
+            (status, message, checked_at, checked_at, tool_id),
+        )
+        connection.commit()
+    if cursor.rowcount == 0:
+        raise KeyError(tool_id)
+    item = fetch_tool(cfg, tool_id)
+    if item is None:
+        raise KeyError(tool_id)
+    return item
+
+
 def _estimate_base64_size(content_base64: str) -> int:
     raw = "".join(str(content_base64 or "").split())
     if not raw:
@@ -193,7 +371,9 @@ def create_run_record(
 ) -> tuple[dict[str, Any], str]:
     run_id = str(run_spec.get("runId") or f"run_{uuid.uuid4().hex[:12]}").strip()
     project_id = str(run_spec.get("projectId") or "proj_default").strip() or "proj_default"
-    pipeline_id = str(run_spec.get("pipelineId") or "taxonomy-v1").strip() or "taxonomy-v1"
+    pipeline_id = str(run_spec.get("pipelineId") or "").strip()
+    if not pipeline_id:
+        raise ValueError("PIPELINE_ID_REQUIRED")
     pipeline_version = str(run_spec.get("pipelineVersion") or "0.1.0").strip() or "0.1.0"
     run_spec_version = str(run_spec.get("runSpecVersion") or "2026-04-21").strip() or "2026-04-21"
     submitted_at = now_iso()

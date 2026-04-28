@@ -9,7 +9,7 @@ from fastapi import Response
 from apps.api.main import (
     accept_server_host_key,
     app,
-    bootstrap_server,
+    ensure_server_runner,
     close_terminal_session,
     connect_ssh,
     create_terminal_session,
@@ -18,12 +18,14 @@ from apps.api.main import (
     get_run,
     get_run_events,
     get_run_results,
+    get_pipeline,
     get_result,
     get_result_preview,
     get_server_health,
     get_settings,
     get_ssh_status,
     list_results,
+    list_pipelines,
     list_servers,
     refresh_server_health,
     rotate_server_token,
@@ -116,9 +118,9 @@ def test_settings_contract_normalizes_ssh_shape_for_shell_main_path(monkeypatch,
         "ssh": {
             "auth_mode": "ssh_config",
             "ssh_host_alias": "prod-box",
-            "password_ref": "ssh://legacy@192.168.0.10:22",
+            "password_ref": "ssh://legacy@192.0.2.10:22",
             "identity_ref": "C:/keys/id_ed25519",
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "timeout_sec": 5,
@@ -176,7 +178,7 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
             "password_ref": "",
             "identity_ref": "",
             "remember_auth": True,
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "timeout_sec": 5,
@@ -185,9 +187,29 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
     }
     fake_shell = FakeShellService()
 
+    class FakeRemoteRunnerManager:
+        def bootstrap(self, **kwargs):
+            return {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "background_process",
+                "tunnel_port": 18765,
+                "service_port": 43127,
+                "token_ref": "runner://srv_test",
+                "health": {
+                    "startup": {"ok": True, "message": "Remote runner config loaded."},
+                    "live": {"ok": True, "message": "Remote runner process is alive."},
+                    "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                    "reasonCode": "",
+                    "checkedAt": "2026-04-21T12:00:00Z",
+                },
+            }
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+
     def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
         cfg.clear()
-        cfg.update(next_cfg)
+        cfg.update(snapshot)
 
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
@@ -202,7 +224,7 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
         connect_ssh(
             SSHConnectionRequest(
                 auth_mode="key_file",
-                host="192.168.0.10",
+                host="192.0.2.10",
                 port=22,
                 user="tester",
                 identity_ref="C:/keys/id_ed25519",
@@ -212,12 +234,13 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
     assert connected["connected"] is True
     assert connected["identity_ref"] == "C:/keys/id_ed25519"
     assert connected["message"] == "SSH connected"
+    assert connected["runner"]["state"] == "ready"
     assert cfg["ssh"]["auth_mode"] == "key_file"
     assert cfg["ssh"]["identity_ref"] == "C:/keys/id_ed25519"
 
     status = asyncio.run(get_ssh_status())["item"]
     assert status["connected"] is True
-    assert status["host"] == "192.168.0.10"
+    assert status["host"] == "192.0.2.10"
     assert status["user"] == "tester"
 
     terminal = asyncio.run(
@@ -237,13 +260,29 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
     assert disconnected["auto_connect_on_startup"] is False
 
 
+def test_ssh_connection_request_preserves_auth_persistence_fields() -> None:
+    payload = SSHConnectionRequest(
+        auth_mode="key_file",
+        host="192.0.2.10",
+        port=22,
+        user="tester",
+        identity_ref="C:/keys/id_ed25519",
+        remember_auth=False,
+        auto_connect_on_startup=True,
+    )
+
+    dumped = payload.model_dump(exclude_none=True)
+    assert dumped["remember_auth"] is False
+    assert dumped["auto_connect_on_startup"] is True
+
+
 def test_servers_health_contract_exposes_reason_code(monkeypatch, tmp_path: Path) -> None:
     service = make_service(tmp_path)
     monkeypatch.setattr(
         "core.app_runtime.service.get_config",
         lambda: {
             "ssh": {
-                "host": "192.168.0.10",
+                "host": "192.0.2.10",
                 "port": 22,
                 "user": "tester",
                 "auth_mode": "key_file",
@@ -270,7 +309,7 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
@@ -286,7 +325,7 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
                 "bootstrap_version": "phase1-test",
                 "runner_mode": "background_process",
                 "tunnel_port": 18765,
-                "service_port": 8876,
+                "service_port": 43127,
                 "token_ref": "runner://srv_test",
                 "health": {
                     "startup": {"ok": True, "message": "Remote runner config loaded."},
@@ -332,22 +371,22 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
     rotated = asyncio.run(rotate_server_token(server_id))
     assert rotated["data"]["tokenRotated"] is True
 
-    bootstrapped = asyncio.run(bootstrap_server(server_id))
-    assert bootstrapped["data"]["ready"]["ok"] is True
-    assert bootstrapped["data"]["reasonCode"] == ""
+    ensured = asyncio.run(ensure_server_runner(server_id))
+    assert ensured["data"]["health"]["ready"]["ok"] is True
+    assert ensured["data"]["health"]["reasonCode"] == ""
 
     refreshed = asyncio.run(refresh_server_health(server_id))
     assert refreshed["data"]["ready"]["ok"] is True
 
 
-def test_connected_server_health_requires_runner_bootstrap(monkeypatch, tmp_path: Path) -> None:
+def test_connected_server_health_reports_runner_not_ready(monkeypatch, tmp_path: Path) -> None:
     service = make_service(tmp_path)
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     monkeypatch.setattr(
         "core.app_runtime.service.get_config",
         lambda: {
             "ssh": {
-                "host": "192.168.0.10",
+                "host": "192.0.2.10",
                 "port": 22,
                 "user": "tester",
                 "auth_mode": "key_file",
@@ -365,14 +404,14 @@ def test_connected_server_health_requires_runner_bootstrap(monkeypatch, tmp_path
     assert server["reasonCode"] == "RUNNER_NOT_READY"
 
 
-def test_bootstrap_server_uses_remote_runner_manager_and_persists_server_registry(
+def test_ensure_server_runner_uses_remote_runner_manager_and_persists_server_registry(
     monkeypatch, tmp_path: Path
 ) -> None:
     service = make_service(tmp_path)
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
@@ -392,7 +431,7 @@ def test_bootstrap_server_uses_remote_runner_manager_and_persists_server_registr
                 "bootstrap_version": "phase1-test",
                 "runner_mode": "background_process",
                 "tunnel_port": 18765,
-                "service_port": 8876,
+                "service_port": 43127,
                 "token_ref": "runner://srv_test",
                 "health": {
                     "startup": {"ok": True, "message": "Remote runner config loaded."},
@@ -416,24 +455,25 @@ def test_bootstrap_server_uses_remote_runner_manager_and_persists_server_registr
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
 
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
-    result = asyncio.run(bootstrap_server(server_id))
+    result = asyncio.run(ensure_server_runner(server_id))
 
     assert len(fake_manager.bootstrap_calls) == 1
     assert cfg["servers"][server_id]["bootstrap_version"] == "phase1-test"
     assert cfg["servers"][server_id]["runner_mode"] == "background_process"
     assert cfg["servers"][server_id]["tunnel_port"] == 18765
-    assert result["data"]["ready"]["ok"] is True
-    assert result["data"]["reasonCode"] == ""
+    assert result["data"]["health"]["ready"]["ok"] is True
+    assert result["data"]["health"]["reasonCode"] == ""
+    assert result["data"]["runner"]["state"] == "ready"
 
 
-def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure_snapshot(
+def test_ensure_server_runner_persists_bootstrap_metadata_and_replaces_stale_failure_snapshot(
     monkeypatch, tmp_path: Path
 ) -> None:
     service = make_service(tmp_path)
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
@@ -449,7 +489,7 @@ def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure
                 "bootstrap_version": "phase1-test",
                 "runner_mode": "background_process",
                 "tunnel_port": 18765,
-                "service_port": 8876,
+                "service_port": 43127,
                 "token_ref": "runner://srv_test",
                 "bootstrap_metadata": {
                     "preflight": {"python": {"command": "python3", "ok": True}},
@@ -496,9 +536,9 @@ def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure
         }
     }
 
-    result = asyncio.run(bootstrap_server(server_id))
+    result = asyncio.run(ensure_server_runner(server_id))
 
-    assert result["data"]["ready"]["ok"] is True
+    assert result["data"]["health"]["ready"]["ok"] is True
     assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == ""
     assert cfg["servers"][server_id]["bootstrap_metadata"] == {
         "preflight": {"python": {"command": "python3", "ok": True}},
@@ -515,14 +555,14 @@ def test_bootstrap_server_persists_bootstrap_metadata_and_replaces_stale_failure
     }
 
 
-def test_failed_bootstrap_persists_specific_readiness_reason_for_followup_health_checks(
+def test_failed_runner_ensure_persists_specific_readiness_reason_for_followup_health_checks(
     monkeypatch, tmp_path: Path
 ) -> None:
     service = make_service(tmp_path)
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
@@ -552,11 +592,11 @@ def test_failed_bootstrap_persists_specific_readiness_reason_for_followup_health
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
 
     try:
-        asyncio.run(bootstrap_server(server_id))
+        asyncio.run(ensure_server_runner(server_id))
     except Exception as exc:
         assert "conda/mamba is required" in str(exc)
     else:
-        raise AssertionError("bootstrap should fail when workflow runtime is missing")
+        raise AssertionError("runner ensure should fail when workflow runtime is missing")
 
     health = asyncio.run(get_server_health(server_id))["data"]
 
@@ -570,21 +610,14 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
             "identity_ref": "C:/keys/id_ed25519",
             "timeout_sec": 5,
         },
-        "servers": {
-            "srv_8ab95fcf95a7": {
-                "bootstrap_version": "phase2-test",
-                "runner_mode": "background_process",
-                "service_port": 8876,
-                "token_ref": "runner://srv_test",
-            }
-        },
+        "servers": {},
     }
 
     class FakeRemoteRunnerManager:
@@ -611,6 +644,26 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
         def get_run_results(self, **kwargs):
             return {"runId": "run_2026_0419_001", "artifacts": [{"artifactId": "art_001"}], "resultDir": "/srv/results"}
 
+        def list_pipelines(self, **kwargs):
+            return [
+                {
+                    "pipelineId": "taxonomy-v1",
+                    "name": "Taxonomy",
+                    "category": "Taxonomy",
+                    "status": "installed",
+                    "enabled": True,
+                    "uiSchema": {"inputs": {"widget": "file-upload"}},
+                }
+            ]
+
+        def get_pipeline(self, **kwargs):
+            return {
+                "pipelineId": kwargs["pipeline_id"],
+                "name": "Taxonomy",
+                "paramsSchema": {"type": "object"},
+                "uiSchema": {"inputs": {"widget": "file-upload"}},
+            }
+
         def list_results(self, **kwargs):
             return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]
 
@@ -623,6 +676,14 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase2-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_test",
+    }
 
     run_payload = asyncio.run(get_run("run_2026_0419_001"))
     run = run_payload["data"]
@@ -641,6 +702,14 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     assert results["runId"] == "run_2026_0419_001"
     assert results["artifacts"][0]["artifactId"] == "art_001"
 
+    pipelines_payload = asyncio.run(list_pipelines())
+    assert pipelines_payload["data"]["items"][0]["pipelineId"] == "taxonomy-v1"
+    assert pipelines_payload["data"]["items"][0]["uiSchema"]["inputs"]["widget"] == "file-upload"
+
+    pipeline_payload = asyncio.run(get_pipeline("taxonomy-v1"))
+    assert pipeline_payload["data"]["pipelineId"] == "taxonomy-v1"
+    assert pipeline_payload["data"]["paramsSchema"]["type"] == "object"
+
     list_results_payload = asyncio.run(list_results())
     assert list_results_payload["data"]["items"][0]["resultId"].startswith("res_run_")
 
@@ -657,21 +726,14 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
             "identity_ref": "C:/keys/id_ed25519",
             "timeout_sec": 5,
         },
-        "servers": {
-            "srv_8ab95fcf95a7": {
-                "bootstrap_version": "phase2-test",
-                "runner_mode": "background_process",
-                "service_port": 8876,
-                "token_ref": "runner://srv_test",
-            }
-        },
+        "servers": {},
     }
 
     class FakeRemoteRunnerManager:
@@ -701,6 +763,14 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
 
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase2-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_test",
+    }
+
     response = Response()
     payload = asyncio.run(
         submit_run(
@@ -721,21 +791,14 @@ def test_submit_run_persists_run_spec_for_followup_detail(monkeypatch, tmp_path:
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
             "identity_ref": "C:/keys/id_ed25519",
             "timeout_sec": 5,
         },
-        "servers": {
-            "srv_8ab95fcf95a7": {
-                "bootstrap_version": "phase2-test",
-                "runner_mode": "background_process",
-                "service_port": 8876,
-                "token_ref": "runner://srv_test",
-            }
-        },
+        "servers": {},
     }
 
     class FakeRemoteRunnerManager:
@@ -776,6 +839,14 @@ def test_submit_run_persists_run_spec_for_followup_detail(monkeypatch, tmp_path:
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
 
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase2-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_test",
+    }
+
     response = Response()
     submitted = asyncio.run(
         submit_run(
@@ -807,21 +878,14 @@ def test_upload_file_routes_to_remote_runner_manager(monkeypatch, tmp_path: Path
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
             "identity_ref": "C:/keys/id_ed25519",
             "timeout_sec": 5,
         },
-        "servers": {
-            "srv_8ab95fcf95a7": {
-                "bootstrap_version": "phase2-test",
-                "runner_mode": "background_process",
-                "service_port": 8876,
-                "token_ref": "runner://srv_test",
-            }
-        },
+        "servers": {},
     }
 
     class FakeRemoteRunnerManager:
@@ -848,10 +912,18 @@ def test_upload_file_routes_to_remote_runner_manager(monkeypatch, tmp_path: Path
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
 
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase2-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_test",
+    }
+
     payload = asyncio.run(
         upload_file(
             UploadSubmitRequest(
-                serverId="srv_8ab95fcf95a7",
+                serverId=server_id,
                 filename="reads.fastq",
                 contentBase64="QEdPQgo=",
                 mimeType="text/plain",
@@ -868,21 +940,14 @@ def test_upload_file_normalizes_runtime_transport_failures(monkeypatch, tmp_path
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     cfg = {
         "ssh": {
-            "host": "192.168.0.10",
+            "host": "192.0.2.10",
             "port": 22,
             "user": "tester",
             "auth_mode": "key_file",
             "identity_ref": "C:/keys/id_ed25519",
             "timeout_sec": 5,
         },
-        "servers": {
-            "srv_8ab95fcf95a7": {
-                "bootstrap_version": "phase2-test",
-                "runner_mode": "background_process",
-                "service_port": 8876,
-                "token_ref": "runner://srv_test",
-            }
-        },
+        "servers": {},
     }
 
     class FakeRemoteRunnerManager:
@@ -902,11 +967,19 @@ def test_upload_file_normalizes_runtime_transport_failures(monkeypatch, tmp_path
     monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
     monkeypatch.setattr("apps.api.main._runtime", lambda: service)
 
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase2-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_test",
+    }
+
     try:
         asyncio.run(
             upload_file(
                 UploadSubmitRequest(
-                    serverId="srv_8ab95fcf95a7",
+                    serverId=server_id,
                     filename="reads.fastq",
                     contentBase64="QEdPQgo=",
                     mimeType="text/plain",
@@ -931,7 +1004,9 @@ def test_local_api_keeps_removed_remote_environment_routes_absent() -> None:
         "/api/v1/remote/environment/setup",
         "/api/v1/remote/environment/validate",
         "/api/v1/projects/{project_id}/environment",
+        "/api/v1/servers/{server_id}/bootstrap",
     )
 
     for path in removed_paths:
         assert path not in paths
+    assert "/api/v1/servers/{server_id}/ensure-runner" in paths

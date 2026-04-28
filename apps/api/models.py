@@ -55,6 +55,23 @@ class UploadSubmitRequest(BaseModel):
     mimeType: str = "application/octet-stream"
 
 
+class ToolManifestRequest(BaseModel):
+    serverId: str | None = None
+    id: str | None = None
+    name: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    sourceLabel: str | None = None
+    version: str | None = None
+    packageSpec: str | None = None
+    summary: str | None = None
+    targetPlatform: str | None = None
+    targetPlatformSupported: bool = False
+    platforms: list[str] = Field(default_factory=list)
+    sourceUrl: str | None = None
+    testCommand: str | None = None
+    ruleTemplate: dict[str, Any] | None = None
+
+
 class WorkflowDraftRequest(BaseModel):
     templateId: str = Field(min_length=1)
     name: str | None = None

@@ -1,0 +1,6 @@
+# Placeholder only. The runner generates the real Snakefile per run so that
+# selected tools become explicit Snakemake rules with per-rule conda envs.
+
+rule all:
+    input:
+        []

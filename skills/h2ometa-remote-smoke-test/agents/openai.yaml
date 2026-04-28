@@ -1,0 +1,7 @@
+interface:
+  display_name: "H2OMeta Remote Smoke Test"
+  short_description: "Verify bio_ui SSH and remote runner health"
+  default_prompt: "Use $h2ometa-remote-smoke-test to verify the configured H2OMeta remote server connection."
+
+policy:
+  allow_implicit_invocation: true
