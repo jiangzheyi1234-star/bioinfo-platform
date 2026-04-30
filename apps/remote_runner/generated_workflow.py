@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .databases import resolve_run_databases
 from .storage import fetch_tool
 
 
@@ -54,6 +55,7 @@ def prepare_generated_tool_workflow(
     config_path = work_dir / "run-config.json"
     snakefile = work_dir / "Snakefile"
     requested_steps = _resolve_requested_steps(run_spec)
+    resolved_databases = resolve_run_databases(cfg, run_spec)
     generated_steps: list[GeneratedWorkflowStep] = []
 
     for index, requested_step in enumerate(requested_steps):
@@ -113,6 +115,7 @@ def prepare_generated_tool_workflow(
                 "pipeline_id": GENERATED_TOOL_RUN_PIPELINE_ID,
                 "pipeline_version": GENERATED_TOOL_RUN_VERSION,
                 "params": dict(run_spec.get("params") or {}),
+                "databases": resolved_databases,
                 "inputs": resolved_inputs,
                 "tool": _config_tool(generated_steps[0]),
                 "workflow": {
@@ -137,6 +140,7 @@ def prepare_generated_tool_workflow(
         _render_snakefile(
             steps=generated_steps,
             output_dir=str(result_dir),
+            databases=resolved_databases,
         ),
         encoding="utf-8",
     )
@@ -302,6 +306,7 @@ def _render_snakefile(
     *,
     steps: list[GeneratedWorkflowStep],
     output_dir: str,
+    databases: dict[str, dict[str, Any]],
 ) -> str:
     final_outputs = steps[-1].outputs
     workflow_targets = "".join(f"        {str(path)!r},\n" for path in final_outputs.values())
@@ -312,6 +317,7 @@ def _render_snakefile(
             inputs=step.inputs,
             outputs=step.outputs,
             output_dir=output_dir,
+            databases=databases,
         )
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
         output_lines = "".join(f"        {_safe_snakemake_name(name)}={str(path)!r},\n" for name, path in step.outputs.items())
@@ -345,6 +351,7 @@ def _render_command(
     inputs: dict[str, str],
     outputs: dict[str, Path],
     output_dir: str,
+    databases: dict[str, dict[str, Any]],
 ) -> str:
     primary_input = inputs.get("primary") or next(iter(inputs.values()))
     primary_output = outputs.get("tool_output") or next(iter(outputs.values()))
@@ -362,6 +369,14 @@ def _render_command(
     for name, path in outputs.items():
         replacements[f"{{output.{name}}}"] = shlex.quote(str(path))
         replacements[f"{{output.{name}:q}}"] = shlex.quote(str(path))
+    for role, database in databases.items():
+        safe_role = _safe_identifier(role)
+        for key in ["id", "name", "type", "templateId", "version", "path", "manifestPath", "checksum"]:
+            value = str(database.get(key) or "")
+            replacements[f"{{database.{role}.{key}}}"] = shlex.quote(value)
+            replacements[f"{{database.{role}.{key}:q}}"] = shlex.quote(value)
+            replacements[f"{{database.{safe_role}.{key}}}"] = shlex.quote(value)
+            replacements[f"{{database.{safe_role}.{key}:q}}"] = shlex.quote(value)
     command = command_template
     for token, value in replacements.items():
         command = command.replace(token, value)

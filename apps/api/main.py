@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
     CreateProjectRequest,
+    DatabaseManifestRequest,
     RunSubmitRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
@@ -22,7 +23,7 @@ from apps.api.models import (
     WorkflowDraftRequest,
 )
 from apps.api.runtime import get_runtime_service
-from apps.api.tool_capabilities import search_tool_capabilities
+from apps.api.tool_capability_routes import router as tool_capability_router
 from apps.api.workflow_templates import (
     create_workflow_draft,
     get_workflow_template,
@@ -68,6 +69,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(tool_capability_router)
 
 
 def _runtime():
@@ -262,6 +265,16 @@ async def stop_ssh_remote_service() -> dict[str, Any]:
 async def list_ssh_listening_ports() -> dict[str, Any]:
     return await _run_sync(
         _runtime().list_remote_listening_ports,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.get("/api/v1/ssh/files")
+async def list_ssh_remote_files(path: str = "", directories_only: bool = True, limit: int = 200) -> dict[str, Any]:
+    bounded_limit = max(1, min(int(limit), 500))
+    return await _run_sync(
+        lambda: _runtime().list_remote_files(path, directories_only=directories_only, limit=bounded_limit),
         status_code=400,
         handled_errors=(RuntimeServiceError,),
     )
@@ -521,19 +534,6 @@ async def get_workflow_modules() -> dict[str, Any]:
     return list_workflow_modules()
 
 
-@app.get("/api/v1/tool-capabilities/search")
-async def search_tool_capabilities_api(q: str = "", limit: int = 20) -> dict[str, Any]:
-    try:
-        bounded_limit = max(1, min(int(limit), 50))
-        return await _run_sync(
-            lambda: search_tool_capabilities(q, limit=bounded_limit),
-            status_code=502,
-            handled_errors=(ValueError, TimeoutError, OSError),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
 @app.get("/api/v1/tools")
 async def list_tools_api() -> dict[str, Any]:
     return await _run_sync(
@@ -565,6 +565,51 @@ async def delete_tool_api(tool_id: str) -> dict[str, Any]:
 async def check_tool_api(tool_id: str) -> dict[str, Any]:
     return await _run_sync(
         lambda: _runtime().check_tool(tool_id),
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.get("/api/v1/databases")
+async def list_databases_api() -> dict[str, Any]:
+    return await _run_sync(
+        _runtime().list_databases,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.get("/api/v1/database-templates")
+async def list_database_templates_api() -> dict[str, Any]:
+    return await _run_sync(
+        _runtime().list_database_templates,
+        status_code=400,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.post("/api/v1/databases", status_code=201)
+async def add_database_api(payload: DatabaseManifestRequest) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().add_database(payload.model_dump(exclude_none=True)),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+    )
+
+
+@app.delete("/api/v1/databases/{database_id}")
+async def delete_database_api(database_id: str) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().delete_database(database_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError,),
+    )
+
+
+@app.post("/api/v1/databases/{database_id}/check")
+async def check_database_api(database_id: str) -> dict[str, Any]:
+    return await _run_sync(
+        lambda: _runtime().check_database(database_id),
         status_code=400,
         handled_errors=(RuntimeServiceError,),
     )

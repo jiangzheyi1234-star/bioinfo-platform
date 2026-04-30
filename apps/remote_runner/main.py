@@ -6,9 +6,17 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import dump_public_config, inspect_runtime_layout, inspect_workflow_runtime, load_remote_runner_config
+from .databases import (
+    DatabaseRegistryError,
+    add_reference_database,
+    check_reference_database,
+    list_database_templates,
+    list_reference_databases,
+    remove_reference_database,
+)
 from .executor import start_run_execution
 from .pipeline import (
     PipelineRegistryError,
@@ -70,6 +78,23 @@ class ToolManifestRequest(BaseModel):
     sourceUrl: str | None = None
     testCommand: str | None = None
     ruleTemplate: dict[str, Any] | None = None
+
+
+class DatabaseManifestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    name: str = Field(min_length=1)
+    templateId: str | None = None
+    type: str | None = None
+    version: str | None = None
+    path: str = Field(min_length=1)
+    description: str | None = None
+    source: str | None = None
+    manifestPath: str | None = None
+    sizeBytes: int | None = Field(default=None, ge=0)
+    checksum: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 def _require_auth(authorization: str | None, token: str) -> None:
@@ -205,6 +230,55 @@ async def check_tool_api(tool_id: str, authorization: str | None = Header(defaul
     except ToolRegistryError as exc:
         detail = str(exc)
         raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
+    return {"data": item}
+
+
+@app.get("/api/v1/databases")
+async def get_databases(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    return {"data": {"items": list_reference_databases(cfg)}}
+
+
+@app.get("/api/v1/database-templates")
+async def get_database_templates(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    return {"data": {"items": list_database_templates()}}
+
+
+@app.post("/api/v1/databases", status_code=201)
+async def add_database(payload: DatabaseManifestRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    try:
+        item = add_reference_database(cfg, payload.model_dump(exclude_none=True))
+    except DatabaseRegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"data": item}
+
+
+@app.delete("/api/v1/databases/{database_id}")
+async def delete_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    try:
+        remove_reference_database(cfg, database_id)
+    except DatabaseRegistryError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc
+    return {"data": {"id": database_id, "deleted": True}}
+
+
+@app.post("/api/v1/databases/{database_id}/check")
+async def check_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    try:
+        item = check_reference_database(cfg, database_id)
+    except DatabaseRegistryError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc
     return {"data": item}
 
 
