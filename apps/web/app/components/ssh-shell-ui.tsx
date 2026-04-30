@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Ellipsis, GripHorizontal, RefreshCw, Server, Settings, Workflow, X } from "lucide-react";
+import { CircleHelp, Ellipsis, GripHorizontal, RefreshCw, Server, Settings, Square, Workflow, X } from "lucide-react";
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -74,17 +74,24 @@ function formatRunnerPort(value: number | undefined): string {
 
 export function RemoteStatusBar({
   status,
+  connectBusy,
   ensureRunnerBusy,
+  onRefreshStatus,
   onEnsureRunner,
 }: {
   status: SSHStatus | null;
+  connectBusy: boolean;
   ensureRunnerBusy: boolean;
+  onRefreshStatus: () => Promise<SSHStatus | null>;
   onEnsureRunner: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [portsLoading, setPortsLoading] = useState(false);
   const [portsOutput, setPortsOutput] = useState("");
   const [portsError, setPortsError] = useState("");
+  const [stopLoading, setStopLoading] = useState(false);
+  const [stopOutput, setStopOutput] = useState("");
+  const [stopError, setStopError] = useState("");
   const remote = resolveRemoteStatus(status);
   const runner = status?.runner;
   const connectedTone = Boolean(status?.connected && remote.toneClass === "text-blue-700");
@@ -94,7 +101,9 @@ export function RemoteStatusBar({
       status.runner?.state !== "repair_needed" &&
       status.runner?.state !== "failed"
   );
+  const remoteBusy = connectBusy || ensureRunnerBusy || remotePreparing;
   const canEnsureRunner = Boolean(status?.connected && !status.runner?.ready);
+  const canStopRunner = Boolean(status?.connected);
   const loadListeningPorts = async () => {
     if (!status?.connected || portsLoading) {
       return;
@@ -111,10 +120,28 @@ export function RemoteStatusBar({
       setPortsLoading(false);
     }
   };
+  const stopRemoteService = async () => {
+    if (!status?.connected || stopLoading) {
+      return;
+    }
+    setStopLoading(true);
+    setStopError("");
+    setStopOutput("");
+    try {
+      const payload = await requestLocalApiJson("POST", "/api/v1/ssh/remote-service/stop");
+      const output = String(payload?.data?.output || "").trim();
+      setStopOutput(output || "远程服务停止命令已执行。");
+      await onRefreshStatus();
+    } catch (error) {
+      setStopError(normalizeFetchError(error));
+    } finally {
+      setStopLoading(false);
+    }
+  };
 
   return (
     <div className="relative border-t border-slate-200 bg-[#f7f7f5] text-slate-700">
-      {remotePreparing ? (
+      {remoteBusy ? (
         <div className="absolute inset-x-0 -top-px h-0.5 overflow-hidden bg-blue-100">
           <div className="remote-progress-bar h-full w-1/4 bg-blue-500/70" />
         </div>
@@ -161,6 +188,21 @@ export function RemoteStatusBar({
                   </Button>
                 ) : null}
               </div>
+              <div className="mt-2 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canStopRunner || stopLoading}
+                  onClick={stopRemoteService}
+                  className="h-7 px-2 text-[11px] text-red-700 hover:text-red-700"
+                >
+                  <Square className={cn("mr-1 size-3", stopLoading ? "animate-pulse" : "")} />
+                  {stopLoading ? "停止中" : "停止远程服务"}
+                </Button>
+              </div>
+              {stopError ? <p className="mt-1 text-[11px] text-red-600">{stopError}</p> : null}
+              {stopOutput ? <p className="mt-1 whitespace-pre-wrap text-[10px] text-slate-500">{stopOutput}</p> : null}
               <div className="mt-1 grid grid-cols-2 gap-2 text-[11px]">
                 <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1">
                   <p className="text-[10px] text-slate-400">远端服务</p>
@@ -254,7 +296,7 @@ export function SshSidebar({
         <div className="rounded-xl px-2 py-1">
           <div
             className={cn(
-              "flex h-8 items-center overflow-hidden rounded-lg",
+              "group flex h-8 items-center overflow-hidden rounded-lg",
               status?.connected ? "bg-transparent" : "hover:bg-slate-100/90"
             )}
           >
@@ -291,7 +333,11 @@ export function SshSidebar({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-8 appearance-none rounded-none border-0 bg-transparent p-1 text-slate-400 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700"
+                    className={cn(
+                      "size-8 appearance-none rounded-none border-0 bg-transparent p-1 text-slate-400",
+                      "opacity-0 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700",
+                      "group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                    )}
                     aria-label="连接菜单"
                   >
                     <Ellipsis />

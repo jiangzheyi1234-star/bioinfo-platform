@@ -98,7 +98,9 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         </div>
         <RemoteStatusBar
           status={connection.status}
+          connectBusy={connection.connectBusy}
           ensureRunnerBusy={connection.ensureRunnerBusy}
+          onRefreshStatus={() => connection.refreshStatus({ silent: true })}
           onEnsureRunner={() => void connection.ensureRunner()}
         />
       </div>

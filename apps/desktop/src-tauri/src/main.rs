@@ -29,6 +29,25 @@ struct SpawnedBackend {
     log_path: PathBuf,
 }
 
+fn terminate_backend_child(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id();
+        let status = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if status.map(|value| value.success()).unwrap_or(false) {
+            let _ = child.wait();
+            return;
+        }
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn candidate_python_commands() -> Vec<PythonCommand> {
     let mut commands = vec![];
     
@@ -386,9 +405,54 @@ fn fetch_local_backend_version() -> Result<String, String> {
     Ok(body.to_string())
 }
 
+fn backend_version_payload_matches_expected_build(payload: &str) -> bool {
+    payload.contains(&format!("\"build_id\":\"{}\"", TERMINAL_RUNTIME_BUILD_ID))
+}
+
+fn existing_backend_mismatch_message(payload: &str) -> String {
+    format!(
+        "backend on 127.0.0.1:8765 is not the expected repo build {}. Stop the stale backend before launching desktop dev. version_payload={}",
+        TERMINAL_RUNTIME_BUILD_ID,
+        payload
+    )
+}
+
 fn backend_matches_expected_build() -> Result<bool, String> {
     let payload = fetch_local_backend_version()?;
-    Ok(payload.contains(&format!("\"build_id\":\"{}\"", TERMINAL_RUNTIME_BUILD_ID)))
+    Ok(backend_version_payload_matches_expected_build(&payload))
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+        return Err("only http and https URLs can be opened".to_string());
+    }
+    if trimmed.chars().any(|value| value.is_control()) {
+        return Err("URL contains control characters".to_string());
+    }
+
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/C", "start", "", trimmed]);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(trimmed);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(trimmed);
+        command
+    };
+
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| format!("open URL failed: {}", err))?;
+    Ok(())
 }
 
 fn wait_backend_ready(child: &mut Child, log_path: &Path, timeout: Duration) -> Result<(), String> {
@@ -416,22 +480,26 @@ fn wait_backend_ready(child: &mut Child, log_path: &Path, timeout: Duration) -> 
     ))
 }
 
-fn main() {
-    tauri::Builder::default()
+fn desktop_startup_error_message(error: impl std::fmt::Display) -> String {
+    format!("[ERROR] Desktop startup failed: {}", error)
+}
+
+fn run_desktop() -> tauri::Result<()> {
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(BackendState(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![open_external_url])
         .setup(|app| {
             if TcpStream::connect("127.0.0.1:8765").is_ok() {
                 if cfg!(debug_assertions) {
                     if backend_matches_expected_build().unwrap_or(false) {
                         return Ok(());
                     }
+                    let payload = fetch_local_backend_version()
+                        .unwrap_or_else(|err| format!("failed to read /api/v1/version: {}", err));
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::AlreadyExists,
-                        format!(
-                            "backend on 127.0.0.1:8765 is not the expected repo build {}. Stop the stale backend before launching desktop dev.",
-                            TERMINAL_RUNTIME_BUILD_ID
-                        ),
+                        existing_backend_mismatch_message(&payload),
                     )
                     .into());
                 }
@@ -445,7 +513,7 @@ fn main() {
             let mut spawned =
                 spawn_backend().map_err(|msg| std::io::Error::new(std::io::ErrorKind::Other, msg))?;
             if let Err(err) = wait_backend_ready(&mut spawned.child, &spawned.log_path, Duration::from_secs(20)) {
-                let _ = spawned.child.kill();
+                terminate_backend_child(&mut spawned.child);
                 return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, err).into());
             }
             let mut guard = state
@@ -455,17 +523,54 @@ fn main() {
             *guard = Some(spawned.child);
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .expect("error while running tauri application")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                let state: tauri::State<BackendState> = app_handle.state();
-                let lock_result = state.0.lock();
-                if let Ok(mut guard) = lock_result {
-                    if let Some(mut child) = guard.take() {
-                        let _ = child.kill();
-                    }
+        .build(tauri::generate_context!())?;
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            let state: tauri::State<BackendState> = app_handle.state();
+            let lock_result = state.0.lock();
+            if let Ok(mut guard) = lock_result {
+                if let Some(mut child) = guard.take() {
+                    terminate_backend_child(&mut child);
                 }
             }
-        });
+        }
+    });
+    Ok(())
+}
+
+fn main() {
+    if let Err(err) = run_desktop() {
+        eprintln!("{}", desktop_startup_error_message(err));
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_version_payload_matches_expected_build_id() {
+        let payload = r#"{"item":{"build_id":"terminal-websocket-v1","backend_source":"repo"}}"#;
+
+        assert!(backend_version_payload_matches_expected_build(payload));
+    }
+
+    #[test]
+    fn backend_version_mismatch_message_includes_payload() {
+        let payload = r#"{"item":{"build_id":"old-build","backend_source":"run.bat:web"}}"#;
+        let message = existing_backend_mismatch_message(payload);
+
+        assert!(message.contains("terminal-websocket-v1"));
+        assert!(message.contains("old-build"));
+        assert!(message.contains("run.bat:web"));
+    }
+
+    #[test]
+    fn desktop_startup_error_message_includes_error() {
+        let message = desktop_startup_error_message("backend refused startup");
+
+        assert!(message.contains("Desktop startup failed"));
+        assert!(message.contains("backend refused startup"));
+    }
 }

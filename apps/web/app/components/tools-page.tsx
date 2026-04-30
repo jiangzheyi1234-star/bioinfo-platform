@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, ArrowLeft, Check, ExternalLink, Loader2, PackagePlus, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, ChevronLeft, ChevronRight, ExternalLink, Loader2, PackagePlus, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,11 @@ type ToolSearchResponse = {
     query: string;
     online: boolean;
     cached?: boolean;
+    total?: number;
+    page?: number;
+    pageSize?: number;
+    hasMore?: boolean;
+    complete?: boolean;
   };
 };
 
@@ -59,6 +64,8 @@ const sourceFilters = [
   { id: "conda-forge", label: "conda-forge" },
 ];
 
+const TOOL_SEARCH_PAGE_SIZE = 20;
+
 function toolErrorMessage(err: unknown, fallback: string) {
   const message = err instanceof Error ? err.message : String(err || "");
   if (/timed out|timeout|超时/i.test(message)) {
@@ -68,6 +75,17 @@ function toolErrorMessage(err: unknown, fallback: string) {
     return "远程服务暂不可用，请先连接 SSH 并启动远程服务。";
   }
   return message || fallback;
+}
+
+function searchErrorMessage(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err || "");
+  if (/timed out|timeout|超时/i.test(message)) {
+    return "在线搜索超时，请稍后重试。";
+  }
+  if (/name resolution|Temporary failure|NetworkError|Failed to fetch|unreachable/i.test(message)) {
+    return "在线搜索暂不可用，请检查本机网络后重试。";
+  }
+  return message || "在线搜索失败";
 }
 
 function SourceBadge({ source, label }: { source: string; label: string }) {
@@ -182,6 +200,10 @@ export function ToolsPage() {
   const [versionOverrides, setVersionOverrides] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchComplete, setSearchComplete] = useState(true);
 
   async function loadAddedTools() {
     setToolsLoading(true);
@@ -215,6 +237,9 @@ export function ToolsPage() {
       setSelectedId("");
       setError("");
       setLoading(false);
+      setSearchTotal(0);
+      setSearchHasMore(false);
+      setSearchComplete(true);
       return;
     }
     const controller = new AbortController();
@@ -224,11 +249,14 @@ export function ToolsPage() {
       try {
         const response = await requestLocalApiJson<ToolSearchResponse>(
           "GET",
-          `/api/v1/tool-capabilities/search?q=${encodeURIComponent(normalized)}&limit=30`,
+          `/api/v1/tool-capabilities/search?q=${encodeURIComponent(normalized)}&page=${searchPage}&pageSize=${TOOL_SEARCH_PAGE_SIZE}`,
           { cache: "no-store", signal: controller.signal }
         );
         const nextItems = response.data.items || [];
         setItems(nextItems);
+        setSearchTotal(response.data.total ?? nextItems.length);
+        setSearchHasMore(Boolean(response.data.hasMore));
+        setSearchComplete(response.data.complete !== false);
         setSelectedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id || ""));
       } catch (err) {
         if (controller.signal.aborted) {
@@ -236,7 +264,10 @@ export function ToolsPage() {
         }
         setItems([]);
         setSelectedId("");
-        setError(err instanceof Error ? err.message : "在线搜索失败");
+        setSearchTotal(0);
+        setSearchHasMore(false);
+        setSearchComplete(true);
+        setError(searchErrorMessage(err));
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
@@ -247,7 +278,7 @@ export function ToolsPage() {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, searchPage]);
 
   const filtered = useMemo(() => {
     if (source === "all") {
@@ -411,7 +442,10 @@ export function ToolsPage() {
                   <Input
                     type="text"
                     value={query}
-                    onChange={(event) => setQuery(event.target.value)}
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      setSearchPage(1);
+                    }}
                     placeholder="在线搜索 Bioconda / conda-forge 依赖"
                     className="h-10 w-full rounded-md border-slate-200 bg-white pl-9"
                   />
@@ -440,7 +474,9 @@ export function ToolsPage() {
               <section className="min-w-0">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-medium text-slate-900">搜索结果</h2>
-                  <span className="text-xs text-slate-400">{filtered.length}</span>
+                  <span className="text-xs text-slate-400">
+                    {searchTotal > 0 ? `${searchComplete ? "" : "已加载 "}${searchTotal} 条` : filtered.length}
+                  </span>
                 </div>
 
                 <div className="min-h-[320px] space-y-2">
@@ -463,14 +499,39 @@ export function ToolsPage() {
                       没有找到匹配依赖
                     </div>
                   ) : (
-                    filtered.map((item) => (
-                      <ResultRow
-                        key={item.id}
-                        item={item}
-                        selected={selected?.id === item.id}
-                        onSelect={() => setSelectedId(item.id)}
-                      />
-                    ))
+                    <>
+                      {filtered.map((item) => (
+                        <ResultRow
+                          key={item.id}
+                          item={item}
+                          selected={selected?.id === item.id}
+                          onSelect={() => setSelectedId(item.id)}
+                        />
+                      ))}
+                      <div className="flex items-center justify-between pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 bg-white px-2.5 text-xs text-slate-600"
+                          disabled={searchPage <= 1 || loading}
+                          onClick={() => setSearchPage((current) => Math.max(1, current - 1))}
+                        >
+                          <ChevronLeft strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+                          上一页
+                        </Button>
+                        <span className="text-xs text-slate-400">第 {searchPage} 页</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 bg-white px-2.5 text-xs text-slate-600"
+                          disabled={!searchHasMore || loading}
+                          onClick={() => setSearchPage((current) => current + 1)}
+                        >
+                          下一页
+                          <ChevronRight strokeWidth={1.5} className="ml-1 h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
               </section>
