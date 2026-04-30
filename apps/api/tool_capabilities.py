@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
 
 
 ANACONDA_SEARCH_URL = "https://api.anaconda.org/search"
@@ -15,6 +18,10 @@ ANACONDA_PACKAGE_URL = "https://api.anaconda.org/package"
 SUPPORTED_CHANNELS = ("bioconda", "conda-forge")
 DEFAULT_TARGET_PLATFORM = "linux-64"
 CACHE_TTL_SECONDS = 300
+ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS = 30.0
+ANACONDA_SEARCH_TIMEOUT_SECONDS = 20.0
+ANACONDA_EXACT_LOOKUP_TIMEOUT_SECONDS = 5.0
+ONLINE_FALLBACK_RESULT_LIMIT = 200
 
 _CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
@@ -55,33 +62,136 @@ class CondaPackageHit:
         }
 
 
-def search_tool_capabilities(query: str, *, limit: int = 20) -> dict[str, Any]:
+def search_tool_capabilities(query: str, *, limit: int = 20, page: int = 1, page_size: int | None = None) -> dict[str, Any]:
     normalized = _normalize_query(query)
-    if len(normalized) < 2:
-        return {"data": {"items": [], "query": normalized, "online": True}}
-    cache_key = f"{normalized}:{limit}"
+    bounded_page = max(1, int(page or 1))
+    bounded_page_size = max(1, min(int(page_size or limit or 20), 100))
+    if len(normalized) < 1:
+        return {
+            "data": {
+                "items": [],
+                "query": normalized,
+                "online": True,
+                "total": 0,
+                "page": bounded_page,
+                "pageSize": bounded_page_size,
+                "hasMore": False,
+            }
+        }
+    index_page = _search_bioconda_index_items(normalized, page=bounded_page, page_size=bounded_page_size)
+    if index_page["total"] > 0:
+        return {
+            "data": {
+                "items": index_page["items"],
+                "query": normalized,
+                "online": False,
+                "cached": True,
+                "source": "bioconda-index",
+                "complete": True,
+                "total": index_page["total"],
+                "page": index_page["page"],
+                "pageSize": index_page["pageSize"],
+                "hasMore": index_page["hasMore"],
+            }
+        }
+
+    cache_key = normalized
     cached = _CACHE.get(cache_key)
     now = time.time()
     if cached and now - cached[0] < CACHE_TTL_SECONDS:
-        return {"data": {"items": cached[1], "query": normalized, "online": True, "cached": True}}
+        all_items = cached[1]
+        items = _page_items(all_items, page=bounded_page, page_size=bounded_page_size)
+        return {
+            "data": {
+                "items": items,
+                "query": normalized,
+                "online": True,
+                "cached": True,
+                "complete": False,
+                "total": len(all_items),
+                "page": bounded_page,
+                "pageSize": bounded_page_size,
+                "hasMore": bounded_page * bounded_page_size < len(all_items),
+            }
+        }
 
-    hits = _search_anaconda(normalized, limit=limit)
-    items = [hit.to_dict() for hit in hits[:limit]]
-    _CACHE[cache_key] = (now, items)
-    return {"data": {"items": items, "query": normalized, "online": True, "cached": False}}
+    hits = _search_anaconda(normalized, limit=ONLINE_FALLBACK_RESULT_LIMIT)
+    all_items = [hit.to_dict() for hit in hits[:ONLINE_FALLBACK_RESULT_LIMIT]]
+    _CACHE[cache_key] = (now, all_items)
+    items = _page_items(all_items, page=bounded_page, page_size=bounded_page_size)
+    return {
+        "data": {
+            "items": items,
+            "query": normalized,
+            "online": True,
+            "cached": False,
+            "complete": False,
+            "total": len(all_items),
+            "page": bounded_page,
+            "pageSize": bounded_page_size,
+            "hasMore": bounded_page * bounded_page_size < len(all_items),
+        }
+    }
 
 
 def _normalize_query(query: str) -> str:
     return str(query or "").strip().lower()
 
 
+def _search_bioconda_index_items(query: str, *, page: int, page_size: int) -> dict[str, Any]:
+    index_page = search_bioconda_index_page(
+        query,
+        page=page,
+        page_size=page_size,
+        cache_dir=get_bioconda_index_cache_dir(),
+    )
+    items: list[dict[str, Any]] = []
+    records = index_page.get("items")
+    if not isinstance(records, list):
+        records = []
+    for record in records:
+        name = str(record.get("name") or "").strip()
+        if not name:
+            continue
+        latest_version = str(record.get("latestVersion") or "").strip()
+        versions = [str(item).strip() for item in record.get("versions", []) if str(item or "").strip()]
+        platforms = [str(item).strip() for item in record.get("platforms", []) if str(item or "").strip()]
+        hit = CondaPackageHit(
+            name=name,
+            channel="bioconda",
+            summary=str(record.get("summary") or "Conda package"),
+            latest_version=latest_version,
+            versions=versions,
+            package_spec=_package_spec("bioconda", name, latest_version),
+            source_url=f"https://anaconda.org/bioconda/{name}",
+            platforms=platforms,
+            target_platform=DEFAULT_TARGET_PLATFORM,
+            target_platform_supported=_platform_supported(platforms, DEFAULT_TARGET_PLATFORM),
+        ).to_dict()
+        hit["cached"] = True
+        items.append(hit)
+    return {
+        "items": items,
+        "total": int(index_page.get("total") or 0),
+        "page": int(index_page.get("page") or page),
+        "pageSize": int(index_page.get("pageSize") or page_size),
+        "hasMore": bool(index_page.get("hasMore")),
+    }
+
+
+def _page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> list[dict[str, Any]]:
+    offset = (page - 1) * page_size
+    return items[offset : offset + page_size]
+
+
 def _search_anaconda(query: str, *, limit: int) -> list[CondaPackageHit]:
+    deadline = time.monotonic() + ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS
     payload = _request_json(
         ANACONDA_SEARCH_URL,
         {
             "name": query,
         },
-        timeout=12,
+        timeout=_remaining_timeout(deadline, ANACONDA_SEARCH_TIMEOUT_SECONDS),
     )
     if not isinstance(payload, list):
         raise ValueError("ANACONDA_SEARCH_INVALID_RESPONSE")
@@ -103,7 +213,7 @@ def _search_anaconda(query: str, *, limit: int) -> list[CondaPackageHit]:
     if hits:
         return hits
 
-    return _search_exact_packages(query)
+    return _search_exact_packages(query, deadline=deadline)
 
 
 def _parse_search_item(raw: Any) -> CondaPackageHit | None:
@@ -188,12 +298,25 @@ def _platform_supported(platforms: list[str], target_platform: str) -> bool:
     return target_platform in platforms or "noarch" in platforms
 
 
-def _search_exact_packages(query: str) -> list[CondaPackageHit]:
+def _remaining_timeout(deadline: float, request_timeout: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("ANACONDA_SEARCH_TIMEOUT")
+    return min(request_timeout, remaining)
+
+
+def _search_exact_packages(query: str, *, deadline: float) -> list[CondaPackageHit]:
     hits: list[CondaPackageHit] = []
     for channel in SUPPORTED_CHANNELS:
         try:
-            raw = _request_json(f"{ANACONDA_PACKAGE_URL}/{channel}/{urllib.parse.quote(query)}", {}, timeout=10)
-        except Exception:
+            raw = _request_json(
+                f"{ANACONDA_PACKAGE_URL}/{channel}/{urllib.parse.quote(query)}",
+                {},
+                timeout=_remaining_timeout(deadline, ANACONDA_EXACT_LOOKUP_TIMEOUT_SECONDS),
+            )
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
             continue
         if not isinstance(raw, dict):
             continue
@@ -219,7 +342,7 @@ def _search_exact_packages(query: str) -> list[CondaPackageHit]:
     return hits
 
 
-def _request_json(url: str, params: dict[str, str], *, timeout: int) -> Any:
+def _request_json(url: str, params: dict[str, str], *, timeout: float) -> Any:
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(

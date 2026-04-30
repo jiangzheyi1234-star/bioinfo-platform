@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""Smoke-test remote reference database registration through the Windows Local API."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+
+def find_repo_root() -> Path:
+    path = Path.cwd().resolve()
+    for candidate in (path, *path.parents):
+        if (candidate / "config.py").exists() and (candidate / "core").is_dir():
+            return candidate
+    raise SystemExit("ERROR: run this script from inside the bio_ui repository")
+
+
+REPO_ROOT = find_repo_root()
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
+def print_json(label: str, payload: Any) -> None:
+    print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
+
+
+def http_json(method: str, api_base: str, path: str, *, payload: dict[str, Any] | None = None, timeout: float = 10) -> Any:
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        f"{api_base.rstrip('/')}{path}",
+        data=body,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail: Any = json.loads(raw)
+        except json.JSONDecodeError:
+            detail = raw
+        raise RuntimeError(f"HTTP {exc.code} {path}: {detail}") from exc
+
+
+def connect_ssh():
+    from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password
+    from core.remote.ssh_connector import ssh_connect
+
+    cfg = get_config()
+    ssh_cfg = normalize_ssh_config(cfg.get("ssh", {}))
+    auth_mode = str(ssh_cfg.get("auth_mode") or "password_ref")
+    resolved = resolve_ssh_config_target(ssh_cfg) if auth_mode == "ssh_config" else ssh_cfg
+    password = resolve_ssh_password({"ssh": ssh_cfg}) if auth_mode == "password_ref" else ""
+    key_file = str(resolved.get("identity_ref", "") or "") if auth_mode in {"key_file", "ssh_config"} else ""
+    result = ssh_connect(
+        ip=str(resolved.get("host") or ""),
+        port=int(resolved.get("port") or 22),
+        user=str(resolved.get("user") or ""),
+        password=password,
+        key_file=key_file,
+        use_agent=auth_mode == "agent",
+        timeout=int(resolved.get("timeout_sec") or 5),
+    )
+    if not result.ok or result.client is None:
+        raise RuntimeError(f"SSH failed: {result.message}")
+    return result.client
+
+
+def ssh_run(client, command: str, *, timeout: int = 20) -> str:
+    _stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode("utf-8", errors="replace")
+    err = stderr.read().decode("utf-8", errors="replace")
+    if exit_code != 0:
+        raise RuntimeError(f"SSH command failed ({exit_code}): {err or out}")
+    return out.strip()
+
+
+def cleanup(api_base: str, tool_id: str, database_ids: list[str]) -> None:
+    paths = [f"/api/v1/tools/{tool_id}", *(f"/api/v1/databases/{database_id}" for database_id in database_ids)]
+    for path in paths:
+        try:
+            http_json("DELETE", api_base, path, timeout=10)
+        except Exception as exc:
+            print_json("CLEANUP_SKIPPED", {"path": path, "error": str(exc)})
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Smoke-test reference database registration through the Local API.")
+    parser.add_argument("--api-base", default="http://127.0.0.1:8765")
+    parser.add_argument("--timeout", type=float, default=300)
+    args = parser.parse_args()
+
+    tool_id = "conda-forge::coreutils-database-smoke"
+    invalid_database_id = "taxonomy-db-real-validation-smoke"
+    database_id = "taxonomy-db-custom-smoke"
+    client = connect_ssh()
+    try:
+        database_path = ssh_run(
+            client,
+            "set -e; DB=\"$HOME/.h2ometa/smoke-databases/taxonomy-mini\"; "
+            "mkdir -p \"$DB\"; "
+            "printf 'hash\\n' > \"$DB/hash.k2d\"; "
+            "printf 'opts\\n' > \"$DB/opts.k2d\"; "
+            "printf 'taxo\\n' > \"$DB/taxo.k2d\"; "
+            "printf 'taxonomy\\n' > \"$DB/manifest.txt\"; printf '%s' \"$DB\"",
+        )
+        print_json("REMOTE_DATABASE_PATH", {"path": database_path})
+
+        invalid_database = http_json(
+            "POST",
+            args.api_base,
+            "/api/v1/databases",
+            payload={
+                "id": invalid_database_id,
+                "name": "Taxonomy Real Validation Smoke DB",
+                "templateId": "kraken2",
+                "version": "smoke",
+                "path": database_path,
+                "manifestPath": f"{database_path}/manifest.txt",
+                "source": "manual",
+                "metadata": {"templateId": "kraken2", "buildCommand": "smoke fixture"},
+            },
+            timeout=30,
+        )["data"]
+        invalid_checked = http_json("POST", args.api_base, f"/api/v1/databases/{invalid_database['id']}/check", timeout=120)["data"]
+        print_json(
+            "REAL_DATABASE_VALIDATION_CHECKED",
+            {
+                "id": invalid_checked["id"],
+                "status": invalid_checked["status"],
+                "message": invalid_checked["message"],
+                "toolProbe": ((invalid_checked.get("metadata") or {}).get("validation") or {}).get("toolProbe"),
+            },
+        )
+        if invalid_checked["status"] not in {"failed", "missing"}:
+            return 1
+
+        database = http_json(
+            "POST",
+            args.api_base,
+            "/api/v1/databases",
+            payload={
+                "id": database_id,
+                "name": "Taxonomy Custom Smoke DB",
+                "templateId": "custom",
+                "type": "taxonomy",
+                "version": "smoke",
+                "path": database_path,
+                "manifestPath": f"{database_path}/manifest.txt",
+                "source": "manual",
+                "metadata": {"templateId": "custom", "buildCommand": "smoke fixture"},
+            },
+            timeout=30,
+        )["data"]
+        checked = http_json("POST", args.api_base, f"/api/v1/databases/{database_id}/check", timeout=30)["data"]
+        print_json("CUSTOM_DATABASE_CHECKED", {"id": checked["id"], "status": checked["status"], "path": checked["path"]})
+        if checked["status"] != "available":
+            return 1
+
+        tool = http_json(
+            "POST",
+            args.api_base,
+            "/api/v1/tools",
+            payload={
+                "id": tool_id,
+                "name": "coreutils",
+                "source": "conda-forge",
+                "sourceLabel": "conda-forge",
+                "version": "9.5",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatform": "linux-64",
+                "targetPlatformSupported": True,
+                "platforms": ["linux-64"],
+                "ruleTemplate": {
+                    "commandTemplate": "printf '%s\\n' {database.taxonomy.path:q} > {output.tool_output:q}",
+                    "inputs": [{"name": "primary", "type": "file", "required": True}],
+                    "outputs": [{"name": "tool_output", "path": "database-path.txt", "kind": "log", "mimeType": "text/plain"}],
+                },
+            },
+            timeout=30,
+        )["data"]
+        print_json("TOOL_REGISTERED", {"id": tool["id"], "packageSpec": tool["packageSpec"]})
+
+        upload = http_json(
+            "POST",
+            args.api_base,
+            "/api/v1/uploads",
+            payload={
+                "filename": "reads.txt",
+                "contentBase64": base64.b64encode(b"ABCDEF\n").decode("ascii"),
+                "mimeType": "text/plain",
+            },
+            timeout=30,
+        )["data"]
+
+        request_id = f"req_database_smoke_{int(time.time() * 1000)}"
+        submitted = http_json(
+            "POST",
+            args.api_base,
+            "/api/v1/runs",
+            payload={
+                "requestId": request_id,
+                "runSpec": {
+                    "projectId": "proj_smoke",
+                    "pipelineId": "generated-tool-run-v1",
+                    "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
+                    "databases": [{"id": database["id"], "role": "taxonomy"}],
+                    "tool": {"id": tool["id"]},
+                },
+            },
+            timeout=30,
+        )["data"]
+        run_id = submitted["runId"]
+        print_json("RUN_SUBMITTED", {"runId": run_id, "status": submitted["status"], "stage": submitted["stage"]})
+
+        deadline = time.time() + args.timeout
+        final = submitted
+        while time.time() < deadline:
+            final = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10)["data"]
+            if final["status"] in {"completed", "failed"}:
+                break
+            time.sleep(2)
+        print_json("RUN_FINAL", {"runId": run_id, "status": final.get("status"), "lastError": final.get("lastError")})
+        if final.get("status") != "completed":
+            return 1
+
+        results = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10)["data"]
+        artifact_names = [Path(str(item.get("path") or "")).name for item in (results.get("artifacts") or [])]
+        print_json("RUN_ARTIFACTS", {"artifacts": artifact_names})
+        return 0 if "database-path.txt" in artifact_names else 1
+    finally:
+        cleanup(args.api_base, tool_id, [invalid_database_id, database_id])
+        try:
+            ssh_run(client, "rm -rf \"$HOME/.h2ometa/smoke-databases/taxonomy-mini\"", timeout=20)
+        except Exception as exc:
+            print_json("REMOTE_CLEANUP_SKIPPED", {"error": str(exc)})
+        client.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

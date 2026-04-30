@@ -10,6 +10,7 @@ export type LocalApiErrorCode =
 type LocalApiRequestOptions = {
   body?: unknown;
   cache?: RequestCache;
+  signal?: AbortSignal;
 };
 
 export class LocalApiError extends Error {
@@ -60,6 +61,7 @@ async function requestViaBrowserFetch<T>(
     const response = await fetch(`${apiBase()}${path}`, {
       method,
       cache: options.cache,
+      signal: options.signal,
       headers: options.body === undefined ? undefined : { "Content-Type": "application/json" },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });

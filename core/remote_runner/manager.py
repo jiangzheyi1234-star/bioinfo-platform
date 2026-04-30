@@ -17,6 +17,7 @@ from core.remote_runner.artifact import (
     WorkflowRuntimeArtifactProvider,
 )
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.catalog import RemoteRunnerCatalogMixin
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 
 
@@ -24,7 +25,7 @@ class RemoteRunnerManagerError(RuntimeError):
     pass
 
 
-class RemoteRunnerManager:
+class RemoteRunnerManager(RemoteRunnerCatalogMixin):
     def __init__(
         self,
         artifact_provider: RemoteRunnerArtifactProvider | None = None,
@@ -461,6 +462,7 @@ class RemoteRunnerManager:
                 timeout=5,
             )
             health = self._wait_for_runner_health(client, attempts=2)
+            self._verify_database_template_catalog_for_reuse(client)
             bootstrap_metadata["deployment_action"] = "reused"
             bootstrap_metadata["reuse_check"] = {"ok": True, "reason": ""}
             return {
@@ -539,6 +541,7 @@ class RemoteRunnerManager:
                 timeout=5,
             )
             health = self._wait_for_runner_health(client, attempts=2)
+            self._verify_database_template_catalog_for_reuse(client)
             bootstrap_metadata["deployment_action"] = "reused"
             bootstrap_metadata["reuse_check"] = {"ok": True, "reason": ""}
             return {
@@ -1562,6 +1565,14 @@ class RemoteRunnerManager:
                     break
                 time.sleep(delay_seconds)
         raise RemoteRunnerManagerError(str(last_error) or "remote runner health check failed")
+
+    @staticmethod
+    def _verify_database_template_catalog_for_reuse(client: RemoteRunnerHttpClient) -> None:
+        payload = client.get_json("/api/v1/database-templates")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise RemoteRunnerManagerError("runner database template catalog payload is invalid")
 
     @staticmethod
     def _run_checked(ssh_service, cmd: str, *, step: str, timeout: int) -> tuple[int, str, str]:

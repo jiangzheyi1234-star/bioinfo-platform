@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CreateProjectRequest(BaseModel):
@@ -70,6 +70,24 @@ class ToolManifestRequest(BaseModel):
     sourceUrl: str | None = None
     testCommand: str | None = None
     ruleTemplate: dict[str, Any] | None = None
+
+
+class DatabaseManifestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    serverId: str | None = None
+    id: str | None = None
+    name: str = Field(min_length=1)
+    templateId: str | None = None
+    type: str | None = None
+    version: str | None = None
+    path: str = Field(min_length=1)
+    description: str | None = None
+    source: str | None = None
+    manifestPath: str | None = None
+    sizeBytes: int | None = Field(default=None, ge=0)
+    checksum: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class WorkflowDraftRequest(BaseModel):

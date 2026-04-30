@@ -45,6 +45,41 @@ If Local API status must be checked from an agent session, run the check through
 
 Before running tests that touch `RuntimeService.initialize()` or auto-connect, verify they cannot call real `save_config()` or real keyring/token writes. A previous bad test polluted the Windows config with `tester@192.168.0.10`; treat any test using `auto_connect_on_startup=True` as unsafe unless config persistence is mocked or redirected.
 
+## Windows Local API Startup
+
+When a real smoke requires the local API, start the product entrypoint from Windows first:
+
+```bat
+cd /d E:\code\bio_ui
+run.bat --web
+```
+
+Then verify from Windows, not WSL:
+
+```bat
+curl http://127.0.0.1:8765/health
+```
+
+or:
+
+```powershell
+Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen
+```
+
+If `curl` reports connection refused or PowerShell shows no listener, the failure is at the Windows Local API layer. Do not diagnose SSH, remote runner, or database tools until `apps.api.run` is listening on `127.0.0.1:8765`.
+
+If `run.bat` fails with `The system cannot find the batch label specified - <label>`, inspect the batch file line endings. Mixed LF/CRLF can make `cmd.exe` unable to find labels added near the end of the file. Normalize the `.bat` file to CRLF, then rerun the launcher.
+
+## Database UI Smoke
+
+When validating database template behavior reported from the product UI, do not only register the database through raw API calls. Reproduce through the web database page when possible:
+
+1. Open `http://127.0.0.1:3100/workflows/databases` from a Windows-side browser automation runtime.
+2. Click `添加数据库`, choose the template, fill the remote path, click `浏览远程路径`, then use `选择当前目录` / `选择当前路径` before `加入`.
+3. Read `/api/v1/databases` after the UI action and verify `status`, `message`, `metadata.validation.toolProbe`, and `metadata.resolvedPath`.
+
+For prefix-style databases, the UI-selected path and the tool path may intentionally differ. Preserve the selected UI path in `path`, but verify `metadata.resolvedPath.prefix` is the value used by the tool probe and generated workflow injection. BLAST alias databases are a common case: selecting a directory containing `core_nt.nal` and split volumes such as `core_nt.00.nhr/.nin/.nsq` should resolve to the prefix `core_nt`, not the directory itself or the single volume prefix `core_nt.00`.
+
 ## Recommended Workflow
 
 1. Run the bundled script from the repo root:
@@ -59,7 +94,7 @@ python3 skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py
 C:\Users\Administrator\miniconda3\Scripts\conda.exe run -n bio_ui python skills\h2ometa-remote-smoke-test\scripts\remote_smoke.py
 ```
 
-3. If local API is down, report that clearly instead of assuming auto-connect state.
+3. If local API is down, start `run.bat --web` from Windows, verify `127.0.0.1:8765/health`, then rerun the smoke. If `8765` has no listener, report a Local API startup problem instead of assuming remote SSH or runner failure.
 
 4. To run a real bootstrap, require explicit user intent and use:
 

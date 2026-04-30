@@ -249,6 +249,87 @@ class RunnerOperationsMixin:
             )
         }
 
+    def list_databases(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": {
+                "items": self._call_remote_runner(
+                    manager.list_databases,
+                    server_id=server_id,
+                    ssh_service=ssh,
+                    server_record=record,
+                )
+            }
+        }
+
+    def list_database_templates(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": {
+                "items": self._call_remote_runner(
+                    manager.list_database_templates,
+                    server_id=server_id,
+                    ssh_service=ssh,
+                    server_record=record,
+                )
+            }
+        }
+
+    def add_database(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            body = dict(payload or {})
+            server_id, ssh, record = self._require_existing_runner_ready(
+                preferred_server_id=body.get("serverId")
+            )
+            manager = self._service_locator.remote_runner_manager
+        body.pop("serverId", None)
+        return {
+            "data": self._call_remote_runner(
+                manager.add_database,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                payload=body,
+            )
+        }
+
+    def delete_database(self, database_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": self._call_remote_runner(
+                manager.delete_database,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                database_id=database_id,
+            )
+        }
+
+    def check_database(self, database_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": self._call_remote_runner(
+                manager.check_database,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                database_id=database_id,
+            )
+        }
+
     def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
@@ -391,6 +472,16 @@ class RunnerOperationsMixin:
                 artifact_id=artifact_id,
             )
         }
+
+    def list_remote_files(self, path: str = "", *, directories_only: bool = True, limit: int = 200) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            ssh = self._ensure_ssh_connected()
+        try:
+            data = ssh.list_directory(path, directories_only=directories_only, limit=limit)
+        except Exception as exc:
+            raise RuntimeServiceError(str(exc) or "failed to list remote files") from exc
+        return {"data": data}
 
     @staticmethod
     def _call_remote_runner(func, /, **kwargs):

@@ -1,8 +1,10 @@
 """SSH 服务 - 远程命令执行、文件传输、终端会话、自动重连。"""
 
 import logging
+import posixpath
 import select
 import socketserver
+import stat
 import threading
 import time
 import uuid
@@ -284,6 +286,51 @@ class SSHService:
             sftp.get(remote, local)
             sftp.close()
 
+    def list_directory(self, path: str = "", *, directories_only: bool = True, limit: int = 200) -> dict[str, Any]:
+        with self._lock:
+            if not self._client:
+                raise RuntimeError("SSH not connected")
+            sftp = self._client.open_sftp()
+            try:
+                remote_path = self._normalize_sftp_input_path(path)
+                resolved_path = sftp.normalize(remote_path)
+                attrs = sftp.listdir_attr(resolved_path)
+            finally:
+                sftp.close()
+
+        items = []
+        for attr in attrs:
+            name = str(getattr(attr, "filename", "") or "")
+            if not name or name in {".", ".."}:
+                continue
+            mode = int(getattr(attr, "st_mode", 0) or 0)
+            is_dir = stat.S_ISDIR(mode)
+            is_symlink = stat.S_ISLNK(mode)
+            if directories_only and not is_dir:
+                continue
+            item_type = "directory" if is_dir else "symlink" if is_symlink else "file"
+            items.append(
+                {
+                    "name": name,
+                    "path": self._join_remote_path(resolved_path, name),
+                    "type": item_type,
+                    "isDirectory": is_dir,
+                    "isSymlink": is_symlink,
+                    "size": int(getattr(attr, "st_size", 0) or 0),
+                    "mtime": int(getattr(attr, "st_mtime", 0) or 0),
+                    "hidden": name.startswith("."),
+                }
+            )
+        items.sort(key=lambda item: (not item["isDirectory"], str(item["name"]).lower()))
+        bounded_limit = max(1, min(int(limit or 200), 500))
+        normalized_resolved = str(resolved_path or "/")
+        return {
+            "path": normalized_resolved,
+            "parentPath": self._parent_remote_path(normalized_resolved),
+            "items": items[:bounded_limit],
+            "truncated": len(items) > bounded_limit,
+        }
+
     def open_terminal_session(self, cols=120, rows=28) -> TerminalSession:
         with self._lock:
             t = self._client.get_transport()
@@ -295,6 +342,28 @@ class SSHService:
         session = TerminalSession(sid, ch)
         self._sessions[sid] = session
         return session
+
+    @staticmethod
+    def _normalize_sftp_input_path(path: str) -> str:
+        raw = str(path or "").strip()
+        if raw in {"", "~"}:
+            return "."
+        if raw.startswith("~/"):
+            return f".{raw[1:]}"
+        return raw
+
+    @staticmethod
+    def _join_remote_path(parent: str, name: str) -> str:
+        if parent == "/":
+            return f"/{name}"
+        return posixpath.join(parent.rstrip("/"), name)
+
+    @staticmethod
+    def _parent_remote_path(path: str) -> str:
+        normalized = str(path or "/").rstrip("/") or "/"
+        if normalized == "/":
+            return "/"
+        return posixpath.dirname(normalized) or "/"
 
     def ensure_local_tunnel(
         self,
