@@ -303,6 +303,10 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
+        def get_json(self, path: str) -> dict[str, object]:
+            assert path == "/api/v1/database-templates"
+            return {"data": {"items": [{"id": "kraken2"}]}}
+
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
     ), patch(
@@ -614,6 +618,98 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
 
     assert result is None
     assert metadata["reuse_check"] == {"ok": False, "reason": "No such file"}
+
+
+def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    metadata = {
+        "tooling": {
+            "workflow_runtime": {
+                "artifact_sha": "f" * 64,
+                "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+            }
+        }
+    }
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
+                return 0, "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane\n", ""
+            if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(
+                    {
+                        "service": "h2ometa-remote",
+                        "version": REMOTE_RUNNER_VERSION,
+                        "platform": "linux-64",
+                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+                    }
+                ), ""
+            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+                return 0, _runtime_state_json(), ""
+            if "kill -0 123" in cmd:
+                return 0, "", ""
+            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+                return 0, "f" * 64, ""
+            if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
+                return 0, json.dumps(
+                    {
+                        "managed_conda_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/conda",
+                        "managed_conda_root_prefix": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/micromamba-root",
+                        "workflow_runtime_provider": "conda-pack",
+                        "workflow_runtime_source": "artifact",
+                        "workflow_runtime_version": "0.1.0",
+                        "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                    }
+                ), ""
+            if "PATH=" in cmd and "import snakemake" in cmd:
+                return 0, "9.19.0\n", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            class FakeTunnel:
+                local_port = 18765
+
+            return FakeTunnel()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+        def get_json(self, path: str) -> dict[str, object]:
+            raise RemoteRunnerClientError("runner http error 404: Not Found")
+
+    monkeypatch.setattr("core.remote_runner.manager.resolve_runner_token", lambda token_ref: "phase2-token")
+    monkeypatch.setattr("core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient)
+    result = manager._try_reuse_existing_runner_fast(
+        server_id="srv_test",
+        ssh_service=FakeSSH(),
+        server_record={
+            "bootstrap_version": REMOTE_RUNNER_VERSION,
+            "runner_mode": "systemd_user",
+            "token_ref": "runner://srv_test",
+        },
+        version=REMOTE_RUNNER_VERSION,
+        remote_release="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane",
+        remote_current="/home/tester/.h2ometa/runner/current",
+        remote_runtime_state="/home/tester/.h2ometa/runner/shared/runtime/runner-state.json",
+        remote_config="/home/tester/.h2ometa/runner/shared/config/runner.json",
+        workflow_artifact=_fake_workflow_artifact(),
+        workflow_runtime_dir="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
+        remote_workflow_artifact_sha="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256",
+        bootstrap_metadata=metadata,
+    )
+
+    assert result is None
+    assert metadata["reuse_check"] == {"ok": False, "reason": "runner http error 404: Not Found"}
 
 
 def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> None:

@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+.ruff_cache/
 dist/
 node_modules/
 build/
@@ -69,4 +70,3 @@ test_detection_page_*.py
 *.backup
 启动*.bat
 .venv/
-.omx/

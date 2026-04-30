@@ -101,6 +101,12 @@ if not exist "%LOCAL_CONDA_EXE%" (
     endlocal & exit /b 1
 )
 
+call :build_remote_runner_artifact
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
+)
+
 where npm >nul 2>nul
 if errorlevel 1 (
     echo [ERROR] npm not found in PATH.
@@ -142,14 +148,10 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-echo [INFO] Checking local API server on 127.0.0.1:8765...
-set "API_PID="
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr LISTENING ^| findstr 127.0.0.1:8765') do (
-    set "API_PID=%%P"
-)
-if not "%API_PID%"=="" (
-    echo [INFO] Existing API listener detected on PID %API_PID%. Restarting to pick up latest code...
-    taskkill /PID %API_PID% /F >nul 2>nul
+call :stop_existing_local_api
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
 )
 
 echo [INFO] Desktop dev will launch its own local backend after startup checks...
@@ -191,14 +193,16 @@ if not exist "%LOCAL_CONDA_EXE%" (
     endlocal & exit /b 1
 )
 
-echo [INFO] Checking local API server on 127.0.0.1:8765...
-set "API_PID="
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr LISTENING ^| findstr 127.0.0.1:8765') do (
-    set "API_PID=%%P"
+call :build_remote_runner_artifact
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
 )
-if not "%API_PID%"=="" (
-    echo [INFO] Existing API listener detected on PID %API_PID%. Restarting to pick up latest code...
-    taskkill /PID %API_PID% /F >nul 2>nul
+
+call :stop_existing_local_api
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
 )
 
 echo [INFO] Desktop shell will launch its own local backend after startup checks...
@@ -218,8 +222,23 @@ echo [INFO] Repo root: %REPO_ROOT%
 echo [INFO] Starting API at %API_URL%
 echo [INFO] Starting Web at %WEB_URL%
 
+set "H2OMETA_WORKDIR=%REPO_ROOT%"
+set "WSL_UTF8=1"
+set "PYTHONUTF8=1"
+set "NEXT_PUBLIC_API_BASE=%API_URL%"
+set "H2OMETA_RUNTIME_BUILD_ID=terminal-websocket-v1"
+set "H2OMETA_BACKEND_SOURCE=run.bat:web"
+set "H2OMETA_CONDA_ENV=%LOCAL_CONDA_ENV%"
+set "H2OMETA_CONDA_EXE=%LOCAL_CONDA_EXE%"
+
 if not exist "%LOCAL_CONDA_EXE%" (
     echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
+    pause
+    endlocal & exit /b 1
+)
+
+call :build_remote_runner_artifact
+if errorlevel 1 (
     pause
     endlocal & exit /b 1
 )
@@ -257,6 +276,12 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
+call :stop_existing_local_api
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
+)
+
 ver >nul
 start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
 if errorlevel 1 (
@@ -287,3 +312,50 @@ echo Web UI: %WEB_URL%
 echo.
 echo Close the two spawned terminal windows to stop the dev servers.
 endlocal & exit /b 0
+
+:build_remote_runner_artifact
+echo [INFO] Resolving prebuilt remote runner artifact...
+if "%H2OMETA_REMOTE_RUNNER_BUNDLE%"=="" (
+    set "H2OMETA_REMOTE_RUNNER_BUNDLE=%REPO_ROOT%\dist\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz"
+)
+if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%" (
+    set "H2OMETA_REMOTE_RUNNER_BUNDLE=%REPO_ROOT%\resources\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz"
+)
+if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%" (
+    echo [ERROR] Prebuilt remote runner artifact not found.
+    echo [ERROR] Set H2OMETA_REMOTE_RUNNER_BUNDLE or place h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz under dist\remote-runner or resources\remote-runner.
+    exit /b 1
+)
+if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%.sha256" (
+    echo [ERROR] Prebuilt remote runner artifact checksum not found: %H2OMETA_REMOTE_RUNNER_BUNDLE%.sha256
+    exit /b 1
+)
+echo [INFO] H2OMETA_REMOTE_RUNNER_BUNDLE=%H2OMETA_REMOTE_RUNNER_BUNDLE%
+
+echo [INFO] Resolving prebuilt workflow runtime artifact...
+if "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%"=="" (
+    set "H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%REPO_ROOT%\dist\remote-runner\h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
+)
+if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%" (
+    set "H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%REPO_ROOT%\resources\remote-runner\h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
+)
+if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%" (
+    echo [ERROR] Prebuilt workflow runtime artifact not found.
+    echo [ERROR] Set H2OMETA_WORKFLOW_RUNTIME_BUNDLE or place h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz under dist\remote-runner or resources\remote-runner.
+    exit /b 1
+)
+if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%.sha256" (
+    echo [ERROR] Prebuilt workflow runtime artifact checksum not found: %H2OMETA_WORKFLOW_RUNTIME_BUNDLE%.sha256
+    exit /b 1
+)
+echo [INFO] H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%
+exit /b 0
+
+:stop_existing_local_api
+echo [INFO] Checking local API server on 127.0.0.1:8765...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $listeners=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue); if($listeners.Count -eq 0){ Write-Host '[INFO] No existing API listener found.'; exit 0 }; $pids=$listeners | Select-Object -ExpandProperty OwningProcess -Unique; foreach($processId in $pids){ $proc=Get-CimInstance Win32_Process -Filter \"ProcessId=$processId\" -ErrorAction SilentlyContinue; if($proc){ Write-Host ('[INFO] Existing API listener PID {0}: {1}' -f $processId,$proc.CommandLine) } else { Write-Host ('[INFO] Existing API listener PID {0}' -f $processId) }; Stop-Process -Id $processId -Force -ErrorAction Stop; Write-Host ('[INFO] Stopped stale local API PID {0}.' -f $processId) }; Start-Sleep -Milliseconds 500; $remaining=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue); if($remaining.Count -gt 0){ Write-Host '[ERROR] 127.0.0.1:8765 is still in use after stop attempt.'; exit 1 }; exit 0"
+if errorlevel 1 (
+    echo [ERROR] Failed to stop stale local API on 127.0.0.1:8765.
+    exit /b 1
+)
+exit /b 0

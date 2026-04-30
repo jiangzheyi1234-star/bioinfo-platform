@@ -30,15 +30,93 @@ type TerminalViewportController = {
   setInputEnabled: (enabled: boolean) => void;
 };
 
-function isTerminalAutoReply(data: string): boolean {
-  if (!data.startsWith("\u001b")) {
-    return false;
+function isCsiFinalByte(value: string): boolean {
+  const code = value.charCodeAt(0);
+  return code >= 0x40 && code <= 0x7e;
+}
+
+function findOscTerminator(value: string, start: number): { index: number; length: number } | null {
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "\u0007") {
+      return { index, length: 1 };
+    }
+    if (char === "\u001b" && value[index + 1] === "\\") {
+      return { index, length: 2 };
+    }
   }
+  return null;
+}
+
+function isTerminalAutoReplySequence(sequence: string): boolean {
   return (
-    /^\u001b\](?:10|11|12|4;\d{1,3});.*(?:\u0007|\u001b\\)$/.test(data) ||
-    /^\u001b\[(?:4|6);\d+;\d+t$/.test(data) ||
-    /^\u001b\[[IO]$/.test(data)
+    /^\u001b\](?:10|11|12|4;\d{1,3});.*(?:\u0007|\u001b\\)$/.test(sequence) ||
+    /^\u001b\[(?:4|6);\d+;\d+t$/.test(sequence) ||
+    /^\u001b\[[IO]$/.test(sequence) ||
+    /^\u001b\[\d+;\d+R$/.test(sequence) ||
+    /^\u001b\[\??[0-9;]*\$y$/.test(sequence)
   );
+}
+
+function createTerminalAutoReplyFilter() {
+  let pending = "";
+
+  return (data: string): string => {
+    const input = pending + data;
+    let output = "";
+    pending = "";
+
+    for (let index = 0; index < input.length;) {
+      if (input[index] !== "\u001b") {
+        output += input[index];
+        index += 1;
+        continue;
+      }
+
+      if (index + 1 >= input.length) {
+        pending = input.slice(index);
+        break;
+      }
+
+      const introducer = input[index + 1];
+      if (introducer === "]") {
+        const terminator = findOscTerminator(input, index + 2);
+        if (!terminator) {
+          pending = input.slice(index);
+          break;
+        }
+        const end = terminator.index + terminator.length;
+        const sequence = input.slice(index, end);
+        if (!isTerminalAutoReplySequence(sequence)) {
+          output += sequence;
+        }
+        index = end;
+        continue;
+      }
+
+      if (introducer === "[") {
+        let end = index + 2;
+        while (end < input.length && !isCsiFinalByte(input[end])) {
+          end += 1;
+        }
+        if (end >= input.length) {
+          pending = input.slice(index);
+          break;
+        }
+        const sequence = input.slice(index, end + 1);
+        if (!isTerminalAutoReplySequence(sequence)) {
+          output += sequence;
+        }
+        index = end + 1;
+        continue;
+      }
+
+      output += input.slice(index, index + 2);
+      index += 2;
+    }
+
+    return output;
+  };
 }
 
 export function useSshTerminalViewport({
@@ -54,6 +132,7 @@ export function useSshTerminalViewport({
   const lastGridRef = useRef<{ cols: number; rows: number } | null>(null);
   const terminalReadyRef = useRef(false);
   const pendingInputEnabledRef = useRef(true);
+  const terminalAutoReplyFilterRef = useRef(createTerminalAutoReplyFilter());
 
   const fit = useCallback(
     (options?: { force?: boolean }) => {
@@ -184,11 +263,13 @@ export function useSshTerminalViewport({
         }
       };
 
+      terminalAutoReplyFilterRef.current = createTerminalAutoReplyFilter();
       const inputDisposable = terminal.onData((data) => {
-        if (isTerminalAutoReply(data)) {
+        const filtered = terminalAutoReplyFilterRef.current(data);
+        if (!filtered) {
           return;
         }
-        onInput(data);
+        onInput(filtered);
       });
       const selectionDisposable = terminal.onSelectionChange?.(syncSelection);
       terminal.attachCustomKeyEventHandler?.((event) => {
