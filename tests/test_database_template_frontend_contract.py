@@ -101,8 +101,10 @@ def test_databases_page_surfaces_resolved_tool_path_when_it_differs_from_selecte
     assert "实际工具路径" in source
     assert 'resolved?.kind === "prefix"' in source
     assert 'resolved?.kind === "file"' in source
+    assert 'resolved?.kind === "directory"' in source
     assert 'resolved?.kind === "primary_with_sidecars"' in source
-    assert "resolved?.firstIndexPrefix || resolved?.firstMatch" not in source
+    assert "resolved.firstIndexPrefix || resolved.firstMatch || resolved.path" in source
+    assert "resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path" in source
     assert "availableReadLengths" in Path("apps/web/app/components/database-validation-details-dialog.tsx").read_text(encoding="utf-8")
 
 

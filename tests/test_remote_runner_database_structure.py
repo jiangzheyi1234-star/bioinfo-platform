@@ -15,3 +15,10 @@ def test_database_registry_schema_lives_outside_database_module() -> None:
     assert "CREATE TABLE IF NOT EXISTS reference_databases" in schema
     assert "from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL" in databases
     assert '_SCHEMA_SQL = """' not in databases
+
+
+def test_candidate_database_errors_are_reported_as_conflicts() -> None:
+    source = (REMOTE_RUNNER / "main.py").read_text(encoding="utf-8")
+
+    assert 'detail.startswith("DATABASE_CANDIDATES:")' in source
+    assert "return 409" in source

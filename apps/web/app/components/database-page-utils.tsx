@@ -215,13 +215,16 @@ export function databaseToolPath(item: DatabaseItem) {
   if (resolved?.kind === "prefix") {
     return resolved.prefix || resolved.path || "";
   }
+  if (resolved?.kind === "directory") {
+    return resolved.firstIndexPrefix || resolved.firstMatch || resolved.path || "";
+  }
   if (resolved?.kind === "file") {
     return resolved.path || resolved.firstMatch || "";
   }
   if (resolved?.kind === "primary_with_sidecars") {
     return resolved.path || resolved.firstMatch || "";
   }
-  return resolved?.path || item.path || "";
+  return resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path || item.path || "";
 }
 
 export function emptyForm(template?: DatabaseTemplate) {

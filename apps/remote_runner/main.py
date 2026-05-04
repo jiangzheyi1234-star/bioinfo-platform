@@ -113,6 +113,14 @@ def _require_auth(authorization: str | None, token: str) -> None:
         raise HTTPException(status_code=401, detail="runner authentication failed")
 
 
+def _database_registry_status_code(detail: str) -> int:
+    if detail.startswith("DATABASE_CANDIDATES:"):
+        return 409
+    if detail == "DATABASE_NOT_FOUND":
+        return 404
+    return 400
+
+
 def _build_health_payload(status: str, checks: dict[str, bool], cfg_mode: str, version: str) -> dict[str, Any]:
     return {
         "status": status,
@@ -264,7 +272,8 @@ async def add_database(payload: DatabaseManifestRequest, authorization: str | No
     try:
         item = await run_in_threadpool(add_verified_reference_database, cfg, payload.model_dump(exclude_none=True))
     except DatabaseRegistryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        detail = str(exc)
+        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
     return {"data": item}
 
 
@@ -276,7 +285,7 @@ async def delete_database_api(database_id: str, authorization: str | None = Head
         remove_reference_database(cfg, database_id)
     except DatabaseRegistryError as exc:
         detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc
+        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
     return {"data": {"id": database_id, "deleted": True}}
 
 
@@ -288,7 +297,7 @@ async def update_database_api(database_id: str, payload: DatabaseUpdateRequest, 
         item = update_reference_database(cfg, database_id, payload.model_dump(exclude_none=True))
     except DatabaseRegistryError as exc:
         detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc
+        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
     return {"data": item}
 
 
@@ -300,7 +309,7 @@ async def check_database_api(database_id: str, authorization: str | None = Heade
         item = await run_in_threadpool(check_reference_database, cfg, database_id)
     except DatabaseRegistryError as exc:
         detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc
+        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
     return {"data": item}
 
 
