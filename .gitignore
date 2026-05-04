@@ -32,6 +32,7 @@ plugins/**/workflow/software/mfeprimer
 .claude/
 .opencode/
 .codex-uv-cache/
+.uv-cache-local/
 
 # Test temp directories
 tests/.pytest_cache/
