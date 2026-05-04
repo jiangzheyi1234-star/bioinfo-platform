@@ -2,37 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database, check_reference_database, list_database_templates
+from tests.helpers.reference_database import (
+    make_remote_runner_config,
+    patch_tool_probe_success as _patch_tool_probe_success,
+)
 
 
-def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
-    return RemoteRunnerConfig(
-        token="database-production-template-token",
-        data_root=str(tmp_path / "shared"),
-        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
-        uploads_dir=str(tmp_path / "shared" / "uploads"),
-        results_dir=str(tmp_path / "shared" / "results"),
-        work_dir=str(tmp_path / "shared" / "work"),
-        logs_dir=str(tmp_path / "shared" / "logs"),
-        release_dir=str(Path.cwd() / "apps" / "remote_runner"),
-        managed_conda_command=str(tmp_path / "workflow-env" / "bin" / "conda"),
-        snakemake_command=str(tmp_path / "workflow-env" / "bin" / "snakemake"),
-    )
-
-
-def _patch_tool_probe_success(monkeypatch) -> list[str]:
-    from apps.remote_runner import database_validation
-
-    calls: list[str] = []
-    monkeypatch.setattr(database_validation, "prepare_tool_probe_command", lambda cfg, template_id, template, command: command)
-
-    def fake_probe(command: str, *, timeout: int) -> database_validation.ToolProbeResult:
-        calls.append(command)
-        return database_validation.ToolProbeResult(ok=True, command=command, stdout="probe ok", stderr="", returncode=0)
-
-    monkeypatch.setattr(database_validation, "run_tool_probe", fake_probe)
-    return calls
+def _cfg(tmp_path: Path):
+    return make_remote_runner_config(tmp_path, token="database-production-template-token")
 
 
 def test_database_tool_probes_follow_official_smoke_test_patterns() -> None:
