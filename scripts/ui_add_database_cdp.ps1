@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$Template,
   [Parameter(Mandatory = $true)][string]$Path,
-  [string]$Url = "http://127.0.0.1:3100/workflows/databases",
+  [string]$Url = "http://127.0.0.1:3765/workflows/databases",
   [int]$Port = 9223
 )
 
@@ -59,7 +59,7 @@ try {
 }
 
 $pages = Invoke-RestMethod -Uri $debugEndpoint -TimeoutSec 5
-$page = @($pages | Where-Object { $_.type -eq "page" -and $_.url -like "http://127.0.0.1:3100/*" } | Select-Object -First 1)[0]
+$page = @($pages | Where-Object { $_.type -eq "page" -and $_.url -like "http://127.0.0.1:3765/*" } | Select-Object -First 1)[0]
 if (-not $page) {
   $newPage = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/new?$([uri]::EscapeDataString($Url))" -TimeoutSec 5
   $page = $newPage
