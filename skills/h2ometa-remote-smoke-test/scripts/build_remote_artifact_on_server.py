@@ -9,7 +9,6 @@ import posixpath
 import shlex
 import sys
 import tarfile
-import tempfile
 from pathlib import Path
 from typing import Any
 

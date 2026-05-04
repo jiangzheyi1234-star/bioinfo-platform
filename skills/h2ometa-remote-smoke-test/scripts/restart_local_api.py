@@ -6,7 +6,6 @@ from __future__ import annotations
 import csv
 import os
 import subprocess
-import sys
 import time
 import urllib.request
 from io import StringIO

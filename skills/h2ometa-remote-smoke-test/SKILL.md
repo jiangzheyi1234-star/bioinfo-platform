@@ -74,11 +74,29 @@ If `run.bat` fails with `The system cannot find the batch label specified - <lab
 
 When validating database template behavior reported from the product UI, do not only register the database through raw API calls. Reproduce through the web database page when possible:
 
-1. Open `http://127.0.0.1:3100/workflows/databases` from a Windows-side browser automation runtime.
+1. Open `http://127.0.0.1:3765/workflows/databases` from a Windows-side browser automation runtime.
 2. Click `添加数据库`, choose the template, fill the remote path, click `浏览远程路径`, then use `选择当前目录` / `选择当前路径` before `加入`.
 3. Read `/api/v1/databases` after the UI action and verify `status`, `message`, `metadata.validation.toolProbe`, and `metadata.resolvedPath`.
 
 For prefix-style databases, the UI-selected path and the tool path may intentionally differ. Preserve the selected UI path in `path`, but verify `metadata.resolvedPath.prefix` is the value used by the tool probe and generated workflow injection. BLAST alias databases are a common case: selecting a directory containing `core_nt.nal` and split volumes such as `core_nt.00.nhr/.nin/.nsq` should resolve to the prefix `core_nt`, not the directory itself or the single volume prefix `core_nt.00`.
+
+## Real Database Acceptance Smoke
+
+After registering real production databases, use the strict acceptance script to prove template coverage, saved validation metadata, tool probe success, and generated Snakemake database injection:
+
+```bat
+C:\Users\Administrator\miniconda3\Scripts\conda.exe run -n bio_ui python skills\h2ometa-remote-smoke-test\scripts\remote_real_database_acceptance.py --rerun-check
+```
+
+By default this requires every production template except `custom`: `kraken2`, `bracken`, `blast`, `diamond`, `bowtie2`, `bwa`, `minimap2`, `hisat2`, `star`, `salmon`, `kallisto`, `ncbi_taxonomy`, `metaphlan`, `centrifuge`, `kaiju`, `gtdbtk`, `interproscan`, `silva_qiime`, `sourmash`, `mmseqs2`, `hmmer_pfam`, `checkm`, `humann`, `card_rgi`, and `eggnog_mapper`.
+
+For partial acceptance while real databases are still being staged, pass one or more template filters:
+
+```bat
+C:\Users\Administrator\miniconda3\Scripts\conda.exe run -n bio_ui python skills\h2ometa-remote-smoke-test\scripts\remote_real_database_acceptance.py --template kraken2,blast,humann --rerun-check
+```
+
+Use `--skip-snakemake` only when you need to isolate registration/probe metadata from generated workflow execution. A production acceptance claim needs the default Snakemake step to complete.
 
 ## Recommended Workflow
 
