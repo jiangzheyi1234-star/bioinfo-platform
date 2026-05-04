@@ -86,6 +86,11 @@ def make_bwa_reference(base_dir: Path, filename: str = "hg38.fa") -> Path:
     return fasta
 
 
+def make_blast_prefix_database(base_dir: Path, prefix: str = "nt") -> Path:
+    write_files(base_dir, (f"{prefix}{suffix}" for suffix in (".nhr", ".nin", ".nsq")))
+    return base_dir
+
+
 def assert_resolution_contract(
     record: Mapping[str, object],
     *,
@@ -267,3 +272,15 @@ def materialize_template_path(base_dir: Path, template_id: str) -> Path:
             path.write_text(pattern, encoding="utf-8")
         break
     return target
+
+
+def materialize_template_selection(base_dir: Path, template_id: str) -> tuple[Path, Path]:
+    target = materialize_template_path(base_dir, template_id)
+    selected_path = target if target.is_dir() else target.parent
+    return target, selected_path
+
+
+def expected_template_entry_path(template: Mapping[str, object], resolved: Mapping[str, object], selected_path: Path) -> str:
+    if template["pathKind"] == "composite":
+        return ""
+    return str(resolved.get("prefix") or resolved.get("path") or selected_path)
