@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.databases import add_reference_database, check_reference_database
+from apps.remote_runner.databases import add_reference_database, check_reference_database, list_database_templates
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -35,32 +35,130 @@ def _patch_tool_probe_success(monkeypatch) -> list[str]:
     return calls
 
 
+def test_database_tool_probes_follow_official_smoke_test_patterns() -> None:
+    templates = {item["id"]: item for item in list_database_templates()}
+
+    bwa_probe = templates["bwa"]["toolProbe"]["commandTemplate"]
+    assert "probe.fq" in bwa_probe
+    assert "bwa mem" in bwa_probe
+    assert " /dev/null" not in bwa_probe
+
+    minimap2_probe = templates["minimap2"]["toolProbe"]["commandTemplate"]
+    assert "probe.fa" in minimap2_probe
+    assert "minimap2" in minimap2_probe
+    assert " /dev/null" not in minimap2_probe
+
+    checkm_probe = templates["checkm"]["toolProbe"]["commandTemplate"]
+    assert "--database_path {path:q}" in checkm_probe
+    assert "checkm2 testrun" in checkm_probe
+    assert "--help" not in checkm_probe
+    assert templates["checkm"]["toolProbe"]["timeoutSeconds"] >= 600
+
+    gtdbtk_probe = templates["gtdbtk"]["toolProbe"]["commandTemplate"]
+    assert "gtdbtk check_install" in gtdbtk_probe
+    assert templates["gtdbtk"]["toolProbe"]["timeoutSeconds"] >= 600
+
+    interproscan_probe = templates["interproscan"]["toolProbe"]["commandTemplate"]
+    assert "--datadir" not in interproscan_probe
+    assert "interproscan.sh -version" in interproscan_probe
+
+    silva_probe = templates["silva_qiime"]["toolProbe"]
+    assert silva_probe["packageSpec"] == "qiime2::q2cli=2024.10.0"
+    assert silva_probe["packageSpecs"] == [
+        "qiime2::q2cli=2024.10.0",
+        "qiime2::q2-types=2024.10.0",
+        "conda-forge::setuptools=75.8.0",
+    ]
+
+
+def test_all_production_templates_publish_stable_runtime_contract() -> None:
+    templates = {item["id"]: item for item in list_database_templates()}
+
+    for template_id, template in templates.items():
+        assert template["supportLevel"] == "stable", template_id
+        assert template["select"]["allowDirectory"] is True or template["select"]["allowFile"] is True, template_id
+        assert template["resolve"]["strategy"], template_id
+        assert template["validation"]["structureCheck"], template_id
+        assert template["output"].get("resolvedKey") == "default" or template["output"].get("valueFrom") == "resolved", template_id
+        assert template["runtime"]["example"], template_id
+
+    assert templates["humann"]["pathKind"] == "composite"
+    assert set(templates["humann"]["fields"]) == {"nucleotide", "protein", "utility_mapping"}
+    assert templates["card_rgi"]["pathKind"] == "composite"
+    assert set(templates["card_rgi"]["fields"]) == {"card_json"}
+    assert templates["eggnog_mapper"]["pathKind"] == "composite"
+    assert set(templates["eggnog_mapper"]["fields"]) == {"data_dir"}
+
+
 def test_humann_template_requires_chocophlan_uniref_and_utility_mapping(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     database_dir = tmp_path / "humann"
-    database_dir.mkdir()
-    (database_dir / "uniref90.dmnd").write_text("diamond", encoding="utf-8")
-
-    saved = add_reference_database(cfg, {"id": "humann-prod", "name": "HUMAnN production", "templateId": "humann", "path": str(database_dir)})
-
-    missing = check_reference_database(cfg, saved["id"])
-    assert missing["status"] == "missing"
-    assert "chocophlan/**/*.ffn*" in missing["message"]
-
     chocophlan = database_dir / "chocophlan"
     uniref = database_dir / "uniref"
     utility = database_dir / "utility_mapping"
-    chocophlan.mkdir()
+    chocophlan.mkdir(parents=True)
     uniref.mkdir()
     utility.mkdir()
-    (chocophlan / "g__Bacteria.centroids.ffn.gz").write_text("nucleotide", encoding="utf-8")
     (uniref / "uniref90_201901.dmnd").write_text("protein", encoding="utf-8")
+
+    saved = add_reference_database(
+        cfg,
+        {
+            "id": "humann-prod",
+            "name": "HUMAnN production",
+            "templateId": "humann",
+            "path": str(database_dir),
+            "metadata": {
+                "input": {
+                    "kind": "multi",
+                    "fields": {
+                        "nucleotide": str(chocophlan),
+                        "protein": str(uniref),
+                        "utility_mapping": str(utility),
+                    },
+                }
+            },
+        },
+    )
+
+    missing = check_reference_database(cfg, saved["id"])
+    assert missing["status"] == "missing"
+    assert "*.ffn*" in missing["message"]
+
+    (chocophlan / "g__Bacteria.centroids.ffn.gz").write_text("nucleotide", encoding="utf-8")
     (utility / "map_uniref90_name.txt.gz").write_text("mapping", encoding="utf-8")
 
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
+    assert checked["pathMode"] == "composite"
+    assert checked["resolved"] == {
+        "nucleotide": str(chocophlan),
+        "protein": str(uniref),
+        "utility_mapping": str(utility),
+    }
+
+
+def test_card_rgi_template_resolves_card_json_from_selected_directory(tmp_path: Path, monkeypatch) -> None:
+    calls = _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    database_dir = tmp_path / "card"
+    database_dir.mkdir()
+    card_json = database_dir / "card.json"
+    card_json.write_text("{}", encoding="utf-8")
+
+    saved = add_reference_database(cfg, {"id": "card", "name": "CARD", "templateId": "card_rgi", "path": str(database_dir)})
+
+    checked = check_reference_database(cfg, saved["id"])
+    assert checked["status"] == "available"
+    assert checked["pathMode"] == "composite"
+    assert checked["inputPath"] == str(database_dir)
+    assert checked["entryPath"] == ""
+    assert checked["resolved"] == {"card_json": str(card_json)}
+    assert calls and "rgi card_annotation -i" in calls[-1]
+    assert str(card_json) in calls[-1]
 
 
 def test_silva_qiime_template_requires_qiime_artifact(tmp_path: Path, monkeypatch) -> None:
@@ -135,7 +233,16 @@ def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_pat
     database_dir.mkdir()
     (database_dir / "eggnog.db").write_text("sqlite", encoding="utf-8")
 
-    saved = add_reference_database(cfg, {"id": "eggnog", "name": "eggNOG", "templateId": "eggnog_mapper", "path": str(database_dir)})
+    saved = add_reference_database(
+        cfg,
+        {
+            "id": "eggnog",
+            "name": "eggNOG",
+            "templateId": "eggnog_mapper",
+            "path": str(database_dir),
+            "metadata": {"input": {"kind": "multi", "fields": {"data_dir": str(database_dir)}}},
+        },
+    )
 
     missing = check_reference_database(cfg, saved["id"])
     assert missing["status"] == "missing"
@@ -144,9 +251,11 @@ def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_pat
     (database_dir / "eggnog_proteins.dmnd").write_text("diamond", encoding="utf-8")
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
+    assert checked["pathMode"] == "composite"
+    assert checked["resolved"] == {"data_dir": str(database_dir)}
 
 
-def test_interproscan_template_probe_uses_selected_data_directory(tmp_path: Path, monkeypatch) -> None:
+def test_interproscan_template_probe_verifies_installed_cli_after_data_structure_check(tmp_path: Path, monkeypatch) -> None:
     calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -160,5 +269,5 @@ def test_interproscan_template_probe_uses_selected_data_directory(tmp_path: Path
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
     assert calls
-    assert "--datadir" in calls[-1]
-    assert str(database_dir) in calls[-1]
+    assert "interproscan.sh -version" in calls[-1]
+    assert "--datadir" not in calls[-1]

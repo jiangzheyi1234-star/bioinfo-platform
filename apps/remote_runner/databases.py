@@ -1,427 +1,22 @@
 from __future__ import annotations
 
 import json
+import shlex
+import threading
 from pathlib import Path
 from typing import Any
 
 from . import database_validation
+from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .config import RemoteRunnerConfig
+from .database_templates import DATABASE_TEMPLATES, list_database_templates
 from .storage import get_connection, now_iso
 
 
 class DatabaseRegistryError(ValueError):
     pass
 
-
-DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
-    "kraken2": {
-        "type": "taxonomy",
-        "label": "Kraken2",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "宏基因组物种分类库",
-        "pathHint": "~/.h2ometa/databases/kraken2/standard",
-        "requiredFiles": ["hash.k2d", "opts.k2d", "taxo.k2d"],
-        "toolProbe": {
-            "packageSpec": "bioconda::kraken2",
-            "commandTemplate": "kraken2-inspect --db {path:q} >/dev/null",
-        },
-    },
-    "bracken": {
-        "type": "taxonomy",
-        "label": "Bracken",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "Kraken2 丰度估计库",
-        "pathHint": "~/.h2ometa/databases/bracken/standard",
-        "requiredFiles": ["hash.k2d", "opts.k2d", "taxo.k2d"],
-        "anyPatterns": ["database*.kmer_distrib"],
-        "toolProbe": {
-            "packageSpec": "bioconda::bracken",
-            "commandTemplate": "kraken2-inspect --db {path:q} >/dev/null",
-        },
-    },
-    "metaphlan": {
-        "type": "taxonomy",
-        "label": "MetaPhlAn",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "MetaPhlAn marker + Bowtie2 index",
-        "pathHint": "~/.h2ometa/databases/metaphlan/mpa",
-        "anyPatterns": ["*.pkl"],
-        "anyIndexPatterns": ["*.bt2", "*.bt2l"],
-        "toolProbe": {
-            "packageSpec": "bioconda::metaphlan",
-            "commandTemplate": "bowtie2-inspect -n {firstIndexPrefix:q} >/dev/null",
-        },
-    },
-    "centrifuge": {
-        "type": "taxonomy",
-        "label": "Centrifuge",
-        "icon": "taxonomy",
-        "pathKind": "prefix",
-        "description": "Centrifuge 分类索引",
-        "pathHint": "~/.h2ometa/databases/centrifuge/nt",
-        "prefixPatternSets": [[".1.cf", ".2.cf", ".3.cf"]],
-        "toolProbe": {
-            "packageSpec": "bioconda::centrifuge",
-            "commandTemplate": "centrifuge-inspect -n {prefix:q} >/dev/null",
-        },
-    },
-    "kaiju": {
-        "type": "taxonomy",
-        "label": "Kaiju",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "蛋白级分类库",
-        "pathHint": "~/.h2ometa/databases/kaiju/nr",
-        "requiredFiles": ["nodes.dmp", "names.dmp"],
-        "anyPatterns": ["*.fmi"],
-        "toolProbe": {
-            "packageSpec": "bioconda::kaiju",
-            "commandTemplate": "kaiju -t {path:q}/nodes.dmp -f {firstMatch:q} -i /dev/null >/dev/null",
-        },
-    },
-    "card_rgi": {
-        "type": "amr",
-        "label": "CARD / RGI",
-        "icon": "amr",
-        "pathKind": "directory",
-        "description": "耐药基因识别库",
-        "pathHint": "~/.h2ometa/databases/card/current",
-        "anyFiles": ["card.json"],
-        "toolProbe": {
-            "packageSpec": "bioconda::rgi",
-            "commandTemplate": "rgi card_annotation -i {path:q}/card.json >/dev/null",
-        },
-    },
-    "blast": {
-        "type": "sequence_index",
-        "label": "BLAST",
-        "icon": "index",
-        "pathKind": "prefix",
-        "description": "BLAST nucleotide/protein 索引",
-        "pathHint": "~/.h2ometa/databases/blast/nt",
-        "prefixPatternSets": [[".nhr", ".nin", ".nsq"], [".phr", ".pin", ".psq"]],
-        "prefixAliasPatterns": ["*.nal", "*.pal"],
-        "toolProbe": {
-            "packageSpec": "bioconda::blast",
-            "commandTemplate": "blastdbcmd -db {prefix:q} -info >/dev/null",
-        },
-    },
-    "diamond": {
-        "type": "sequence_index",
-        "label": "DIAMOND",
-        "icon": "index",
-        "pathKind": "file",
-        "description": "DIAMOND 蛋白数据库",
-        "pathHint": "~/.h2ometa/databases/diamond/nr.dmnd",
-        "anyPatterns": ["*.dmnd"],
-        "toolProbe": {
-            "packageSpec": "bioconda::diamond",
-            "commandTemplate": "diamond dbinfo --db {path:q} >/dev/null",
-        },
-    },
-    "bowtie2": {
-        "type": "sequence_index",
-        "label": "Bowtie2",
-        "icon": "index",
-        "pathKind": "prefix",
-        "description": "宿主去除或比对索引",
-        "pathHint": "~/.h2ometa/databases/bowtie2/human",
-        "prefixPatternSets": [
-            [".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2"],
-            [".1.bt2l", ".2.bt2l", ".3.bt2l", ".4.bt2l", ".rev.1.bt2l", ".rev.2.bt2l"],
-        ],
-        "toolProbe": {
-            "packageSpec": "bioconda::bowtie2",
-            "commandTemplate": "bowtie2-inspect -n {prefix:q} >/dev/null",
-        },
-    },
-    "bwa": {
-        "type": "sequence_index",
-        "label": "BWA",
-        "icon": "index",
-        "pathKind": "prefix",
-        "description": "BWA reference index",
-        "pathHint": "~/.h2ometa/databases/bwa/hg38",
-        "prefixPatternSets": [[".amb", ".ann", ".bwt", ".pac", ".sa"]],
-        "toolProbe": {
-            "packageSpec": "bioconda::bwa",
-            "commandTemplate": "bwa mem {prefix:q} /dev/null >/dev/null",
-        },
-    },
-    "humann": {
-        "type": "functional_profile",
-        "label": "HUMAnN",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "HUMAnN ChocoPhlAn, UniRef, and utility mapping databases",
-        "pathHint": "~/.h2ometa/databases/humann",
-        "requiredPatterns": [
-            "chocophlan/**/*.ffn*",
-            "uniref/**/*.dmnd",
-            "utility_mapping/map_*",
-        ],
-        "toolProbe": {
-            "packageSpec": "bioconda::humann",
-            "commandTemplate": "humann_config --update database_folders nucleotide {path:q}/chocophlan >/dev/null && humann_config --update database_folders protein {path:q}/uniref >/dev/null && humann_config --update database_folders utility_mapping {path:q}/utility_mapping >/dev/null && humann_config --print >/dev/null",
-        },
-    },
-    "gtdbtk": {
-        "type": "taxonomy",
-        "label": "GTDB-Tk",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "GTDB-Tk taxonomy reference",
-        "pathHint": "~/.h2ometa/databases/gtdbtk/release",
-        "requiredFiles": [
-            "markers",
-            "masks",
-            "metadata",
-            "mrca_red",
-            "msa",
-            "pplacer",
-            "radii",
-            "skani",
-            "split",
-            "taxonomy",
-        ],
-        "anyFiles": ["metadata.txt", "VERSION"],
-        "toolProbe": {
-            "packageSpec": "bioconda::gtdbtk",
-            "commandTemplate": "GTDBTK_DATA_PATH={path:q} gtdbtk check_install >/dev/null",
-        },
-    },
-    "sourmash": {
-        "type": "sequence_index",
-        "label": "Sourmash / Mash",
-        "icon": "index",
-        "pathKind": "file",
-        "description": "MinHash sketch 数据库",
-        "pathHint": "~/.h2ometa/databases/sourmash",
-        "anyPatterns": ["*.sig", "*.sbt.zip", "*.zip", "*.msh"],
-        "toolProbe": {
-            "packageSpec": "bioconda::sourmash",
-            "commandTemplate": "sourmash sig describe {path:q} >/dev/null",
-        },
-    },
-    "mmseqs2": {
-        "type": "sequence_index",
-        "label": "MMseqs2",
-        "icon": "index",
-        "pathKind": "prefix",
-        "description": "MMseqs2 sequence/profile database",
-        "pathHint": "~/.h2ometa/databases/mmseqs2/uniref",
-        "prefixPatternSets": [[".dbtype", "_h", "_h.dbtype"]],
-        "toolProbe": {
-            "packageSpec": "bioconda::mmseqs2",
-            "commandTemplate": "tmp=$(mktemp) && mmseqs convert2fasta {prefix:q} \"$tmp\" >/dev/null && rm -f \"$tmp\"",
-        },
-    },
-    "hmmer_pfam": {
-        "type": "profile_hmm",
-        "label": "HMMER / Pfam",
-        "icon": "index",
-        "pathKind": "file",
-        "description": "HMMER profile database with hmmpress index",
-        "pathHint": "~/.h2ometa/databases/pfam/Pfam-A.hmm",
-        "anyPatterns": ["*.hmm"],
-        "companionSuffixes": [".h3f", ".h3i", ".h3m", ".h3p"],
-        "toolProbe": {
-            "packageSpec": "bioconda::hmmer",
-            "commandTemplate": "hmmstat {path:q} >/dev/null",
-        },
-    },
-    "eggnog_mapper": {
-        "type": "annotation",
-        "label": "eggNOG-mapper",
-        "icon": "index",
-        "pathKind": "directory",
-        "description": "eggNOG-mapper annotation database",
-        "pathHint": "~/.h2ometa/databases/eggnog",
-        "requiredFiles": ["eggnog.db"],
-        "anyPatternSets": [["eggnog_proteins.dmnd"], ["*.dmnd"], ["mmseqs.dbtype", "mmseqs_h", "mmseqs_h.dbtype"]],
-        "toolProbe": {
-            "packageSpec": "bioconda::eggnog-mapper",
-            "commandTemplate": "tmp=$(mktemp -d) && printf '>probe\\nMAIVMGR\\n' > \"$tmp/probe.faa\" && emapper.py --data_dir {path:q} -i \"$tmp/probe.faa\" -o h2ometa-eggnog-probe --output_dir \"$tmp\" --cpu 1 >/dev/null",
-        },
-    },
-    "interproscan": {
-        "type": "annotation",
-        "label": "InterProScan",
-        "icon": "index",
-        "pathKind": "directory",
-        "description": "InterProScan data directory",
-        "pathHint": "~/.h2ometa/databases/interproscan/data",
-        "anyFiles": ["interpro.xml", "match_complete.xml"],
-        "toolProbe": {
-            "packageSpec": "bioconda::interproscan",
-            "commandTemplate": "tmp=$(mktemp -d) && printf '>probe\\nMAIVMGR\\n' > \"$tmp/probe.faa\" && interproscan.sh --input \"$tmp/probe.faa\" --datadir {path:q} --output-dir \"$tmp\" --formats TSV --disable-precalc >/dev/null",
-        },
-    },
-    "minimap2": {
-        "type": "sequence_index",
-        "label": "minimap2",
-        "icon": "index",
-        "pathKind": "file",
-        "description": "minimap2 reference FASTA or .mmi index",
-        "pathHint": "~/.h2ometa/databases/minimap2/reference.mmi",
-        "anyPatterns": ["*.mmi", "*.fa", "*.fasta", "*.fna"],
-        "toolProbe": {
-            "packageSpec": "bioconda::minimap2",
-            "commandTemplate": "minimap2 {path:q} /dev/null >/dev/null",
-        },
-    },
-    "star": {
-        "type": "sequence_index",
-        "label": "STAR",
-        "icon": "index",
-        "pathKind": "directory",
-        "description": "STAR genome index",
-        "pathHint": "~/.h2ometa/databases/star/hg38",
-        "requiredFiles": ["Genome", "SA", "SAindex"],
-        "toolProbe": {
-            "packageSpec": "bioconda::star",
-            "commandTemplate": "STAR --genomeDir {path:q} --genomeLoad NoSharedMemory --runMode alignReads --readFilesIn /dev/null --outFileNamePrefix /tmp/h2ometa-star-probe- >/dev/null",
-        },
-    },
-    "hisat2": {
-        "type": "sequence_index",
-        "label": "HISAT2",
-        "icon": "index",
-        "pathKind": "prefix",
-        "description": "HISAT2 genome index",
-        "pathHint": "~/.h2ometa/databases/hisat2/hg38",
-        "prefixPatternSets": [
-            [".1.ht2", ".2.ht2", ".3.ht2", ".4.ht2", ".5.ht2", ".6.ht2", ".7.ht2", ".8.ht2"],
-            [".1.ht2l", ".2.ht2l", ".3.ht2l", ".4.ht2l", ".5.ht2l", ".6.ht2l", ".7.ht2l", ".8.ht2l"],
-        ],
-        "toolProbe": {
-            "packageSpec": "bioconda::hisat2",
-            "commandTemplate": "hisat2-inspect -s {prefix:q} >/dev/null",
-        },
-    },
-    "salmon": {
-        "type": "sequence_index",
-        "label": "Salmon",
-        "icon": "index",
-        "pathKind": "directory",
-        "description": "Salmon transcriptome index",
-        "pathHint": "~/.h2ometa/databases/salmon/transcriptome",
-        "anyFiles": ["versionInfo.json", "info.json"],
-        "toolProbe": {
-            "packageSpec": "bioconda::salmon",
-            "commandTemplate": "salmon inspect -i {path:q} >/dev/null",
-        },
-    },
-    "kallisto": {
-        "type": "sequence_index",
-        "label": "kallisto",
-        "icon": "index",
-        "pathKind": "file",
-        "description": "kallisto transcriptome index",
-        "pathHint": "~/.h2ometa/databases/kallisto/transcriptome.idx",
-        "anyPatterns": ["*.idx"],
-        "toolProbe": {
-            "packageSpec": "bioconda::kallisto",
-            "commandTemplate": "kallisto inspect {path:q} >/dev/null",
-        },
-    },
-    "silva_qiime": {
-        "type": "taxonomy",
-        "label": "SILVA / QIIME",
-        "icon": "taxonomy",
-        "pathKind": "file",
-        "description": "SILVA QIIME 2 classifier artifact",
-        "pathHint": "~/.h2ometa/databases/silva/classifier.qza",
-        "anyPatterns": ["*.qza"],
-        "toolProbe": {
-            "packageSpec": "qiime2::qiime2",
-            "commandTemplate": "qiime tools validate {path:q} >/dev/null",
-        },
-    },
-    "checkm": {
-        "type": "taxonomy",
-        "label": "CheckM2",
-        "icon": "taxonomy",
-        "pathKind": "file",
-        "description": "CheckM2 UniRef100 KO DIAMOND database",
-        "pathHint": "~/.h2ometa/databases/checkm2/CheckM2_database/uniref100.KO.1.dmnd",
-        "anyPatterns": ["uniref100.KO*.dmnd"],
-        "toolProbe": {
-            "packageSpec": "bioconda::checkm2",
-            "commandTemplate": "diamond dbinfo --db {path:q} >/dev/null && CHECKM2DB={path:q} checkm2 predict --help >/dev/null",
-        },
-    },
-    "ncbi_taxonomy": {
-        "type": "taxonomy",
-        "label": "NCBI taxonomy",
-        "icon": "taxonomy",
-        "pathKind": "directory",
-        "description": "NCBI taxdump taxonomy files",
-        "pathHint": "~/.h2ometa/databases/ncbi_taxonomy/taxdump",
-        "requiredFiles": ["nodes.dmp", "names.dmp"],
-        "toolProbe": {
-            "packageSpec": "bioconda::taxonkit",
-            "commandTemplate": "printf '1\\n' | taxonkit --data-dir {path:q} list >/dev/null",
-        },
-    },
-    "custom": {
-        "type": "reference",
-        "label": "Custom",
-        "icon": "custom",
-        "pathKind": "directory",
-        "description": "未内置模板的自定义库",
-        "pathHint": "~/.h2ometa/databases/custom/name",
-        "requiredFiles": [],
-    },
-}
-
-
-_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS reference_databases (
-    database_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    db_type TEXT NOT NULL,
-    version TEXT NOT NULL,
-    path TEXT NOT NULL,
-    description TEXT NOT NULL,
-    source TEXT NOT NULL,
-    manifest_path TEXT NOT NULL,
-    size_bytes INTEGER,
-    checksum TEXT NOT NULL,
-    metadata_json TEXT NOT NULL,
-    status TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    last_checked_at TEXT
-);
-"""
-
-
-def list_database_templates() -> list[dict[str, Any]]:
-    return [
-        {
-            "id": template_id,
-            "name": str(template.get("label") or template_id),
-            "type": str(template.get("type") or "reference"),
-            "icon": str(template.get("icon") or "custom"),
-            "pathKind": str(template.get("pathKind") or "directory"),
-            "selectorKind": str(template.get("pathKind") or "directory"),
-            "selector": {
-                "kind": str(template.get("pathKind") or "directory"),
-                "hint": str(template.get("pathHint") or ""),
-            },
-            "description": str(template.get("description") or ""),
-            "pathHint": str(template.get("pathHint") or ""),
-            "expectedFiles": _template_expected_files(template),
-            "toolProbe": dict(template.get("toolProbe") or {}),
-        }
-        for template_id, template in DATABASE_TEMPLATES.items()
-    ]
-
+_DATABASE_REGISTRY_LOCK = threading.Lock()
 
 def list_reference_databases(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
     with get_connection(cfg) as connection:
@@ -431,7 +26,6 @@ def list_reference_databases(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
 
-
 def fetch_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[str, Any] | None:
     with get_connection(cfg) as connection:
         _ensure_schema(connection)
@@ -440,7 +34,6 @@ def fetch_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
             (database_id,),
         ).fetchone()
     return _row_to_dict(row) if row is not None else None
-
 
 def add_reference_database(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
     item = _normalize_payload(payload)
@@ -496,6 +89,65 @@ def add_reference_database(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> 
     return saved
 
 
+def add_verified_reference_database(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
+    payload = _resolve_candidate_payload(payload)
+    normalized = _normalize_payload(payload)
+    if not str((normalized.get("metadata") or {}).get("templateId") or "").strip():
+        raise DatabaseRegistryError("DATABASE_TEMPLATE_REQUIRED")
+    with _DATABASE_REGISTRY_LOCK:
+        existing = fetch_reference_database(cfg, normalized["id"])
+        saved = add_reference_database(cfg, payload)
+        try:
+            checked = check_reference_database(cfg, saved["id"])
+        except DatabaseRegistryError:
+            if existing is not None:
+                add_reference_database(cfg, existing)
+            else:
+                remove_reference_database(cfg, saved["id"])
+            raise
+        if checked["status"] != "available":
+            if existing is not None:
+                add_reference_database(cfg, existing)
+            else:
+                remove_reference_database(cfg, saved["id"])
+            detail = str(checked.get("message") or checked.get("status") or "Database validation failed.")
+            raise DatabaseRegistryError(detail)
+        return checked
+
+
+def update_reference_database(cfg: RemoteRunnerConfig, database_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = str(database_id or "").strip()
+    if not normalized:
+        raise DatabaseRegistryError("DATABASE_ID_REQUIRED")
+    unsupported = set(payload) - {"name", "version", "description"}
+    if unsupported:
+        raise DatabaseRegistryError(f"DATABASE_FIELD_UNSUPPORTED: {sorted(unsupported)[0]}")
+    existing = fetch_reference_database(cfg, normalized)
+    if existing is None:
+        raise DatabaseRegistryError("DATABASE_NOT_FOUND")
+    next_name = str(payload.get("name") if payload.get("name") is not None else existing["name"]).strip()
+    if not next_name:
+        raise DatabaseRegistryError("DATABASE_NAME_REQUIRED")
+    next_version = str(payload.get("version") if payload.get("version") is not None else existing["version"]).strip()
+    next_description = str(payload.get("description") if payload.get("description") is not None else existing["description"])
+    now = now_iso()
+    with get_connection(cfg) as connection:
+        _ensure_schema(connection)
+        connection.execute(
+            """
+            UPDATE reference_databases
+            SET name = ?, version = ?, description = ?, updated_at = ?
+            WHERE database_id = ?
+            """,
+            (next_name, next_version, next_description, now, normalized),
+        )
+        connection.commit()
+    updated = fetch_reference_database(cfg, normalized)
+    if updated is None:
+        raise DatabaseRegistryError("DATABASE_NOT_FOUND")
+    return updated
+
+
 def remove_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> None:
     normalized = str(database_id or "").strip()
     if not normalized:
@@ -522,6 +174,57 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
     template_id = str(metadata.get("templateId") or "").strip().lower()
     template = DATABASE_TEMPLATES.get(template_id)
     path_kind = str((template or {}).get("pathKind") or "directory")
+    if path_kind == "composite":
+        composite_input = _composite_input_metadata(metadata, template or {}, str(item.get("path") or ""))
+        composite_resolved = _composite_resolved_metadata(composite_input, template or {})
+        composite_error = _validate_composite_resolved(composite_resolved, template or {})
+        if composite_error:
+            return _update_status(cfg, normalized, "missing", composite_error)
+        metadata["input"] = composite_input
+        metadata["resolved"] = composite_resolved
+        metadata["inputPath"] = str(item.get("path") or "")
+        metadata["entryPath"] = ""
+        metadata["pathMode"] = path_kind
+        metadata["resolvedPath"] = {"kind": path_kind, "path": str(item.get("path") or ""), "entries": composite_resolved}
+        if template is not None:
+            command = _render_composite_tool_probe_command(template, composite_resolved)
+            if command:
+                try:
+                    command = database_validation.prepare_tool_probe_command(cfg, template_id, template, command)
+                except RuntimeError as exc:
+                    metadata.setdefault("validation", {})["toolProbe"] = {
+                        "ok": False,
+                        "command": command,
+                        "returncode": 127,
+                        "stdout": "",
+                        "stderr": str(exc),
+                    }
+                    return _update_status(
+                        cfg,
+                        normalized,
+                        "failed",
+                        f"Tool probe failed for database template {template_id}: {exc}",
+                        metadata=metadata,
+                    )
+                probe = dict(template.get("toolProbe") or {})
+                result = database_validation.run_tool_probe(command, timeout=int(probe.get("timeoutSeconds") or 60))
+                metadata.setdefault("validation", {})["toolProbe"] = database_validation.probe_metadata(result)
+                if not result.ok:
+                    detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+                    return _update_status(
+                        cfg,
+                        normalized,
+                        "failed",
+                        f"Tool probe failed for database template {template_id}: {detail}",
+                        metadata=metadata,
+                    )
+        return _update_status(
+            cfg,
+            normalized,
+            "available",
+            "Composite database fields are available on the remote runner.",
+            metadata=metadata,
+        )
     if path_kind == "prefix":
         if not data_path.parent.exists():
             return _update_status(cfg, normalized, "missing", f"Database prefix parent does not exist: {data_path.parent}")
@@ -532,10 +235,23 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
     if data_path.is_dir() and not any(data_path.iterdir()):
         return _update_status(cfg, normalized, "missing", f"Database directory is empty: {data_path}")
     resolved = database_validation.resolve_template_path(data_path, template or {})
+    selected_candidate = metadata.get("resolvedCandidate") if isinstance(metadata.get("resolvedCandidate"), dict) else None
+    if selected_candidate:
+        candidate_entry = str(selected_candidate.get("entryPath") or "").strip()
+        if candidate_entry:
+            resolved = {"kind": path_kind, "path": str(data_path)}
+            if path_kind == "prefix":
+                resolved["prefix"] = candidate_entry
+            else:
+                resolved["path"] = candidate_entry
+                resolved["firstMatch"] = candidate_entry
     template_error = database_validation.validate_template_files(data_path, item, template, resolved=resolved)
     if template_error:
         return _update_status(cfg, normalized, "missing", template_error)
     if template is not None:
+        if template_id == "bracken":
+            metadata["availableReadLengths"] = database_validation.bracken_read_lengths(data_path)
+            resolved.pop("firstMatch", None)
         metadata["resolvedPath"] = resolved
         probe = dict(template.get("toolProbe") or {})
         command = database_validation.render_tool_probe_command(template, data_path, resolved)
@@ -568,6 +284,18 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
                     f"Tool probe failed for database template {template_id}: {detail}",
                     metadata=metadata,
                 )
+    metadata["inputPath"] = str(metadata.get("inputPath") or data_path)
+    metadata["entryPath"] = compute_database_entry_path(
+        {
+            **item,
+            "path": str(data_path),
+            "metadata": metadata,
+        }
+    )
+    metadata["pathMode"] = path_kind
+    metadata["resolvedPath"] = dict(metadata.get("resolvedPath") or {})
+    metadata["input"] = database_input_metadata(metadata["inputPath"])
+    metadata["resolved"] = database_resolved_metadata(metadata["entryPath"])
     return _update_status(
         cfg,
         normalized,
@@ -580,6 +308,8 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
 def resolve_run_databases(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
     requested = run_spec.get("databases")
     if requested is None:
+        if "database" in run_spec:
+            raise ValueError("DATABASES_FIELD_REQUIRED")
         return {}
     entries = requested if isinstance(requested, list) else [requested]
     resolved: dict[str, dict[str, Any]] = {}
@@ -592,8 +322,9 @@ def resolve_run_databases(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> 
         database = fetch_reference_database(cfg, database_id)
         if database is None:
             raise ValueError("DATABASE_NOT_FOUND")
-        if str((database.get("metadata") or {}).get("templateId") or "").strip():
-            database = check_reference_database(cfg, database_id)
+        if not str((database.get("metadata") or {}).get("templateId") or "").strip():
+            raise ValueError("DATABASE_TEMPLATE_REQUIRED")
+        database = check_reference_database(cfg, database_id)
         role = str(entry.get("role") or entry.get("name") or database.get("type") or f"database_{index + 1}").strip()
         if not role:
             raise ValueError("DATABASE_ROLE_REQUIRED")
@@ -605,22 +336,49 @@ def resolve_run_databases(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> 
         template = DATABASE_TEMPLATES.get(template_id)
         metadata = dict(database.get("metadata") or {})
         resolved_path = dict(metadata.get("resolvedPath") or {})
-        if str((template or {}).get("pathKind") or "") == "prefix":
+        if str((template or {}).get("pathKind") or "") == "composite":
+            composite_error = _validate_composite_resolved(
+                _composite_resolved_metadata(_composite_input_metadata(metadata, template or {}, str(database.get("path") or "")), template or {}),
+                template or {},
+            )
+            if composite_error:
+                raise ValueError("DATABASE_PATH_MISSING")
+        elif str((template or {}).get("pathKind") or "") == "prefix":
             prefix_path = Path(str(resolved_path.get("prefix") or data_path))
             if database_validation.prefix_structure_error(prefix_path, template or {}):
                 raise ValueError("DATABASE_PATH_MISSING")
+        elif str((template or {}).get("pathKind") or "") == "primary_with_sidecars":
+            entry_path = Path(str(resolved_path.get("path") or data_path))
+            if database_validation.primary_with_sidecars_structure_error(entry_path, template or {}):
+                raise ValueError("DATABASE_PATH_MISSING")
         elif not data_path.exists():
             raise ValueError("DATABASE_PATH_MISSING")
-        injected_path = str(resolved_path.get("prefix") or database["path"])
-        if injected_path != database["path"]:
-            metadata.setdefault("selectedPath", database["path"])
+        input_path = str(database.get("inputPath") or database["path"])
+        entry_path = compute_database_entry_path(database)
+        path_mode = str(database.get("pathMode") or (template or {}).get("pathKind") or metadata.get("pathMode") or "directory")
+        metadata["inputPath"] = input_path
+        metadata["entryPath"] = entry_path
+        metadata["pathMode"] = path_mode
+        metadata["resolvedPath"] = resolved_path
+        if path_mode == "composite":
+            metadata["input"] = _composite_input_metadata(metadata, template or {}, str(database.get("path") or ""))
+            metadata["resolved"] = _composite_resolved_metadata(metadata["input"], template or {})
+        else:
+            metadata["input"] = database_input_metadata(input_path)
+            metadata["resolved"] = database_resolved_metadata(entry_path)
         resolved[role] = {
             "id": database["id"],
             "name": database["name"],
             "type": database["type"],
             "templateId": str((database.get("metadata") or {}).get("templateId") or ""),
             "version": database["version"],
-            "path": injected_path,
+            "path": entry_path,
+            "inputPath": input_path,
+            "entryPath": entry_path,
+            "pathMode": path_mode,
+            "resolvedPath": resolved_path,
+            "input": metadata["input"],
+            "resolved": metadata["resolved"],
             "manifestPath": database["manifestPath"],
             "checksum": database["checksum"],
             "metadata": metadata,
@@ -628,28 +386,172 @@ def resolve_run_databases(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> 
     return resolved
 
 
+def compute_database_entry_path(database: dict[str, Any]) -> str:
+    metadata = dict(database.get("metadata") or {})
+    if str(metadata.get("pathMode") or "") == "composite":
+        return str(metadata.get("entryPath") or "")
+    resolved = metadata.get("resolved")
+    if isinstance(resolved, dict) and len(resolved) == 1:
+        return str(next(iter(resolved.values())))
+    resolved_path = dict(metadata.get("resolvedPath") or {})
+    return str(resolved_path.get("prefix") or resolved_path.get("path") or metadata.get("entryPath") or database.get("path") or "")
+
+
+def database_input_metadata(path: str) -> dict[str, str]:
+    return {"kind": "single", "path": str(path or "")}
+
+
+def database_resolved_metadata(path: str) -> dict[str, str]:
+    return {"default": str(path or "")}
+
+
+def database_resolved_values(database: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(database.get("metadata") or {})
+    resolved = metadata.get("resolved")
+    if isinstance(resolved, dict) and resolved:
+        return dict(resolved)
+    top_level_resolved = database.get("resolved")
+    if isinstance(top_level_resolved, dict) and top_level_resolved:
+        return dict(top_level_resolved)
+    return {}
+
+
+def database_resolved_config_value(database: dict[str, Any]) -> Any:
+    resolved = database_resolved_values(database)
+    path_mode = str(database.get("pathMode") or (database.get("metadata") or {}).get("pathMode") or "")
+    if path_mode == "composite":
+        return resolved
+    if len(resolved) == 1:
+        return next(iter(resolved.values()))
+    if resolved:
+        return resolved
+    return compute_database_entry_path(database)
+
+
+def _composite_input_metadata(metadata: dict[str, Any], template: dict[str, Any], fallback_path: str = "") -> dict[str, Any]:
+    raw_input = metadata.get("input") if isinstance(metadata.get("input"), dict) else {}
+    fields = raw_input.get("fields") if isinstance(raw_input.get("fields"), dict) else {}
+    normalized = {str(key): str(value) for key, value in fields.items()}
+    field_specs = template.get("fields") if isinstance(template.get("fields"), dict) else {}
+    if not normalized and fallback_path and len(field_specs) == 1:
+        only_key = next(iter(field_specs))
+        normalized[str(only_key)] = str(fallback_path)
+    elif not normalized and fallback_path:
+        root = Path(fallback_path)
+        for field_key, field_spec in field_specs.items():
+            spec = field_spec if isinstance(field_spec, dict) else {}
+            hint_name = Path(str(spec.get("pathHint") or "")).name
+            child_name = hint_name if hint_name else str(field_key)
+            normalized[str(field_key)] = str(root / child_name)
+    return {"kind": "multi", "fields": normalized}
+
+
+def _composite_resolved_metadata(raw_input: dict[str, Any], template: dict[str, Any]) -> dict[str, str]:
+    input_fields = raw_input.get("fields") if isinstance(raw_input.get("fields"), dict) else {}
+    resolved: dict[str, str] = {}
+    field_specs = template.get("fields") if isinstance(template.get("fields"), dict) else {}
+    for field_key, field_spec in field_specs.items():
+        value = str(input_fields.get(str(field_key)) or "").strip()
+        if not value:
+            continue
+        resolved_value = _resolve_composite_field_value(Path(value), field_spec if isinstance(field_spec, dict) else {})
+        if resolved_value:
+            resolved[str(field_key)] = resolved_value
+    return resolved
+
+
+def _validate_composite_resolved(resolved: dict[str, str], template: dict[str, Any]) -> str:
+    field_specs = template.get("fields") if isinstance(template.get("fields"), dict) else {}
+    if not field_specs:
+        return "Composite database template must define fields."
+    for field_key, field_spec in field_specs.items():
+        key = str(field_key)
+        spec = field_spec if isinstance(field_spec, dict) else {}
+        value = str(resolved.get(key) or "").strip()
+        if not value:
+            if bool(spec.get("required", True)):
+                return f"Composite database field is required: {key}"
+            continue
+        path = Path(value)
+        field_kind = str(spec.get("pathKind") or "directory")
+        if field_kind == "directory" and not path.is_dir():
+            return f"Composite database field {key} requires a directory: {path}"
+        if field_kind == "file" and not path.is_file():
+            return f"Composite database field {key} requires a file: {path}"
+        validation = spec.get("validation") if isinstance(spec.get("validation"), dict) else {}
+        required_name = str(validation.get("requiredFileName") or "").strip()
+        if required_name and path.name != required_name:
+            return f"Composite database field {key} requires file named {required_name}: {path}"
+        min_size = validation.get("minSizeBytes")
+        if min_size is not None and path.is_file() and path.stat().st_size < int(min_size):
+            return f"Composite database field {key} is smaller than required: {path}"
+        required_globs = [str(pattern) for pattern in validation.get("requiredGlobs") or [] if str(pattern).strip()]
+        for pattern in required_globs:
+            if field_kind == "directory" and not any(path.glob(pattern)):
+                return f"Composite database field {key} requires a file matching {pattern} in {path}"
+            if field_kind == "file" and not path.match(pattern):
+                return f"Composite database field {key} requires a file matching {pattern}: {path}"
+    return ""
+
+
+def _resolve_composite_field_value(path: Path, spec: dict[str, Any]) -> str:
+    field_kind = str(spec.get("pathKind") or "directory")
+    resolve = spec.get("resolve") if isinstance(spec.get("resolve"), dict) else {}
+    if field_kind == "file" and path.is_dir() and str(resolve.get("strategy") or "") == "find_named_file":
+        filename = str(resolve.get("fileName") or "").strip()
+        if filename:
+            return str(path / filename)
+    return str(path)
+
+
+def _render_composite_tool_probe_command(template: dict[str, Any], resolved: dict[str, str]) -> str:
+    probe = dict(template.get("toolProbe") or {})
+    command = str(probe.get("commandTemplate") or "").strip()
+    if not command:
+        return ""
+    for key, value in resolved.items():
+        command = command.replace(f"{{{key}}}", value)
+        command = command.replace(f"{{{key}:q}}", shlex.quote(value))
+    return command
+
+
 def _ensure_schema(connection) -> None:
-    connection.executescript(_SCHEMA_SQL)
+    connection.executescript(REFERENCE_DATABASE_SCHEMA_SQL)
 
 
 def _row_to_dict(row) -> dict[str, Any]:
+    metadata = json.loads(row["metadata_json"] or "{}")
+    item = {
+        "id": row["database_id"], "name": row["name"], "type": row["db_type"], "version": row["version"],
+        "path": row["path"], "description": row["description"], "source": row["source"],
+        "manifestPath": row["manifest_path"], "sizeBytes": row["size_bytes"], "checksum": row["checksum"],
+        "metadata": metadata, "status": row["status"], "message": row["message"],
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"], "lastCheckedAt": row["last_checked_at"],
+    }
+    return _with_database_path_semantics(item)
+
+
+def _with_database_path_semantics(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(item.get("metadata") or {})
+    template_id = str(metadata.get("templateId") or "").strip().lower()
+    template = DATABASE_TEMPLATES.get(template_id)
+    path_mode = str(metadata.get("pathMode") or (template or {}).get("pathKind") or "directory")
+    resolved_path = dict(metadata.get("resolvedPath") or {})
+    input_path = str(metadata.get("inputPath") or item.get("path") or "")
+    if path_mode == "composite":
+        entry_path = str(metadata.get("entryPath") or "")
+    else:
+        entry_path = str(metadata.get("entryPath") or compute_database_entry_path({**item, "metadata": metadata}))
+    input_metadata = metadata.get("input") if isinstance(metadata.get("input"), dict) else database_input_metadata(input_path)
+    resolved_metadata = metadata.get("resolved") if isinstance(metadata.get("resolved"), dict) else database_resolved_metadata(entry_path)
     return {
-        "id": row["database_id"],
-        "name": row["name"],
-        "type": row["db_type"],
-        "version": row["version"],
-        "path": row["path"],
-        "description": row["description"],
-        "source": row["source"],
-        "manifestPath": row["manifest_path"],
-        "sizeBytes": row["size_bytes"],
-        "checksum": row["checksum"],
-        "metadata": json.loads(row["metadata_json"] or "{}"),
-        "status": row["status"],
-        "message": row["message"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-        "lastCheckedAt": row["last_checked_at"],
+        **item,
+        "inputPath": input_path,
+        "entryPath": entry_path,
+        "pathMode": path_mode,
+        "resolvedPath": resolved_path,
+        "input": input_metadata,
+        "resolved": resolved_metadata,
     }
 
 
@@ -674,19 +576,11 @@ def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = str(payload.get("version") or "").strip()
     database_id = str(payload.get("id") or "").strip() or _default_id(name=name, version=version, db_type=db_type)
     return {
-        "id": database_id,
-        "name": name,
-        "type": db_type,
-        "version": version,
-        "path": data_path,
-        "description": str(payload.get("description") or ""),
-        "source": str(payload.get("source") or "manual"),
-        "manifestPath": str(payload.get("manifestPath") or ""),
-        "sizeBytes": payload.get("sizeBytes"),
-        "checksum": str(payload.get("checksum") or ""),
-        "metadata": metadata,
-        "status": str(payload.get("status") or "declared"),
-        "message": str(payload.get("message") or "Database declared."),
+        "id": database_id, "name": name, "type": db_type, "version": version, "path": data_path,
+        "description": str(payload.get("description") or ""), "source": str(payload.get("source") or "manual"),
+        "manifestPath": str(payload.get("manifestPath") or ""), "sizeBytes": payload.get("sizeBytes"),
+        "checksum": str(payload.get("checksum") or ""), "metadata": metadata,
+        "status": str(payload.get("status") or "declared"), "message": str(payload.get("message") or "Database declared."),
     }
 
 
@@ -701,22 +595,15 @@ def _update_status(
     checked_at = now_iso()
     with get_connection(cfg) as connection:
         _ensure_schema(connection)
+        values = (status, message, checked_at, checked_at, database_id)
         if metadata is None:
             cursor = connection.execute(
-                """
-                UPDATE reference_databases
-                SET status = ?, message = ?, updated_at = ?, last_checked_at = ?
-                WHERE database_id = ?
-                """,
-                (status, message, checked_at, checked_at, database_id),
+                "UPDATE reference_databases SET status = ?, message = ?, updated_at = ?, last_checked_at = ? WHERE database_id = ?",
+                values,
             )
         else:
             cursor = connection.execute(
-                """
-                UPDATE reference_databases
-                SET status = ?, message = ?, metadata_json = ?, updated_at = ?, last_checked_at = ?
-                WHERE database_id = ?
-                """,
+                "UPDATE reference_databases SET status = ?, message = ?, metadata_json = ?, updated_at = ?, last_checked_at = ? WHERE database_id = ?",
                 (status, message, json.dumps(metadata, ensure_ascii=False), checked_at, checked_at, database_id),
             )
         connection.commit()
@@ -733,17 +620,118 @@ def _default_id(*, name: str, version: str, db_type: str) -> str:
     return "".join(char.lower() if char.isalnum() else "-" for char in raw).strip("-") or "database"
 
 
-def _template_expected_files(template: dict[str, Any]) -> list[str]:
-    values: list[str] = []
-    values.extend(str(item) for item in template.get("requiredFiles", []) if str(item).strip())
-    values.extend(str(item) for item in template.get("requiredPatterns", []) if str(item).strip())
-    values.extend(str(item) for item in template.get("anyPatterns", []) if str(item).strip())
-    values.extend(str(item) for item in template.get("anyIndexPatterns", []) if str(item).strip())
-    values.extend(str(item) for item in template.get("anyFiles", []) if str(item).strip())
-    for pattern_set in template.get("prefixPatternSets", []):
-        values.append("prefix" + " + prefix".join(str(item) for item in pattern_set if str(item).strip()))
-    values.extend(str(item) for item in template.get("prefixAliasPatterns", []) if str(item).strip())
-    values.extend(str(item) for item in template.get("companionSuffixes", []) if str(item).strip())
-    for pattern_set in template.get("anyPatternSets", []):
-        values.append(" / ".join(str(item) for item in pattern_set if str(item).strip()))
-    return values
+def _resolve_candidate_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    template_id = str(payload.get("templateId") or (payload.get("metadata") or {}).get("templateId") or "").strip().lower()
+    template = DATABASE_TEMPLATES.get(template_id)
+    if template is None:
+        return payload
+    selected_entry = str(payload.get("selectedEntryPath") or (payload.get("metadata") or {}).get("selectedEntryPath") or "").strip()
+    input_path = str(payload.get("path") or "").strip()
+    if not input_path:
+        return payload
+    data_path = Path(input_path)
+    path_kind = str(template.get("pathKind") or "directory")
+    candidates = _candidate_entries(data_path, template_id, template)
+    if selected_entry:
+        candidate = next((item for item in candidates if item["entryPath"] == selected_entry), None)
+        if candidate is None:
+            raise DatabaseRegistryError("DATABASE_CANDIDATE_NOT_FOUND")
+        return _payload_with_candidate(payload, candidate)
+    if len(candidates) == 1:
+        return _payload_with_candidate(payload, candidates[0])
+    if len(candidates) > 1:
+        detail = {
+            "status": "multiple_candidates",
+            "message": f"检测到多个 {template.get('label') or template_id} 数据库入口，请选择一个。",
+            "templateId": template_id,
+            "pathKind": path_kind,
+            "inputPath": input_path,
+            "candidates": candidates,
+        }
+        raise DatabaseRegistryError(f"DATABASE_CANDIDATES:{json.dumps(detail, ensure_ascii=False)}")
+    return payload
+
+
+def _payload_with_candidate(payload: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(payload.get("metadata") or {})
+    metadata["inputPath"] = candidate["inputPath"]
+    metadata["entryPath"] = candidate["entryPath"]
+    metadata["resolvedCandidate"] = candidate
+    return {
+        **payload,
+        "metadata": metadata,
+    }
+
+
+def _candidate_entries(data_path: Path, template_id: str, template: dict[str, Any]) -> list[dict[str, Any]]:
+    path_kind = str(template.get("pathKind") or "directory")
+    if path_kind == "directory":
+        return [_candidate(data_path, input_path=data_path, path_kind=path_kind, template_id=template_id, evidence=list(template.get("requiredFiles") or []))]
+    if path_kind == "prefix":
+        return _prefix_candidates(data_path, template_id, template)
+    if path_kind == "file":
+        return _file_candidates(data_path, template_id, template)
+    if path_kind == "primary_with_sidecars":
+        return _primary_with_sidecar_candidates(data_path, template_id, template)
+    return []
+
+
+def _candidate(entry_path: Path, *, input_path: Path, path_kind: str, template_id: str, evidence: list[str]) -> dict[str, Any]:
+    return {
+        "label": entry_path.name or str(entry_path),
+        "entryPath": str(entry_path),
+        "inputPath": str(input_path),
+        "pathKind": path_kind,
+        "templateId": template_id,
+        "evidence": evidence,
+    }
+
+
+def _prefix_candidates(data_path: Path, template_id: str, template: dict[str, Any]) -> list[dict[str, Any]]:
+    if data_path.is_dir():
+        prefixes = database_validation.prefix_alias_prefixes_in_directory(data_path, template)
+        if not prefixes:
+            prefixes = database_validation.complete_prefixes_in_directory(data_path, template)
+        candidates = []
+        for prefix in prefixes:
+            evidence = _prefix_evidence(prefix, template)
+            candidates.append(_candidate(prefix, input_path=data_path, path_kind="prefix", template_id=template_id, evidence=evidence))
+        return candidates
+    prefix = database_validation.resolve_prefix_path(data_path, template)
+    if database_validation.prefix_structure_error(prefix, template):
+        return []
+    return [_candidate(prefix, input_path=data_path, path_kind="prefix", template_id=template_id, evidence=_prefix_evidence(prefix, template))]
+
+
+def _prefix_evidence(prefix: Path, template: dict[str, Any]) -> list[str]:
+    for pattern in template.get("prefixAliasPatterns") or []:
+        pattern_text = str(pattern)
+        if not pattern_text.startswith("*"):
+            continue
+        alias_path = Path(str(prefix) + pattern_text[1:])
+        if alias_path.exists():
+            return [alias_path.name]
+    for pattern_set in template.get("prefixPatternSets") or []:
+        paths = [Path(str(prefix) + str(suffix)) for suffix in pattern_set]
+        if all(path.exists() for path in paths):
+            return [path.name for path in paths]
+    return []
+
+
+def _file_candidates(data_path: Path, template_id: str, template: dict[str, Any]) -> list[dict[str, Any]]:
+    paths = database_validation.template_file_matches(data_path, template) if data_path.is_dir() else [data_path]
+    candidates = []
+    for path in paths:
+        if path.is_file() and not database_validation.validate_template_file_path(path, template_id, template):
+            candidates.append(_candidate(path, input_path=data_path, path_kind="file", template_id=template_id, evidence=[path.name]))
+    return candidates
+
+
+def _primary_with_sidecar_candidates(data_path: Path, template_id: str, template: dict[str, Any]) -> list[dict[str, Any]]:
+    paths = database_validation.template_file_matches(data_path, template) if data_path.is_dir() else [data_path]
+    candidates = []
+    for path in paths:
+        if path.is_file() and not database_validation.primary_with_sidecars_structure_error(path, template):
+            evidence = [path.name, *[path.name + str(suffix) for suffix in template.get("indexSuffixes", [])]]
+            candidates.append(_candidate(path, input_path=data_path, path_kind="primary_with_sidecars", template_id=template_id, evidence=evidence))
+    return candidates
