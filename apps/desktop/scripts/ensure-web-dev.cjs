@@ -4,10 +4,35 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const HOST = "127.0.0.1";
-const PORT = 3100;
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = 3765;
 const WEB_DIR = path.resolve(__dirname, "../../web");
 const VERSION_PATH = path.join(WEB_DIR, "public", "app-version.json");
+const NEXT_BIN = path.join(
+  WEB_DIR,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "next.cmd" : "next"
+);
+const WEB_HOST =
+  (process.env.H2OMETA_WEB_HOST || process.env.WEB_HOST || DEFAULT_HOST).trim() ||
+  DEFAULT_HOST;
+const WEB_PORT = Number.parseInt(
+  process.env.H2OMETA_WEB_PORT || process.env.WEB_PORT || String(DEFAULT_PORT),
+  10
+);
+
+if (!Number.isInteger(WEB_PORT) || WEB_PORT < 1 || WEB_PORT > 65535) {
+  throw new Error(
+    `Invalid web port: ${
+      process.env.H2OMETA_WEB_PORT || process.env.WEB_PORT || String(DEFAULT_PORT)
+    }`
+  );
+}
+
+function quoteCmdArg(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
 
 function isPortOpen(host, port, timeoutMs = 800) {
   return new Promise((resolve) => {
@@ -36,8 +61,8 @@ function fetchRunningBuildId() {
   return new Promise((resolve, reject) => {
     const request = http.get(
       {
-        host: HOST,
-        port: PORT,
+        host: WEB_HOST,
+        port: WEB_PORT,
         path: "/app-version.json",
         timeout: 1200,
       },
@@ -66,27 +91,47 @@ function fetchRunningBuildId() {
 
 async function main() {
   const expectedBuildId = readExpectedBuildId();
-  if (await isPortOpen(HOST, PORT)) {
+  if (await isPortOpen(WEB_HOST, WEB_PORT)) {
     const runningBuildId = await fetchRunningBuildId().catch(() => "");
     if (runningBuildId === expectedBuildId) {
-      console.log(`[ensure-web-dev] Reusing existing web dev server on http://${HOST}:${PORT}`);
+      console.log(
+        `[ensure-web-dev] Reusing existing web dev server on http://${WEB_HOST}:${WEB_PORT}`
+      );
       return;
     }
     throw new Error(
-      `stale web dev server detected on http://${HOST}:${PORT}; expected build ${expectedBuildId}, got ${runningBuildId || "<unknown>"}. Stop the old server before launching desktop dev.`
+      `stale web dev server detected on http://${WEB_HOST}:${WEB_PORT}; expected build ${expectedBuildId}, got ${runningBuildId || "<unknown>"}. Stop the old server before launching desktop dev.`
     );
   }
 
-  console.log(`[ensure-web-dev] Starting web dev server on http://${HOST}:${PORT}`);
+  console.log(
+    `[ensure-web-dev] Starting web dev server on http://${WEB_HOST}:${WEB_PORT}`
+  );
+
+  if (!fs.existsSync(NEXT_BIN)) {
+    throw new Error(`Next binary not found: ${NEXT_BIN}`);
+  }
+
+  const args = ["dev", "--hostname", WEB_HOST, "--port", String(WEB_PORT)];
 
   const child =
     process.platform === "win32"
-      ? spawn("cmd.exe", ["/d", "/c", "npm run dev"], {
-          cwd: WEB_DIR,
-          stdio: "inherit",
-          shell: false,
-        })
-      : spawn("npm", ["run", "dev"], {
+      ? spawn(
+          process.env.ComSpec || "cmd.exe",
+          [
+            "/d",
+            "/s",
+            "/c",
+            ["call", quoteCmdArg(NEXT_BIN), ...args.map(quoteCmdArg)].join(" "),
+          ],
+          {
+            cwd: WEB_DIR,
+            stdio: "inherit",
+            shell: false,
+            windowsVerbatimArguments: true,
+          }
+        )
+      : spawn(NEXT_BIN, args, {
           cwd: WEB_DIR,
           stdio: "inherit",
           shell: false,
@@ -98,6 +143,11 @@ async function main() {
       return;
     }
     process.exit(code ?? 0);
+  });
+
+  child.on("error", (error) => {
+    console.error(`[ensure-web-dev] Failed to launch Next.js: ${error.message}`);
+    process.exit(1);
   });
 }
 

@@ -5,7 +5,7 @@
   "identifier": "com.h2ometa.desktop",
   "build": {
     "beforeDevCommand": "node ./scripts/ensure-web-dev.cjs",
-    "devUrl": "http://127.0.0.1:3100",
+    "devUrl": "http://127.0.0.1:3765",
     "beforeBuildCommand": "npm --prefix ../web run build",
     "frontendDist": "../../web/out"
   },
