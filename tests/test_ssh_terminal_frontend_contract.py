@@ -1,65 +1,96 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
-TERMINAL_HOOK = (
-    Path(__file__).resolve().parents[1]
-    / "apps"
-    / "web"
-    / "app"
-    / "components"
-    / "ssh-shell-terminal.ts"
-)
-XTERM_HOOK = (
-    Path(__file__).resolve().parents[1]
-    / "apps"
-    / "web"
-    / "app"
-    / "components"
-    / "ssh-shell-xterm.ts"
-)
+ROOT = Path(__file__).resolve().parents[1]
+COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
+
+CONTRACT_FILES = {
+    "terminal": COMPONENTS / "ssh-shell-terminal.ts",
+    "xterm": COMPONENTS / "ssh-shell-xterm.ts",
+}
 
 
-def test_terminal_resize_is_queued_until_stream_opens() -> None:
-    source = TERMINAL_HOOK.read_text(encoding="utf-8")
+def _source(name: str) -> str:
+    return CONTRACT_FILES[name].read_text(encoding="utf-8")
 
-    assert "pendingTerminalResizeRef" in source
-    assert "flushPendingTerminalResize" in source
-    assert "flushPendingTerminalResize();" in source
-    assert 'message.type === "resize"' in source
+
+def _assert_contains(source: str, *tokens: str) -> None:
+    for token in tokens:
+        assert token in source
+
+
+def _assert_not_contains(source: str, *tokens: str) -> None:
+    for token in tokens:
+        assert token not in source
+
+
+def _assert_matches(source: str, *patterns: str) -> None:
+    for pattern in patterns:
+        assert re.search(pattern, source, re.DOTALL), pattern
+
+
+def _between(source: str, start: str, end: str) -> str:
+    return source.split(start, 1)[1].split(end, 1)[0]
+
+
+def test_terminal_input_and_resize_are_queued_until_stream_opens() -> None:
+    source = _source("terminal")
+    on_open_body = _between(source, "onOpen: () => {", "},")
+
+    _assert_contains(
+        source,
+        "pendingTerminalResizeRef",
+        "pendingTerminalInputRef",
+        "flushPendingTerminalResize",
+        "flushPendingTerminalInput",
+        'message.type === "input"',
+        'message.type === "resize"',
+        'sendTerminalStreamMessage({ type: "input", data }, { queueInput: true })',
+        'sendTerminalStreamMessage({ type: "resize", cols, rows }, { queueResize: true })',
+    )
+    _assert_contains(on_open_body, "flushPendingTerminalResize();", "flushPendingTerminalInput();")
 
 
 def test_terminal_stream_error_event_does_not_directly_show_user_error() -> None:
-    source = TERMINAL_HOOK.read_text(encoding="utf-8")
+    source = _source("terminal")
 
-    assert 'onError: () => {' in source
-    on_error_body = source.split("onError: () => {", 1)[1].split("},", 1)[0]
-    assert "setTerminalMessage" not in on_error_body
+    on_error_body = _between(source, "onError: () => {", "},")
+    _assert_not_contains(on_error_body, "setTerminalMessage")
 
 
-def test_terminal_user_input_is_queued_while_stream_connects() -> None:
-    source = TERMINAL_HOOK.read_text(encoding="utf-8")
-    send_body = source.split("const sendTerminalStreamMessage = useCallback(", 1)[1].split(
-        "const queueTerminalInput = useCallback", 1
-    )[0]
+def test_terminal_session_uses_current_api_contract() -> None:
+    source = _source("terminal")
 
-    assert "pendingTerminalInputRef" in source
-    assert "flushPendingTerminalInput" in source
-    assert "setTerminalMessage" not in send_body
-    assert 'sendTerminalStreamMessage({ type: "input", data }, { queueInput: true })' in source
-    assert 'sendTerminalStreamMessage({ type: "resize", cols, rows }, { queueResize: true })' in source
+    _assert_contains(
+        source,
+        "refreshStatus({ silent: true })",
+        "TERMINAL_RECONNECT_DELAY_MS",
+    )
+    _assert_matches(
+        source,
+        r'requestLocalApiJson\(\s*"POST",\s*"/api/v1/ssh/terminal/sessions"',
+        r'requestLocalApiJson\(\s*"DELETE",\s*`/api/v1/ssh/terminal/sessions/\$\{activeSessionId\}`',
+        r"connectTerminalStream\(\s*snapshot\.session_id,\s*snapshot\.cursor\s*\|\|\s*0\s*\)",
+    )
+    send_body = _between(source, "const sendTerminalStreamMessage = useCallback(", "const queueTerminalInput = useCallback")
+    _assert_not_contains(send_body, "setTerminalMessage")
 
 
 def test_terminal_filters_xterm_mode_query_auto_replies() -> None:
-    source = XTERM_HOOK.read_text(encoding="utf-8")
+    source = _source("xterm")
 
-    assert "createTerminalAutoReplyFilter" in source
-    assert 'let pending = "";' in source
-    assert "pending = input.slice(index)" in source
-    assert "isCsiFinalByte" in source
-    assert "findOscTerminator" in source
-    assert r"\u001b\[\d+;\d+R" in source
-    assert r"\u001b\[\??[0-9;]*\$y" in source
-    assert "terminalAutoReplyFilterRef.current(data)" in source
-    assert "onInput(filtered)" in source
+    _assert_contains(
+        source,
+        "createTerminalAutoReplyFilter",
+        'let pending = "";',
+        "pending = input.slice(index)",
+        "isCsiFinalByte",
+        "findOscTerminator",
+        r"\u001b\[\d+;\d+R",
+        r"\u001b\[\??[0-9;]*\$y",
+        "terminalAutoReplyFilterRef.current(data)",
+        "onInput(filtered)",
+    )
