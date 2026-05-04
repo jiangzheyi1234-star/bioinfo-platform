@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database, check_reference_database, list_database_templates
 from tests.helpers.reference_database import (
-    make_remote_runner_config,
+    make_configured_remote_runner,
     patch_tool_probe_success as _patch_tool_probe_success,
 )
 
 
 def _cfg(tmp_path: Path):
-    return make_remote_runner_config(tmp_path, token="database-production-template-token")
+    return make_configured_remote_runner(tmp_path, token="database-production-template-token")
 
 
 def test_database_tool_probes_follow_official_smoke_test_patterns() -> None:
@@ -72,7 +71,6 @@ def test_all_production_templates_publish_stable_runtime_contract() -> None:
 def test_humann_template_requires_chocophlan_uniref_and_utility_mapping(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "humann"
     chocophlan = database_dir / "chocophlan"
     uniref = database_dir / "uniref"
@@ -122,7 +120,6 @@ def test_humann_template_requires_chocophlan_uniref_and_utility_mapping(tmp_path
 def test_card_rgi_template_resolves_card_json_from_selected_directory(tmp_path: Path, monkeypatch) -> None:
     calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "card"
     database_dir.mkdir()
     card_json = database_dir / "card.json"
@@ -143,7 +140,6 @@ def test_card_rgi_template_resolves_card_json_from_selected_directory(tmp_path: 
 def test_silva_qiime_template_requires_qiime_artifact(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     fasta = tmp_path / "silva.fasta"
     fasta.write_text(">seq\nACGT\n", encoding="utf-8")
 
@@ -163,7 +159,6 @@ def test_silva_qiime_template_requires_qiime_artifact(tmp_path: Path, monkeypatc
 def test_gtdbtk_template_requires_reference_bundle_and_check_install(tmp_path: Path, monkeypatch) -> None:
     calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "gtdbtk"
     database_dir.mkdir()
     (database_dir / "VERSION").write_text("r226", encoding="utf-8")
@@ -185,7 +180,6 @@ def test_gtdbtk_template_requires_reference_bundle_and_check_install(tmp_path: P
 def test_checkm_template_requires_checkm2_database_file(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     wrong = tmp_path / "checkm" / "diamond.dmnd"
     wrong.parent.mkdir()
     wrong.write_text("generic diamond db", encoding="utf-8")
@@ -207,7 +201,6 @@ def test_checkm_template_requires_checkm2_database_file(tmp_path: Path, monkeypa
 def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "eggnog"
     database_dir.mkdir()
     (database_dir / "eggnog.db").write_text("sqlite", encoding="utf-8")
@@ -237,7 +230,6 @@ def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_pat
 def test_interproscan_template_probe_verifies_installed_cli_after_data_structure_check(tmp_path: Path, monkeypatch) -> None:
     calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "interproscan-data"
     database_dir.mkdir()
     (database_dir / "interpro.xml").write_text("xml", encoding="utf-8")

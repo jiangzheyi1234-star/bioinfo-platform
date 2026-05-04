@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import DATABASE_TEMPLATES
 
 
@@ -49,6 +50,64 @@ def make_remote_runner_config(
         managed_conda_command=str(tmp_path / "workflow-env" / "bin" / "conda"),
         snakemake_command=str(tmp_path / "workflow-env" / "bin" / "snakemake"),
     )
+
+
+def make_configured_remote_runner(
+    tmp_path: Path,
+    *,
+    token: str = "database-registry-token",
+) -> RemoteRunnerConfig:
+    cfg = make_remote_runner_config(tmp_path, token=token)
+    ensure_runtime_layout(cfg)
+    return cfg
+
+
+def write_files(base_dir: Path, names: Iterable[str], content: str = "index") -> None:
+    for name in names:
+        path = base_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
+def make_kraken2_database(base_dir: Path, *, complete: bool = True) -> Path:
+    files = ["hash.k2d"]
+    if complete:
+        files.extend(["opts.k2d", "taxo.k2d"])
+    write_files(base_dir, files, "mini")
+    return base_dir
+
+
+def make_bwa_reference(base_dir: Path, filename: str = "hg38.fa") -> Path:
+    fasta = base_dir / filename
+    fasta.parent.mkdir(parents=True, exist_ok=True)
+    fasta.write_text(">chr1\nACGT\n", encoding="utf-8")
+    for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):
+        Path(str(fasta) + suffix).write_text("index", encoding="utf-8")
+    return fasta
+
+
+def assert_resolution_contract(
+    record: Mapping[str, object],
+    *,
+    input_path: Path | str,
+    entry_path: Path | str,
+    path_mode: str,
+    resolved_path: object | None = None,
+) -> None:
+    expected_input = str(input_path)
+    expected_entry = str(entry_path)
+    metadata = record["metadata"]
+    assert isinstance(metadata, Mapping)
+
+    assert record["inputPath"] == expected_input
+    assert record["entryPath"] == expected_entry
+    assert record["pathMode"] == path_mode
+    assert metadata["inputPath"] == expected_input
+    assert metadata["entryPath"] == expected_entry
+    assert metadata["pathMode"] == path_mode
+    if resolved_path is not None:
+        assert record["resolvedPath"] == resolved_path
+        assert metadata["resolvedPath"] == resolved_path
 
 
 def example_name_for_pattern(pattern: str) -> str:
