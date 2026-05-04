@@ -55,7 +55,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             remote_install_lock = f"{remote_root}/locks/install-{version}.lock"
             requested_remote_port = 0
             remote_service_python = f"{remote_release}/runtime/bin/python"
-            fast_platform = self._platform_from_metadata(server_record) or "linux-64"
+            remote_platform = self._detect_remote_platform(ssh_service)
+            fast_platform = self._platform_from_metadata(server_record) or remote_platform
             workflow_runtime_dir = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{fast_platform}"
             remote_workflow_bundle = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{fast_platform}.tar.gz"
             workflow_artifact = self._resolve_workflow_artifact_for_bootstrap(
@@ -93,7 +94,6 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                 }
 
             mode = self._detect_mode(ssh_service)
-            remote_platform = self._detect_remote_platform(ssh_service)
             artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
             if workflow_artifact.platform != remote_platform:
                 workflow_runtime_dir = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{remote_platform}"
@@ -1371,7 +1371,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         except Exception as exc:
             raise RemoteRunnerManagerError(str(exc) or "runner token rotation failed") from exc
 
-    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any]) -> RemoteRunnerHttpClient:
+    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any], timeout: int = 5) -> RemoteRunnerHttpClient:
         try:
             token = resolve_runner_token(str(record.get("token_ref", "") or ""))
             if not token:
@@ -1385,7 +1385,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             return RemoteRunnerHttpClient(
                 base_url=f"http://127.0.0.1:{tunnel.local_port}",
                 token=token,
-                timeout=5,
+                timeout=timeout,
             )
         except RemoteRunnerManagerError:
             raise
@@ -1573,6 +1573,14 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         items = data.get("items") if isinstance(data, dict) else None
         if not isinstance(items, list):
             raise RemoteRunnerManagerError("runner database template catalog payload is invalid")
+        for item in items:
+            if not isinstance(item, dict):
+                raise RemoteRunnerManagerError("runner database template catalog item is invalid")
+            for field in ("category", "pathLabel", "runtimeValue"):
+                if not str(item.get(field) or "").strip():
+                    raise RemoteRunnerManagerError(f"runner database template catalog missing {field}")
+            if str(item.get("pathKind") or "") == "prefix" and not item.get("prefixPatternSets"):
+                raise RemoteRunnerManagerError("runner database template catalog missing prefixPatternSets")
 
     @staticmethod
     def _run_checked(ssh_service, cmd: str, *, step: str, timeout: int) -> tuple[int, str, str]:

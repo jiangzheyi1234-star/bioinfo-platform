@@ -9,6 +9,7 @@ import time
 from .config import RemoteRunnerConfig, build_workflow_runtime_environment
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
+from .workflow_resources import build_workflow_resource_config
 from .storage import (
     append_log_lines,
     fetch_upload,
@@ -91,6 +92,11 @@ def run_snakemake_execution(
                 pipeline = get_pipeline(cfg, pipeline_id)
                 validate_run_spec_for_pipeline(pipeline, run_spec)
                 resolved_inputs = _resolve_run_inputs(cfg, run_spec)
+                workflow_resource_config = build_workflow_resource_config(
+                    cfg,
+                    workflow_resource_spec=pipeline.resource_schema,
+                    bindings=dict(run_spec.get("resourceBindings") or {}),
+                )
                 snakefile = pipeline.snakefile
                 config_path.write_text(
                     json.dumps(
@@ -101,6 +107,9 @@ def run_snakemake_execution(
                             "pipeline_id": pipeline.pipeline_id,
                             "pipeline_version": pipeline.version,
                             "params": dict(run_spec.get("params") or {}),
+                            "databases": workflow_resource_config["config"],
+                            "resources": workflow_resource_config["resources"],
+                            "resourceConfig": workflow_resource_config["config"],
                             "inputs": resolved_inputs,
                             "outputs": {
                                 "report": str(result_dir / "run-report.html"),

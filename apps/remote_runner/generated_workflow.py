@@ -10,6 +10,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .databases import resolve_run_databases
 from .storage import fetch_tool
+from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
 
 
 GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1"
@@ -56,6 +57,7 @@ def prepare_generated_tool_workflow(
     snakefile = work_dir / "Snakefile"
     requested_steps = _resolve_requested_steps(run_spec)
     resolved_databases = resolve_run_databases(cfg, run_spec)
+    workflow_resource_config: dict[str, Any] = {"resources": {}, "config": {}}
     generated_steps: list[GeneratedWorkflowStep] = []
 
     for index, requested_step in enumerate(requested_steps):
@@ -106,6 +108,13 @@ def prepare_generated_tool_workflow(
             )
         )
 
+    workflow_resource_config = build_workflow_resource_config(
+        cfg,
+        workflow_resource_spec=collect_workflow_resource_specs([step.rule_template for step in generated_steps]),
+        bindings=dict(run_spec.get("resourceBindings") or {}),
+    )
+    databases_config = workflow_resource_config["config"] if workflow_resource_config["config"] else resolved_databases
+
     config_path.write_text(
         json.dumps(
             {
@@ -115,7 +124,9 @@ def prepare_generated_tool_workflow(
                 "pipeline_id": GENERATED_TOOL_RUN_PIPELINE_ID,
                 "pipeline_version": GENERATED_TOOL_RUN_VERSION,
                 "params": dict(run_spec.get("params") or {}),
-                "databases": resolved_databases,
+                "databases": databases_config,
+                "resources": workflow_resource_config["resources"],
+                "resourceConfig": workflow_resource_config["config"],
                 "inputs": resolved_inputs,
                 "tool": _config_tool(generated_steps[0]),
                 "workflow": {
@@ -141,6 +152,8 @@ def prepare_generated_tool_workflow(
             steps=generated_steps,
             output_dir=str(result_dir),
             databases=resolved_databases,
+            resources=workflow_resource_config["resources"],
+            resource_config=workflow_resource_config["config"],
         ),
         encoding="utf-8",
     )
@@ -198,6 +211,7 @@ def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]
             "inputs": list(manifest_template.get("inputs") or [{"name": "primary", "type": "file", "required": True}]),
             "outputs": list(manifest_template.get("outputs") or [{"name": "tool_output", "path": "tool-output.txt", "kind": "log", "mimeType": "text/plain"}]),
             "params": dict(manifest_template.get("params") or {}),
+            "resources": dict(manifest_template.get("resources") or {}),
         }
     requested = str(tool_request.get("command") or tool_request.get("commandTemplate") or "").strip()
     if requested:
@@ -307,6 +321,8 @@ def _render_snakefile(
     steps: list[GeneratedWorkflowStep],
     output_dir: str,
     databases: dict[str, dict[str, Any]],
+    resources: dict[str, dict[str, Any]],
+    resource_config: dict[str, str],
 ) -> str:
     final_outputs = steps[-1].outputs
     workflow_targets = "".join(f"        {str(path)!r},\n" for path in final_outputs.values())
@@ -318,6 +334,8 @@ def _render_snakefile(
             outputs=step.outputs,
             output_dir=output_dir,
             databases=databases,
+            resources=resources,
+            resource_config=resource_config,
         )
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
         output_lines = "".join(f"        {_safe_snakemake_name(name)}={str(path)!r},\n" for name, path in step.outputs.items())
@@ -352,7 +370,11 @@ def _render_command(
     outputs: dict[str, Path],
     output_dir: str,
     databases: dict[str, dict[str, Any]],
+    resources: dict[str, dict[str, Any]],
+    resource_config: dict[str, str],
 ) -> str:
+    if "{resource." in command_template:
+        raise ValueError("WORKFLOW_RESOURCE_DIRECT_TOKEN_UNSUPPORTED")
     primary_input = inputs.get("primary") or next(iter(inputs.values()))
     primary_output = outputs.get("tool_output") or next(iter(outputs.values()))
     replacements = {
@@ -377,6 +399,20 @@ def _render_command(
             replacements[f"{{database.{role}.{key}:q}}"] = shlex.quote(value)
             replacements[f"{{database.{safe_role}.{key}}}"] = shlex.quote(value)
             replacements[f"{{database.{safe_role}.{key}:q}}"] = shlex.quote(value)
+    for resource_key, resource in resources.items():
+        safe_key = _safe_identifier(resource_key)
+        for key in ["resourceKey", "databaseId", "name", "type", "templateId", "templateLabel", "version", "path", "configKey"]:
+            value = str(resource.get(key) or "")
+            replacements[f"{{resource.{resource_key}.{key}}}"] = shlex.quote(value)
+            replacements[f"{{resource.{resource_key}.{key}:q}}"] = shlex.quote(value)
+            replacements[f"{{resource.{safe_key}.{key}}}"] = shlex.quote(value)
+            replacements[f"{{resource.{safe_key}.{key}:q}}"] = shlex.quote(value)
+    for key, value in resource_config.items():
+        safe_key = _safe_identifier(key)
+        replacements[f"{{config.{key}}}"] = f"{{config[databases][{key}]}}"
+        replacements[f"{{config.{key}:q}}"] = f"{{config[databases][{key}]:q}}"
+        replacements[f"{{config.{safe_key}}}"] = f"{{config[databases][{key}]}}"
+        replacements[f"{{config.{safe_key}:q}}"] = f"{{config[databases][{key}]:q}}"
     command = command_template
     for token, value in replacements.items():
         command = command.replace(token, value)

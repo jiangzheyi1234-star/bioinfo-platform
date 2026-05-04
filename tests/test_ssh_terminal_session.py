@@ -164,3 +164,44 @@ def test_list_directory_uses_sftp_and_returns_directory_metadata() -> None:
     assert [item["name"] for item in result["items"]] == [".cache", "kraken2"]
     assert result["items"][0]["type"] == "directory"
     assert client.sftp.closed is True
+
+
+def test_list_directory_allows_large_remote_directory_listing() -> None:
+    class FakeSftp:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def normalize(self, path: str) -> str:
+            assert path == "/data/db"
+            return "/data/db"
+
+        def listdir_attr(self, path: str):
+            assert path == "/data/db"
+            return [
+                SimpleNamespace(filename=f"file_{index:04d}.fa", st_mode=0o100644, st_size=1, st_mtime=1)
+                for index in range(700)
+            ]
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeTransport:
+        def is_active(self) -> bool:
+            return True
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sftp = FakeSftp()
+
+        def get_transport(self):
+            return FakeTransport()
+
+        def open_sftp(self):
+            return self.sftp
+
+    service = SSHService(initial_client=FakeClient())
+
+    result = service.list_directory("/data/db", directories_only=False, limit=5000)
+
+    assert len(result["items"]) == 700
+    assert result["truncated"] is False

@@ -1,1 +1,1 @@
-from .project_manager import ProjectManager, ProjectInfo
+"""Internal compatibility package for data namespace."""

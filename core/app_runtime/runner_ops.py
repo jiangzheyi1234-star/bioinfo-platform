@@ -315,6 +315,22 @@ class RunnerOperationsMixin:
             )
         }
 
+    def update_database(self, database_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": self._call_remote_runner(
+                manager.update_database,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                database_id=database_id,
+                payload=dict(payload or {}),
+            )
+        }
+
     def check_database(self, database_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
@@ -336,6 +352,8 @@ class RunnerOperationsMixin:
             body = dict(payload or {})
             request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
             run_spec = dict(body.get("runSpec") or {})
+            if body.get("pipelineId") and not run_spec.get("pipelineId"):
+                run_spec["pipelineId"] = body["pipelineId"]
             preferred_server_id = body.get("serverId") or run_spec.get("serverId")
             server_id, ssh, record = self._require_runner_ready(
                 preferred_server_id=preferred_server_id
@@ -473,12 +491,19 @@ class RunnerOperationsMixin:
             )
         }
 
-    def list_remote_files(self, path: str = "", *, directories_only: bool = True, limit: int = 200) -> dict[str, Any]:
+    def list_remote_files(
+        self,
+        path: str = "",
+        *,
+        directories_only: bool = True,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             ssh = self._ensure_ssh_connected()
         try:
-            data = ssh.list_directory(path, directories_only=directories_only, limit=limit)
+            data = ssh.list_directory(path, directories_only=directories_only, limit=limit, offset=offset)
         except Exception as exc:
             raise RuntimeServiceError(str(exc) or "failed to list remote files") from exc
         return {"data": data}

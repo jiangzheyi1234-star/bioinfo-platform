@@ -16,7 +16,6 @@ from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bi
 ANACONDA_SEARCH_URL = "https://api.anaconda.org/search"
 ANACONDA_PACKAGE_URL = "https://api.anaconda.org/package"
 SUPPORTED_CHANNELS = ("bioconda", "conda-forge")
-DEFAULT_TARGET_PLATFORM = "linux-64"
 CACHE_TTL_SECONDS = 300
 ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS = 30.0
 ANACONDA_SEARCH_TIMEOUT_SECONDS = 20.0
@@ -62,8 +61,16 @@ class CondaPackageHit:
         }
 
 
-def search_tool_capabilities(query: str, *, limit: int = 20, page: int = 1, page_size: int | None = None) -> dict[str, Any]:
+def search_tool_capabilities(
+    query: str,
+    *,
+    target_platform: str = "",
+    limit: int = 20,
+    page: int = 1,
+    page_size: int | None = None,
+) -> dict[str, Any]:
     normalized = _normalize_query(query)
+    normalized_target_platform = _normalize_target_platform(target_platform)
     bounded_page = max(1, int(page or 1))
     bounded_page_size = max(1, min(int(page_size or limit or 20), 100))
     if len(normalized) < 1:
@@ -78,7 +85,12 @@ def search_tool_capabilities(query: str, *, limit: int = 20, page: int = 1, page
                 "hasMore": False,
             }
         }
-    index_page = _search_bioconda_index_items(normalized, page=bounded_page, page_size=bounded_page_size)
+    index_page = _search_bioconda_index_items(
+        normalized,
+        target_platform=normalized_target_platform,
+        page=bounded_page,
+        page_size=bounded_page_size,
+    )
     if index_page["total"] > 0:
         return {
             "data": {
@@ -95,7 +107,7 @@ def search_tool_capabilities(query: str, *, limit: int = 20, page: int = 1, page
             }
         }
 
-    cache_key = normalized
+    cache_key = f"{normalized}:{normalized_target_platform}"
     cached = _CACHE.get(cache_key)
     now = time.time()
     if cached and now - cached[0] < CACHE_TTL_SECONDS:
@@ -115,7 +127,11 @@ def search_tool_capabilities(query: str, *, limit: int = 20, page: int = 1, page
             }
         }
 
-    hits = _search_anaconda(normalized, limit=ONLINE_FALLBACK_RESULT_LIMIT)
+    hits = _search_anaconda(
+        normalized,
+        target_platform=normalized_target_platform,
+        limit=ONLINE_FALLBACK_RESULT_LIMIT,
+    )
     all_items = [hit.to_dict() for hit in hits[:ONLINE_FALLBACK_RESULT_LIMIT]]
     _CACHE[cache_key] = (now, all_items)
     items = _page_items(all_items, page=bounded_page, page_size=bounded_page_size)
@@ -138,7 +154,13 @@ def _normalize_query(query: str) -> str:
     return str(query or "").strip().lower()
 
 
-def _search_bioconda_index_items(query: str, *, page: int, page_size: int) -> dict[str, Any]:
+def _search_bioconda_index_items(
+    query: str,
+    *,
+    target_platform: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
     index_page = search_bioconda_index_page(
         query,
         page=page,
@@ -165,8 +187,8 @@ def _search_bioconda_index_items(query: str, *, page: int, page_size: int) -> di
             package_spec=_package_spec("bioconda", name, latest_version),
             source_url=f"https://anaconda.org/bioconda/{name}",
             platforms=platforms,
-            target_platform=DEFAULT_TARGET_PLATFORM,
-            target_platform_supported=_platform_supported(platforms, DEFAULT_TARGET_PLATFORM),
+            target_platform=target_platform,
+            target_platform_supported=_platform_supported(platforms, target_platform),
         ).to_dict()
         hit["cached"] = True
         items.append(hit)
@@ -184,7 +206,7 @@ def _page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> li
     return items[offset : offset + page_size]
 
 
-def _search_anaconda(query: str, *, limit: int) -> list[CondaPackageHit]:
+def _search_anaconda(query: str, *, target_platform: str, limit: int) -> list[CondaPackageHit]:
     deadline = time.monotonic() + ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS
     payload = _request_json(
         ANACONDA_SEARCH_URL,
@@ -199,7 +221,7 @@ def _search_anaconda(query: str, *, limit: int) -> list[CondaPackageHit]:
     hits: list[CondaPackageHit] = []
     seen: set[tuple[str, str]] = set()
     for raw in payload:
-        item = _parse_search_item(raw)
+        item = _parse_search_item(raw, target_platform=target_platform)
         if item is None:
             continue
         key = (item.channel, item.name)
@@ -213,10 +235,14 @@ def _search_anaconda(query: str, *, limit: int) -> list[CondaPackageHit]:
     if hits:
         return hits
 
-    return _search_exact_packages(query, deadline=deadline)
+    return _search_exact_packages(
+        query,
+        target_platform=target_platform,
+        deadline=deadline,
+    )
 
 
-def _parse_search_item(raw: Any) -> CondaPackageHit | None:
+def _parse_search_item(raw: Any, *, target_platform: str) -> CondaPackageHit | None:
     if not isinstance(raw, dict):
         return None
     channel = str(raw.get("owner") or raw.get("channel") or "").strip().lower()
@@ -238,8 +264,8 @@ def _parse_search_item(raw: Any) -> CondaPackageHit | None:
         package_spec=_package_spec(channel, name, latest_version),
         source_url=f"https://anaconda.org/{channel}/{name}",
         platforms=platforms,
-        target_platform=DEFAULT_TARGET_PLATFORM,
-        target_platform_supported=_platform_supported(platforms, DEFAULT_TARGET_PLATFORM),
+        target_platform=target_platform,
+        target_platform_supported=_platform_supported(platforms, target_platform),
     )
 
 
@@ -292,9 +318,15 @@ def _platforms(raw: dict[str, Any]) -> list[str]:
     return []
 
 
+def _normalize_target_platform(target_platform: str) -> str:
+    return str(target_platform or "").strip().lower()
+
+
 def _platform_supported(platforms: list[str], target_platform: str) -> bool:
-    if not platforms:
+    if not target_platform:
         return True
+    if not platforms:
+        return False
     return target_platform in platforms or "noarch" in platforms
 
 
@@ -305,7 +337,12 @@ def _remaining_timeout(deadline: float, request_timeout: float) -> float:
     return min(request_timeout, remaining)
 
 
-def _search_exact_packages(query: str, *, deadline: float) -> list[CondaPackageHit]:
+def _search_exact_packages(
+    query: str,
+    *,
+    target_platform: str,
+    deadline: float,
+) -> list[CondaPackageHit]:
     hits: list[CondaPackageHit] = []
     for channel in SUPPORTED_CHANNELS:
         try:
@@ -335,8 +372,8 @@ def _search_exact_packages(query: str, *, deadline: float) -> list[CondaPackageH
                 package_spec=_package_spec(channel, name, latest_version),
                 source_url=f"https://anaconda.org/{channel}/{name}",
                 platforms=platforms,
-                target_platform=DEFAULT_TARGET_PLATFORM,
-                target_platform_supported=_platform_supported(platforms, DEFAULT_TARGET_PLATFORM),
+                target_platform=target_platform,
+                target_platform_supported=_platform_supported(platforms, target_platform),
             )
         )
     return hits

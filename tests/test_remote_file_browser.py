@@ -8,10 +8,10 @@ class FakeSSH:
     is_connected = True
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, bool, int]] = []
+        self.calls: list[tuple[str, bool, int, int]] = []
 
-    def list_directory(self, path: str, *, directories_only: bool, limit: int) -> dict:
-        self.calls.append((path, directories_only, limit))
+    def list_directory(self, path: str, *, directories_only: bool, limit: int, offset: int = 0) -> dict:
+        self.calls.append((path, directories_only, limit, offset))
         return {
             "path": "/home/user/databases",
             "parentPath": "/home/user",
@@ -28,9 +28,9 @@ def test_runtime_lists_remote_files_through_connected_ssh() -> None:
     service = RuntimeService(service_locator=ServiceLocator(ssh_service=ssh))
     service._initialized = True
 
-    response = service.list_remote_files("~/databases", directories_only=True, limit=25)
+    response = service.list_remote_files("~/databases", directories_only=True, limit=25, offset=50)
 
-    assert ssh.calls == [("~/databases", True, 25)]
+    assert ssh.calls == [("~/databases", True, 25, 50)]
     assert response["data"]["path"] == "/home/user/databases"
     assert response["data"]["items"][0]["path"] == "/home/user/databases/kraken2"
 

@@ -1,2 +1,1 @@
-from .errors import RuntimeServiceError
-from .service import RuntimeService, ServiceLocator
+"""Internal compatibility package for app_runtime namespace."""
