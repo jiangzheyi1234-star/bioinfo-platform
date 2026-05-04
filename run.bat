@@ -6,7 +6,7 @@ title H2OMeta Launcher
 set "REPO_ROOT=%~dp0"
 if "%REPO_ROOT:~-1%"=="\" set "REPO_ROOT=%REPO_ROOT:~0,-1%"
 set "API_URL=http://127.0.0.1:8765"
-set "WEB_URL=http://127.0.0.1:3100"
+set "WEB_URL=http://127.0.0.1:3765"
 set "DESKTOP_DEV_DIR=%REPO_ROOT%\apps\desktop"
 set "ENSURE_WEB_DEV=%REPO_ROOT%\scripts\ensure-web-dev.cjs"
 set "ENSURE_DESKTOP_DEV=%REPO_ROOT%\scripts\ensure-desktop-dev.cjs"
