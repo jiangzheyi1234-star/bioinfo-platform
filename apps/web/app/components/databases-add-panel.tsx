@@ -10,15 +10,19 @@ import {
   browserFileAction,
   compositeFieldEntries,
   compositeFieldLabel,
+} from "./database-path-utils";
+import {
   pathLabel,
   runtimeHint,
   stableComplexityCopy,
   selectionCopy,
   templateCheckItemList,
+} from "./database-page-model";
+import {
   templateIcon,
-} from "./database-page-utils";
+} from "./database-page-ui";
 
-import { DatabasesPageState } from "./use-databases-page-state";
+import type { DatabasesPageState } from "./use-databases-page-state";
 
 type DatabasesAddPanelProps = {
   state: DatabasesPageState;

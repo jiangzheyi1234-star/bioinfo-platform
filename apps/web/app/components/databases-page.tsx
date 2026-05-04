@@ -12,7 +12,8 @@ import { DatabasesAddPanel } from "./databases-add-panel";
 import { DatabaseItemList } from "./databases-item-list";
 import { useDatabasesPageState } from "./use-databases-page-state";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
-import { databaseToolPath, templateText } from "./database-page-utils";
+import { templateText } from "./database-page-model";
+import { databaseToolPath } from "./database-path-utils";
 
 export function DatabasesPage() {
   const state = useDatabasesPageState();

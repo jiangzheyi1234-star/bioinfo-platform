@@ -1,5 +1,3 @@
-import { Database, Dna, SearchCode, ShieldCheck } from "lucide-react";
-
 import { LocalApiError } from "@/app/lib/local-api-client";
 
 export type DatabaseItem = {
@@ -115,7 +113,27 @@ export type DatabaseTemplate = {
   };
 };
 
-export const DATABASE_TYPE_GROUPS = [
+export type DatabaseForm = {
+  name: string;
+  templateId: string;
+  type: string;
+  version: string;
+  path: string;
+  description: string;
+  manifestPath: string;
+  sourceUrl: string;
+  buildCommand: string;
+  dbParams: string;
+  expectedFiles: string;
+};
+
+export type DatabaseEditForm = {
+  name: string;
+  version: string;
+  description: string;
+};
+
+const DATABASE_TYPE_GROUPS = [
   {
     label: "分类学数据库",
     category: "taxonomy",
@@ -130,7 +148,7 @@ export const DATABASE_TYPE_GROUPS = [
   },
 ];
 
-export function templateCategory(template: DatabaseTemplate) {
+function templateCategory(template: DatabaseTemplate) {
   if (template.category) return template.category;
   if (template.type === "taxonomy") return "taxonomy";
   if (template.type === "sequence_index") return "alignment";
@@ -152,19 +170,6 @@ export function groupedDatabaseTemplates(templates: DatabaseTemplate[]) {
     grouped.push({ label: "其他数据库", templates: otherTemplates });
   }
   return grouped;
-}
-
-export function templateIcon(template: DatabaseTemplate, className = "h-4 w-4") {
-  if (template.icon === "amr") {
-    return <ShieldCheck strokeWidth={1.5} className={className} />;
-  }
-  if (template.icon === "index") {
-    return <SearchCode strokeWidth={1.5} className={className} />;
-  }
-  if (template.icon === "custom") {
-    return <Database strokeWidth={1.5} className={className} />;
-  }
-  return <Dna strokeWidth={1.5} className={className} />;
 }
 
 export function databaseErrorMessage(err: unknown, fallback: string) {
@@ -210,24 +215,7 @@ export function templateText(item: DatabaseItem, templateById: Record<string, Da
   return item.metadata?.templateLabel || templateById[item.metadata?.templateId || ""]?.name || item.type || "reference";
 }
 
-export function databaseToolPath(item: DatabaseItem) {
-  const resolved = item.metadata?.resolvedPath;
-  if (resolved?.kind === "prefix") {
-    return resolved.prefix || resolved.path || "";
-  }
-  if (resolved?.kind === "directory") {
-    return resolved.firstIndexPrefix || resolved.firstMatch || resolved.path || "";
-  }
-  if (resolved?.kind === "file") {
-    return resolved.path || resolved.firstMatch || "";
-  }
-  if (resolved?.kind === "primary_with_sidecars") {
-    return resolved.path || resolved.firstMatch || "";
-  }
-  return resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path || item.path || "";
-}
-
-export function emptyForm(template?: DatabaseTemplate) {
+export function emptyForm(template?: DatabaseTemplate): DatabaseForm {
   return {
     name: "",
     templateId: template?.id || "",
@@ -243,18 +231,12 @@ export function emptyForm(template?: DatabaseTemplate) {
   };
 }
 
-export function editForm(item?: DatabaseItem | null) {
+export function editForm(item?: DatabaseItem | null): DatabaseEditForm {
   return {
     name: item?.name || "",
     version: item?.version || "",
     description: item?.description || "",
   };
-}
-
-export function defaultDatabaseName(template: DatabaseTemplate, path: string) {
-  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  const basename = normalized.split("/").filter(Boolean).pop();
-  return basename ? `${template.name} ${basename}` : template.name;
 }
 
 export function selectionCopy(template: DatabaseTemplate) {
@@ -305,7 +287,7 @@ export function pathLabel(template: DatabaseTemplate | null) {
   return "数据库目录";
 }
 
-export function templateCheckItems(template: DatabaseTemplate | null) {
+function templateCheckItems(template: DatabaseTemplate | null) {
   if (!template) return "";
   if (template.expectedFiles.length > 0) return template.expectedFiles.join(", ");
   if (template.selectorKind === "file") return "匹配模板定义的数据库文件";
@@ -317,35 +299,4 @@ export function templateCheckItems(template: DatabaseTemplate | null) {
 
 export function templateCheckItemList(template: DatabaseTemplate | null) {
   return templateCheckItems(template).split(",").map((item) => item.trim()).filter(Boolean);
-}
-
-export function compositeFieldEntries(template: DatabaseTemplate | null) {
-  return Object.entries(template?.fields || {});
-}
-
-export function compositeFieldLabel(key: string, field: DatabaseTemplateField) {
-  return field.label || key;
-}
-
-export function compositeInputFields(
-  template: DatabaseTemplate | null,
-  values: Record<string, string>
-): Record<string, string> {
-  return Object.fromEntries(
-    compositeFieldEntries(template)
-      .map(([key]) => [key, (values[key] || "").trim()])
-      .filter(([, value]) => value)
-  );
-}
-
-export function isBwaIndexFile(path: string) { return /\.(amb|ann|bwt|pac|sa)$/i.test(path); }
-
-export function browserFileAction(template: DatabaseTemplate | null, item: RemoteFileItem) {
-  if (item.isDirectory || !template || template.selectorKind === "directory") return null;
-  if (template.selectorKind === "composite") return null;
-  if (template.selectorKind === "prefix") return { label: "选择此索引", disabled: false, hint: "" };
-  if (template.selectorKind === "primary_with_sidecars") {
-    return isBwaIndexFile(item.path) ? { label: "索引文件不能作为 FASTA 主文件", disabled: true, hint: "请选择同名前缀的 FASTA 主文件" } : { label: "选择 FASTA 主文件", disabled: false, hint: "" };
-  }
-  return { label: "选择此文件", disabled: false, hint: "" };
 }
