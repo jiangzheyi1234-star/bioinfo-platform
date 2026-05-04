@@ -29,6 +29,7 @@ def _refresh_bioconda_index_status() -> dict[str, Any]:
 @router.get("/api/v1/tool-capabilities/search")
 async def search_tool_capabilities_api(
     q: str = "",
+    targetPlatform: str = "",
     limit: int = 20,
     page: int = 1,
     pageSize: int = 20,
@@ -37,7 +38,13 @@ async def search_tool_capabilities_api(
         bounded_page = max(1, int(page))
         bounded_page_size = max(1, min(int(pageSize or limit), 50))
         return await _run_sync(
-            lambda: search_tool_capabilities(q, limit=bounded_page_size, page=bounded_page, page_size=bounded_page_size),
+            lambda: search_tool_capabilities(
+                q,
+                target_platform=targetPlatform,
+                limit=bounded_page_size,
+                page=bounded_page,
+                page_size=bounded_page_size,
+            ),
             status_code=502,
             handled_errors=(ValueError, TimeoutError, OSError),
         )

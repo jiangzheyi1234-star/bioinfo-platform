@@ -9,9 +9,7 @@ import threading
 import time
 import uuid
 from threading import Condition, RLock
-from typing import Any, Callable, Optional, Tuple
-
-import paramiko
+from typing import Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +284,14 @@ class SSHService:
             sftp.get(remote, local)
             sftp.close()
 
-    def list_directory(self, path: str = "", *, directories_only: bool = True, limit: int = 200) -> dict[str, Any]:
+    def list_directory(
+        self,
+        path: str = "",
+        *,
+        directories_only: bool = True,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
         with self._lock:
             if not self._client:
                 raise RuntimeError("SSH not connected")
@@ -322,13 +327,20 @@ class SSHService:
                 }
             )
         items.sort(key=lambda item: (not item["isDirectory"], str(item["name"]).lower()))
-        bounded_limit = max(1, min(int(limit or 200), 500))
+        bounded_limit = max(1, min(int(limit or 500), 5000))
+        bounded_offset = max(0, int(offset or 0))
+        next_offset = bounded_offset + bounded_limit
+        total = len(items)
         normalized_resolved = str(resolved_path or "/")
         return {
             "path": normalized_resolved,
             "parentPath": self._parent_remote_path(normalized_resolved),
-            "items": items[:bounded_limit],
-            "truncated": len(items) > bounded_limit,
+            "items": items[bounded_offset:next_offset],
+            "offset": bounded_offset,
+            "limit": bounded_limit,
+            "total": total,
+            "nextOffset": next_offset if next_offset < total else None,
+            "truncated": next_offset < total,
         }
 
     def open_terminal_session(self, cols=120, rows=28) -> TerminalSession:

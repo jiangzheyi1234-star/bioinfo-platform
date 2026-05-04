@@ -7,15 +7,17 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from .config import dump_public_config, inspect_runtime_layout, inspect_workflow_runtime, load_remote_runner_config
 from .databases import (
     DatabaseRegistryError,
-    add_reference_database,
+    add_verified_reference_database,
     check_reference_database,
     list_database_templates,
     list_reference_databases,
     remove_reference_database,
+    update_reference_database,
 )
 from .executor import start_run_execution
 from .pipeline import (
@@ -85,7 +87,7 @@ class DatabaseManifestRequest(BaseModel):
 
     id: str | None = None
     name: str = Field(min_length=1)
-    templateId: str | None = None
+    templateId: str = Field(min_length=1)
     type: str | None = None
     version: str | None = None
     path: str = Field(min_length=1)
@@ -95,6 +97,14 @@ class DatabaseManifestRequest(BaseModel):
     sizeBytes: int | None = Field(default=None, ge=0)
     checksum: str | None = None
     metadata: dict[str, Any] | None = None
+
+
+class DatabaseUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    version: str | None = None
+    description: str | None = None
 
 
 def _require_auth(authorization: str | None, token: str) -> None:
@@ -252,7 +262,7 @@ async def add_database(payload: DatabaseManifestRequest, authorization: str | No
     cfg = load_remote_runner_config()
     _require_auth(authorization, cfg.token)
     try:
-        item = add_reference_database(cfg, payload.model_dump(exclude_none=True))
+        item = await run_in_threadpool(add_verified_reference_database, cfg, payload.model_dump(exclude_none=True))
     except DatabaseRegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"data": item}
@@ -270,12 +280,24 @@ async def delete_database_api(database_id: str, authorization: str | None = Head
     return {"data": {"id": database_id, "deleted": True}}
 
 
+@app.patch("/api/v1/databases/{database_id}")
+async def update_database_api(database_id: str, payload: DatabaseUpdateRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    try:
+        item = update_reference_database(cfg, database_id, payload.model_dump(exclude_none=True))
+    except DatabaseRegistryError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc
+    return {"data": item}
+
+
 @app.post("/api/v1/databases/{database_id}/check")
 async def check_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
     cfg = load_remote_runner_config()
     _require_auth(authorization, cfg.token)
     try:
-        item = check_reference_database(cfg, database_id)
+        item = await run_in_threadpool(check_reference_database, cfg, database_id)
     except DatabaseRegistryError as exc:
         detail = str(exc)
         raise HTTPException(status_code=404 if detail == "DATABASE_NOT_FOUND" else 400, detail=detail) from exc

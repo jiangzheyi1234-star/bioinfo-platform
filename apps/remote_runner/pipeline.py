@@ -29,6 +29,7 @@ class PipelineDefinition:
     snakefile: Path
     input_schema: dict[str, Any]
     params_schema: dict[str, Any]
+    resource_schema: dict[str, Any]
     output_schema: dict[str, Any]
     ui_schema: dict[str, Any]
 
@@ -47,6 +48,7 @@ class PipelineDefinition:
             "enabled": self.enabled,
             "inputsSchema": self.input_schema,
             "paramsSchema": self.params_schema,
+            "resources": self.resource_schema,
             "outputSchema": self.output_schema,
             "uiSchema": self.ui_schema,
         }
@@ -134,6 +136,7 @@ def _load_pipeline_manifest(manifest_path: Path) -> PipelineDefinition:
         snakefile=snakefile,
         input_schema=dict(raw.get("inputsSchema") or {}),
         params_schema=dict(raw.get("paramsSchema") or {}),
+        resource_schema=dict(raw.get("resources") or {}),
         output_schema=dict(raw.get("outputSchema") or {}),
         ui_schema=dict(raw.get("uiSchema") or {}),
     )

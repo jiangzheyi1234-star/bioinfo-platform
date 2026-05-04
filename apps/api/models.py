@@ -78,16 +78,25 @@ class DatabaseManifestRequest(BaseModel):
     serverId: str | None = None
     id: str | None = None
     name: str = Field(min_length=1)
-    templateId: str | None = None
+    templateId: str = Field(min_length=1)
     type: str | None = None
     version: str | None = None
     path: str = Field(min_length=1)
+    selectedEntryPath: str | None = None
     description: str | None = None
     source: str | None = None
     manifestPath: str | None = None
     sizeBytes: int | None = Field(default=None, ge=0)
     checksum: str | None = None
     metadata: dict[str, Any] | None = None
+
+
+class DatabaseUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    version: str | None = None
+    description: str | None = None
 
 
 class WorkflowDraftRequest(BaseModel):

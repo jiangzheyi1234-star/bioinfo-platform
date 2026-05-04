@@ -75,6 +75,9 @@ class RemoteRunnerHttpClient:
     ) -> dict[str, Any]:
         return self._request_json("POST", path, payload=payload, extra_headers=extra_headers)
 
+    def patch_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("PATCH", path, payload=payload)
+
     def delete_json(self, path: str) -> dict[str, Any]:
         return self._request_json("DELETE", path)
 
