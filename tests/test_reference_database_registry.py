@@ -1,25 +1,22 @@
 from __future__ import annotations
 
-import json
 import fnmatch
+import asyncio
 from pathlib import Path
-from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import (
     DATABASE_TEMPLATES,
     DatabaseRegistryError,
     add_reference_database,
+    add_verified_reference_database,
     check_reference_database,
     list_database_templates,
     list_reference_databases,
     remove_reference_database,
     resolve_run_databases,
+    update_reference_database,
 )
-from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.storage import persist_upload, upsert_tool
-from core.remote_runner.manager import RemoteRunnerManager
 
 
 def _patch_tool_probe_success(monkeypatch) -> list[str]:
@@ -120,6 +117,33 @@ def _materialize_template_path(base_dir: Path, template_id: str) -> Path:
     elif path_kind == "prefix":
         target = base_dir / template_id / "index"
         target.parent.mkdir(parents=True, exist_ok=True)
+    elif path_kind == "primary_with_sidecars":
+        target = base_dir / template_id / "reference.fa"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(">ref\nACGT\n", encoding="utf-8")
+    elif path_kind == "composite":
+        target = base_dir / template_id
+        target.mkdir(parents=True, exist_ok=True)
+        fields = template.get("fields") or {}
+        for field_key, field_spec in fields.items():
+            hint_name = Path(str(field_spec.get("pathHint") or "")).name
+            field_kind = str(field_spec.get("pathKind") or "directory")
+            field_path = target if len(fields) == 1 and field_kind == "directory" else target / (hint_name or str(field_key))
+            validation = field_spec.get("validation") or {}
+            if field_kind == "file":
+                filename = str((field_spec.get("resolve") or {}).get("fileName") or validation.get("requiredFileName") or field_path.name)
+                if field_path.suffix:
+                    file_path = field_path
+                else:
+                    field_path.mkdir(parents=True, exist_ok=True)
+                    file_path = field_path / filename
+                file_path.write_text("database", encoding="utf-8")
+            else:
+                field_path.mkdir(parents=True, exist_ok=True)
+                for pattern in validation.get("requiredGlobs") or []:
+                    path = field_path / _example_name_for_pattern(str(pattern))
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(str(pattern), encoding="utf-8")
     else:
         file_patterns: list[str] = []
         file_patterns.extend(str(item) for item in template.get("anyPatterns", []) if str(item).strip())
@@ -147,6 +171,8 @@ def _materialize_template_path(base_dir: Path, template_id: str) -> Path:
         base = target.with_suffix("")
         for suffix in template.get("companionSuffixes", []):
             Path(str(base) + str(suffix)).write_text(str(suffix), encoding="utf-8")
+        for suffix in template.get("indexSuffixes", []):
+            Path(str(target) + str(suffix)).write_text(str(suffix), encoding="utf-8")
     for pattern in template.get("anyPatterns", []):
         path = container / _example_name_for_pattern(str(pattern))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,6 +230,309 @@ def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypa
 
     remove_reference_database(cfg, "kraken2-mini")
     assert list_reference_databases(cfg) == []
+
+
+def test_verified_reference_database_add_rejects_invalid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    database_dir = tmp_path / "kraken2-incomplete"
+    database_dir.mkdir()
+    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+
+    try:
+        add_verified_reference_database(
+            cfg,
+            {
+                "id": "kraken2-incomplete",
+                "name": "Kraken2 Incomplete",
+                "templateId": "kraken2",
+                "path": str(database_dir),
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert "opts.k2d" in str(exc)
+    else:
+        raise AssertionError("incomplete Kraken2 database should be rejected")
+
+    assert list_reference_databases(cfg) == []
+
+
+def test_verified_reference_database_update_keeps_previous_state_on_failure(tmp_path: Path, monkeypatch) -> None:
+    probe_calls = _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    valid_dir = tmp_path / "kraken2-valid"
+    valid_dir.mkdir()
+    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+        (valid_dir / filename).write_text("mini", encoding="utf-8")
+
+    saved = add_verified_reference_database(
+        cfg,
+        {
+            "id": "kraken2-existing",
+            "name": "Kraken2 Existing",
+            "templateId": "kraken2",
+            "path": str(valid_dir),
+        },
+    )
+    assert saved["status"] == "available"
+    original_message = saved["message"]
+
+    invalid_dir = tmp_path / "kraken2-invalid"
+    invalid_dir.mkdir()
+    (invalid_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+
+    try:
+        add_verified_reference_database(
+            cfg,
+            {
+                "id": "kraken2-existing",
+                "name": "Kraken2 Existing",
+                "templateId": "kraken2",
+                "path": str(invalid_dir),
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert "opts.k2d" in str(exc)
+    else:
+        raise AssertionError("updating with invalid path should be rejected")
+
+    current = list_reference_databases(cfg)
+    assert len(current) == 1
+    assert current[0]["id"] == "kraken2-existing"
+    assert current[0]["status"] == "available"
+    assert current[0]["path"] == str(valid_dir)
+    assert current[0]["message"] == original_message
+    assert len(probe_calls) >= 1
+
+
+def test_verified_reference_database_add_requires_template(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    database_dir = tmp_path / "generic-nonempty"
+    database_dir.mkdir()
+    (database_dir / "data.txt").write_text("data", encoding="utf-8")
+
+    try:
+        add_verified_reference_database(
+            cfg,
+            {
+                "id": "generic-db",
+                "name": "Generic DB",
+                "type": "taxonomy",
+                "path": str(database_dir),
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert str(exc) == "DATABASE_TEMPLATE_REQUIRED"
+    else:
+        raise AssertionError("verified add should require a database template")
+
+    assert list_reference_databases(cfg) == []
+
+
+def test_verified_reference_database_add_accepts_valid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
+    probe_calls = _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    database_dir = tmp_path / "kraken2-complete"
+    database_dir.mkdir()
+    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+        (database_dir / filename).write_text("mini", encoding="utf-8")
+
+    saved = add_verified_reference_database(
+        cfg,
+        {
+            "id": "kraken2-complete",
+            "name": "Kraken2 Complete",
+            "templateId": "kraken2",
+            "path": str(database_dir),
+        },
+    )
+
+    assert saved["status"] == "available"
+    assert saved["id"] == "kraken2-complete"
+    assert list_reference_databases(cfg)[0]["id"] == "kraken2-complete"
+    assert len(probe_calls) == 1
+    assert "kraken2-inspect --db" in probe_calls[0]
+    assert str(database_dir) in probe_calls[0]
+
+
+def test_verified_reference_database_add_rejects_tool_probe_failure(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner import database_validation
+
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    database_dir = tmp_path / "kraken2-probe-fails"
+    database_dir.mkdir()
+    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+        (database_dir / filename).write_text("mini", encoding="utf-8")
+
+    def failing_probe(command: str, *, timeout: int) -> database_validation.ToolProbeResult:
+        return database_validation.ToolProbeResult(ok=False, command=command, stdout="", stderr="bad database", returncode=2)
+
+    monkeypatch.setattr(database_validation, "prepare_tool_probe_command", lambda cfg_arg, template_id, template, command: command)
+    monkeypatch.setattr(database_validation, "run_tool_probe", failing_probe)
+
+    try:
+        add_verified_reference_database(
+            cfg,
+            {
+                "id": "kraken2-probe-fails",
+                "name": "Kraken2 Probe Fails",
+                "templateId": "kraken2",
+                "path": str(database_dir),
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert "Tool probe failed" in str(exc)
+        assert "bad database" in str(exc)
+    else:
+        raise AssertionError("tool probe failure should reject verified add")
+
+    assert list_reference_databases(cfg) == []
+
+
+def test_remote_runner_database_post_returns_only_available_after_validation(tmp_path: Path, monkeypatch) -> None:
+    probe_calls = _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
+    database_dir = tmp_path / "kraken2-api"
+    database_dir.mkdir()
+    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+        (database_dir / filename).write_text("mini", encoding="utf-8")
+
+    from apps.remote_runner.main import DatabaseManifestRequest, add_database
+
+    payload = DatabaseManifestRequest(
+        id="kraken2-api",
+        name="Kraken2 API",
+        templateId="kraken2",
+        path=str(database_dir),
+    )
+    result = asyncio.run(add_database(payload, authorization=f"Bearer {cfg.token}"))
+
+    item = result["data"]
+    assert item["status"] == "available"
+    assert item["message"] != "Database declared."
+    assert item["metadata"]["validation"]["toolProbe"]["returncode"] == 0
+    assert probe_calls and "kraken2-inspect" in probe_calls[0]
+
+
+def test_remote_runner_database_post_rejects_invalid_database_without_registering(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
+    database_dir = tmp_path / "kraken2-api-invalid"
+    database_dir.mkdir()
+    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+
+    from fastapi import HTTPException
+
+    from apps.remote_runner.main import DatabaseManifestRequest, add_database
+
+    payload = DatabaseManifestRequest(
+        id="kraken2-api-invalid",
+        name="Kraken2 API Invalid",
+        templateId="kraken2",
+        path=str(database_dir),
+    )
+
+    try:
+        asyncio.run(add_database(payload, authorization=f"Bearer {cfg.token}"))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "opts.k2d" in str(exc.detail)
+    else:
+        raise AssertionError("invalid database should fail the add endpoint")
+    assert list_reference_databases(cfg) == []
+
+
+def test_verified_reference_database_add_restores_existing_record_when_replacement_is_invalid(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    valid_dir = tmp_path / "kraken2-valid"
+    valid_dir.mkdir()
+    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+        (valid_dir / filename).write_text("mini", encoding="utf-8")
+    invalid_dir = tmp_path / "kraken2-invalid"
+    invalid_dir.mkdir()
+    (invalid_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+
+    original = add_verified_reference_database(
+        cfg,
+        {
+            "id": "kraken2-db",
+            "name": "Kraken2 Valid",
+            "templateId": "kraken2",
+            "path": str(valid_dir),
+        },
+    )
+
+    try:
+        add_verified_reference_database(
+            cfg,
+            {
+                "id": "kraken2-db",
+                "name": "Kraken2 Invalid",
+                "templateId": "kraken2",
+                "path": str(invalid_dir),
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert "opts.k2d" in str(exc)
+    else:
+        raise AssertionError("invalid replacement should be rejected")
+
+    current = list_reference_databases(cfg)
+    assert len(current) == 1
+    assert current[0]["id"] == original["id"]
+    assert current[0]["name"] == original["name"]
+    assert current[0]["path"] == original["path"]
+    assert current[0]["status"] == "available"
+
+
+def test_reference_database_registry_updates_display_fields(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    database_dir = tmp_path / "kraken2-mini"
+    database_dir.mkdir()
+    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+
+    saved = add_reference_database(
+        cfg,
+        {
+            "id": "kraken2-mini",
+            "name": "Kraken2 Mini",
+            "type": "taxonomy",
+            "version": "test",
+            "path": str(database_dir),
+        },
+    )
+    checked = check_reference_database(cfg, saved["id"])
+
+    updated = update_reference_database(
+        cfg,
+        saved["id"],
+        {
+            "name": "Core NT",
+            "version": "2026.04",
+            "description": "Production BLAST core_nt database",
+        },
+    )
+
+    assert updated["name"] == "Core NT"
+    assert updated["version"] == "2026.04"
+    assert updated["description"] == "Production BLAST core_nt database"
+    assert updated["path"] == str(database_dir)
+    assert updated["status"] == checked["status"]
+    assert updated["lastCheckedAt"] == checked["lastCheckedAt"]
 
 
 def test_reference_database_template_validation_requires_expected_files(tmp_path: Path, monkeypatch) -> None:
@@ -272,32 +601,168 @@ def test_all_database_templates_publish_consistent_selection_contract() -> None:
     for template_id, template in DATABASE_TEMPLATES.items():
         api_item = api_templates[template_id]
         assert api_item["pathKind"] == template["pathKind"]
+        assert api_item["category"]
         assert api_item["name"] == template["label"]
         assert api_item["pathHint"] == template["pathHint"]
+        assert api_item["pathLabel"]
+        assert api_item["runtimeValue"]
         assert isinstance(api_item["expectedFiles"], list)
-        assert api_item["selector"]["kind"] in {"directory", "file", "prefix"}
+        assert "anyPatterns" in api_item
+        assert "primaryExtensions" in api_item
+        assert "sidecars" in api_item
+        assert "indexSuffixes" in api_item
+        assert "companionSuffixes" in api_item
+        if template["pathKind"] == "prefix":
+            assert api_item["prefixPatternSets"] == template.get("prefixPatternSets")
+            assert "prefixPatternSets" in api_item
+            assert "prefixAliasPatterns" in api_item
+        if template["pathKind"] == "composite":
+            assert api_item["fields"] == template.get("fields")
+        assert api_item["selector"]["kind"] in {"directory", "file", "prefix", "primary_with_sidecars", "composite"}
         assert api_item["selectorKind"] == api_item["selector"]["kind"]
-        assert template["pathKind"] in {"directory", "file", "prefix"}
+        assert template["pathKind"] in {"directory", "file", "prefix", "primary_with_sidecars", "composite"}
+        assert "category" in template, f"{template_id} should explicitly declare category"
+        assert "pathLabel" in template, f"{template_id} should explicitly declare pathLabel"
+        assert "runtimeValue" in template, f"{template_id} should explicitly declare runtimeValue"
 
         has_validation_rule = any(
             template.get(key)
             for key in (
                 "requiredFiles",
                 "requiredPatterns",
+                "requiredSuffixes",
                 "anyPatterns",
                 "anyIndexPatterns",
                 "anyFiles",
+                "primaryExtensions",
+                "sidecars",
                 "anyPatternSets",
                 "prefixPatternSets",
                 "companionSuffixes",
+                "indexSuffixes",
             )
         )
+        if template["pathKind"] == "composite":
+            has_validation_rule = bool(template.get("fields"))
         if template_id == "custom":
             assert template["pathKind"] in {"directory", "file"}
             continue
+        if template["pathKind"] == "prefix":
+            assert template.get("requiredSuffixes"), f"{template_id} should explain required prefix suffixes"
+        if template["pathKind"] == "primary_with_sidecars":
+            assert template.get("primaryExtensions"), f"{template_id} should explain primary file extensions"
+            assert template.get("sidecars"), f"{template_id} should explain sidecar index files"
         assert has_validation_rule, f"{template_id} should declare at least one validation rule"
         assert api_item["toolProbe"]["commandTemplate"], f"{template_id} should declare a real tool probe"
         assert api_item["toolProbe"]["packageSpec"], f"{template_id} should declare the package needed for real validation"
+
+
+def test_builtin_templates_accept_directory_selection_and_resolve_tool_target(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    for template_id, template in DATABASE_TEMPLATES.items():
+        if template_id == "custom":
+            continue
+        target = _materialize_template_path(tmp_path / template_id, template_id)
+        selected_path = target if target.is_dir() else target.parent
+
+        saved = add_verified_reference_database(
+            cfg,
+            {
+                "id": f"{template_id}-directory-selection",
+                "name": f"{template_id} directory selection",
+                "templateId": template_id,
+                "path": str(selected_path),
+            },
+        )
+
+        assert saved["status"] == "available", template_id
+        assert saved["path"] == str(selected_path), template_id
+        assert saved["inputPath"] == str(selected_path), template_id
+        assert saved["pathMode"] == template["pathKind"], template_id
+        assert saved["resolvedPath"] == saved["metadata"]["resolvedPath"], template_id
+        resolved = saved["metadata"].get("resolvedPath") or {}
+        expected_entry_path = "" if template["pathKind"] == "composite" else str(resolved.get("prefix") or resolved.get("path") or selected_path)
+        assert saved["entryPath"] == expected_entry_path, template_id
+        assert saved["metadata"]["inputPath"] == str(selected_path), template_id
+        assert saved["metadata"]["entryPath"] == expected_entry_path, template_id
+        assert saved["metadata"]["pathMode"] == template["pathKind"], template_id
+        if template["pathKind"] == "prefix":
+            assert resolved.get("prefix"), template_id
+            assert resolved["prefix"] != str(selected_path), template_id
+        if template["pathKind"] == "file":
+            assert resolved.get("path"), template_id
+            assert Path(resolved["path"]).is_file(), template_id
+        if template["pathKind"] == "primary_with_sidecars":
+            assert resolved.get("path"), template_id
+            assert Path(resolved["path"]).is_file(), template_id
+        if template["pathKind"] == "composite":
+            assert saved["resolved"], template_id
+
+
+def test_bwa_template_uses_fasta_main_file_as_entry_path(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    fasta = tmp_path / "bwa" / "hg38.fa"
+    fasta.parent.mkdir()
+    fasta.write_text(">chr1\nACGT\n", encoding="utf-8")
+    for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):
+        Path(str(fasta) + suffix).write_text("index", encoding="utf-8")
+
+    saved = add_verified_reference_database(
+        cfg,
+        {
+            "id": "bwa-hg38",
+            "name": "BWA hg38",
+            "templateId": "bwa",
+            "path": str(fasta),
+        },
+    )
+
+    assert saved["status"] == "available"
+    assert saved["metadata"]["resolvedPath"]["kind"] == "primary_with_sidecars"
+    assert saved["metadata"]["resolvedPath"]["path"] == str(fasta)
+    assert saved["inputPath"] == str(fasta)
+    assert saved["entryPath"] == str(fasta)
+    assert saved["pathMode"] == "primary_with_sidecars"
+    assert saved["resolvedPath"] == saved["metadata"]["resolvedPath"]
+    assert saved["metadata"]["inputPath"] == str(fasta)
+    assert saved["metadata"]["entryPath"] == str(fasta)
+    assert saved["metadata"]["pathMode"] == "primary_with_sidecars"
+
+    resolved = resolve_run_databases(cfg, {"databases": [{"id": "bwa-hg38", "role": "bwa_ref"}]})
+    assert resolved["bwa_ref"]["path"] == str(fasta)
+    assert resolved["bwa_ref"]["inputPath"] == str(fasta)
+    assert resolved["bwa_ref"]["entryPath"] == str(fasta)
+    assert resolved["bwa_ref"]["pathMode"] == "primary_with_sidecars"
+
+
+def test_bwa_template_rejects_selecting_index_file_instead_of_fasta(tmp_path: Path, monkeypatch) -> None:
+    _patch_tool_probe_success(monkeypatch)
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    fasta = tmp_path / "bwa" / "hg38.fa"
+    fasta.parent.mkdir()
+    fasta.write_text(">chr1\nACGT\n", encoding="utf-8")
+    for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):
+        Path(str(fasta) + suffix).write_text("index", encoding="utf-8")
+
+    saved = add_reference_database(
+        cfg,
+        {
+            "id": "bwa-index-file",
+            "name": "BWA index file",
+            "templateId": "bwa",
+            "path": str(fasta) + ".amb",
+        },
+    )
+
+    checked = check_reference_database(cfg, saved["id"])
+    assert checked["status"] == "missing"
+    assert "FASTA main file" in checked["message"]
 
 
 def test_ncbi_taxonomy_template_requires_taxdump_files(tmp_path: Path, monkeypatch) -> None:
@@ -325,394 +790,3 @@ def test_ncbi_taxonomy_template_requires_taxdump_files(tmp_path: Path, monkeypat
     (database_dir / "names.dmp").write_text("names", encoding="utf-8")
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
-
-
-def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "pfam"
-    database_dir.mkdir()
-    hmm_path = database_dir / "Pfam-A.hmm"
-    hmm_path.write_text("hmm", encoding="utf-8")
-    for suffix in ("h3f", "h3i", "h3m"):
-        (database_dir / f"Pfam-A.{suffix}").write_text("index", encoding="utf-8")
-
-    saved = add_reference_database(
-        cfg,
-        {
-            "id": "pfam",
-            "name": "Pfam",
-            "templateId": "hmmer_pfam",
-            "path": str(hmm_path),
-        },
-    )
-
-    missing = check_reference_database(cfg, saved["id"])
-    assert missing["status"] == "missing"
-    assert "h3p" in missing["message"]
-
-    (database_dir / "Pfam-A.h3p").write_text("index", encoding="utf-8")
-    checked = check_reference_database(cfg, saved["id"])
-    assert checked["status"] == "available"
-
-
-def test_directory_templates_accept_required_files_with_matching_pattern(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kaiju"
-    database_dir.mkdir()
-    (database_dir / "nodes.dmp").write_text("nodes", encoding="utf-8")
-    (database_dir / "names.dmp").write_text("names", encoding="utf-8")
-    (database_dir / "proteins.fmi").write_text("fmi", encoding="utf-8")
-
-    saved = add_reference_database(
-        cfg,
-        {
-            "id": "kaiju-db",
-            "name": "Kaiju DB",
-            "templateId": "kaiju",
-            "path": str(database_dir),
-        },
-    )
-
-    checked = check_reference_database(cfg, saved["id"])
-    assert checked["status"] == "available"
-
-
-def test_single_file_database_templates_validate_file_suffix(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    wrong_file = tmp_path / "random.txt"
-    wrong_file.write_text("not a diamond database", encoding="utf-8")
-
-    saved = add_reference_database(
-        cfg,
-        {
-            "id": "diamond-file",
-            "name": "DIAMOND file",
-            "templateId": "diamond",
-            "path": str(wrong_file),
-        },
-    )
-    missing = check_reference_database(cfg, saved["id"])
-    assert missing["status"] == "missing"
-    assert "*.dmnd" in missing["message"]
-
-    diamond_file = tmp_path / "nr.dmnd"
-    diamond_file.write_text("diamond", encoding="utf-8")
-    updated = add_reference_database(
-        cfg,
-        {
-            "id": "diamond-file",
-            "name": "DIAMOND file",
-            "templateId": "diamond",
-            "path": str(diamond_file),
-        },
-    )
-    checked = check_reference_database(cfg, updated["id"])
-    assert checked["status"] == "available"
-
-
-def test_directory_database_templates_reject_file_paths(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    file_path = tmp_path / "hash.k2d"
-    file_path.write_text("kraken", encoding="utf-8")
-
-    saved = add_reference_database(
-        cfg,
-        {
-            "id": "kraken-file",
-            "name": "Kraken file",
-            "templateId": "kraken2",
-            "path": str(file_path),
-        },
-    )
-
-    checked = check_reference_database(cfg, saved["id"])
-    assert checked["status"] == "missing"
-    assert "requires a directory" in checked["message"]
-
-
-def test_declared_database_cannot_be_resolved_for_generated_workflow(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "taxonomy-db"
-    database_dir.mkdir()
-    add_reference_database(
-        cfg,
-        {
-            "id": "taxonomy-db",
-            "name": "Taxonomy DB",
-            "type": "taxonomy",
-            "path": str(database_dir),
-            "status": "declared",
-        },
-    )
-    try:
-        resolve_run_databases(cfg, {"databases": [{"id": "taxonomy-db", "role": "taxonomy"}]})
-    except ValueError as exc:
-        assert "DATABASE_UNAVAILABLE" in str(exc)
-    else:
-        raise AssertionError("declared database should not be usable without validation")
-
-
-def test_generated_workflow_rejects_legacy_single_database_field(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "taxonomy-db"
-    database_dir.mkdir()
-    add_reference_database(
-        cfg,
-        {
-            "id": "taxonomy-db",
-            "name": "Taxonomy DB",
-            "type": "taxonomy",
-            "path": str(database_dir),
-            "status": "available",
-        },
-    )
-
-    assert resolve_run_databases(cfg, {"database": {"id": "taxonomy-db", "role": "taxonomy"}}) == {}
-
-
-def test_legacy_dbtype_field_is_rejected(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "legacy-dbtype"
-    database_dir.mkdir()
-
-    try:
-        add_reference_database(
-            cfg,
-            {
-                "id": "legacy-dbtype",
-                "name": "Legacy dbType",
-                "dbType": "taxonomy",
-                "path": str(database_dir),
-            },
-        )
-    except DatabaseRegistryError as exc:
-        assert "DATABASE_FIELD_UNSUPPORTED" in str(exc)
-    else:
-        raise AssertionError("legacy dbType alias should be rejected")
-
-
-def test_custom_database_template_uses_declared_expected_files(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "custom-db"
-    database_dir.mkdir()
-    (database_dir / "README.txt").write_text("custom", encoding="utf-8")
-
-    saved = add_reference_database(
-        cfg,
-        {
-            "id": "custom-db",
-            "name": "Custom DB",
-            "templateId": "custom",
-            "path": str(database_dir),
-            "metadata": {"expectedFiles": ["manifest.json"]},
-        },
-    )
-    missing = check_reference_database(cfg, saved["id"])
-    assert missing["status"] == "missing"
-    assert "manifest.json" in missing["message"]
-
-    (database_dir / "manifest.json").write_text("{}", encoding="utf-8")
-    checked = check_reference_database(cfg, saved["id"])
-    assert checked["status"] == "available"
-
-
-def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path, monkeypatch) -> None:
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "taxonomy-db"
-    database_dir.mkdir()
-    (database_dir / "manifest.txt").write_text("taxonomy", encoding="utf-8")
-    add_reference_database(
-        cfg,
-        {
-            "id": "taxonomy-db",
-            "name": "Taxonomy DB",
-            "type": "taxonomy",
-            "version": "v1",
-            "path": str(database_dir),
-            "status": "available",
-        },
-    )
-    upsert_tool(
-        cfg,
-        {
-            "id": "conda-forge::coreutils-db",
-            "name": "coreutils",
-            "source": "conda-forge",
-            "sourceLabel": "conda-forge",
-            "version": "9.5",
-            "packageSpec": "conda-forge::coreutils=9.5",
-            "targetPlatform": "linux-64",
-            "targetPlatformSupported": True,
-            "ruleTemplate": {
-                "commandTemplate": "printf '%s\\n' {database.taxonomy.path:q} > {output.tool_output:q}",
-                "inputs": [{"name": "primary", "type": "file", "required": True}],
-                "outputs": [{"name": "tool_output", "path": "database-path.txt", "kind": "log", "mimeType": "text/plain"}],
-            },
-        },
-    )
-    upload = persist_upload(
-        cfg,
-        filename="reads.txt",
-        content_base64="QUJDREVGCg==",
-        mime_type="text/plain",
-    )
-
-    class Result:
-        returncode = 0
-        stdout = "ok"
-        stderr = ""
-
-    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *_args, **_kwargs: Result())
-    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
-
-    run_snakemake_execution(
-        cfg,
-        run_id="run_database_config",
-        request_id="req_database_config",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "databases": [{"id": "taxonomy-db", "role": "taxonomy"}],
-            "tool": {"id": "conda-forge::coreutils-db"},
-        },
-    )
-
-    work_dir = Path(cfg.work_dir) / "run_database_config"
-    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
-
-    assert run_config["databases"]["taxonomy"]["path"] == str(database_dir)
-    assert str(database_dir) in snakefile
-    assert "{database.taxonomy.path:q}" not in snakefile
-
-
-def test_every_database_template_can_be_checked_and_injected_into_generated_workflow(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    upload = persist_upload(
-        cfg,
-        filename="reads.txt",
-        content_base64="QUJDREVGCg==",
-        mime_type="text/plain",
-    )
-
-    class Result:
-        returncode = 0
-        stdout = "ok"
-        stderr = ""
-
-    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *_args, **_kwargs: Result())
-    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
-
-    for template_id, template in DATABASE_TEMPLATES.items():
-        path = _materialize_template_path(tmp_path / "template-fixtures", template_id)
-        database_id = f"{template_id}-fixture"
-        role = "db"
-        add_reference_database(
-            cfg,
-            {
-                "id": database_id,
-                "name": f"{template_id} fixture",
-                "templateId": template_id,
-                "path": str(path),
-                "status": "declared",
-                "metadata": {"templateId": template_id},
-            },
-        )
-        checked = check_reference_database(cfg, database_id)
-        assert checked["status"] == "available", f"{template_id} should validate with fixture path {path}"
-
-        tool_id = f"conda-forge::coreutils-{template_id}"
-        upsert_tool(
-            cfg,
-            {
-                "id": tool_id,
-                "name": "coreutils",
-                "source": "conda-forge",
-                "sourceLabel": "conda-forge",
-                "version": "9.5",
-                "packageSpec": "conda-forge::coreutils=9.5",
-                "targetPlatform": "linux-64",
-                "targetPlatformSupported": True,
-                "ruleTemplate": {
-                    "commandTemplate": f"printf '%s\\n' {{database.{role}.path:q}} > {{output.tool_output:q}}",
-                    "inputs": [{"name": "primary", "type": "file", "required": True}],
-                    "outputs": [{"name": "tool_output", "path": f"{template_id}-database-path.txt", "kind": "log", "mimeType": "text/plain"}],
-                },
-            },
-        )
-
-        run_id = f"run_{template_id}_database_path"
-        run_snakemake_execution(
-            cfg,
-            run_id=run_id,
-            request_id=f"req_{template_id}",
-            run_spec={
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "projectId": "proj_template_matrix",
-                "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-                "databases": [{"id": database_id, "role": role}],
-                "tool": {"id": tool_id},
-            },
-        )
-
-        work_dir = Path(cfg.work_dir) / run_id
-        run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-        snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
-        assert run_config["databases"][role]["path"] == str(path)
-        assert str(path) in snakefile
-        assert f"{{database.{role}.path:q}}" not in snakefile
-
-
-def test_remote_runner_manager_database_catalog_routes(monkeypatch) -> None:
-    manager = RemoteRunnerManager()
-    calls: list[tuple[str, str, Any]] = []
-
-    class FakeClient:
-        def get_json(self, path: str) -> dict[str, Any]:
-            calls.append(("GET", path, None))
-            return {"data": {"items": [{"id": "db1"}]}}
-
-        def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-            calls.append(("POST", path, payload))
-            return {"data": {"id": "db1", **payload}}
-
-        def delete_json(self, path: str) -> dict[str, Any]:
-            calls.append(("DELETE", path, None))
-            return {"data": {"id": "db1", "deleted": True}}
-
-    monkeypatch.setattr(manager, "_get_client", lambda **_kwargs: FakeClient())
-    kwargs = {"server_id": "srv", "ssh_service": object(), "server_record": {}}
-
-    assert manager.list_databases(**kwargs) == [{"id": "db1"}]
-    assert manager.list_database_templates(**kwargs) == [{"id": "db1"}]
-    assert manager.add_database(**kwargs, payload={"name": "db1"})["name"] == "db1"
-    assert manager.check_database(**kwargs, database_id="db1")["id"] == "db1"
-    assert manager.delete_database(**kwargs, database_id="db1")["deleted"] is True
-    assert calls == [
-        ("GET", "/api/v1/databases", None),
-        ("GET", "/api/v1/database-templates", None),
-        ("POST", "/api/v1/databases", {"name": "db1"}),
-        ("POST", "/api/v1/databases/db1/check", {}),
-        ("DELETE", "/api/v1/databases/db1", None),
-    ]
