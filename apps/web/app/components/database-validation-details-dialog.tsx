@@ -95,7 +95,7 @@ function pathResolutionExplanation(kind?: string) {
     return "选择路径应是 FASTA 主文件；保存后工具继续使用该 FASTA 文件，并验证同名前缀的 BWA 索引文件是否存在。";
   }
   if (kind === "composite") {
-    return "复合数据库由多个目录或文件组成；当前仅预留解析类型，暂未开放复合字段登记。";
+    return "复合数据库由多个目录或文件组成；保存时会按模板字段解析并校验每个输入路径。";
   }
   if (kind === "file") {
     return "选择路径是数据库文件；如果选择的是只有一个候选文件的目录，后端会解析到实际文件后传给工具。";

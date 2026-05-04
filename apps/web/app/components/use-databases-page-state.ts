@@ -4,10 +4,7 @@ import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import {
   REMOTE_BROWSER_PAGE_SIZE,
   candidateDetailFromError,
-  compositeFieldEntries,
-  compositeInputFields,
   databaseErrorMessage,
-  defaultDatabaseName,
   editForm,
   emptyForm,
   groupedDatabaseTemplates,
@@ -20,7 +17,12 @@ import {
   type PathSelectionMode,
   type RemoteFileItem,
   type RemoteFilesResponse,
-} from "./database-page-utils";
+} from "./database-page-model";
+import {
+  compositeFieldEntries,
+  compositeInputFields,
+  defaultDatabaseName,
+} from "./database-path-utils";
 
 type DatabaseForm = ReturnType<typeof emptyForm>;
 type DatabaseEditForm = ReturnType<typeof editForm>;
@@ -53,19 +55,13 @@ export type DatabasesPageState = {
   browserError: string;
   browserTruncated: boolean;
   browserTotal: number | null;
-  browserNextOffset: number | null;
   browserListRef: React.RefObject<HTMLDivElement | null>;
   templateById: Record<string, DatabaseTemplate>;
   templateGroups: ReturnType<typeof groupedDatabaseTemplates>;
   selectedTemplate: DatabaseTemplate | null;
-  isCompositeTemplate: boolean;
-  compositeReady: boolean;
   canSubmitDatabase: boolean;
-  loadDatabases: () => Promise<void>;
-  loadDatabaseTemplates: () => Promise<void>;
   loadRemotePath: (path: string, options?: { append?: boolean }) => Promise<void>;
   handleBrowserScroll: () => void;
-  rememberBrowserScroll: () => void;
   updateForm: (key: keyof DatabaseForm, value: string) => void;
   updateCompositeField: (key: string, value: string) => void;
   editManualPath: (value: string) => void;
@@ -87,7 +83,6 @@ export type DatabasesPageState = {
   closeEditDialog: () => void;
   setDetailsItem: (item: DatabaseItem | null) => void;
   setCandidateDetail: (detail: DatabaseCandidateDetail | null) => void;
-  clearError: () => void;
 };
 
 function templateByIdUtil(templates: DatabaseTemplate[]) {
@@ -479,8 +474,6 @@ export function useDatabasesPageState(): DatabasesPageState {
 
   const closeEditDialog = useCallback(() => setEditingItem(null), []);
 
-  const clearError = useCallback(() => setError(""), []);
-
   return {
     templates,
     items,
@@ -509,19 +502,13 @@ export function useDatabasesPageState(): DatabasesPageState {
     browserError,
     browserTruncated,
     browserTotal,
-    browserNextOffset,
     browserListRef,
     templateById,
     templateGroups,
     selectedTemplate,
-    isCompositeTemplate,
-    compositeReady,
     canSubmitDatabase,
-    loadDatabases,
-    loadDatabaseTemplates,
     loadRemotePath,
     handleBrowserScroll,
-    rememberBrowserScroll,
     updateForm,
     updateCompositeField,
     editManualPath,
@@ -543,6 +530,5 @@ export function useDatabasesPageState(): DatabasesPageState {
     closeEditDialog,
     setDetailsItem,
     setCandidateDetail,
-    clearError,
   };
 }

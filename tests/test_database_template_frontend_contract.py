@@ -10,7 +10,9 @@ def _databases_page_contract_source() -> str:
             Path("apps/web/app/components/databases-add-panel.tsx").read_text(encoding="utf-8"),
             Path("apps/web/app/components/databases-item-list.tsx").read_text(encoding="utf-8"),
             Path("apps/web/app/components/use-databases-page-state.ts").read_text(encoding="utf-8"),
-            Path("apps/web/app/components/database-page-utils.tsx").read_text(encoding="utf-8"),
+            Path("apps/web/app/components/database-page-model.ts").read_text(encoding="utf-8"),
+            Path("apps/web/app/components/database-page-ui.tsx").read_text(encoding="utf-8"),
+            Path("apps/web/app/components/database-path-utils.ts").read_text(encoding="utf-8"),
         ]
     )
 

@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-import { DatabaseItem, databaseStatusMessage, statusText } from "./database-page-utils";
+import { databaseStatusMessage, statusText, type DatabaseItem } from "./database-page-model";
 
 type DatabaseItemListProps = {
   items: DatabaseItem[];
