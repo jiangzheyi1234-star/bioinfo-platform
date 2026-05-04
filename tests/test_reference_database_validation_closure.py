@@ -5,7 +5,6 @@ import json
 import shlex
 from pathlib import Path
 
-from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import (
     DatabaseRegistryError,
     add_reference_database,
@@ -14,19 +13,20 @@ from apps.remote_runner.databases import (
     resolve_run_databases,
 )
 from tests.helpers.reference_database import (
-    make_remote_runner_config,
+    assert_resolution_contract as _assert_resolution_contract,
+    make_configured_remote_runner,
+    make_kraken2_database as _make_kraken2_database,
     patch_tool_probe_success as _patch_tool_probe_success,
 )
 
 
 def _cfg(tmp_path: Path):
-    return make_remote_runner_config(tmp_path, token="database-validation-token")
+    return make_configured_remote_runner(tmp_path, token="database-validation-token")
 
 
 def test_prefix_database_templates_require_complete_index_sets(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     prefix = tmp_path / "bowtie2" / "human"
     prefix.parent.mkdir()
     for suffix in ("1.bt2", "2.bt2", "3.bt2", "4.bt2", "rev.1.bt2"):
@@ -43,24 +43,20 @@ def test_prefix_database_templates_require_complete_index_sets(tmp_path: Path, m
     assert checked["status"] == "available"
     assert checked["metadata"]["resolvedPath"]["kind"] == "prefix"
     assert checked["metadata"]["resolvedPath"]["prefix"] == str(prefix)
-    assert checked["inputPath"] == str(prefix)
-    assert checked["entryPath"] == str(prefix)
-    assert checked["pathMode"] == "prefix"
-    assert checked["resolvedPath"] == checked["metadata"]["resolvedPath"]
-    assert checked["metadata"]["inputPath"] == str(prefix)
-    assert checked["metadata"]["entryPath"] == str(prefix)
-    assert checked["metadata"]["pathMode"] == "prefix"
+    _assert_resolution_contract(
+        checked,
+        input_path=prefix,
+        entry_path=prefix,
+        path_mode="prefix",
+        resolved_path=checked["metadata"]["resolvedPath"],
+    )
 
 
 def test_template_tool_probe_must_succeed_before_database_is_available(tmp_path: Path, monkeypatch) -> None:
     from apps.remote_runner import database_validation
 
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text(filename, encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2")
 
     commands: list[str] = []
 
@@ -86,14 +82,10 @@ def test_template_tool_probe_runs_inside_template_conda_environment(tmp_path: Pa
     from apps.remote_runner import database_validation
 
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     conda = Path(cfg.managed_conda_command)
     conda.parent.mkdir(parents=True, exist_ok=True)
     conda.write_text("conda", encoding="utf-8")
-    database_dir = tmp_path / "kraken2"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text(filename, encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2")
 
     envs: list[tuple[str, str]] = []
     commands: list[str] = []
@@ -232,7 +224,6 @@ def test_prefix_template_directory_rejects_multiple_complete_prefixes(tmp_path: 
 
 def test_verified_database_add_returns_structured_candidates_for_multiple_blast_prefixes(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "blast"
     database_dir.mkdir()
     for prefix in ("core_nt.00", "core_nt.01"):
@@ -260,7 +251,6 @@ def test_verified_database_add_returns_structured_candidates_for_multiple_blast_
 def test_verified_database_add_accepts_selected_candidate_prefix(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "blast"
     database_dir.mkdir()
     for prefix in ("core_nt.00", "core_nt.01"):
@@ -288,7 +278,6 @@ def test_verified_database_add_accepts_selected_candidate_prefix(tmp_path: Path,
 def test_verified_database_add_prefers_blast_alias_prefix_over_volume_prefixes(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "blast"
     database_dir.mkdir()
     (database_dir / "core_nt.nal").write_text("alias", encoding="utf-8")
@@ -400,11 +389,7 @@ def test_directory_template_resolution_prefers_index_prefix_over_metadata_file(t
 def test_bracken_registration_keeps_directory_as_resolved_path_and_lists_read_lengths(tmp_path: Path, monkeypatch) -> None:
     commands = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2_standard"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text(filename, encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2_standard")
     for read_length in (50, 150, 300):
         (database_dir / f"database{read_length}mers.kmer_distrib").write_text("bracken", encoding="utf-8")
 
@@ -421,13 +406,13 @@ def test_bracken_registration_keeps_directory_as_resolved_path_and_lists_read_le
     checked = check_reference_database(cfg, "bracken-standard")
     assert checked["status"] == "available"
     assert checked["metadata"]["resolvedPath"] == {"kind": "directory", "path": str(database_dir)}
-    assert checked["inputPath"] == str(database_dir)
-    assert checked["entryPath"] == str(database_dir)
-    assert checked["pathMode"] == "directory"
-    assert checked["resolvedPath"] == {"kind": "directory", "path": str(database_dir)}
-    assert checked["metadata"]["inputPath"] == str(database_dir)
-    assert checked["metadata"]["entryPath"] == str(database_dir)
-    assert checked["metadata"]["pathMode"] == "directory"
+    _assert_resolution_contract(
+        checked,
+        input_path=database_dir,
+        entry_path=database_dir,
+        path_mode="directory",
+        resolved_path={"kind": "directory", "path": str(database_dir)},
+    )
     assert checked["metadata"]["availableReadLengths"] == [50, 150, 300]
     assert commands and f"kraken2-inspect --db {shlex.quote(str(database_dir))}" in commands[-1]
 
@@ -435,7 +420,6 @@ def test_bracken_registration_keeps_directory_as_resolved_path_and_lists_read_le
 def test_blast_directory_selection_resolves_alias_prefix_for_probe_and_injection(tmp_path: Path, monkeypatch) -> None:
     commands = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "core_nt_database"
     database_dir.mkdir()
     (database_dir / "core_nt.nal").write_text("TITLE core nt\nDBLIST core_nt.00\n", encoding="utf-8")
@@ -456,13 +440,13 @@ def test_blast_directory_selection_resolves_alias_prefix_for_probe_and_injection
     assert checked["status"] == "available"
     assert checked["path"] == str(database_dir)
     assert checked["metadata"]["resolvedPath"]["prefix"] == str(database_dir / "core_nt")
-    assert checked["inputPath"] == str(database_dir)
-    assert checked["entryPath"] == str(database_dir / "core_nt")
-    assert checked["pathMode"] == "prefix"
-    assert checked["resolvedPath"] == checked["metadata"]["resolvedPath"]
-    assert checked["metadata"]["inputPath"] == str(database_dir)
-    assert checked["metadata"]["entryPath"] == str(database_dir / "core_nt")
-    assert checked["metadata"]["pathMode"] == "prefix"
+    _assert_resolution_contract(
+        checked,
+        input_path=database_dir,
+        entry_path=database_dir / "core_nt",
+        path_mode="prefix",
+        resolved_path=checked["metadata"]["resolvedPath"],
+    )
     assert checked["metadata"]["input"] == {"kind": "single", "path": str(database_dir)}
     assert checked["metadata"]["resolved"] == {"default": str(database_dir / "core_nt")}
     assert checked["input"] == {"kind": "single", "path": str(database_dir)}
@@ -474,17 +458,17 @@ def test_blast_directory_selection_resolves_alias_prefix_for_probe_and_injection
     assert resolved["blast"]["path"] == str(database_dir / "core_nt")
     assert resolved["blast"]["input"] == {"kind": "single", "path": str(database_dir)}
     assert resolved["blast"]["resolved"] == {"default": str(database_dir / "core_nt")}
-    assert resolved["blast"]["inputPath"] == str(database_dir)
-    assert resolved["blast"]["entryPath"] == str(database_dir / "core_nt")
-    assert resolved["blast"]["pathMode"] == "prefix"
-    assert resolved["blast"]["metadata"]["inputPath"] == str(database_dir)
-    assert resolved["blast"]["metadata"]["entryPath"] == str(database_dir / "core_nt")
+    _assert_resolution_contract(
+        resolved["blast"],
+        input_path=database_dir,
+        entry_path=database_dir / "core_nt",
+        path_mode="prefix",
+    )
 
 
 def test_file_template_directory_selection_injects_resolved_file_path(tmp_path: Path, monkeypatch) -> None:
     commands = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "diamond"
     database_dir.mkdir()
     database_file = database_dir / "nr.dmnd"
@@ -504,22 +488,23 @@ def test_file_template_directory_selection_injects_resolved_file_path(tmp_path: 
     assert checked["status"] == "available"
     assert checked["path"] == str(database_dir)
     assert checked["metadata"]["resolvedPath"]["path"] == str(database_file)
-    assert checked["inputPath"] == str(database_dir)
-    assert checked["entryPath"] == str(database_file)
-    assert checked["pathMode"] == "file"
-    assert checked["resolvedPath"] == checked["metadata"]["resolvedPath"]
-    assert checked["metadata"]["inputPath"] == str(database_dir)
-    assert checked["metadata"]["entryPath"] == str(database_file)
-    assert checked["metadata"]["pathMode"] == "file"
+    _assert_resolution_contract(
+        checked,
+        input_path=database_dir,
+        entry_path=database_file,
+        path_mode="file",
+        resolved_path=checked["metadata"]["resolvedPath"],
+    )
     assert commands and str(database_file) in commands[-1]
 
     resolved = resolve_run_databases(cfg, {"databases": [{"id": "diamond-nr", "role": "protein"}]})
     assert resolved["protein"]["path"] == str(database_file)
-    assert resolved["protein"]["inputPath"] == str(database_dir)
-    assert resolved["protein"]["entryPath"] == str(database_file)
-    assert resolved["protein"]["pathMode"] == "file"
-    assert resolved["protein"]["metadata"]["inputPath"] == str(database_dir)
-    assert resolved["protein"]["metadata"]["entryPath"] == str(database_file)
+    _assert_resolution_contract(
+        resolved["protein"],
+        input_path=database_dir,
+        entry_path=database_file,
+        path_mode="file",
+    )
 
 
 def test_mmseqs2_template_matches_createdb_prefix_outputs() -> None:
@@ -534,11 +519,7 @@ def test_mmseqs2_template_matches_createdb_prefix_outputs() -> None:
 def test_resolve_run_databases_revalidates_template_before_injection(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "taxonomy-db"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text(filename, encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "taxonomy-db")
     add_reference_database(cfg, {"id": "taxonomy-db", "name": "Taxonomy DB", "templateId": "kraken2", "path": str(database_dir)})
     checked = check_reference_database(cfg, "taxonomy-db")
     assert checked["status"] == "available"

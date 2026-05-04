@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import (
     DATABASE_TEMPLATES,
     DatabaseRegistryError,
@@ -17,7 +16,10 @@ from apps.remote_runner.databases import (
     update_reference_database,
 )
 from tests.helpers.reference_database import (
-    make_remote_runner_config as _cfg,
+    assert_resolution_contract as _assert_resolution_contract,
+    make_bwa_reference as _make_bwa_reference,
+    make_configured_remote_runner as _cfg,
+    make_kraken2_database as _make_kraken2_database,
     materialize_template_path as _materialize_template_path,
     patch_tool_probe_success as _patch_tool_probe_success,
 )
@@ -26,10 +28,7 @@ from tests.helpers.reference_database import (
 def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2-mini"
-    database_dir.mkdir()
-    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-mini", complete=False)
 
     saved = add_reference_database(
         cfg,
@@ -54,10 +53,7 @@ def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypa
 def test_verified_reference_database_add_rejects_invalid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2-incomplete"
-    database_dir.mkdir()
-    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-incomplete", complete=False)
 
     try:
         add_verified_reference_database(
@@ -80,11 +76,7 @@ def test_verified_reference_database_add_rejects_invalid_kraken2_database(tmp_pa
 def test_verified_reference_database_update_keeps_previous_state_on_failure(tmp_path: Path, monkeypatch) -> None:
     probe_calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    valid_dir = tmp_path / "kraken2-valid"
-    valid_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (valid_dir / filename).write_text("mini", encoding="utf-8")
+    valid_dir = _make_kraken2_database(tmp_path / "kraken2-valid")
 
     saved = add_verified_reference_database(
         cfg,
@@ -98,9 +90,7 @@ def test_verified_reference_database_update_keeps_previous_state_on_failure(tmp_
     assert saved["status"] == "available"
     original_message = saved["message"]
 
-    invalid_dir = tmp_path / "kraken2-invalid"
-    invalid_dir.mkdir()
-    (invalid_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    invalid_dir = _make_kraken2_database(tmp_path / "kraken2-invalid", complete=False)
 
     try:
         add_verified_reference_database(
@@ -129,7 +119,6 @@ def test_verified_reference_database_update_keeps_previous_state_on_failure(tmp_
 def test_verified_reference_database_add_requires_template(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "generic-nonempty"
     database_dir.mkdir()
     (database_dir / "data.txt").write_text("data", encoding="utf-8")
@@ -155,11 +144,7 @@ def test_verified_reference_database_add_requires_template(tmp_path: Path, monke
 def test_verified_reference_database_add_accepts_valid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
     probe_calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2-complete"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-complete")
 
     saved = add_verified_reference_database(
         cfg,
@@ -183,11 +168,7 @@ def test_verified_reference_database_add_rejects_tool_probe_failure(tmp_path: Pa
     from apps.remote_runner import database_validation
 
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2-probe-fails"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-probe-fails")
 
     def failing_probe(command: str, *, timeout: int) -> database_validation.ToolProbeResult:
         return database_validation.ToolProbeResult(ok=False, command=command, stdout="", stderr="bad database", returncode=2)
@@ -217,12 +198,8 @@ def test_verified_reference_database_add_rejects_tool_probe_failure(tmp_path: Pa
 def test_remote_runner_database_post_returns_only_available_after_validation(tmp_path: Path, monkeypatch) -> None:
     probe_calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
-    database_dir = tmp_path / "kraken2-api"
-    database_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (database_dir / filename).write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-api")
 
     from apps.remote_runner.main import DatabaseManifestRequest, add_database
 
@@ -244,11 +221,8 @@ def test_remote_runner_database_post_returns_only_available_after_validation(tmp
 def test_remote_runner_database_post_rejects_invalid_database_without_registering(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
-    database_dir = tmp_path / "kraken2-api-invalid"
-    database_dir.mkdir()
-    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-api-invalid", complete=False)
 
     from fastapi import HTTPException
 
@@ -274,14 +248,8 @@ def test_remote_runner_database_post_rejects_invalid_database_without_registerin
 def test_verified_reference_database_add_restores_existing_record_when_replacement_is_invalid(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    valid_dir = tmp_path / "kraken2-valid"
-    valid_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (valid_dir / filename).write_text("mini", encoding="utf-8")
-    invalid_dir = tmp_path / "kraken2-invalid"
-    invalid_dir.mkdir()
-    (invalid_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    valid_dir = _make_kraken2_database(tmp_path / "kraken2-valid")
+    invalid_dir = _make_kraken2_database(tmp_path / "kraken2-invalid", complete=False)
 
     original = add_verified_reference_database(
         cfg,
@@ -319,10 +287,7 @@ def test_verified_reference_database_add_restores_existing_record_when_replaceme
 def test_reference_database_registry_updates_display_fields(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2-mini"
-    database_dir.mkdir()
-    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-mini", complete=False)
 
     saved = add_reference_database(
         cfg,
@@ -357,10 +322,7 @@ def test_reference_database_registry_updates_display_fields(tmp_path: Path, monk
 def test_reference_database_template_validation_requires_expected_files(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    database_dir = tmp_path / "kraken2-template"
-    database_dir.mkdir()
-    (database_dir / "hash.k2d").write_text("mini", encoding="utf-8")
+    database_dir = _make_kraken2_database(tmp_path / "kraken2-template", complete=False)
 
     saved = add_reference_database(
         cfg,
@@ -479,7 +441,6 @@ def test_all_database_templates_publish_consistent_selection_contract() -> None:
 def test_builtin_templates_accept_directory_selection_and_resolve_tool_target(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
 
     for template_id, template in DATABASE_TEMPLATES.items():
         if template_id == "custom":
@@ -524,12 +485,7 @@ def test_builtin_templates_accept_directory_selection_and_resolve_tool_target(tm
 def test_bwa_template_uses_fasta_main_file_as_entry_path(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    fasta = tmp_path / "bwa" / "hg38.fa"
-    fasta.parent.mkdir()
-    fasta.write_text(">chr1\nACGT\n", encoding="utf-8")
-    for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):
-        Path(str(fasta) + suffix).write_text("index", encoding="utf-8")
+    fasta = _make_bwa_reference(tmp_path / "bwa")
 
     saved = add_verified_reference_database(
         cfg,
@@ -544,30 +500,28 @@ def test_bwa_template_uses_fasta_main_file_as_entry_path(tmp_path: Path, monkeyp
     assert saved["status"] == "available"
     assert saved["metadata"]["resolvedPath"]["kind"] == "primary_with_sidecars"
     assert saved["metadata"]["resolvedPath"]["path"] == str(fasta)
-    assert saved["inputPath"] == str(fasta)
-    assert saved["entryPath"] == str(fasta)
-    assert saved["pathMode"] == "primary_with_sidecars"
-    assert saved["resolvedPath"] == saved["metadata"]["resolvedPath"]
-    assert saved["metadata"]["inputPath"] == str(fasta)
-    assert saved["metadata"]["entryPath"] == str(fasta)
-    assert saved["metadata"]["pathMode"] == "primary_with_sidecars"
+    _assert_resolution_contract(
+        saved,
+        input_path=fasta,
+        entry_path=fasta,
+        path_mode="primary_with_sidecars",
+        resolved_path=saved["metadata"]["resolvedPath"],
+    )
 
     resolved = resolve_run_databases(cfg, {"databases": [{"id": "bwa-hg38", "role": "bwa_ref"}]})
     assert resolved["bwa_ref"]["path"] == str(fasta)
-    assert resolved["bwa_ref"]["inputPath"] == str(fasta)
-    assert resolved["bwa_ref"]["entryPath"] == str(fasta)
-    assert resolved["bwa_ref"]["pathMode"] == "primary_with_sidecars"
+    _assert_resolution_contract(
+        resolved["bwa_ref"],
+        input_path=fasta,
+        entry_path=fasta,
+        path_mode="primary_with_sidecars",
+    )
 
 
 def test_bwa_template_rejects_selecting_index_file_instead_of_fasta(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    fasta = tmp_path / "bwa" / "hg38.fa"
-    fasta.parent.mkdir()
-    fasta.write_text(">chr1\nACGT\n", encoding="utf-8")
-    for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):
-        Path(str(fasta) + suffix).write_text("index", encoding="utf-8")
+    fasta = _make_bwa_reference(tmp_path / "bwa")
 
     saved = add_reference_database(
         cfg,
@@ -587,7 +541,6 @@ def test_bwa_template_rejects_selecting_index_file_instead_of_fasta(tmp_path: Pa
 def test_ncbi_taxonomy_template_requires_taxdump_files(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "taxdump"
     database_dir.mkdir()
     (database_dir / "nodes.dmp").write_text("nodes", encoding="utf-8")
