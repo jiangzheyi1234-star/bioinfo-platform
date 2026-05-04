@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import {
-  REMOTE_BROWSER_PAGE_SIZE,
+  browseRemoteFiles,
+  checkDatabaseAvailability,
+  createDatabase,
+  deleteDatabase,
+  fetchDatabases,
+  fetchDatabaseTemplates,
+  updateDatabaseRecord,
+} from "./database-page-api";
+import {
   candidateDetailFromError,
   databaseErrorMessage,
   editForm,
@@ -12,11 +19,8 @@ import {
   type DatabaseCandidateDetail,
   type DatabaseItem,
   type DatabaseTemplate,
-  type DatabasesResponse,
-  type DatabaseTemplatesResponse,
   type PathSelectionMode,
   type RemoteFileItem,
-  type RemoteFilesResponse,
 } from "./database-page-model";
 import {
   compositeFieldEntries,
@@ -144,8 +148,7 @@ export function useDatabasesPageState(): DatabasesPageState {
     setLoading(true);
     setError("");
     try {
-      const response = await requestLocalApiJson<DatabasesResponse>("GET", "/api/v1/databases", { cache: "no-store" });
-      setItems(response.data.items);
+      setItems(await fetchDatabases());
     } catch (err) {
       setError(databaseErrorMessage(err, "读取数据库列表失败"));
     } finally {
@@ -157,12 +160,7 @@ export function useDatabasesPageState(): DatabasesPageState {
     setTemplateLoading(true);
     setTemplateError("");
     try {
-      const response = await requestLocalApiJson<DatabaseTemplatesResponse>(
-        "GET",
-        "/api/v1/database-templates",
-        { cache: "no-store" }
-      );
-      const nextTemplates = response.data.items || [];
+      const nextTemplates = await fetchDatabaseTemplates();
       if (nextTemplates.length === 0) {
         throw new Error("远端未返回数据库模板。");
       }
@@ -243,17 +241,13 @@ export function useDatabasesPageState(): DatabasesPageState {
       }
       setBrowserError("");
       try {
-        const response = await requestLocalApiJson<RemoteFilesResponse>(
-          "GET",
-          `/api/v1/ssh/files?path=${encodeURIComponent(nextPath)}&directories_only=false&limit=${REMOTE_BROWSER_PAGE_SIZE}&offset=${offset}`,
-          { cache: "no-store" }
-        );
-        setBrowserPath(response.data.path);
-        setBrowserParentPath(response.data.parentPath);
-        setBrowserItems((current) => (append ? [...current, ...(response.data.items || [])] : response.data.items || []));
-        setBrowserTruncated(Boolean(response.data.truncated));
-        setBrowserTotal(typeof response.data.total === "number" ? response.data.total : null);
-        setBrowserNextOffset(typeof response.data.nextOffset === "number" ? response.data.nextOffset : null);
+        const data = await browseRemoteFiles({ path: nextPath, offset });
+        setBrowserPath(data.path);
+        setBrowserParentPath(data.parentPath);
+        setBrowserItems((current) => (append ? [...current, ...(data.items || [])] : data.items || []));
+        setBrowserTruncated(Boolean(data.truncated));
+        setBrowserTotal(typeof data.total === "number" ? data.total : null);
+        setBrowserNextOffset(typeof data.nextOffset === "number" ? data.nextOffset : null);
       } catch (err) {
         if (!append) {
           setBrowserItems([]);
@@ -329,39 +323,37 @@ export function useDatabasesPageState(): DatabasesPageState {
         return;
       }
       const name = form.name.trim() || defaultDatabaseName(selectedTemplate, path);
-      const metadataInput = isComposite ? { kind: "multi", fields: compositeInputFields(selectedTemplate, compositeFields) } : undefined;
+      const metadataInput = isComposite ? { kind: "multi" as const, fields: compositeInputFields(selectedTemplate, compositeFields) } : undefined;
       setSaving(true);
       setError("");
       try {
-        const response = await requestLocalApiJson<{ data: DatabaseItem }>("POST", "/api/v1/databases", {
-          body: {
-            name,
+        const database = await createDatabase({
+          name,
+          templateId: form.templateId,
+          type: form.type,
+          version: form.version.trim(),
+          path,
+          description: form.description.trim(),
+          manifestPath: form.manifestPath.trim(),
+          source: "manual",
+          ...(selectedEntryPath ? { selectedEntryPath } : {}),
+          metadata: {
             templateId: form.templateId,
-            type: form.type,
-            version: form.version.trim(),
-            path,
-            description: form.description.trim(),
-            manifestPath: form.manifestPath.trim(),
-            source: "manual",
             ...(selectedEntryPath ? { selectedEntryPath } : {}),
-            metadata: {
-              templateId: form.templateId,
-              ...(selectedEntryPath ? { selectedEntryPath } : {}),
-              ...(metadataInput ? { input: metadataInput } : {}),
-              sourceUrl: form.sourceUrl.trim(),
-              buildCommand: form.buildCommand.trim(),
-              dbParams: form.dbParams.trim(),
-              expectedFiles: form.expectedFiles
-                .split(",")
-                .map((value) => value.trim())
-                .filter(Boolean),
-            },
+            ...(metadataInput ? { input: metadataInput } : {}),
+            sourceUrl: form.sourceUrl.trim(),
+            buildCommand: form.buildCommand.trim(),
+            dbParams: form.dbParams.trim(),
+            expectedFiles: form.expectedFiles
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
           },
         });
-        if (response.data.status !== "available") {
-          throw new Error(response.data.message || "数据库添加接口未返回可用状态。");
+        if (database.status !== "available") {
+          throw new Error(database.message || "数据库添加接口未返回可用状态。");
         }
-        setItems((current) => [response.data, ...current.filter((item) => item.id !== response.data.id)]);
+        setItems((current) => [database, ...current.filter((item) => item.id !== database.id)]);
         setForm(emptyForm(templates[0]));
         setCompositeFields({});
         setActiveCompositeField("");
@@ -391,8 +383,8 @@ export function useDatabasesPageState(): DatabasesPageState {
     setCheckingId(id);
     setError("");
     try {
-      const response = await requestLocalApiJson<{ data: DatabaseItem }>("POST", `/api/v1/databases/${encodeURIComponent(id)}/check`);
-      setItems((current) => current.map((item) => (item.id === id ? response.data : item)));
+      const database = await checkDatabaseAvailability(id);
+      setItems((current) => current.map((item) => (item.id === id ? database : item)));
     } catch (err) {
       setError(databaseErrorMessage(err, "校验数据库失败"));
     } finally {
@@ -422,14 +414,12 @@ export function useDatabasesPageState(): DatabasesPageState {
     setUpdatingId(editingItem.id);
     setError("");
     try {
-      const response = await requestLocalApiJson<{ data: DatabaseItem }>("PATCH", `/api/v1/databases/${encodeURIComponent(editingItem.id)}`, {
-        body: {
-          name,
-          version: editValues.version.trim(),
-          description: editValues.description.trim(),
-        },
+      const database = await updateDatabaseRecord(editingItem.id, {
+        name,
+        version: editValues.version.trim(),
+        description: editValues.description.trim(),
       });
-      setItems((current) => current.map((item) => (item.id === editingItem.id ? response.data : item)));
+      setItems((current) => current.map((item) => (item.id === editingItem.id ? database : item)));
       setEditingItem(null);
       setEditValues(editForm());
     } catch (err) {
@@ -453,7 +443,7 @@ export function useDatabasesPageState(): DatabasesPageState {
   const removeDatabase = useCallback(async (id: string) => {
     setError("");
     try {
-      await requestLocalApiJson("DELETE", `/api/v1/databases/${encodeURIComponent(id)}`);
+      await deleteDatabase(id);
       setItems((current) => current.filter((item) => item.id !== id));
     } catch (err) {
       setError(databaseErrorMessage(err, "移除数据库失败"));
