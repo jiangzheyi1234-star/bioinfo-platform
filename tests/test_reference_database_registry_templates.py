@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import (
     DATABASE_TEMPLATES,
     add_reference_database,
@@ -17,8 +16,9 @@ from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.storage import persist_upload, upsert_tool
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from tests.helpers.reference_database import (
-    make_remote_runner_config as _cfg,
-    materialize_template_path as _materialize_template_path,
+    expected_template_entry_path as _expected_template_entry_path,
+    make_configured_remote_runner as _cfg,
+    materialize_template_selection as _materialize_template_selection,
     patch_tool_probe_success as _patch_tool_probe_success,
 )
 
@@ -26,7 +26,6 @@ from tests.helpers.reference_database import (
 def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "pfam"
     database_dir.mkdir()
     hmm_path = database_dir / "Pfam-A.hmm"
@@ -56,7 +55,6 @@ def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch)
 def test_directory_templates_accept_required_files_with_matching_pattern(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "kaiju"
     database_dir.mkdir()
     (database_dir / "nodes.dmp").write_text("nodes", encoding="utf-8")
@@ -80,7 +78,6 @@ def test_directory_templates_accept_required_files_with_matching_pattern(tmp_pat
 def test_single_file_database_templates_validate_file_suffix(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     wrong_file = tmp_path / "random.txt"
     wrong_file.write_text("not a diamond database", encoding="utf-8")
 
@@ -115,7 +112,6 @@ def test_single_file_database_templates_validate_file_suffix(tmp_path: Path, mon
 def test_directory_database_templates_reject_file_paths(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     file_path = tmp_path / "hash.k2d"
     file_path.write_text("kraken", encoding="utf-8")
 
@@ -136,7 +132,6 @@ def test_directory_database_templates_reject_file_paths(tmp_path: Path, monkeypa
 
 def test_declared_database_cannot_be_resolved_for_generated_workflow(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "taxonomy-db"
     database_dir.mkdir()
     add_reference_database(
@@ -160,7 +155,6 @@ def test_declared_database_cannot_be_resolved_for_generated_workflow(tmp_path: P
 
 def test_available_database_without_template_cannot_be_resolved_for_generated_workflow(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "legacy-db"
     database_dir.mkdir()
     add_reference_database(
@@ -184,7 +178,6 @@ def test_available_database_without_template_cannot_be_resolved_for_generated_wo
 
 def test_generated_workflow_rejects_legacy_single_database_field(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "taxonomy-db"
     database_dir.mkdir()
     add_reference_database(
@@ -208,7 +201,6 @@ def test_generated_workflow_rejects_legacy_single_database_field(tmp_path: Path)
 
 def test_legacy_dbtype_field_is_rejected(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "legacy-dbtype"
     database_dir.mkdir()
 
@@ -231,7 +223,6 @@ def test_legacy_dbtype_field_is_rejected(tmp_path: Path) -> None:
 def test_custom_database_template_uses_declared_expected_files(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "custom-db"
     database_dir.mkdir()
     (database_dir / "README.txt").write_text("custom", encoding="utf-8")
@@ -257,7 +248,6 @@ def test_custom_database_template_uses_declared_expected_files(tmp_path: Path, m
 
 def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     database_dir = tmp_path / "taxonomy-db"
     database_dir.mkdir()
     (database_dir / "manifest.txt").write_text("taxonomy", encoding="utf-8")
@@ -336,7 +326,6 @@ def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path
 def test_every_database_template_can_be_checked_and_injected_into_generated_workflow(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     upload = persist_upload(
         cfg,
         filename="reads.txt",
@@ -355,8 +344,7 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
 
     for template_id, template in DATABASE_TEMPLATES.items():
-        path = _materialize_template_path(tmp_path / "template-fixtures", template_id)
-        selected_path = path if path.is_dir() else path.parent
+        _target, selected_path = _materialize_template_selection(tmp_path / "template-fixtures", template_id)
         database_id = f"{template_id}-fixture"
         role = "db"
         add_reference_database(
@@ -373,7 +361,7 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
         checked = check_reference_database(cfg, database_id)
         assert checked["status"] == "available", f"{template_id} should validate with selected directory {selected_path}"
         resolved_path = checked["metadata"].get("resolvedPath") or {}
-        expected_path = "" if template["pathKind"] == "composite" else str(resolved_path.get("prefix") or resolved_path.get("path") or selected_path)
+        expected_path = _expected_template_entry_path(template, resolved_path, selected_path)
 
         tool_id = f"conda-forge::coreutils-{template_id}"
         upsert_tool(

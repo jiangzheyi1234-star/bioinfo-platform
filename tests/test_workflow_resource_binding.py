@@ -1,60 +1,43 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
-from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import DATABASE_TEMPLATES, add_reference_database
 from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.storage import persist_upload, upsert_tool
 from apps.remote_runner.workflow_resources import build_workflow_resource_config
+from tests.helpers.reference_database import (
+    make_blast_prefix_database as _make_blast_prefix_database,
+    make_configured_remote_runner,
+    make_kraken2_database as _make_kraken2_database,
+    patch_tool_probe_success as _patch_tool_probe_success,
+)
 
 
-def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
-    return RemoteRunnerConfig(
-        token="workflow-resource-token",
-        data_root=str(tmp_path / "shared"),
-        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
-        uploads_dir=str(tmp_path / "shared" / "uploads"),
-        results_dir=str(tmp_path / "shared" / "results"),
-        work_dir=str(tmp_path / "shared" / "work"),
-        logs_dir=str(tmp_path / "shared" / "logs"),
-        release_dir=str(Path.cwd() / "apps" / "remote_runner"),
-        managed_conda_command=str(tmp_path / "workflow-env" / "bin" / "conda"),
-        snakemake_command=str(tmp_path / "workflow-env" / "bin" / "snakemake"),
-    )
+def _cfg(tmp_path: Path):
+    return make_configured_remote_runner(tmp_path, token="workflow-resource-token")
 
 
-def _patch_tool_probe_success(monkeypatch) -> None:
-    from apps.remote_runner import database_validation
-
-    monkeypatch.setattr(
-        database_validation,
-        "prepare_tool_probe_command",
-        lambda cfg, template_id, template, command: command,
-    )
-    monkeypatch.setattr(
-        database_validation,
-        "run_tool_probe",
-        lambda command, *, timeout: database_validation.ToolProbeResult(
-            ok=True,
-            command=command,
-            stdout="probe ok",
-            stderr="",
-            returncode=0,
-        ),
-    )
+def _assert_resource_resolution_contract(
+    record: Mapping[str, object],
+    *,
+    input_path: Path,
+    entry_path: Path,
+    path_mode: str,
+) -> None:
+    assert record["inputPath"] == str(input_path)
+    assert record["entryPath"] == str(entry_path)
+    assert record["pathMode"] == path_mode
 
 
 def test_workflow_resource_binding_injects_entry_path_by_config_key(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    blast_dir = tmp_path / "blast"
-    blast_dir.mkdir()
-    for suffix in (".nhr", ".nin", ".nsq"):
-        (blast_dir / f"nt{suffix}").write_text("index", encoding="utf-8")
+    blast_dir = _make_blast_prefix_database(tmp_path / "blast")
     add_reference_database(
         cfg,
         {
@@ -84,15 +67,17 @@ def test_workflow_resource_binding_injects_entry_path_by_config_key(tmp_path: Pa
     assert result["resources"]["blast_nt_db"]["path"] == str(blast_dir / "nt")
     assert result["resources"]["blast_nt_db"]["resolved"] == {"default": str(blast_dir / "nt")}
     assert result["resources"]["blast_nt_db"]["input"] == {"kind": "single", "path": str(blast_dir)}
-    assert result["resources"]["blast_nt_db"]["inputPath"] == str(blast_dir)
-    assert result["resources"]["blast_nt_db"]["entryPath"] == str(blast_dir / "nt")
-    assert result["resources"]["blast_nt_db"]["pathMode"] == "prefix"
+    _assert_resource_resolution_contract(
+        result["resources"]["blast_nt_db"],
+        input_path=blast_dir,
+        entry_path=blast_dir / "nt",
+        path_mode="prefix",
+    )
 
 
 def test_workflow_resource_binding_injects_composite_resolved_object(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     nucleotide = tmp_path / "humann" / "chocophlan"
     protein = tmp_path / "humann" / "uniref"
     mapping = tmp_path / "humann" / "utility_mapping"
@@ -164,7 +149,6 @@ def test_workflow_resource_binding_injects_composite_resolved_object(tmp_path: P
 def test_workflow_resource_binding_injects_builtin_humann_composite_object(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
     nucleotide = tmp_path / "humann" / "chocophlan"
     protein = tmp_path / "humann" / "uniref"
     mapping = tmp_path / "humann" / "utility_mapping"
@@ -218,11 +202,7 @@ def test_workflow_resource_binding_injects_builtin_humann_composite_object(tmp_p
 def test_workflow_resource_binding_rejects_wrong_template(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    db_dir = tmp_path / "kraken2"
-    db_dir.mkdir()
-    for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
-        (db_dir / filename).write_text("index", encoding="utf-8")
+    db_dir = _make_kraken2_database(tmp_path / "kraken2")
     add_reference_database(
         cfg,
         {
@@ -254,11 +234,7 @@ def test_workflow_resource_binding_rejects_wrong_template(tmp_path: Path, monkey
 def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-    blast_dir = tmp_path / "blast"
-    blast_dir.mkdir()
-    for suffix in (".nhr", ".nin", ".nsq"):
-        (blast_dir / f"nt{suffix}").write_text("index", encoding="utf-8")
+    blast_dir = _make_blast_prefix_database(tmp_path / "blast")
     add_reference_database(
         cfg,
         {
@@ -329,9 +305,12 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
     assert run_config["resources"]["blast_nt_db"]["path"] == str(blast_dir / "nt")
     assert run_config["resources"]["blast_nt_db"]["resolved"] == {"default": str(blast_dir / "nt")}
     assert run_config["resources"]["blast_nt_db"]["input"] == {"kind": "single", "path": str(blast_dir)}
-    assert run_config["resources"]["blast_nt_db"]["inputPath"] == str(blast_dir)
-    assert run_config["resources"]["blast_nt_db"]["entryPath"] == str(blast_dir / "nt")
-    assert run_config["resources"]["blast_nt_db"]["pathMode"] == "prefix"
+    _assert_resource_resolution_contract(
+        run_config["resources"]["blast_nt_db"],
+        input_path=blast_dir,
+        entry_path=blast_dir / "nt",
+        path_mode="prefix",
+    )
     assert str(blast_dir / "nt") not in snakefile
     assert "{config[databases][blast_nt_db]:q}" in snakefile
     assert "{config[resourceConfig][blast_nt_db]:q}" not in snakefile
@@ -367,10 +346,7 @@ def test_static_pipeline_writes_resource_config_from_manifest(tmp_path: Path, mo
     cfg = _cfg(tmp_path)
     cfg.release_dir = str(release_dir)
     ensure_runtime_layout(cfg)
-    blast_dir = tmp_path / "blast"
-    blast_dir.mkdir()
-    for suffix in (".nhr", ".nin", ".nsq"):
-        (blast_dir / f"nt{suffix}").write_text("index", encoding="utf-8")
+    blast_dir = _make_blast_prefix_database(tmp_path / "blast")
     add_reference_database(cfg, {"id": "db_ncbi_nt", "name": "NCBI nt", "templateId": "blast", "path": str(blast_dir)})
     upload = persist_upload(cfg, filename="query.fa", content_base64="PlEKQUNHVAo=", mime_type="text/plain")
 
@@ -400,5 +376,9 @@ def test_static_pipeline_writes_resource_config_from_manifest(tmp_path: Path, mo
     assert run_config["databases"]["blast_nt_db"] == str(blast_dir / "nt")
     assert "databaseAssets" not in run_config
     assert run_config["resourceConfig"]["blast_nt_db"] == str(blast_dir / "nt")
-    assert run_config["resources"]["blast_nt_db"]["inputPath"] == str(blast_dir)
-    assert run_config["resources"]["blast_nt_db"]["entryPath"] == str(blast_dir / "nt")
+    _assert_resource_resolution_contract(
+        run_config["resources"]["blast_nt_db"],
+        input_path=blast_dir,
+        entry_path=blast_dir / "nt",
+        path_mode="prefix",
+    )
