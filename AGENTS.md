@@ -1,6 +1,7 @@
 # Repository Instructions
 
 - Frontend lives in `apps/web`; backend in `apps/api`; runtime logic in `core`.
+- For Python commands, use `uv` with repo-local paths: set `$env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'`, `$env:UV_PYTHON='python'`, and `$env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'` before `uv run ...` so Codex avoids the default user-level uv cache and managed-Python directories.
 - Do not require `pytest` by default. Run only the verification relevant to the change unless the user explicitly asks for `pytest`.
 - Keep single files under 800 lines. Split responsibilities instead of growing past the limit.
 - Frontend work must reuse the existing Tailwind + shadcn/ui system.
