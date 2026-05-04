@@ -10,6 +10,7 @@ def _databases_page_contract_source() -> str:
             Path("apps/web/app/components/databases-add-panel.tsx").read_text(encoding="utf-8"),
             Path("apps/web/app/components/databases-item-list.tsx").read_text(encoding="utf-8"),
             Path("apps/web/app/components/use-databases-page-state.ts").read_text(encoding="utf-8"),
+            Path("apps/web/app/components/database-page-api.ts").read_text(encoding="utf-8"),
             Path("apps/web/app/components/database-page-model.ts").read_text(encoding="utf-8"),
             Path("apps/web/app/components/database-page-ui.tsx").read_text(encoding="utf-8"),
             Path("apps/web/app/components/database-path-utils.ts").read_text(encoding="utf-8"),
@@ -140,8 +141,8 @@ def test_databases_page_does_not_treat_declared_database_as_validated() -> None:
 
     assert 'item.status === "declared"' in source
     assert "未校验" in source
-    assert 'if (response.data.status !== "available")' in source
-    assert 'throw new Error(response.data.message || "数据库添加接口未返回可用状态。")' in source
+    assert 'if (database.status !== "available")' in source
+    assert 'throw new Error(database.message || "数据库添加接口未返回可用状态。")' in source
     assert "ensureDatabaseAvailable" not in source
 
 
