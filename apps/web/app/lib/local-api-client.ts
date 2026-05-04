@@ -16,12 +16,14 @@ type LocalApiRequestOptions = {
 export class LocalApiError extends Error {
   code: LocalApiErrorCode;
   status: number;
+  detail: unknown;
 
-  constructor(code: LocalApiErrorCode, message: string, status = 0) {
+  constructor(code: LocalApiErrorCode, message: string, status = 0, detail?: unknown) {
     super(message);
     this.name = "LocalApiError";
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -68,7 +70,17 @@ async function requestViaBrowserFetch<T>(
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = typeof payload?.detail === "string" ? payload.detail : "";
-      throw new LocalApiError("backend_http_error", detail || `HTTP ${response.status}`, response.status);
+      throw new LocalApiError("backend_http_error", detail || `HTTP ${response.status}`, response.status, payload?.detail);
+    }
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "data" in payload &&
+      payload.data &&
+      typeof payload.data === "object" &&
+      "data" in payload.data
+    ) {
+      return { ...payload, data: payload.data.data } as T;
     }
     return payload as T;
   } catch (error) {
