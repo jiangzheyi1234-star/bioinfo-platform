@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
+
+import pytest
 
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import DATABASE_TEMPLATES, add_reference_database
@@ -11,6 +12,8 @@ from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.storage import persist_upload, upsert_tool
 from apps.remote_runner.workflow_resources import build_workflow_resource_config
 from tests.helpers.reference_database import (
+    assert_resolution_contract,
+    iter_workflow_resource_contract_cases,
     make_blast_prefix_database as _make_blast_prefix_database,
     make_configured_remote_runner,
     make_kraken2_database as _make_kraken2_database,
@@ -22,60 +25,70 @@ def _cfg(tmp_path: Path):
     return make_configured_remote_runner(tmp_path, token="workflow-resource-token")
 
 
-def _assert_resource_resolution_contract(
-    record: Mapping[str, object],
-    *,
-    input_path: Path,
-    entry_path: Path,
-    path_mode: str,
-) -> None:
-    assert record["inputPath"] == str(input_path)
-    assert record["entryPath"] == str(entry_path)
-    assert record["pathMode"] == path_mode
-
-
-def test_workflow_resource_binding_injects_entry_path_by_config_key(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "case_id",
+    [
+        "directory-kraken2",
+        "prefix-blast",
+        "primary-with-sidecars-bwa",
+        "composite-humann",
+    ],
+    ids=[
+        "directory-kraken2",
+        "prefix-blast",
+        "primary-with-sidecars-bwa",
+        "composite-humann",
+    ],
+)
+def test_workflow_resource_binding_matches_shared_contract_matrix(tmp_path: Path, monkeypatch, case_id: str) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    blast_dir = _make_blast_prefix_database(tmp_path / "blast")
+    case_root = tmp_path / case_id
+    cases = {case.case_id: case for case in iter_workflow_resource_contract_cases(case_root)}
+    case = cases[case_id]
+
     add_reference_database(
         cfg,
         {
-            "id": "db_ncbi_nt",
-            "name": "NCBI nt",
-            "templateId": "blast",
-            "path": str(blast_dir),
+            "id": case.database_id,
+            "name": case.database_name,
+            "templateId": case.template_id,
+            "path": case.database_path,
         },
     )
 
     result = build_workflow_resource_config(
         cfg,
         workflow_resource_spec={
-            "blast_nt_db": {
-                "label": "BLAST nt database",
+            case.resource_key: {
                 "required": True,
-                "acceptedTemplates": ["blast"],
-                "configKey": "blast_nt_db",
+                "acceptedTemplates": [case.template_id],
+                "configKey": case.config_key,
             }
         },
-        bindings={"blast_nt_db": "db_ncbi_nt"},
+        bindings={case.resource_key: case.database_id},
     )
 
-    assert result["config"]["blast_nt_db"] == str(blast_dir / "nt")
-    assert result["resources"]["blast_nt_db"]["databaseId"] == "db_ncbi_nt"
-    assert result["resources"]["blast_nt_db"]["templateId"] == "blast"
-    assert result["resources"]["blast_nt_db"]["path"] == str(blast_dir / "nt")
-    assert result["resources"]["blast_nt_db"]["resolved"] == {"default": str(blast_dir / "nt")}
-    assert result["resources"]["blast_nt_db"]["input"] == {"kind": "single", "path": str(blast_dir)}
-    _assert_resource_resolution_contract(
-        result["resources"]["blast_nt_db"],
-        input_path=blast_dir,
-        entry_path=blast_dir / "nt",
-        path_mode="prefix",
+    resource = result["resources"][case.resource_key]
+    assert result["config"][case.config_key] == case.expected_config_value
+    assert resource["databaseId"] == case.database_id
+    assert resource["templateId"] == case.template_id
+    assert resource["path"] == case.entry_path
+    assert resource["input"] == case.expected_input
+    assert resource["resolved"] == case.expected_resolved
+    assert resource["pathMode"] == case.expected_path_mode
+    assert_resolution_contract(
+        resource,
+        input_path=case.database_path,
+        entry_path=case.entry_path,
+        path_mode=case.expected_path_mode,
+        input_value=case.expected_input,
+        input_kind=case.expected_input_kind,
+        require_metadata=False,
     )
 
 
-def test_workflow_resource_binding_injects_composite_resolved_object(tmp_path: Path, monkeypatch) -> None:
+def test_workflow_resource_binding_preserves_composite_metadata_and_custom_template(tmp_path: Path, monkeypatch) -> None:
     _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     nucleotide = tmp_path / "humann" / "chocophlan"
@@ -83,6 +96,9 @@ def test_workflow_resource_binding_injects_composite_resolved_object(tmp_path: P
     mapping = tmp_path / "humann" / "utility_mapping"
     for path in (nucleotide, protein, mapping):
         path.mkdir(parents=True)
+    (nucleotide / "genome.ffn.gz").write_text("nucleotide", encoding="utf-8")
+    (protein / "uniref90.dmnd").write_text("protein", encoding="utf-8")
+    (mapping / "map_uniref90_name.txt.gz").write_text("mapping", encoding="utf-8")
 
     monkeypatch.setitem(
         DATABASE_TEMPLATES,
@@ -136,67 +152,29 @@ def test_workflow_resource_binding_injects_composite_resolved_object(tmp_path: P
         bindings={"humann_db": "db_humann"},
     )
 
-    assert result["config"]["humann"] == {
-        "nucleotide": str(nucleotide),
-        "protein": str(protein),
-        "utility_mapping": str(mapping),
-    }
-    assert result["resources"]["humann_db"]["input"]["kind"] == "multi"
-    assert result["resources"]["humann_db"]["resolved"] == result["config"]["humann"]
-    assert result["resources"]["humann_db"]["pathMode"] == "composite"
-
-
-def test_workflow_resource_binding_injects_builtin_humann_composite_object(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
-    cfg = _cfg(tmp_path)
-    nucleotide = tmp_path / "humann" / "chocophlan"
-    protein = tmp_path / "humann" / "uniref"
-    mapping = tmp_path / "humann" / "utility_mapping"
-    nucleotide.mkdir(parents=True)
-    protein.mkdir()
-    mapping.mkdir()
-    (nucleotide / "genome.ffn.gz").write_text("nucleotide", encoding="utf-8")
-    (protein / "uniref90.dmnd").write_text("protein", encoding="utf-8")
-    (mapping / "map_uniref90_name.txt.gz").write_text("mapping", encoding="utf-8")
-    add_reference_database(
-        cfg,
-        {
-            "id": "db_humann_builtin",
-            "name": "HUMAnN builtin",
-            "templateId": "humann",
-            "path": str(nucleotide.parent),
-            "metadata": {
-                "input": {
-                    "kind": "multi",
-                    "fields": {
-                        "nucleotide": str(nucleotide),
-                        "protein": str(protein),
-                        "utility_mapping": str(mapping),
-                    },
-                }
-            },
+    expected_input = {
+        "kind": "multi",
+        "fields": {
+            "nucleotide": str(nucleotide),
+            "protein": str(protein),
+            "utility_mapping": str(mapping),
         },
-    )
-
-    result = build_workflow_resource_config(
-        cfg,
-        workflow_resource_spec={
-            "humann_db": {
-                "required": True,
-                "acceptedTemplates": ["humann"],
-                "configKey": "humann",
-            }
-        },
-        bindings={"humann_db": "db_humann_builtin"},
-    )
-
-    assert result["config"]["humann"] == {
-        "nucleotide": str(nucleotide),
-        "protein": str(protein),
-        "utility_mapping": str(mapping),
     }
+    expected_resolved = expected_input["fields"]
+
+    assert result["config"]["humann"] == expected_resolved
+    assert result["resources"]["humann_db"]["input"] == expected_input
+    assert result["resources"]["humann_db"]["resolved"] == expected_resolved
     assert result["resources"]["humann_db"]["pathMode"] == "composite"
-    assert result["resources"]["humann_db"]["resolved"] == result["config"]["humann"]
+    assert_resolution_contract(
+        result["resources"]["humann_db"],
+        input_path=str(nucleotide.parent),
+        entry_path="",
+        path_mode="composite",
+        input_value=expected_input,
+        input_kind="multi",
+        require_metadata=False,
+    )
 
 
 def test_workflow_resource_binding_rejects_wrong_template(tmp_path: Path, monkeypatch) -> None:
@@ -305,11 +283,14 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
     assert run_config["resources"]["blast_nt_db"]["path"] == str(blast_dir / "nt")
     assert run_config["resources"]["blast_nt_db"]["resolved"] == {"default": str(blast_dir / "nt")}
     assert run_config["resources"]["blast_nt_db"]["input"] == {"kind": "single", "path": str(blast_dir)}
-    _assert_resource_resolution_contract(
+    assert_resolution_contract(
         run_config["resources"]["blast_nt_db"],
         input_path=blast_dir,
         entry_path=blast_dir / "nt",
         path_mode="prefix",
+        input_value={"kind": "single", "path": str(blast_dir)},
+        input_kind="single",
+        require_metadata=False,
     )
     assert str(blast_dir / "nt") not in snakefile
     assert "{config[databases][blast_nt_db]:q}" in snakefile
@@ -376,9 +357,14 @@ def test_static_pipeline_writes_resource_config_from_manifest(tmp_path: Path, mo
     assert run_config["databases"]["blast_nt_db"] == str(blast_dir / "nt")
     assert "databaseAssets" not in run_config
     assert run_config["resourceConfig"]["blast_nt_db"] == str(blast_dir / "nt")
-    _assert_resource_resolution_contract(
+    assert run_config["resources"]["blast_nt_db"]["resolved"] == {"default": str(blast_dir / "nt")}
+    assert run_config["resources"]["blast_nt_db"]["input"] == {"kind": "single", "path": str(blast_dir)}
+    assert_resolution_contract(
         run_config["resources"]["blast_nt_db"],
         input_path=blast_dir,
         entry_path=blast_dir / "nt",
         path_mode="prefix",
+        input_value={"kind": "single", "path": str(blast_dir)},
+        input_kind="single",
+        require_metadata=False,
     )

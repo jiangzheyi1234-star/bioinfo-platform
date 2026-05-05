@@ -1,11 +1,29 @@
 from __future__ import annotations
 
-import fnmatch
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+import fnmatch
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import DATABASE_TEMPLATES
+
+
+@dataclass(frozen=True, slots=True)
+class DatabaseContractCase:
+    case_id: str
+    template_id: str
+    database_id: str
+    database_name: str
+    resource_key: str
+    config_key: str
+    database_path: str
+    entry_path: Path | str
+    expected_path_mode: str
+    expected_input_kind: str
+    expected_input: object
+    expected_resolved: object
+    expected_config_value: object
 
 
 def patch_tool_probe_success(monkeypatch) -> list[str]:
@@ -91,6 +109,88 @@ def make_blast_prefix_database(base_dir: Path, prefix: str = "nt") -> Path:
     return base_dir
 
 
+def iter_workflow_resource_contract_cases(tmp_path: Path) -> list[DatabaseContractCase]:
+    blast_dir = make_blast_prefix_database(tmp_path / "blast")
+    bwa_fasta = make_bwa_reference(tmp_path / "bwa")
+    kraken_dir = make_kraken2_database(tmp_path / "kraken2")
+    nucleotide = tmp_path / "humann" / "chocophlan"
+    protein = tmp_path / "humann" / "uniref"
+    mapping = tmp_path / "humann" / "utility_mapping"
+    for path in (nucleotide, protein, mapping):
+        path.mkdir(parents=True, exist_ok=True)
+    (nucleotide / "genome.ffn.gz").write_text("nucleotide", encoding="utf-8")
+    (protein / "uniref90.dmnd").write_text("protein", encoding="utf-8")
+    (mapping / "map_uniref90_name.txt.gz").write_text("mapping", encoding="utf-8")
+
+    humann_fields = {
+        "nucleotide": str(nucleotide),
+        "protein": str(protein),
+        "utility_mapping": str(mapping),
+    }
+    return [
+        DatabaseContractCase(
+            case_id="directory-kraken2",
+            template_id="kraken2",
+            database_id="db_kraken2",
+            database_name="Kraken2",
+            resource_key="kraken_db",
+            config_key="kraken_db",
+            database_path=str(kraken_dir),
+            entry_path=str(kraken_dir),
+            expected_path_mode="directory",
+            expected_input_kind="single",
+            expected_input={"kind": "single", "path": str(kraken_dir)},
+            expected_resolved={"default": str(kraken_dir)},
+            expected_config_value=str(kraken_dir),
+        ),
+        DatabaseContractCase(
+            case_id="prefix-blast",
+            template_id="blast",
+            database_id="db_ncbi_nt",
+            database_name="NCBI nt",
+            resource_key="blast_nt_db",
+            config_key="blast_nt_db",
+            database_path=str(blast_dir),
+            entry_path=str(blast_dir / "nt"),
+            expected_path_mode="prefix",
+            expected_input_kind="single",
+            expected_input={"kind": "single", "path": str(blast_dir)},
+            expected_resolved={"default": str(blast_dir / "nt")},
+            expected_config_value=str(blast_dir / "nt"),
+        ),
+        DatabaseContractCase(
+            case_id="primary-with-sidecars-bwa",
+            template_id="bwa",
+            database_id="db_bwa",
+            database_name="BWA hg38",
+            resource_key="bwa_db",
+            config_key="bwa_db",
+            database_path=str(bwa_fasta),
+            entry_path=str(bwa_fasta),
+            expected_path_mode="primary_with_sidecars",
+            expected_input_kind="single",
+            expected_input={"kind": "single", "path": str(bwa_fasta)},
+            expected_resolved={"default": str(bwa_fasta)},
+            expected_config_value=str(bwa_fasta),
+        ),
+        DatabaseContractCase(
+            case_id="composite-humann",
+            template_id="humann",
+            database_id="db_humann",
+            database_name="HUMAnN",
+            resource_key="humann_db",
+            config_key="humann",
+            database_path=str(nucleotide.parent),
+            entry_path="",
+            expected_path_mode="composite",
+            expected_input_kind="multi",
+            expected_input={"kind": "multi", "fields": humann_fields},
+            expected_resolved=humann_fields,
+            expected_config_value=humann_fields,
+        ),
+    ]
+
+
 def assert_resolution_contract(
     record: Mapping[str, object],
     *,
@@ -98,21 +198,54 @@ def assert_resolution_contract(
     entry_path: Path | str,
     path_mode: str,
     resolved_path: object | None = None,
+    input_value: object | None = None,
+    input_kind: str | None = None,
+    require_metadata: bool = True,
 ) -> None:
     expected_input = str(input_path)
     expected_entry = str(entry_path)
-    metadata = record["metadata"]
-    assert isinstance(metadata, Mapping)
+    metadata = record.get("metadata")
 
     assert record["inputPath"] == expected_input
     assert record["entryPath"] == expected_entry
     assert record["pathMode"] == path_mode
-    assert metadata["inputPath"] == expected_input
-    assert metadata["entryPath"] == expected_entry
-    assert metadata["pathMode"] == path_mode
+    if input_value is not None:
+        assert record["input"] == input_value
+    if input_kind is not None:
+        input_record = record["input"]
+        assert isinstance(input_record, Mapping)
+        assert input_record["kind"] == input_kind
+    if require_metadata:
+        assert isinstance(metadata, Mapping)
+        assert metadata["inputPath"] == expected_input
+        assert metadata["entryPath"] == expected_entry
+        assert metadata["pathMode"] == path_mode
+        if input_value is not None:
+            assert metadata["input"] == input_value
+        if input_kind is not None:
+            metadata_input = metadata["input"]
+            assert isinstance(metadata_input, Mapping)
+            assert metadata_input["kind"] == input_kind
+    elif isinstance(metadata, Mapping):
+        if "inputPath" in metadata:
+            assert metadata["inputPath"] == expected_input
+        if "entryPath" in metadata:
+            assert metadata["entryPath"] == expected_entry
+        if "pathMode" in metadata:
+            assert metadata["pathMode"] == path_mode
+        if input_value is not None and "input" in metadata:
+            assert metadata["input"] == input_value
+        if input_kind is not None and "input" in metadata:
+            metadata_input = metadata["input"]
+            assert isinstance(metadata_input, Mapping)
+            assert metadata_input["kind"] == input_kind
     if resolved_path is not None:
         assert record["resolvedPath"] == resolved_path
-        assert metadata["resolvedPath"] == resolved_path
+        if require_metadata:
+            assert isinstance(metadata, Mapping)
+            assert metadata["resolvedPath"] == resolved_path
+        elif isinstance(metadata, Mapping) and "resolvedPath" in metadata:
+            assert metadata["resolvedPath"] == resolved_path
 
 
 def example_name_for_pattern(pattern: str) -> str:
