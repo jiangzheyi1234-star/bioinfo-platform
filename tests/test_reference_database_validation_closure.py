@@ -14,6 +14,7 @@ from apps.remote_runner.databases import (
 )
 from tests.helpers.reference_database import (
     assert_resolution_contract as _assert_resolution_contract,
+    iter_workflow_resource_contract_cases,
     make_configured_remote_runner,
     make_kraken2_database as _make_kraken2_database,
     patch_tool_probe_success as _patch_tool_probe_success,
@@ -389,7 +390,9 @@ def test_directory_template_resolution_prefers_index_prefix_over_metadata_file(t
 def test_bracken_registration_keeps_directory_as_resolved_path_and_lists_read_lengths(tmp_path: Path, monkeypatch) -> None:
     commands = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
-    database_dir = _make_kraken2_database(tmp_path / "kraken2_standard")
+    case_root = tmp_path / "reference-database-contracts"
+    cases = {case.case_id: case for case in iter_workflow_resource_contract_cases(case_root)}
+    database_dir = Path(cases["directory-kraken2"].database_path)
     for read_length in (50, 150, 300):
         (database_dir / f"database{read_length}mers.kmer_distrib").write_text("bracken", encoding="utf-8")
 
@@ -412,6 +415,8 @@ def test_bracken_registration_keeps_directory_as_resolved_path_and_lists_read_le
         entry_path=database_dir,
         path_mode="directory",
         resolved_path={"kind": "directory", "path": str(database_dir)},
+        input_value={"kind": "single", "path": str(database_dir)},
+        input_kind="single",
     )
     assert checked["metadata"]["availableReadLengths"] == [50, 150, 300]
     assert commands and f"kraken2-inspect --db {shlex.quote(str(database_dir))}" in commands[-1]
