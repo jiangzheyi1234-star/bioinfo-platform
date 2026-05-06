@@ -15,6 +15,7 @@ DEFAULT_CONFIG_PATH = DEFAULT_REMOTE_ROOT / "shared" / "config" / "runner.json"
 DEFAULT_DATA_ROOT = DEFAULT_REMOTE_ROOT / "shared"
 DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "data" / "runner.db"
 DEFAULT_RUNTIME_STATE_PATH = DEFAULT_DATA_ROOT / "runtime" / "runner-state.json"
+DEFAULT_WORKFLOW_PROFILE_NAME = "profile.v9+.yaml"
 
 
 @dataclass
@@ -41,6 +42,8 @@ class RemoteRunnerConfig:
     workflow_runtime_version: str = ""
     snakemake_command: str = ""
     snakemake_version: str = ""
+    workflow_profile_dir: str = ""
+    workflow_profile_name: str = ""
 
 
 def get_config_path() -> Path:
@@ -59,6 +62,10 @@ def load_remote_runner_config() -> RemoteRunnerConfig:
 
 def get_runtime_state_path(cfg: RemoteRunnerConfig) -> Path:
     return Path(cfg.runtime_state_path)
+
+
+def _resolve_default_workflow_profile_dir(cfg: RemoteRunnerConfig) -> Path:
+    return Path(cfg.data_root) / "config" / "snakemake" / "default"
 
 
 def write_runtime_state(
@@ -105,8 +112,21 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
     work_dir = Path(cfg.work_dir)
     logs_dir = Path(cfg.logs_dir)
     runtime_state_path = get_runtime_state_path(cfg)
+    workflow_profile_dir = get_workflow_profile_dir(cfg) or _resolve_default_workflow_profile_dir(cfg)
+    cfg.workflow_profile_dir = str(workflow_profile_dir)
+    cfg.workflow_profile_name = get_workflow_profile_name(cfg)
+    workflow_profile_path = workflow_profile_dir / cfg.workflow_profile_name
 
-    for directory in (data_root, db_path.parent, runtime_state_path.parent, uploads_dir, results_dir, work_dir, logs_dir):
+    for directory in (
+        data_root,
+        db_path.parent,
+        runtime_state_path.parent,
+        uploads_dir,
+        results_dir,
+        work_dir,
+        logs_dir,
+        workflow_profile_dir,
+    ):
         directory.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(str(db_path)) as connection:
@@ -120,10 +140,25 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
         )
         connection.commit()
 
+    if not workflow_profile_path.exists():
+        workflow_profile_path.write_text(
+            (
+                "# Managed workflow profile for H2OMeta remote runner.\n"
+                "cores: 1\n"
+                "printshellcmds: true\n"
+                "rerun-incomplete: true\n"
+                "latency-wait: 5\n"
+                "keep-going: false\n"
+                "software-deployment-method: conda\n"
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+
     return {
         "config": bool(cfg.token),
         "sqlite": db_path.exists(),
-        "directories": all(path.exists() for path in (uploads_dir, results_dir, work_dir, logs_dir)),
+        "directories": all(path.exists() for path in (uploads_dir, results_dir, work_dir, logs_dir, workflow_profile_dir)),
     }
 
 
@@ -134,10 +169,16 @@ def inspect_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
     work_dir = Path(cfg.work_dir)
     logs_dir = Path(cfg.logs_dir)
     runtime_state_path = get_runtime_state_path(cfg)
+    workflow_profile_dir = get_workflow_profile_dir(cfg) or _resolve_default_workflow_profile_dir(cfg)
+    cfg.workflow_profile_dir = str(workflow_profile_dir)
+    cfg.workflow_profile_name = get_workflow_profile_name(cfg)
     return {
         "config": bool(cfg.token),
         "sqlite": db_path.exists(),
-        "directories": all(path.exists() for path in (runtime_state_path.parent, uploads_dir, results_dir, work_dir, logs_dir)),
+        "directories": all(
+            path.exists()
+            for path in (runtime_state_path.parent, uploads_dir, results_dir, work_dir, logs_dir, workflow_profile_dir)
+        ),
     }
 
 
@@ -166,23 +207,127 @@ def build_workflow_runtime_environment(cfg: RemoteRunnerConfig) -> dict[str, str
     return env
 
 
+def get_workflow_profile_dir(cfg: RemoteRunnerConfig) -> Path | None:
+    workflow_profile_dir = str(cfg.workflow_profile_dir or "").strip()
+    if not workflow_profile_dir:
+        return _resolve_default_workflow_profile_dir(cfg)
+    return Path(workflow_profile_dir)
+
+
+def get_workflow_profile_name(cfg: RemoteRunnerConfig) -> str:
+    return str(cfg.workflow_profile_name or "").strip() or DEFAULT_WORKFLOW_PROFILE_NAME
+
+
+def get_workflow_profile_path(cfg: RemoteRunnerConfig) -> Path | None:
+    workflow_profile_dir = get_workflow_profile_dir(cfg)
+    return workflow_profile_dir / get_workflow_profile_name(cfg)
+
+
+def inspect_workflow_profile(cfg: RemoteRunnerConfig) -> dict[str, Any]:
+    workflow_profile_dir = get_workflow_profile_dir(cfg)
+    workflow_profile_name = get_workflow_profile_name(cfg)
+    profile_path = get_workflow_profile_path(cfg)
+    if not workflow_profile_dir.exists():
+        return {
+            "workflowProfileConfigured": True,
+            "workflowProfileOk": False,
+            "workflowProfileMessage": f"Workflow profile directory does not exist: {workflow_profile_dir}",
+            "workflowProfileDir": str(workflow_profile_dir),
+            "workflowProfileName": workflow_profile_name,
+            "workflowProfilePath": str(profile_path),
+        }
+    if not workflow_profile_dir.is_dir():
+        return {
+            "workflowProfileConfigured": True,
+            "workflowProfileOk": False,
+            "workflowProfileMessage": f"Workflow profile path is not a directory: {workflow_profile_dir}",
+            "workflowProfileDir": str(workflow_profile_dir),
+            "workflowProfileName": workflow_profile_name,
+            "workflowProfilePath": str(profile_path),
+        }
+    if not profile_path.exists():
+        return {
+            "workflowProfileConfigured": True,
+            "workflowProfileOk": False,
+            "workflowProfileMessage": f"Workflow profile config is missing: {profile_path}",
+            "workflowProfileDir": str(workflow_profile_dir),
+            "workflowProfileName": workflow_profile_name,
+            "workflowProfilePath": str(profile_path),
+        }
+    if not profile_path.is_file():
+        return {
+            "workflowProfileConfigured": True,
+            "workflowProfileOk": False,
+            "workflowProfileMessage": f"Workflow profile config path is not a file: {profile_path}",
+            "workflowProfileDir": str(workflow_profile_dir),
+            "workflowProfileName": workflow_profile_name,
+            "workflowProfilePath": str(profile_path),
+        }
+    return {
+        "workflowProfileConfigured": True,
+        "workflowProfileOk": True,
+        "workflowProfileMessage": "Managed workflow profile assets are ready.",
+        "workflowProfileDir": str(workflow_profile_dir),
+        "workflowProfileName": workflow_profile_name,
+        "workflowProfilePath": str(profile_path),
+    }
+
+
 def inspect_workflow_runtime(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     snakemake_command = str(cfg.snakemake_command or "").strip()
     managed_conda_command = str(cfg.managed_conda_command or "").strip()
+    workflow_profile = inspect_workflow_profile(cfg)
     if not snakemake_command:
-        return {"ok": False, "message": "Snakemake command is not configured.", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": "Snakemake command is not configured.",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     if not managed_conda_command:
-        return {"ok": False, "message": "Conda command is not configured for Snakemake --use-conda.", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": "Conda command is not configured for Snakemake workflow execution.",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     conda_path = Path(managed_conda_command)
     if not conda_path.exists():
-        return {"ok": False, "message": f"Conda command does not exist: {managed_conda_command}", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": f"Conda command does not exist: {managed_conda_command}",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     if not os.access(conda_path, os.X_OK):
-        return {"ok": False, "message": f"Conda command is not executable: {managed_conda_command}", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": f"Conda command is not executable: {managed_conda_command}",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     path = Path(snakemake_command)
     if not path.exists():
-        return {"ok": False, "message": f"Snakemake command does not exist: {snakemake_command}", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": f"Snakemake command does not exist: {snakemake_command}",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     if not os.access(path, os.X_OK):
-        return {"ok": False, "message": f"Snakemake command is not executable: {snakemake_command}", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": f"Snakemake command is not executable: {snakemake_command}",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
+    if workflow_profile["workflowProfileConfigured"] and not workflow_profile["workflowProfileOk"]:
+        return {
+            "ok": False,
+            "message": str(workflow_profile["workflowProfileMessage"]),
+            "snakemakeVersion": str(cfg.snakemake_version or ""),
+            **workflow_profile,
+        }
     try:
         result = subprocess.run(
             [snakemake_command, "--version"],
@@ -192,12 +337,27 @@ def inspect_workflow_runtime(cfg: RemoteRunnerConfig) -> dict[str, Any]:
             env=build_workflow_runtime_environment(cfg),
         )
     except Exception as exc:
-        return {"ok": False, "message": f"Snakemake version check failed: {exc}", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": f"Snakemake version check failed: {exc}",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
-        return {"ok": False, "message": detail or "Snakemake version check failed.", "snakemakeVersion": ""}
+        return {
+            "ok": False,
+            "message": detail or "Snakemake version check failed.",
+            "snakemakeVersion": "",
+            **workflow_profile,
+        }
     version = (result.stdout or result.stderr or "").strip().splitlines()[0] if (result.stdout or result.stderr).strip() else ""
-    return {"ok": True, "message": "Workflow runtime is ready.", "snakemakeVersion": version}
+    return {
+        "ok": True,
+        "message": "Workflow runtime is ready.",
+        "snakemakeVersion": version,
+        **workflow_profile,
+    }
 
 
 def dump_public_config(cfg: RemoteRunnerConfig) -> dict[str, Any]:

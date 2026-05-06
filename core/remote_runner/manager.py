@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import secrets
 import shlex
@@ -22,7 +23,9 @@ from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpC
 
 
 class RemoteRunnerManagerError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, bootstrap_metadata: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.bootstrap_metadata = bootstrap_metadata
 
 
 class RemoteRunnerManager(RemoteRunnerCatalogMixin):
@@ -47,6 +50,9 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             remote_shared = f"{remote_root}/shared"
             remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"
             remote_config = f"{remote_shared}/config/runner.json"
+            remote_profile_dir = f"{remote_shared}/config/snakemake/default"
+            remote_profile_name = "profile.v9+.yaml"
+            remote_profile_path = f"{remote_profile_dir}/{remote_profile_name}"
             remote_runtime_state = f"{remote_shared}/runtime/runner-state.json"
             remote_log = f"{remote_shared}/logs/runner.log"
             remote_current = f"{remote_root}/current"
@@ -56,6 +62,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             requested_remote_port = 0
             remote_service_python = f"{remote_release}/runtime/bin/python"
             remote_platform = self._detect_remote_platform(ssh_service)
+            previous_release = self._read_current_release_target(ssh_service, remote_current)
             fast_platform = self._platform_from_metadata(server_record) or remote_platform
             workflow_runtime_dir = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{fast_platform}"
             remote_workflow_bundle = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{fast_platform}.tar.gz"
@@ -94,6 +101,12 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                 }
 
             mode = self._detect_mode(ssh_service)
+            previous_config_payload = self._read_remote_json_if_exists(
+                ssh_service,
+                remote_config,
+                "remote runner config",
+            )
+            previous_mode = str((previous_config_payload or {}).get("mode") or server_record.get("runner_mode") or "")
             artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
             if workflow_artifact.platform != remote_platform:
                 workflow_runtime_dir = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{remote_platform}"
@@ -125,7 +138,31 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     },
                     "workflow_runtime": workflow_runtime,
                 },
+                "workflow_profile": {
+                    "path": remote_profile_dir,
+                    "config": remote_profile_path,
+                    "name": remote_profile_name,
+                },
                 "deployment_action": "installed",
+                "release_switch": {
+                    "target_release": remote_release,
+                    "target_mode": mode,
+                    "previous_release": previous_release,
+                    "previous_mode": previous_mode,
+                    "switched": False,
+                },
+                "rollback": {
+                    "attempted": False,
+                    "restored": False,
+                    "previous_release": previous_release,
+                    "previous_mode": previous_mode,
+                    "message": "",
+                },
+                "canary": {
+                    "ok": False,
+                    "status": "pending",
+                    "message": "",
+                },
             }
 
             reuse_result = self._try_reuse_existing_runner(
@@ -158,6 +195,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                 remote_root=remote_root,
                 bootstrap_metadata=bootstrap_metadata,
             )
+            previous_config_path: Path | None = None
+            local_config_path: Path | None = None
             try:
                 reuse_result = self._try_reuse_existing_runner(
                     server_id=server_id,
@@ -196,6 +235,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                             f"{remote_shared}/uploads",
                             f"{remote_shared}/results",
                             f"{remote_shared}/work",
+                            remote_profile_dir,
                             remote_tools,
                         )
                     ),
@@ -243,6 +283,10 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     remote_artifact_sha=remote_workflow_artifact_sha,
                     bootstrap_metadata=bootstrap_metadata,
                 )
+                if previous_config_payload is not None:
+                    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
+                        json.dump(previous_config_payload, handle, indent=2)
+                        previous_config_path = Path(handle.name)
                 config_payload = self._build_remote_config_payload(
                     version=version,
                     mode=mode,
@@ -259,6 +303,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     workflow_runtime_version=str(workflow_runtime.get("version") or ""),
                     snakemake_command=str(workflow_runtime.get("snakemake_command") or ""),
                     snakemake_version=str(workflow_runtime.get("snakemake_version") or ""),
+                    workflow_profile_dir=remote_profile_dir,
+                    workflow_profile_name=remote_profile_name,
                 )
                 with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
                     json.dump(config_payload, handle, indent=2)
@@ -274,6 +320,12 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     ssh_service=ssh_service,
                     remote_config=remote_config,
                     expected=config_payload,
+                )
+                self._write_remote_workflow_profile(
+                    ssh_service=ssh_service,
+                    remote_profile_path=remote_profile_path,
+                    remote_profile_dir=remote_profile_dir,
+                    bootstrap_metadata=bootstrap_metadata,
                 )
                 self._run_checked(
                     ssh_service,
@@ -291,51 +343,67 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     step="clear previous remote runner runtime state",
                     timeout=10,
                 )
-                if mode == "systemd_user":
-                    self._run_checked(
-                        ssh_service,
-                        "mkdir -p ~/.config/systemd/user && cp {service} ~/.config/systemd/user/h2ometa-remote.service && {switch_current} && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service".format(
-                            service=shlex.quote(f"{remote_release}/h2ometa-remote.service"),
-                            switch_current=self._atomic_symlink_command(
-                                target=remote_release,
-                                link_path=remote_current,
-                            ),
-                        ),
-                        step="start remote runner service",
-                        timeout=60,
+                release_switch = dict(bootstrap_metadata.get("release_switch") or {})
+                try:
+                    self._switch_current_release(
+                        ssh_service=ssh_service,
+                        target=remote_release,
+                        link_path=remote_current,
                     )
-                else:
-                    self._run_checked(
-                        ssh_service,
-                        "{switch_current} && bash {start} {config} {log}".format(
-                            switch_current=self._atomic_symlink_command(
-                                target=remote_release,
-                                link_path=remote_current,
-                            ),
-                            start=shlex.quote(f"{remote_current}/start_service.sh"),
-                            config=shlex.quote(remote_config),
-                            log=shlex.quote(remote_log),
-                        ),
-                        step="start remote runner service",
-                        timeout=30,
+                    release_switch["switched"] = True
+                    bootstrap_metadata["release_switch"] = release_switch
+                    self._start_remote_runner_service(
+                        ssh_service=ssh_service,
+                        remote_release=remote_release,
+                        remote_current=remote_current,
+                        remote_config=remote_config,
+                        remote_log=remote_log,
+                        mode=mode,
                     )
-                runtime_state = self._wait_for_runtime_state(
-                    ssh_service=ssh_service,
-                    remote_runtime_state=remote_runtime_state,
-                    version=version,
-                )
-                remote_port = int(runtime_state["bindPort"])
-                tunnel = ssh_service.ensure_local_tunnel(
-                    f"runner-{server_id}",
-                    remote_host="127.0.0.1",
-                    remote_port=remote_port,
-                )
-                client = RemoteRunnerHttpClient(
-                    base_url=f"http://127.0.0.1:{tunnel.local_port}",
-                    token=token,
-                    timeout=5,
-                )
-                health = self._wait_for_runner_health(client)
+                    runtime_state = self._wait_for_runtime_state(
+                        ssh_service=ssh_service,
+                        remote_runtime_state=remote_runtime_state,
+                        version=version,
+                    )
+                    remote_port = int(runtime_state["bindPort"])
+                    tunnel = ssh_service.ensure_local_tunnel(
+                        f"runner-{server_id}",
+                        remote_host="127.0.0.1",
+                        remote_port=remote_port,
+                    )
+                    client = RemoteRunnerHttpClient(
+                        base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                        token=token,
+                        timeout=5,
+                    )
+                    health = self._wait_for_runner_health(client)
+                    self._run_bootstrap_canary(
+                        client=client,
+                        server_id=server_id,
+                        bootstrap_metadata=bootstrap_metadata,
+                    )
+                    release_switch["active_release"] = remote_release
+                    bootstrap_metadata["release_switch"] = release_switch
+                except Exception as exc:
+                    self._attempt_release_rollback(
+                        ssh_service=ssh_service,
+                        server_id=server_id,
+                        server_record=server_record,
+                        previous_version=str((previous_config_payload or {}).get("version") or server_record.get("bootstrap_version") or ""),
+                        previous_release=previous_release,
+                        previous_mode=previous_mode,
+                        previous_config_path=previous_config_path,
+                        remote_current=remote_current,
+                        remote_config=remote_config,
+                        remote_log=remote_log,
+                        remote_runtime_state=remote_runtime_state,
+                        bootstrap_metadata=bootstrap_metadata,
+                        failure=str(exc) or "remote runner activation failed",
+                    )
+                    raise self._bootstrap_failure(
+                        str(exc) or "remote runner activation failed",
+                        bootstrap_metadata=bootstrap_metadata,
+                    ) from exc
                 token_ref = store_runner_token(server_id=server_id, token=token)
                 bootstrap_metadata["reuse_check"] = bootstrap_metadata.get("reuse_check") or {"ok": False, "reason": "not reusable"}
                 return {
@@ -349,13 +417,409 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     "bootstrap_metadata": bootstrap_metadata,
                 }
             finally:
+                for temp_path in (local_config_path, previous_config_path):
+                    if temp_path is None:
+                        continue
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                 self._release_remote_install_lock(ssh_service=ssh_service, lock_dir=remote_install_lock)
         except RemoteRunnerManagerError:
             raise
         except RemoteRunnerArtifactError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
+            raise RemoteRunnerManagerError(str(exc), bootstrap_metadata=locals().get("bootstrap_metadata")) from exc
         except Exception as exc:
-            raise RemoteRunnerManagerError(str(exc) or "remote runner bootstrap failed") from exc
+            raise RemoteRunnerManagerError(
+                str(exc) or "remote runner bootstrap failed",
+                bootstrap_metadata=locals().get("bootstrap_metadata"),
+            ) from exc
+
+    @staticmethod
+    def _bootstrap_failure(detail: str, *, bootstrap_metadata: dict[str, Any]) -> RemoteRunnerManagerError:
+        message = str(detail or "remote runner bootstrap failed").strip() or "remote runner bootstrap failed"
+        rollback = bootstrap_metadata.get("rollback") if isinstance(bootstrap_metadata, dict) else None
+        if isinstance(rollback, dict) and bool(rollback.get("attempted")):
+            outcome = "rollback restored previous release" if bool(rollback.get("restored")) else "rollback did not restore previous release"
+            rollback_message = str(rollback.get("message") or "").strip()
+            if rollback_message:
+                message = f"{message}; {outcome}: {rollback_message}"
+            else:
+                message = f"{message}; {outcome}"
+        return RemoteRunnerManagerError(message, bootstrap_metadata=bootstrap_metadata)
+
+    @classmethod
+    def _read_remote_json_if_exists(cls, ssh_service, path: str, label: str) -> dict[str, Any] | None:
+        exit_code, stdout, _stderr = ssh_service.run(f"cat {shlex.quote(path)}", timeout=10)
+        if exit_code != 0:
+            return None
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise RemoteRunnerManagerError(f"{label} is invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise RemoteRunnerManagerError(f"{label} is not an object")
+        return payload
+
+    @classmethod
+    def _switch_current_release(cls, *, ssh_service, target: str, link_path: str) -> None:
+        cls._run_checked(
+            ssh_service,
+            cls._atomic_symlink_command(target=target, link_path=link_path),
+            step="switch current release",
+            timeout=15,
+        )
+
+    @classmethod
+    def _start_remote_runner_service(
+        cls,
+        *,
+        ssh_service,
+        remote_release: str,
+        remote_current: str,
+        remote_config: str,
+        remote_log: str,
+        mode: str,
+    ) -> None:
+        if mode == "systemd_user":
+            cls._run_checked(
+                ssh_service,
+                "mkdir -p ~/.config/systemd/user && cp {service} ~/.config/systemd/user/h2ometa-remote.service && systemctl --user daemon-reload && systemctl --user restart h2ometa-remote.service".format(
+                    service=shlex.quote(f"{remote_release}/h2ometa-remote.service"),
+                ),
+                step="start remote runner service",
+                timeout=60,
+            )
+            return
+        cls._run_checked(
+            ssh_service,
+            "bash {start} {config} {log}".format(
+                start=shlex.quote(f"{remote_current}/start_service.sh"),
+                config=shlex.quote(remote_config),
+                log=shlex.quote(remote_log),
+            ),
+            step="start remote runner service",
+            timeout=30,
+        )
+
+    @classmethod
+    def _write_remote_workflow_profile(
+        cls,
+        *,
+        ssh_service,
+        remote_profile_path: str,
+        remote_profile_dir: str,
+        bootstrap_metadata: dict[str, Any],
+    ) -> None:
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".yaml", encoding="utf-8") as handle:
+            handle.write(cls._build_remote_workflow_profile_content())
+            local_profile_path = Path(handle.name)
+        try:
+            cls._upload_remote_file_atomic(
+                ssh_service,
+                local_path=local_profile_path,
+                remote_path=remote_profile_path,
+                step="write workflow profile",
+                timeout=10,
+            )
+        finally:
+            try:
+                local_profile_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        profile_metadata = dict(bootstrap_metadata.get("workflow_profile") or {})
+        profile_metadata["path"] = remote_profile_dir
+        profile_metadata["config"] = remote_profile_path
+        profile_metadata["written"] = True
+        bootstrap_metadata["workflow_profile"] = profile_metadata
+
+    @staticmethod
+    def _build_remote_workflow_profile_content() -> str:
+        return "\n".join(
+            [
+                "executor: local",
+                "jobs: 1",
+                "latency-wait: 60",
+                "printshellcmds: true",
+                "rerun-incomplete: true",
+                "software-deployment-method: conda",
+                "conda-frontend: conda",
+                "",
+            ]
+        )
+
+    def _run_bootstrap_canary(
+        self,
+        *,
+        client: RemoteRunnerHttpClient,
+        server_id: str,
+        bootstrap_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        canary = dict(bootstrap_metadata.get("canary") or {})
+        canary.update(
+            {
+                "ok": False,
+                "status": "running",
+                "pipelineId": "file-summary-v1",
+                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "message": "",
+            }
+        )
+        bootstrap_metadata["canary"] = canary
+        try:
+            fastq_bytes = b"@h2ometa-bootstrap-canary\nACGT\n+\n!!!!\n"
+            upload = client.create_upload(
+                filename="bootstrap-canary.fastq",
+                content_base64=base64.b64encode(fastq_bytes).decode("ascii"),
+                mime_type="application/octet-stream",
+            )
+            canary["upload"] = {
+                "uploadId": str(upload.get("uploadId") or ""),
+                "fileName": str(upload.get("fileName") or ""),
+                "sizeBytes": int(upload.get("sizeBytes") or 0),
+                "sha256": str(upload.get("sha256") or ""),
+                "remotePath": str(upload.get("remotePath") or ""),
+            }
+            request_id = f"req_bootstrap_canary_{int(time.time() * 1000)}"
+            submission = client.create_run(
+                {
+                    "serverId": server_id,
+                    "requestId": request_id,
+                    "runSpec": {
+                        "pipelineId": "file-summary-v1",
+                        "inputs": [
+                            {
+                                "uploadId": str(upload.get("uploadId") or ""),
+                                "filename": str(upload.get("fileName") or "bootstrap-canary.fastq"),
+                                "role": "reads",
+                            }
+                        ],
+                        "params": {"threads": 1},
+                    },
+                },
+                idempotency_key=f"idem_bootstrap_canary_{secrets.token_hex(8)}",
+                request_id=request_id,
+            )
+            run_id = str(((submission.get("data") or {}).get("runId")) or "")
+            if not run_id:
+                raise RemoteRunnerManagerError("bootstrap canary submission did not return a runId")
+            canary["submission"] = {
+                "requestId": str(((submission.get("data") or {}).get("requestId")) or request_id),
+                "runId": run_id,
+                "status": str(((submission.get("data") or {}).get("status")) or ""),
+                "stage": str(((submission.get("data") or {}).get("stage")) or ""),
+                "message": str(((submission.get("data") or {}).get("message")) or ""),
+            }
+            run = self._wait_for_terminal_run(client, run_id=run_id)
+            canary["run"] = {
+                "runId": run_id,
+                "status": str(run.get("status") or ""),
+                "stage": str(run.get("stage") or ""),
+                "message": str(run.get("message") or ""),
+                "finishedAt": str(run.get("finishedAt") or ""),
+                "lastError": run.get("lastError") if isinstance(run.get("lastError"), dict) else None,
+            }
+            if str(run.get("status") or "") != "completed":
+                last_error = run.get("lastError") if isinstance(run.get("lastError"), dict) else {}
+                detail = str(last_error.get("message") or run.get("message") or f"status={run.get('status') or 'unknown'}")
+                raise RemoteRunnerManagerError(detail)
+            run_results = client.get_run_results(run_id)
+            listed_results = client.list_results()
+            result_id = next((str(item.get("resultId") or "") for item in listed_results if str(item.get("runId") or "") == run_id), "")
+            if not result_id:
+                result_id = f"res_{run_id}"
+            result_detail = client.get_result(result_id)
+            artifacts = result_detail.get("artifacts") if isinstance(result_detail.get("artifacts"), list) else []
+            if not artifacts:
+                raise RemoteRunnerManagerError("bootstrap canary completed without artifacts")
+            primary_artifact = artifacts[0]
+            preview_payload = client.get_result_preview(result_id, artifact_id=str(primary_artifact.get("artifactId") or ""))
+            canary["result"] = {
+                "resultId": result_id,
+                "resultDir": str(run_results.get("resultDir") or ""),
+                "artifactCount": len(artifacts),
+                "artifacts": [self._summarize_artifact(item) for item in artifacts[:3]],
+            }
+            canary["preview"] = self._compact_preview_payload(preview_payload)
+            canary["ok"] = True
+            canary["status"] = "passed"
+            canary["message"] = "Bootstrap canary completed successfully."
+            canary["completedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            bootstrap_metadata["canary"] = canary
+            return canary
+        except Exception as exc:
+            detail = str(exc) or "bootstrap canary failed"
+            canary["ok"] = False
+            canary["status"] = "failed"
+            canary["message"] = detail
+            canary["completedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            bootstrap_metadata["canary"] = canary
+            if isinstance(exc, RemoteRunnerManagerError):
+                raise RemoteRunnerManagerError(
+                    f"bootstrap canary failed: {detail}",
+                    bootstrap_metadata=bootstrap_metadata,
+                ) from exc
+            raise RemoteRunnerManagerError(
+                f"bootstrap canary failed: {detail}",
+                bootstrap_metadata=bootstrap_metadata,
+            ) from exc
+
+    @staticmethod
+    def _wait_for_terminal_run(
+        client: RemoteRunnerHttpClient,
+        *,
+        run_id: str,
+        attempts: int = 60,
+        delay_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        last_run: dict[str, Any] | None = None
+        for attempt in range(attempts):
+            run = client.get_run(run_id)
+            last_run = run
+            if str(run.get("status") or "") in {"completed", "failed"}:
+                return run
+            if attempt < attempts - 1:
+                time.sleep(delay_seconds)
+        if last_run is not None:
+            raise RemoteRunnerManagerError(
+                f"bootstrap canary run did not reach a terminal state: {str(last_run.get('status') or 'unknown')}"
+            )
+        raise RemoteRunnerManagerError("bootstrap canary run did not reach a terminal state")
+
+    @staticmethod
+    def _summarize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "artifactId": str(artifact.get("artifactId") or ""),
+            "kind": str(artifact.get("kind") or ""),
+            "mimeType": str(artifact.get("mimeType") or ""),
+            "sizeBytes": int(artifact.get("sizeBytes") or 0),
+            "path": str(artifact.get("path") or ""),
+        }
+
+    @staticmethod
+    def _compact_preview_payload(preview_payload: dict[str, Any]) -> dict[str, Any]:
+        data = preview_payload.get("data") if isinstance(preview_payload.get("data"), dict) else preview_payload
+        if isinstance(data, dict):
+            preview = data.get("preview") if isinstance(data.get("preview"), dict) else data
+            artifact = data.get("artifact") if isinstance(data.get("artifact"), dict) else {}
+            compact = {
+                "artifactId": str(data.get("artifactId") or artifact.get("artifactId") or ""),
+                "kind": str(preview.get("kind") or ""),
+                "truncated": bool(preview.get("truncated")),
+            }
+            if compact["kind"] == "table":
+                compact["columns"] = preview.get("columns") if isinstance(preview.get("columns"), list) else []
+                rows = preview.get("rows") if isinstance(preview.get("rows"), list) else []
+                compact["rows"] = rows[:5]
+            else:
+                content = str(preview.get("content") or "")
+                compact["content"] = content[:1024]
+            return compact
+        return {"kind": "", "truncated": False}
+
+    @classmethod
+    def _attempt_release_rollback(
+        cls,
+        *,
+        ssh_service,
+        server_id: str,
+        server_record: dict[str, Any],
+        previous_version: str,
+        previous_release: str,
+        previous_mode: str,
+        previous_config_path: Path | None,
+        remote_current: str,
+        remote_config: str,
+        remote_log: str,
+        remote_runtime_state: str,
+        bootstrap_metadata: dict[str, Any],
+        failure: str,
+    ) -> None:
+        rollback = dict(bootstrap_metadata.get("rollback") or {})
+        rollback.update(
+            {
+                "attempted": True,
+                "restored": False,
+                "previous_release": previous_release,
+                "previous_mode": previous_mode,
+                "failure": str(failure or ""),
+                "message": "",
+            }
+        )
+        bootstrap_metadata["rollback"] = rollback
+        target_release = str((bootstrap_metadata.get("release_switch") or {}).get("target_release") or "")
+        if not previous_release or previous_release == target_release:
+            rollback["message"] = "previous release unavailable for rollback"
+            bootstrap_metadata["rollback"] = rollback
+            return
+        if previous_config_path is None or not previous_config_path.exists():
+            rollback["message"] = "previous runner config unavailable for rollback"
+            bootstrap_metadata["rollback"] = rollback
+            return
+        try:
+            try:
+                cls._run_checked(
+                    ssh_service,
+                    "systemctl --user stop h2ometa-remote.service >/dev/null 2>&1 || true; "
+                    "pkill -f '[r]emote_runner.run' >/dev/null 2>&1 || true; "
+                    f"rm -f {shlex.quote(remote_runtime_state)}",
+                    step="stop failed remote runner service before rollback",
+                    timeout=20,
+                )
+            except RemoteRunnerManagerError as exc:
+                rollback["stopError"] = str(exc)
+            cls._upload_remote_file_atomic(
+                ssh_service,
+                local_path=previous_config_path,
+                remote_path=remote_config,
+                step="restore previous remote runner config",
+                timeout=10,
+            )
+            cls._switch_current_release(
+                ssh_service=ssh_service,
+                target=previous_release,
+                link_path=remote_current,
+            )
+            cls._start_remote_runner_service(
+                ssh_service=ssh_service,
+                remote_release=previous_release,
+                remote_current=remote_current,
+                remote_config=remote_config,
+                remote_log=remote_log,
+                mode=previous_mode or "background_process",
+            )
+            runtime_state = cls._wait_for_runtime_state(
+                ssh_service=ssh_service,
+                remote_runtime_state=remote_runtime_state,
+                version=previous_version or REMOTE_RUNNER_VERSION,
+            )
+            rollback["runtimeState"] = {
+                "bindPort": int(runtime_state.get("bindPort") or 0),
+                "pid": int(runtime_state.get("pid") or 0),
+                "version": str(runtime_state.get("version") or ""),
+            }
+            token = resolve_runner_token(str(server_record.get("token_ref") or ""))
+            if token:
+                tunnel = ssh_service.ensure_local_tunnel(
+                    f"runner-{server_id}",
+                    remote_host="127.0.0.1",
+                    remote_port=int(runtime_state["bindPort"]),
+                )
+                client = RemoteRunnerHttpClient(
+                    base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                    token=token,
+                    timeout=5,
+                )
+                rollback["health"] = cls._wait_for_runner_health(client, attempts=3)
+            rollback["restored"] = True
+            rollback["message"] = "previous release restored"
+            release_switch = dict(bootstrap_metadata.get("release_switch") or {})
+            release_switch["active_release"] = previous_release
+            release_switch["rolled_back"] = True
+            bootstrap_metadata["release_switch"] = release_switch
+        except Exception as exc:
+            rollback["message"] = str(exc) or "rollback failed"
+        bootstrap_metadata["rollback"] = rollback
 
     @staticmethod
     def _build_fast_reuse_metadata(
@@ -1056,6 +1520,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             "workflow_runtime_source",
             "workflow_runtime_version",
             "snakemake_command",
+            "workflow_profile_dir",
+            "workflow_profile_name",
         )
         for key in required_keys:
             if actual.get(key) != expected.get(key):
@@ -1312,6 +1778,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                         workflow_runtime_version=str(workflow_runtime.get("version") or ""),
                         snakemake_command=str(workflow_runtime.get("snakemake_command") or ""),
                         snakemake_version=str(workflow_runtime.get("snakemake_version") or ""),
+                        workflow_profile_dir=str(record.get("bootstrap_metadata", {}).get("workflow_profile", {}).get("path") or ""),
+                        workflow_profile_name=str(record.get("bootstrap_metadata", {}).get("workflow_profile", {}).get("name") or "profile.v9+.yaml"),
                     ),
                     handle,
                     indent=2,
@@ -1440,6 +1908,13 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         return home_dir
 
     @staticmethod
+    def _read_current_release_target(ssh_service, remote_current: str) -> str:
+        exit_code, stdout, _stderr = ssh_service.run(f"readlink -f {shlex.quote(remote_current)}", timeout=10)
+        if exit_code != 0:
+            return ""
+        return stdout.strip()
+
+    @staticmethod
     def _build_remote_config_payload(
         *,
         version: str,
@@ -1457,6 +1932,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         workflow_runtime_version: str,
         snakemake_command: str,
         snakemake_version: str,
+        workflow_profile_dir: str,
+        workflow_profile_name: str,
     ) -> dict[str, Any]:
         return {
             "service_name": "h2ometa-remote",
@@ -1481,6 +1958,8 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             "workflow_runtime_version": workflow_runtime_version,
             "snakemake_command": snakemake_command,
             "snakemake_version": snakemake_version,
+            "workflow_profile_dir": workflow_profile_dir,
+            "workflow_profile_name": workflow_profile_name,
         }
 
     @classmethod
@@ -1558,13 +2037,45 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         last_error: Exception | None = None
         for attempt in range(attempts):
             try:
-                return client.get_health()
+                health = client.get_health()
+                RemoteRunnerManager._require_ready_health(health)
+                return health
             except Exception as exc:
                 last_error = exc
                 if attempt == attempts - 1:
                     break
                 time.sleep(delay_seconds)
         raise RemoteRunnerManagerError(str(last_error) or "remote runner health check failed")
+
+    @staticmethod
+    def _require_ready_health(health: dict[str, Any]) -> None:
+        ready = health.get("ready") if isinstance(health, dict) else None
+        if not isinstance(ready, dict) or bool(ready.get("ok")):
+            return
+        raise RemoteRunnerManagerError(RemoteRunnerManager._describe_not_ready_health(health))
+
+    @staticmethod
+    def _describe_not_ready_health(health: dict[str, Any]) -> str:
+        if not isinstance(health, dict):
+            return "remote runner control plane is not ready"
+        detail_parts: list[str] = []
+        workflow = health.get("workflowRuntime")
+        if isinstance(workflow, dict) and not bool(workflow.get("ok")):
+            detail_parts.append(
+                f"workflow runtime not ready: {str(workflow.get('message') or 'Workflow runtime is not ready.').strip()}"
+            )
+        pipeline_registry = health.get("pipelineRegistry")
+        if isinstance(pipeline_registry, dict) and not bool(pipeline_registry.get("ok")):
+            detail_parts.append(
+                f"pipeline registry not ready: {str(pipeline_registry.get('message') or 'Pipeline registry is not ready.').strip()}"
+            )
+        ready = health.get("ready")
+        ready_message = ""
+        if isinstance(ready, dict):
+            ready_message = str(ready.get("message") or "").strip()
+        if ready_message and ready_message not in detail_parts:
+            detail_parts.append(ready_message)
+        return "; ".join(part for part in detail_parts if part) or "remote runner control plane is not ready"
 
     @staticmethod
     def _verify_database_template_catalog_for_reuse(client: RemoteRunnerHttpClient) -> None:

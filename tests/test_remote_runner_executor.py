@@ -109,9 +109,10 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
 
     assert len(calls) == 2
     assert calls[0][0] == str(snakemake_command)
-    assert "--use-conda" in calls[0]
+    assert "--workflow-profile" in calls[0]
+    assert str(Path(cfg.workflow_profile_dir)) in calls[0]
     assert "-n" in calls[0]
-    assert "--use-conda" in calls[1]
+    assert "--workflow-profile" in calls[1]
     run_config = json.loads((Path(cfg.work_dir) / "run_phase2" / "run-config.json").read_text(encoding="utf-8"))
     assert run_config["pipeline_id"] == "file-summary-v1"
     assert run_config["inputs"][0]["path"] == upload["path"]

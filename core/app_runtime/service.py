@@ -19,7 +19,7 @@ from config import (
 from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
-from core.remote_runner.manager import RemoteRunnerManager
+from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 
@@ -275,6 +275,10 @@ class RuntimeService(RunnerOperationsMixin):
                     server_record=server_record,
                 )
         except RuntimeServiceError as exc:
+            bootstrap_metadata = {}
+            cause = exc.__cause__
+            if isinstance(cause, RemoteRunnerManagerError) and isinstance(cause.bootstrap_metadata, dict):
+                bootstrap_metadata = dict(cause.bootstrap_metadata)
             failure_snapshot = self._build_runner_ensure_failure_snapshot(
                 server_id=server_id,
                 detail=str(exc),
@@ -284,9 +288,11 @@ class RuntimeService(RunnerOperationsMixin):
                     server_id,
                     {
                         "last_health_snapshot": failure_snapshot,
+                        "bootstrap_metadata": bootstrap_metadata or None,
                     },
                 )
             raise
+        health = result["health"]
         ensured_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock:
             self._save_server_registry_entry(
@@ -297,12 +303,15 @@ class RuntimeService(RunnerOperationsMixin):
                     "tunnel_port": result["tunnel_port"],
                     "service_port": result["service_port"],
                     "token_ref": result["token_ref"],
-                    "last_health_snapshot": result["health"],
+                    "last_health_snapshot": health,
                     "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
                     "runner_ensured_at": ensured_at,
                 },
             )
-        health = result["health"]
+        if not bool((health.get("ready") or {}).get("ok")):
+            raise RuntimeServiceError(
+                str((health.get("ready") or {}).get("message") or "Remote runner control plane is not ready.")
+            )
         runner = self._compose_runner_payload(
             registry_entry={
                 "bootstrap_version": result["bootstrap_version"],
@@ -889,6 +898,8 @@ class RuntimeService(RunnerOperationsMixin):
         reason_code = ""
         ready_ok = False
         ready_message = "Remote runner is not ready."
+        workflow_runtime: dict[str, Any] = {}
+        pipeline_registry: dict[str, Any] = {}
         if not configured or not connected:
             reason_code = "SSH_NOT_CONNECTED"
             ready_message = "Connect to the remote server before submitting runs."
@@ -903,6 +914,8 @@ class RuntimeService(RunnerOperationsMixin):
                 ready_ok = bool(snapshot["ready"]["ok"])
                 ready_message = str(snapshot["ready"]["message"])
                 reason_code = str(snapshot.get("reasonCode", "") or "RUNNER_NOT_READY")
+                workflow_runtime = dict(snapshot.get("workflowRuntime") or {})
+                pipeline_registry = dict(snapshot.get("pipelineRegistry") or {})
             else:
                 reason_code = "RUNNER_NOT_READY"
                 ready_message = "Prepare the remote workspace before using this server."
@@ -921,16 +934,33 @@ class RuntimeService(RunnerOperationsMixin):
                 ready_ok = bool(remote_health["ready"]["ok"])
                 ready_message = str(remote_health["ready"]["message"])
                 reason_code = str(remote_health.get("reasonCode", "") or "")
+                workflow_runtime = dict(remote_health.get("workflowRuntime") or {})
+                pipeline_registry = dict(remote_health.get("pipelineRegistry") or {})
                 with self._lock:
                     self._save_server_registry_entry(server_id, {"last_health_snapshot": remote_health})
             except RuntimeServiceError as exc:
-                reason_code = "RUNNER_NOT_READY"
-                ready_message = str(exc) or "Remote runner control plane is not reachable."
+                snapshot = self._get_saved_readiness_snapshot(
+                    server_id=server_id,
+                    registry_entry=registry_entry,
+                )
+                if snapshot is not None:
+                    startup = snapshot["startup"]
+                    live = snapshot["live"]
+                    ready_ok = bool(snapshot["ready"]["ok"])
+                    ready_message = str(snapshot["ready"]["message"])
+                    reason_code = str(snapshot.get("reasonCode", "") or "RUNNER_NOT_READY")
+                    workflow_runtime = dict(snapshot.get("workflowRuntime") or {})
+                    pipeline_registry = dict(snapshot.get("pipelineRegistry") or {})
+                else:
+                    reason_code = "RUNNER_NOT_READY"
+                    ready_message = str(exc) or "Remote runner control plane is not reachable."
         return {
             "serverId": server_id,
             "startup": startup,
             "live": live,
             "ready": {"ok": ready_ok, "message": ready_message},
+            "workflowRuntime": workflow_runtime,
+            "pipelineRegistry": pipeline_registry,
             "reasonCode": reason_code,
             "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -955,6 +985,8 @@ class RuntimeService(RunnerOperationsMixin):
             "startup": startup,
             "live": live,
             "ready": ready,
+            "workflowRuntime": snapshot.get("workflowRuntime") if isinstance(snapshot.get("workflowRuntime"), dict) else {},
+            "pipelineRegistry": snapshot.get("pipelineRegistry") if isinstance(snapshot.get("pipelineRegistry"), dict) else {},
             "reasonCode": reason_code,
             "checkedAt": str(snapshot.get("checkedAt") or ""),
         }
@@ -966,21 +998,27 @@ class RuntimeService(RunnerOperationsMixin):
         server_id: str,
         detail: str,
     ) -> dict[str, Any]:
-        reason_code, ready_message, live_message = cls._classify_runner_ensure_failure(detail)
+        reason_code, ready_message, live_message, workflow_runtime, pipeline_registry = cls._classify_runner_ensure_failure(
+            detail
+        )
         checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         return {
             "serverId": server_id,
             "startup": {"ok": False, "message": ready_message},
             "live": {"ok": False, "message": live_message},
             "ready": {"ok": False, "message": ready_message},
+            "workflowRuntime": workflow_runtime,
+            "pipelineRegistry": pipeline_registry,
             "reasonCode": reason_code,
             "checkedAt": checked_at,
         }
 
     @staticmethod
-    def _classify_runner_ensure_failure(detail: str) -> tuple[str, str, str]:
+    def _classify_runner_ensure_failure(detail: str) -> tuple[str, str, str, dict[str, Any], dict[str, Any]]:
         message = str(detail or "").strip() or "remote runner ensure failed"
         lowered = message.lower()
+        workflow_runtime: dict[str, Any] = {}
+        pipeline_registry: dict[str, Any] = {}
         if (
             "verify workflow runtime prerequisites" in lowered
             or "workflow runtime" in lowered
@@ -989,29 +1027,40 @@ class RuntimeService(RunnerOperationsMixin):
             or "snakemake command not configured" in lowered
         ):
             ready_message = f"Remote workflow runtime is unavailable: {message}"
-            return "WORKFLOW_RUNTIME_MISSING", ready_message, "Remote runner process is not running."
+            workflow_runtime = {"ok": False, "message": ready_message}
+            return "WORKFLOW_RUNTIME_MISSING", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
+        if "pipeline registry" in lowered or "registered pipeline snakefile is missing" in lowered:
+            ready_message = f"Remote pipeline registry is unavailable: {message}"
+            pipeline_registry = {"ok": False, "message": ready_message}
+            return "PIPELINE_REGISTRY_NOT_READY", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
+        if "bootstrap canary failed" in lowered or "canary failed" in lowered:
+            ready_message = f"Remote runner bootstrap canary failed: {message}"
+            return "RUNNER_CANARY_FAILED", ready_message, "Remote runner process failed post-start validation.", workflow_runtime, pipeline_registry
+        if "rollback did not restore previous release" in lowered or "rollback failed" in lowered:
+            ready_message = f"Remote runner rollback failed after activation error: {message}"
+            return "RUNNER_ROLLBACK_FAILED", ready_message, "Remote runner process failed during rollback recovery.", workflow_runtime, pipeline_registry
         if "python3 required" in lowered:
             ready_message = f"Remote host is missing python3 required for runner setup: {message}"
-            return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
+            return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
         if "install remote runner dependencies" in lowered:
             if "python3" in lowered and (
                 "not found" in lowered or "command not found" in lowered or "no such file" in lowered
             ):
                 ready_message = f"Remote host is missing python3 required for runner setup: {message}"
-                return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
+                return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
             ready_message = (
                 "Remote runner dependency installation failed while setting up the Python environment: "
                 f"{message}"
             )
-            return "SERVICE_RUNTIME_SETUP_FAILED", ready_message, "Remote runner process is not running."
+            return "SERVICE_RUNTIME_SETUP_FAILED", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
         if "start remote runner service" in lowered or "service failed to start" in lowered:
             ready_message = f"Remote runner service failed to start: {message}"
-            return "SERVICE_START_FAILED", ready_message, "Remote runner process failed to stay alive."
+            return "SERVICE_START_FAILED", ready_message, "Remote runner process failed to stay alive.", workflow_runtime, pipeline_registry
         if "python3" in lowered and ("not found" in lowered or "command not found" in lowered):
             ready_message = f"Remote host is missing python3 required for runner setup: {message}"
-            return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running."
+            return "REMOTE_PYTHON_MISSING", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
         ready_message = f"Remote runner setup failed: {message}"
-        return "RUNNER_SETUP_FAILED", ready_message, "Remote runner process is not running."
+        return "RUNNER_SETUP_FAILED", ready_message, "Remote runner process is not running.", workflow_runtime, pipeline_registry
 
     def _compose_server_payload(
         self,
@@ -1059,6 +1108,7 @@ class RuntimeService(RunnerOperationsMixin):
             "deploymentAction": deployment_action,
             "servicePort": registry_entry.get("service_port"),
             "tunnelPort": registry_entry.get("tunnel_port"),
+            "bootstrapMetadata": metadata,
         }
 
     def _get_ssh_status_unlocked(self) -> dict[str, Any]:

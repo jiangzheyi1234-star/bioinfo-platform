@@ -540,18 +540,15 @@ def test_ensure_server_runner_persists_bootstrap_metadata_and_replaces_stale_fai
 
     assert result["data"]["health"]["ready"]["ok"] is True
     assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == ""
-    assert cfg["servers"][server_id]["bootstrap_metadata"] == {
-        "preflight": {"python": {"command": "python3", "ok": True}},
-        "tooling": {
-            "workflow_runtime": {
-                "command": "micromamba",
-                "provider": "micromamba",
-                "source": "managed",
-                "root_prefix": "/remote/tools/micromamba-root",
-                "snakemake_command": "/remote/tools/workflow-env/bin/snakemake",
-                "snakemake_version": "9.1.0",
-            }
-        },
+    metadata = cfg["servers"][server_id]["bootstrap_metadata"]
+    assert metadata["preflight"] == {"python": {"command": "python3", "ok": True}}
+    assert metadata["tooling"]["workflow_runtime"] == {
+        "command": "micromamba",
+        "provider": "micromamba",
+        "source": "managed",
+        "root_prefix": "/remote/tools/micromamba-root",
+        "snakemake_command": "/remote/tools/workflow-env/bin/snakemake",
+        "snakemake_version": "9.1.0",
     }
 
 
@@ -774,7 +771,11 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     response = Response()
     payload = asyncio.run(
         submit_run(
-            RunSubmitRequest(pipelineId="taxonomy-v1", requestId="req_submit_001"),
+            RunSubmitRequest(
+                serverId=server_id,
+                pipelineId="taxonomy-v1",
+                requestId="req_submit_001",
+            ),
             response,
         )
     )
@@ -851,6 +852,7 @@ def test_submit_run_persists_run_spec_for_followup_detail(monkeypatch, tmp_path:
     submitted = asyncio.run(
         submit_run(
             RunSubmitRequest(
+                serverId=server_id,
                 runId="run_contract_submit",
                 requestId="req_submit_002",
                 pipelineId="assembly-v3",

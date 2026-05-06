@@ -102,6 +102,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "runtime" / "bin" / "python").exists()
     assert (bundle.bundle_dir / "h2ometa-remote.service").exists()
     assert (bundle.bundle_dir / "start_service.sh").exists()
+    assert (bundle.bundle_dir / "stop_service.sh").exists()
     assert (bundle.bundle_dir / "launch_remote_runner.sh").exists()
     assert (bundle.bundle_dir / "check_service.sh").exists()
     assert (bundle.bundle_dir / "run_workflow.sh").exists()
@@ -167,6 +168,7 @@ def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_p
         managed_conda_command=str(managed_conda_command),
         snakemake_command=str(snakemake_command),
     )
+    ensure_runtime_layout(cfg)
     calls: list[dict[str, object]] = []
 
     class Result:

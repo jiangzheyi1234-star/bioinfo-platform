@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import http.client
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -81,17 +82,89 @@ class RemoteRunnerHttpClient:
     def delete_json(self, path: str) -> dict[str, Any]:
         return self._request_json("DELETE", path)
 
+    def create_upload(
+        self,
+        *,
+        filename: str,
+        content_base64: str,
+        mime_type: str = "application/octet-stream",
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/api/v1/uploads",
+            {
+                "filename": filename,
+                "contentBase64": content_base64,
+                "mimeType": mime_type,
+            },
+        )["data"]
+
+    def create_run(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+        request_id: str,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/api/v1/runs",
+            payload,
+            extra_headers={
+                "Idempotency-Key": idempotency_key,
+                "X-Request-Id": request_id,
+            },
+        )
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/runs/{run_id}")["data"]
+
+    def get_run_results(self, run_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/runs/{run_id}/results")["data"]
+
+    def get_result(self, result_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/results/{result_id}")["data"]
+
+    def list_results(self) -> list[dict[str, Any]]:
+        return self.get_json("/api/v1/results")["data"]["items"]
+
+    def get_result_preview(self, result_id: str, *, artifact_id: str | None = None) -> dict[str, Any]:
+        path = f"/api/v1/results/{result_id}/preview"
+        if artifact_id:
+            path += f"?artifact_id={artifact_id}"
+        return self.get_json(path)["data"]
+
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup")
         live = self.get_json("/health/live")
         ready = self.get_json("/health/ready")
-        checked_at = ready.get("startedAt") or live.get("startedAt") or startup.get("startedAt") or ""
         workflow = ready.get("workflowRuntime") if isinstance(ready.get("workflowRuntime"), dict) else {}
         pipeline_registry = ready.get("pipelineRegistry") if isinstance(ready.get("pipelineRegistry"), dict) else {}
+        ready_ok = ready.get("status") == "ok"
         workflow_ok = workflow.get("ok")
         workflow_message = str(workflow.get("message") or "")
         pipeline_ok = pipeline_registry.get("ok")
         pipeline_message = str(pipeline_registry.get("message") or "")
+        normalized_workflow_ok = bool(workflow_ok) if workflow_ok is not None else ready_ok
+        normalized_pipeline_ok = bool(pipeline_ok) if pipeline_ok is not None else ready_ok
+        ready_message = "Remote runner control plane is ready."
+        reason_code = ""
+        if not ready_ok:
+            detail_parts: list[str] = []
+            if not normalized_workflow_ok:
+                detail_parts.append(
+                    f"workflow runtime: {workflow_message or 'Workflow runtime is not ready.'}"
+                )
+                reason_code = "WORKFLOW_RUNTIME_NOT_READY"
+            if not normalized_pipeline_ok:
+                detail_parts.append(
+                    f"pipeline registry: {pipeline_message or 'Pipeline registry is not ready.'}"
+                )
+                if not reason_code:
+                    reason_code = "PIPELINE_REGISTRY_NOT_READY"
+            if detail_parts:
+                ready_message = "; ".join(detail_parts)
+            else:
+                ready_message = "Remote runner control plane is not ready."
+                reason_code = "RUNNER_NOT_READY"
         return {
             "startup": {
                 "ok": startup.get("status") == "ok",
@@ -102,12 +175,12 @@ class RemoteRunnerHttpClient:
                 "message": "Remote runner process is alive." if live.get("status") == "ok" else "Remote runner process is not healthy.",
             },
             "ready": {
-                "ok": ready.get("status") == "ok",
-                "message": "Remote runner control plane is ready." if ready.get("status") == "ok" else "Remote runner control plane is not ready.",
+                "ok": ready_ok,
+                "message": ready_message,
             },
             "workflowRuntime": {
-                "ok": bool(workflow_ok) if workflow_ok is not None else ready.get("status") == "ok",
-                "message": workflow_message or ("Workflow runtime is ready." if ready.get("status") == "ok" else "Workflow runtime is not ready."),
+                "ok": normalized_workflow_ok,
+                "message": workflow_message or ("Workflow runtime is ready." if ready_ok else "Workflow runtime is not ready."),
                 "provider": str(workflow.get("provider") or ""),
                 "source": str(workflow.get("source") or ""),
                 "version": str(workflow.get("version") or ""),
@@ -115,12 +188,12 @@ class RemoteRunnerHttpClient:
                 "snakemakeVersion": str(workflow.get("snakemakeVersion") or ""),
             },
             "pipelineRegistry": {
-                "ok": bool(pipeline_ok) if pipeline_ok is not None else ready.get("status") == "ok",
+                "ok": normalized_pipeline_ok,
                 "message": pipeline_message
-                or ("Pipeline registry is ready." if ready.get("status") == "ok" else "Pipeline registry is not ready."),
+                or ("Pipeline registry is ready." if ready_ok else "Pipeline registry is not ready."),
                 "count": int(pipeline_registry.get("count") or 0),
                 "items": pipeline_registry.get("items") if isinstance(pipeline_registry.get("items"), list) else [],
             },
-            "reasonCode": "" if ready.get("status") == "ok" else "RUNNER_NOT_READY",
-            "checkedAt": checked_at,
+            "reasonCode": reason_code,
+            "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }

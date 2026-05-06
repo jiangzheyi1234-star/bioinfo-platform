@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import time
 import json
 import subprocess
 import threading
 from pathlib import Path
-import time
 
-from .config import RemoteRunnerConfig, build_workflow_runtime_environment
+from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
 from .workflow_resources import build_workflow_resource_config
@@ -32,6 +32,36 @@ def _snakemake_environment(cfg: RemoteRunnerConfig) -> dict[str, str]:
     return build_workflow_runtime_environment(cfg)
 
 
+def _snakemake_profile_args(cfg: RemoteRunnerConfig) -> list[str]:
+    workflow_profile_dir = get_workflow_profile_dir(cfg)
+    if workflow_profile_dir is None:
+        return []
+    return ["--workflow-profile", str(workflow_profile_dir)]
+
+
+def _snakemake_execution_args(
+    cfg: RemoteRunnerConfig,
+    *,
+    snakefile: Path,
+    work_dir: Path,
+    config_path: Path,
+) -> list[str]:
+    profile_args = _snakemake_profile_args(cfg)
+    command = [
+        *_snakemake_command(cfg),
+        "--snakefile",
+        str(snakefile),
+        "--directory",
+        str(work_dir),
+    ]
+    if profile_args:
+        command.extend(profile_args)
+    else:
+        command.extend(["--cores", "1", "--use-conda"])
+    command.extend(["--configfile", str(config_path)])
+    return command
+
+
 def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str, run_spec: dict) -> None:
     thread = threading.Thread(
         target=run_snakemake_execution,
@@ -43,7 +73,18 @@ def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str
         },
         daemon=True,
     )
-    thread.start()
+    try:
+        thread.start()
+    except Exception as exc:
+        _mark_failed(
+            cfg,
+            run_id=run_id,
+            request_id=request_id,
+            message="Failed to start run executor.",
+            scope="startup",
+            code="RUN_EXECUTOR_START_FAILED",
+            stderr=str(exc) or "Failed to start run executor.",
+        )
 
 
 def run_snakemake_execution(
@@ -60,20 +101,21 @@ def run_snakemake_execution(
         config_path = work_dir / "run-config.json"
         stdout_log = logs_dir / f"{run_id}.stdout.log"
         stderr_log = logs_dir / f"{run_id}.stderr.log"
-
-        result_dir.mkdir(parents=True, exist_ok=True)
-        work_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
-
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="running",
-            stage="validate",
-            message="Validating pipeline and run inputs.",
-            request_id=request_id,
-        )
+        dry_run_cmd: list[str] | None = None
+        run_cmd: list[str] | None = None
         try:
+            result_dir.mkdir(parents=True, exist_ok=True)
+            work_dir.mkdir(parents=True, exist_ok=True)
+            logs_dir.mkdir(parents=True, exist_ok=True)
+
+            update_run_state(
+                cfg,
+                run_id=run_id,
+                status="running",
+                stage="validate",
+                message="Validating pipeline and run inputs.",
+                request_id=request_id,
+            )
             pipeline_id = str(run_spec.get("pipelineId") or "")
             if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
                 resolved_inputs = _resolve_run_inputs(cfg, run_spec)
@@ -121,6 +163,76 @@ def run_snakemake_execution(
                     ),
                     encoding="utf-8",
                 )
+            update_run_state(
+                cfg,
+                run_id=run_id,
+                status="running",
+                stage="validate",
+                message="Validating Snakemake workflow.",
+                request_id=request_id,
+            )
+            dry_run_cmd = [*_snakemake_execution_args(cfg, snakefile=snakefile, work_dir=work_dir, config_path=config_path), "-n"]
+
+            dry_run = subprocess.run(
+                dry_run_cmd,
+                capture_output=True,
+                text=True,
+                env=_snakemake_environment(cfg),
+            )
+            append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
+            append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
+            if dry_run.returncode != 0:
+                _mark_failed(
+                    cfg,
+                    run_id=run_id,
+                    request_id=request_id,
+                    message="Snakemake dry-run failed.",
+                    scope="validate",
+                    stderr=dry_run.stderr,
+                )
+                return
+
+            update_run_state(
+                cfg,
+                run_id=run_id,
+                status="running",
+                stage="snakemake",
+                message="Executing Snakemake workflow.",
+                request_id=request_id,
+            )
+            run_cmd = _snakemake_execution_args(cfg, snakefile=snakefile, work_dir=work_dir, config_path=config_path)
+            run_result = subprocess.run(
+                run_cmd,
+                capture_output=True,
+                text=True,
+                env=_snakemake_environment(cfg),
+            )
+            stdout_log.write_text(run_result.stdout or "", encoding="utf-8")
+            stderr_log.write_text(run_result.stderr or "", encoding="utf-8")
+            append_log_lines(cfg, run_id, "stdout", [line for line in run_result.stdout.splitlines() if line])
+            append_log_lines(cfg, run_id, "stderr", [line for line in run_result.stderr.splitlines() if line])
+            if run_result.returncode != 0:
+                _mark_failed(
+                    cfg,
+                    run_id=run_id,
+                    request_id=request_id,
+                    message="Snakemake execution failed.",
+                    scope="workflow",
+                    stderr=run_result.stderr,
+                    result_dir=str(result_dir),
+                )
+                return
+
+            _collect_artifacts(cfg, run_id, result_dir)
+            update_run_state(
+                cfg,
+                run_id=run_id,
+                status="completed",
+                stage="finalize",
+                message="Snakemake execution completed.",
+                request_id=request_id,
+                result_dir=str(result_dir),
+            )
         except (PipelineRegistryError, ValueError) as exc:
             _mark_failed(
                 cfg,
@@ -130,102 +242,33 @@ def run_snakemake_execution(
                 scope="validate",
                 code=str(exc) or "RUN_VALIDATION_FAILED",
                 stderr=str(exc) or "Run validation failed.",
-            )
-            return
-
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="running",
-            stage="validate",
-            message="Validating Snakemake workflow.",
-            request_id=request_id,
-        )
-
-        dry_run_cmd = [
-            *_snakemake_command(cfg),
-            "--snakefile",
-            str(snakefile),
-            "--directory",
-            str(work_dir),
-            "--cores",
-            "1",
-            "--use-conda",
-            "--configfile",
-            str(config_path),
-            "-n",
-        ]
-        dry_run = subprocess.run(
-            dry_run_cmd,
-            capture_output=True,
-            text=True,
-            env=_snakemake_environment(cfg),
-        )
-        append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
-        append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
-        if dry_run.returncode != 0:
-            _mark_failed(
-                cfg,
-                run_id=run_id,
-                request_id=request_id,
-                message="Snakemake dry-run failed.",
-                scope="validate",
-                stderr=dry_run.stderr,
-            )
-            return
-
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="running",
-            stage="snakemake",
-            message="Executing Snakemake workflow.",
-            request_id=request_id,
-        )
-        run_cmd = [
-            *_snakemake_command(cfg),
-            "--snakefile",
-            str(snakefile),
-            "--directory",
-            str(work_dir),
-            "--cores",
-            "1",
-            "--use-conda",
-            "--configfile",
-            str(config_path),
-        ]
-        run_result = subprocess.run(
-            run_cmd,
-            capture_output=True,
-            text=True,
-            env=_snakemake_environment(cfg),
-        )
-        stdout_log.write_text(run_result.stdout or "", encoding="utf-8")
-        stderr_log.write_text(run_result.stderr or "", encoding="utf-8")
-        append_log_lines(cfg, run_id, "stdout", [line for line in run_result.stdout.splitlines() if line])
-        append_log_lines(cfg, run_id, "stderr", [line for line in run_result.stderr.splitlines() if line])
-        if run_result.returncode != 0:
-            _mark_failed(
-                cfg,
-                run_id=run_id,
-                request_id=request_id,
-                message="Snakemake execution failed.",
-                scope="workflow",
-                stderr=run_result.stderr,
                 result_dir=str(result_dir),
             )
-            return
-
-        _collect_artifacts(cfg, run_id, result_dir)
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="completed",
-            stage="finalize",
-            message="Snakemake execution completed.",
-            request_id=request_id,
-            result_dir=str(result_dir),
-        )
+        except Exception as exc:
+            detail = str(exc).strip()
+            lowered = detail.lower()
+            message = "Run executor crashed during startup."
+            code = "RUN_EXECUTOR_CRASHED"
+            if "snakemake command not configured" in lowered:
+                message = "Snakemake command is not configured."
+                code = "WORKFLOW_RUNTIME_MISSING"
+            elif isinstance(exc, FileNotFoundError) or "no such file or directory" in lowered:
+                if dry_run_cmd is not None and run_cmd is None:
+                    message = "Failed to launch Snakemake dry-run."
+                    code = "SNAKEMAKE_DRY_RUN_LAUNCH_FAILED"
+                elif run_cmd is not None:
+                    message = "Failed to launch Snakemake execution."
+                    code = "SNAKEMAKE_EXECUTION_LAUNCH_FAILED"
+            _mark_failed(
+                cfg,
+                run_id=run_id,
+                request_id=request_id,
+                message=message,
+                scope="startup",
+                code=code,
+                stderr=detail or "Run executor crashed during startup.",
+                result_dir=str(result_dir),
+            )
 
 
 def _collect_artifacts(cfg: RemoteRunnerConfig, run_id: str, result_dir: Path) -> list[dict]:
