@@ -20,10 +20,28 @@ def _is_remote_bundle_cleanup(cmd: str) -> bool:
 def _is_remote_config_atomic_move(cmd: str) -> bool:
     return (
         cmd.startswith("test -s ")
-        and "/shared/config/runner.json.tmp" in cmd
+        and (
+            "/shared/config/runner.json.tmp" in cmd
+            or "/shared/config/snakemake/default/profile.v9+.yaml.tmp" in cmd
+        )
         and " mv -f " in cmd
-        and "/shared/config/runner.json" in cmd
+        and (
+            "/shared/config/runner.json" in cmd
+            or "/shared/config/snakemake/default/profile.v9+.yaml" in cmd
+        )
     )
+
+
+def _is_remote_current_release_read(cmd: str) -> bool:
+    return cmd.startswith("readlink -f ") and cmd.endswith("/.h2ometa/runner/current")
+
+
+def _is_remote_current_release_switch(cmd: str) -> bool:
+    return "current.tmp" in cmd and "mv -Tf" in cmd and "/.h2ometa/runner/current" in cmd
+
+
+def _is_remote_runner_config_read(cmd: str) -> bool:
+    return cmd.startswith("cat ") and cmd.endswith("/.h2ometa/runner/shared/config/runner.json")
 
 
 def _runtime_state_json(port: int = 43127) -> str:
@@ -140,4 +158,23 @@ def _default_workflow_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "core.remote_runner.manager.RemoteRunnerManager._verify_remote_config_payload",
         classmethod(lambda cls, **kwargs: None),
+    )
+    def fake_bootstrap_canary(self, *, client, server_id, bootstrap_metadata):
+        canary = {
+                "ok": True,
+                "status": "passed",
+                "pipeline_id": "file-summary-v1",
+                "request_id": "req_bootstrap_canary_test",
+                "run_id": "run_bootstrap_canary_test",
+                "artifact_count": 3,
+                "result_id": "res_bootstrap_canary_test",
+                "preview_kind": "table",
+                "checked_at": "2026-05-06T00:00:00Z",
+            }
+        bootstrap_metadata["canary"] = canary
+        return canary
+
+    monkeypatch.setattr(
+        "core.remote_runner.manager.RemoteRunnerManager._run_bootstrap_canary",
+        fake_bootstrap_canary,
     )

@@ -142,6 +142,12 @@ def _with_workflow_runtime(payload: dict[str, Any], cfg) -> dict[str, Any]:
         "version": cfg.workflow_runtime_version,
         "snakemakeCommand": cfg.snakemake_command,
         "snakemakeVersion": str(workflow.get("snakemakeVersion") or cfg.snakemake_version or ""),
+        "workflowProfileConfigured": bool(workflow.get("workflowProfileConfigured")),
+        "workflowProfileOk": bool(workflow.get("workflowProfileOk", True)),
+        "workflowProfileMessage": str(workflow.get("message") or ""),
+        "workflowProfileDir": str(workflow.get("workflowProfileDir") or cfg.workflow_profile_dir or ""),
+        "workflowProfileName": str(workflow.get("workflowProfileName") or cfg.workflow_profile_name or ""),
+        "workflowProfilePath": str(workflow.get("workflowProfilePath") or ""),
     }
     return payload
 
@@ -150,6 +156,22 @@ def _with_pipeline_registry(payload: dict[str, Any], cfg) -> dict[str, Any]:
     registry = inspect_pipeline_registry(cfg)
     payload["pipelineRegistry"] = registry
     return payload
+
+
+def _raise_submission_readiness_failure(cfg) -> None:
+    workflow = inspect_workflow_runtime(cfg)
+    registry = inspect_pipeline_registry(cfg)
+    detail_parts: list[str] = []
+    reason_code = ""
+    if not bool(workflow.get("ok")):
+        reason_code = "WORKFLOW_RUNTIME_NOT_READY"
+        detail_parts.append(str(workflow.get("message") or "Workflow runtime is not ready."))
+    if not bool(registry.get("ok")):
+        if not reason_code:
+            reason_code = "PIPELINE_REGISTRY_NOT_READY"
+        detail_parts.append(str(registry.get("message") or "Pipeline registry is not ready."))
+    if detail_parts:
+        raise HTTPException(status_code=503, detail=f"{reason_code}: {'; '.join(detail_parts)}")
 
 
 @app.get("/health/startup")
@@ -177,6 +199,7 @@ async def health_ready(authorization: str | None = Header(default=None)) -> dict
     checks["auth"] = bool(cfg.token)
     workflow = inspect_workflow_runtime(cfg)
     checks["workflow_runtime"] = bool(workflow["ok"])
+    checks["workflow_profile"] = bool(workflow.get("workflowProfileOk", True))
     registry = inspect_pipeline_registry(cfg)
     checks["pipeline_registry"] = bool(registry["ok"])
     status = "ok" if all(checks.values()) else "failed"
@@ -343,6 +366,7 @@ async def create_run(
 ) -> dict[str, Any]:
     cfg = load_remote_runner_config()
     _require_auth(authorization, cfg.token)
+    _raise_submission_readiness_failure(cfg)
     run_spec = dict(payload.runSpec or {})
     request_id = str(payload.requestId or x_request_id or f"req_{int(time.time() * 1000)}")
     server_id = str(payload.serverId or run_spec.get("serverId") or "srv_local_default")
