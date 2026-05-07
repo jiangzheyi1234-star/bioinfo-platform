@@ -24,6 +24,7 @@ import {
 } from "./database-page-model";
 import {
   compositeFieldEntries,
+  compositeFallbackPath,
   compositeInputFields,
   defaultDatabaseName,
 } from "./database-path-utils";
@@ -313,7 +314,7 @@ export function useDatabasesPageState(): DatabasesPageState {
       }
       const isComposite = selectedTemplate.selectorKind === "composite";
       const compositeFieldValues = compositeInputFields(selectedTemplate, compositeFields);
-      const path = isComposite ? Object.values(compositeFieldValues)[0] || "" : form.path.trim();
+      const path = isComposite ? compositeFallbackPath(compositeFieldValues) : form.path.trim();
       if (!path) {
         setError("远程路径不能为空");
         return;

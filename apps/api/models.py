@@ -6,6 +6,7 @@ from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic import model_validator
 
 
 class CreateProjectRequest(BaseModel):
@@ -42,10 +43,20 @@ class SSHTerminalCreateRequest(BaseModel):
 
 
 class RunSubmitRequest(BaseModel):
+    serverId: str = Field(min_length=1)
     runId: str | None = None
     requestId: str | None = None
+    idempotencyKey: str | None = Field(default=None, min_length=1)
     pipelineId: str | None = None
     runSpec: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_pipeline_binding(self) -> "RunSubmitRequest":
+        pipeline_id = (self.pipelineId or "").strip()
+        run_spec_pipeline_id = str(self.runSpec.get("pipelineId") or "").strip()
+        if not pipeline_id and not run_spec_pipeline_id:
+            raise ValueError("pipelineId is required")
+        return self
 
 
 class UploadSubmitRequest(BaseModel):

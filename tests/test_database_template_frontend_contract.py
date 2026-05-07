@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 
@@ -32,6 +34,89 @@ def _assert_contains(source: str, *tokens: str) -> None:
 def _assert_not_contains(source: str, *tokens: str) -> None:
     for token in tokens:
         assert token not in source
+
+
+def _assert_in_order(source: str, *snippets: str) -> None:
+    index = -1
+    for snippet in snippets:
+        next_index = source.find(snippet, index + 1)
+        assert next_index != -1
+        index = next_index
+
+
+def _path_utils_behavior_script() -> str:
+    source = _source("path_utils")
+    start = source.index("function normalizeCompositePath")
+    end = source.index("function isBwaIndexFile")
+    implementation = source[start:end]
+    implementation = re.sub(
+        r"export function compositeFallbackPath\(values: Record<string, string>\)",
+        "function compositeFallbackPath(values)",
+        implementation,
+    )
+    implementation = re.sub(
+        r"function (normalizeCompositePath|compositePathRoot)\(value: string\)",
+        r"function \1(value)",
+        implementation,
+    )
+    implementation = implementation.replace(
+        "function compositePathSegments(value: string, root: string)",
+        "function compositePathSegments(value, root)",
+    )
+    implementation = implementation.replace(
+        "function commonCompositePath(values: string[])",
+        "function commonCompositePath(values)",
+    )
+    return f"""
+{implementation}
+
+const cases = [
+  {{
+    name: "windows same directory keeps drive-qualified parent",
+    values: {{ fasta: "C:/foo/ref.fa", index: "C:/foo/ref.idx" }},
+    expected: "C:/foo",
+  }},
+  {{
+    name: "windows siblings preserve drive root",
+    values: {{ fasta: "C:/foo/ref.fa", index: "C:/bar/ref.idx" }},
+    expected: "C:/",
+  }},
+  {{
+    name: "windows cross-drive paths do not degrade to a bare drive",
+    values: {{ fasta: "C:/foo/ref.fa", index: "D:/foo/ref.idx" }},
+    expected: ".",
+  }},
+  {{
+    name: "unix same directory keeps absolute parent",
+    values: {{ fasta: "/foo/ref.fa", index: "/foo/ref.idx" }},
+    expected: "/foo",
+  }},
+  {{
+    name: "unix siblings preserve filesystem root",
+    values: {{ fasta: "/foo/ref.fa", index: "/bar/ref.idx" }},
+    expected: "/",
+  }},
+  {{
+    name: "relative siblings stay relative",
+    values: {{ fasta: "foo/ref.fa", index: "bar/ref.idx" }},
+    expected: ".",
+  }},
+  {{
+    name: "windows backslashes normalize before common path detection",
+    values: {{ fasta: "C:\\\\foo\\\\ref.fa", index: "C:\\\\foo\\\\ref.idx" }},
+    expected: "C:/foo",
+  }},
+];
+
+const failures = cases
+  .map((current) => ({{ ...current, actual: compositeFallbackPath(current.values) }}))
+  .filter((current) => current.actual !== current.expected);
+
+if (failures.length > 0) {{
+  console.error(JSON.stringify(failures, null, 2));
+  process.exit(1);
+}}
+"""
 
 
 def test_databases_page_does_not_ship_legacy_template_fallbacks() -> None:
@@ -76,7 +161,9 @@ def test_add_form_supports_composite_fields_and_submits_multi_database_metadata(
         "fields: compositeInputFields",
         "compositeReady",
         "selectedEntryPath",
+        "compositeFallbackPath(compositeFieldValues)",
     )
+    _assert_not_contains(source, "Object.values(compositeFieldValues)[0]")
 
 
 def test_remote_browser_keeps_navigation_selection_and_pagination_contracts() -> None:
@@ -130,26 +217,110 @@ def test_validation_status_messages_and_details_dialog_remain_visible() -> None:
         "stderr",
         "实际执行命令",
         "返回码",
+        "toolPath ? (",
+        "copyDatabasePath(toolPath)",
     )
+    _assert_not_contains(source, "copyDatabasePath(toolPath || item.path)")
 
 
 def test_resolved_tool_path_is_explained_when_it_differs_from_selected_path() -> None:
-    source = _source("item_list", "path_utils", "details")
+    path_utils_source = _source("path_utils")
+    details_source = _source("details")
+    state_source = _source("state")
+
+    _assert_in_order(
+        path_utils_source,
+        'export function databaseToolPath(item: DatabaseItem) {',
+        'const resolved = item.resolvedPath;',
+        'const entryPath = item.entryPath || item.inputPath || item.path || "";',
+        'if (item.pathMode === "prefix") {',
+        'return resolved?.prefix || resolved?.path || entryPath;',
+        'if (item.pathMode === "directory") {',
+        'return entryPath || resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path || "";',
+        'if (item.pathMode === "file") {',
+        'return entryPath || resolved?.path || resolved?.firstMatch || "";',
+        'if (item.pathMode === "primary_with_sidecars") {',
+        'return entryPath || resolved?.path || resolved?.firstMatch || "";',
+        'if (item.pathMode === "composite") {',
+        'return "";',
+        'return entryPath || resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path || "";',
+    )
+
+    _assert_not_contains(
+        path_utils_source,
+        'if (item.pathMode === "composite") {\n    return entryPath;',
+        'if (item.pathMode === "composite") {\n    return entryPath || resolved?.path',
+    )
 
     _assert_contains(
-        source,
-        "resolvedPath",
-        "databaseToolPath",
-        "实际工具路径",
-        'resolved?.kind === "prefix"',
-        'resolved?.kind === "file"',
-        'resolved?.kind === "directory"',
-        'resolved?.kind === "primary_with_sidecars"',
-        "resolved.firstIndexPrefix || resolved.firstMatch || resolved.path",
-        "resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path",
-        "availableReadLengths",
-        "路径如何传给工具",
+        state_source,
+        'const path = isComposite ? compositeFallbackPath(compositeFieldValues) : form.path.trim();',
     )
+    _assert_not_contains(state_source, 'Object.values(compositeFieldValues)[0]')
+
+    _assert_contains(
+        details_source,
+        'import type { DatabaseItem } from "./database-page-model";',
+        'type ToolProbe = NonNullable<NonNullable<DatabaseItem["metadata"]>["validation"]>["toolProbe"];',
+        'item: DatabaseItem | null;',
+        'const actualToolPath = toolPath || (item ? databaseToolPath(item) : "");',
+        'const pathMode = item?.pathMode || item?.resolvedPath?.kind;',
+        'const compositeInputText = compositeFieldSummary(item?.input?.fields);',
+        'const compositeResolvedText = compositeFieldSummary(item?.resolved);',
+        'label="实际工具路径" value={actualToolPath} mono',
+        'label="选择路径" value={selectedPath} mono',
+        'emptyText="复合数据库由多个字段分别传给工具。"',
+        'label="实际工具字段"',
+        'emptyText="后端未返回解析后的工具字段。"',
+    )
+
+    composite_branch = re.search(r'pathMode === "composite" \?\s*\((.*?)\)\s*:\s*\(', details_source, re.S)
+    assert composite_branch is not None
+    composite_branch_source = composite_branch.group(1)
+    assert 'label="复合输入"' in composite_branch_source
+    assert 'label="实际工具字段"' in composite_branch_source
+    assert 'label="选择路径"' not in composite_branch_source
+
+    _assert_not_contains(
+        details_source,
+        "type DatabaseValidationDetailsItem = {",
+        'resolvedPath?: {',
+        'input?: {',
+        'resolved?: Record<string, string>;',
+        'item?.entryPath || resolved?.prefix || resolved?.path || selectedPath',
+        'item?.entryPath || resolved?.path || resolved?.firstMatch || ""',
+        'item?.entryPath || resolved?.firstIndexPrefix || resolved?.firstMatch || resolved?.path || ""',
+    )
+
+    _assert_contains(
+        path_utils_source,
+        "function compositePathSegments(value: string, root: string) {",
+        'if (root === "/") {',
+        'if (root === "~") {',
+        'if (/^[A-Za-z]:(?:\\/|$)/.test(value)) {',
+        'if (/^[A-Za-z]:\\/$/.test(root)) {',
+        "const root = roots[0].root;",
+        'if (roots.some((currentRoot) => currentRoot.kind !== rootKind || currentRoot.root !== root)) {',
+        'const segments = normalizedValues.map((value) => compositePathSegments(value, root));',
+        'if (root === ".") {',
+        'return `${root}${commonSegments.join("/")}`;',
+    )
+    assert path_utils_source.count("const root = roots[0].root;") == 1
+
+
+def test_composite_fallback_path_preserves_absolute_roots_at_runtime(tmp_path: Path) -> None:
+    script_path = tmp_path / "composite-fallback-path-contract.mjs"
+    script_path.write_text(_path_utils_behavior_script(), encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(script_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_declared_database_is_not_treated_as_validated() -> None:

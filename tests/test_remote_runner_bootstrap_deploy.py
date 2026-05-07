@@ -49,6 +49,9 @@ from tests.helpers.remote_runner_control_plane import (
     _fake_runtime_dir,
     _is_remote_bundle_cleanup,
     _is_remote_config_atomic_move,
+    _is_remote_current_release_read,
+    _is_remote_current_release_switch,
+    _is_remote_runner_config_read,
     _fake_workflow_artifact,
     _runtime_state_json,
     _write_file_summary_pipeline,
@@ -104,6 +107,12 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                 ), ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 return 0, "9.19.0\n", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -194,11 +203,11 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
                 return 0, "", ""
             if "pkill -f '[r]emote_runner.run'" in cmd and "runner-state.json" in cmd:
                 return 0, "", ""
-            if "tar -xzf" in cmd and "bundle-0.1.0-control-plane.tar.gz" in cmd:
+            if "tar -xzf" in cmd and f"bundle-{REMOTE_RUNNER_VERSION}.tar.gz" in cmd:
                 return 0, "", ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 return 0, "9.19.0\n", ""
-            if "printf %s" in cmd and "artifact.sha256" in cmd:
+            if "printf" in cmd and "artifact.sha256" in cmd:
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(uploaded_config), ""
@@ -212,6 +221,12 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -254,7 +269,7 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
     assert "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp" in remote_uploads
     assert "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" not in remote_uploads
     assert any(f"ln -sfn /home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION} /home/tester/.h2ometa/runner/current" in cmd for cmd in executed)
-    assert any("printf %s" in cmd and "workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd for cmd in executed)
+    assert any("printf" in cmd and "workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd for cmd in executed)
     assert result["bootstrap_metadata"]["workflow_runtime"]["action"] == "registered"
     assert result["health"]["ready"]["ok"] is True
 
@@ -297,7 +312,7 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "printf %s" in cmd and "artifact.sha256" in cmd:
+            if "printf" in cmd and "artifact.sha256" in cmd:
                 return 0, "", ""
             if "artifact.sha256" in cmd and "releases" in cmd:
                 return 1, "", "No such file"
@@ -311,6 +326,12 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -352,7 +373,7 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
     assert result["bootstrap_metadata"]["reuse_check"]["reason"] == "artifact sha marker missing"
     assert uploads
     assert any("tar -xzf" in cmd for cmd in executed)
-    assert any("printf %s" in cmd and "artifact.sha256" in cmd for cmd in executed)
+    assert any("printf" in cmd and "artifact.sha256" in cmd for cmd in executed)
 
 def test_bootstrap_fails_fast_when_artifact_cannot_be_resolved() -> None:
     manager = RemoteRunnerManager()
@@ -365,6 +386,12 @@ def test_bootstrap_fails_fast_when_artifact_cannot_be_resolved() -> None:
                 return 0, "Linux:x86_64", ""
             if "systemctl --user show-environment" in cmd:
                 return 0, "background_process\n", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -466,6 +493,12 @@ def test_bootstrap_fails_fast_when_bundled_runtime_initialization_returns_nonzer
                 return 0, "", ""
             if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
                 return 1, "", "bundled runtime failed"
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")

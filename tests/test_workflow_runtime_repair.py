@@ -58,7 +58,7 @@ def test_marked_workflow_runtime_is_reinstalled_when_verification_fails(monkeypa
                 return 0, "", ""
             if "conda-unpack" in cmd:
                 return 0, "", ""
-            if "printf %s" in cmd and "artifact.sha256" in cmd:
+            if "printf" in cmd and "artifact.sha256" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" in cmd:
                 return 0, "", ""
@@ -82,7 +82,7 @@ def test_marked_workflow_runtime_is_reinstalled_when_verification_fails(monkeypa
     assert metadata["workflow_runtime"]["action"] == "reinstalled"
     assert any("tar -xzf" in cmd for cmd in executed)
     verify_index = max(index for index, cmd in enumerate(executed) if "workflow-env/bin/snakemake" in cmd)
-    marker_index = max(index for index, cmd in enumerate(executed) if "printf %s" in cmd)
+    marker_index = max(index for index, cmd in enumerate(executed) if "printf" in cmd and "artifact.sha256" in cmd)
     assert marker_index > verify_index
     assert any("rm -f /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" in cmd for cmd in executed)
 

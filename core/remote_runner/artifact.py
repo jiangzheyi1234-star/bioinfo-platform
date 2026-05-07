@@ -8,9 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
-
-WORKFLOW_RUNTIME_VERSION = "0.1.0"
+from core.remote_runner.release_manifest import (
+    RELEASE_MANIFEST,
+    REMOTE_RUNNER_ARTIFACT,
+    REMOTE_RUNNER_VERSION,
+    ReleaseArtifactSpec,
+    WORKFLOW_RUNTIME_ARTIFACT,
+    WORKFLOW_RUNTIME_VERSION,
+)
 
 
 class RemoteRunnerArtifactError(RuntimeError):
@@ -50,7 +55,7 @@ class RemoteRunnerArtifactProvider:
         self._search_roots = search_roots
 
     def resolve(self, version: str = REMOTE_RUNNER_VERSION, *, platform: str = "linux-64") -> RemoteRunnerArtifact:
-        archive_path = self._resolve_archive_path(version, platform)
+        archive_path = self._resolve_archive_path(REMOTE_RUNNER_ARTIFACT, version=version, platform=platform)
         checksum_path = Path(str(archive_path) + ".sha256")
         if not checksum_path.exists():
             raise RemoteRunnerArtifactError(
@@ -63,7 +68,7 @@ class RemoteRunnerArtifactProvider:
                 f"remote runner artifact sha256 mismatch: {archive_path}"
             )
         manifest = self._read_manifest(archive_path)
-        if str(manifest.get("service") or "") != "h2ometa-remote":
+        if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unexpected service: {archive_path}")
         if str(manifest.get("version") or "") != version:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest version mismatch: {archive_path}")
@@ -80,40 +85,39 @@ class RemoteRunnerArtifactProvider:
             manifest=manifest,
         )
 
-    def _resolve_archive_path(self, version: str, platform: str) -> Path:
-        explicit = str(os.environ.get("H2OMETA_REMOTE_RUNNER_BUNDLE", "") or "").strip()
+    def _resolve_archive_path(self, spec: ReleaseArtifactSpec, *, version: str, platform: str) -> Path:
+        explicit = str(os.environ.get(spec.bundle_env_var, "") or "").strip()
         if explicit:
             path = Path(explicit)
             if not path.exists():
                 raise RemoteRunnerArtifactError(
-                    f"remote runner artifact not found: {path}"
+                    f"{spec.key.replace('_', ' ')} artifact not found: {path}"
                 )
             return path
 
-        filename = f"h2ometa-remote-runner-{version}-{platform}.tar.gz"
-        for root in self._candidate_roots():
+        filename = f"{spec.name}-{version}-{platform}.tar.gz"
+        roots = self._candidate_roots(spec)
+        for root in roots:
             path = root / filename
             if path.exists():
                 return path
-        roots = ", ".join(str(root) for root in self._candidate_roots())
+        roots_display = ", ".join(str(root) for root in roots)
         raise RemoteRunnerArtifactError(
-            f"remote runner artifact not found for version {version}; searched: {roots}"
+            f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
         )
 
-    def _candidate_roots(self) -> list[Path]:
+    def _candidate_roots(self, spec: ReleaseArtifactSpec) -> list[Path]:
         if self._search_roots is not None:
             return list(self._search_roots)
         roots: list[Path] = []
-        for key in ("H2OMETA_REMOTE_RUNNER_DIR", "H2OMETA_RESOURCES_DIR"):
+        for key in spec.search_root_env_vars:
             raw = str(os.environ.get(key, "") or "").strip()
             if raw:
-                roots.append(Path(raw) / "remote-runner" if key == "H2OMETA_RESOURCES_DIR" else Path(raw))
-        roots.extend(
-            [
-                self._repo_root / "dist" / "remote-runner",
-                self._repo_root / "resources" / "remote-runner",
-            ]
-        )
+                roots.append(Path(raw))
+        resources_root = str(os.environ.get("H2OMETA_RESOURCES_DIR", "") or "").strip()
+        if resources_root:
+            roots.append(Path(resources_root) / "remote-runner")
+        roots.extend(RELEASE_MANIFEST.repo_search_roots(self._repo_root))
         return roots
 
     @staticmethod
@@ -172,7 +176,7 @@ class WorkflowRuntimeArtifactProvider:
         self._search_roots = search_roots
 
     def resolve(self, version: str = WORKFLOW_RUNTIME_VERSION, *, platform: str = "linux-64") -> WorkflowRuntimeArtifact:
-        archive_path = self._resolve_archive_path(version, platform)
+        archive_path = self._resolve_archive_path(WORKFLOW_RUNTIME_ARTIFACT, version=version, platform=platform)
         checksum_path = Path(str(archive_path) + ".sha256")
         if not checksum_path.exists():
             raise RemoteRunnerArtifactError(f"workflow runtime artifact checksum not found: {checksum_path}")
@@ -181,7 +185,7 @@ class WorkflowRuntimeArtifactProvider:
         if actual != expected:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact sha256 mismatch: {archive_path}")
         manifest = RemoteRunnerArtifactProvider._read_manifest(archive_path)
-        if str(manifest.get("service") or "") != "h2ometa-workflow-runtime":
+        if str(manifest.get("service") or "") != WORKFLOW_RUNTIME_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact manifest has unexpected service: {archive_path}")
         if str(manifest.get("version") or "") != version:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact manifest version mismatch: {archive_path}")
@@ -255,36 +259,35 @@ class WorkflowRuntimeArtifactProvider:
         if not has_snakemake_module:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact missing snakemake Python package: {path}")
 
-    def _resolve_archive_path(self, version: str, platform: str) -> Path:
-        explicit = str(os.environ.get("H2OMETA_WORKFLOW_RUNTIME_BUNDLE", "") or "").strip()
+    def _resolve_archive_path(self, spec: ReleaseArtifactSpec, *, version: str, platform: str) -> Path:
+        explicit = str(os.environ.get(spec.bundle_env_var, "") or "").strip()
         if explicit:
             path = Path(explicit)
             if not path.exists():
-                raise RemoteRunnerArtifactError(f"workflow runtime artifact not found: {path}")
+                raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} artifact not found: {path}")
             return path
 
-        filename = f"h2ometa-workflow-runtime-{version}-{platform}.tar.gz"
-        for root in self._candidate_roots():
+        filename = f"{spec.name}-{version}-{platform}.tar.gz"
+        roots = self._candidate_roots(spec)
+        for root in roots:
             path = root / filename
             if path.exists():
                 return path
-        roots = ", ".join(str(root) for root in self._candidate_roots())
+        roots_display = ", ".join(str(root) for root in roots)
         raise RemoteRunnerArtifactError(
-            f"workflow runtime artifact not found for version {version}; searched: {roots}"
+            f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
         )
 
-    def _candidate_roots(self) -> list[Path]:
+    def _candidate_roots(self, spec: ReleaseArtifactSpec) -> list[Path]:
         if self._search_roots is not None:
             return list(self._search_roots)
         roots: list[Path] = []
-        for key in ("H2OMETA_WORKFLOW_RUNTIME_DIR", "H2OMETA_RESOURCES_DIR"):
+        for key in spec.search_root_env_vars:
             raw = str(os.environ.get(key, "") or "").strip()
             if raw:
-                roots.append(Path(raw) / "remote-runner" if key == "H2OMETA_RESOURCES_DIR" else Path(raw))
-        roots.extend(
-            [
-                self._repo_root / "dist" / "remote-runner",
-                self._repo_root / "resources" / "remote-runner",
-            ]
-        )
+                roots.append(Path(raw))
+        resources_root = str(os.environ.get("H2OMETA_RESOURCES_DIR", "") or "").strip()
+        if resources_root:
+            roots.append(Path(resources_root) / "remote-runner")
+        roots.extend(RELEASE_MANIFEST.repo_search_roots(self._repo_root))
         return roots

@@ -4,39 +4,14 @@ import type { ReactNode } from "react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-type DatabaseValidationDetailsItem = {
-  name: string;
-  path: string;
-  status: string;
-  message: string;
-  updatedAt: string;
-  lastCheckedAt: string | null;
-  metadata?: {
-    availableReadLengths?: number[];
-    resolvedPath?: {
-      kind?: string;
-      path?: string;
-      prefix?: string;
-      firstMatch?: string;
-      firstIndexPrefix?: string;
-    };
-    validation?: {
-      toolProbe?: {
-        ok?: boolean;
-        command?: string;
-        returncode?: number;
-        stdout?: string;
-        stderr?: string;
-      };
-    };
-  };
-};
+import type { DatabaseItem } from "./database-page-model";
+import { databaseToolPath } from "./database-path-utils";
 
-type ToolProbe = NonNullable<NonNullable<DatabaseValidationDetailsItem["metadata"]>["validation"]>["toolProbe"];
+type ToolProbe = NonNullable<NonNullable<DatabaseItem["metadata"]>["validation"]>["toolProbe"];
 
 type DatabaseValidationDetailsDialogProps = {
   open: boolean;
-  item: DatabaseValidationDetailsItem | null;
+  item: DatabaseItem | null;
   toolPath: string;
   onOpenChange: (open: boolean) => void;
 };
@@ -87,25 +62,35 @@ function toolProbeStatusText(probe?: ToolProbe) {
   return probe.ok ? "通过" : "失败";
 }
 
-function pathResolutionExplanation(kind?: string) {
-  if (kind === "prefix") {
+function pathResolutionExplanation(pathMode?: string) {
+  if (pathMode === "prefix") {
     return "选择路径可以是索引目录或某个索引文件；保存后会解析为去掉索引后缀的 prefix，并把这个 prefix 传给工具。";
   }
-  if (kind === "primary_with_sidecars") {
+  if (pathMode === "primary_with_sidecars") {
     return "选择路径应是 FASTA 主文件；保存后工具继续使用该 FASTA 文件，并验证同名前缀的 BWA 索引文件是否存在。";
   }
-  if (kind === "composite") {
+  if (pathMode === "composite") {
     return "复合数据库由多个目录或文件组成；保存时会按模板字段解析并校验每个输入路径。";
   }
-  if (kind === "file") {
+  if (pathMode === "file") {
     return "选择路径是数据库文件；如果选择的是只有一个候选文件的目录，后端会解析到实际文件后传给工具。";
   }
   return "选择路径是数据库目录；工具直接使用该目录并按模板规则验证。";
 }
 
+function compositeFieldSummary(fields?: Record<string, string>) {
+  const entries = Object.entries(fields || {}).filter(([, value]) => Boolean(value?.trim()));
+  if (entries.length === 0) return "";
+  return entries.map(([key, value]) => `${key}: ${value}`).join("\n");
+}
+
 export function DatabaseValidationDetailsDialog({ open, item, toolPath, onOpenChange }: DatabaseValidationDetailsDialogProps) {
   const probe = item?.metadata?.validation?.toolProbe;
-  const resolved = item?.metadata?.resolvedPath;
+  const actualToolPath = toolPath || (item ? databaseToolPath(item) : "");
+  const pathMode = item?.pathMode || item?.resolvedPath?.kind;
+  const selectedPath = item?.inputPath || item?.path || "";
+  const compositeInputText = compositeFieldSummary(item?.input?.fields);
+  const compositeResolvedText = compositeFieldSummary(item?.resolved);
   const readLengths = item?.metadata?.availableReadLengths || [];
   const commandEmptyText = probe ? "工具探测已执行，但未记录实际执行命令。" : "该模板未配置工具探测，暂无实际执行命令。";
   const stdoutEmptyText = probe ? "未捕获 stdout；许多成功探测会把 stdout 重定向到 /dev/null。" : "该模板未配置工具探测，暂无 stdout。";
@@ -123,11 +108,26 @@ export function DatabaseValidationDetailsDialog({ open, item, toolPath, onOpenCh
             <Section title="数据库路径">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <DetailRow label="数据库" value={item.name} />
-                <DetailRow label="选择路径" value={item.path} mono />
-                <DetailRow label="实际工具路径" value={toolPath || item.path} mono />
-                <DetailRow label="解析类型" value={resolved?.kind || ""} />
+                {pathMode === "composite" ? (
+                  <>
+                    <TerminalBlock
+                      label="复合输入"
+                      value={compositeInputText}
+                      emptyText="复合数据库由多个字段分别传给工具。"
+                    />
+                    <TerminalBlock
+                      label="实际工具字段"
+                      value={compositeResolvedText}
+                      emptyText="后端未返回解析后的工具字段。"
+                    />
+                  </>
+                ) : (
+                  <DetailRow label="选择路径" value={selectedPath} mono />
+                )}
+                <DetailRow label="实际工具路径" value={actualToolPath} mono />
+                <DetailRow label="解析类型" value={pathMode || ""} />
               </div>
-              <DetailRow label="路径如何传给工具" value={pathResolutionExplanation(resolved?.kind)} />
+              <DetailRow label="路径如何传给工具" value={pathResolutionExplanation(pathMode)} />
             </Section>
 
             <Section title="校验结果">
