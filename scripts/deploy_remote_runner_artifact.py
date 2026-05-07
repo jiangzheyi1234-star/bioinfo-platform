@@ -11,7 +11,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password
 from core.remote.ssh_connector import ssh_connect
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.artifact import RemoteRunnerArtifactProvider
+from core.remote_runner.release_manifest import REMOTE_RUNNER_VERSION
 
 
 def connect_ssh():
@@ -59,9 +60,10 @@ def sha256_file(path: Path) -> str:
 
 
 def main() -> int:
-    archive = REPO_ROOT / "dist" / "remote-runner" / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
-    if not archive.exists():
-        raise SystemExit(f"missing artifact: {archive}")
+    archive = RemoteRunnerArtifactProvider(repo_root=REPO_ROOT).resolve(
+        REMOTE_RUNNER_VERSION,
+        platform="linux-64",
+    ).archive_path
     digest = sha256_file(archive)
     client = connect_ssh()
     try:
@@ -69,7 +71,15 @@ def main() -> int:
         root = f"{home}/.h2ometa/runner"
         release = f"{root}/releases/{REMOTE_RUNNER_VERSION}"
         remote_bundle = f"{root}/bundle-{REMOTE_RUNNER_VERSION}.tar.gz"
-        run_checked(client, f"mkdir -p {shlex.quote(root)} {shlex.quote(release)}", timeout=20)
+        run_checked(
+            client,
+            (
+                f"test -d {shlex.quote(root)} && "
+                f"test -d {shlex.quote(root + '/shared')} && "
+                f"test -f {shlex.quote(root + '/shared/config/runner.json')}"
+            ),
+            timeout=20,
+        )
         sftp = client.open_sftp()
         try:
             sftp.put(str(archive), remote_bundle)
@@ -77,19 +87,29 @@ def main() -> int:
             sftp.close()
         run_checked(
             client,
-            "systemctl --user stop h2ometa-remote.service >/dev/null 2>&1 || true; "
-            "pkill -f '[r]emote_runner.run' >/dev/null 2>&1 || true; "
-            f"rm -rf {shlex.quote(release)} && mkdir -p {shlex.quote(release)} && "
-            f"tar -xzf {shlex.quote(remote_bundle)} -C {shlex.quote(release)} && "
-            f"chmod 0755 {shlex.quote(release)}/*.sh && "
-            f"printf '%s' {shlex.quote(digest)} > {shlex.quote(release + '/artifact.sha256')} && "
-            f"ln -sfn {shlex.quote(release)} {shlex.quote(root + '/current')} && "
-            f"rm -f {shlex.quote(remote_bundle)} {shlex.quote(root + '/shared/runtime/runner-state.json')}",
+            (
+                "systemctl --user stop h2ometa-remote.service >/dev/null 2>&1 || true; "
+                f"if [ -x {shlex.quote(root + '/current/stop_service.sh')} ]; then "
+                f"  bash {shlex.quote(root + '/current/stop_service.sh')} >/dev/null 2>&1 || true; "
+                "fi; "
+                f"rm -rf {shlex.quote(release)} && mkdir -p {shlex.quote(release)} && "
+                f"tar -xzf {shlex.quote(remote_bundle)} -C {shlex.quote(release)} && "
+                f"chmod 0755 {shlex.quote(release)}/*.sh && "
+                f"printf '%s' {shlex.quote(digest)} > {shlex.quote(release + '/artifact.sha256')} && "
+                f"ln -sfn {shlex.quote(release)} {shlex.quote(root + '/current')} && "
+                f"rm -f {shlex.quote(remote_bundle)} {shlex.quote(root + '/shared/runtime/runner-state.json')}"
+            ),
             timeout=180,
         )
         run_checked(client, "systemctl --user daemon-reload >/dev/null 2>&1 || true; systemctl --user restart h2ometa-remote.service", timeout=30)
         print(f"DEPLOYED {release} {digest}")
         return 0
+    except RuntimeError as exc:
+        raise SystemExit(
+            "deploy_remote_runner_artifact.py only updates an already bootstrapped remote runner install with a "
+            "prebuilt release artifact. It does not create ~/.h2ometa/runner, shared config, or runtime prerequisites. "
+            f"Remote deploy failed: {exc}"
+        ) from exc
     finally:
         client.close()
 

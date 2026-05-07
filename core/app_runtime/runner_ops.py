@@ -350,11 +350,21 @@ class RunnerOperationsMixin:
         with self._lock:
             self._ensure_initialized()
             body = dict(payload or {})
+            server_id_hint = str(body.get("serverId") or "").strip()
+            if not server_id_hint:
+                raise RuntimeServiceError("serverId is required")
             request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
+            idempotency_key = str(body.get("idempotencyKey") or request_id).strip()
+            if not idempotency_key:
+                raise RuntimeServiceError("idempotencyKey is required")
             run_spec = dict(body.get("runSpec") or {})
             if body.get("pipelineId") and not run_spec.get("pipelineId"):
                 run_spec["pipelineId"] = body["pipelineId"]
-            preferred_server_id = body.get("serverId") or run_spec.get("serverId")
+            if body.get("runId") and not run_spec.get("runId"):
+                run_spec["runId"] = body["runId"]
+            if not str(run_spec.get("pipelineId") or "").strip():
+                raise RuntimeServiceError("pipelineId is required")
+            preferred_server_id = server_id_hint
             server_id, ssh, record = self._require_runner_ready(
                 preferred_server_id=preferred_server_id
             )
@@ -369,7 +379,7 @@ class RunnerOperationsMixin:
                 "requestId": request_id,
                 "runSpec": run_spec,
             },
-            idempotency_key=f"idem_{request_id}",
+            idempotency_key=idempotency_key,
             request_id=request_id,
         )
 

@@ -13,6 +13,7 @@ set "ENSURE_DESKTOP_DEV=%REPO_ROOT%\scripts\ensure-desktop-dev.cjs"
 set "RUN_LOCAL_API_DEV=%REPO_ROOT%\scripts\run-local-api-dev.bat"
 set "RUN_DESKTOP_DEV=%REPO_ROOT%\scripts\run-desktop-dev.bat"
 set "RUN_WEB_DEV=%REPO_ROOT%\scripts\run-web-dev.bat"
+set "RELEASE_MANIFEST_PATH=%REPO_ROOT%\config\remote-runner-release-manifest.json"
 set "LOCAL_CONDA_ENV=bio_ui"
 set "LOCAL_CONDA_EXE=C:\Users\Administrator\miniconda3\Scripts\conda.exe"
 set "DEFAULT_DEV_CACHE_ROOT=%LOCALAPPDATA%\H2OMeta\dev-cache"
@@ -315,15 +316,14 @@ endlocal & exit /b 0
 
 :build_remote_runner_artifact
 echo [INFO] Resolving prebuilt remote runner artifact...
-if "%H2OMETA_REMOTE_RUNNER_BUNDLE%"=="" (
-    set "H2OMETA_REMOTE_RUNNER_BUNDLE=%REPO_ROOT%\dist\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz"
+if not exist "%RELEASE_MANIFEST_PATH%" (
+    echo [ERROR] Remote runner release manifest not found: %RELEASE_MANIFEST_PATH%
+    exit /b 1
 )
-if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%" (
-    set "H2OMETA_REMOTE_RUNNER_BUNDLE=%REPO_ROOT%\resources\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz"
-)
+if "%H2OMETA_REMOTE_RUNNER_BUNDLE%"=="" call :resolve_release_artifact H2OMETA_REMOTE_RUNNER_BUNDLE remote_runner
 if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%" (
     echo [ERROR] Prebuilt remote runner artifact not found.
-    echo [ERROR] Set H2OMETA_REMOTE_RUNNER_BUNDLE or place h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz under dist\remote-runner or resources\remote-runner.
+    echo [ERROR] Set H2OMETA_REMOTE_RUNNER_BUNDLE or add the manifest-declared artifact under one of the manifest search roots in %RELEASE_MANIFEST_PATH%.
     exit /b 1
 )
 if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%.sha256" (
@@ -333,15 +333,10 @@ if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%.sha256" (
 echo [INFO] H2OMETA_REMOTE_RUNNER_BUNDLE=%H2OMETA_REMOTE_RUNNER_BUNDLE%
 
 echo [INFO] Resolving prebuilt workflow runtime artifact...
-if "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%"=="" (
-    set "H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%REPO_ROOT%\dist\remote-runner\h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
-)
-if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%" (
-    set "H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%REPO_ROOT%\resources\remote-runner\h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
-)
+if "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%"=="" call :resolve_release_artifact H2OMETA_WORKFLOW_RUNTIME_BUNDLE workflow_runtime
 if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%" (
     echo [ERROR] Prebuilt workflow runtime artifact not found.
-    echo [ERROR] Set H2OMETA_WORKFLOW_RUNTIME_BUNDLE or place h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz under dist\remote-runner or resources\remote-runner.
+    echo [ERROR] Set H2OMETA_WORKFLOW_RUNTIME_BUNDLE or add the manifest-declared artifact under one of the manifest search roots in %RELEASE_MANIFEST_PATH%.
     exit /b 1
 )
 if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%.sha256" (
@@ -349,6 +344,10 @@ if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%.sha256" (
     exit /b 1
 )
 echo [INFO] H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%
+exit /b 0
+
+:resolve_release_artifact
+for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repoRoot=[System.IO.Path]::GetFullPath('%REPO_ROOT%'); $manifest=Get-Content -Raw -Path '%RELEASE_MANIFEST_PATH%' | ConvertFrom-Json; $artifact=$manifest.artifacts.%~2; if($null -eq $artifact){ throw 'artifact key not found in release manifest: %~2' }; $filename='{0}-{1}-{2}.tar.gz' -f $artifact.name, $artifact.version, $artifact.default_platform; foreach($relative in $manifest.relative_search_roots){ $candidate=Join-Path $repoRoot $relative; $path=Join-Path $candidate $filename; if(Test-Path $path){ [Console]::WriteLine($path); exit 0 } }"`) do set "%~1=%%I"
 exit /b 0
 
 :stop_existing_local_api

@@ -1,7 +1,27 @@
 import { LocalApiError } from "@/app/lib/local-api-client";
 
+export type DatabasePathResolution = {
+  kind?: string;
+  path?: string;
+  prefix?: string;
+  firstMatch?: string;
+  firstIndexPrefix?: string;
+};
+
+export type DatabasePathInput = {
+  kind?: string;
+  path?: string;
+  fields?: Record<string, string>;
+};
+
 export type DatabaseItem = {
   id: string; name: string; type: string; version: string; path: string; description: string; source: string; manifestPath: string; checksum: string;
+  inputPath?: string;
+  entryPath?: string;
+  pathMode?: PathKind;
+  resolvedPath?: DatabasePathResolution;
+  input?: DatabasePathInput;
+  resolved?: Record<string, string>;
   metadata?: {
     templateId?: string;
     templateLabel?: string;
@@ -10,13 +30,6 @@ export type DatabaseItem = {
     dbParams?: string;
     expectedFiles?: string[];
     availableReadLengths?: number[];
-    resolvedPath?: {
-      kind?: string;
-      path?: string;
-      prefix?: string;
-      firstMatch?: string;
-      firstIndexPrefix?: string;
-    };
     validation?: {
       toolProbe?: {
         ok?: boolean;

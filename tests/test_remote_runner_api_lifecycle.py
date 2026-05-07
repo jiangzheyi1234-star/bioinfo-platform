@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -165,6 +166,7 @@ def test_remote_runner_pipeline_api_lists_registered_pipelines(tmp_path: Path, m
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
     items = asyncio.run(get_pipelines(authorization="Bearer phase2-token"))["data"]["items"]
@@ -191,11 +193,14 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
                 "work_dir": str(tmp_path / "shared" / "work"),
                 "logs_dir": str(tmp_path / "shared" / "logs"),
                 "release_dir": str(tmp_path / "release"),
+                "managed_conda_command": sys.executable,
+                "snakemake_command": sys.executable,
             }
         ),
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -228,11 +233,14 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
                 "work_dir": str(tmp_path / "shared" / "work"),
                 "logs_dir": str(tmp_path / "shared" / "logs"),
                 "release_dir": str(tmp_path / "release"),
+                "managed_conda_command": sys.executable,
+                "snakemake_command": sys.executable,
             }
         ),
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -270,6 +278,8 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
                 "work_dir": str(tmp_path / "shared" / "work"),
                 "logs_dir": str(tmp_path / "shared" / "logs"),
                 "release_dir": str(tmp_path / "release"),
+                "managed_conda_command": sys.executable,
+                "snakemake_command": sys.executable,
             }
         ),
         encoding="utf-8",

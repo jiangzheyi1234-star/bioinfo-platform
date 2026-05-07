@@ -49,6 +49,9 @@ from tests.helpers.remote_runner_control_plane import (
     _fake_runtime_dir,
     _is_remote_bundle_cleanup,
     _is_remote_config_atomic_move,
+    _is_remote_current_release_read,
+    _is_remote_current_release_switch,
+    _is_remote_runner_config_read,
     _fake_workflow_artifact,
     _runtime_state_json,
     _write_file_summary_pipeline,
@@ -84,8 +87,14 @@ def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(mon
                 return 0, "", ""
             if "conda-unpack" in cmd:
                 return 0, "", ""
-            if "printf %s" in cmd and "artifact.sha256" in cmd:
+            if "printf" in cmd and "artifact.sha256" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -126,8 +135,14 @@ def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(monkeypatc
                 return 1, "", "missing"
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 return 0, "9.19.0\n", ""
-            if "printf %s" in cmd and "artifact.sha256" in cmd:
+            if "printf" in cmd and "artifact.sha256" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -180,6 +195,12 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -256,6 +277,12 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -335,6 +362,12 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -412,6 +445,12 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")

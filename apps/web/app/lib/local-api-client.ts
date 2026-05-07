@@ -17,13 +17,25 @@ export class LocalApiError extends Error {
   code: LocalApiErrorCode;
   status: number;
   detail: unknown;
+  title?: string;
+  requestId?: string;
+  problemCode?: string;
 
-  constructor(code: LocalApiErrorCode, message: string, status = 0, detail?: unknown) {
+  constructor(
+    code: LocalApiErrorCode,
+    message: string,
+    status = 0,
+    detail?: unknown,
+    options?: { title?: string; requestId?: string; problemCode?: string }
+  ) {
     super(message);
     this.name = "LocalApiError";
     this.code = code;
     this.status = status;
     this.detail = detail;
+    this.title = options?.title;
+    this.requestId = options?.requestId;
+    this.problemCode = options?.problemCode;
   }
 }
 
@@ -69,8 +81,18 @@ async function requestViaBrowserFetch<T>(
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = typeof payload?.detail === "string" ? payload.detail : "";
-      throw new LocalApiError("backend_http_error", detail || `HTTP ${response.status}`, response.status, payload?.detail);
+      const detail = payload?.detail;
+      const detailMessage =
+        typeof detail === "string"
+          ? detail
+          : typeof payload?.title === "string"
+            ? payload.title
+            : `HTTP ${response.status}`;
+      throw new LocalApiError("backend_http_error", detailMessage, response.status, detail, {
+        title: typeof payload?.title === "string" ? payload.title : undefined,
+        requestId: typeof payload?.requestId === "string" ? payload.requestId : undefined,
+        problemCode: typeof payload?.code === "string" ? payload.code : undefined,
+      });
     }
     if (
       payload &&

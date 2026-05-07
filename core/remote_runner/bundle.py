@@ -7,8 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-
-REMOTE_RUNNER_VERSION = "0.1.1-control-plane"
+from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
 
 
 @dataclass
@@ -38,11 +37,15 @@ class RemoteRunnerBundleBuilder:
         bundle_dir.mkdir(parents=True, exist_ok=True)
 
         source_pkg = Path(__file__).resolve().parents[2] / "apps" / "remote_runner"
-        shutil.copytree(source_pkg, bundle_dir / "remote_runner")
+        shutil.copytree(
+            source_pkg,
+            bundle_dir / "remote_runner",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+        )
         shutil.copytree(runtime_dir, bundle_dir / "runtime", symlinks=True)
 
         manifest = {
-            "service": "h2ometa-remote",
+            "service": REMOTE_RUNNER_ARTIFACT.service,
             "version": version,
             "platform": platform,
             "runtime": {
@@ -102,6 +105,34 @@ class RemoteRunnerBundleBuilder:
             "fi\n",
         )
         self._write_text_lf(
+            bundle_dir / "stop_service.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            'PID_FILE="$RUN_DIR/runner.pid"\n'
+            'if [ ! -f "$PID_FILE" ]; then\n'
+            '  echo "stopped"\n'
+            "  exit 0\n"
+            "fi\n"
+            'PID="$(cat "$PID_FILE")"\n'
+            'if kill -0 "$PID" >/dev/null 2>&1; then\n'
+            '  kill "$PID"\n'
+            "  i=0\n"
+            '  while [ "$i" -lt 10 ]; do\n'
+            '    if ! kill -0 "$PID" >/dev/null 2>&1; then\n'
+            "      break\n"
+            "    fi\n"
+            "    sleep 1\n"
+            '    i=$((i + 1))\n'
+            "  done\n"
+            '  if kill -0 "$PID" >/dev/null 2>&1; then\n'
+            '    kill -9 "$PID"\n'
+            "  fi\n"
+            "fi\n"
+            'rm -f "$PID_FILE"\n'
+            'echo "stopped"\n',
+        )
+        self._write_text_lf(
             bundle_dir / "run_workflow.sh",
             "#!/usr/bin/env bash\n"
             'echo "workflow execution is not enabled in phase 1" >&2\n'
@@ -126,7 +157,7 @@ class RemoteRunnerBundleBuilder:
         for path in bundle_dir.glob("*.sh"):
             path.chmod(0o755)
 
-        archive_path = root / f"h2ometa-remote-runner-{version}-{platform}.tar.gz"
+        archive_path = root / f"{REMOTE_RUNNER_ARTIFACT.name}-{version}-{platform}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
             archive.add(bundle_dir, arcname=".")
 

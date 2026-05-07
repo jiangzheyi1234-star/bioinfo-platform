@@ -6,7 +6,7 @@ from apps.api import tool_capabilities
 
 
 def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
-    def fail_search(_query: str, *, limit: int):
+    def fail_search(_query: str, *, target_platform: str, limit: int):
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(tool_capabilities, "_search_anaconda", fail_search)
@@ -16,7 +16,7 @@ def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
 
 
 def test_tool_search_propagates_online_search_network_error(monkeypatch) -> None:
-    def fail_search(_query: str, *, limit: int):
+    def fail_search(_query: str, *, target_platform: str, limit: int):
         raise OSError("name resolution failed")
 
     monkeypatch.setattr(tool_capabilities, "_search_anaconda", fail_search)
@@ -32,7 +32,7 @@ def test_online_fallback_fetches_once_and_pages_cached_results(monkeypatch) -> N
     monkeypatch.setattr(
         tool_capabilities,
         "_search_bioconda_index_items",
-        lambda _query, *, page, page_size: {
+        lambda _query, *, target_platform, page, page_size: {
             "items": [],
             "total": 0,
             "page": page,
@@ -41,7 +41,7 @@ def test_online_fallback_fetches_once_and_pages_cached_results(monkeypatch) -> N
         },
     )
 
-    def fake_search(_query: str, *, limit: int):
+    def fake_search(_query: str, *, target_platform: str, limit: int):
         calls.append(limit)
         return [
             tool_capabilities.CondaPackageHit(
@@ -99,7 +99,11 @@ def test_exact_package_lookup_ignores_not_found_and_keeps_searching(monkeypatch)
 
     monkeypatch.setattr(tool_capabilities, "_request_json", fake_request)
 
-    hits = tool_capabilities._search_exact_packages("demo-tool", deadline=tool_capabilities.time.monotonic() + 10)
+    hits = tool_capabilities._search_exact_packages(
+        "demo-tool",
+        target_platform="linux-64",
+        deadline=tool_capabilities.time.monotonic() + 10,
+    )
 
     assert calls == [
         "https://api.anaconda.org/package/bioconda/demo-tool",
@@ -116,4 +120,8 @@ def test_exact_package_lookup_propagates_network_errors(monkeypatch) -> None:
     monkeypatch.setattr(tool_capabilities, "_request_json", fake_request)
 
     with pytest.raises(OSError, match="name resolution failed"):
-        tool_capabilities._search_exact_packages("demo-tool", deadline=tool_capabilities.time.monotonic() + 10)
+        tool_capabilities._search_exact_packages(
+            "demo-tool",
+            target_platform="linux-64",
+            deadline=tool_capabilities.time.monotonic() + 10,
+        )

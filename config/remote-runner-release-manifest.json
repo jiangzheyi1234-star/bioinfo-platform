@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "relative_search_roots": [
+    "dist/remote-runner",
+    "resources/remote-runner"
+  ],
+  "artifacts": {
+    "remote_runner": {
+      "name": "h2ometa-remote-runner",
+      "service": "h2ometa-remote",
+      "version": "0.1.1-control-plane",
+      "default_platform": "linux-64",
+      "bundle_env_var": "H2OMETA_REMOTE_RUNNER_BUNDLE",
+      "search_root_env_vars": [
+        "H2OMETA_REMOTE_RUNNER_DIR"
+      ]
+    },
+    "workflow_runtime": {
+      "name": "h2ometa-workflow-runtime",
+      "service": "h2ometa-workflow-runtime",
+      "version": "0.1.0",
+      "default_platform": "linux-64",
+      "bundle_env_var": "H2OMETA_WORKFLOW_RUNTIME_BUNDLE",
+      "search_root_env_vars": [
+        "H2OMETA_WORKFLOW_RUNTIME_DIR"
+      ]
+    }
+  }
+}

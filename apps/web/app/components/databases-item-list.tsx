@@ -42,7 +42,7 @@ export function DatabaseItemList({
   return (
     <div className="grid grid-cols-1 gap-x-12 gap-y-2 md:grid-cols-2">
       {items.map((item) => {
-        const toolPath = getDatabaseToolPath(item);
+        const toolPath = getDatabaseToolPath(item).trim();
         const statusTextValue = statusText(item);
         const statusMessage = databaseStatusMessage(item);
         const templateTextValue = templateText(item);
@@ -83,10 +83,12 @@ export function DatabaseItemList({
                     <Pencil strokeWidth={1.5} className="mr-2 h-4 w-4" />
                     重命名
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => copyDatabasePath(toolPath || item.path)}>
-                    <Clipboard strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                    复制实际工具路径
-                  </DropdownMenuItem>
+                  {toolPath ? (
+                    <DropdownMenuItem onSelect={() => copyDatabasePath(toolPath)}>
+                      <Clipboard strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                      复制实际工具路径
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuItem onSelect={() => setDetailsItem(item)}>
                     <Eye strokeWidth={1.5} className="mr-2 h-4 w-4" />
                     查看校验详情

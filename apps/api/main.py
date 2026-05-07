@@ -26,6 +26,8 @@ from apps.api.models import (
 from apps.api.runtime import get_runtime_service
 from apps.api.ssh_terminal_routes import stream_terminal_session_with_runtime
 from apps.api.tool_capability_routes import router as tool_capability_router
+from apps.api.problem_details import ensure_request_id
+from apps.api.problem_details import problem_http_exception
 from apps.api.workflow_templates import (
     create_workflow_draft,
     get_workflow_template,
@@ -104,12 +106,24 @@ async def _run_runtime_payload(
     if wrapper == "raw":
         return value
     if wrapper == "item":
+        if isinstance(value, dict) and "item" in value:
+            return value
         return {"item": value}
     if wrapper == "data":
+        if isinstance(value, dict) and "data" in value:
+            return value
         return {"data": value}
     if wrapper == "items":
+        if isinstance(value, dict) and "items" in value:
+            return value
         return {"items": value}
     if wrapper == "data_items":
+        if (
+            isinstance(value, dict)
+            and isinstance(value.get("data"), dict)
+            and "items" in value["data"]
+        ):
+            return value
         return {"data": {"items": value}}
     raise ValueError(f"Unsupported runtime wrapper: {wrapper}")
 
@@ -379,15 +393,32 @@ async def upload_file(payload: UploadSubmitRequest) -> dict[str, Any]:
 
 @app.post("/api/v1/runs", status_code=202)
 async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str, Any]:
-    result = await _run_runtime_payload(
-        lambda: _runtime().submit_run(payload.model_dump(exclude_none=True)),
-        status_code=400,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="raw",
-    )
+    request_id = ensure_request_id(payload.requestId)
+    try:
+        result = await _run_runtime_payload(
+            lambda: _runtime().submit_run(
+                payload.model_dump(exclude_none=True)
+                | {"requestId": request_id}
+            ),
+            status_code=400,
+            handled_errors=(RuntimeServiceError,),
+            wrapper="raw",
+        )
+    except HTTPException as exc:
+        detail = str(exc.detail)
+        if isinstance(exc.detail, dict):
+            detail = str(exc.detail.get("detail") or exc.detail.get("title") or detail)
+        raise problem_http_exception(
+            status=exc.status_code,
+            title="Run submission failed",
+            detail=detail,
+            code="RUN_SUBMIT_FAILED" if exc.status_code < 500 else "RUNNER_NOT_READY",
+            request_id=request_id,
+            instance="/api/v1/runs",
+        ) from exc
     response.headers["Location"] = result["location"]
     response.headers["Retry-After"] = str(result["retryAfter"])
-    response.headers["X-Request-Id"] = result["requestId"]
+    response.headers["X-Request-Id"] = str(result.get("requestId") or request_id)
     return result
 
 
