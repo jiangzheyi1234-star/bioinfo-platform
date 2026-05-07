@@ -32,7 +32,7 @@ export async function searchToolCapabilities({
 }): Promise<ToolSearchResponse["data"]> {
   const response = await requestLocalApiJson<ToolSearchResponse>(
     "GET",
-    `/api/v1/tool-capabilities/search?q=${encodeURIComponent(query)}&page=${page}&pageSize=${TOOL_SEARCH_PAGE_SIZE}`,
+    `/api/v1/tool-capabilities/search?q=${encodeURIComponent(query)}&page=${page}&pageSize=${TOOL_SEARCH_PAGE_SIZE}&targetPlatform=linux-64`,
     { cache: "no-store", signal }
   );
   return response.data;
