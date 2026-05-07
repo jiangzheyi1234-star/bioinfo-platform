@@ -24,6 +24,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export function ToolsLibrarySection" in ui
     assert "export function ToolSearchResults" in ui
     assert "export function ToolPreviewPanel" in ui
+    assert "targetPlatform=linux-64" in api
+    assert "formatPlatformBadgeText" in ui
+    assert "export function PlatformChips" in ui
+    assert "支持平台" in ui
+    assert "line-clamp-2" not in ui
     assert "function SourceBadge" not in page
     assert "function ResultRow" not in page
     assert "function uniqueDependencies" not in page

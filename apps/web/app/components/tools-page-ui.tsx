@@ -20,22 +20,60 @@ export function SourceBadge({ source, label }: { source: string; label: string }
   );
 }
 
-export function PlatformBadge({ item }: { item: ToolSearchItem }) {
+export function formatPlatformBadgeText(item: ToolSearchItem) {
   const target = (item.targetPlatform || "").trim();
   const supported = item.targetPlatformSupported === true;
   const unsupported = item.targetPlatformSupported === false;
-  const hasTarget = target.length > 0;
+  const platforms = (item.platforms || []).map((platform) => platform.trim()).filter(Boolean);
+  if (target) {
+    return supported ? `${target} 可用` : unsupported ? `${target} 不支持` : `${target} 平台状态未知`;
+  }
+  if (platforms.length === 1) {
+    return `支持 ${platforms[0]}`;
+  }
+  if (platforms.length > 1) {
+    return `支持 ${platforms.length} 个平台`;
+  }
+  return "平台未知";
+}
+
+export function PlatformBadge({ item }: { item: ToolSearchItem }) {
+  const supported = item.targetPlatformSupported === true;
+  const unsupported = item.targetPlatformSupported === false;
+  const hasPlatformInfo = Boolean((item.targetPlatform || "").trim()) || Boolean(item.platforms && item.platforms.length > 0);
+  const platforms = (item.platforms || []).map((platform) => platform.trim()).filter(Boolean);
   return (
     <span
+      title={platforms.length > 0 ? `支持平台：${platforms.join(", ")}` : undefined}
       className={cn(
         "inline-flex h-5 items-center rounded border px-1.5 text-[11px] leading-none",
         supported && "border-blue-200 bg-blue-50 text-blue-700",
         unsupported && "border-amber-200 bg-amber-50 text-amber-700",
-        !supported && !unsupported && "border-slate-200 bg-slate-50 text-slate-500"
+        !supported && !unsupported && hasPlatformInfo && "border-blue-200 bg-blue-50 text-blue-700",
+        !supported && !unsupported && !hasPlatformInfo && "border-slate-200 bg-slate-50 text-slate-500"
       )}
     >
-      {hasTarget ? (supported ? `${target} 可用` : unsupported ? `${target} 不支持` : `${target} 平台状态未知`) : "平台未知"}
+      {formatPlatformBadgeText(item)}
     </span>
+  );
+}
+
+export function PlatformChips({ platforms }: { platforms: string[] | undefined }) {
+  const items = (platforms || []).map((platform) => platform.trim()).filter(Boolean);
+  if (items.length === 0) {
+    return <div className="mt-2 text-[11px] text-slate-400">平台信息未声明</div>;
+  }
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {items.map((platform) => (
+        <span
+          key={platform}
+          className="inline-flex h-6 items-center rounded-md border border-blue-200 bg-blue-50 px-2 font-mono text-[11px] leading-none text-blue-700"
+        >
+          {platform}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -289,13 +327,8 @@ export function ToolPreviewPanel({
                   }`
                 : "平台信息未声明"}
             </div>
-            {selected.platforms && selected.platforms.length > 0 ? (
-              <div className="mt-2 line-clamp-2 text-[11px] leading-4 text-slate-400">
-                支持平台：{selected.platforms.join(", ")}
-              </div>
-            ) : (
-              <div className="mt-2 text-[11px] text-slate-400">平台信息未声明</div>
-            )}
+            <div className="mt-3 text-[11px] uppercase text-slate-400">支持平台</div>
+            <PlatformChips platforms={selected.platforms} />
           </div>
 
           <div className="space-y-1.5">
