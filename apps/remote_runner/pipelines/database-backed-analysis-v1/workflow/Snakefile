@@ -1,0 +1,6 @@
+# Validation template only. The DAG schema and UI can display this pipeline;
+# execution implementation is intentionally out of scope for this goal.
+
+rule all:
+    input:
+        []

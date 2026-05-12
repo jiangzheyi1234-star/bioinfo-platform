@@ -11,6 +11,7 @@ import { DatabaseValidationDetailsDialog } from "./database-validation-details-d
 import { DatabasesAddPanel } from "./databases-add-panel";
 import { DatabaseItemList } from "./databases-item-list";
 import { useDatabasesPageState } from "./use-databases-page-state";
+import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 import { templateText } from "./database-page-model";
 import { databaseToolPath } from "./database-path-utils";
@@ -22,29 +23,28 @@ export function DatabasesPage() {
     <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
       <WorkflowWorkspaceTabs />
       <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex h-9 items-center justify-end">
-          {state.adding ? (
-            <Button type="button" variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={state.cancelAdding}>
-              <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
-              返回数据库
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 bg-white px-3 text-slate-600"
-              disabled={state.templateLoading || state.templates.length === 0}
-              onClick={state.startAdding}
-            >
-              <Plus strokeWidth={1.5} className="mr-2 h-4 w-4" />
-              添加数据库
-            </Button>
-          )}
-        </div>
-
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold">数据库</h1>
-        </div>
+        <WorkflowPageHeader
+          title="数据库"
+          actions={
+            state.adding ? (
+              <Button type="button" variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={state.cancelAdding}>
+                <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                返回数据库
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 bg-white px-3 text-slate-600"
+                disabled={state.templateLoading || state.templates.length === 0}
+                onClick={state.startAdding}
+              >
+                <Plus strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                添加数据库
+              </Button>
+            )
+          }
+        />
 
         {state.error ? <div className="py-1 text-sm text-red-600">{state.error}</div> : null}
         {state.templateError ? <div className="py-1 text-sm text-red-600">{state.templateError}</div> : null}

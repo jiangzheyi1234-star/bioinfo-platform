@@ -1,0 +1,53 @@
+{
+  "run_id": "test_run",
+  "request_id": "test_request",
+  "project_id": "proj_test",
+  "pipeline_id": "moving-pictures-16s-rulegraph-v1",
+  "pipeline_version": "1.0.0",
+  "params": {
+    "min_mean_quality": 20,
+    "min_length": 120
+  },
+  "databases": {},
+  "resources": {},
+  "resourceConfig": {},
+  "inputs": [
+    {
+      "uploadId": "test_metadata",
+      "filename": "sample-metadata.tsv",
+      "role": "metadata",
+      "path": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/fixtures/example.txt",
+      "sizeBytes": 7,
+      "sha256": "test",
+      "mimeType": "text/plain",
+      "index": 0
+    },
+    {
+      "uploadId": "test_barcodes",
+      "filename": "barcodes.fastq.gz",
+      "role": "barcodes",
+      "path": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/fixtures/example.txt",
+      "sizeBytes": 7,
+      "sha256": "test",
+      "mimeType": "text/plain",
+      "index": 1
+    },
+    {
+      "uploadId": "test_sequences",
+      "filename": "sequences.fastq.gz",
+      "role": "sequences",
+      "path": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/fixtures/example.txt",
+      "sizeBytes": 7,
+      "sha256": "test",
+      "mimeType": "text/plain",
+      "index": 2
+    }
+  ],
+  "outputs": {
+    "report": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/expected/run-report.html",
+    "summary": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/expected/summary.tsv",
+    "raw_log": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/expected/raw-log.txt",
+    "feature_table": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/expected/feature-table.tsv",
+    "qc_summary": "apps/remote_runner/pipelines/moving-pictures-16s-rulegraph-v1/.test/expected/qc-summary.tsv"
+  }
+}

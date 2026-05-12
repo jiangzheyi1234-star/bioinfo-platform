@@ -1,0 +1,70 @@
+type: object
+required:
+  - run_id
+  - request_id
+  - project_id
+  - pipeline_id
+  - pipeline_version
+  - params
+  - inputs
+  - outputs
+properties:
+  run_id:
+    type: string
+  request_id:
+    type: string
+  project_id:
+    type: string
+  pipeline_id:
+    type: string
+  pipeline_version:
+    type: string
+  params:
+    type: object
+    properties:
+      include_content_hash:
+        type: string
+        description: Whether decoded input content should be hashed while summarizing.
+        default: "true"
+    additionalProperties: true
+  inputs:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required:
+        - uploadId
+        - filename
+        - role
+        - path
+      properties:
+        uploadId:
+          type: string
+        filename:
+          type: string
+        role:
+          type: string
+        path:
+          type: string
+        sizeBytes:
+          type: integer
+        sha256:
+          type: string
+        mimeType:
+          type: string
+        index:
+          type: integer
+  outputs:
+    type: object
+    required:
+      - summary
+      - report
+      - raw_log
+    properties:
+      summary:
+        type: string
+      report:
+        type: string
+      raw_log:
+        type: string
+additionalProperties: true

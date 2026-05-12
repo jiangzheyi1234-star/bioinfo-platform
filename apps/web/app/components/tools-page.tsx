@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { sourceFilters } from "./tools-page-model";
 import { ToolPreviewPanel, ToolSearchResults, ToolsLibrarySection } from "./tools-page-ui";
 import { useToolsPageState } from "./use-tools-page-state";
+import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 
 export function ToolsPage() {
@@ -18,23 +19,22 @@ export function ToolsPage() {
     <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
       <WorkflowWorkspaceTabs />
       <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex h-9 items-center justify-end">
-          {state.view === "library" ? (
-            <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("search")}>
-              <Plus strokeWidth={1.5} className="mr-2 h-4 w-4" />
-              添加依赖
-            </Button>
-          ) : (
-            <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("library")}>
-              <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
-              返回依赖
-            </Button>
-          )}
-        </div>
-
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold tracking-normal text-slate-950">工具依赖</h1>
-        </div>
+        <WorkflowPageHeader
+          title="工具依赖"
+          actions={
+            state.view === "library" ? (
+              <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("search")}>
+                <Plus strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                添加依赖
+              </Button>
+            ) : (
+              <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("library")}>
+                <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                返回依赖
+              </Button>
+            )
+          }
+        />
 
         {state.view === "library" ? (
           <ToolsLibrarySection

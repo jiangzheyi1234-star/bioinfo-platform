@@ -32,6 +32,7 @@ class PipelineDefinition:
     resource_schema: dict[str, Any]
     output_schema: dict[str, Any]
     ui_schema: dict[str, Any]
+    execution: dict[str, Any]
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -51,7 +52,16 @@ class PipelineDefinition:
             "resources": self.resource_schema,
             "outputSchema": self.output_schema,
             "uiSchema": self.ui_schema,
+            "execution": self.execution,
         }
+
+
+@dataclass(frozen=True)
+class PipelineManifestValidation:
+    pipeline_id: str
+    root_dir: Path
+    snakefile: Path
+    execution: dict[str, Any]
 
 
 def pipeline_registry_dir(cfg: RemoteRunnerConfig) -> Path:
@@ -106,20 +116,11 @@ def _load_pipeline_manifest(manifest_path: Path) -> PipelineDefinition:
         raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise PipelineRegistryError("PIPELINE_MANIFEST_INVALID_JSON") from exc
-    root_dir = manifest_path.parent
-    pipeline_id = str(raw.get("pipelineId") or "").strip()
-    if not pipeline_id:
-        raise PipelineRegistryError("PIPELINE_ID_REQUIRED")
-    if pipeline_id != root_dir.name:
-        raise PipelineRegistryError("PIPELINE_ID_PATH_MISMATCH")
-    snakefile_name = str(raw.get("snakefile") or "Snakefile").strip()
-    if not snakefile_name:
-        raise PipelineRegistryError("SNAKEFILE_REQUIRED")
-    snakefile = (root_dir / snakefile_name).resolve()
-    if root_dir.resolve() not in [snakefile, *snakefile.parents]:
-        raise PipelineRegistryError("SNAKEFILE_OUTSIDE_PIPELINE_ROOT")
-    if not snakefile.exists():
-        raise PipelineRegistryError("SNAKEFILE_MISSING")
+    validation = validate_pipeline_manifest(raw, manifest_path)
+    root_dir = validation.root_dir
+    pipeline_id = validation.pipeline_id
+    snakefile = validation.snakefile
+    execution = validation.execution
     return PipelineDefinition(
         pipeline_id=pipeline_id,
         name=str(raw.get("name") or pipeline_id),
@@ -139,6 +140,68 @@ def _load_pipeline_manifest(manifest_path: Path) -> PipelineDefinition:
         resource_schema=dict(raw.get("resources") or {}),
         output_schema=dict(raw.get("outputSchema") or {}),
         ui_schema=dict(raw.get("uiSchema") or {}),
+        execution=execution,
+    )
+
+
+def validate_pipeline_manifest(raw: dict[str, Any], manifest_path: Path) -> PipelineManifestValidation:
+    root_dir = manifest_path.parent
+    if (root_dir / "Snakefile").exists():
+        raise PipelineRegistryError("ROOT_SNAKEFILE_FORBIDDEN")
+    pipeline_id = str(raw.get("pipelineId") or "").strip()
+    if not pipeline_id:
+        raise PipelineRegistryError("PIPELINE_ID_REQUIRED")
+    if pipeline_id != root_dir.name:
+        raise PipelineRegistryError("PIPELINE_ID_PATH_MISMATCH")
+    snakefile_name = str(raw.get("snakefile") or "").strip()
+    if snakefile_name != "workflow/Snakefile":
+        raise PipelineRegistryError("STANDARD_SNAKEFILE_REQUIRED")
+    snakefile = (root_dir / snakefile_name).resolve()
+    if root_dir.resolve() not in [snakefile, *snakefile.parents]:
+        raise PipelineRegistryError("SNAKEFILE_OUTSIDE_PIPELINE_ROOT")
+    if not snakefile.exists():
+        raise PipelineRegistryError("SNAKEFILE_MISSING")
+    execution = raw.get("execution")
+    outputs = execution.get("outputs") if isinstance(execution, dict) else None
+    if not isinstance(outputs, dict) or not outputs:
+        raise PipelineRegistryError("EXECUTION_OUTPUTS_REQUIRED")
+    output_keys: set[str] = set()
+    for key, value in outputs.items():
+        output_key = str(key or "").strip()
+        output_path = str(value or "").strip()
+        if not output_key or not output_path:
+            raise PipelineRegistryError("EXECUTION_OUTPUT_INVALID")
+        if Path(output_path).is_absolute() or ".." in Path(output_path).parts:
+            raise PipelineRegistryError("EXECUTION_OUTPUT_PATH_INVALID")
+        output_keys.add(output_key)
+    output_schema = raw.get("outputSchema")
+    artifacts = output_schema.get("artifacts") if isinstance(output_schema, dict) else None
+    if not isinstance(artifacts, list) or not artifacts:
+        raise PipelineRegistryError("OUTPUT_ARTIFACTS_REQUIRED")
+    artifact_keys: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            raise PipelineRegistryError("OUTPUT_ARTIFACT_INVALID")
+        artifact_key = str(artifact.get("key") or "").strip()
+        if not artifact_key:
+            raise PipelineRegistryError("OUTPUT_ARTIFACT_KEY_REQUIRED")
+        if artifact_key not in output_keys:
+            raise PipelineRegistryError("OUTPUT_ARTIFACT_KEY_UNKNOWN")
+        if artifact_key in artifact_keys:
+            raise PipelineRegistryError("OUTPUT_ARTIFACT_KEY_DUPLICATE")
+        for field in ("kind", "mimeType", "name"):
+            if not str(artifact.get(field) or "").strip():
+                raise PipelineRegistryError("OUTPUT_ARTIFACT_METADATA_REQUIRED")
+        artifact_keys.add(artifact_key)
+    if artifact_keys != output_keys:
+        raise PipelineRegistryError("OUTPUT_ARTIFACT_KEYS_MISMATCH")
+    if not (root_dir / ".test" / "run-config.json").exists():
+        raise PipelineRegistryError("TEST_RUN_CONFIG_REQUIRED")
+    return PipelineManifestValidation(
+        pipeline_id=pipeline_id,
+        root_dir=root_dir,
+        snakefile=snakefile,
+        execution=dict(execution),
     )
 
 

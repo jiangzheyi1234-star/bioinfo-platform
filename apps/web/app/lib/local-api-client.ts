@@ -13,6 +13,8 @@ type LocalApiRequestOptions = {
   signal?: AbortSignal;
 };
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
+
 export class LocalApiError extends Error {
   code: LocalApiErrorCode;
   status: number;
@@ -40,7 +42,7 @@ export class LocalApiError extends Error {
 }
 
 export function apiBase(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
+  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8765";
   return raw.trim().replace(/\/+$/, "");
 }
 
@@ -71,11 +73,19 @@ async function requestViaBrowserFetch<T>(
   path: string,
   options: LocalApiRequestOptions
 ): Promise<T> {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort(options.signal?.reason);
+  const timeout = window.setTimeout(() => controller.abort(new Error("request timed out")), DEFAULT_REQUEST_TIMEOUT_MS);
+  if (options.signal?.aborted) {
+    abortFromParent();
+  } else {
+    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+  }
   try {
     const response = await fetch(`${apiBase()}${path}`, {
       method,
       cache: options.cache,
-      signal: options.signal,
+      signal: controller.signal,
       headers: options.body === undefined ? undefined : { "Content-Type": "application/json" },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
@@ -110,6 +120,9 @@ async function requestViaBrowserFetch<T>(
       throw error;
     }
     throw classifyNetworkFailure(error);
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromParent);
   }
 }
 

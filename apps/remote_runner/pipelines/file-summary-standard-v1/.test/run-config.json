@@ -1,0 +1,30 @@
+{
+  "run_id": "test_run",
+  "request_id": "test_request",
+  "project_id": "proj_test",
+  "pipeline_id": "file-summary-standard-v1",
+  "pipeline_version": "0.1.0",
+  "params": {
+    "include_content_hash": "true"
+  },
+  "databases": {},
+  "resources": {},
+  "resourceConfig": {},
+  "inputs": [
+    {
+      "uploadId": "test_upload_1",
+      "filename": "example.txt",
+      "role": "reads",
+      "path": "apps/remote_runner/pipelines/file-summary-standard-v1/.test/fixtures/example.txt",
+      "sizeBytes": 7,
+      "sha256": "test",
+      "mimeType": "text/plain",
+      "index": 0
+    }
+  ],
+  "outputs": {
+    "summary": "apps/remote_runner/pipelines/file-summary-standard-v1/.test/expected/summary.tsv",
+    "report": "apps/remote_runner/pipelines/file-summary-standard-v1/.test/expected/run-report.html",
+    "raw_log": "apps/remote_runner/pipelines/file-summary-standard-v1/.test/expected/raw-log.txt"
+  }
+}

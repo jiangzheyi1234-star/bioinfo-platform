@@ -16,6 +16,7 @@ DEFAULT_DATA_ROOT = DEFAULT_REMOTE_ROOT / "shared"
 DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "data" / "runner.db"
 DEFAULT_RUNTIME_STATE_PATH = DEFAULT_DATA_ROOT / "runtime" / "runner-state.json"
 DEFAULT_WORKFLOW_PROFILE_NAME = "profile.v9+.yaml"
+DEFAULT_CONDA_PREFIX_DIRNAME = "conda-envs"
 
 
 @dataclass
@@ -68,6 +69,27 @@ def _resolve_default_workflow_profile_dir(cfg: RemoteRunnerConfig) -> Path:
     return Path(cfg.data_root) / "config" / "snakemake" / "default"
 
 
+def _resolve_default_conda_prefix(cfg: RemoteRunnerConfig) -> Path:
+    return Path(cfg.data_root) / DEFAULT_CONDA_PREFIX_DIRNAME
+
+
+def _build_workflow_profile_content(*, conda_prefix: str | Path) -> str:
+    return "\n".join(
+        [
+            "# Managed workflow profile for H2OMeta remote runner.",
+            "executor: local",
+            "jobs: 1",
+            "latency-wait: 60",
+            "printshellcmds: true",
+            "rerun-incomplete: true",
+            "software-deployment-method: conda",
+            "conda-frontend: conda",
+            f"conda-prefix: {conda_prefix}",
+            "",
+        ]
+    )
+
+
 def write_runtime_state(
     cfg: RemoteRunnerConfig,
     *,
@@ -116,6 +138,7 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
     cfg.workflow_profile_dir = str(workflow_profile_dir)
     cfg.workflow_profile_name = get_workflow_profile_name(cfg)
     workflow_profile_path = workflow_profile_dir / cfg.workflow_profile_name
+    conda_prefix_dir = _resolve_default_conda_prefix(cfg)
 
     for directory in (
         data_root,
@@ -126,6 +149,7 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
         work_dir,
         logs_dir,
         workflow_profile_dir,
+        conda_prefix_dir,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -140,17 +164,10 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
         )
         connection.commit()
 
-    if not workflow_profile_path.exists():
+    profile_content = workflow_profile_path.read_text(encoding="utf-8") if workflow_profile_path.exists() else ""
+    if "conda-prefix:" not in profile_content:
         workflow_profile_path.write_text(
-            (
-                "# Managed workflow profile for H2OMeta remote runner.\n"
-                "cores: 1\n"
-                "printshellcmds: true\n"
-                "rerun-incomplete: true\n"
-                "latency-wait: 5\n"
-                "keep-going: false\n"
-                "software-deployment-method: conda\n"
-            ),
+            _build_workflow_profile_content(conda_prefix=conda_prefix_dir),
             encoding="utf-8",
             newline="\n",
         )
@@ -158,7 +175,10 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
     return {
         "config": bool(cfg.token),
         "sqlite": db_path.exists(),
-        "directories": all(path.exists() for path in (uploads_dir, results_dir, work_dir, logs_dir, workflow_profile_dir)),
+        "directories": all(
+            path.exists()
+            for path in (uploads_dir, results_dir, work_dir, logs_dir, workflow_profile_dir, conda_prefix_dir)
+        ),
     }
 
 

@@ -1,0 +1,219 @@
+{
+  "pipelineId": "file-summary-standard-v1",
+  "name": "File Summary Standard",
+  "version": "0.1.0",
+  "description": "A Snakemake best-practice compatible file summary template using workflow/Snakefile, modular rules, config schema validation, and manifest-driven outputs.",
+  "category": "Sequence Utilities",
+  "icon": "file-text",
+  "tags": [
+    "fastq",
+    "summary",
+    "snakemake",
+    "standard-template"
+  ],
+  "author": "H2OMeta",
+  "license": "internal",
+  "status": "installed",
+  "enabled": true,
+  "snakefile": "workflow/Snakefile",
+  "inputsSchema": {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+      "type": "object",
+      "required": [
+        "uploadId"
+      ],
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "default": "reads"
+        }
+      }
+    }
+  },
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "include_content_hash": {
+        "type": "string",
+        "title": "Include content hash",
+        "default": "true",
+        "description": "When true, the workflow computes a read-time SHA-256 over decoded text content."
+      }
+    },
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "artifacts": [
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "summary.tsv",
+        "key": "summary"
+      },
+      {
+        "kind": "report",
+        "mimeType": "text/html",
+        "name": "run-report.html",
+        "key": "report"
+      },
+      {
+        "kind": "log",
+        "mimeType": "text/plain",
+        "name": "raw-log.txt",
+        "key": "raw_log"
+      }
+    ]
+  },
+  "execution": {
+    "outputs": {
+      "summary": "summary.tsv",
+      "report": "run-report.html",
+      "raw_log": "raw-log.txt"
+    }
+  },
+  "uiSchema": {
+    "inputs": {
+      "widget": "file-upload",
+      "accept": ".fastq,.fq,.txt,.gz,text/plain,application/gzip",
+      "roleDefault": "reads"
+    },
+    "params": {
+      "include_content_hash": {
+        "widget": "text",
+        "label": "Include content hash"
+      }
+    },
+    "graph": {
+      "defaultView": "rulegraph",
+      "nodes": [
+        {
+          "id": "inputs",
+          "label": "input files",
+          "title": "Input files",
+          "group": "input",
+          "kind": "input",
+          "description": "One or more uploaded text, FASTQ, or gzip files.",
+          "role": "reads",
+          "outputs": [
+            "uploaded files"
+          ],
+          "operationHints": [
+            "fileUpload"
+          ]
+        },
+        {
+          "id": "summarize_files",
+          "label": "summarize_files",
+          "title": "Summarize files",
+          "group": "qc",
+          "kind": "rule",
+          "description": "Counts lines, records upload metadata, and writes a TSV summary.",
+          "params": [
+            "include_content_hash"
+          ],
+          "inputs": [
+            "uploaded files",
+            "include_content_hash"
+          ],
+          "outputs": [
+            "summary.tsv"
+          ],
+          "runtimeStatusKey": "rule:summarize_files",
+          "resourceHints": {
+            "threads": 1,
+            "memory": "1 GiB"
+          },
+          "retryPolicy": {
+            "maxAttempts": 1,
+            "strategy": "never"
+          },
+          "operationHints": [
+            "editableParams"
+          ]
+        },
+        {
+          "id": "render_report",
+          "label": "render_report",
+          "title": "Render report",
+          "group": "report",
+          "kind": "rule",
+          "description": "Renders the summary table as HTML and writes a provenance log.",
+          "inputs": [
+            "summary.tsv"
+          ],
+          "outputs": [
+            "run-report.html",
+            "raw-log.txt"
+          ],
+          "runtimeStatusKey": "rule:render_report",
+          "resourceHints": {
+            "threads": 1,
+            "memory": "1 GiB"
+          }
+        },
+        {
+          "id": "outputs",
+          "label": "workflow outputs",
+          "title": "Results",
+          "group": "output",
+          "kind": "output",
+          "description": "Summary table, HTML report, and raw provenance log.",
+          "inputs": [
+            "summary.tsv",
+            "run-report.html",
+            "raw-log.txt"
+          ],
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "summary.tsv",
+              "mimeType": "text/tab-separated-values"
+            },
+            {
+              "kind": "report",
+              "name": "run-report.html",
+              "mimeType": "text/html"
+            },
+            {
+              "kind": "log",
+              "name": "raw-log.txt",
+              "mimeType": "text/plain"
+            }
+          ],
+          "operationHints": [
+            "expectedOutputs"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "inputs",
+          "to": "summarize_files"
+        },
+        {
+          "from": "summarize_files",
+          "to": "render_report"
+        },
+        {
+          "from": "summarize_files",
+          "to": "outputs"
+        },
+        {
+          "from": "render_report",
+          "to": "outputs"
+        }
+      ]
+    }
+  },
+  "resources": {}
+}

@@ -1,0 +1,255 @@
+{
+  "pipelineId": "linear-qc-report-v1",
+  "name": "Linear QC Report",
+  "version": "0.1.0",
+  "description": "Validation template for a linear workflow shape: uploaded reads flow through quality control, summarization, and report generation.",
+  "category": "DAG Validation",
+  "icon": "workflow",
+  "tags": [
+    "dag",
+    "linear",
+    "qc",
+    "template"
+  ],
+  "author": "H2OMeta",
+  "license": "internal",
+  "status": "installed",
+  "enabled": true,
+  "snakefile": "workflow/Snakefile",
+  "inputsSchema": {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+      "type": "object",
+      "required": [
+        "uploadId"
+      ],
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "default": "reads"
+        }
+      }
+    }
+  },
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "min_quality": {
+        "type": "integer",
+        "title": "Minimum quality",
+        "minimum": 0,
+        "maximum": 40,
+        "default": 20,
+        "description": "Reads below this quality threshold are excluded from the summary."
+      }
+    },
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "artifacts": [
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "qc-summary.tsv",
+        "key": "summary"
+      },
+      {
+        "kind": "report",
+        "mimeType": "text/html",
+        "name": "run-report.html",
+        "key": "report"
+      },
+      {
+        "kind": "log",
+        "mimeType": "text/plain",
+        "name": "raw-log.txt",
+        "key": "raw_log"
+      }
+    ]
+  },
+  "uiSchema": {
+    "inputs": {
+      "widget": "file-upload",
+      "accept": ".fastq,.fq,.txt,.gz,text/plain,application/gzip",
+      "roleDefault": "reads"
+    },
+    "params": {
+      "min_quality": {
+        "widget": "number",
+        "label": "Minimum quality"
+      }
+    },
+    "graph": {
+      "defaultView": "rulegraph",
+      "nodes": [
+        {
+          "id": "reads",
+          "label": "reads",
+          "title": "Input reads",
+          "group": "input",
+          "kind": "input",
+          "description": "Uploaded sequencing reads or text records.",
+          "role": "reads",
+          "outputs": [
+            "reads.fastq.gz"
+          ],
+          "operationHints": [
+            "fileUpload"
+          ]
+        },
+        {
+          "id": "quality_control",
+          "label": "quality_control",
+          "title": "Quality control",
+          "group": "qc",
+          "kind": "rule",
+          "description": "Filters input reads and computes quality metrics.",
+          "params": [
+            "min_quality"
+          ],
+          "inputs": [
+            "reads.fastq.gz",
+            "min_quality"
+          ],
+          "outputs": [
+            "filtered-reads.tsv",
+            "qc-metrics.tsv"
+          ],
+          "runtimeStatusKey": "rule:quality_control",
+          "resourceHints": {
+            "threads": 2,
+            "memory": "2 GiB"
+          },
+          "retryPolicy": {
+            "maxAttempts": 2,
+            "strategy": "on-failure",
+            "delaySeconds": 15
+          },
+          "operationHints": [
+            "editableParams",
+            "cacheable"
+          ]
+        },
+        {
+          "id": "summarize",
+          "label": "summarize",
+          "title": "Summarize reads",
+          "group": "report",
+          "kind": "rule",
+          "description": "Builds a compact TSV summary from QC metrics.",
+          "inputs": [
+            "filtered-reads.tsv",
+            "qc-metrics.tsv"
+          ],
+          "outputs": [
+            "qc-summary.tsv"
+          ],
+          "runtimeStatusKey": "rule:summarize",
+          "resourceHints": {
+            "threads": 1,
+            "memory": "1 GiB"
+          },
+          "retryPolicy": {
+            "maxAttempts": 1,
+            "strategy": "never"
+          }
+        },
+        {
+          "id": "render_report",
+          "label": "render_report",
+          "title": "Render report",
+          "group": "report",
+          "kind": "rule",
+          "description": "Renders an HTML report and raw provenance log.",
+          "inputs": [
+            "qc-summary.tsv"
+          ],
+          "outputs": [
+            "run-report.html",
+            "raw-log.txt"
+          ],
+          "runtimeStatusKey": "rule:render_report",
+          "resourceHints": {
+            "threads": 1,
+            "memory": "1 GiB"
+          },
+          "operationHints": [
+            "expectedOutputs"
+          ]
+        },
+        {
+          "id": "outputs",
+          "label": "workflow outputs",
+          "title": "Results",
+          "group": "output",
+          "kind": "output",
+          "description": "Final report, summary table, and execution log.",
+          "inputs": [
+            "qc-summary.tsv",
+            "run-report.html",
+            "raw-log.txt"
+          ],
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "qc-summary.tsv",
+              "mimeType": "text/tab-separated-values"
+            },
+            {
+              "kind": "report",
+              "name": "run-report.html",
+              "mimeType": "text/html"
+            },
+            {
+              "kind": "log",
+              "name": "raw-log.txt",
+              "mimeType": "text/plain"
+            }
+          ],
+          "operationHints": [
+            "expectedOutputs"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "reads",
+          "to": "quality_control"
+        },
+        {
+          "from": "quality_control",
+          "to": "summarize"
+        },
+        {
+          "from": "summarize",
+          "to": "render_report"
+        },
+        {
+          "from": "summarize",
+          "to": "outputs"
+        },
+        {
+          "from": "render_report",
+          "to": "outputs"
+        }
+      ]
+    }
+  },
+  "execution": {
+    "outputs": {
+      "summary": "qc-summary.tsv",
+      "report": "run-report.html",
+      "raw_log": "raw-log.txt"
+    }
+  },
+  "resources": {}
+}

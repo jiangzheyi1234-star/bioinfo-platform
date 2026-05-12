@@ -23,6 +23,8 @@ class GeneratedWorkflow:
     pipeline_version: str
     snakefile: Path
     config_path: Path
+    outputs: dict[str, str]
+    output_schema: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -51,10 +53,11 @@ def prepare_generated_tool_workflow(
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")
 
-    env_dir = work_dir / "envs"
+    workflow_dir = work_dir / "workflow"
+    env_dir = workflow_dir / "envs"
     env_dir.mkdir(parents=True, exist_ok=True)
     config_path = work_dir / "run-config.json"
-    snakefile = work_dir / "Snakefile"
+    snakefile = workflow_dir / "Snakefile"
     requested_steps = _resolve_requested_steps(run_spec)
     resolved_databases = resolve_run_databases(cfg, run_spec)
     workflow_resource_config: dict[str, Any] = {"resources": {}, "config": {}}
@@ -115,6 +118,9 @@ def prepare_generated_tool_workflow(
     )
     databases_config = workflow_resource_config["config"] if workflow_resource_config["config"] else resolved_databases
 
+    final_outputs = {name: str(path) for name, path in generated_steps[-1].outputs.items()}
+    final_artifacts = _final_output_artifacts(generated_steps[-1], final_outputs)
+
     config_path.write_text(
         json.dumps(
             {
@@ -141,7 +147,7 @@ def prepare_generated_tool_workflow(
                         for step in generated_steps
                     ],
                 },
-                "outputs": {name: str(path) for name, path in generated_steps[-1].outputs.items()},
+                "outputs": final_outputs,
             },
             indent=2,
         ),
@@ -162,6 +168,8 @@ def prepare_generated_tool_workflow(
         pipeline_version=GENERATED_TOOL_RUN_VERSION,
         snakefile=snakefile,
         config_path=config_path,
+        outputs=final_outputs,
+        output_schema={"type": "object", "artifacts": final_artifacts},
     )
 
 
@@ -206,45 +214,49 @@ def _config_tool(step: GeneratedWorkflowStep) -> dict[str, Any]:
 def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]) -> dict[str, Any]:
     manifest_template = tool.get("ruleTemplate")
     if isinstance(manifest_template, dict) and manifest_template.get("commandTemplate"):
+        outputs = _normalize_output_specs(manifest_template.get("outputs"))
         return {
             "commandTemplate": str(manifest_template.get("commandTemplate") or ""),
             "inputs": list(manifest_template.get("inputs") or [{"name": "primary", "type": "file", "required": True}]),
-            "outputs": list(manifest_template.get("outputs") or [{"name": "tool_output", "path": "tool-output.txt", "kind": "log", "mimeType": "text/plain"}]),
+            "outputs": outputs,
             "params": dict(manifest_template.get("params") or {}),
             "resources": dict(manifest_template.get("resources") or {}),
         }
     requested = str(tool_request.get("command") or tool_request.get("commandTemplate") or "").strip()
     if requested:
+        output_name = str(tool_request.get("outputName") or "").strip()
+        if not output_name:
+            raise ValueError("TOOL_OUTPUT_NAME_REQUIRED")
         return {
             "commandTemplate": requested,
             "inputs": [{"name": "primary", "type": "file", "required": True}],
             "outputs": [
                 {
                     "name": "tool_output",
-                    "path": _safe_output_name(str(tool_request.get("outputName") or "tool-output.txt")),
+                    "path": _safe_output_name(output_name),
                     "kind": "log",
                     "mimeType": "text/plain",
                 }
             ],
             "params": {},
         }
-    test_command = str(tool.get("testCommand") or "").strip()
-    if test_command:
-        return {
-            "commandTemplate": f"{test_command} > {{output.tool_output:q}} 2>&1",
-            "inputs": [{"name": "primary", "type": "file", "required": True}],
-            "outputs": [{"name": "tool_output", "path": "tool-output.txt", "kind": "log", "mimeType": "text/plain"}],
-            "params": {},
-        }
-    tool_name = str(tool.get("name") or "").strip()
-    if not tool_name:
-        raise ValueError("TOOL_COMMAND_REQUIRED")
-    return {
-        "commandTemplate": f"{tool_name} --help > {{output.tool_output:q}} 2>&1",
-        "inputs": [{"name": "primary", "type": "file", "required": True}],
-        "outputs": [{"name": "tool_output", "path": "tool-output.txt", "kind": "log", "mimeType": "text/plain"}],
-        "params": {},
-    }
+    raise ValueError("TOOL_RULE_TEMPLATE_REQUIRED")
+
+
+def _normalize_output_specs(raw: Any) -> list[dict[str, Any]]:
+    specs = [item for item in (raw or []) if isinstance(item, dict)]
+    if not specs:
+        raise ValueError("TOOL_OUTPUTS_REQUIRED")
+    normalized: list[dict[str, Any]] = []
+    for index, spec in enumerate(specs):
+        name = str(spec.get("name") or ("tool_output" if index == 0 else f"output_{index + 1}")).strip()
+        path = str(spec.get("path") or "").strip()
+        kind = str(spec.get("kind") or "").strip()
+        mime_type = str(spec.get("mimeType") or "").strip()
+        if not name or not path or not kind or not mime_type:
+            raise ValueError("TOOL_OUTPUT_SPEC_INVALID")
+        normalized.append({**spec, "name": name, "path": path, "kind": kind, "mimeType": mime_type})
+    return normalized
 
 
 def _resolve_step_inputs(
@@ -303,17 +315,37 @@ def _resolve_inputs(*, rule_template: dict[str, Any], resolved_inputs: list[dict
 def _resolve_outputs(*, rule_template: dict[str, Any], result_dir: Path, output_prefix: str = "") -> dict[str, Path]:
     specs = [item for item in (rule_template.get("outputs") or []) if isinstance(item, dict)]
     if not specs:
-        specs = [{"name": "tool_output", "path": "tool-output.txt"}]
+        raise ValueError("TOOL_OUTPUTS_REQUIRED")
     outputs: dict[str, Path] = {}
     for index, spec in enumerate(specs):
         name = str(spec.get("name") or ("tool_output" if index == 0 else f"output_{index + 1}")).strip()
-        path = _safe_output_name(str(spec.get("path") or f"{name}.txt"))
+        requested_path = str(spec.get("path") or "").strip()
+        if not requested_path:
+            raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
+        path = _safe_output_name(requested_path)
         if output_prefix:
             path = f"{output_prefix}-{path}"
         outputs[name] = result_dir / path
     if not outputs:
         raise ValueError("TOOL_OUTPUT_REQUIRED")
     return outputs
+
+
+def _final_output_artifacts(step: GeneratedWorkflowStep, outputs: dict[str, str]) -> list[dict[str, str]]:
+    specs = [item for item in (step.rule_template.get("outputs") or []) if isinstance(item, dict)]
+    artifacts: list[dict[str, str]] = []
+    for index, (key, path) in enumerate(outputs.items()):
+        spec = specs[index] if index < len(specs) else {}
+        name = Path(path).name
+        artifacts.append(
+            {
+                "key": key,
+                "name": name,
+                "kind": str(spec.get("kind") or ""),
+                "mimeType": str(spec.get("mimeType") or ""),
+            }
+        )
+    return artifacts
 
 
 def _render_snakefile(
@@ -454,5 +486,5 @@ def _safe_snakemake_name(value: str) -> str:
 def _safe_output_name(value: str) -> str:
     name = Path(value).name.strip()
     if not name or name in {".", ".."}:
-        return "tool-output.txt"
+        raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
     return name

@@ -1,0 +1,16 @@
+from snakemake.utils import validate
+
+
+configfile: "run-config.json"
+validate(config, workflow.source_path("schemas/config.schema.yaml"))
+
+
+include: "rules/summarize.smk"
+include: "rules/report.smk"
+
+
+rule all:
+    input:
+        summary=config["outputs"]["summary"],
+        report=config["outputs"]["report"],
+        raw_log=config["outputs"]["raw_log"],

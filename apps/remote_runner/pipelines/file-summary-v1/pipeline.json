@@ -5,43 +5,65 @@
   "description": "Summarize uploaded FASTQ, gzip, or text inputs into a TSV and HTML report.",
   "category": "Sequence Utilities",
   "icon": "file-text",
-  "tags": ["fastq", "summary", "quality-control"],
+  "tags": [
+    "fastq",
+    "summary",
+    "quality-control"
+  ],
   "author": "H2OMeta",
   "license": "internal",
   "status": "installed",
   "enabled": true,
-  "snakefile": "Snakefile",
+  "snakefile": "workflow/Snakefile",
   "inputsSchema": {
     "type": "array",
     "minItems": 1,
     "items": {
       "type": "object",
-      "required": ["uploadId"],
+      "required": [
+        "uploadId"
+      ],
       "properties": {
-        "uploadId": { "type": "string", "minLength": 1 },
-        "filename": { "type": "string" },
-        "role": { "type": "string", "default": "reads" }
+        "uploadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "default": "reads"
+        }
       }
     }
   },
   "paramsSchema": {
     "type": "object",
-    "properties": {
-      "threads": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 64,
-        "default": 1
-      }
-    },
+    "properties": {},
     "additionalProperties": true
   },
   "outputSchema": {
     "type": "object",
     "artifacts": [
-      { "kind": "table", "mimeType": "text/tab-separated-values", "name": "summary.tsv" },
-      { "kind": "report", "mimeType": "text/html", "name": "run-report.html" },
-      { "kind": "log", "mimeType": "text/plain", "name": "raw-log.txt" }
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "summary.tsv",
+        "key": "summary"
+      },
+      {
+        "kind": "report",
+        "mimeType": "text/html",
+        "name": "run-report.html",
+        "key": "report"
+      },
+      {
+        "kind": "log",
+        "mimeType": "text/plain",
+        "name": "raw-log.txt",
+        "key": "raw_log"
+      }
     ]
   },
   "uiSchema": {
@@ -56,5 +78,13 @@
         "label": "Threads"
       }
     }
-  }
+  },
+  "execution": {
+    "outputs": {
+      "summary": "summary.tsv",
+      "report": "run-report.html",
+      "raw_log": "raw-log.txt"
+    }
+  },
+  "resources": {}
 }
