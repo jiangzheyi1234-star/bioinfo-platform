@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from local_api_smoke_helpers import response_data, selected_server_id
+
 
 def find_repo_root() -> Path:
     path = Path.cwd().resolve()
@@ -95,6 +97,28 @@ def cleanup(api_base: str, tool_id: str, database_ids: list[str]) -> None:
             print_json("CLEANUP_SKIPPED", {"path": path, "error": str(exc)})
 
 
+def build_run_submit_payload(
+    *,
+    request_id: str,
+    server_id: str,
+    project_id: str,
+    upload: dict[str, Any],
+    database: dict[str, Any],
+    tool: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "requestId": request_id,
+        "runSpec": {
+            "projectId": project_id,
+            "pipelineId": "generated-tool-run-v1",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
+            "databases": [{"id": database["id"], "role": "taxonomy"}],
+            "tool": {"id": tool["id"]},
+        },
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke-test reference database registration through the Local API.")
     parser.add_argument("--api-base", default="http://127.0.0.1:8765")
@@ -106,6 +130,7 @@ def main() -> int:
     database_id = "taxonomy-db-custom-smoke"
     client = connect_ssh()
     try:
+        server_id = selected_server_id(args.api_base)
         database_path = ssh_run(
             client,
             "set -e; DB=\"$HOME/.h2ometa/smoke-databases/taxonomy-mini\"; "
@@ -117,7 +142,7 @@ def main() -> int:
         )
         print_json("REMOTE_DATABASE_PATH", {"path": database_path})
 
-        invalid_database = http_json(
+        invalid_database = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/databases",
@@ -132,8 +157,8 @@ def main() -> int:
                 "metadata": {"templateId": "kraken2", "buildCommand": "smoke fixture"},
             },
             timeout=30,
-        )["data"]
-        invalid_checked = http_json("POST", args.api_base, f"/api/v1/databases/{invalid_database['id']}/check", timeout=120)["data"]
+        ))
+        invalid_checked = response_data(http_json("POST", args.api_base, f"/api/v1/databases/{invalid_database['id']}/check", timeout=120))
         print_json(
             "REAL_DATABASE_VALIDATION_CHECKED",
             {
@@ -146,7 +171,7 @@ def main() -> int:
         if invalid_checked["status"] not in {"failed", "missing"}:
             return 1
 
-        database = http_json(
+        database = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/databases",
@@ -162,13 +187,13 @@ def main() -> int:
                 "metadata": {"templateId": "custom", "buildCommand": "smoke fixture"},
             },
             timeout=30,
-        )["data"]
-        checked = http_json("POST", args.api_base, f"/api/v1/databases/{database_id}/check", timeout=30)["data"]
+        ))
+        checked = response_data(http_json("POST", args.api_base, f"/api/v1/databases/{database_id}/check", timeout=30))
         print_json("CUSTOM_DATABASE_CHECKED", {"id": checked["id"], "status": checked["status"], "path": checked["path"]})
         if checked["status"] != "available":
             return 1
 
-        tool = http_json(
+        tool = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/tools",
@@ -189,10 +214,10 @@ def main() -> int:
                 },
             },
             timeout=30,
-        )["data"]
+        ))
         print_json("TOOL_REGISTERED", {"id": tool["id"], "packageSpec": tool["packageSpec"]})
 
-        upload = http_json(
+        upload = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/uploads",
@@ -202,32 +227,30 @@ def main() -> int:
                 "mimeType": "text/plain",
             },
             timeout=30,
-        )["data"]
+        ))
 
         request_id = f"req_database_smoke_{int(time.time() * 1000)}"
-        submitted = http_json(
+        submitted = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/runs",
-            payload={
-                "requestId": request_id,
-                "runSpec": {
-                    "projectId": "proj_smoke",
-                    "pipelineId": "generated-tool-run-v1",
-                    "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-                    "databases": [{"id": database["id"], "role": "taxonomy"}],
-                    "tool": {"id": tool["id"]},
-                },
-            },
+            payload=build_run_submit_payload(
+                request_id=request_id,
+                server_id=server_id,
+                project_id="proj_smoke",
+                upload=upload,
+                database=database,
+                tool=tool,
+            ),
             timeout=30,
-        )["data"]
+        ))
         run_id = submitted["runId"]
         print_json("RUN_SUBMITTED", {"runId": run_id, "status": submitted["status"], "stage": submitted["stage"]})
 
         deadline = time.time() + args.timeout
         final = submitted
         while time.time() < deadline:
-            final = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10)["data"]
+            final = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10))
             if final["status"] in {"completed", "failed"}:
                 break
             time.sleep(2)
@@ -235,7 +258,7 @@ def main() -> int:
         if final.get("status") != "completed":
             return 1
 
-        results = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10)["data"]
+        results = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10))
         artifact_names = [Path(str(item.get("path") or "")).name for item in (results.get("artifacts") or [])]
         print_json("RUN_ARTIFACTS", {"artifacts": artifact_names})
         return 0 if "database-path.txt" in artifact_names else 1

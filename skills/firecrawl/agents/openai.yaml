@@ -1,0 +1,7 @@
+interface:
+  display_name: "Firecrawl"
+  short_description: "Search, scrape, map, and crawl web data"
+  default_prompt: "Use $firecrawl to scrape or research a website with the Firecrawl CLI."
+
+policy:
+  allow_implicit_invocation: true

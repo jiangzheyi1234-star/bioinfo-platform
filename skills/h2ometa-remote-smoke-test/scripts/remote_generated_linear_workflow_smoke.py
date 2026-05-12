@@ -12,6 +12,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from local_api_smoke_helpers import response_data, selected_server_id
+
 
 def find_repo_root() -> Path:
     path = Path.cwd().resolve()
@@ -72,7 +74,33 @@ def register_tool(api_base: str, *, tool_id: str, command: str, output_name: str
             "outputs": [{"name": output_name, "path": output_path, "kind": "log", "mimeType": "text/plain"}],
         },
     }
-    return http_json("POST", api_base, "/api/v1/tools", payload=payload, timeout=30)["data"]
+    return response_data(http_json("POST", api_base, "/api/v1/tools", payload=payload, timeout=30))
+
+
+def build_run_submit_payload(
+    *,
+    request_id: str,
+    server_id: str,
+    project_id: str,
+    upload: dict[str, Any],
+    count_tool: dict[str, Any],
+    copy_tool: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "requestId": request_id,
+        "runSpec": {
+            "projectId": project_id,
+            "pipelineId": "generated-tool-run-v1",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
+            "workflow": {
+                "steps": [
+                    {"id": "count_bytes", "tool": {"id": count_tool["id"]}},
+                    {"id": "copy_summary", "tool": {"id": copy_tool["id"]}},
+                ],
+            },
+        },
+    }
 
 
 def main() -> int:
@@ -85,6 +113,7 @@ def main() -> int:
     count_tool_id = "conda-forge::coreutils-count-smoke"
     copy_tool_id = "conda-forge::coreutils-copy-smoke"
     try:
+        server_id = selected_server_id(args.api_base)
         count_tool = register_tool(
             args.api_base,
             tool_id=count_tool_id,
@@ -108,7 +137,7 @@ def main() -> int:
         )
 
         sample = b"ABCDEF\n"
-        upload = http_json(
+        upload = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/uploads",
@@ -117,37 +146,31 @@ def main() -> int:
                 "contentBase64": base64.b64encode(sample).decode("ascii"),
                 "mimeType": "text/plain",
             },
-        )["data"]
+        ))
         print_json("UPLOAD", {"uploadId": upload["uploadId"], "filename": upload["filename"], "sizeBytes": upload["sizeBytes"]})
 
         request_id = f"req_generated_linear_smoke_{int(time.time() * 1000)}"
-        submitted = http_json(
+        submitted = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/runs",
-            payload={
-                "requestId": request_id,
-                "runSpec": {
-                    "projectId": "proj_smoke",
-                    "pipelineId": "generated-tool-run-v1",
-                    "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-                    "workflow": {
-                        "steps": [
-                            {"id": "count_bytes", "tool": {"id": count_tool["id"]}},
-                            {"id": "copy_summary", "tool": {"id": copy_tool["id"]}},
-                        ],
-                    },
-                },
-            },
+            payload=build_run_submit_payload(
+                request_id=request_id,
+                server_id=server_id,
+                project_id="proj_smoke",
+                upload=upload,
+                count_tool=count_tool,
+                copy_tool=copy_tool,
+            ),
             timeout=30,
-        )["data"]
+        ))
         run_id = submitted["runId"]
         print_json("RUN_SUBMITTED", {"runId": run_id, "status": submitted["status"], "stage": submitted["stage"]})
 
         deadline = time.time() + args.timeout
         final = submitted
         while time.time() < deadline:
-            final = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10)["data"]
+            final = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10))
             if final["status"] in {"completed", "failed"}:
                 break
             time.sleep(2)
@@ -163,7 +186,7 @@ def main() -> int:
         if final.get("status") != "completed":
             return 1
 
-        results = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10)["data"]
+        results = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10))
         artifacts = results.get("artifacts") or []
         print_json(
             "RUN_ARTIFACTS",

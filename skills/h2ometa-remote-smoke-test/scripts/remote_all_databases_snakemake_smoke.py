@@ -14,6 +14,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from local_api_smoke_helpers import response_data, selected_server_id
+
 
 def print_json(label: str, payload: Any) -> None:
     print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
@@ -61,19 +63,19 @@ def wait_for_run(api_base: str, run_id: str, *, timeout: float) -> dict[str, Any
     deadline = time.time() + timeout
     final: dict[str, Any] = {}
     while time.time() < deadline:
-        final = http_json("GET", api_base, f"/api/v1/runs/{run_id}", timeout=10)["data"]
+        final = response_data(http_json("GET", api_base, f"/api/v1/runs/{run_id}", timeout=10))
         if final.get("status") in {"completed", "failed"}:
             return final
         time.sleep(2)
     return final
 
 
-def run_database_smoke(api_base: str, database: dict[str, Any], *, index: int, timeout: float) -> dict[str, Any]:
+def run_database_smoke(api_base: str, database: dict[str, Any], *, server_id: str, index: int, timeout: float) -> dict[str, Any]:
     role = role_for_database(database, index)
     tool_id = f"conda-forge::coreutils-db-path-smoke-{role}-{index}"
     output_name = f"database-{role}-path.txt"
     try:
-        tool = http_json(
+        tool = response_data(http_json(
             "POST",
             api_base,
             "/api/v1/tools",
@@ -94,8 +96,8 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, index: int, t
                 },
             },
             timeout=30,
-        )["data"]
-        upload = http_json(
+        ))
+        upload = response_data(http_json(
             "POST",
             api_base,
             "/api/v1/uploads",
@@ -105,12 +107,13 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, index: int, t
                 "mimeType": "text/plain",
             },
             timeout=30,
-        )["data"]
-        submitted = http_json(
+        ))
+        submitted = response_data(http_json(
             "POST",
             api_base,
             "/api/v1/runs",
             payload={
+                "serverId": server_id,
                 "requestId": f"req_all_db_smoke_{index}_{int(time.time() * 1000)}",
                 "runSpec": {
                     "projectId": "proj_smoke",
@@ -121,7 +124,7 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, index: int, t
                 },
             },
             timeout=30,
-        )["data"]
+        ))
         final = wait_for_run(api_base, submitted["runId"], timeout=timeout)
         if final.get("status") != "completed":
             return {
@@ -131,7 +134,7 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, index: int, t
                 "runId": submitted["runId"],
                 "error": final.get("lastError") or final.get("stage") or "run did not complete",
             }
-        results = http_json("GET", api_base, f"/api/v1/runs/{submitted['runId']}/results", timeout=10)["data"]
+        results = response_data(http_json("GET", api_base, f"/api/v1/runs/{submitted['runId']}/results", timeout=10))
         artifacts = results.get("artifacts") or []
         artifact_names = [Path(str(item.get("path") or "")).name for item in artifacts]
         return {
@@ -191,9 +194,10 @@ def main() -> int:
             ],
         },
     )
+    server_id = selected_server_id(args.api_base)
     results = []
     for index, database in enumerate(available, start=1):
-        result = run_database_smoke(args.api_base, database, index=index, timeout=args.timeout)
+        result = run_database_smoke(args.api_base, database, server_id=server_id, index=index, timeout=args.timeout)
         results.append(result)
         print_json("DATABASE_SNAKEMAKE_RESULT", result)
     failed = [item for item in results if item.get("status") != "completed"]

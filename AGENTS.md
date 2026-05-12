@@ -13,3 +13,4 @@
 - When a testing or smoke failure repeats, record it in `skills/h2ometa-remote-smoke-test/pitfalls.md` or `skills/h2ometa-remote-smoke-test/test-safety.md`.
 - Do not add backward-compatibility layers, silent fallbacks, or legacy branches unless explicitly requested.
 - When older behavior is unsupported, fail loudly and clearly instead of degrading silently.
+- For Firecrawl scraping, search, mapping, crawling, structured extraction, agent jobs, or CLI setup, read `skills/firecrawl/SKILL.md` first and use `npm run firecrawl -- ...` from the repo root.
