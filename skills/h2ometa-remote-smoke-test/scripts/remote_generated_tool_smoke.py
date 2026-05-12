@@ -12,6 +12,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from local_api_smoke_helpers import response_data, selected_server_id
+
 
 def find_repo_root() -> Path:
     path = Path.cwd().resolve()
@@ -53,6 +55,28 @@ def cleanup_tool(api_base: str, tool_id: str) -> None:
         print_json("TOOL_CLEANUP_SKIPPED", {"id": tool_id, "error": str(exc)})
 
 
+def build_run_submit_payload(
+    *,
+    request_id: str,
+    server_id: str,
+    project_id: str,
+    upload: dict[str, Any],
+    tool: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "requestId": request_id,
+        "runSpec": {
+            "projectId": project_id,
+            "pipelineId": "generated-tool-run-v1",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
+            "tool": {
+                "id": tool["id"],
+            },
+        },
+    }
+
+
 def main() -> int:
     find_repo_root()
     parser = argparse.ArgumentParser(description="Smoke-test generated-tool-run-v1 through the Local API.")
@@ -80,11 +104,12 @@ def main() -> int:
         },
     }
     try:
-        tool = http_json("POST", args.api_base, "/api/v1/tools", payload=tool_payload, timeout=30)["data"]
+        server_id = selected_server_id(args.api_base)
+        tool = response_data(http_json("POST", args.api_base, "/api/v1/tools", payload=tool_payload, timeout=30))
         print_json("TOOL_REGISTERED", {"id": tool["id"], "status": tool["status"], "packageSpec": tool["packageSpec"]})
 
         sample = b"ABCDEF\n"
-        upload = http_json(
+        upload = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/uploads",
@@ -93,34 +118,30 @@ def main() -> int:
                 "contentBase64": base64.b64encode(sample).decode("ascii"),
                 "mimeType": "text/plain",
             },
-        )["data"]
+        ))
         print_json("UPLOAD", {"uploadId": upload["uploadId"], "filename": upload["filename"], "sizeBytes": upload["sizeBytes"]})
 
         request_id = f"req_generated_tool_smoke_{int(time.time() * 1000)}"
-        submitted = http_json(
+        submitted = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/runs",
-            payload={
-                "requestId": request_id,
-                "runSpec": {
-                    "projectId": "proj_smoke",
-                    "pipelineId": "generated-tool-run-v1",
-                    "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-                    "tool": {
-                        "id": tool["id"],
-                    },
-                },
-            },
+            payload=build_run_submit_payload(
+                request_id=request_id,
+                server_id=server_id,
+                project_id="proj_smoke",
+                upload=upload,
+                tool=tool,
+            ),
             timeout=30,
-        )["data"]
+        ))
         run_id = submitted["runId"]
         print_json("RUN_SUBMITTED", {"runId": run_id, "status": submitted["status"], "stage": submitted["stage"]})
 
         deadline = time.time() + args.timeout
         final = submitted
         while time.time() < deadline:
-            final = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10)["data"]
+            final = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10))
             if final["status"] in {"completed", "failed"}:
                 break
             time.sleep(2)
@@ -136,7 +157,7 @@ def main() -> int:
         if final.get("status") != "completed":
             return 1
 
-        results = http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10)["data"]
+        results = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}/results", timeout=10))
         artifacts = results.get("artifacts") or []
         print_json(
             "RUN_ARTIFACTS",

@@ -20,6 +20,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from local_api_smoke_helpers import selected_server_id
+
 
 PRODUCTION_TEMPLATE_IDS = [
     "kraken2",
@@ -211,7 +213,7 @@ def cleanup_tool(api_base: str, tool_id: str) -> None:
         print_json("ACCEPTANCE_TOOL_CLEANUP_SKIPPED", {"id": tool_id, "error": str(exc)})
 
 
-def run_snakemake_injection_smoke(api_base: str, database: dict[str, Any], *, index: int, timeout: float) -> dict[str, Any]:
+def run_snakemake_injection_smoke(api_base: str, database: dict[str, Any], *, server_id: str, index: int, timeout: float) -> dict[str, Any]:
     template_id = template_id_for_database(database)
     role = role_for_template(template_id, index)
     tool_id = f"conda-forge::coreutils-real-db-acceptance-{role}-{index}"
@@ -255,6 +257,7 @@ def run_snakemake_injection_smoke(api_base: str, database: dict[str, Any], *, in
             api_base,
             "/api/v1/runs",
             payload={
+                "serverId": server_id,
                 "requestId": f"req_real_db_acceptance_{index}_{int(time.time() * 1000)}",
                 "runSpec": {
                     "projectId": "proj_real_database_acceptance",
@@ -330,11 +333,12 @@ def main() -> int:
 
     snakemake_results: list[dict[str, Any]] = []
     if not args.skip_snakemake:
+        server_id = selected_server_id(args.api_base)
         accepted_by_id = {item["id"] for item in contract_results if item.get("status") == "accepted"}
         for index, database in enumerate(selected_databases, start=1):
             if database.get("id") not in accepted_by_id:
                 continue
-            result = run_snakemake_injection_smoke(args.api_base, database, index=index, timeout=args.timeout)
+            result = run_snakemake_injection_smoke(args.api_base, database, server_id=server_id, index=index, timeout=args.timeout)
             snakemake_results.append(result)
             print_json("REAL_DATABASE_SNAKEMAKE_RESULT", result)
 

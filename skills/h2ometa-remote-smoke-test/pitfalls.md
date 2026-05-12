@@ -10,6 +10,7 @@ Use this file when a task matches a failure mode that has already happened in `b
 - Stale fixed port `8876`
 - Duplicate runner startup
 - Dirty bootstrap retries
+- Browser screenshot capture timeouts
 
 ## Windows Codex `pytest` Failures
 
@@ -88,3 +89,20 @@ What to do:
 
 Why this exists:
 - Reusing dirty state makes bootstrap results hard to trust.
+
+## Browser Screenshot Capture Timeouts
+
+Symptom:
+- Browser verification succeeds through DOM snapshots and clicks, but screenshot capture fails with `Page.captureScreenshot` timeout.
+- Retrying through another in-app browser screenshot helper still fails because it uses the same Chrome DevTools Protocol command.
+- Windows `CopyFromScreen` may produce a black image or `句柄无效` in the Codex desktop session.
+
+What to do:
+- Do not treat screenshot failure as proof that the page failed to render; first validate the UI with DOM snapshots, visible DOM, and real clicks.
+- For visual evidence, prefer local Chrome headless screenshot as the fallback:
+  `chrome.exe --headless=new --disable-gpu --hide-scrollbars --run-all-compositor-stages-before-draw --virtual-time-budget=15000 --window-size=1400,1000 --screenshot=<output.png> <url>`
+- If the first headless screenshot catches a loading state, increase `--virtual-time-budget` or use a page-specific ready marker in a scripted browser runner.
+- Record both the DOM assertion result and the screenshot file path in the final verification note.
+
+Why this exists:
+- `Page.captureScreenshot` timeouts are a known CDP/Chromium failure mode in Playwright/Puppeteer-style automation, and increasing a timeout alone may not fix it.

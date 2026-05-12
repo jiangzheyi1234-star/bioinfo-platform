@@ -33,6 +33,9 @@ plugins/**/workflow/software/mfeprimer
 .opencode/
 .codex-uv-cache/
 .uv-cache-local/
+.firecrawl/
+.env
+.env.*
 
 # Test temp directories
 tests/.pytest_cache/
