@@ -1,0 +1,289 @@
+{
+  "pipelineId": "branch-merge-analysis-v1",
+  "name": "Branch Merge Analysis",
+  "version": "0.1.0",
+  "description": "Validation template for a branching workflow: one input fans out into two independent analyses that merge into a final report.",
+  "category": "DAG Validation",
+  "icon": "git-branch",
+  "tags": [
+    "dag",
+    "branch",
+    "merge",
+    "template"
+  ],
+  "author": "H2OMeta",
+  "license": "internal",
+  "status": "installed",
+  "enabled": true,
+  "snakefile": "workflow/Snakefile",
+  "inputsSchema": {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+      "type": "object",
+      "required": [
+        "uploadId"
+      ],
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "default": "input_table"
+        }
+      }
+    }
+  },
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "top_n": {
+        "type": "integer",
+        "title": "Top N",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 20,
+        "description": "Number of top records to keep in branch A."
+      },
+      "min_abundance": {
+        "type": "number",
+        "title": "Minimum abundance",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.01,
+        "description": "Minimum abundance threshold for branch B."
+      }
+    },
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "artifacts": [
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "merged-analysis.tsv",
+        "key": "merged_analysis"
+      },
+      {
+        "kind": "report",
+        "mimeType": "text/html",
+        "name": "branch-report.html",
+        "key": "report"
+      }
+    ]
+  },
+  "uiSchema": {
+    "inputs": {
+      "widget": "file-upload",
+      "accept": ".tsv,.csv,.txt,text/plain,text/tab-separated-values",
+      "roleDefault": "input_table"
+    },
+    "params": {
+      "top_n": {
+        "widget": "number",
+        "label": "Top N"
+      },
+      "min_abundance": {
+        "widget": "number",
+        "label": "Minimum abundance"
+      }
+    },
+    "graph": {
+      "defaultView": "rulegraph",
+      "nodes": [
+        {
+          "id": "input_table",
+          "label": "input table",
+          "title": "Input table",
+          "group": "input",
+          "kind": "input",
+          "description": "Uploaded feature, abundance, or observation table.",
+          "role": "input_table",
+          "outputs": [
+            "input-table.tsv"
+          ],
+          "operationHints": [
+            "fileUpload"
+          ]
+        },
+        {
+          "id": "profile_branch",
+          "label": "profile_branch",
+          "title": "Profile branch",
+          "group": "analysis",
+          "kind": "rule",
+          "description": "Selects the most prominent records for a high-level profile.",
+          "params": [
+            "top_n"
+          ],
+          "inputs": [
+            "input-table.tsv",
+            "top_n"
+          ],
+          "outputs": [
+            "profile-branch.tsv"
+          ],
+          "runtimeStatusKey": "rule:profile_branch",
+          "resourceHints": {
+            "threads": 2,
+            "memory": "2 GiB"
+          },
+          "retryPolicy": {
+            "maxAttempts": 2,
+            "strategy": "on-failure",
+            "delaySeconds": 20
+          },
+          "operationHints": [
+            "parallel",
+            "editableParams"
+          ]
+        },
+        {
+          "id": "threshold_branch",
+          "label": "threshold_branch",
+          "title": "Threshold branch",
+          "group": "analysis",
+          "kind": "rule",
+          "description": "Applies an abundance threshold independently from the profile branch.",
+          "params": [
+            "min_abundance"
+          ],
+          "inputs": [
+            "input-table.tsv",
+            "min_abundance"
+          ],
+          "outputs": [
+            "threshold-branch.tsv"
+          ],
+          "runtimeStatusKey": "rule:threshold_branch",
+          "resourceHints": {
+            "threads": 2,
+            "memory": "2 GiB"
+          },
+          "retryPolicy": {
+            "maxAttempts": 2,
+            "strategy": "on-failure",
+            "delaySeconds": 20
+          },
+          "operationHints": [
+            "parallel",
+            "editableParams"
+          ]
+        },
+        {
+          "id": "merge_branches",
+          "label": "merge_branches",
+          "title": "Merge branches",
+          "group": "merge",
+          "kind": "rule",
+          "description": "Combines both branch outputs into one comparable analysis table.",
+          "inputs": [
+            "profile-branch.tsv",
+            "threshold-branch.tsv"
+          ],
+          "outputs": [
+            "merged-analysis.tsv"
+          ],
+          "runtimeStatusKey": "rule:merge_branches",
+          "resourceHints": {
+            "threads": 1,
+            "memory": "1 GiB"
+          },
+          "retryPolicy": {
+            "maxAttempts": 1,
+            "strategy": "never"
+          }
+        },
+        {
+          "id": "render_report",
+          "label": "render_report",
+          "title": "Render branch report",
+          "group": "report",
+          "kind": "rule",
+          "description": "Builds an HTML report from the merged branch analysis.",
+          "inputs": [
+            "merged-analysis.tsv"
+          ],
+          "outputs": [
+            "branch-report.html"
+          ],
+          "runtimeStatusKey": "rule:render_report",
+          "resourceHints": {
+            "threads": 1,
+            "memory": "1 GiB"
+          }
+        },
+        {
+          "id": "outputs",
+          "label": "workflow outputs",
+          "title": "Results",
+          "group": "output",
+          "kind": "output",
+          "description": "Merged analysis table and branch report.",
+          "inputs": [
+            "merged-analysis.tsv",
+            "branch-report.html"
+          ],
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "merged-analysis.tsv",
+              "mimeType": "text/tab-separated-values"
+            },
+            {
+              "kind": "report",
+              "name": "branch-report.html",
+              "mimeType": "text/html"
+            }
+          ],
+          "operationHints": [
+            "expectedOutputs"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "input_table",
+          "to": "profile_branch"
+        },
+        {
+          "from": "input_table",
+          "to": "threshold_branch"
+        },
+        {
+          "from": "profile_branch",
+          "to": "merge_branches"
+        },
+        {
+          "from": "threshold_branch",
+          "to": "merge_branches"
+        },
+        {
+          "from": "merge_branches",
+          "to": "render_report"
+        },
+        {
+          "from": "merge_branches",
+          "to": "outputs"
+        },
+        {
+          "from": "render_report",
+          "to": "outputs"
+        }
+      ]
+    }
+  },
+  "execution": {
+    "outputs": {
+      "merged_analysis": "merged-analysis.tsv",
+      "report": "branch-report.html"
+    }
+  },
+  "resources": {}
+}

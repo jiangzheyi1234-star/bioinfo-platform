@@ -69,16 +69,31 @@ export function useSshConnection(): UseSshConnectionResult {
   const [formError, setFormError] = useState("");
   const [successNotice, setSuccessNotice] = useState("");
   const ensureInFlightRef = useRef(false);
+  const statusInFlightRef = useRef<Promise<SSHStatus | null> | null>(null);
+  const statusRef = useRef<SSHStatus | null>(null);
+  const lastStatusRefreshRef = useRef(0);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const refreshStatus = useCallback(
     async (options?: { silent?: boolean }): Promise<SSHStatus | null> => {
+      if (options?.silent && Date.now() - lastStatusRefreshRef.current < 15_000) {
+        return statusRef.current;
+      }
+      if (options?.silent && statusInFlightRef.current) {
+        return statusInFlightRef.current;
+      }
       if (!options?.silent) {
         setLoading(true);
       }
-      try {
-        const data = await requestLocalApiJson("GET", "/api/v1/ssh/status", { cache: "no-store" });
+      const request = (async () => {
+        const statusPath = options?.silent ? "/api/v1/ssh/status" : "/api/v1/ssh/status?refresh=true";
+        const data = await requestLocalApiJson("GET", statusPath, { cache: "no-store" });
         const next = (data?.item || null) as SSHStatus | null;
         setStatus(next);
+        lastStatusRefreshRef.current = Date.now();
         setForm((current) => {
           if (
             dialogOpen &&
@@ -90,10 +105,17 @@ export function useSshConnection(): UseSshConnectionResult {
           return toForm(next);
         });
         return next;
+      })();
+      statusInFlightRef.current = request;
+      try {
+        return await request;
       } catch {
         setStatus(null);
         return null;
       } finally {
+        if (statusInFlightRef.current === request) {
+          statusInFlightRef.current = null;
+        }
         if (!options?.silent) {
           setLoading(false);
         }
@@ -109,7 +131,7 @@ export function useSshConnection(): UseSshConnectionResult {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void refreshStatus({ silent: true });
-    }, 5000);
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
 

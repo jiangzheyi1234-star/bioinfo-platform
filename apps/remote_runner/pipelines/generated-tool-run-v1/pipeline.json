@@ -5,22 +5,36 @@
   "description": "Run one registered tool or an ordered tool workflow as generated Snakemake rules with per-rule conda environments.",
   "category": "Tool Workflows",
   "icon": "wrench",
-  "tags": ["tools", "snakemake", "generated"],
+  "tags": [
+    "tools",
+    "snakemake",
+    "generated"
+  ],
   "author": "H2OMeta",
   "license": "internal",
   "status": "installed",
   "enabled": true,
-  "snakefile": "Snakefile",
+  "snakefile": "workflow/Snakefile",
   "inputsSchema": {
     "type": "array",
     "minItems": 1,
     "items": {
       "type": "object",
-      "required": ["uploadId"],
+      "required": [
+        "uploadId"
+      ],
       "properties": {
-        "uploadId": { "type": "string", "minLength": 1 },
-        "filename": { "type": "string" },
-        "role": { "type": "string", "default": "input" }
+        "uploadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "default": "input"
+        }
       }
     }
   },
@@ -31,7 +45,12 @@
   "outputSchema": {
     "type": "object",
     "artifacts": [
-      { "kind": "log", "mimeType": "text/plain", "name": "tool-output.txt" }
+      {
+        "kind": "log",
+        "mimeType": "text/plain",
+        "name": "tool-output.txt",
+        "key": "tool_output"
+      }
     ]
   },
   "uiSchema": {
@@ -46,5 +65,11 @@
     "workflow": {
       "widget": "linear-tool-workflow"
     }
-  }
+  },
+  "execution": {
+    "outputs": {
+      "tool_output": "tool-output.txt"
+    }
+  },
+  "resources": {}
 }

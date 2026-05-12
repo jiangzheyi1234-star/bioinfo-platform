@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Ellipsis, GripHorizontal, RefreshCw, Server, Settings, Square, Workflow, X } from "lucide-react";
+import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, Settings, Square, Workflow, X } from "lucide-react";
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -282,6 +282,8 @@ export function SshSidebar({
 }: SshSidebarProps) {
   const settingsActive = pathname.startsWith("/settings");
   const workflowsActive = pathname.startsWith("/workflows");
+  const resultsActive = pathname.startsWith("/workflows/results");
+  const workflowCatalogActive = workflowsActive && !resultsActive;
   const remotePreparing = Boolean(
     status?.connected &&
       !status.runner?.ready &&
@@ -364,17 +366,35 @@ export function SshSidebar({
             variant="ghost"
             className={cn(
               "w-full justify-start h-8 px-0",
-              workflowsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
+              workflowCatalogActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
             )}
           >
-            <Link href="/workflows" aria-current={workflowsActive ? "page" : undefined}>
+            <Link href="/workflows" aria-current={workflowCatalogActive ? "page" : undefined}>
               <span className="w-6 flex justify-center">
                 <Workflow
                   strokeWidth={1.5}
-                  className={cn("size-4", workflowsActive ? "text-zinc-900" : "text-zinc-500")}
+                  className={cn("size-4", workflowCatalogActive ? "text-zinc-900" : "text-zinc-500")}
                 />
               </span>
               <span>流程和数据库</span>
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="ghost"
+            className={cn(
+              "w-full justify-start h-8 px-0",
+              resultsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
+            )}
+          >
+            <Link href="/workflows/results" aria-current={resultsActive ? "page" : undefined}>
+              <span className="w-6 flex justify-center">
+                <Clock3
+                  strokeWidth={1.5}
+                  className={cn("size-4", resultsActive ? "text-zinc-900" : "text-zinc-500")}
+                />
+              </span>
+              <span>运行记录</span>
             </Link>
           </Button>
         </div>

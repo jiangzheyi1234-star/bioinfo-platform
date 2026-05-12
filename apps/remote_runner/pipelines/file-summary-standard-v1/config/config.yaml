@@ -1,0 +1,9 @@
+params:
+  include_content_hash: "true"
+inputs:
+  - filename: example.txt
+    role: reads
+outputs:
+  summary: summary.tsv
+  report: run-report.html
+  raw_log: raw-log.txt

@@ -50,6 +50,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             remote_shared = f"{remote_root}/shared"
             remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"
             remote_config = f"{remote_shared}/config/runner.json"
+            remote_conda_prefix = f"{remote_shared}/conda-envs"
             remote_profile_dir = f"{remote_shared}/config/snakemake/default"
             remote_profile_name = "profile.v9+.yaml"
             remote_profile_path = f"{remote_profile_dir}/{remote_profile_name}"
@@ -235,6 +236,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                             f"{remote_shared}/uploads",
                             f"{remote_shared}/results",
                             f"{remote_shared}/work",
+                            remote_conda_prefix,
                             remote_profile_dir,
                             remote_tools,
                         )
@@ -325,6 +327,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                     ssh_service=ssh_service,
                     remote_profile_path=remote_profile_path,
                     remote_profile_dir=remote_profile_dir,
+                    remote_conda_prefix=remote_conda_prefix,
                     bootstrap_metadata=bootstrap_metadata,
                 )
                 self._run_checked(
@@ -509,10 +512,11 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         ssh_service,
         remote_profile_path: str,
         remote_profile_dir: str,
+        remote_conda_prefix: str,
         bootstrap_metadata: dict[str, Any],
     ) -> None:
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".yaml", encoding="utf-8") as handle:
-            handle.write(cls._build_remote_workflow_profile_content())
+            handle.write(cls._build_remote_workflow_profile_content(conda_prefix=remote_conda_prefix))
             local_profile_path = Path(handle.name)
         try:
             cls._upload_remote_file_atomic(
@@ -530,11 +534,12 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         profile_metadata = dict(bootstrap_metadata.get("workflow_profile") or {})
         profile_metadata["path"] = remote_profile_dir
         profile_metadata["config"] = remote_profile_path
+        profile_metadata["conda_prefix"] = remote_conda_prefix
         profile_metadata["written"] = True
         bootstrap_metadata["workflow_profile"] = profile_metadata
 
     @staticmethod
-    def _build_remote_workflow_profile_content() -> str:
+    def _build_remote_workflow_profile_content(*, conda_prefix: str) -> str:
         return "\n".join(
             [
                 "executor: local",
@@ -544,6 +549,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                 "rerun-incomplete: true",
                 "software-deployment-method: conda",
                 "conda-frontend: conda",
+                f"conda-prefix: {conda_prefix}",
                 "",
             ]
         )

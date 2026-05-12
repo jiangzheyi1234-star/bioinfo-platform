@@ -1,0 +1,99 @@
+configfile: "run-config.json"
+
+VALIDATED_METADATA = "validated-metadata.tsv"
+BARCODE_MAP = "barcode-map.tsv"
+VALIDATION_JSON = "metadata-validation.json"
+DEMUX_READS = "demux-reads.tsv"
+DEMUX_COUNTS = "demux-counts.tsv"
+FILTERED_READS = "filtered-reads.tsv"
+FILTER_QC = "filter-qc.tsv"
+
+OUTPUT_REPORT = config["outputs"]["report"]
+OUTPUT_SUMMARY = config["outputs"]["summary"]
+OUTPUT_RAW_LOG = config["outputs"]["raw_log"]
+OUTPUT_FEATURE_TABLE = config["outputs"]["feature_table"]
+OUTPUT_QC_SUMMARY = config["outputs"]["qc_summary"]
+
+
+rule all:
+    input:
+        report=OUTPUT_REPORT,
+        summary=OUTPUT_SUMMARY,
+        raw_log=OUTPUT_RAW_LOG,
+        feature_table=OUTPUT_FEATURE_TABLE,
+        qc_summary=OUTPUT_QC_SUMMARY,
+
+
+rule validate_metadata:
+    output:
+        metadata=VALIDATED_METADATA,
+        barcode_map=BARCODE_MAP,
+        validation=VALIDATION_JSON,
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/validate_metadata.py"
+
+
+rule demultiplex:
+    input:
+        barcode_map=BARCODE_MAP,
+    output:
+        reads=DEMUX_READS,
+        counts=DEMUX_COUNTS,
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/demultiplex.py"
+
+
+rule quality_filter:
+    input:
+        reads=DEMUX_READS,
+    output:
+        reads=FILTERED_READS,
+        qc=FILTER_QC,
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/quality_filter.py"
+
+
+rule build_feature_table:
+    input:
+        reads=FILTERED_READS,
+    output:
+        feature_table=OUTPUT_FEATURE_TABLE,
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/build_feature_table.py"
+
+
+rule summarize_samples:
+    input:
+        metadata=VALIDATED_METADATA,
+        demux_counts=DEMUX_COUNTS,
+        filter_qc=FILTER_QC,
+        feature_table=OUTPUT_FEATURE_TABLE,
+    output:
+        summary=OUTPUT_SUMMARY,
+        qc_summary=OUTPUT_QC_SUMMARY,
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/summarize_samples.py"
+
+
+rule render_report:
+    input:
+        validation=VALIDATION_JSON,
+        summary=OUTPUT_SUMMARY,
+        qc_summary=OUTPUT_QC_SUMMARY,
+    output:
+        report=OUTPUT_REPORT,
+        raw_log=OUTPUT_RAW_LOG,
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/render_report.py"

@@ -1,0 +1,26 @@
+{
+  "run_id": "test_run",
+  "request_id": "test_request",
+  "project_id": "proj_test",
+  "pipeline_id": "generated-tool-run-v1",
+  "pipeline_version": "0.1.0",
+  "params": {},
+  "databases": {},
+  "resources": {},
+  "resourceConfig": {},
+  "inputs": [
+    {
+      "uploadId": "test_upload_1",
+      "filename": "example.txt",
+      "role": "reads",
+      "path": "apps/remote_runner/pipelines/generated-tool-run-v1/.test/fixtures/example.txt",
+      "sizeBytes": 7,
+      "sha256": "test",
+      "mimeType": "text/plain",
+      "index": 0
+    }
+  ],
+  "outputs": {
+    "tool_output": "apps/remote_runner/pipelines/generated-tool-run-v1/.test/expected/tool-output.txt"
+  }
+}

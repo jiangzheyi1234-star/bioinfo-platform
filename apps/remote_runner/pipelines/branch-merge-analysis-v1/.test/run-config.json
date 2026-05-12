@@ -1,0 +1,30 @@
+{
+  "run_id": "test_run",
+  "request_id": "test_request",
+  "project_id": "proj_test",
+  "pipeline_id": "branch-merge-analysis-v1",
+  "pipeline_version": "0.1.0",
+  "params": {
+    "top_n": 20,
+    "min_abundance": 0.01
+  },
+  "databases": {},
+  "resources": {},
+  "resourceConfig": {},
+  "inputs": [
+    {
+      "uploadId": "test_upload_1",
+      "filename": "example.txt",
+      "role": "reads",
+      "path": "apps/remote_runner/pipelines/branch-merge-analysis-v1/.test/fixtures/example.txt",
+      "sizeBytes": 7,
+      "sha256": "test",
+      "mimeType": "text/plain",
+      "index": 0
+    }
+  ],
+  "outputs": {
+    "merged_analysis": "apps/remote_runner/pipelines/branch-merge-analysis-v1/.test/expected/merged-analysis.tsv",
+    "report": "apps/remote_runner/pipelines/branch-merge-analysis-v1/.test/expected/branch-report.html"
+  }
+}

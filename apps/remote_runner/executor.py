@@ -103,6 +103,8 @@ def run_snakemake_execution(
         stderr_log = logs_dir / f"{run_id}.stderr.log"
         dry_run_cmd: list[str] | None = None
         run_cmd: list[str] | None = None
+        output_schema: dict | None = None
+        run_outputs: dict[str, str] | None = None
         try:
             result_dir.mkdir(parents=True, exist_ok=True)
             work_dir.mkdir(parents=True, exist_ok=True)
@@ -130,6 +132,8 @@ def run_snakemake_execution(
                 )
                 snakefile = generated.snakefile
                 config_path = generated.config_path
+                output_schema = generated.output_schema
+                run_outputs = generated.outputs
             else:
                 pipeline = get_pipeline(cfg, pipeline_id)
                 validate_run_spec_for_pipeline(pipeline, run_spec)
@@ -140,6 +144,8 @@ def run_snakemake_execution(
                     bindings=dict(run_spec.get("resourceBindings") or {}),
                 )
                 snakefile = pipeline.snakefile
+                run_outputs = _build_run_outputs(pipeline.execution, result_dir)
+                output_schema = pipeline.output_schema
                 config_path.write_text(
                     json.dumps(
                         {
@@ -153,11 +159,7 @@ def run_snakemake_execution(
                             "resources": workflow_resource_config["resources"],
                             "resourceConfig": workflow_resource_config["config"],
                             "inputs": resolved_inputs,
-                            "outputs": {
-                                "report": str(result_dir / "run-report.html"),
-                                "summary": str(result_dir / "summary.tsv"),
-                                "raw_log": str(result_dir / "raw-log.txt"),
-                            },
+                            "outputs": run_outputs,
                         },
                         indent=2,
                     ),
@@ -223,7 +225,7 @@ def run_snakemake_execution(
                 )
                 return
 
-            _collect_artifacts(cfg, run_id, result_dir)
+            _collect_artifacts(cfg, run_id, output_schema=output_schema, outputs=run_outputs)
             update_run_state(
                 cfg,
                 run_id=run_id,
@@ -271,25 +273,53 @@ def run_snakemake_execution(
             )
 
 
-def _collect_artifacts(cfg: RemoteRunnerConfig, run_id: str, result_dir: Path) -> list[dict]:
+def _collect_artifacts(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    output_schema: dict | None,
+    outputs: dict[str, str] | None,
+) -> list[dict]:
+    if not isinstance(output_schema, dict) or not isinstance(outputs, dict) or not outputs:
+        raise ValueError("MANIFEST_OUTPUTS_REQUIRED")
+    raw_artifacts = output_schema.get("artifacts")
+    if not isinstance(raw_artifacts, list) or not raw_artifacts:
+        raise ValueError("OUTPUT_ARTIFACTS_REQUIRED")
     artifacts = []
-    mime_map = {
-        ".html": "text/html",
-        ".tsv": "text/tab-separated-values",
-        ".txt": "text/plain",
-    }
-    kind_map = {
-        ".html": "report",
-        ".tsv": "table",
-        ".txt": "log",
-    }
-    for path in sorted(result_dir.iterdir()):
-        if not path.is_file():
-            continue
-        mime_type = mime_map.get(path.suffix, "application/octet-stream")
-        kind = kind_map.get(path.suffix, "file")
+    for artifact in raw_artifacts:
+        if not isinstance(artifact, dict):
+            raise ValueError("OUTPUT_ARTIFACT_INVALID")
+        key = str(artifact.get("key") or "").strip()
+        if key not in outputs:
+            raise ValueError(f"OUTPUT_ARTIFACT_KEY_UNKNOWN: {key}")
+        path = Path(outputs[key])
+        if not path.exists() or not path.is_file():
+            raise ValueError(f"OUTPUT_ARTIFACT_MISSING: {key}")
+        kind = str(artifact.get("kind") or "").strip()
+        mime_type = str(artifact.get("mimeType") or "").strip()
+        if not kind or not mime_type:
+            raise ValueError(f"OUTPUT_ARTIFACT_METADATA_REQUIRED: {key}")
         artifacts.append(persist_artifact(cfg, run_id=run_id, kind=kind, path=path, mime_type=mime_type))
     return artifacts
+
+
+def _build_run_outputs(execution: dict, result_dir: Path) -> dict[str, str]:
+    configured = execution.get("outputs") if isinstance(execution, dict) else None
+    if not isinstance(configured, dict) or not configured:
+        raise ValueError("EXECUTION_OUTPUTS_REQUIRED")
+    outputs: dict[str, str] = {}
+    for key, value in configured.items():
+        name = str(key or "").strip()
+        relative = str(value or "").strip()
+        if not name or not relative:
+            continue
+        candidate = (result_dir / relative).resolve()
+        if result_dir.resolve() not in [candidate, *candidate.parents]:
+            raise ValueError("OUTPUT_PATH_OUTSIDE_RESULT_DIR")
+        outputs[name] = str(candidate)
+    if not outputs:
+        raise ValueError("OUTPUTS_REQUIRED")
+    return outputs
 
 
 def _resolve_run_inputs(cfg: RemoteRunnerConfig, run_spec: dict) -> list[dict]:

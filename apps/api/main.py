@@ -26,6 +26,9 @@ from apps.api.models import (
 from apps.api.runtime import get_runtime_service
 from apps.api.ssh_terminal_routes import stream_terminal_session_with_runtime
 from apps.api.tool_capability_routes import router as tool_capability_router
+from apps.api.workflow_catalog_routes import router as workflow_catalog_router
+from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
+from apps.api.response_cache import cached_response, invalidate_response_cache
 from apps.api.problem_details import ensure_request_id
 from apps.api.problem_details import problem_http_exception
 from apps.api.workflow_templates import (
@@ -75,6 +78,8 @@ app.add_middleware(
 )
 
 app.include_router(tool_capability_router)
+app.include_router(workflow_catalog_router)
+app.include_router(workflow_sample_data_router)
 
 
 def _runtime():
@@ -128,6 +133,29 @@ async def _run_runtime_payload(
     raise ValueError(f"Unsupported runtime wrapper: {wrapper}")
 
 
+async def _cached_runtime_payload(
+    key: str,
+    ttl_seconds: float,
+    func,
+    *,
+    status_code: int,
+    handled_errors: tuple[type[Exception], ...],
+    wrapper: str = "raw",
+    force_refresh: bool = False,
+):
+    return await cached_response(
+        key,
+        ttl_seconds,
+        lambda: _run_runtime_payload(
+            func,
+            status_code=status_code,
+            handled_errors=handled_errors,
+            wrapper=wrapper,
+        ),
+        force_refresh=force_refresh,
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "build_id": TERMINAL_RUNTIME_BUILD_ID}
@@ -167,22 +195,28 @@ async def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
 
 
 @app.get("/api/v1/ssh/status")
-async def get_ssh_status() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def get_ssh_status(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "ssh_status",
+        15,
         _runtime().get_ssh_status,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="item",
+        force_refresh=refresh,
     )
 
 
 @app.get("/api/v1/servers")
-async def list_servers() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def list_servers(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "servers",
+        15,
         _runtime().list_servers,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data_items",
+        force_refresh=refresh,
     )
 
 
@@ -218,12 +252,14 @@ async def refresh_server_health(server_id: str) -> dict[str, Any]:
 
 @app.post("/api/v1/servers/{server_id}/ensure-runner")
 async def ensure_server_runner(server_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().ensure_remote_runner_ready(server_id),
         status_code=404,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
+    await invalidate_response_cache(prefixes=("ssh_", "servers", "workflow_", "pipelines", "tools", "databases", "runs"))
+    return result
 
 
 @app.post("/api/v1/servers/{server_id}/host-key/accept")
@@ -249,32 +285,38 @@ async def rotate_server_token(server_id: str) -> dict[str, Any]:
 @app.post("/api/v1/ssh/connect")
 async def connect_ssh(payload: SSHConnectionRequest | None = None) -> dict[str, Any]:
     patch = payload.model_dump(exclude_none=True) if payload is not None else None
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().connect_ssh(patch),
         status_code=400,
         handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
         wrapper="item",
     )
+    await invalidate_response_cache(prefixes=("ssh_", "servers", "workflow_", "pipelines", "tools", "databases", "runs"))
+    return result
 
 
 @app.post("/api/v1/ssh/disconnect")
 async def disconnect_ssh() -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         _runtime().disconnect_ssh,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="item",
     )
+    await invalidate_response_cache(prefixes=("ssh_", "servers", "workflow_", "pipelines", "tools", "databases", "runs"))
+    return result
 
 
 @app.post("/api/v1/ssh/remote-service/stop")
 async def stop_ssh_remote_service() -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         _runtime().stop_remote_runner_service,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
+    await invalidate_response_cache(prefixes=("ssh_", "servers", "workflow_", "pipelines", "tools", "databases", "runs"))
+    return result
 
 
 @app.get("/api/v1/ssh/listening-ports")
@@ -372,12 +414,15 @@ async def list_projects(
 
 
 @app.get("/api/v1/runs")
-async def list_runs() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def list_runs(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "runs",
+        10,
         _runtime().list_runs,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data_items",
+        force_refresh=refresh,
     )
 
 
@@ -419,15 +464,19 @@ async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str,
     response.headers["Location"] = result["location"]
     response.headers["Retry-After"] = str(result["retryAfter"])
     response.headers["X-Request-Id"] = str(result.get("requestId") or request_id)
+    await invalidate_response_cache("runs")
     return result
 
 
 @app.get("/api/v1/pipelines")
-async def list_pipelines() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def list_pipelines(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "pipelines",
+        30,
         _runtime().list_pipelines,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
+        force_refresh=refresh,
     )
 
 
@@ -460,69 +509,86 @@ async def get_workflow_modules() -> dict[str, Any]:
 
 
 @app.get("/api/v1/tools")
-async def list_tools_api() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def list_tools_api(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "tools",
+        30,
         _runtime().list_tools,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
+        force_refresh=refresh,
     )
 
 
 @app.post("/api/v1/tools", status_code=201)
 async def add_tool_api(payload: ToolManifestRequest) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().add_tool(payload.model_dump(exclude_none=True)),
         status_code=400,
         handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
         wrapper="data",
     )
+    await invalidate_response_cache("tools", "workflow_catalog")
+    return result
 
 
 @app.delete("/api/v1/tools/{tool_id}")
 async def delete_tool_api(tool_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().delete_tool(tool_id),
         status_code=404,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
+    await invalidate_response_cache("tools", "workflow_catalog")
+    return result
 
 
 @app.post("/api/v1/tools/{tool_id}/check")
 async def check_tool_api(tool_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().check_tool(tool_id),
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
+    await invalidate_response_cache("tools")
+    return result
 
 
 @app.get("/api/v1/databases")
-async def list_databases_api() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def list_databases_api(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "databases",
+        30,
         _runtime().list_databases,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
+        force_refresh=refresh,
     )
 
 
 @app.get("/api/v1/database-templates")
-async def list_database_templates_api() -> dict[str, Any]:
-    return await _run_runtime_payload(
+async def list_database_templates_api(refresh: bool = False) -> dict[str, Any]:
+    return await _cached_runtime_payload(
+        "database_templates",
+        60,
         _runtime().list_database_templates,
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
+        force_refresh=refresh,
     )
 
 
 @app.post("/api/v1/databases", status_code=201)
 async def add_database_api(payload: DatabaseManifestRequest) -> dict[str, Any]:
     try:
-        return await asyncio.to_thread(lambda: _runtime().add_database(payload.model_dump(exclude_none=True)))
+        result = await asyncio.to_thread(lambda: _runtime().add_database(payload.model_dump(exclude_none=True)))
+        await invalidate_response_cache("databases", "workflow_catalog")
+        return result
     except RuntimeServiceError as exc:
         detail = str(exc)
         if detail.startswith("DATABASE_CANDIDATES:"):
@@ -540,32 +606,38 @@ async def add_database_api(payload: DatabaseManifestRequest) -> dict[str, Any]:
 
 @app.delete("/api/v1/databases/{database_id}")
 async def delete_database_api(database_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().delete_database(database_id),
         status_code=404,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
+    await invalidate_response_cache("databases", "workflow_catalog")
+    return result
 
 
 @app.patch("/api/v1/databases/{database_id}")
 async def update_database_api(database_id: str, payload: DatabaseUpdateRequest) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().update_database(database_id, payload.model_dump(exclude_none=True)),
         status_code=400,
         handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
         wrapper="data",
     )
+    await invalidate_response_cache("databases", "workflow_catalog")
+    return result
 
 
 @app.post("/api/v1/databases/{database_id}/check")
 async def check_database_api(database_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
+    result = await _run_runtime_payload(
         lambda: _runtime().check_database(database_id),
         status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
+    await invalidate_response_cache("databases")
+    return result
 
 
 @app.post("/api/v1/workflow-drafts/validate")

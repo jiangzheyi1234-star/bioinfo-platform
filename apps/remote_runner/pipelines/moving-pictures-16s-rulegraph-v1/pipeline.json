@@ -1,0 +1,401 @@
+{
+  "pipelineId": "moving-pictures-16s-rulegraph-v1",
+  "name": "Moving Pictures 16S Rulegraph",
+  "version": "1.0.0",
+  "description": "A multi-rule Snakemake implementation of the QIIME 2 Moving Pictures 16S tutorial subset with explicit metadata validation, demultiplexing, QC, feature counting, sample summary, and report rendering.",
+  "category": "Amplicon Analysis",
+  "icon": "workflow",
+  "tags": [
+    "16s",
+    "qiime2",
+    "moving-pictures",
+    "snakemake",
+    "rulegraph"
+  ],
+  "author": "H2OMeta",
+  "license": "tutorial-data",
+  "status": "installed",
+  "enabled": true,
+  "snakefile": "workflow/Snakefile",
+  "inputsSchema": {
+    "type": "array",
+    "minItems": 3,
+    "items": {
+      "type": "object",
+      "required": [
+        "uploadId"
+      ],
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "min_mean_quality": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 40,
+        "default": 20
+      },
+      "min_length": {
+        "type": "integer",
+        "minimum": 20,
+        "maximum": 300,
+        "default": 120
+      }
+    },
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "artifacts": [
+      {
+        "kind": "report",
+        "mimeType": "text/html",
+        "name": "run-report.html",
+        "key": "report"
+      },
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "summary.tsv",
+        "key": "summary"
+      },
+      {
+        "kind": "log",
+        "mimeType": "text/plain",
+        "name": "raw-log.txt",
+        "key": "raw_log"
+      },
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "feature-table.tsv",
+        "key": "feature_table"
+      },
+      {
+        "kind": "table",
+        "mimeType": "text/tab-separated-values",
+        "name": "qc-summary.tsv",
+        "key": "qc_summary"
+      }
+    ]
+  },
+  "uiSchema": {
+    "inputs": {
+      "widget": "file-upload",
+      "accept": ".tsv,.fastq,.fq,.gz,text/tab-separated-values,application/gzip",
+      "roleDefault": "moving_pictures_inputs",
+      "exampleDataset": {
+        "label": "使用 QIIME 2 官方示例数据",
+        "description": "sample-metadata.tsv、barcodes.fastq.gz、sequences.fastq.gz",
+        "source": "QIIME 2 Moving Pictures tutorial"
+      }
+    },
+    "params": {
+      "min_mean_quality": {
+        "widget": "number",
+        "label": "Minimum mean quality"
+      },
+      "min_length": {
+        "widget": "number",
+        "label": "Minimum read length"
+      }
+    },
+    "graph": {
+      "defaultView": "rulegraph",
+      "nodes": [
+        {
+          "id": "metadata",
+          "label": "sample metadata",
+          "title": "样本元数据",
+          "group": "input",
+          "kind": "input",
+          "description": "QIIME 2 Moving Pictures 官方样本表，提供 sample id、barcode 和 body site 信息。",
+          "detail": "sample-metadata.tsv",
+          "role": "metadata",
+          "operationHints": [
+            "sampleData"
+          ],
+          "inputs": [],
+          "outputs": [
+            "sample-metadata.tsv"
+          ]
+        },
+        {
+          "id": "barcodes",
+          "label": "barcodes",
+          "title": "Barcode reads",
+          "group": "input",
+          "kind": "input",
+          "description": "每条序列对应的 EMP barcode reads，用于把测序 reads 分配到样本。",
+          "detail": "barcodes.fastq.gz",
+          "role": "barcodes",
+          "operationHints": [
+            "sampleData"
+          ],
+          "inputs": [],
+          "outputs": [
+            "barcodes.fastq.gz"
+          ]
+        },
+        {
+          "id": "sequences",
+          "label": "reads",
+          "title": "测序 reads",
+          "group": "input",
+          "kind": "input",
+          "description": "官方示例的 single-end 16S reads，是后续拆分、质控和特征构建的主体数据。",
+          "detail": "sequences.fastq.gz",
+          "role": "sequences",
+          "operationHints": [
+            "sampleData"
+          ],
+          "inputs": [],
+          "outputs": [
+            "sequences.fastq.gz"
+          ]
+        },
+        {
+          "id": "validate_metadata",
+          "label": "validate_metadata",
+          "title": "校验元数据",
+          "group": "validation",
+          "kind": "rule",
+          "description": "检查 sample metadata 中的 barcode-sequence 字段，整理样本、barcode、body site 和 subject 信息。",
+          "detail": "check barcode-sequence and normalize samples",
+          "params": [],
+          "operationHints": [],
+          "inputs": [
+            "sample-metadata.tsv"
+          ],
+          "outputs": [
+            "validated-metadata.tsv",
+            "barcode-map.tsv",
+            "metadata-validation.json"
+          ]
+        },
+        {
+          "id": "demultiplex",
+          "label": "demultiplex",
+          "title": "按 barcode 拆分样本",
+          "group": "demultiplex",
+          "kind": "rule",
+          "description": "读取 barcode FASTQ 和 sequence FASTQ，按 barcode-map 把 reads 分配到对应样本。",
+          "detail": "assign reads to samples by EMP barcodes",
+          "params": [],
+          "operationHints": [],
+          "inputs": [
+            "barcode-map.tsv",
+            "barcodes.fastq.gz",
+            "sequences.fastq.gz"
+          ],
+          "outputs": [
+            "demux-reads.tsv",
+            "demux-counts.tsv"
+          ]
+        },
+        {
+          "id": "quality_filter",
+          "label": "quality_filter",
+          "title": "过滤低质量 reads",
+          "group": "qc",
+          "kind": "rule",
+          "description": "根据最小平均质量和最小长度参数过滤拆分后的 reads，并记录过滤统计。",
+          "detail": "filter by mean quality and read length",
+          "params": [
+            "min_mean_quality",
+            "min_length"
+          ],
+          "operationHints": [
+            "editableParams"
+          ],
+          "inputs": [
+            "demux-reads.tsv",
+            "min_mean_quality",
+            "min_length"
+          ],
+          "outputs": [
+            "filtered-reads.tsv",
+            "filter-qc.tsv"
+          ]
+        },
+        {
+          "id": "build_feature_table",
+          "label": "build_feature_table",
+          "title": "构建特征表",
+          "group": "feature",
+          "kind": "rule",
+          "description": "把通过质控的 reads 按序列内容折叠成 feature，并统计每个样本的 feature abundance。",
+          "detail": "collapse identical reads into feature counts",
+          "params": [],
+          "operationHints": [],
+          "inputs": [
+            "filtered-reads.tsv"
+          ],
+          "outputs": [
+            "feature-table.tsv"
+          ]
+        },
+        {
+          "id": "summarize_samples",
+          "label": "summarize_samples",
+          "title": "汇总样本指标",
+          "group": "report",
+          "kind": "rule",
+          "description": "合并元数据、拆分统计、质控统计和特征表，生成每个样本的摘要表与整体 QC 指标。",
+          "detail": "sample-level reads and feature counts",
+          "params": [],
+          "operationHints": [],
+          "inputs": [
+            "validated-metadata.tsv",
+            "demux-counts.tsv",
+            "filter-qc.tsv",
+            "feature-table.tsv"
+          ],
+          "outputs": [
+            "summary.tsv",
+            "qc-summary.tsv"
+          ]
+        },
+        {
+          "id": "render_report",
+          "label": "render_report",
+          "title": "生成 HTML 报告",
+          "group": "report",
+          "kind": "rule",
+          "description": "把 QC 指标和高 reads 样本整理成轻量 HTML 报告，同时输出运行 provenance 日志。",
+          "detail": "HTML report and provenance log",
+          "params": [],
+          "operationHints": [],
+          "inputs": [
+            "metadata-validation.json",
+            "summary.tsv",
+            "qc-summary.tsv"
+          ],
+          "outputs": [
+            "run-report.html",
+            "raw-log.txt"
+          ]
+        },
+        {
+          "id": "outputs",
+          "label": "workflow outputs",
+          "title": "结果产物",
+          "group": "output",
+          "kind": "output",
+          "description": "流程最终交付的表格、质控摘要、特征表、HTML 报告和原始运行日志。",
+          "detail": "summary.tsv / qc-summary.tsv / feature-table.tsv / run-report.html",
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "summary.tsv"
+            },
+            {
+              "kind": "table",
+              "name": "qc-summary.tsv"
+            },
+            {
+              "kind": "table",
+              "name": "feature-table.tsv"
+            },
+            {
+              "kind": "report",
+              "name": "run-report.html"
+            },
+            {
+              "kind": "log",
+              "name": "raw-log.txt"
+            }
+          ],
+          "operationHints": [
+            "expectedOutputs"
+          ],
+          "inputs": [
+            "summary.tsv",
+            "qc-summary.tsv",
+            "feature-table.tsv",
+            "run-report.html",
+            "raw-log.txt"
+          ],
+          "outputs": []
+        }
+      ],
+      "edges": [
+        {
+          "from": "metadata",
+          "to": "validate_metadata"
+        },
+        {
+          "from": "barcodes",
+          "to": "demultiplex"
+        },
+        {
+          "from": "sequences",
+          "to": "demultiplex"
+        },
+        {
+          "from": "validate_metadata",
+          "to": "demultiplex"
+        },
+        {
+          "from": "demultiplex",
+          "to": "quality_filter"
+        },
+        {
+          "from": "quality_filter",
+          "to": "build_feature_table"
+        },
+        {
+          "from": "build_feature_table",
+          "to": "summarize_samples"
+        },
+        {
+          "from": "validate_metadata",
+          "to": "summarize_samples"
+        },
+        {
+          "from": "demultiplex",
+          "to": "summarize_samples"
+        },
+        {
+          "from": "summarize_samples",
+          "to": "render_report"
+        },
+        {
+          "from": "build_feature_table",
+          "to": "outputs"
+        },
+        {
+          "from": "summarize_samples",
+          "to": "outputs"
+        },
+        {
+          "from": "render_report",
+          "to": "outputs"
+        }
+      ]
+    }
+  },
+  "execution": {
+    "outputs": {
+      "report": "run-report.html",
+      "summary": "summary.tsv",
+      "raw_log": "raw-log.txt",
+      "feature_table": "feature-table.tsv",
+      "qc_summary": "qc-summary.tsv"
+    }
+  },
+  "resources": {}
+}
