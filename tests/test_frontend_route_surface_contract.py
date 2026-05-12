@@ -11,6 +11,9 @@ EXPECTED_ROUTES = {
     "/settings",
     "/workflows",
     "/workflows/databases",
+    "/workflows/detail",
+    "/workflows/results",
+    "/workflows/results/detail",
     "/workflows/tools",
 }
 
@@ -38,10 +41,11 @@ def test_frontend_route_surface_matches_current_workspace_routes() -> None:
     assert actual_routes == EXPECTED_ROUTES
 
 
-def test_root_route_renders_empty_workspace_page() -> None:
+def test_root_route_redirects_to_workflows() -> None:
     source = (WEB_APP_ROOT / "page.tsx").read_text(encoding="utf-8")
 
-    assert "EmptyWorkspacePage" in source
+    assert 'redirect("/workflows")' in source
+    assert "EmptyWorkspacePage" not in source
     assert 'redirect("/servers")' not in source
     assert "FileSummaryWorkbench" not in source
 
