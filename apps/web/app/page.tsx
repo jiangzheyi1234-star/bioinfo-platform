@@ -1,5 +1,5 @@
-import { EmptyWorkspacePage } from "./components/empty-workspace-page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <EmptyWorkspacePage />;
+  redirect("/workflows");
 }
