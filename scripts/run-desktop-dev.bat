@@ -29,7 +29,7 @@ if not exist "%CARGO_TARGET_DIR%" mkdir "%CARGO_TARGET_DIR%" >nul 2>nul
 echo [INFO] Cargo target dir: %CARGO_TARGET_DIR%
 echo [INFO] Closing stale H2OMeta desktop process if present...
 taskkill /IM h2ometa-desktop.exe /F >nul 2>nul
-timeout /t 1 /nobreak >nul
+powershell.exe -NoProfile -Command "Start-Sleep -Seconds 1"
 npm run dev
 set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
