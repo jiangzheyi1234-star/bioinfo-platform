@@ -27,6 +27,7 @@ import {
   type RuleParamSpec,
 } from "./generated-workflow-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-panel";
 import { GeneratedWorkflowRuntimeEditor } from "./generated-workflow-runtime-editor";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
@@ -284,6 +285,7 @@ function WorkflowGraphWorkbench({
                   <div className="text-[11px] text-slate-400">params</div>
                 </div>
               </div>
+              <GeneratedWorkflowRuleSpecPanel tool={selectedTool} />
               <GeneratedWorkflowRuntimeEditor
                 runtime={selectedNode.runtime}
                 tool={selectedTool}
