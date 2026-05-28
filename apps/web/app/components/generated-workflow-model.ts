@@ -2,6 +2,7 @@ import type { AddedTool, ToolCapabilitySlot } from "./tools-page-model";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
+export const GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1";
 
 export type GeneratedWorkflowInputBinding =
   | { fromUpload: number }
@@ -437,6 +438,7 @@ export function buildGeneratedWorkflowRunSpec({
   if (isGeneratedWorkflowGraphDraft(draft)) {
     const normalizedNodeIds = new Map(draft.nodes.map((node) => [node.id, normalizeStepId(node.id)]));
     runSpec.workflow = {
+      contractVersion: GENERATED_WORKFLOW_RULE_CONTRACT_VERSION,
       nodes: draft.nodes.map((node) => {
         const tool = toolById.get(node.toolId);
         return {

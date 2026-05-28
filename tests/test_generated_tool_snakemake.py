@@ -421,6 +421,7 @@ def test_generated_graph_workflow_writes_rules_and_edges(tmp_path: Path, monkeyp
             "projectId": "proj_demo",
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
             "workflow": {
+                "contractVersion": "rule-contract-v1",
                 "nodes": [
                     {"id": "copy_summary", "toolId": "conda-forge::coreutils-copy"},
                     {"id": "count_bytes", "toolId": "conda-forge::coreutils-count", "inputs": {"primary": {"fromUpload": 0}}},

@@ -59,6 +59,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
+    assert "GENERATED_WORKFLOW_RULE_CONTRACT_VERSION" in model
     assert "export type GeneratedWorkflowStepRuntime" in model
     assert "export type GeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowGraphNode" in model
@@ -89,6 +90,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "capabilities" in model
     assert "runSpec.workflow = {" in model
+    assert "contractVersion:" in model
     assert "nodes: draft.nodes.map" in model
     assert "edges: draft.edges.map" in model
     assert "outputs: draft.exposeOutputs.map" in model
