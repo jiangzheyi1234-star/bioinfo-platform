@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Check, Loader2, PackagePlus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Check, Loader2, PackagePlus, RefreshCw, Trash2, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -58,6 +58,20 @@ export function PlatformBadge({ item }: { item: ToolSearchItem }) {
   );
 }
 
+export function WrapperBadge({ item }: { item: ToolSearchItem }) {
+  const count = item.snakemakeWrapperCount || item.snakemakeWrappers?.length || 0;
+  if (count <= 0) return null;
+  return (
+    <span
+      title={`${count} 个 Snakemake wrapper 可复用`}
+      className="inline-flex h-5 items-center rounded border border-violet-200 bg-violet-50 px-1.5 text-[11px] leading-none text-violet-700"
+    >
+      <Workflow strokeWidth={1.5} className="mr-1 h-3 w-3" />
+      {count} wrapper
+    </span>
+  );
+}
+
 export function PlatformChips({ platforms }: { platforms: string[] | undefined }) {
   const items = (platforms || []).map((platform) => platform.trim()).filter(Boolean);
   if (items.length === 0) {
@@ -102,6 +116,7 @@ export function ResultRow({
           <h3 className="truncate text-sm font-medium text-slate-900">{item.name}</h3>
           <SourceBadge source={item.source} label={item.sourceLabel} />
           <PlatformBadge item={item} />
+          <WrapperBadge item={item} />
         </div>
         <p className="mt-1 truncate text-xs text-slate-500">{item.summary || "Conda package"}</p>
       </div>
@@ -167,6 +182,7 @@ export function ToolsLibrarySection({
                   <h3 className="truncate text-sm font-medium text-slate-800">{tool.name}</h3>
                   <SourceBadge source={tool.source} label={tool.sourceLabel} />
                   <PlatformBadge item={tool} />
+                  <WrapperBadge item={tool} />
                 </div>
                 <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
               </div>
@@ -281,6 +297,48 @@ export function ToolSearchResults({
   );
 }
 
+function SnakemakeWrapperPreview({
+  selected,
+  onOpenSourceUrl,
+}: {
+  selected: ToolSearchItem;
+  onOpenSourceUrl: (url: string) => void;
+}) {
+  const wrappers = selected.snakemakeWrappers || [];
+  if (wrappers.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="text-[11px] uppercase text-slate-400">Snakemake wrapper</div>
+        <div className="mt-1 text-xs leading-5 text-slate-500">未命中官方 wrapper；加入后可手动补 ruleTemplate。</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] uppercase text-violet-500">Snakemake wrapper</div>
+        <span className="text-[11px] text-violet-600">{wrappers.length} 个命中</span>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {wrappers.slice(0, 4).map((wrapper) => (
+          <button
+            key={wrapper.wrapperPath}
+            type="button"
+            onClick={() => onOpenSourceUrl(wrapper.wrapperUrl)}
+            className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md bg-white/70 px-2 py-1.5 text-left text-xs text-violet-800 hover:bg-white"
+          >
+            <span className="truncate font-mono">{wrapper.wrapperPath}</span>
+            <ExternalLink strokeWidth={1.5} className="h-3 w-3 flex-shrink-0" />
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] leading-4 text-violet-600">
+        当前先标记可复用 wrapper；执行时应锁定官方 tag 或 commit。
+      </p>
+    </div>
+  );
+}
+
 export function ToolPreviewPanel({
   canAddSelected,
   onAdd,
@@ -310,6 +368,7 @@ export function ToolPreviewPanel({
               <h3 className="truncate text-base font-semibold text-slate-950">{selected.name}</h3>
               <SourceBadge source={selected.source} label={selected.sourceLabel} />
               <PlatformBadge item={selected} />
+              <WrapperBadge item={selected} />
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">{selected.summary || "Conda package"}</p>
           </div>
@@ -330,6 +389,8 @@ export function ToolPreviewPanel({
             <div className="mt-3 text-[11px] uppercase text-slate-400">支持平台</div>
             <PlatformChips platforms={selected.platforms} />
           </div>
+
+          <SnakemakeWrapperPreview selected={selected} onOpenSourceUrl={onOpenSourceUrl} />
 
           <div className="space-y-1.5">
             <label className="text-[11px] uppercase text-slate-400" htmlFor="tool-version">

@@ -28,6 +28,7 @@ def test_tool_search_propagates_online_search_network_error(monkeypatch) -> None
 def test_online_fallback_fetches_once_and_pages_cached_results(monkeypatch) -> None:
     tool_capabilities._CACHE.clear()
     calls: list[int] = []
+    monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
 
     monkeypatch.setattr(
         tool_capabilities,
@@ -80,6 +81,60 @@ def test_online_fallback_fetches_once_and_pages_cached_results(monkeypatch) -> N
     assert third["data"]["hasMore"] is False
     assert first["data"]["complete"] is False
     assert second["data"]["cached"] is True
+
+
+def test_tool_search_attaches_matching_snakemake_wrappers(monkeypatch) -> None:
+    tool_capabilities._CACHE.clear()
+
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [
+                {
+                    "id": "bioconda::samtools",
+                    "name": "samtools",
+                    "summary": "Tools for SAM/BAM files",
+                    "source": "bioconda",
+                    "sourceLabel": "Bioconda",
+                    "packageSpec": "bioconda::samtools=1.20",
+                    "latestVersion": "1.20",
+                    "versions": ["1.20"],
+                    "sourceUrl": "https://anaconda.org/bioconda/samtools",
+                    "platforms": ["linux-64"],
+                    "targetPlatform": target_platform,
+                    "targetPlatformSupported": True,
+                }
+            ],
+            "total": 1,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+        },
+    )
+    monkeypatch.setattr(
+        tool_capabilities,
+        "find_snakemake_wrappers_for_tool",
+        lambda name: [_samtools_sort_wrapper(name)],
+    )
+
+    response = tool_capabilities.search_tool_capabilities("samtools", target_platform="linux-64")
+
+    item = response["data"]["items"][0]
+    assert item["snakemakeWrapperCount"] == 1
+    assert item["snakemakeWrappers"][0]["wrapperPath"] == "bio/samtools/sort"
+    assert item["snakemakeWrappers"][0]["toolName"] == "samtools"
+
+
+def _samtools_sort_wrapper(name: str) -> dict[str, str]:
+    root = "https://github.com/snakemake/snakemake-wrappers/tree/master/bio/samtools/sort"
+    return {
+        "name": "samtools sort",
+        "toolName": name,
+        "wrapperPath": "bio/samtools/sort",
+        "wrapperUrl": root,
+        "environmentUrl": f"{root}/environment.yaml",
+    }
 
 
 def test_exact_package_lookup_ignores_not_found_and_keeps_searching(monkeypatch) -> None:

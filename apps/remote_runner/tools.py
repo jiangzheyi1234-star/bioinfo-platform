@@ -123,6 +123,7 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
         "testCommand": str(payload.get("testCommand") or ""),
         "ruleTemplate": payload.get("ruleTemplate") or {},
         "capabilities": payload.get("capabilities") or [],
+        "snakemakeWrappers": list(payload.get("snakemakeWrappers") or []),
         "status": str(payload.get("status") or "declared"),
         "message": str(payload.get("message") or "Tool declared."),
     }

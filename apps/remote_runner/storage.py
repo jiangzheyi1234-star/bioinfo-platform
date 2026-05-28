@@ -37,6 +37,8 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE tools ADD COLUMN rule_template_json TEXT NOT NULL DEFAULT '{}'")
     if "capabilities_json" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'")
+    if "snakemake_wrappers_json" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN snakemake_wrappers_json TEXT NOT NULL DEFAULT '[]'")
 
 
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
@@ -143,6 +145,8 @@ def _tool_row_to_dict(row) -> dict[str, Any]:
         "testCommand": row["test_command"],
         "ruleTemplate": json.loads(row["rule_template_json"] or "{}"),
         "capabilities": json.loads(row["capabilities_json"] or "[]"),
+        "snakemakeWrappers": json.loads(row["snakemake_wrappers_json"] or "[]"),
+        "snakemakeWrapperCount": len(json.loads(row["snakemake_wrappers_json"] or "[]")),
         "status": row["status"],
         "message": row["message"],
         "createdAt": row["created_at"],
@@ -181,8 +185,9 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
             INSERT INTO tools (
                 tool_id, name, source, source_label, version, package_spec, summary,
                 target_platform, target_platform_supported, platforms_json, source_url,
-                test_command, rule_template_json, capabilities_json, status, message, created_at, updated_at, last_checked_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                test_command, rule_template_json, capabilities_json, snakemake_wrappers_json,
+                status, message, created_at, updated_at, last_checked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tool_id) DO UPDATE SET
                 name = excluded.name,
                 source = excluded.source,
@@ -197,6 +202,7 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 test_command = excluded.test_command,
                 rule_template_json = excluded.rule_template_json,
                 capabilities_json = excluded.capabilities_json,
+                snakemake_wrappers_json = excluded.snakemake_wrappers_json,
                 status = excluded.status,
                 message = excluded.message,
                 updated_at = excluded.updated_at
@@ -216,6 +222,7 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 str(tool.get("testCommand") or ""),
                 json.dumps(dict(tool.get("ruleTemplate") or {}), ensure_ascii=False),
                 json.dumps(list(tool.get("capabilities") or []), ensure_ascii=False),
+                json.dumps(list(tool.get("snakemakeWrappers") or []), ensure_ascii=False),
                 status,
                 message,
                 (existing or {}).get("createdAt") or now,
