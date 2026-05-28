@@ -50,6 +50,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     builder_ui = ui_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
+    assert "export type GeneratedWorkflowStepRuntime" in model
     assert "export type GeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowGraphNode" in model
     assert "export type GeneratedWorkflowGraphEdge" in model
@@ -76,6 +77,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "nodes: draft.nodes.map" in model
     assert "edges: draft.edges.map" in model
     assert "outputs: draft.exposeOutputs.map" in model
+    assert "runtime: normalizeStepRuntime" in model
     assert "resourceBindings" in model
     assert "databases" not in model
 
