@@ -50,6 +50,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     builder_ui = ui_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
+    assert "export type GeneratedWorkflowGraphDraft" in model
+    assert "export type GeneratedWorkflowGraphNode" in model
+    assert "export type GeneratedWorkflowGraphEdge" in model
+    assert "createGeneratedWorkflowGraphDraft" in model
+    assert "generatedWorkflowDraftToGraphDraft" in model
+    assert "graphDraftToGeneratedWorkflowDraft" in model
+    assert "validateGeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowInputBinding" in model
     assert "fromUpload" in model
     assert "fromInput" in model
@@ -67,11 +74,14 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
 
     assert "useReducer" in builder_hook
     assert "useGeneratedWorkflowBuilder" in builder_hook
+    assert "graphDraft" in builder_hook
     assert "findCompatibleOutputBinding" in builder_hook
     assert "validation" in builder_hook
     assert "resourceBindings" in builder_hook
 
     assert "GeneratedWorkflowBuilder" in builder_ui
+    assert "WorkflowGraphOverview" in builder_ui
+    assert "builder.graphDraft.nodes" in builder_ui
     assert "Select" in builder_ui
     assert "Alert" in builder_ui
     assert "fromStep" in builder_ui

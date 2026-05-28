@@ -8,6 +8,7 @@ export type GeneratedWorkflowInputBinding =
   | { fromInput: string }
   | { fromStep: string; output: string }
   | string;
+export type GeneratedWorkflowGraphInputBinding = Exclude<GeneratedWorkflowInputBinding, { fromStep: string; output: string }>;
 
 export type GeneratedWorkflowParamValue = string | number | boolean;
 export type GeneratedWorkflowStepParams = Record<string, GeneratedWorkflowParamValue>;
@@ -30,6 +31,30 @@ export type GeneratedWorkflowDraft = {
   exposeOutputs: GeneratedWorkflowExposedOutput[];
 };
 
+export type GeneratedWorkflowGraphPortRef = {
+  nodeId: string;
+  port: string;
+};
+
+export type GeneratedWorkflowGraphNode = {
+  id: string;
+  toolId: string;
+  inputs: Record<string, GeneratedWorkflowGraphInputBinding>;
+  params: GeneratedWorkflowStepParams;
+};
+
+export type GeneratedWorkflowGraphEdge = {
+  id: string;
+  from: GeneratedWorkflowGraphPortRef;
+  to: GeneratedWorkflowGraphPortRef;
+};
+
+export type GeneratedWorkflowGraphDraft = {
+  nodes: GeneratedWorkflowGraphNode[];
+  edges: GeneratedWorkflowGraphEdge[];
+  exposeOutputs: GeneratedWorkflowExposedOutput[];
+};
+
 export type GeneratedWorkflowValidationIssue = {
   code: string;
   message: string;
@@ -46,7 +71,7 @@ export type GeneratedWorkflowValidation = {
 export type BuildGeneratedWorkflowRunSpecInput = {
   projectId: string;
   uploads: WorkflowUpload[];
-  draft: GeneratedWorkflowDraft;
+  draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft;
   tools: AddedTool[];
   resourceBindings?: WorkflowResourceBindings;
 };
@@ -151,6 +176,10 @@ export function createGeneratedWorkflowDraft(tools: AddedTool[]): GeneratedWorkf
   };
 }
 
+export function createGeneratedWorkflowGraphDraft(tools: AddedTool[]): GeneratedWorkflowGraphDraft {
+  return generatedWorkflowDraftToGraphDraft(createGeneratedWorkflowDraft(tools));
+}
+
 export function createStepDraft(
   tool: AddedTool,
   existingIds: string[],
@@ -172,11 +201,68 @@ export function createStepDraft(
   };
 }
 
-export function validateGeneratedWorkflowDraft(
-  draft: GeneratedWorkflowDraft,
+export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft): GeneratedWorkflowGraphDraft {
+  const edges: GeneratedWorkflowGraphEdge[] = [];
+  const nodes = draft.steps.map((step) => {
+    const inputs: Record<string, GeneratedWorkflowGraphInputBinding> = {};
+    for (const [inputName, binding] of Object.entries(step.inputs)) {
+      if (isStepBinding(binding)) {
+        const edge = {
+          from: { nodeId: binding.fromStep, port: binding.output },
+          to: { nodeId: step.id, port: inputName },
+        };
+        edges.push({ id: graphEdgeId(edge.from, edge.to, edges.length), ...edge });
+      } else {
+        inputs[inputName] = binding;
+      }
+    }
+    return {
+      id: step.id,
+      toolId: step.toolId,
+      inputs,
+      params: { ...step.params },
+    };
+  });
+  return {
+    nodes,
+    edges,
+    exposeOutputs: draft.exposeOutputs.map((output) => ({ ...output })),
+  };
+}
+
+export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflowGraphDraft): GeneratedWorkflowDraft {
+  const steps = graphDraft.nodes.map((node) => ({
+    id: node.id,
+    toolId: node.toolId,
+    inputs: { ...node.inputs } as Record<string, GeneratedWorkflowInputBinding>,
+    params: { ...node.params },
+  }));
+  const stepById = new Map(steps.map((step) => [step.id, step]));
+  for (const edge of graphDraft.edges) {
+    const target = stepById.get(edge.to.nodeId);
+    if (!target) continue;
+    target.inputs[edge.to.port] = { fromStep: edge.from.nodeId, output: edge.from.port };
+  }
+  return {
+    steps,
+    exposeOutputs: graphDraft.exposeOutputs.map((output) => ({ ...output })),
+  };
+}
+
+export function validateGeneratedWorkflowGraphDraft(
+  graphDraft: GeneratedWorkflowGraphDraft,
   tools: AddedTool[],
   options: ValidateGeneratedWorkflowDraftOptions = {}
 ): GeneratedWorkflowValidation {
+  return validateGeneratedWorkflowDraft(graphDraft, tools, options);
+}
+
+export function validateGeneratedWorkflowDraft(
+  draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft,
+  tools: AddedTool[],
+  options: ValidateGeneratedWorkflowDraftOptions = {}
+): GeneratedWorkflowValidation {
+  const stepDraft = isGeneratedWorkflowGraphDraft(draft) ? graphDraftToGeneratedWorkflowDraft(draft) : draft;
   const errors: GeneratedWorkflowValidationIssue[] = [];
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
   const normalizedIds = new Map<string, string>();
@@ -184,7 +270,7 @@ export function validateGeneratedWorkflowDraft(
   const outgoing = new Map<string, string[]>();
   const incomingCount = new Map<string, number>();
 
-  for (const step of draft.steps) {
+  for (const step of stepDraft.steps) {
     const normalized = normalizeStepId(step.id);
     if (normalizedIds.has(normalized)) {
       errors.push({ code: "WORKFLOW_STEP_DUPLICATE", message: `重复步骤 id: ${normalized}`, stepId: step.id });
@@ -207,10 +293,10 @@ export function validateGeneratedWorkflowDraft(
     }
   }
 
-  for (const step of draft.steps) {
+  for (const step of stepDraft.steps) {
     for (const [inputName, binding] of Object.entries(step.inputs)) {
       if (!isStepBinding(binding)) continue;
-      const sourceStep = draft.steps.find((item) => item.id === binding.fromStep);
+      const sourceStep = stepDraft.steps.find((item) => item.id === binding.fromStep);
       if (!sourceStep) {
         errors.push({ code: "WORKFLOW_STEP_INPUT_STEP_UNKNOWN", message: `未知上游步骤 ${binding.fromStep}`, stepId: step.id, inputName });
         continue;
@@ -240,14 +326,14 @@ export function validateGeneratedWorkflowDraft(
     }
   }
 
-  for (const exposed of draft.exposeOutputs) {
+  for (const exposed of stepDraft.exposeOutputs) {
     if (!outputsByStep.get(exposed.fromStep)?.has(exposed.output) || !exposed.as.trim()) {
       errors.push({ code: "WORKFLOW_OUTPUT_BINDING_INVALID", message: `输出暴露无效: ${exposed.as || exposed.fromStep}` });
     }
   }
 
-  const orderedStepIds = topologicalStepIds(draft.steps.map((step) => step.id), incomingCount, outgoing);
-  if (orderedStepIds.length !== draft.steps.length) {
+  const orderedStepIds = topologicalStepIds(stepDraft.steps.map((step) => step.id), incomingCount, outgoing);
+  if (orderedStepIds.length !== stepDraft.steps.length) {
     errors.push({ code: "WORKFLOW_STEP_CYCLE", message: "步骤依赖存在环" });
   }
 
@@ -291,8 +377,9 @@ export function buildGeneratedWorkflowRunSpec({
   tools,
   resourceBindings,
 }: BuildGeneratedWorkflowRunSpecInput) {
+  const stepDraft = isGeneratedWorkflowGraphDraft(draft) ? graphDraftToGeneratedWorkflowDraft(draft) : draft;
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
-  const normalizedStepIds = new Map(draft.steps.map((step) => [step.id, normalizeStepId(step.id)]));
+  const normalizedStepIds = new Map(stepDraft.steps.map((step) => [step.id, normalizeStepId(step.id)]));
   const runSpec: Record<string, unknown> = {
     projectId,
     pipelineId: GENERATED_TOOL_RUN_PIPELINE_ID,
@@ -306,7 +393,7 @@ export function buildGeneratedWorkflowRunSpec({
     runSpec.resourceBindings = resourceBindings;
   }
   runSpec.workflow = {
-    steps: draft.steps.map((step) => {
+    steps: stepDraft.steps.map((step) => {
       const tool = toolById.get(step.toolId);
       return {
         id: normalizeStepId(step.id),
@@ -325,6 +412,12 @@ export function buildGeneratedWorkflowRunSpec({
     })),
   };
   return runSpec;
+}
+
+export function isGeneratedWorkflowGraphDraft(
+  draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft
+): draft is GeneratedWorkflowGraphDraft {
+  return "nodes" in draft && "edges" in draft;
 }
 
 function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: ToolCapabilitySlot): RuleInputSpec {
@@ -464,6 +557,10 @@ function normalizeStepInputBindings(
       return [name, binding];
     })
   );
+}
+
+function graphEdgeId(from: GeneratedWorkflowGraphPortRef, to: GeneratedWorkflowGraphPortRef, index: number) {
+  return `${from.nodeId}.${from.port}->${to.nodeId}.${to.port}:${index}`;
 }
 
 function topologicalStepIds(stepIds: string[], incomingCount: Map<string, number>, outgoing: Map<string, string[]>) {

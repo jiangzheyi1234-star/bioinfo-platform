@@ -5,15 +5,18 @@ import { useEffect, useMemo, useReducer } from "react";
 import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import {
-  createGeneratedWorkflowDraft,
+  createGeneratedWorkflowGraphDraft,
   createStepDraft,
   createStepParams,
   findCompatibleOutputBinding,
+  generatedWorkflowDraftToGraphDraft,
+  graphDraftToGeneratedWorkflowDraft,
   readRuleInputs,
   readRuleOutputs,
   validateGeneratedWorkflowDraft,
   type GeneratedWorkflowDraft,
   type GeneratedWorkflowExposedOutput,
+  type GeneratedWorkflowGraphDraft,
   type GeneratedWorkflowInputBinding,
   type GeneratedWorkflowParamValue,
 } from "./generated-workflow-model";
@@ -37,13 +40,13 @@ type BuilderAction =
   | { type: "set_resource"; resourceKey: string; resourceId: string };
 
 type BuilderState = {
-  draft: GeneratedWorkflowDraft;
+  graphDraft: GeneratedWorkflowGraphDraft;
   selectedResourceIds: Record<string, string>;
 };
 
 export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResources: DatabaseItem[], inputCount = 0) {
   const [state, dispatch] = useReducer(builderReducer, {
-    draft: createGeneratedWorkflowDraft(tools),
+    graphDraft: createGeneratedWorkflowGraphDraft(tools),
     selectedResourceIds: {},
   });
 
@@ -52,9 +55,10 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
   }, [tools]);
 
   const toolById = useMemo(() => new Map(tools.map((tool) => [tool.id, tool])), [tools]);
+  const draft = useMemo(() => graphDraftToGeneratedWorkflowDraft(state.graphDraft), [state.graphDraft]);
   const selectedTools = useMemo(
-    () => state.draft.steps.map((step) => toolById.get(step.toolId)).filter((tool): tool is AddedTool => Boolean(tool)),
-    [state.draft.steps, toolById]
+    () => draft.steps.map((step) => toolById.get(step.toolId)).filter((tool): tool is AddedTool => Boolean(tool)),
+    [draft.steps, toolById]
   );
   const resourceEntries = useMemo(
     () => generatedToolResourceEntries(selectedTools),
@@ -77,7 +81,7 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     [availableResources, resourceEntries, state.selectedResourceIds]
   );
   const validation = useMemo(() => {
-    const base = validateGeneratedWorkflowDraft(state.draft, tools, { inputCount });
+    const base = validateGeneratedWorkflowDraft(state.graphDraft, tools, { inputCount });
     const resourceErrors = resourceEntries
       .filter(([key, spec]) => spec.required && !resourceBindings[key])
       .map(([key]) => ({
@@ -85,15 +89,16 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
         message: `缺少必选数据库资源 ${key}`,
       }));
     return { ...base, errors: [...base.errors, ...resourceErrors] };
-  }, [inputCount, resourceBindings, resourceEntries, state.draft, tools]);
+  }, [inputCount, resourceBindings, resourceEntries, state.graphDraft, tools]);
 
   return {
-    draft: state.draft,
+    draft,
+    graphDraft: state.graphDraft,
     validation,
     resourceEntries,
     selectedResourceIds: Object.values(state.selectedResourceIds).filter(Boolean),
     selectedResourceDatabaseIds: state.selectedResourceIds,
-    selectedToolIds: state.draft.steps.map((step) => step.toolId),
+    selectedToolIds: draft.steps.map((step) => step.toolId),
     selectedTools,
     selectedResources,
     resourceBindings,
@@ -123,20 +128,19 @@ export type GeneratedWorkflowBuilderController = ReturnType<typeof useGeneratedW
 function builderReducer(state: BuilderState, action: BuilderAction): BuilderState {
   if (action.type === "reset_tools") {
     const availableIds = new Set(action.tools.map((tool) => tool.id));
-    if (state.draft.steps.length > 0 && state.draft.steps.every((step) => availableIds.has(step.toolId))) {
+    if (state.graphDraft.nodes.length > 0 && state.graphDraft.nodes.every((node) => availableIds.has(node.toolId))) {
       return state;
     }
-    return { ...state, draft: createGeneratedWorkflowDraft(action.tools) };
+    return { ...state, graphDraft: createGeneratedWorkflowGraphDraft(action.tools) };
   }
   if (action.type === "add_step") {
-    const nextStep = createStepDraft(action.tool, state.draft.steps.map((step) => step.id), state.draft.steps, action.tools);
-    return { ...state, draft: { ...state.draft, steps: [...state.draft.steps, nextStep] } };
+    const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);
+    const nextStep = createStepDraft(action.tool, draft.steps.map((step) => step.id), draft.steps, action.tools);
+    return updateStepDraft(state, (current) => ({ ...current, steps: [...current.steps, nextStep] }));
   }
   if (action.type === "remove_step") {
-    return {
-      ...state,
-      draft: {
-        steps: state.draft.steps
+    return updateStepDraft(state, (draft) => ({
+      steps: draft.steps
           .filter((step) => step.id !== action.stepId)
           .map((step) => ({
             ...step,
@@ -147,9 +151,8 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
               ])
             ),
           })),
-        exposeOutputs: state.draft.exposeOutputs.filter((output) => output.fromStep !== action.stepId),
-      },
-    };
+      exposeOutputs: draft.exposeOutputs.filter((output) => output.fromStep !== action.stepId),
+    }));
   }
   if (action.type === "set_step_id") {
     return renameStep(state, action.stepId, action.nextId);
@@ -158,46 +161,37 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     return setStepTool(state, action.stepId, action.tool, action.tools);
   }
   if (action.type === "set_input") {
-    return {
-      ...state,
-      draft: {
-        ...state.draft,
-        steps: state.draft.steps.map((step) =>
+    return updateStepDraft(state, (draft) => ({
+      ...draft,
+      steps: draft.steps.map((step) =>
           step.id === action.stepId ? { ...step, inputs: { ...step.inputs, [action.inputName]: action.binding } } : step
-        ),
-      },
-    };
+      ),
+    }));
   }
   if (action.type === "set_step_param") {
-    return {
-      ...state,
-      draft: {
-        ...state.draft,
-        steps: state.draft.steps.map((step) =>
+    return updateStepDraft(state, (draft) => ({
+      ...draft,
+      steps: draft.steps.map((step) =>
           step.id === action.stepId
             ? { ...step, params: { ...(step.params || {}), [action.paramName]: action.value } }
             : step
-        ),
-      },
-    };
+      ),
+    }));
   }
   if (action.type === "add_output") {
-    return { ...state, draft: { ...state.draft, exposeOutputs: [...state.draft.exposeOutputs, action.output] } };
+    return updateStepDraft(state, (draft) => ({ ...draft, exposeOutputs: [...draft.exposeOutputs, action.output] }));
   }
   if (action.type === "remove_output") {
-    return {
-      ...state,
-      draft: { ...state.draft, exposeOutputs: state.draft.exposeOutputs.filter((_, index) => index !== action.index) },
-    };
+    return updateStepDraft(state, (draft) => ({
+      ...draft,
+      exposeOutputs: draft.exposeOutputs.filter((_, index) => index !== action.index),
+    }));
   }
   if (action.type === "set_output") {
-    return {
-      ...state,
-      draft: {
-        ...state.draft,
-        exposeOutputs: state.draft.exposeOutputs.map((output, index) => index === action.index ? action.output : output),
-      },
-    };
+    return updateStepDraft(state, (draft) => ({
+      ...draft,
+      exposeOutputs: draft.exposeOutputs.map((output, index) => index === action.index ? action.output : output),
+    }));
   }
   if (action.type === "set_resource") {
     const selectedResourceIds = { ...state.selectedResourceIds };
@@ -214,10 +208,8 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
 function renameStep(state: BuilderState, stepId: string, nextId: string): BuilderState {
   const trimmed = nextId.trim();
   if (!trimmed) return state;
-  return {
-    ...state,
-    draft: {
-      steps: state.draft.steps.map((step) => {
+  return updateStepDraft(state, (draft) => ({
+      steps: draft.steps.map((step) => {
         const inputs = Object.fromEntries(
           Object.entries(step.inputs).map(([name, binding]) => [
             name,
@@ -226,16 +218,16 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
         );
         return step.id === stepId ? { ...step, id: trimmed, inputs } : { ...step, inputs };
       }),
-      exposeOutputs: state.draft.exposeOutputs.map((output) =>
+      exposeOutputs: draft.exposeOutputs.map((output) =>
         output.fromStep === stepId ? { ...output, fromStep: trimmed } : output
       ),
-    },
-  };
+  }));
 }
 
 function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools: AddedTool[]): BuilderState {
-  const stepIndex = state.draft.steps.findIndex((step) => step.id === stepId);
-  const upstreamSteps = stepIndex >= 0 ? state.draft.steps.slice(0, stepIndex) : [];
+  const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);
+  const stepIndex = draft.steps.findIndex((step) => step.id === stepId);
+  const upstreamSteps = stepIndex >= 0 ? draft.steps.slice(0, stepIndex) : [];
   const inputs = Object.fromEntries(
     readRuleInputs(tool).map((input) => [
       input.name,
@@ -244,12 +236,16 @@ function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools
   );
   const outputNames = new Set(readRuleOutputs(tool).map((output) => output.name));
   const params = createStepParams(tool);
+  return updateStepDraft(state, (current) => ({
+    steps: current.steps.map((step) => step.id === stepId ? { ...step, toolId: tool.id, inputs, params } : step),
+    exposeOutputs: current.exposeOutputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
+  }));
+}
+
+function updateStepDraft(state: BuilderState, update: (draft: GeneratedWorkflowDraft) => GeneratedWorkflowDraft): BuilderState {
   return {
     ...state,
-    draft: {
-      steps: state.draft.steps.map((step) => step.id === stepId ? { ...step, toolId: tool.id, inputs, params } : step),
-      exposeOutputs: state.draft.exposeOutputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
-    },
+    graphDraft: generatedWorkflowDraftToGraphDraft(update(graphDraftToGeneratedWorkflowDraft(state.graphDraft))),
   };
 }
 
