@@ -115,7 +115,7 @@ function RulePortPreview({ item, compact = false }: { item: ToolSearchItem; comp
   );
 }
 
-function RulePortGroup({ label, ports }: { label: string; ports: { name: string; detail: string }[] }) {
+function RulePortGroup({ label, ports }: { label: string; ports: RulePortItem[] }) {
   return (
     <div className="min-w-0">
       <div className="text-[11px] font-medium text-slate-500">{label}</div>
@@ -127,7 +127,7 @@ function RulePortGroup({ label, ports }: { label: string; ports: { name: string;
               title={port.detail}
               className="max-w-full truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600"
             >
-              {port.name}
+              {formatRulePortLabel(port)}
             </span>
           ))}
         </div>
@@ -149,9 +149,22 @@ function rulePortItems(template: Record<string, unknown>, key: "inputs" | "outpu
         .map((field) => stringValue(port[field]))
         .filter(Boolean)
         .join(" / ");
-      return { name, detail: detail || "未声明类型" };
+      const summary = ["kind", "format", "edamFormat", "mimeType", "type"]
+        .map((field) => stringValue(port[field]))
+        .find(Boolean) || "";
+      return { name, detail: detail || "未声明类型", summary };
     })
     .filter((item) => item.name);
+}
+
+type RulePortItem = {
+  name: string;
+  detail: string;
+  summary: string;
+};
+
+function formatRulePortLabel(port: RulePortItem) {
+  return port.summary ? `${port.name} · ${port.summary}` : port.name;
 }
 
 function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
