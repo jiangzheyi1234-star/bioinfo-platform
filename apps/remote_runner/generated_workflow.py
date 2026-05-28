@@ -12,7 +12,7 @@ from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
 from .rule_outputs import output_artifact_flags, render_rule_output_lines, validate_exposed_output_spec
-from .rule_templates import rule_template_candidates
+from .rule_templates import rule_template_candidate_entries
 from .rule_runtime import (
     RuleRuntimeDirectives,
     render_runtime_directives,
@@ -47,6 +47,7 @@ class GeneratedWorkflowStep:
     tool_id: str
     tool: dict[str, Any]
     rule_template: dict[str, Any]
+    rule_spec_draft: dict[str, Any]
     env_path: Path
     inputs: dict[str, str]
     outputs: dict[str, Path]
@@ -102,7 +103,7 @@ def prepare_generated_tool_workflow(
         safe_tool_id = _safe_identifier(tool_id)
         safe_step_id = _safe_identifier(step_id)
         env_path = env_dir / (f"{safe_tool_id}.yaml" if len(requested_steps) == 1 else f"{safe_step_id}-{safe_tool_id}.yaml")
-        rule_template = _resolve_rule_template(tool=tool, tool_request=tool_request)
+        rule_template, rule_spec_draft = _resolve_rule_contract(tool=tool, tool_request=tool_request)
         params = _resolve_step_params(
             rule_template=rule_template,
             requested_step=requested_step,
@@ -146,6 +147,7 @@ def prepare_generated_tool_workflow(
                 tool_id=tool_id,
                 tool=tool,
                 rule_template=rule_template,
+                rule_spec_draft=rule_spec_draft,
                 env_path=Path("envs") / env_path.name,
                 inputs=inputs,
                 outputs=outputs,
@@ -318,7 +320,7 @@ def _step_id(step: dict[str, Any], index: int) -> str:
 
 def _config_tool(step: GeneratedWorkflowStep) -> dict[str, Any]:
     package_spec = str(step.tool.get("packageSpec") or "")
-    return {
+    config = {
         "id": step.tool_id,
         "name": str(step.tool.get("name") or ""),
         "source": str(step.tool.get("source") or ""),
@@ -327,11 +329,46 @@ def _config_tool(step: GeneratedWorkflowStep) -> dict[str, Any]:
         "capabilities": list(step.tool.get("capabilities") or []),
         "ruleTemplate": step.rule_template,
     }
+    rule_spec_draft = step.rule_spec_draft
+    if rule_spec_draft:
+        config["ruleSpecDraft"] = rule_spec_draft
+        provenance = _config_rule_provenance(rule_spec_draft, step.rule_template, package_spec)
+        if provenance:
+            config["ruleProvenance"] = provenance
+    return config
+
+
+def _config_rule_provenance(
+    rule_spec_draft: dict[str, Any],
+    rule_template: dict[str, Any],
+    package_spec: str,
+) -> dict[str, str]:
+    lock = rule_spec_draft.get("lock") if isinstance(rule_spec_draft.get("lock"), dict) else {}
+    provenance = {
+        "source": str(rule_spec_draft.get("source") or rule_template.get("source") or "").strip(),
+        "lockType": str(lock.get("type") or "").strip(),
+        "wrapperRef": str(lock.get("wrapperRef") or "").strip(),
+        "wrapperPath": str(lock.get("wrapperPath") or "").strip(),
+        "wrapperIdentifier": str(lock.get("wrapperIdentifier") or rule_template.get("wrapper") or "").strip(),
+        "version": str(lock.get("version") or "").strip(),
+    }
+    locked_package_spec = str(lock.get("packageSpec") or "").strip()
+    if locked_package_spec:
+        provenance["packageSpec"] = locked_package_spec
+    elif package_spec:
+        provenance["declaredPackageSpec"] = package_spec
+    return {key: value for key, value in provenance.items() if value}
 
 
 def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]) -> dict[str, Any]:
-    for candidate in rule_template_candidates(tool, tool_request):
-        return normalize_rule_template(candidate, required=True)
+    return _resolve_rule_contract(tool=tool, tool_request=tool_request)[0]
+
+
+def _resolve_rule_contract(*, tool: dict[str, Any], tool_request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    for candidate in rule_template_candidate_entries(tool, tool_request):
+        rule_template = normalize_rule_template(candidate["template"], required=True)
+        draft = candidate.get("ruleSpecDraft")
+        return rule_template, dict(draft) if isinstance(draft, dict) and draft else {}
     raise ValueError("TOOL_RULE_TEMPLATE_REQUIRED")
 
 
