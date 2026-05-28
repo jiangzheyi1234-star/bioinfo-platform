@@ -115,6 +115,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "调度资源" in runtime_editor_ui
     assert "日志" in runtime_editor_ui
     assert "updateLog" in runtime_editor_ui
+    assert "logDefaults" in runtime_editor_ui
+    assert "namedLogEntries" in runtime_editor_ui
+    assert "updateLogPath" in runtime_editor_ui
+    assert "未声明 log" in runtime_editor_ui
     assert "builder.graphDraft.nodes" in builder_ui
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui
