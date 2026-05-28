@@ -21,6 +21,7 @@ DATABASE_TOKEN_RE = re.compile(
     r"^database\.[A-Za-z_][A-Za-z0-9_]*\.(id|name|type|templateId|version|path|manifestPath|checksum)(:q)?$"
 )
 CONFIG_TOKEN_RE = re.compile(r"^config\.[A-Za-z_][A-Za-z0-9_]*(:q)?$")
+SCHEDULER_RESOURCE_KEYS = {"mem_mb", "disk_mb", "runtime", "tmpdir"}
 
 
 def list_registered_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
@@ -218,13 +219,24 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
         raise ToolRegistryError("TOOL_RULE_COMMAND_REQUIRED")
     inputs = _normalize_rule_inputs(template.get("inputs"))
     outputs = _normalize_rule_outputs(template.get("outputs"))
-    resources = _normalize_rule_resources(template.get("resources"))
+    resource_parts = _normalize_rule_resources(template.get("resources"))
+    resources = resource_parts["workflowResources"]
+    scheduler_resources = {
+        **resource_parts["schedulerResources"],
+        **_normalize_scheduler_resources(template.get("schedulerResources") or template.get("runtimeResources")),
+    }
+    threads = _normalize_rule_threads(template.get("threads"), fallback=resource_parts["threads"])
+    log = _normalize_rule_log(template.get("log"))
     params = _normalize_rule_params(template.get("params"))
     _validate_command_tokens(
         command,
         input_names={item["name"] for item in inputs},
         output_names={item["name"] for item in outputs},
         param_names=set(params),
+        threads_declared=threads is not None,
+        scheduler_resource_names=set(scheduler_resources),
+        log_names=_rule_log_names(log),
+        has_log=bool(log),
     )
     normalized: dict[str, Any] = {
         "commandTemplate": command,
@@ -232,8 +244,14 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
         "outputs": outputs,
         "params": dict(params),
     }
+    if threads is not None:
+        normalized["threads"] = threads
+    if scheduler_resources:
+        normalized["schedulerResources"] = scheduler_resources
     if resources:
         normalized["resources"] = resources
+    if log:
+        normalized["log"] = log
     return normalized
 
 
@@ -284,16 +302,24 @@ def _normalize_rule_outputs(raw: Any) -> list[dict[str, Any]]:
     return outputs
 
 
-def _normalize_rule_resources(raw: Any) -> dict[str, dict[str, Any]]:
+def _normalize_rule_resources(raw: Any) -> dict[str, Any]:
     if raw in (None, {}):
-        return {}
+        return {"workflowResources": {}, "schedulerResources": {}, "threads": None}
     if not isinstance(raw, dict):
         raise ToolRegistryError("WORKFLOW_RESOURCE_SPEC_INVALID")
-    resources: dict[str, dict[str, Any]] = {}
+    workflow_resources: dict[str, dict[str, Any]] = {}
+    scheduler_resources: dict[str, str | int | float] = {}
+    threads: int | None = None
     for key, value in raw.items():
         resource_key = str(key or "").strip()
         if not resource_key or not RULE_IO_NAME_RE.match(resource_key):
             raise ToolRegistryError("WORKFLOW_RESOURCE_KEY_REQUIRED")
+        if resource_key == "threads":
+            threads = _normalize_rule_threads(value)
+            continue
+        if _is_scheduler_resource(resource_key, value):
+            scheduler_resources[resource_key] = _normalize_scheduler_resource_value(resource_key, value)
+            continue
         if not isinstance(value, dict):
             raise ToolRegistryError(f"WORKFLOW_RESOURCE_SPEC_INVALID: {resource_key}")
         config_key = str(value.get("configKey") or resource_key).strip()
@@ -305,8 +331,84 @@ def _normalize_rule_resources(raw: Any) -> dict[str, dict[str, Any]]:
             or any(not str(item).strip() for item in accepted_templates)
         ):
             raise ToolRegistryError(f"WORKFLOW_RESOURCE_ACCEPTED_TEMPLATES_INVALID: {resource_key}")
-        resources[resource_key] = {**value, "configKey": config_key}
+        workflow_resources[resource_key] = {**value, "configKey": config_key}
+    return {"workflowResources": workflow_resources, "schedulerResources": scheduler_resources, "threads": threads}
+
+
+def _normalize_rule_threads(raw: Any, *, fallback: int | None = None) -> int | None:
+    if raw in (None, ""):
+        return fallback
+    value = _rule_default_value(raw)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ToolRegistryError("TOOL_RULE_THREADS_INVALID")
+    return value
+
+
+def _normalize_scheduler_resources(raw: Any) -> dict[str, str | int | float]:
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("TOOL_RULE_SCHEDULER_RESOURCES_INVALID")
+    resources: dict[str, str | int | float] = {}
+    for key, value in raw.items():
+        resource_key = str(key or "").strip()
+        if not resource_key or not RULE_IO_NAME_RE.match(resource_key):
+            raise ToolRegistryError("TOOL_RULE_SCHEDULER_RESOURCE_KEY_REQUIRED")
+        resources[resource_key] = _normalize_scheduler_resource_value(resource_key, value)
     return resources
+
+
+def _is_scheduler_resource(key: str, value: Any) -> bool:
+    if key in SCHEDULER_RESOURCE_KEYS:
+        return True
+    if not isinstance(value, dict):
+        return False
+    resource_type = str(value.get("type") or "").strip()
+    if resource_type in {"compute", "scheduler"}:
+        return True
+    has_database_markers = any(marker in value for marker in ["acceptedTemplates", "acceptedCapabilities", "configKey"])
+    return "default" in value and not has_database_markers
+
+
+def _normalize_scheduler_resource_value(key: str, raw: Any) -> str | int | float:
+    value = _rule_default_value(raw)
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)) or value == "":
+        raise ToolRegistryError(f"TOOL_RULE_SCHEDULER_RESOURCE_VALUE_INVALID: {key}")
+    return value
+
+
+def _rule_default_value(raw: Any) -> Any:
+    if isinstance(raw, dict):
+        if "default" in raw:
+            return raw["default"]
+        if "value" in raw:
+            return raw["value"]
+        raise ToolRegistryError("TOOL_RULE_RUNTIME_DEFAULT_REQUIRED")
+    return raw
+
+
+def _normalize_rule_log(raw: Any) -> str | dict[str, str]:
+    if raw in (None, "", {}):
+        return ""
+    if isinstance(raw, str):
+        value = raw.strip()
+        _validate_relative_log_path(value)
+        return value
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("TOOL_RULE_LOG_INVALID")
+    logs: dict[str, str] = {}
+    for key, value in raw.items():
+        name = _normalize_io_name(key)
+        path = str(value or "").strip()
+        if not path:
+            raise ToolRegistryError(f"TOOL_RULE_LOG_PATH_REQUIRED: {name}")
+        _validate_relative_log_path(path)
+        logs[name] = path
+    return logs
+
+
+def _rule_log_names(log: str | dict[str, str]) -> set[str]:
+    return set(log) if isinstance(log, dict) else set()
 
 
 def _normalize_rule_params(raw: Any) -> dict[str, Any]:
@@ -338,13 +440,34 @@ def _validate_relative_output_path(path: str) -> None:
         raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID")
 
 
-def _validate_command_tokens(command: str, *, input_names: set[str], output_names: set[str], param_names: set[str]) -> None:
+def _validate_relative_log_path(path: str) -> None:
+    try:
+        _validate_relative_output_path(path)
+    except ToolRegistryError as exc:
+        raise ToolRegistryError("TOOL_RULE_LOG_PATH_INVALID") from exc
+
+
+def _validate_command_tokens(
+    command: str,
+    *,
+    input_names: set[str],
+    output_names: set[str],
+    param_names: set[str],
+    threads_declared: bool,
+    scheduler_resource_names: set[str],
+    log_names: set[str],
+    has_log: bool,
+) -> None:
     if "{resource." in command:
         raise ToolRegistryError("TOOL_RULE_RESOURCE_TOKEN_UNSUPPORTED")
     for match in RULE_TOKEN_RE.finditer(command):
         token = match.group(0)
         body = token[1:-1]
         if body in {"input", "input:q", "output", "output:q", "output_dir", "output_dir:q"}:
+            continue
+        if body in {"threads", "threads:q"} and threads_declared:
+            continue
+        if body in {"log", "log:q"} and has_log:
             continue
         if body.startswith("input."):
             name = body.removeprefix("input.").removesuffix(":q")
@@ -359,6 +482,16 @@ def _validate_command_tokens(command: str, *, input_names: set[str], output_name
         if body.startswith("params."):
             name = body.removeprefix("params.").removesuffix(":q")
             if name in param_names:
+                continue
+            raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
+        if body.startswith("resources."):
+            name = body.removeprefix("resources.").removesuffix(":q")
+            if name in scheduler_resource_names:
+                continue
+            raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
+        if body.startswith("log."):
+            name = body.removeprefix("log.").removesuffix(":q")
+            if name in log_names:
                 continue
             raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
         if DATABASE_TOKEN_RE.match(body) or CONFIG_TOKEN_RE.match(body):

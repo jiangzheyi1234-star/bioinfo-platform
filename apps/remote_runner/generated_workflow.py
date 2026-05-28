@@ -8,6 +8,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .rule_runtime import (
+    RuleRuntimeDirectives,
+    render_runtime_directives,
+    resolve_rule_runtime_directives,
+    runtime_command_replacements,
+    runtime_config,
+    runtime_log_parent_dirs,
+)
 from .storage import fetch_tool
 from .tools import normalize_rule_template
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
@@ -38,6 +46,7 @@ class GeneratedWorkflowStep:
     inputs: dict[str, str]
     outputs: dict[str, Path]
     params: dict[str, Any]
+    runtime: RuleRuntimeDirectives
     command_template: str
 
 
@@ -101,10 +110,16 @@ def prepare_generated_tool_workflow(
             outputs_by_step_id=outputs_by_step_id,
             previous_outputs=generated_steps[-1].outputs if generated_steps else None,
         )
+        output_prefix = safe_step_id if len(requested_steps) > 1 else ""
         outputs = _resolve_outputs(
             rule_template=rule_template,
             result_dir=result_dir,
-            output_prefix=safe_step_id if len(requested_steps) > 1 else "",
+            output_prefix=output_prefix,
+        )
+        runtime = resolve_rule_runtime_directives(
+            rule_template=rule_template,
+            result_dir=result_dir,
+            output_prefix=output_prefix,
         )
         env_path.write_text(
             _render_env_yaml(source=str(tool.get("source") or ""), package_spec=package_spec),
@@ -121,6 +136,7 @@ def prepare_generated_tool_workflow(
                 inputs=inputs,
                 outputs=outputs,
                 params=params,
+                runtime=runtime,
                 command_template=str(rule_template["commandTemplate"]),
             )
         )
@@ -166,6 +182,7 @@ def prepare_generated_tool_workflow(
                             "inputs": step.inputs,
                             "outputs": {name: str(path) for name, path in step.outputs.items()},
                             "params": step.params,
+                            **runtime_config(step.runtime),
                         }
                         for step in generated_steps
                     ],
@@ -613,6 +630,7 @@ def _render_snakefile(
             inputs=step.inputs,
             outputs=step.outputs,
             params=step.params,
+            runtime=step.runtime,
             output_dir=output_dir,
             databases=databases,
             resources=resources,
@@ -620,18 +638,25 @@ def _render_snakefile(
         )
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
         output_lines = "".join(f"        {_safe_snakemake_name(name)}={str(path)!r},\n" for name, path in step.outputs.items())
+        runtime_lines = render_runtime_directives(step.runtime)
+        log_mkdir_lines = "".join(
+            f"        mkdir -p {shlex.quote(path)}\n"
+            for path in runtime_log_parent_dirs(step.runtime)
+        )
         rule_blocks.append(
             f"rule {step.rule_name}:\n"
             "    input:\n"
             f"{input_lines}"
             "    output:\n"
             f"{output_lines}"
+            f"{runtime_lines}"
             "    conda:\n"
             f"        {step.env_path.as_posix()!r}\n"
             "    shell:\n"
             "        r\"\"\"\n"
             "        set -euo pipefail\n"
             f"        mkdir -p {shlex.quote(output_dir)}\n"
+            f"{log_mkdir_lines}"
             f"        {command}\n"
             "        \"\"\"\n"
         )
@@ -650,6 +675,7 @@ def _render_command(
     inputs: dict[str, str],
     outputs: dict[str, Path],
     params: dict[str, Any],
+    runtime: RuleRuntimeDirectives,
     output_dir: str,
     databases: dict[str, dict[str, Any]],
     resources: dict[str, dict[str, Any]],
@@ -677,6 +703,7 @@ def _render_command(
         rendered = shlex.quote(str(value))
         replacements[f"{{params.{name}}}"] = rendered
         replacements[f"{{params.{name}:q}}"] = rendered
+    replacements.update(runtime_command_replacements(runtime))
     for role, database in databases.items():
         safe_role = _safe_identifier(role)
         for key in ["id", "name", "type", "templateId", "version", "path", "manifestPath", "checksum"]:
