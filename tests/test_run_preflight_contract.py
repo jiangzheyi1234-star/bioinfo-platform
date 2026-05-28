@@ -368,6 +368,71 @@ def test_preflight_accepts_capability_compatible_generated_step_ports(tmp_path: 
     )
 
 
+def test_preflight_uses_primary_capability_slots_for_generic_rule_ports(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    capability_output = {
+        "id": "emit_fastq",
+        "outputs": [{"name": "clean_reads", "data": "EDAM:data_2044", "format": "EDAM:format_1930", "primary": True}],
+    }
+    capability_input = {
+        "id": "consume_fastq",
+        "inputs": [{"name": "reads", "data": "EDAM:data_2044", "format": "EDAM:format_1930", "primary": True}],
+    }
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::source",
+            "name": "source",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "capabilities": [capability_output],
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.primary:q} {output.tool_output:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "tool_output", "path": "reads.fastq.gz", "kind": "sequence", "mimeType": "application/gzip"}],
+            },
+        },
+    )
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::consumer",
+            "name": "consumer",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "capabilities": [capability_input],
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.primary:q} {output.report:q}",
+                "inputs": [{"name": "primary", "type": "file"}],
+                "outputs": [{"name": "report", "path": "report.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
+        },
+    )
+
+    preflight_run_spec(
+        cfg,
+        pipeline,
+        {
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "inputs": [{"role": "input"}],
+            "workflow": {
+                "steps": [
+                    {"id": "source", "tool": {"id": "conda-forge::source"}, "inputs": {"primary": {"fromInput": "input"}}},
+                    {
+                        "id": "consumer",
+                        "tool": {"id": "conda-forge::consumer"},
+                        "inputs": {"primary": {"fromStep": "source", "output": "tool_output"}},
+                    },
+                ]
+            },
+        },
+    )
+
+
 def test_preflight_rejects_generated_step_cycles(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

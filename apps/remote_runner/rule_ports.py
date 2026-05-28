@@ -9,8 +9,8 @@ COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"]
 
 def build_output_port_specs(rule_template: dict[str, Any], tool: dict[str, Any]) -> dict[str, dict[str, str]]:
     return {
-        name: _port_spec(item, _capability_slot(tool, direction="outputs", name=name))
-        for item in _rule_io_items(rule_template, "outputs")
+        name: _port_spec(item, _capability_slot(tool, direction="outputs", name=name, fallback_index=index))
+        for index, item in enumerate(_rule_io_items(rule_template, "outputs"))
         if (name := str(item.get("name") or "").strip())
     }
 
@@ -37,10 +37,10 @@ def validate_input_binding_compatibility(
 
 
 def _input_port_spec(rule_template: dict[str, Any], tool: dict[str, Any], input_name: str) -> dict[str, str]:
-    for item in _rule_io_items(rule_template, "inputs"):
+    for index, item in enumerate(_rule_io_items(rule_template, "inputs")):
         if str(item.get("name") or "").strip() == input_name:
-            return _port_spec(item, _capability_slot(tool, direction="inputs", name=input_name))
-    return _port_spec({}, _capability_slot(tool, direction="inputs", name=input_name))
+            return _port_spec(item, _capability_slot(tool, direction="inputs", name=input_name, fallback_index=index))
+    return _port_spec({}, _capability_slot(tool, direction="inputs", name=input_name, fallback_index=0))
 
 
 def _port_spec(rule_item: dict[str, Any], capability_slot: dict[str, Any]) -> dict[str, str]:
@@ -69,13 +69,23 @@ def _ports_compatible(input_spec: dict[str, str], output_spec: dict[str, str]) -
     return True
 
 
-def _capability_slot(tool: dict[str, Any], *, direction: str, name: str) -> dict[str, Any]:
+def _capability_slot(tool: dict[str, Any], *, direction: str, name: str, fallback_index: int) -> dict[str, Any]:
+    slots: list[dict[str, Any]] = []
     for capability in tool.get("capabilities") or []:
         if not isinstance(capability, dict):
             continue
         for slot in capability.get(direction) or []:
-            if isinstance(slot, dict) and str(slot.get("name") or "").strip() == name:
+            if not isinstance(slot, dict):
+                continue
+            slots.append(slot)
+            if str(slot.get("name") or "").strip() == name:
                 return slot
+    generic_primary_name = name in {"primary", "tool_output", "output"}
+    for slot in slots:
+        if bool(slot.get("primary")) and (fallback_index == 0 or generic_primary_name):
+            return slot
+    if 0 <= fallback_index < len(slots):
+        return slots[fallback_index]
     return {}
 
 

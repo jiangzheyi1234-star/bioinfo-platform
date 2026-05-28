@@ -66,6 +66,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateGeneratedWorkflowDraft" in model
     assert "portsCompatible" in model
     assert "findCompatibleOutputBinding" in model
+    assert "capabilitySlotForRulePort" in model
+    assert "slot.primary === true" in model
+    assert "fallbackIndex" in model
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "capabilities" in model
