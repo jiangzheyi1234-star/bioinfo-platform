@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .rule_outputs import output_artifact_flags, render_rule_output_lines
 from .rule_runtime import (
     RuleRuntimeDirectives,
     render_runtime_directives,
@@ -598,7 +599,7 @@ def _output_spec(step: GeneratedWorkflowStep, output_name: str) -> dict[str, Any
 
 
 def _final_output_artifacts(outputs: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
-    artifacts: list[dict[str, str]] = []
+    artifacts: list[dict[str, Any]] = []
     for key, binding in outputs.items():
         spec = dict(binding.get("spec") or {})
         name = Path(str(binding["path"])).name
@@ -608,6 +609,7 @@ def _final_output_artifacts(outputs: dict[str, dict[str, Any]]) -> list[dict[str
                 "name": name,
                 "kind": str(spec.get("kind") or ""),
                 "mimeType": str(spec.get("mimeType") or ""),
+                **output_artifact_flags(spec),
             }
         )
     return artifacts
@@ -637,7 +639,7 @@ def _render_snakefile(
             resource_config=resource_config,
         )
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
-        output_lines = "".join(f"        {_safe_snakemake_name(name)}={str(path)!r},\n" for name, path in step.outputs.items())
+        output_lines = render_rule_output_lines(step.outputs, step.rule_template)
         runtime_lines = render_runtime_directives(step.runtime)
         log_mkdir_lines = "".join(
             f"        mkdir -p {shlex.quote(path)}\n"
