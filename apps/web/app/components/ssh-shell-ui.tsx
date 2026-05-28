@@ -41,8 +41,8 @@ function resolveRemoteStatus(status: SSHStatus | null) {
   const target = status.host ? `SSH: ${status.host}` : "SSH";
   if (!status.runner) {
     return {
-      label: target,
-      message: target,
+      label: "SSH 已连接",
+      message: "正在检查远程服务...",
       dotClass: "animate-pulse bg-blue-500",
       toneClass: "text-blue-700",
       stages: ["SSH 已连接", "正在检查远程服务", "正在打开安全通道"],
@@ -50,7 +50,7 @@ function resolveRemoteStatus(status: SSHStatus | null) {
   }
   if (status.runner.ready) {
     return {
-      label: target,
+      label: "已连接",
       message: target,
       dotClass: "bg-emerald-500",
       toneClass: "text-blue-700",
@@ -59,7 +59,7 @@ function resolveRemoteStatus(status: SSHStatus | null) {
   }
   if (status.runner.state === "recovering") {
     return {
-      label: target,
+      label: "SSH 已连接",
       message: status.runner.message || "远程服务正在恢复...",
       dotClass: "animate-pulse bg-blue-500",
       toneClass: "text-blue-700",
@@ -68,7 +68,7 @@ function resolveRemoteStatus(status: SSHStatus | null) {
   }
   const failed = status.runner.state === "repair_needed" || status.runner.state === "failed";
   return {
-    label: failed ? "SSH: 需要修复远程服务" : target,
+    label: failed ? "远程服务需要修复" : "SSH 已连接",
     message: status.runner.message || "",
     dotClass: failed ? "bg-amber-500" : "animate-pulse bg-blue-500",
     toneClass: failed ? "text-amber-700" : "text-blue-700",
@@ -80,6 +80,16 @@ function resolveRemoteStatus(status: SSHStatus | null) {
 
 function formatRunnerPort(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : "未记录";
+}
+
+function formatConnectedHost(status: SSHStatus | null): string {
+  if (!status?.connected) {
+    return "";
+  }
+  const rawHost = status.host || "";
+  const host = rawHost.includes("@") ? rawHost.split("@").at(-1) || rawHost : rawHost;
+  const port = typeof status.port === "number" && status.port !== 22 ? `:${status.port}` : "";
+  return host ? `${host}${port}` : "已连接";
 }
 
 export function RemoteStatusBar({
@@ -103,6 +113,7 @@ export function RemoteStatusBar({
   const [stopOutput, setStopOutput] = useState("");
   const [stopError, setStopError] = useState("");
   const remote = resolveRemoteStatus(status);
+  const connectedHost = formatConnectedHost(status);
   const runner = status?.runner;
   const connectedTone = Boolean(status?.connected && remote.toneClass === "text-blue-700");
   const remotePreparing = Boolean(
@@ -251,19 +262,18 @@ export function RemoteStatusBar({
           </div>
         </div>
       ) : null}
-
-      <div className="flex h-5 items-center justify-between gap-3 px-1 text-[11px] leading-none">
+      <div className="flex h-6 items-center justify-between gap-3 px-1 text-sm leading-none">
         <Button
           type="button"
           variant="ghost"
           onClick={() => setExpanded((value) => !value)}
           className={cn(
-            "h-full min-w-0 justify-start rounded-none px-2 text-left hover:bg-slate-200/70",
+            "h-full min-w-0 justify-start rounded-none px-2 text-left text-sm hover:bg-slate-200/70",
             remote.toneClass,
             connectedTone ? "bg-blue-100 hover:bg-blue-200/70" : ""
           )}
         >
-          <span className="shrink-0 font-medium">{remote.label}</span>
+          <span className="truncate font-medium">{connectedHost || "未连接"}</span>
         </Button>
         <div />
       </div>
@@ -304,6 +314,19 @@ export function SshSidebar({
   );
   const connecting = connectBusy || Boolean(status?.connecting || status?.auto_connect_in_progress);
   const canRepairRunner = Boolean(status?.connected && !status.runner?.ready);
+  const runnerReady = Boolean(status?.connected && status.runner?.ready);
+  const runnerFailed = Boolean(
+    status?.connected && (status.runner?.state === "repair_needed" || status.runner?.state === "failed")
+  );
+  const connectionLabel = connecting
+    ? "SSH 连接中"
+    : runnerReady
+      ? "已连接"
+      : status?.connected
+        ? "SSH 已连接"
+        : "连接";
+  const connectionIconBusy = connecting || remotePreparing;
+  const connectionIconClass = runnerFailed ? "text-amber-600" : status?.connected ? "text-blue-600" : "text-zinc-500";
 
   return (
     <aside className="border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r md:border-slate-200">
@@ -311,7 +334,8 @@ export function SshSidebar({
         <div className="rounded-xl px-2 py-1">
           <div
             className={cn(
-              "group flex h-8 items-center overflow-hidden rounded-lg",
+              "group flex items-center overflow-hidden rounded-lg",
+              status?.connected && !runnerReady ? "h-11" : "h-8",
               status?.connected ? "bg-transparent" : "hover:bg-slate-100/90"
             )}
           >
@@ -329,18 +353,21 @@ export function SshSidebar({
                 status?.connected ? "cursor-default" : ""
               )}
             >
-              {connecting || remotePreparing ? (
-                <RefreshCw strokeWidth={1.5} className="animate-spin text-blue-600 size-4 mr-2" />
+              {connectionIconBusy ? (
+                <RefreshCw strokeWidth={1.5} className={cn("size-4 mr-2", connectionIconClass, "animate-spin")} />
               ) : (
                 <Server
                   strokeWidth={1.5}
-                  className={cn("size-4 mr-2", status?.connected ? "text-blue-600" : "text-zinc-500")}
+                  className={cn("size-4 mr-2", connectionIconClass)}
                 />
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-900">
-                  {connecting ? "连接中" : remotePreparing ? "准备中" : "连接"}
-                </p>
+                <p className="truncate text-sm font-medium text-slate-900">{connectionLabel}</p>
+                {status?.connected && !runnerReady ? (
+                  <p className={cn("truncate text-[11px]", runnerFailed ? "text-amber-700" : "text-slate-500")}>
+                    {runnerFailed ? "远程服务需要修复" : "远程服务准备中"}
+                  </p>
+                ) : null}
               </div>
             </Button>
             {status?.connected ? (

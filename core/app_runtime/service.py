@@ -529,11 +529,18 @@ class RuntimeService(RunnerOperationsMixin):
                 server = self._build_primary_server_identity(ssh_status=status)
                 if server is not None:
                     server_id = str(server["serverId"])
-                    self._save_runner_preparing_snapshot(
-                        server_id=server_id,
-                        message="Checking remote runner...",
+                    registry_entry = self._get_server_registry_entry(server_id)
+                    snapshot = registry_entry.get("last_health_snapshot")
+                    runner_ready = bool(
+                        isinstance(snapshot, dict)
+                        and (snapshot.get("ready") or {}).get("ok") is True
                     )
-                    status = self._get_ssh_status_unlocked()
+                    if not runner_ready:
+                        self._save_runner_preparing_snapshot(
+                            server_id=server_id,
+                            message="Checking remote runner...",
+                        )
+                        status = self._get_ssh_status_unlocked()
             if server is not None:
                 self._ensure_runner_ready_in_background(server_id)
             return status
