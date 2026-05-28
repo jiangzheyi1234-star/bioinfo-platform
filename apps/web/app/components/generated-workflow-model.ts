@@ -371,22 +371,35 @@ export function findCompatibleOutputBinding(
   excludeStepId?: string
 ): { fromStep: string; output: string } | undefined {
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  let best: { fromStep: string; output: string; score: number } | undefined;
   for (let index = upstreamSteps.length - 1; index >= 0; index -= 1) {
     const step = upstreamSteps[index];
     if (!step || step.id === excludeStepId) continue;
     const tool = toolById.get(step.toolId);
-    const output = readRuleOutputs(tool).find((candidate) => portsCompatible(input, candidate));
-    if (output) return { fromStep: step.id, output: output.name };
+    for (const output of readRuleOutputs(tool)) {
+      const score = portCompatibilityScore(input, output);
+      if (score !== null && (!best || score > best.score)) {
+        best = { fromStep: step.id, output: output.name, score };
+      }
+    }
   }
-  return undefined;
+  return best ? { fromStep: best.fromStep, output: best.output } : undefined;
 }
 
 export function portsCompatible(input: RuleInputSpec, output: RuleOutputSpec): boolean {
-  return COMPATIBILITY_FIELDS.every((field) => {
+  return portCompatibilityScore(input, output) !== null;
+}
+
+export function portCompatibilityScore(input: RuleInputSpec, output: RuleOutputSpec): number | null {
+  let score = 0;
+  for (const field of COMPATIBILITY_FIELDS) {
     const inputValue = input[field];
     const outputValue = output[field];
-    return !inputValue || !outputValue || inputValue === outputValue;
-  });
+    if (inputValue && outputValue && inputValue !== outputValue) return null;
+    if (inputValue && outputValue) score += 4;
+    else if (inputValue || outputValue) score += 1;
+  }
+  return score;
 }
 
 export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {

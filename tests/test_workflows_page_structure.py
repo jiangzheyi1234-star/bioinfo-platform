@@ -80,6 +80,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "buildGeneratedWorkflowRunSpec" in model
     assert "validateGeneratedWorkflowDraft" in model
     assert "portsCompatible" in model
+    assert "portCompatibilityScore" in model
     assert "findCompatibleOutputBinding" in model
     assert "capabilitySlotForRulePort" in model
     assert "slot.primary === true" in model
@@ -131,6 +132,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "删除连线" in builder_ui
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
+    assert "compatibilityScore" in builder_ui
+    assert "应用推荐" in builder_ui
+    assert "（推荐）" in builder_ui
     assert "解绑" in builder_ui
     assert "Select" in builder_ui
     assert "Alert" in builder_ui
