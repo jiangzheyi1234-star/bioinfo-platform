@@ -14,8 +14,15 @@ import {
   toForm,
 } from "./ssh-shell-model";
 
-const SSH_CONNECT_REQUEST_TIMEOUT_MS = 180_000;
+const SSH_CONNECT_REQUEST_TIMEOUT_BUFFER_MS = 5_000;
+const SSH_CONNECT_REQUEST_TIMEOUT_MAX_MS = 30_000;
 const ENSURE_RUNNER_REQUEST_TIMEOUT_MS = 180_000;
+
+function sshConnectRequestTimeoutMs(timeoutSec: string): number {
+  const configured = Number(timeoutSec || 5);
+  const boundedSeconds = Number.isFinite(configured) ? Math.max(1, configured) : 5;
+  return Math.min(SSH_CONNECT_REQUEST_TIMEOUT_MAX_MS, boundedSeconds * 1000 + SSH_CONNECT_REQUEST_TIMEOUT_BUFFER_MS);
+}
 
 function canAutoConnectOnStartup(form: SSHFormState): boolean {
   return form.remember_auth;
@@ -279,7 +286,7 @@ export function useSshConnection(): UseSshConnectionResult {
       };
       const data = await requestLocalApiJson("POST", "/api/v1/ssh/connect", {
         body: payload,
-        timeoutMs: SSH_CONNECT_REQUEST_TIMEOUT_MS,
+        timeoutMs: sshConnectRequestTimeoutMs(form.timeout_sec),
       });
       setStatus((data?.item || null) as SSHStatus | null);
       setForm((current) => ({ ...current, password: "" }));

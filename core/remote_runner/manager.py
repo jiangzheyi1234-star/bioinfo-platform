@@ -1040,13 +1040,67 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                     "acquired": True,
                     "waited": attempt > 0,
                 }
+                owner = {
+                    "version": str(lock_dir).rsplit("/", 1)[-1],
+                    "createdAt": int(time.time()),
+                }
+                quoted_owner = shlex.quote(json.dumps(owner, separators=(",", ":")))
+                ssh_service.run(
+                    f"printf %s {quoted_owner} > {shlex.quote(f'{lock_dir}/owner.json')}",
+                    timeout=10,
+                )
                 return
             if marker != "busy":
                 raise RemoteRunnerManagerError(f"acquire remote install lock: unexpected response {marker!r}")
             bootstrap_metadata["install_lock"]["waited"] = True
+            reclaimed = self._reclaim_legacy_stale_install_lock(
+                ssh_service=ssh_service,
+                lock_dir=lock_dir,
+            )
+            if reclaimed:
+                bootstrap_metadata["install_lock"]["stale_reclaimed"] = True
+                continue
             if attempt < attempts - 1:
                 time.sleep(delay_seconds)
         raise RemoteRunnerManagerError(f"remote runner install lock is busy: {lock_dir}")
+
+    @staticmethod
+    def _reclaim_legacy_stale_install_lock(*, ssh_service, lock_dir: str, min_age_seconds: int = 120) -> bool:
+        command = r"""
+set -u
+LOCK=$1
+MIN_AGE=$2
+if [ ! -d "$LOCK" ]; then
+  printf missing
+  exit 0
+fi
+if [ -f "$LOCK/owner.json" ]; then
+  printf owned
+  exit 0
+fi
+NOW=$(date +%s)
+MTIME=$(stat -c %Y "$LOCK" 2>/dev/null || printf "$NOW")
+AGE=$((NOW - MTIME))
+if [ "$AGE" -lt "$MIN_AGE" ]; then
+  printf young
+  exit 0
+fi
+if ps -ef | grep -E 'remote_runner\.run|launch_remote_runner|h2ometa-remote-runner' | grep -v grep >/dev/null; then
+  printf active
+  exit 0
+fi
+rm -rf "$LOCK"
+printf reclaimed
+""".strip()
+        exit_code, stdout, _stderr = ssh_service.run(
+            "bash -s -- {lock} {age} <<'H2OMETA_RECLAIM_LOCK'\n{script}\nH2OMETA_RECLAIM_LOCK".format(
+                lock=shlex.quote(lock_dir),
+                age=shlex.quote(str(min_age_seconds)),
+                script=command,
+            ),
+            timeout=15,
+        )
+        return exit_code == 0 and stdout.strip() == "reclaimed"
 
     @staticmethod
     def _release_remote_install_lock(*, ssh_service, lock_dir: str) -> None:

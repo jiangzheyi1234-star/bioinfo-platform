@@ -47,7 +47,9 @@ export function DatabasesPage() {
         />
 
         {state.error ? <div className="py-1 text-sm text-red-600">{state.error}</div> : null}
-        {state.templateError ? <div className="py-1 text-sm text-red-600">{state.templateError}</div> : null}
+        {state.templateError && state.templateError !== state.error ? (
+          <div className="py-1 text-sm text-red-600">{state.templateError}</div>
+        ) : null}
 
         {state.adding ? <DatabasesAddPanel state={state} /> : null}
 

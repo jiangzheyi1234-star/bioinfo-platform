@@ -187,7 +187,14 @@ export function groupedDatabaseTemplates(templates: DatabaseTemplate[]) {
 
 export function databaseErrorMessage(err: unknown, fallback: string) {
   if (err instanceof Error && err.message) {
-    return err.message;
+    const message = err.message.trim();
+    if (/^Checking remote runner\.{0,3}$/i.test(message)) {
+      return "正在检查远程服务...";
+    }
+    if (/^Remote runner is not ready\.?$/i.test(message)) {
+      return "远程服务尚未就绪。";
+    }
+    return message;
   }
   return fallback;
 }
