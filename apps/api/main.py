@@ -23,14 +23,14 @@ from apps.api.models import (
     UpdateSettingsRequest,
     WorkflowDraftRequest,
 )
+from apps.api.run_submission_status import classify_run_submission_status
 from apps.api.runtime import get_runtime_service
 from apps.api.ssh_terminal_routes import stream_terminal_session_with_runtime
 from apps.api.tool_capability_routes import router as tool_capability_router
 from apps.api.workflow_catalog_routes import router as workflow_catalog_router
 from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
 from apps.api.response_cache import cached_response, invalidate_response_cache
-from apps.api.problem_details import ensure_request_id
-from apps.api.problem_details import problem_http_exception
+from apps.api.problem_details import ensure_request_id, problem_http_exception
 from apps.api.workflow_templates import (
     create_workflow_draft,
     get_workflow_template,
@@ -441,10 +441,7 @@ async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str,
     request_id = ensure_request_id(payload.requestId)
     try:
         result = await _run_runtime_payload(
-            lambda: _runtime().submit_run(
-                payload.model_dump(exclude_none=True)
-                | {"requestId": request_id}
-            ),
+            lambda: _runtime().submit_run(payload.model_dump(exclude_none=True) | {"requestId": request_id}),
             status_code=400,
             handled_errors=(RuntimeServiceError,),
             wrapper="raw",
@@ -453,11 +450,12 @@ async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str,
         detail = str(exc.detail)
         if isinstance(exc.detail, dict):
             detail = str(exc.detail.get("detail") or exc.detail.get("title") or detail)
+        status_code = classify_run_submission_status(detail=detail, fallback=exc.status_code)
         raise problem_http_exception(
-            status=exc.status_code,
+            status=status_code,
             title="Run submission failed",
             detail=detail,
-            code="RUN_SUBMIT_FAILED" if exc.status_code < 500 else "RUNNER_NOT_READY",
+            code="RUNNER_NOT_READY" if status_code >= 500 else "RUN_SUBMIT_FAILED",
             request_id=request_id,
             instance="/api/v1/runs",
         ) from exc

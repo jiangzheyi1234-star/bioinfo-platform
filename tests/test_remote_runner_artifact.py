@@ -51,6 +51,7 @@ def _write_workflow_artifact(
     version: str = "0.1.0",
     platform: str = "linux-64",
     service: str = "h2ometa-workflow-runtime",
+    snakemake_package: str = "9.19.0",
     include_snakemake_package: bool = True,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +66,7 @@ def _write_workflow_artifact(
             "condaUnpack": "workflow-env/bin/conda-unpack",
             "snakemake": "workflow-env/bin/snakemake",
         },
-        "packages": {"snakemake": "9.19.0"},
+        "packages": {"snakemake": snakemake_package},
     }
     with tarfile.open(path, "w:gz") as archive:
         manifest_bytes = json.dumps(manifest).encode("utf-8")
@@ -121,10 +122,10 @@ def test_artifact_provider_fails_when_checksum_does_not_match(
         RemoteRunnerArtifactProvider(search_roots=[]).resolve("dev")
 
 
-def test_artifact_provider_finds_versioned_dist_artifact(tmp_path: Path) -> None:
+def test_artifact_provider_finds_versioned_resources_artifact(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     version = "0.1.0-control-plane"
-    bundle = root / "dist" / "remote-runner" / f"h2ometa-remote-runner-{version}-linux-64.tar.gz"
+    bundle = root / "resources" / "remote-runner" / f"h2ometa-remote-runner-{version}-linux-64.tar.gz"
     _write_artifact(bundle, version=version, platform="linux-64", content=b"versioned")
 
     resolved = RemoteRunnerArtifactProvider(repo_root=root).resolve(version, platform="linux-64")
@@ -168,11 +169,19 @@ def test_workflow_runtime_provider_rejects_artifact_missing_snakemake_package(tm
         WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
 
 
+def test_workflow_runtime_provider_rejects_missing_snakemake_package_version(tmp_path: Path) -> None:
+    bundle = tmp_path / "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
+    _write_workflow_artifact(bundle, snakemake_package="")
+
+    with pytest.raises(RemoteRunnerArtifactError, match="must declare snakemake package version"):
+        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
+
+
 def test_checked_in_remote_runner_artifact_contains_current_runtime_contract() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     bundle = (
         repo_root
-        / "dist"
+        / "resources"
         / "remote-runner"
         / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
     )

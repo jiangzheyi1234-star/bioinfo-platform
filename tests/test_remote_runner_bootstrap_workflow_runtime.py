@@ -123,6 +123,7 @@ def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(monkeypatc
         "core.remote_runner.manager.RemoteRunnerManager._ensure_workflow_runtime",
         _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
     )
+    monkeypatch.setenv("H2OMETA_ALLOW_REMOTE_WORKFLOW_RUNTIME_REGISTRATION", "1")
     manager = RemoteRunnerManager()
     artifact = _fake_workflow_artifact()
     executed: list[str] = []

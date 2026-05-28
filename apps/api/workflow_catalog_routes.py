@@ -164,6 +164,7 @@ def _catalog_item_from_pipeline(item: dict[str, Any]) -> dict[str, Any]:
         "paramsSchema": item.get("paramsSchema") or {},
         "outputSchema": item.get("outputSchema") or {},
         "uiSchema": item.get("uiSchema") or {},
+        "resources": item.get("resources") or {},
         "tags": list(item.get("tags") or []),
         "moduleCount": None,
         "inputCount": _schema_count(item.get("inputsSchema")),

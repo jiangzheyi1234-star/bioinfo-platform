@@ -347,7 +347,7 @@ echo [INFO] H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%
 exit /b 0
 
 :resolve_release_artifact
-for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repoRoot=[System.IO.Path]::GetFullPath('%REPO_ROOT%'); $manifest=Get-Content -Raw -Path '%RELEASE_MANIFEST_PATH%' | ConvertFrom-Json; $artifact=$manifest.artifacts.%~2; if($null -eq $artifact){ throw 'artifact key not found in release manifest: %~2' }; $filename='{0}-{1}-{2}.tar.gz' -f $artifact.name, $artifact.version, $artifact.default_platform; foreach($relative in $manifest.relative_search_roots){ $candidate=Join-Path $repoRoot $relative; $path=Join-Path $candidate $filename; if(Test-Path $path){ [Console]::WriteLine($path); exit 0 } }"`) do set "%~1=%%I"
+for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repoRoot=[System.IO.Path]::GetFullPath('%REPO_ROOT%'); $manifest=Get-Content -Raw -Path '%RELEASE_MANIFEST_PATH%' | ConvertFrom-Json; $artifact=$manifest.artifacts.%~2; if($null -eq $artifact){ throw 'artifact key not found in release manifest: %~2' }; $filename='{0}-{1}-{2}.tar.gz' -f $artifact.name, $artifact.version, $artifact.default_platform; $roots=@(); foreach($envName in @($artifact.search_root_env_vars)){ $value=[Environment]::GetEnvironmentVariable([string]$envName); if($value){ $roots += $value } }; foreach($relative in $manifest.relative_search_roots){ $roots += (Join-Path $repoRoot $relative) }; foreach($candidate in $roots){ $path=Join-Path $candidate $filename; if(Test-Path $path){ [Console]::WriteLine($path); exit 0 } }"`) do set "%~1=%%I"
 exit /b 0
 
 :stop_existing_local_api
