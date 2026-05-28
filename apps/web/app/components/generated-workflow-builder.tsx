@@ -26,6 +26,7 @@ import {
   type RuleParamSpec,
 } from "./generated-workflow-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import { GeneratedWorkflowRuntimeEditor } from "./generated-workflow-runtime-editor";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
 
@@ -278,6 +279,11 @@ function WorkflowGraphWorkbench({
                   <div className="text-[11px] text-slate-400">params</div>
                 </div>
               </div>
+              <GeneratedWorkflowRuntimeEditor
+                runtime={selectedNode.runtime}
+                tool={selectedTool}
+                onChange={(runtime) => builder.setStepRuntime(selectedNode.id, runtime)}
+              />
               <PortBindingsEditor
                 edges={edges}
                 node={selectedNode}

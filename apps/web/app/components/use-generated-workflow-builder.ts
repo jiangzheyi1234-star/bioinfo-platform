@@ -19,6 +19,7 @@ import {
   type GeneratedWorkflowGraphDraft,
   type GeneratedWorkflowInputBinding,
   type GeneratedWorkflowParamValue,
+  type GeneratedWorkflowStepRuntime,
 } from "./generated-workflow-model";
 import {
   databaseMatchesWorkflowResource,
@@ -34,6 +35,7 @@ type BuilderAction =
   | { type: "set_step_tool"; stepId: string; tool: AddedTool; tools: AddedTool[] }
   | { type: "set_input"; stepId: string; inputName: string; binding: GeneratedWorkflowInputBinding }
   | { type: "set_step_param"; stepId: string; paramName: string; value: GeneratedWorkflowParamValue }
+  | { type: "set_step_runtime"; stepId: string; runtime: GeneratedWorkflowStepRuntime }
   | { type: "add_output"; output: GeneratedWorkflowExposedOutput }
   | { type: "remove_output"; index: number }
   | { type: "set_output"; index: number; output: GeneratedWorkflowExposedOutput }
@@ -116,6 +118,8 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
       dispatch({ type: "set_input", stepId, inputName, binding }),
     setStepParam: (stepId: string, paramName: string, value: GeneratedWorkflowParamValue) =>
       dispatch({ type: "set_step_param", stepId, paramName, value }),
+    setStepRuntime: (stepId: string, runtime: GeneratedWorkflowStepRuntime) =>
+      dispatch({ type: "set_step_runtime", stepId, runtime }),
     addExposedOutput: (output: GeneratedWorkflowExposedOutput) => dispatch({ type: "add_output", output }),
     removeExposedOutput: (index: number) => dispatch({ type: "remove_output", index }),
     setExposedOutput: (index: number, output: GeneratedWorkflowExposedOutput) => dispatch({ type: "set_output", index, output }),
@@ -177,6 +181,17 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
             : step
       ),
     }));
+  }
+  if (action.type === "set_step_runtime") {
+    return {
+      ...state,
+      graphDraft: {
+        ...state.graphDraft,
+        nodes: state.graphDraft.nodes.map((node) =>
+          node.id === action.stepId ? { ...node, runtime: action.runtime } : node
+        ),
+      },
+    };
   }
   if (action.type === "add_output") {
     return updateStepDraft(state, (draft) => ({ ...draft, exposeOutputs: [...draft.exposeOutputs, action.output] }));
