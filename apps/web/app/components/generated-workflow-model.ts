@@ -139,7 +139,9 @@ export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
   if (!Array.isArray(inputs)) return [];
   return inputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    .map((item) => normalizeRuleInputSpec(item, findCapabilitySlot(tool, "inputs", String(item.name || "").trim())))
+    .map((item, index) =>
+      normalizeRuleInputSpec(item, capabilitySlotForRulePort(tool, "inputs", String(item.name || "").trim(), index))
+    )
     .filter((item) => item.name.length > 0);
 }
 
@@ -148,7 +150,9 @@ export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
   if (!Array.isArray(outputs)) return [];
   return outputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    .map((item) => normalizeRuleOutputSpec(item, findCapabilitySlot(tool, "outputs", String(item.name || "").trim())))
+    .map((item, index) =>
+      normalizeRuleOutputSpec(item, capabilitySlotForRulePort(tool, "outputs", String(item.name || "").trim(), index))
+    )
     .filter((item) => item.name.length > 0);
 }
 
@@ -498,19 +502,22 @@ function readPortCompatibility(
   return spec;
 }
 
-function findCapabilitySlot(
+function capabilitySlotForRulePort(
   tool: AddedTool | undefined,
   direction: "inputs" | "outputs",
-  name: string
+  name: string,
+  fallbackIndex: number
 ): ToolCapabilitySlot | undefined {
   const normalizedName = name.trim();
-  if (!normalizedName) return undefined;
-  for (const capability of tool?.capabilities || []) {
-    for (const slot of capability[direction] || []) {
-      if (slot.name === normalizedName) return slot;
-    }
+  const slots = (tool?.capabilities || []).flatMap((capability) => capability[direction] || []);
+  if (normalizedName) {
+    const exact = slots.find((slot) => slot.name === normalizedName);
+    if (exact) return exact;
   }
-  return undefined;
+  const genericPrimaryName = ["primary", "tool_output", "output"].includes(normalizedName);
+  const primary = slots.find((slot) => slot.primary === true);
+  if (primary && (fallbackIndex === 0 || genericPrimaryName)) return primary;
+  return slots[fallbackIndex];
 }
 
 function stepInputBindingIsCompatible(
