@@ -72,6 +72,27 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
   );
 }
 
+export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
+  const template = item.ruleTemplate || item.ruleSpecDraft?.ruleTemplate || {};
+  const inputs = Array.isArray(template.inputs) ? template.inputs.length : 0;
+  const outputs = Array.isArray(template.outputs) ? template.outputs.length : 0;
+  const params = template.params && typeof template.params === "object" && !Array.isArray(template.params)
+    ? Object.keys(template.params).length
+    : 0;
+  const hasRuleSpec = Boolean(template.commandTemplate || inputs > 0 || outputs > 0 || params > 0);
+  return (
+    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+      <Workflow strokeWidth={1.5} className="h-3 w-3 text-slate-400" />
+      <span>{hasRuleSpec ? "RuleSpec" : "RuleSpec 待补全"}</span>
+      <span>{inputs} in</span>
+      <span>/</span>
+      <span>{outputs} out</span>
+      <span>/</span>
+      <span>{params} params</span>
+    </div>
+  );
+}
+
 export function PlatformChips({ platforms }: { platforms: string[] | undefined }) {
   const items = (platforms || []).map((platform) => platform.trim()).filter(Boolean);
   if (items.length === 0) {
@@ -119,6 +140,7 @@ export function ResultRow({
           <WrapperBadge item={item} />
         </div>
         <p className="mt-1 truncate text-xs text-slate-500">{item.summary || "Conda package"}</p>
+        <RuleNodeSummary item={item} />
       </div>
       <div className="ml-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 group-hover:text-slate-700">
         {selected ? (
@@ -147,7 +169,7 @@ export function ToolsLibrarySection({
   return (
     <section className="min-w-0">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-slate-900">项目依赖</h2>
+        <h2 className="text-sm font-medium text-slate-900">规则节点库</h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -169,7 +191,7 @@ export function ToolsLibrarySection({
           正在读取工具列表
         </div>
       ) : addedTools.length === 0 ? (
-        <div className="py-3 text-sm text-slate-400">还没有加入依赖</div>
+        <div className="py-3 text-sm text-slate-400">还没有加入工具节点</div>
       ) : (
         <div className="grid grid-cols-1 gap-x-12 gap-y-2 md:grid-cols-2">
           {addedTools.map((tool) => (
@@ -185,6 +207,7 @@ export function ToolsLibrarySection({
                   <WrapperBadge item={tool} />
                 </div>
                 <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
+                <RuleNodeSummary item={tool} />
               </div>
               <Button
                 variant="ghost"
@@ -255,7 +278,7 @@ export function ToolSearchResults({
           <div className="px-1 py-3 text-sm text-slate-400">输入至少 2 个字符开始搜索</div>
         ) : filtered.length === 0 ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
-            没有找到匹配依赖
+            没有找到匹配工具节点
           </div>
         ) : (
           <>
@@ -309,7 +332,7 @@ function SnakemakeWrapperPreview({
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div className="text-[11px] uppercase text-slate-400">Snakemake wrapper</div>
-        <div className="mt-1 text-xs leading-5 text-slate-500">未命中同名官方 wrapper；可作为 Conda 依赖使用。</div>
+        <div className="mt-1 text-xs leading-5 text-slate-500">未命中同名官方 wrapper；可作为 shell RuleSpec 节点使用。</div>
       </div>
     );
   }
@@ -403,7 +426,7 @@ export function ToolPreviewPanel({
 }) {
   return (
     <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40 min-[820px]:sticky min-[820px]:top-4 min-[820px]:self-start">
-      <h2 className="text-sm font-medium text-slate-900">依赖预览</h2>
+      <h2 className="text-sm font-medium text-slate-900">工具节点预览</h2>
       {selected ? (
         <div className="mt-4 space-y-4">
           <div>
@@ -414,6 +437,7 @@ export function ToolPreviewPanel({
               <WrapperBadge item={selected} />
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">{selected.summary || "Conda package"}</p>
+            <RuleNodeSummary item={selected} />
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -460,7 +484,7 @@ export function ToolPreviewPanel({
                   </option>
                 ))}
             </select>
-            <p className="text-[11px] leading-4 text-slate-400">选择版本会锁定依赖，选择不锁版本则只记录包名。</p>
+            <p className="text-[11px] leading-4 text-slate-400">选择版本会锁定节点运行环境，选择不锁版本则只记录包名。</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -491,7 +515,7 @@ dependencies:
             disabled={!canAddSelected}
             onClick={onAdd}
           >
-            {selectedAlreadyAdded ? "已加入" : "加入依赖"}
+            {selectedAlreadyAdded ? "已加入" : "加入工具节点"}
           </Button>
         </div>
       ) : (
