@@ -60,9 +60,11 @@ def prepare_generated_tool_workflow(
     config_path = work_dir / "run-config.json"
     snakefile = workflow_dir / "Snakefile"
     requested_steps = _resolve_requested_steps(run_spec)
+    workflow_spec = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
     resolved_databases = resolve_run_databases(cfg, run_spec)
     workflow_resource_config: dict[str, Any] = {"resources": {}, "config": {}}
     generated_steps: list[GeneratedWorkflowStep] = []
+    outputs_by_step_id: dict[str, dict[str, Path]] = {}
 
     for index, requested_step in enumerate(requested_steps):
         tool_request = _step_tool_request(requested_step)
@@ -83,11 +85,12 @@ def prepare_generated_tool_workflow(
         safe_step_id = _safe_identifier(step_id)
         env_path = env_dir / (f"{safe_tool_id}.yaml" if len(requested_steps) == 1 else f"{safe_step_id}-{safe_tool_id}.yaml")
         rule_template = _resolve_rule_template(tool=tool, tool_request=tool_request)
-        upstream_outputs = generated_steps[-1].outputs if generated_steps else None
         inputs = _resolve_step_inputs(
+            requested_step=requested_step,
             rule_template=rule_template,
             resolved_inputs=resolved_inputs,
-            upstream_outputs=upstream_outputs,
+            outputs_by_step_id=outputs_by_step_id,
+            previous_outputs=generated_steps[-1].outputs if generated_steps else None,
         )
         outputs = _resolve_outputs(
             rule_template=rule_template,
@@ -111,6 +114,9 @@ def prepare_generated_tool_workflow(
                 command_template=str(rule_template["commandTemplate"]),
             )
         )
+        if step_id in outputs_by_step_id:
+            raise ValueError(f"WORKFLOW_STEP_DUPLICATE: {step_id}")
+        outputs_by_step_id[step_id] = outputs
 
     workflow_resource_config = build_workflow_resource_config(
         cfg,
@@ -119,8 +125,13 @@ def prepare_generated_tool_workflow(
     )
     databases_config = workflow_resource_config["config"] if workflow_resource_config["config"] else resolved_databases
 
-    final_outputs = {name: str(path) for name, path in generated_steps[-1].outputs.items()}
-    final_artifacts = _final_output_artifacts(generated_steps[-1], final_outputs)
+    exposed_outputs = _resolve_exposed_outputs(
+        workflow_spec=workflow_spec,
+        steps=generated_steps,
+        outputs_by_step_id=outputs_by_step_id,
+    )
+    final_outputs = {name: str(binding["path"]) for name, binding in exposed_outputs.items()}
+    final_artifacts = _final_output_artifacts(exposed_outputs)
 
     config_path.write_text(
         json.dumps(
@@ -147,6 +158,14 @@ def prepare_generated_tool_workflow(
                         }
                         for step in generated_steps
                     ],
+                    "outputs": {
+                        name: {
+                            "step": str(binding["step"].step_id),
+                            "output": str(binding["output"]),
+                            "path": str(binding["path"]),
+                        }
+                        for name, binding in exposed_outputs.items()
+                    },
                 },
                 "outputs": final_outputs,
             },
@@ -157,6 +176,7 @@ def prepare_generated_tool_workflow(
     snakefile.write_text(
         _render_snakefile(
             steps=generated_steps,
+            final_outputs=final_outputs,
             output_dir=str(result_dir),
             databases=resolved_databases,
             resources=workflow_resource_config["resources"],
@@ -224,25 +244,34 @@ def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]
 
 def _resolve_step_inputs(
     *,
+    requested_step: dict[str, Any],
     rule_template: dict[str, Any],
     resolved_inputs: list[dict[str, Any]],
-    upstream_outputs: dict[str, Path] | None,
+    outputs_by_step_id: dict[str, dict[str, Path]],
+    previous_outputs: dict[str, Path] | None,
 ) -> dict[str, str]:
-    if upstream_outputs is None:
+    explicit_inputs = requested_step.get("inputs")
+    if explicit_inputs is not None:
+        return _resolve_explicit_step_inputs(
+            explicit_inputs,
+            resolved_inputs=resolved_inputs,
+            outputs_by_step_id=outputs_by_step_id,
+        )
+    if previous_outputs is None:
         return _resolve_inputs(rule_template=rule_template, resolved_inputs=resolved_inputs)
     specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
     if not specs:
         specs = [{"name": "primary"}]
-    primary_upstream = upstream_outputs.get("tool_output") or next(iter(upstream_outputs.values()))
+    primary_upstream = previous_outputs.get("tool_output") or next(iter(previous_outputs.values()))
     mapped: dict[str, str] = {}
     for index, spec in enumerate(specs):
         name = str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")).strip()
         source_output = str(spec.get("sourceOutput") or "").strip()
-        if source_output and source_output in upstream_outputs:
-            mapped[name] = str(upstream_outputs[source_output])
+        if source_output and source_output in previous_outputs:
+            mapped[name] = str(previous_outputs[source_output])
             continue
-        if name in upstream_outputs:
-            mapped[name] = str(upstream_outputs[name])
+        if name in previous_outputs:
+            mapped[name] = str(previous_outputs[name])
             continue
         if index == 0 or name == "primary":
             mapped[name] = str(primary_upstream)
@@ -254,6 +283,60 @@ def _resolve_step_inputs(
     if not mapped:
         raise ValueError("TOOL_INPUT_REQUIRED")
     return mapped
+
+
+def _resolve_explicit_step_inputs(
+    raw: Any,
+    *,
+    resolved_inputs: list[dict[str, Any]],
+    outputs_by_step_id: dict[str, dict[str, Path]],
+) -> dict[str, str]:
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("WORKFLOW_STEP_INPUTS_INVALID")
+    mapped: dict[str, str] = {}
+    for name, binding in raw.items():
+        input_name = _safe_snakemake_name(str(name or ""))
+        if not input_name:
+            raise ValueError("WORKFLOW_STEP_INPUT_NAME_REQUIRED")
+        mapped[input_name] = _resolve_input_binding(
+            binding,
+            resolved_inputs=resolved_inputs,
+            outputs_by_step_id=outputs_by_step_id,
+        )
+    return mapped
+
+
+def _resolve_input_binding(
+    binding: Any,
+    *,
+    resolved_inputs: list[dict[str, Any]],
+    outputs_by_step_id: dict[str, dict[str, Path]],
+) -> str:
+    if isinstance(binding, str):
+        return binding
+    if not isinstance(binding, dict):
+        raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
+    from_step = str(binding.get("fromStep") or binding.get("step") or "").strip()
+    if from_step:
+        step_outputs = outputs_by_step_id.get(_safe_identifier(from_step))
+        if step_outputs is None:
+            raise ValueError(f"WORKFLOW_STEP_INPUT_STEP_UNKNOWN: {from_step}")
+        output_name = str(binding.get("output") or binding.get("fromOutput") or "tool_output").strip()
+        if output_name not in step_outputs:
+            raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}")
+        return str(step_outputs[output_name])
+    if "fromUpload" in binding:
+        index = int(binding.get("fromUpload") or 0)
+        if index < 0 or index >= len(resolved_inputs):
+            raise ValueError(f"WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: {index}")
+        return str(resolved_inputs[index]["path"])
+    role = str(binding.get("fromInput") or binding.get("role") or "").strip()
+    if role:
+        for item in resolved_inputs:
+            if str(item.get("role") or "").strip() == role:
+                return str(item["path"])
+        raise ValueError(f"WORKFLOW_STEP_INPUT_ROLE_UNKNOWN: {role}")
+    raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
 
 
 def _resolve_inputs(*, rule_template: dict[str, Any], resolved_inputs: list[dict[str, Any]]) -> dict[str, str]:
@@ -298,12 +381,69 @@ def _resolve_outputs(*, rule_template: dict[str, Any], result_dir: Path, output_
     return outputs
 
 
-def _final_output_artifacts(step: GeneratedWorkflowStep, outputs: dict[str, str]) -> list[dict[str, str]]:
-    specs = [item for item in (step.rule_template.get("outputs") or []) if isinstance(item, dict)]
+def _resolve_exposed_outputs(
+    *,
+    workflow_spec: dict[str, Any],
+    steps: list[GeneratedWorkflowStep],
+    outputs_by_step_id: dict[str, dict[str, Path]],
+) -> dict[str, dict[str, Any]]:
+    raw = workflow_spec.get("outputs") or workflow_spec.get("exposeOutputs")
+    if raw in (None, {}, []):
+        last_step = steps[-1]
+        return {
+            name: {"step": last_step, "output": name, "path": path, "spec": _output_spec(last_step, name)}
+            for name, path in last_step.outputs.items()
+        }
+    items = raw.items() if isinstance(raw, dict) else enumerate(raw)
+    exposed: dict[str, dict[str, Any]] = {}
+    for fallback_key, binding in items:
+        if isinstance(binding, str):
+            step_id, output_name = _split_output_ref(binding)
+            alias = str(fallback_key)
+        elif isinstance(binding, dict):
+            step_id = str(binding.get("fromStep") or binding.get("step") or "").strip()
+            output_name = str(binding.get("output") or binding.get("fromOutput") or "").strip()
+            alias = str(binding.get("as") or binding.get("name") or fallback_key).strip()
+        else:
+            raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
+        if not step_id or not output_name or not alias:
+            raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
+        step = next((item for item in steps if item.step_id == _safe_identifier(step_id)), None)
+        step_outputs = outputs_by_step_id.get(_safe_identifier(step_id))
+        if step is None or step_outputs is None:
+            raise ValueError(f"WORKFLOW_OUTPUT_STEP_UNKNOWN: {step_id}")
+        if output_name not in step_outputs:
+            raise ValueError(f"WORKFLOW_OUTPUT_NAME_UNKNOWN: {step_id}.{output_name}")
+        exposed[alias] = {
+            "step": step,
+            "output": output_name,
+            "path": step_outputs[output_name],
+            "spec": _output_spec(step, output_name),
+        }
+    if not exposed:
+        raise ValueError("WORKFLOW_OUTPUTS_REQUIRED")
+    return exposed
+
+
+def _split_output_ref(value: str) -> tuple[str, str]:
+    if "." not in value:
+        raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
+    step_id, output_name = value.rsplit(".", 1)
+    return step_id, output_name
+
+
+def _output_spec(step: GeneratedWorkflowStep, output_name: str) -> dict[str, Any]:
+    for spec in [item for item in (step.rule_template.get("outputs") or []) if isinstance(item, dict)]:
+        if str(spec.get("name") or "") == output_name:
+            return spec
+    return {}
+
+
+def _final_output_artifacts(outputs: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
     artifacts: list[dict[str, str]] = []
-    for index, (key, path) in enumerate(outputs.items()):
-        spec = specs[index] if index < len(specs) else {}
-        name = Path(path).name
+    for key, binding in outputs.items():
+        spec = dict(binding.get("spec") or {})
+        name = Path(str(binding["path"])).name
         artifacts.append(
             {
                 "key": key,
@@ -318,12 +458,12 @@ def _final_output_artifacts(step: GeneratedWorkflowStep, outputs: dict[str, str]
 def _render_snakefile(
     *,
     steps: list[GeneratedWorkflowStep],
+    final_outputs: dict[str, str],
     output_dir: str,
     databases: dict[str, dict[str, Any]],
     resources: dict[str, dict[str, Any]],
     resource_config: dict[str, str],
 ) -> str:
-    final_outputs = steps[-1].outputs
     workflow_targets = "".join(f"        {str(path)!r},\n" for path in final_outputs.values())
     rule_blocks = []
     for step in steps:

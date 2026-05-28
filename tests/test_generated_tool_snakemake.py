@@ -269,3 +269,136 @@ def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(t
     assert "cp " in snakefile
     assert "count_bytes-wc-count.txt" in run_config["workflow"]["steps"][1]["inputs"]["primary"]
     assert run_config["outputs"]["final"].endswith("copy_summary-final-count.txt")
+
+
+def test_generated_workflow_supports_explicit_dag_bindings_and_exposed_outputs(tmp_path: Path, monkeypatch) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    tool_specs = [
+        (
+            "conda-forge::source",
+            "cp {input.primary:q} {output.seed:q}",
+            [{"name": "primary", "type": "file", "required": True}],
+            [{"name": "seed", "path": "seed.txt", "kind": "log", "mimeType": "text/plain"}],
+        ),
+        (
+            "conda-forge::branch-a",
+            "cp {input.primary:q} {output.left:q}",
+            [{"name": "primary", "type": "file", "required": True}],
+            [{"name": "left", "path": "left.txt", "kind": "log", "mimeType": "text/plain"}],
+        ),
+        (
+            "conda-forge::branch-b",
+            "cp {input.primary:q} {output.right:q}",
+            [{"name": "primary", "type": "file", "required": True}],
+            [{"name": "right", "path": "right.txt", "kind": "log", "mimeType": "text/plain"}],
+        ),
+        (
+            "conda-forge::merge",
+            "cat {input.left:q} {input.right:q} > {output.final:q}",
+            [
+                {"name": "left", "type": "file", "required": True},
+                {"name": "right", "type": "file", "required": True},
+            ],
+            [{"name": "final", "path": "merged.txt", "kind": "log", "mimeType": "text/plain"}],
+        ),
+    ]
+    for tool_id, command, inputs, outputs in tool_specs:
+        upsert_tool(
+            cfg,
+            {
+                "id": tool_id,
+                "name": tool_id.rsplit("::", 1)[-1],
+                "source": "conda-forge",
+                "sourceLabel": "conda-forge",
+                "version": "9.5",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatform": "linux-64",
+                "targetPlatformSupported": True,
+                "ruleTemplate": {
+                    "commandTemplate": command,
+                    "inputs": inputs,
+                    "outputs": outputs,
+                },
+                "status": "declared",
+                "message": "Tool declared.",
+            },
+        )
+    upload = persist_upload(
+        cfg,
+        filename="reads.txt",
+        content_base64="QUJDREVGCg==",
+        mime_type="text/plain",
+    )
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_generated_dag",
+        request_id="req_generated_dag",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "projectId": "proj_demo",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
+            "workflow": {
+                "steps": [
+                    {
+                        "id": "source",
+                        "tool": {"id": "conda-forge::source"},
+                        "inputs": {"primary": {"fromUpload": 0}},
+                    },
+                    {
+                        "id": "branch_a",
+                        "tool": {"id": "conda-forge::branch-a"},
+                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
+                    },
+                    {
+                        "id": "branch_b",
+                        "tool": {"id": "conda-forge::branch-b"},
+                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
+                    },
+                    {
+                        "id": "merge",
+                        "tool": {"id": "conda-forge::merge"},
+                        "inputs": {
+                            "left": {"fromStep": "branch_a", "output": "left"},
+                            "right": {"fromStep": "branch_b", "output": "right"},
+                        },
+                    },
+                ],
+                "outputs": {
+                    "merged": {"step": "merge", "output": "final"},
+                    "left_qc": {"step": "branch_a", "output": "left"},
+                },
+            },
+        },
+    )
+
+    work_dir = Path(cfg.work_dir) / "run_generated_dag"
+    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
+
+    assert len(calls) == 2
+    assert "rule step_01_source:" in snakefile
+    assert "rule step_04_merge:" in snakefile
+    assert "source-seed.txt" in run_config["workflow"]["steps"][1]["inputs"]["primary"]
+    assert "branch_a-left.txt" in run_config["workflow"]["steps"][3]["inputs"]["left"]
+    assert "branch_b-right.txt" in run_config["workflow"]["steps"][3]["inputs"]["right"]
+    assert run_config["outputs"]["merged"].endswith("merge-merged.txt")
+    assert run_config["outputs"]["left_qc"].endswith("branch_a-left.txt")
+    assert "merge-merged.txt" in snakefile
+    assert "branch_a-left.txt" in snakefile
