@@ -112,6 +112,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
     assert "GeneratedWorkflowRuleSpecPanel" in builder_ui
+    assert "selectedNode.params" in builder_ui
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
     assert "commandTemplate" in rule_spec_panel_ui
     assert "environment" in rule_spec_panel_ui
