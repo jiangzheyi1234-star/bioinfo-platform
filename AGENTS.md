@@ -1,6 +1,7 @@
 # Repository Instructions
 
 - Frontend lives in `apps/web`; backend in `apps/api`; runtime logic in `core`.
+- For local app startup, use `run.bat --web` for the browser UI or `run.bat --desktop` for desktop dev from a real Windows shell. See `docs/local-startup.md`; do not start API/Web manually unless debugging the launcher.
 - For Python commands, use repo-local `uv`: set `$env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'`, `$env:UV_PYTHON='python'`, and `$env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'` before `uv run ...`.
 - Do not run `pytest` from this Windows Codex environment, and do not invoke it via WSL from here. Ask the user to run any needed `pytest` command manually from the WSL Codex CLI instead.
 - Keep hand-written source files under 800 lines. Ignore lockfiles and generated files. If a source file is already over 800 lines, avoid making it larger; extract new logic into a new module when possible.
