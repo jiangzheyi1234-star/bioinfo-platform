@@ -41,6 +41,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
+    step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
     runtime_editor_path = COMPONENTS / "generated-workflow-runtime-editor.tsx"
     page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
@@ -54,6 +55,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert graph_node_path.exists()
     assert node_settings_path.exists()
     assert rule_spec_panel_path.exists()
+    assert step_params_editor_path.exists()
     assert runtime_editor_path.exists()
 
     model = model_path.read_text(encoding="utf-8")
@@ -62,6 +64,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
+    step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
     runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
@@ -115,6 +118,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
     assert "GeneratedWorkflowNodeSettings" in builder_ui
+    assert "StepParamsEditor" in builder_ui
+    assert "function StepParamsEditor" not in builder_ui
+    assert "export function StepParamsEditor" in step_params_editor_ui
+    assert "coerceParamValue" in step_params_editor_ui
     assert "export function GeneratedWorkflowNodeSettings" in node_settings_ui
     assert "节点设置" in node_settings_ui
     assert "节点 ID" in node_settings_ui
