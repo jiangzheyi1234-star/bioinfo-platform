@@ -14,6 +14,9 @@ import {
   toForm,
 } from "./ssh-shell-model";
 
+const SSH_CONNECT_REQUEST_TIMEOUT_MS = 180_000;
+const ENSURE_RUNNER_REQUEST_TIMEOUT_MS = 180_000;
+
 function canAutoConnectOnStartup(form: SSHFormState): boolean {
   return form.remember_auth;
 }
@@ -160,7 +163,9 @@ export function useSshConnection(): UseSshConnectionResult {
       if (!serverId) {
         return;
       }
-      const ensured = await requestLocalApiJson("POST", `/api/v1/servers/${serverId}/ensure-runner`);
+      const ensured = await requestLocalApiJson("POST", `/api/v1/servers/${serverId}/ensure-runner`, {
+        timeoutMs: ENSURE_RUNNER_REQUEST_TIMEOUT_MS,
+      });
       const runner = ensured?.data?.runner;
       if (runner) {
         setStatus((current) => (current?.connected ? { ...current, runner } : current));
@@ -272,7 +277,10 @@ export function useSshConnection(): UseSshConnectionResult {
         password: form.password,
         timeout_sec: Number(form.timeout_sec || 5),
       };
-      const data = await requestLocalApiJson("POST", "/api/v1/ssh/connect", { body: payload });
+      const data = await requestLocalApiJson("POST", "/api/v1/ssh/connect", {
+        body: payload,
+        timeoutMs: SSH_CONNECT_REQUEST_TIMEOUT_MS,
+      });
       setStatus((data?.item || null) as SSHStatus | null);
       setForm((current) => ({ ...current, password: "" }));
       const targetLabel = form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() || form.host.trim() : form.host.trim();

@@ -11,6 +11,7 @@ type LocalApiRequestOptions = {
   body?: unknown;
   cache?: RequestCache;
   signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
@@ -75,7 +76,8 @@ async function requestViaBrowserFetch<T>(
 ): Promise<T> {
   const controller = new AbortController();
   const abortFromParent = () => controller.abort(options.signal?.reason);
-  const timeout = window.setTimeout(() => controller.abort(new Error("request timed out")), DEFAULT_REQUEST_TIMEOUT_MS);
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(new Error("request timed out")), timeoutMs);
   if (options.signal?.aborted) {
     abortFromParent();
   } else {

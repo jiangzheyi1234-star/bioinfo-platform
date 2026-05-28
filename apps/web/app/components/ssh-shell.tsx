@@ -41,6 +41,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
           <SshSidebar
             pathname={pathname}
             status={connection.status}
+            connectBusy={connection.connectBusy}
             disconnectBusy={connection.disconnectBusy}
             ensureRunnerBusy={connection.ensureRunnerBusy}
             onOpenConnect={openConnectDialog}
