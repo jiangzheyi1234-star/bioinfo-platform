@@ -14,6 +14,8 @@ class ToolRegistryError(ValueError):
 
 ALLOWED_SOURCES = {"bioconda", "conda-forge"}
 RULE_IO_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CAPABILITY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+EDAM_ID_RE = re.compile(r"^EDAM:[A-Za-z_]+_[0-9]{4,}$")
 RULE_TOKEN_RE = re.compile(r"\{[^{}\s]+\}")
 DATABASE_TOKEN_RE = re.compile(
     r"^database\.[A-Za-z_][A-Za-z0-9_]*\.(id|name|type|templateId|version|path|manifestPath|checksum)(:q)?$"
@@ -28,6 +30,7 @@ def list_registered_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
 def add_registered_tool(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
     item = _normalize_tool_manifest(payload)
     item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=False)
+    item["capabilities"] = normalize_tool_capabilities(item.get("capabilities"))
     return upsert_tool(cfg, item)
 
 
@@ -119,9 +122,85 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
         "sourceUrl": str(payload.get("sourceUrl") or ""),
         "testCommand": str(payload.get("testCommand") or ""),
         "ruleTemplate": payload.get("ruleTemplate") or {},
+        "capabilities": payload.get("capabilities") or [],
         "status": str(payload.get("status") or "declared"),
         "message": str(payload.get("message") or "Tool declared."),
     }
+
+
+def normalize_tool_capabilities(raw: Any) -> list[dict[str, Any]]:
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        raise ToolRegistryError("TOOL_CAPABILITIES_INVALID")
+    capabilities: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ToolRegistryError("TOOL_CAPABILITY_INVALID")
+        capability_id = str(item.get("id") or item.get("capabilityId") or "").strip()
+        if not capability_id or not CAPABILITY_ID_RE.match(capability_id):
+            raise ToolRegistryError("TOOL_CAPABILITY_ID_INVALID")
+        if capability_id in seen:
+            raise ToolRegistryError(f"TOOL_CAPABILITY_DUPLICATE: {capability_id}")
+        seen.add(capability_id)
+        normalized = {
+            **item,
+            "id": capability_id,
+            "label": str(item.get("label") or item.get("name") or capability_id),
+            "operation": _normalize_edam_ref(item.get("operation"), field="operation"),
+            "topics": _normalize_edam_refs(item.get("topics"), field="topics"),
+            "inputs": _normalize_capability_slots(item.get("inputs"), direction="input"),
+            "outputs": _normalize_capability_slots(item.get("outputs"), direction="output"),
+        }
+        if "capabilityId" in normalized:
+            del normalized["capabilityId"]
+        capabilities.append(normalized)
+    return capabilities
+
+
+def _normalize_capability_slots(raw: Any, *, direction: str) -> list[dict[str, Any]]:
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        raise ToolRegistryError(f"TOOL_CAPABILITY_{direction.upper()}S_INVALID")
+    slots: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ToolRegistryError(f"TOOL_CAPABILITY_{direction.upper()}_INVALID")
+        name = _normalize_io_name(item.get("name") or item.get("slot"))
+        if name in seen:
+            raise ToolRegistryError(f"TOOL_CAPABILITY_SLOT_DUPLICATE: {name}")
+        seen.add(name)
+        slots.append(
+            {
+                **item,
+                "name": name,
+                "data": _normalize_edam_ref(item.get("data"), field="data"),
+                "format": _normalize_edam_ref(item.get("format"), field="format"),
+                "required": bool(item.get("required", True)),
+                "primary": bool(item.get("primary", len(slots) == 0)),
+            }
+        )
+    return slots
+
+
+def _normalize_edam_refs(raw: Any, *, field: str) -> list[str]:
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        raise ToolRegistryError(f"TOOL_CAPABILITY_EDAM_{field.upper()}_INVALID")
+    return [_normalize_edam_ref(item, field=field) for item in raw]
+
+
+def _normalize_edam_ref(raw: Any, *, field: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if not EDAM_ID_RE.match(value):
+        raise ToolRegistryError(f"TOOL_CAPABILITY_EDAM_{field.upper()}_INVALID: {value}")
+    return value
 
 
 def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any]:

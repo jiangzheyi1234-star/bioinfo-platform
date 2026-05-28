@@ -57,6 +57,7 @@ class CondaPackageHit:
             "platforms": self.platforms,
             "targetPlatform": self.target_platform,
             "targetPlatformSupported": self.target_platform_supported,
+            "capabilities": [],
             "online": True,
         }
 
