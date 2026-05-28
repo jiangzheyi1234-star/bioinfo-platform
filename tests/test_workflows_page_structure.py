@@ -131,6 +131,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "selectedNode.params" in builder_ui
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
     assert "commandTemplate" in rule_spec_panel_ui
+    assert "readRuleSpecProvenance" in rule_spec_panel_ui
+    assert "ruleSpecDraft" in rule_spec_panel_ui
+    assert "wrapperRef" in rule_spec_panel_ui
+    assert "wrapperPath" in rule_spec_panel_ui
+    assert "wrapperIdentifier" in rule_spec_panel_ui
+    assert "snakemakeWrappers" in rule_spec_panel_ui
+    assert "官方 wrapper 已锁定" in rule_spec_panel_ui
     assert "environment" in rule_spec_panel_ui
     assert "GeneratedWorkflowRuntimeEditor" in builder_ui
     assert "RuleGraphNodeCard" in builder_ui

@@ -5,18 +5,36 @@ type CondaEnvironmentSummary = {
   dependencies: string[];
 };
 
+type RuleSpecProvenanceSummary = {
+  source: string;
+  lockType: string;
+  wrapperRepository: string;
+  wrapperRef: string;
+  wrapperPath: string;
+  wrapperIdentifier: string;
+  packageSpec: string;
+  version: string;
+  sourceUrl: string;
+  environmentUrl: string;
+};
+
 export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | undefined }) {
-  const template = (tool?.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = tool?.ruleSpecDraft;
+  const template = (tool?.ruleTemplate || draft?.ruleTemplate || {}) as Record<string, unknown>;
   const commandTemplate = stringValue(template.commandTemplate);
+  const wrapperIdentifier = stringValue(template.wrapper);
+  const commandDisplay = commandTemplate || (wrapperIdentifier ? `wrapper: ${wrapperIdentifier}` : "");
   const environment = readCondaEnvironment(template.environment);
+  const provenance = readRuleSpecProvenance(tool, template);
   return (
     <div className="rounded-md bg-white px-3 py-2">
       <div className="mb-2 text-[11px] font-semibold uppercase text-slate-400">RuleSpec</div>
       <div className="grid gap-2">
+        <RuleSpecProvenance provenance={provenance} />
         <div className="rounded border border-slate-100 bg-slate-50 px-2 py-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">commandTemplate</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">commandTemplate / wrapper</div>
           <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-700">
-            {commandTemplate || "未声明 commandTemplate"}
+            {commandDisplay || "未声明 commandTemplate"}
           </pre>
         </div>
         <div className="rounded border border-slate-100 bg-slate-50 px-2 py-2">
@@ -33,6 +51,59 @@ export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | und
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RuleSpecProvenance({ provenance }: { provenance: RuleSpecProvenanceSummary | null }) {
+  if (!provenance) {
+    return (
+      <div className="rounded border border-dashed border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-400">
+        未声明 RuleSpec provenance
+      </div>
+    );
+  }
+  const isWrapper = provenance.lockType === "snakemake-wrapper" || provenance.source === "snakemake-wrapper";
+  return (
+    <div className="rounded border border-slate-100 bg-slate-50 px-2 py-2">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+        <div className="text-[10px] font-semibold uppercase text-slate-400">provenance</div>
+        <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
+          {isWrapper ? "官方 wrapper 已锁定" : provenance.lockType || provenance.source || "rule"}
+        </span>
+      </div>
+      <div className="grid gap-1">
+        <RuleSpecKeyValue label="source" value={provenance.source} />
+        <RuleSpecKeyValue label="wrapperRef" value={provenance.wrapperRef} />
+        <RuleSpecKeyValue label="wrapperPath" value={provenance.wrapperPath} />
+        <RuleSpecKeyValue label="wrapperIdentifier" value={provenance.wrapperIdentifier} />
+        <RuleSpecKeyValue label="packageSpec" value={provenance.packageSpec} />
+        <RuleSpecKeyValue label="version" value={provenance.version} />
+        <RuleSpecLink label="sourceUrl" href={provenance.sourceUrl} />
+        <RuleSpecLink label="environmentUrl" href={provenance.environmentUrl} />
+      </div>
+    </div>
+  );
+}
+
+function RuleSpecKeyValue({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-2 text-[11px]">
+      <div className="text-slate-400">{label}</div>
+      <div className="truncate font-mono text-slate-700">{value}</div>
+    </div>
+  );
+}
+
+function RuleSpecLink({ label, href }: { label: string; href: string }) {
+  if (!href) return null;
+  return (
+    <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-2 text-[11px]">
+      <div className="text-slate-400">{label}</div>
+      <a className="truncate font-mono text-blue-600 hover:underline" href={href} target="_blank" rel="noreferrer">
+        {href}
+      </a>
     </div>
   );
 }
@@ -56,6 +127,36 @@ function RuleSpecList({ label, values }: { label: string; values: string[] }) {
   );
 }
 
+function readRuleSpecProvenance(
+  tool: AddedTool | undefined,
+  template: Record<string, unknown>
+): RuleSpecProvenanceSummary | null {
+  if (!tool) return null;
+  const draft = tool.ruleSpecDraft;
+  const lock = objectValue(draft?.lock);
+  const wrapperIdentifier = stringValue(lock.wrapperIdentifier) || stringValue(template.wrapper);
+  const wrapperPath = stringValue(lock.wrapperPath);
+  const wrapperMatch = tool.snakemakeWrappers?.find((wrapper) => {
+    return (
+      (wrapperIdentifier && wrapper.wrapperIdentifier === wrapperIdentifier) ||
+      (wrapperPath && wrapper.wrapperPath === wrapperPath)
+    );
+  });
+  const provenance = {
+    source: stringValue(draft?.source) || stringValue(template.source),
+    lockType: stringValue(lock.type),
+    wrapperRepository: stringValue(lock.wrapperRepository) || stringValue(wrapperMatch?.wrapperRepository),
+    wrapperRef: stringValue(lock.wrapperRef) || stringValue(wrapperMatch?.wrapperRef),
+    wrapperPath: wrapperPath || stringValue(wrapperMatch?.wrapperPath),
+    wrapperIdentifier,
+    packageSpec: stringValue(lock.packageSpec) || stringValue(tool.selectedPackageSpec || tool.packageSpec),
+    version: stringValue(lock.version) || stringValue(tool.selectedVersion || tool.latestVersion || tool.version),
+    sourceUrl: stringValue(wrapperMatch?.wrapperUrl) || stringValue(tool.sourceUrl),
+    environmentUrl: stringValue(wrapperMatch?.environmentUrl),
+  };
+  return Object.values(provenance).some(Boolean) ? provenance : null;
+}
+
 function readCondaEnvironment(raw: unknown): CondaEnvironmentSummary | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const environment = raw as Record<string, unknown>;
@@ -69,6 +170,10 @@ function readCondaEnvironment(raw: unknown): CondaEnvironmentSummary | null {
 
 function stringArray(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.map(stringValue).filter(Boolean) : [];
+}
+
+function objectValue(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 }
 
 function stringValue(raw: unknown): string {
