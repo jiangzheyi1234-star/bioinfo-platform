@@ -19,7 +19,11 @@ from core.remote_runner.artifact import (
 )
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.catalog import RemoteRunnerCatalogMixin
-from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.client import RemoteRunnerHttpClient
+from core.remote_runner.proxy import RemoteRunnerProxyMixin
+from core.remote_runner.readiness import RemoteRunnerReadinessMixin
+from core.remote_runner.remote_io import RemoteRunnerRemoteIoMixin
+from core.remote_runner.workflow_runtime_policy import allow_remote_workflow_runtime_registration, workflow_runtime_artifact_required_message
 
 
 class RemoteRunnerManagerError(RuntimeError):
@@ -28,7 +32,7 @@ class RemoteRunnerManagerError(RuntimeError):
         self.bootstrap_metadata = bootstrap_metadata
 
 
-class RemoteRunnerManager(RemoteRunnerCatalogMixin):
+class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin, RemoteRunnerProxyMixin, RemoteRunnerCatalogMixin):
     def __init__(
         self,
         artifact_provider: RemoteRunnerArtifactProvider | None = None,
@@ -450,28 +454,6 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             else:
                 message = f"{message}; {outcome}"
         return RemoteRunnerManagerError(message, bootstrap_metadata=bootstrap_metadata)
-
-    @classmethod
-    def _read_remote_json_if_exists(cls, ssh_service, path: str, label: str) -> dict[str, Any] | None:
-        exit_code, stdout, _stderr = ssh_service.run(f"cat {shlex.quote(path)}", timeout=10)
-        if exit_code != 0:
-            return None
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            raise RemoteRunnerManagerError(f"{label} is invalid JSON") from exc
-        if not isinstance(payload, dict):
-            raise RemoteRunnerManagerError(f"{label} is not an object")
-        return payload
-
-    @classmethod
-    def _switch_current_release(cls, *, ssh_service, target: str, link_path: str) -> None:
-        cls._run_checked(
-            ssh_service,
-            cls._atomic_symlink_command(target=target, link_path=link_path),
-            step="switch current release",
-            timeout=15,
-        )
 
     @classmethod
     def _start_remote_runner_service(
@@ -1073,76 +1055,6 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         except Exception:
             return
 
-    @classmethod
-    def _write_remote_text_atomic(
-        cls,
-        ssh_service,
-        *,
-        path: str,
-        content: str,
-        step: str,
-        timeout: int,
-    ) -> None:
-        tmp_path = f"{path}.tmp"
-        quoted_content = shlex.quote(content)
-        quoted_tmp = shlex.quote(tmp_path)
-        quoted_path = shlex.quote(path)
-        cls._run_checked(
-            ssh_service,
-            "printf %s {content} > {tmp} && test -s {tmp} && mv -f {tmp} {path}".format(
-                content=quoted_content,
-                tmp=quoted_tmp,
-                path=quoted_path,
-            ),
-            step=step,
-            timeout=timeout,
-        )
-
-    @classmethod
-    def _upload_remote_file_atomic(
-        cls,
-        ssh_service,
-        *,
-        local_path: Path,
-        remote_path: str,
-        step: str,
-        timeout: int,
-    ) -> None:
-        tmp_path = f"{remote_path}.tmp"
-        ssh_service.upload(str(local_path), tmp_path)
-        cls._run_checked(
-            ssh_service,
-            "test -s {tmp} && mv -f {tmp} {path}".format(
-                tmp=shlex.quote(tmp_path),
-                path=shlex.quote(remote_path),
-            ),
-            step=step,
-            timeout=timeout,
-        )
-
-    @staticmethod
-    def _atomic_symlink_command(*, target: str, link_path: str) -> str:
-        tmp_link = f"{link_path}.tmp"
-        return (
-            "rm -f {tmp} && "
-            "ln -sfn {target} {tmp} && "
-            "test -L {tmp} && "
-            "mv -Tf {tmp} {link}"
-        ).format(
-            target=shlex.quote(target),
-            tmp=shlex.quote(tmp_link),
-            link=shlex.quote(link_path),
-        )
-
-    @classmethod
-    def _cleanup_remote_bundle(cls, ssh_service, path: str, *, step: str) -> None:
-        cls._run_checked(
-            ssh_service,
-            f"rm -f {shlex.quote(path)}",
-            step=step,
-            timeout=10,
-        )
-
     @staticmethod
     def _reuse_failed(bootstrap_metadata: dict[str, Any], reason: str) -> None:
         bootstrap_metadata["reuse_check"] = {"ok": False, "reason": reason}
@@ -1179,6 +1091,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
         try:
             return self._workflow_artifact_provider.resolve(version=version, platform=platform)
         except RemoteRunnerArtifactError as exc:
+            if not allow_remote_workflow_runtime_registration(): raise RemoteRunnerManagerError(workflow_runtime_artifact_required_message()) from exc
             return self._resolve_remote_workflow_artifact(
                 ssh_service=ssh_service,
                 version=version,
@@ -1208,6 +1121,9 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             raise RemoteRunnerManagerError("remote workflow runtime manifest platform mismatch")
         if str(manifest.get("provider") or "") != "conda-pack":
             raise RemoteRunnerManagerError("remote workflow runtime manifest must declare conda-pack provider")
+        packages = manifest.get("packages") if isinstance(manifest.get("packages"), dict) else {}
+        if not str(packages.get("snakemake") or "").strip():
+            raise RemoteRunnerManagerError("remote workflow runtime manifest must declare snakemake package version")
 
         sha256 = cls._read_remote_workflow_artifact_sha(
             ssh_service=ssh_service,
@@ -1285,6 +1201,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             "workflow_runtime_source": str(expected.get("source") or ""),
             "workflow_runtime_version": str(expected.get("version") or ""),
             "snakemake_command": str(expected.get("snakemake_command") or ""),
+            "snakemake_version": str(expected.get("snakemake_version") or ""),
         }
         for key, value in expected_config.items():
             if str(config.get(key) or "") != value:
@@ -1329,7 +1246,7 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
                 reusable = False
                 workflow_metadata["action"] = "reinstalled"
         if not reusable:
-            if self._can_register_existing_workflow_runtime(ssh_service=ssh_service, runtime=runtime):
+            if allow_remote_workflow_runtime_registration() and self._can_register_existing_workflow_runtime(ssh_service=ssh_service, runtime=runtime):
                 workflow_metadata["action"] = "registered"
                 runtime_verified = True
             else:
@@ -1462,20 +1379,6 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             raise last_error
         raise RemoteRunnerManagerError("verify workflow runtime snakemake failed")
 
-    @classmethod
-    def _read_remote_json(cls, ssh_service, path: str, label: str) -> dict[str, Any]:
-        exit_code, stdout, stderr = ssh_service.run(f"cat {shlex.quote(path)}", timeout=10)
-        if exit_code != 0:
-            detail = stderr.strip() or stdout.strip() or f"{label} not readable"
-            raise RemoteRunnerManagerError(detail)
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            raise RemoteRunnerManagerError(f"{label} is invalid JSON") from exc
-        if not isinstance(payload, dict):
-            raise RemoteRunnerManagerError(f"{label} is not an object")
-        return payload
-
     @staticmethod
     def _verify_remote_manifest(manifest: dict[str, Any], *, version: str, platform: str) -> None:
         if str(manifest.get("service") or "") != "h2ometa-remote":
@@ -1525,346 +1428,13 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             "workflow_runtime_provider",
             "workflow_runtime_source",
             "workflow_runtime_version",
-            "snakemake_command",
+            "snakemake_command", "snakemake_version",
             "workflow_profile_dir",
             "workflow_profile_name",
         )
         for key in required_keys:
             if actual.get(key) != expected.get(key):
                 raise RemoteRunnerManagerError(f"remote runner config verification failed: {key}")
-
-    def get_health(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_health()
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def upload_content(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.post_json(
-                "/api/v1/uploads",
-                {
-                    "filename": kwargs["filename"],
-                    "contentBase64": kwargs["content_base64"],
-                    "mimeType": kwargs.get("mime_type") or "application/octet-stream",
-                },
-            )["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def list_pipelines(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json("/api/v1/pipelines")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_pipeline(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json(f"/api/v1/pipelines/{kwargs['pipeline_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def list_tools(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json("/api/v1/tools")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def add_tool(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.post_json("/api/v1/tools", kwargs["payload"])["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def delete_tool(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.delete_json(f"/api/v1/tools/{kwargs['tool_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def check_tool(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.post_json(f"/api/v1/tools/{kwargs['tool_id']}/check", {})["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def submit_run(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.post_json(
-                "/api/v1/runs",
-                kwargs["payload"],
-                extra_headers={
-                    "Idempotency-Key": kwargs["idempotency_key"],
-                    "X-Request-Id": kwargs["request_id"],
-                },
-            )
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def list_runs(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json("/api/v1/runs")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_run(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json(f"/api/v1/runs/{kwargs['run_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_run_events(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/events")["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_run_logs(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        stream = kwargs.get("stream") or "stdout"
-        cursor = kwargs.get("cursor")
-        path = f"/api/v1/runs/{kwargs['run_id']}/logs?stream={stream}"
-        if cursor:
-            path += f"&cursor={cursor}"
-        try:
-            return client.get_json(path)["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_run_results(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/results")["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def list_results(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json("/api/v1/results")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_result(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json(f"/api/v1/results/{kwargs['result_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def get_result_preview(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        path = f"/api/v1/results/{kwargs['result_id']}/preview"
-        artifact_id = kwargs.get("artifact_id")
-        if artifact_id:
-            path += f"?artifact_id={artifact_id}"
-        try:
-            return client.get_json(path)["data"]
-        except RemoteRunnerClientError as exc:
-            raise RemoteRunnerManagerError(str(exc)) from exc
-
-    def rotate_token(self, **kwargs) -> dict[str, Any]:
-        try:
-            server_id = str(kwargs["server_id"])
-            record = kwargs["server_record"]
-            ssh_service = kwargs["ssh_service"]
-            version = str(record.get("bootstrap_version") or "").strip()
-            if not version:
-                raise RemoteRunnerManagerError("runner is not bootstrapped")
-            remote_port = self._require_service_port(record)
-            token = secrets.token_urlsafe(24)
-            home_dir = self._resolve_remote_home(ssh_service)
-            remote_config = f"{home_dir}/.h2ometa/runner/shared/config/runner.json"
-            tooling = (record.get("bootstrap_metadata") or {}).get("tooling") or {}
-            service_runtime = tooling.get("service_runtime") or {}
-            workflow_runtime = tooling.get("workflow_runtime") or {}
-            old_config_path: Path | None = None
-            with tempfile.NamedTemporaryFile("w+b", delete=False, suffix=".json") as handle:
-                old_config_path = Path(handle.name)
-            try:
-                ssh_service.download(remote_config, str(old_config_path))
-            except Exception:
-                old_config_path = None
-
-            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
-                json.dump(
-                    self._build_remote_config_payload(
-                        version=version,
-                        mode=str(record.get("runner_mode") or "background_process"),
-                        remote_port=remote_port,
-                        token=token,
-                        remote_shared=f"{home_dir}/.h2ometa/runner/shared",
-                        remote_release=f"{home_dir}/.h2ometa/runner/releases/{version}",
-                        remote_runtime_state=f"{home_dir}/.h2ometa/runner/shared/runtime/runner-state.json",
-                        runner_python=str(service_runtime.get("python") or ""),
-                        managed_conda_command=str(workflow_runtime.get("command") or ""),
-                        managed_conda_root_prefix=str(workflow_runtime.get("root_prefix") or ""),
-                        workflow_runtime_provider=str(workflow_runtime.get("provider") or ""),
-                        workflow_runtime_source=str(workflow_runtime.get("source") or ""),
-                        workflow_runtime_version=str(workflow_runtime.get("version") or ""),
-                        snakemake_command=str(workflow_runtime.get("snakemake_command") or ""),
-                        snakemake_version=str(workflow_runtime.get("snakemake_version") or ""),
-                        workflow_profile_dir=str(record.get("bootstrap_metadata", {}).get("workflow_profile", {}).get("path") or ""),
-                        workflow_profile_name=str(record.get("bootstrap_metadata", {}).get("workflow_profile", {}).get("name") or "profile.v9+.yaml"),
-                    ),
-                    handle,
-                    indent=2,
-                )
-                local_config_path = Path(handle.name)
-            try:
-                self._upload_remote_file_atomic(
-                    ssh_service,
-                    local_path=local_config_path,
-                    remote_path=remote_config,
-                    step="write rotated remote runner config",
-                    timeout=10,
-                )
-                if str(record.get("runner_mode")) == "systemd_user":
-                    ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
-                else:
-                    ssh_service.run("pkill -f '[r]emote_runner.run' || true", timeout=10)
-                    ssh_service.run(
-                        f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
-                        timeout=30,
-                    )
-                tunnel = ssh_service.ensure_local_tunnel(
-                    f"runner-{server_id}",
-                    remote_host="127.0.0.1",
-                    remote_port=remote_port,
-                )
-                client = RemoteRunnerHttpClient(
-                    base_url=f"http://127.0.0.1:{tunnel.local_port}",
-                    token=token,
-                    timeout=5,
-                )
-                client.get_health()
-            except Exception:
-                if old_config_path and old_config_path.exists():
-                    try:
-                        self._upload_remote_file_atomic(
-                            ssh_service,
-                            local_path=old_config_path,
-                            remote_path=remote_config,
-                            step="restore previous remote runner config",
-                            timeout=10,
-                        )
-                        if str(record.get("runner_mode")) == "systemd_user":
-                            ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
-                        else:
-                            ssh_service.run(
-                                f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
-                                timeout=30,
-                            )
-                    except Exception:
-                        pass
-                raise
-            token_ref = store_runner_token(server_id=server_id, token=token)
-            return {"token_ref": token_ref}
-        except RemoteRunnerManagerError:
-            raise
-        except Exception as exc:
-            raise RemoteRunnerManagerError(str(exc) or "runner token rotation failed") from exc
-
-    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any], timeout: int = 5) -> RemoteRunnerHttpClient:
-        try:
-            token = resolve_runner_token(str(record.get("token_ref", "") or ""))
-            if not token:
-                raise RemoteRunnerManagerError("runner token not available")
-            remote_port = self._require_service_port(record)
-            tunnel = ssh_service.ensure_local_tunnel(
-                f"runner-{server_id}",
-                remote_host="127.0.0.1",
-                remote_port=remote_port,
-            )
-            return RemoteRunnerHttpClient(
-                base_url=f"http://127.0.0.1:{tunnel.local_port}",
-                token=token,
-                timeout=timeout,
-            )
-        except RemoteRunnerManagerError:
-            raise
-        except Exception as exc:
-            raise RemoteRunnerManagerError(str(exc) or "runner tunnel setup failed") from exc
 
     @staticmethod
     def _require_service_port(record: dict[str, Any]) -> int:
@@ -1967,142 +1537,3 @@ class RemoteRunnerManager(RemoteRunnerCatalogMixin):
             "workflow_profile_dir": workflow_profile_dir,
             "workflow_profile_name": workflow_profile_name,
         }
-
-    @classmethod
-    def _wait_for_runtime_state(
-        cls,
-        *,
-        ssh_service,
-        remote_runtime_state: str,
-        version: str,
-        attempts: int = 8,
-        delay_seconds: float = 1.0,
-    ) -> dict[str, Any]:
-        last_error = "remote runner state not available"
-        for attempt in range(attempts):
-            exit_code, stdout, stderr = ssh_service.run(
-                f"cat {shlex.quote(remote_runtime_state)}",
-                timeout=10,
-            )
-            if exit_code == 0:
-                try:
-                    state = cls._parse_runtime_state(stdout, version=version)
-                    cls._verify_runtime_state_pid(ssh_service, state)
-                    return state
-                except RemoteRunnerManagerError as exc:
-                    last_error = str(exc)
-            else:
-                last_error = stderr.strip() or stdout.strip() or last_error
-            if attempt != attempts - 1:
-                time.sleep(delay_seconds)
-        raise RemoteRunnerManagerError(f"remote runner runtime state unavailable: {last_error}")
-
-    @staticmethod
-    def _parse_runtime_state(raw: str, *, version: str) -> dict[str, Any]:
-        try:
-            state = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise RemoteRunnerManagerError("remote runner runtime state is invalid JSON") from exc
-        if not isinstance(state, dict):
-            raise RemoteRunnerManagerError("remote runner runtime state is not an object")
-        if str(state.get("service") or "") != "h2ometa-remote":
-            raise RemoteRunnerManagerError("remote runner runtime state has unexpected service")
-        if str(state.get("version") or "") != version:
-            raise RemoteRunnerManagerError("remote runner runtime state has unexpected version")
-        if str(state.get("bindHost") or "") != "127.0.0.1":
-            raise RemoteRunnerManagerError("remote runner runtime state has unexpected bind host")
-        try:
-            port = int(state.get("bindPort"))
-        except (TypeError, ValueError) as exc:
-            raise RemoteRunnerManagerError("remote runner runtime state has invalid bind port") from exc
-        if port <= 0 or port > 65535:
-            raise RemoteRunnerManagerError("remote runner runtime state has invalid bind port")
-        state["bindPort"] = port
-        return state
-
-    @staticmethod
-    def _verify_runtime_state_pid(ssh_service, state: dict[str, Any]) -> None:
-        try:
-            pid = int(state.get("pid"))
-        except (TypeError, ValueError) as exc:
-            raise RemoteRunnerManagerError("remote runner runtime state has invalid pid") from exc
-        if pid <= 0:
-            raise RemoteRunnerManagerError("remote runner runtime state has invalid pid")
-        exit_code, _stdout, stderr = ssh_service.run(f"kill -0 {pid}", timeout=10)
-        if exit_code != 0:
-            detail = stderr.strip() or f"pid {pid}"
-            raise RemoteRunnerManagerError(f"remote runner process is not running: {detail}")
-
-    @staticmethod
-    def _wait_for_runner_health(
-        client: RemoteRunnerHttpClient,
-        *,
-        attempts: int = 8,
-        delay_seconds: float = 1.0,
-    ) -> dict[str, Any]:
-        last_error: Exception | None = None
-        for attempt in range(attempts):
-            try:
-                health = client.get_health()
-                RemoteRunnerManager._require_ready_health(health)
-                return health
-            except Exception as exc:
-                last_error = exc
-                if attempt == attempts - 1:
-                    break
-                time.sleep(delay_seconds)
-        raise RemoteRunnerManagerError(str(last_error) or "remote runner health check failed")
-
-    @staticmethod
-    def _require_ready_health(health: dict[str, Any]) -> None:
-        ready = health.get("ready") if isinstance(health, dict) else None
-        if not isinstance(ready, dict) or bool(ready.get("ok")):
-            return
-        raise RemoteRunnerManagerError(RemoteRunnerManager._describe_not_ready_health(health))
-
-    @staticmethod
-    def _describe_not_ready_health(health: dict[str, Any]) -> str:
-        if not isinstance(health, dict):
-            return "remote runner control plane is not ready"
-        detail_parts: list[str] = []
-        workflow = health.get("workflowRuntime")
-        if isinstance(workflow, dict) and not bool(workflow.get("ok")):
-            detail_parts.append(
-                f"workflow runtime not ready: {str(workflow.get('message') or 'Workflow runtime is not ready.').strip()}"
-            )
-        pipeline_registry = health.get("pipelineRegistry")
-        if isinstance(pipeline_registry, dict) and not bool(pipeline_registry.get("ok")):
-            detail_parts.append(
-                f"pipeline registry not ready: {str(pipeline_registry.get('message') or 'Pipeline registry is not ready.').strip()}"
-            )
-        ready = health.get("ready")
-        ready_message = ""
-        if isinstance(ready, dict):
-            ready_message = str(ready.get("message") or "").strip()
-        if ready_message and ready_message not in detail_parts:
-            detail_parts.append(ready_message)
-        return "; ".join(part for part in detail_parts if part) or "remote runner control plane is not ready"
-
-    @staticmethod
-    def _verify_database_template_catalog_for_reuse(client: RemoteRunnerHttpClient) -> None:
-        payload = client.get_json("/api/v1/database-templates")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        items = data.get("items") if isinstance(data, dict) else None
-        if not isinstance(items, list):
-            raise RemoteRunnerManagerError("runner database template catalog payload is invalid")
-        for item in items:
-            if not isinstance(item, dict):
-                raise RemoteRunnerManagerError("runner database template catalog item is invalid")
-            for field in ("category", "pathLabel", "runtimeValue"):
-                if not str(item.get(field) or "").strip():
-                    raise RemoteRunnerManagerError(f"runner database template catalog missing {field}")
-            if str(item.get("pathKind") or "") == "prefix" and not item.get("prefixPatternSets"):
-                raise RemoteRunnerManagerError("runner database template catalog missing prefixPatternSets")
-
-    @staticmethod
-    def _run_checked(ssh_service, cmd: str, *, step: str, timeout: int) -> tuple[int, str, str]:
-        exit_code, stdout, stderr = ssh_service.run(cmd, timeout=timeout)
-        if exit_code != 0:
-            detail = stderr.strip() or stdout.strip() or f"{step} failed"
-            raise RemoteRunnerManagerError(f"{step}: {detail}")
-        return exit_code, stdout, stderr

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import Response
+from fastapi import HTTPException, Response
 
 from apps.api.main import (
     accept_server_host_key,
@@ -785,6 +785,34 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     assert response.headers["X-Request-Id"] == "req_submit_001"
     assert payload["data"]["status"] == "queued"
     assert payload["data"]["requestId"] == "req_submit_001"
+
+
+def test_submit_run_readiness_failure_returns_503(monkeypatch, tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+
+    def fail_submit_run(payload):
+        raise RuntimeServiceError("Remote workflow runtime is unavailable: snakemake missing")
+
+    monkeypatch.setattr(service, "submit_run", fail_submit_run)
+
+    try:
+        asyncio.run(
+            submit_run(
+                RunSubmitRequest(
+                    serverId="srv_test",
+                    pipelineId="taxonomy-v1",
+                    requestId="req_not_ready_001",
+                ),
+                Response(),
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 503
+        assert exc.detail["code"] == "RUNNER_NOT_READY"
+        assert "snakemake missing" in exc.detail["detail"]
+    else:
+        raise AssertionError("submit_run should reject readiness failures")
 
 
 def test_submit_run_persists_run_spec_for_followup_detail(monkeypatch, tmp_path: Path) -> None:

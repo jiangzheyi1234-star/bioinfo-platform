@@ -1,6 +1,115 @@
-# Validation template only. The DAG schema and UI can display this pipeline;
-# execution implementation is intentionally out of scope for this goal.
+import hashlib
+import html
+import json
+from pathlib import Path
+
+
+configfile: "run-config.json"
+
+
+READS = config["inputs"][0]
+OUTPUTS = config["outputs"]
+PARAMS = config.get("params", {})
+DATABASES = config.get("databases", {})
+RESOURCE_CONFIG = config.get("resourceConfig", {})
+RESOURCE_META = config.get("resources", {})
+REFERENCE_KEY = "reference_database"
+
 
 rule all:
     input:
-        []
+        classified_reads=OUTPUTS["classified_reads"],
+        report=OUTPUTS["report"],
+        raw_log=OUTPUTS["raw_log"],
+
+
+rule prepare_inputs:
+    input:
+        reads=READS["path"],
+    output:
+        prepared="prepared-reads.tsv",
+        database_check="database-check.json",
+    params:
+        database_path=DATABASES.get(REFERENCE_KEY) or RESOURCE_CONFIG.get(REFERENCE_KEY) or "",
+        database_meta=RESOURCE_META.get(REFERENCE_KEY, {}),
+    run:
+        reads_path = Path(input.reads)
+        database_path = str(params.database_path or "")
+        database_meta = dict(params.database_meta or {})
+        with reads_path.open("rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+        Path(output.prepared).write_text(
+            "filename\tsize_bytes\tsha256\n"
+            f"{READS.get('filename', reads_path.name)}\t{reads_path.stat().st_size}\t{digest}\n",
+            encoding="utf-8",
+        )
+        Path(output.database_check).write_text(
+            json.dumps(
+                {
+                    "resourceKey": REFERENCE_KEY,
+                    "bound": bool(database_path),
+                    "path": database_path,
+                    "databaseId": database_meta.get("databaseId", ""),
+                    "templateId": database_meta.get("templateId", ""),
+                    "pathMode": database_meta.get("pathMode", ""),
+                    "resolved": database_meta.get("resolved", {}),
+                    "input": database_meta.get("input", {}),
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+
+rule classify_reads:
+    input:
+        prepared="prepared-reads.tsv",
+        database_check="database-check.json",
+    output:
+        classified_reads=OUTPUTS["classified_reads"],
+    params:
+        identity_threshold=PARAMS.get("identity_threshold", 0.97),
+    run:
+        db = json.loads(Path(input.database_check).read_text(encoding="utf-8"))
+        prepared_rows = Path(input.prepared).read_text(encoding="utf-8").strip().splitlines()
+        row = prepared_rows[1].split("\t") if len(prepared_rows) > 1 else ["unknown", "0", ""]
+        Path(output.classified_reads).parent.mkdir(parents=True, exist_ok=True)
+        Path(output.classified_reads).write_text(
+            "filename\tstatus\tdatabase_id\tdatabase_path\tidentity_threshold\tsha256\n"
+            f"{row[0]}\t{'database_bound' if db.get('bound') else 'database_unbound'}\t"
+            f"{db.get('databaseId', '')}\t{db.get('path', '')}\t{params.identity_threshold}\t{row[2]}\n",
+            encoding="utf-8",
+        )
+
+
+rule render_report:
+    input:
+        classified_reads=OUTPUTS["classified_reads"],
+        database_check="database-check.json",
+    output:
+        report=OUTPUTS["report"],
+        raw_log=OUTPUTS["raw_log"],
+    run:
+        db = json.loads(Path(input.database_check).read_text(encoding="utf-8"))
+        table = Path(input.classified_reads).read_text(encoding="utf-8")
+        Path(output.report).parent.mkdir(parents=True, exist_ok=True)
+        Path(output.raw_log).parent.mkdir(parents=True, exist_ok=True)
+        Path(output.report).write_text(
+            "<!doctype html><meta charset=\"utf-8\"><title>Database Backed Analysis</title>"
+            "<h1>Database Backed Analysis</h1>"
+            f"<p>Database bound: {html.escape(str(db.get('bound')))}</p>"
+            f"<p>Database ID: {html.escape(str(db.get('databaseId', '')))}</p>"
+            f"<p>Database path: {html.escape(str(db.get('path', '')))}</p>"
+            f"<pre>{html.escape(table)}</pre>",
+            encoding="utf-8",
+        )
+        Path(output.raw_log).write_text(
+            "database-backed-analysis-v1\n"
+            f"resource_key={REFERENCE_KEY}\n"
+            f"database_bound={db.get('bound')}\n"
+            f"database_id={db.get('databaseId', '')}\n"
+            f"database_path={db.get('path', '')}\n",
+            encoding="utf-8",
+        )

@@ -44,7 +44,7 @@ else
 fi
 
 if [ -f "$STOP_SCRIPT" ]; then
-  if sh "$STOP_SCRIPT" >/tmp/h2ometa-stop-script.out 2>&1; then
+  if bash "$STOP_SCRIPT" >/tmp/h2ometa-stop-script.out 2>&1; then
     STOP_SCRIPT_RAN=1
     printf 'stop_script=stopped\n'
   else

@@ -63,8 +63,8 @@ REMOTE_SCRIPT = r'''
 set -u
 BASE="$HOME/.h2ometa/runner/shared/data/database-mvp"
 RUNNER="$HOME/.h2ometa/runner"
-CONDA="$RUNNER/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/conda"
-PY="$RUNNER/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/python"
+CONDA="$RUNNER/tools/workflow-runtime-__WORKFLOW_RUNTIME_VERSION__-linux-64/workflow-env/bin/conda"
+PY="$RUNNER/tools/workflow-runtime-__WORKFLOW_RUNTIME_VERSION__-linux-64/workflow-env/bin/python"
 ENVS="$RUNNER/shared/database-probe-envs"
 mkdir -p "$BASE"
 
@@ -257,11 +257,14 @@ prepare_gtdbtk_probe
 
 
 def main() -> int:
+    from core.remote_runner.release_manifest import WORKFLOW_RUNTIME_VERSION
+
     parser = argparse.ArgumentParser(description="Prepare remote MVP databases for template smoke tests.")
     parser.parse_args()
     client = connect_ssh()
     try:
-        code, stdout, stderr = ssh_run(client, REMOTE_SCRIPT, timeout=1800)
+        remote_script = REMOTE_SCRIPT.replace("__WORKFLOW_RUNTIME_VERSION__", WORKFLOW_RUNTIME_VERSION)
+        code, stdout, stderr = ssh_run(client, remote_script, timeout=1800)
         if stdout:
             print(stdout, end="")
         if stderr:

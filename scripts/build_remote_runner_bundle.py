@@ -38,7 +38,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(Path("dist") / "remote-runner"),
+        default=str(Path("resources") / "remote-runner"),
         help="Directory where the versioned .tar.gz and .sha256 files are written.",
     )
     parser.add_argument(

@@ -18,10 +18,13 @@ import {
   uploadWorkflowSampleData,
 } from "./workflows-page-api";
 import {
+  buildWorkflowResourceBindings,
+  databaseMatchesWorkflowResource,
   runnableCatalogItems,
   selectableDatabases,
   selectableTools,
   workflowErrorMessage,
+  workflowResourceEntries,
   type WorkflowCatalogItem,
   type WorkflowRun,
   type WorkflowRunDetail,
@@ -39,6 +42,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(initialWorkflowId);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
   const [selectedDatabaseIds, setSelectedDatabaseIds] = useState<string[]>([]);
+  const [selectedResourceDatabaseIds, setSelectedResourceDatabaseIds] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
   const [sampleUploads, setSampleUploads] = useState<WorkflowUpload[]>([]);
   const [sampleLoading, setSampleLoading] = useState(false);
@@ -123,17 +127,49 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   const runnableTools = useMemo(() => selectableTools(tools), [tools]);
   const availableDatabases = useMemo(() => selectableDatabases(databases), [databases]);
+  const workflowResources = useMemo(() => workflowResourceEntries(selectedWorkflow), [selectedWorkflow]);
   const selectedTools = runnableTools.filter((tool) => selectedToolIds.includes(tool.id));
   const selectedDatabases = availableDatabases.filter((database) => selectedDatabaseIds.includes(database.id));
+  const missingRequiredResourceKeys = workflowResources
+    .filter(([key, spec]) => {
+      if (!spec.required) return false;
+      const selectedDatabase = availableDatabases.find((database) => database.id === selectedResourceDatabaseIds[key]);
+      return !selectedDatabase || !databaseMatchesWorkflowResource(selectedDatabase, spec);
+    })
+    .map(([key]) => key);
+  const workflowResourceBindings = useMemo(
+    () => buildWorkflowResourceBindings(selectedResourceDatabaseIds, selectedWorkflow, availableDatabases),
+    [availableDatabases, selectedResourceDatabaseIds, selectedWorkflow]
+  );
   const pipelineInputCount = isGeneratedToolRun ? files.length : files.length + sampleUploads.length;
   const canSubmit = Boolean(
     server?.serverId &&
+      server.ready === true &&
       pipelineInputCount > 0 &&
       selectedWorkflow?.runnable &&
       (!isGeneratedToolRun || selectedTools.length > 0) &&
+      (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
       !submitting &&
       !sampleLoading
   );
+
+  useEffect(() => {
+    setSelectedResourceDatabaseIds((current) => {
+      const next: Record<string, string> = {};
+      for (const [key, spec] of workflowResources) {
+        const currentDatabase = availableDatabases.find((database) => database.id === current[key]);
+        if (currentDatabase && databaseMatchesWorkflowResource(currentDatabase, spec)) {
+          next[key] = currentDatabase.id;
+          continue;
+        }
+        if (spec.required) {
+          const firstMatch = availableDatabases.find((database) => databaseMatchesWorkflowResource(database, spec));
+          if (firstMatch) next[key] = firstMatch.id;
+        }
+      }
+      return next;
+    });
+  }, [availableDatabases, workflowResources]);
 
   useEffect(() => {
     const runId = activeRunId || submittedRun?.runId;
@@ -172,6 +208,18 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setSelectedDatabaseIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
+  function setWorkflowResourceBinding(resourceKey: string, databaseId: string) {
+    setSelectedResourceDatabaseIds((current) => {
+      const next = { ...current };
+      if (databaseId) {
+        next[resourceKey] = databaseId;
+      } else {
+        delete next[resourceKey];
+      }
+      return next;
+    });
+  }
+
   async function submitRun() {
     if (!server || !canSubmit) return;
     setSubmitting(true);
@@ -188,6 +236,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
             files,
             sampleUploads,
             params,
+            resourceBindings: workflowResourceBindings,
           })
         : await submitGeneratedWorkflowRun({
             server,
@@ -256,6 +305,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     sampleUploads,
     selectedDatabaseIds,
     selectedDatabases,
+    selectedResourceDatabaseIds,
     selectedWorkflow,
     selectedWorkflowId,
     selectedToolIds,
@@ -265,11 +315,14 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setFiles: updateFiles,
     setParams,
     setSelectedWorkflowId,
+    setWorkflowResourceBinding,
     submitError,
     submitRun,
     submittedRun,
     submitting,
     toggleDatabase,
     toggleTool,
+    workflowResources,
+    missingRequiredResourceKeys,
   };
 }

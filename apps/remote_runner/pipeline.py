@@ -195,6 +195,7 @@ def validate_pipeline_manifest(raw: dict[str, Any], manifest_path: Path) -> Pipe
         artifact_keys.add(artifact_key)
     if artifact_keys != output_keys:
         raise PipelineRegistryError("OUTPUT_ARTIFACT_KEYS_MISMATCH")
+    _validate_resource_schema(raw.get("resources"))
     if not (root_dir / ".test" / "run-config.json").exists():
         raise PipelineRegistryError("TEST_RUN_CONFIG_REQUIRED")
     return PipelineManifestValidation(
@@ -203,6 +204,33 @@ def validate_pipeline_manifest(raw: dict[str, Any], manifest_path: Path) -> Pipe
         snakefile=snakefile,
         execution=dict(execution),
     )
+
+
+def _validate_resource_schema(raw: Any) -> None:
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise PipelineRegistryError("RESOURCE_SCHEMA_INVALID")
+    for key, value in raw.items():
+        resource_key = str(key or "").strip()
+        if not resource_key:
+            raise PipelineRegistryError("RESOURCE_KEY_REQUIRED")
+        if not isinstance(value, dict):
+            raise PipelineRegistryError("RESOURCE_SPEC_INVALID")
+        resource_type = str(value.get("type") or "database").strip()
+        if resource_type != "database":
+            raise PipelineRegistryError("RESOURCE_TYPE_UNSUPPORTED")
+        config_key = str(value.get("configKey") or resource_key).strip()
+        if not config_key:
+            raise PipelineRegistryError("RESOURCE_CONFIG_KEY_REQUIRED")
+        if "required" in value and not isinstance(value.get("required"), bool):
+            raise PipelineRegistryError("RESOURCE_REQUIRED_INVALID")
+        for field in ("acceptedTemplates", "acceptedCapabilities"):
+            items = value.get(field)
+            if items is None:
+                continue
+            if not isinstance(items, list) or any(not str(item).strip() for item in items):
+                raise PipelineRegistryError(f"RESOURCE_{field.upper()}_INVALID")
 
 
 def validate_run_spec_for_pipeline(pipeline: PipelineDefinition, run_spec: dict[str, Any]) -> None:

@@ -29,6 +29,7 @@ def print_json(label: str, payload: Any) -> None:
 def main() -> int:
     from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password
     from core.remote.ssh_connector import ssh_connect
+    from core.remote_runner.release_manifest import REMOTE_RUNNER_VERSION, WORKFLOW_RUNTIME_VERSION
 
     cfg = get_config()
     ssh_cfg = normalize_ssh_config(cfg.get("ssh", {}))
@@ -50,6 +51,8 @@ def main() -> int:
         print_json("SSH_RESULT", {"ok": False, "message": result.message})
         return 1
 
+    runner_release_dir = f"~/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}"
+    workflow_runtime_dir = f"~/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64"
     commands = {
         "platform": 'printf "%s:%s" "$(uname -s)" "$(uname -m)"',
         "python3": "command -v python3 && python3 --version",
@@ -68,14 +71,14 @@ def main() -> int:
         "runner_pipelines_api": "python3 - <<'PY'\nimport json, pathlib, urllib.request\ncfg=json.loads(pathlib.Path.home().joinpath('.h2ometa/runner/shared/config/runner.json').read_text())\nstate=json.loads(pathlib.Path(cfg['runtime_state_path']).read_text())\nbase=f\"http://127.0.0.1:{state['bindPort']}\"\nheaders={'Authorization': 'Bearer '+cfg['token']}\nfor path in ('/api/v1/pipelines', '/api/v1/pipelines/file-summary-v1'):\n    req=urllib.request.Request(base+path, headers=headers)\n    print(urllib.request.urlopen(req, timeout=5).read().decode())\nPY",
         "runner_process": "ps -ef | grep -E 'remote_runner.run|h2ometa-remote' | grep -v grep || true",
         "runner_log": "tail -n 120 ~/.h2ometa/runner/shared/logs/runner.log 2>/dev/null || true",
-        "runner_release": "find ~/.h2ometa/runner/releases/0.1.0-control-plane -maxdepth 2 -type f -o -type l 2>/dev/null | sed -n '1,120p' || true",
-        "runner_pipeline_files": "find ~/.h2ometa/runner/releases/0.1.0-control-plane/remote_runner/pipelines -maxdepth 4 -type f 2>/dev/null | sort || true",
-        "workflow_runtime_files": "find ~/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64 -maxdepth 3 \\( -type f -o -type l \\) 2>/dev/null | grep -E 'artifact.sha256|bootstrap_manifest.json|bin/python|bin/snakemake|bin/conda|bin/conda-unpack' | sort || true",
-        "workflow_runtime_import": "~/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/python - <<'PY'\nimport snakemake\nprint(snakemake.__version__)\nPY",
-        "workflow_runtime_path_python": "PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$PATH command -v python3.12 && PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$PATH python3.12 - <<'PY'\nimport sys, snakemake\nprint(sys.executable)\nprint(snakemake.__version__)\nPY",
-        "workflow_runtime_snakemake": "PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$PATH ~/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake --version",
-        "workflow_runtime_manager_verify": "PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$PATH $HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/python -c 'import snakemake' && PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin:$PATH $HOME/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake --version",
-        "workflow_runtime_remote_bundle_sha": "sha256sum ~/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz ~/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256 2>/dev/null || true",
+        "runner_release": f"find {runner_release_dir} -maxdepth 2 -type f -o -type l 2>/dev/null | sed -n '1,120p' || true",
+        "runner_pipeline_files": f"find {runner_release_dir}/remote_runner/pipelines -maxdepth 4 -type f 2>/dev/null | sort || true",
+        "workflow_runtime_files": f"find {workflow_runtime_dir} -maxdepth 3 \\( -type f -o -type l \\) 2>/dev/null | grep -E 'artifact.sha256|bootstrap_manifest.json|bin/python|bin/snakemake|bin/conda|bin/conda-unpack' | sort || true",
+        "workflow_runtime_import": f"{workflow_runtime_dir}/workflow-env/bin/python - <<'PY'\nimport snakemake\nprint(snakemake.__version__)\nPY",
+        "workflow_runtime_path_python": f"PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$PATH command -v python3.12 && PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$PATH python3.12 - <<'PY'\nimport sys, snakemake\nprint(sys.executable)\nprint(snakemake.__version__)\nPY",
+        "workflow_runtime_snakemake": f"PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$PATH {workflow_runtime_dir}/workflow-env/bin/snakemake --version",
+        "workflow_runtime_manager_verify": f"PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$PATH {workflow_runtime_dir}/workflow-env/bin/python -c 'import snakemake' && PATH=$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$HOME/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64/workflow-env/bin:$PATH {workflow_runtime_dir}/workflow-env/bin/snakemake --version",
+        "workflow_runtime_remote_bundle_sha": f"sha256sum {workflow_runtime_dir}.tar.gz {workflow_runtime_dir}/artifact.sha256 2>/dev/null || true",
     }
     try:
         for label, command in commands.items():
