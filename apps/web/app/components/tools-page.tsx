@@ -20,17 +20,17 @@ export function ToolsPage() {
       <WorkflowWorkspaceTabs />
       <div className="mx-auto max-w-5xl space-y-6">
         <WorkflowPageHeader
-          title="工具依赖"
+          title="工具节点库"
           actions={
             state.view === "library" ? (
               <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("search")}>
                 <Plus strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                添加依赖
+                添加工具节点
               </Button>
             ) : (
               <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("library")}>
                 <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                返回依赖
+                返回节点库
               </Button>
             )
           }
@@ -57,7 +57,7 @@ export function ToolsPage() {
                     type="text"
                     value={state.query}
                     onChange={(event) => state.updateQuery(event.target.value)}
-                    placeholder="在线搜索 Bioconda / conda-forge 依赖"
+                    placeholder="在线搜索 Bioconda / conda-forge 工具"
                     className="h-10 w-full rounded-md border-slate-200 bg-white pl-9"
                   />
                 </div>
