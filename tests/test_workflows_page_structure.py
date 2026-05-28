@@ -36,6 +36,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
+    runtime_editor_path = COMPONENTS / "generated-workflow-runtime-editor.tsx"
     page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     page_hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -46,11 +47,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert hook_path.exists()
     assert ui_path.exists()
     assert graph_node_path.exists()
+    assert runtime_editor_path.exists()
 
     model = model_path.read_text(encoding="utf-8")
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
+    runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
     assert "export type GeneratedWorkflowStepRuntime" in model
@@ -90,9 +93,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "findCompatibleOutputBinding" in builder_hook
     assert "validation" in builder_hook
     assert "resourceBindings" in builder_hook
+    assert "setStepRuntime" in builder_hook
 
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
+    assert "GeneratedWorkflowRuntimeEditor" in builder_ui
     assert "RuleGraphNodeCard" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui
     assert "export function RuleGraphNodeCard" in graph_node_ui
@@ -100,6 +105,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "输入端口" in graph_node_ui
     assert "输出端口" in graph_node_ui
     assert "data-port-direction" in graph_node_ui
+    assert "export function GeneratedWorkflowRuntimeEditor" in runtime_editor_ui
+    assert "线程" in runtime_editor_ui
+    assert "调度资源" in runtime_editor_ui
     assert "builder.graphDraft.nodes" in builder_ui
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui
