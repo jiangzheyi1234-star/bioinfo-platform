@@ -200,6 +200,7 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "Snakemake wrapper" in ui
     assert "RulePortPreview" in ui
     assert "rulePortItems" in ui
+    assert "formatRulePortLabel" in ui
     assert "输入端口" in ui
     assert "输出端口" in ui
     assert "生成自定义 RuleSpec" in ui
