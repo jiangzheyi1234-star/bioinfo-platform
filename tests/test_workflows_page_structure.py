@@ -198,6 +198,10 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "ruleSpecDraft" in model
     assert "WrapperBadge" in ui
     assert "Snakemake wrapper" in ui
+    assert "RulePortPreview" in ui
+    assert "rulePortItems" in ui
+    assert "输入端口" in ui
+    assert "输出端口" in ui
     assert "生成自定义 RuleSpec" in ui
     assert "snakemakeWrappers" in api
     assert "ruleSpecDraft" in api

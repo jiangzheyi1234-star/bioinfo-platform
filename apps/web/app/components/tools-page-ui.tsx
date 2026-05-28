@@ -73,13 +73,13 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
 }
 
 export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
-  const template = item.ruleTemplate || item.ruleSpecDraft?.ruleTemplate || {};
+  const template = ruleTemplateForItem(item);
   const inputs = Array.isArray(template.inputs) ? template.inputs.length : 0;
   const outputs = Array.isArray(template.outputs) ? template.outputs.length : 0;
   const params = template.params && typeof template.params === "object" && !Array.isArray(template.params)
     ? Object.keys(template.params).length
     : 0;
-  const hasRuleSpec = Boolean(template.commandTemplate || inputs > 0 || outputs > 0 || params > 0);
+  const hasRuleSpec = Boolean(template.commandTemplate || template.wrapper || inputs > 0 || outputs > 0 || params > 0);
   return (
     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
       <Workflow strokeWidth={1.5} className="h-3 w-3 text-slate-400" />
@@ -91,6 +91,79 @@ export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
       <span>{params} params</span>
     </div>
   );
+}
+
+function RulePortPreview({ item, compact = false }: { item: ToolSearchItem; compact?: boolean }) {
+  const template = ruleTemplateForItem(item);
+  const inputs = rulePortItems(template, "inputs");
+  const outputs = rulePortItems(template, "outputs");
+  if (compact && inputs.length === 0 && outputs.length === 0) return null;
+  const body = (
+    <div className="grid gap-2">
+      <RulePortGroup label="输入端口" ports={inputs} />
+      <RulePortGroup label="输出端口" ports={outputs} />
+    </div>
+  );
+  if (compact) {
+    return <div className="mt-2">{body}</div>;
+  }
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mb-2 text-[11px] uppercase text-slate-400">Rule ports</div>
+      {body}
+    </div>
+  );
+}
+
+function RulePortGroup({ label, ports }: { label: string; ports: { name: string; detail: string }[] }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      {ports.length > 0 ? (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {ports.map((port) => (
+            <span
+              key={`${label}-${port.name}`}
+              title={port.detail}
+              className="max-w-full truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600"
+            >
+              {port.name}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-1 text-[11px] text-slate-400">未声明</div>
+      )}
+    </div>
+  );
+}
+
+function rulePortItems(template: Record<string, unknown>, key: "inputs" | "outputs") {
+  const raw = template[key];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, index) => {
+      const port = recordValue(item);
+      const name = stringValue(port.name) || `${key.slice(0, -1)}_${index + 1}`;
+      const detail = ["type", "kind", "mimeType", "format", "edamFormat"]
+        .map((field) => stringValue(port[field]))
+        .filter(Boolean)
+        .join(" / ");
+      return { name, detail: detail || "未声明类型" };
+    })
+    .filter((item) => item.name);
+}
+
+function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
+  return (item.ruleTemplate || item.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+}
+
+function recordValue(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function stringValue(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim() : "";
 }
 
 export function PlatformChips({ platforms }: { platforms: string[] | undefined }) {
@@ -208,6 +281,7 @@ export function ToolsLibrarySection({
                 </div>
                 <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
                 <RuleNodeSummary item={tool} />
+                <RulePortPreview item={tool} compact />
               </div>
               <Button
                 variant="ghost"
@@ -440,6 +514,7 @@ export function ToolPreviewPanel({
             <RuleNodeSummary item={selected} />
           </div>
 
+          <RulePortPreview item={selected} />
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <div className="text-[11px] uppercase text-slate-400">目标平台</div>
             <div className="mt-1 text-xs text-slate-700">
