@@ -5,7 +5,7 @@ import json
 import os
 import tarfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from core.remote_runner.release_manifest import (
@@ -67,6 +67,12 @@ class RemoteRunnerArtifactProvider:
             raise RemoteRunnerArtifactError(
                 f"remote runner artifact sha256 mismatch: {archive_path}"
             )
+        self._verify_declared_artifact_metadata(
+            REMOTE_RUNNER_ARTIFACT,
+            platform=platform,
+            archive_path=archive_path,
+            sha256=actual,
+        )
         manifest = self._read_manifest(archive_path)
         if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unexpected service: {archive_path}")
@@ -139,9 +145,25 @@ class RemoteRunnerArtifactProvider:
         return digest.hexdigest()
 
     @staticmethod
+    def _verify_declared_artifact_metadata(
+        spec: ReleaseArtifactSpec,
+        *,
+        platform: str,
+        archive_path: Path,
+        sha256: str,
+    ) -> None:
+        declared_sha = str(spec.sha256.get(platform) or "").strip().lower()
+        if declared_sha and declared_sha != sha256:
+            raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} manifest sha256 mismatch: {archive_path}")
+        declared_size = int(spec.size_bytes.get(platform) or 0)
+        if declared_size and declared_size != archive_path.stat().st_size:
+            raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} manifest size mismatch: {archive_path}")
+
+    @staticmethod
     def _read_manifest(path: Path) -> dict[str, Any]:
         try:
             with tarfile.open(path, "r:gz") as archive:
+                RemoteRunnerArtifactProvider._validated_member_names(archive, path)
                 member = next(
                     (
                         item
@@ -164,6 +186,22 @@ class RemoteRunnerArtifactProvider:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest is not an object: {path}")
         return payload
 
+    @staticmethod
+    def _validated_member_names(archive: tarfile.TarFile, path: Path) -> set[str]:
+        names: set[str] = set()
+        for item in archive.getmembers():
+            raw_name = item.name.replace("\\", "/")
+            if raw_name in {".", "./"}:
+                continue
+            posix_name = PurePosixPath(raw_name)
+            if raw_name.startswith("/") or posix_name.is_absolute() or ".." in posix_name.parts:
+                raise RemoteRunnerArtifactError(f"remote runner artifact has unsafe tar member: {path}")
+            name = raw_name.strip("./")
+            if not name:
+                raise RemoteRunnerArtifactError(f"remote runner artifact has unsafe tar member: {path}")
+            names.add(name)
+        return names
+
 
 class WorkflowRuntimeArtifactProvider:
     def __init__(
@@ -184,6 +222,12 @@ class WorkflowRuntimeArtifactProvider:
         actual = RemoteRunnerArtifactProvider._sha256_file(archive_path)
         if actual != expected:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact sha256 mismatch: {archive_path}")
+        RemoteRunnerArtifactProvider._verify_declared_artifact_metadata(
+            WORKFLOW_RUNTIME_ARTIFACT,
+            platform=platform,
+            archive_path=archive_path,
+            sha256=actual,
+        )
         manifest = RemoteRunnerArtifactProvider._read_manifest(archive_path)
         if str(manifest.get("service") or "") != WORKFLOW_RUNTIME_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact manifest has unexpected service: {archive_path}")
@@ -193,6 +237,10 @@ class WorkflowRuntimeArtifactProvider:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact manifest platform mismatch: {archive_path}")
         if str(manifest.get("provider") or "") != "conda-pack":
             raise RemoteRunnerArtifactError(f"workflow runtime artifact must declare conda-pack provider: {archive_path}")
+        packages = manifest.get("packages") if isinstance(manifest.get("packages"), dict) else {}
+        snakemake_package = str(packages.get("snakemake") or "").strip()
+        if not snakemake_package:
+            raise RemoteRunnerArtifactError(f"workflow runtime artifact must declare snakemake package version: {archive_path}")
         entrypoints = manifest.get("entrypoints") if isinstance(manifest.get("entrypoints"), dict) else {}
         python_entrypoint = str(entrypoints.get("python") or "workflow-env/bin/python")
         snakemake_entrypoint = str(entrypoints.get("snakemake") or "workflow-env/bin/snakemake")
@@ -236,7 +284,7 @@ class WorkflowRuntimeArtifactProvider:
     ) -> None:
         try:
             with tarfile.open(path, "r:gz") as archive:
-                names = {item.name.strip("./") for item in archive.getmembers()}
+                names = RemoteRunnerArtifactProvider._validated_member_names(archive, path)
         except Exception as exc:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact is unreadable: {path}") from exc
         required = {
