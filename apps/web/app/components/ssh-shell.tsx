@@ -37,7 +37,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   return (
     <SshShellContext.Provider value={connection.contextValue}>
       <div className="flex h-screen flex-col bg-[#fbfbfa] text-slate-900">
-        <div className="grid min-h-0 flex-1 grid-cols-[208px_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-[56px_minmax(0,1fr)] md:grid-cols-[208px_minmax(0,1fr)]">
           <SshSidebar
             pathname={pathname}
             status={connection.status}

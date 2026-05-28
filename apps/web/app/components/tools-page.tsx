@@ -16,7 +16,7 @@ export function ToolsPage() {
   const state = useToolsPageState();
 
   return (
-    <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
+    <div className="relative h-full w-full overflow-y-auto bg-white px-4 py-6 text-slate-800 sm:px-6 sm:py-10 lg:px-8">
       <WorkflowWorkspaceTabs />
       <div className="mx-auto max-w-5xl space-y-6">
         <WorkflowPageHeader
