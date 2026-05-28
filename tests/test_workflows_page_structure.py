@@ -87,9 +87,12 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "SnakemakeWrapperMatch" in model
     assert "snakemakeWrappers" in model
     assert "snakemakeWrapperCount" in model
+    assert "ruleSpecDraft" in model
     assert "WrapperBadge" in ui
     assert "Snakemake wrapper" in ui
+    assert "生成自定义 RuleSpec" in ui
     assert "snakemakeWrappers" in api
+    assert "ruleSpecDraft" in api
 
 
 def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:

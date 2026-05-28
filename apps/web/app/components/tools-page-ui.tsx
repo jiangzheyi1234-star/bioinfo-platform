@@ -3,7 +3,7 @@ import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Check, Loader2, P
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { AddedTool, ToolSearchItem } from "./tools-page-model";
+import type { AddedTool, RuleSpecDraft, ToolSearchItem } from "./tools-page-model";
 
 export function SourceBadge({ source, label }: { source: string; label: string }) {
   return (
@@ -309,7 +309,7 @@ function SnakemakeWrapperPreview({
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div className="text-[11px] uppercase text-slate-400">Snakemake wrapper</div>
-        <div className="mt-1 text-xs leading-5 text-slate-500">未命中官方 wrapper；加入后可手动补 ruleTemplate。</div>
+        <div className="mt-1 text-xs leading-5 text-slate-500">未命中同名官方 wrapper；可作为 Conda 依赖使用。</div>
       </div>
     );
   }
@@ -333,8 +333,51 @@ function SnakemakeWrapperPreview({
         ))}
       </div>
       <p className="mt-2 text-[11px] leading-4 text-violet-600">
-        当前先标记可复用 wrapper；执行时应锁定官方 tag 或 commit。
+        当前 wrapper ref 已随 RuleSpec 草稿锁定。
       </p>
+    </div>
+  );
+}
+
+function ruleSpecDraftTitle(draft: RuleSpecDraft | undefined) {
+  if (!draft) return "RuleSpec 草稿";
+  if (draft.source === "snakemake-wrapper") return "生成 wrapper RuleSpec";
+  return "生成自定义 RuleSpec";
+}
+
+function ruleSpecDraftLockText(draft: RuleSpecDraft | undefined) {
+  const lock = draft?.lock || {};
+  const wrapperIdentifier = String(lock.wrapperIdentifier || "");
+  if (wrapperIdentifier) return wrapperIdentifier;
+  const packageSpec = String(lock.packageSpec || "");
+  if (packageSpec) return packageSpec;
+  return "";
+}
+
+function ruleSpecDraftCommand(draft: RuleSpecDraft | undefined) {
+  const template = draft?.ruleTemplate || {};
+  return typeof template.commandTemplate === "string" ? template.commandTemplate : "";
+}
+
+function RuleSpecDraftPreview({ draft }: { draft: RuleSpecDraft | undefined }) {
+  if (!draft) return null;
+  const lockText = ruleSpecDraftLockText(draft);
+  const command = ruleSpecDraftCommand(draft);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] uppercase text-slate-400">RuleSpec 草稿</div>
+        <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-500">
+          {draft.requiresUserCompletion ? "待确认" : "可用"}
+        </span>
+      </div>
+      <div className="mt-1 text-sm font-medium text-slate-900">{ruleSpecDraftTitle(draft)}</div>
+      {lockText ? <div className="mt-2 truncate font-mono text-[11px] text-slate-500">{lockText}</div> : null}
+      {command ? (
+        <pre className="mt-2 overflow-hidden rounded-md bg-slate-950 px-2 py-1.5 text-[11px] leading-4 text-slate-100">
+          {command}
+        </pre>
+      ) : null}
     </div>
   );
 }
@@ -359,7 +402,7 @@ export function ToolPreviewPanel({
   selectedVersion: string;
 }) {
   return (
-    <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
+    <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40 min-[820px]:sticky min-[820px]:top-4 min-[820px]:self-start">
       <h2 className="text-sm font-medium text-slate-900">依赖预览</h2>
       {selected ? (
         <div className="mt-4 space-y-4">
@@ -391,6 +434,7 @@ export function ToolPreviewPanel({
           </div>
 
           <SnakemakeWrapperPreview selected={selected} onOpenSourceUrl={onOpenSourceUrl} />
+          <RuleSpecDraftPreview draft={selected.ruleSpecDraft} />
 
           <div className="space-y-1.5">
             <label className="text-[11px] uppercase text-slate-400" htmlFor="tool-version">

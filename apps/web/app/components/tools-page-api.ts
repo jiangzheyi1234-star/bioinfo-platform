@@ -54,6 +54,7 @@ export async function addToolDependency(tool: AddedTool): Promise<void> {
       sourceUrl: tool.sourceUrl,
       testCommand: tool.testCommand || "",
       ruleTemplate: tool.ruleTemplate,
+      ruleSpecDraft: tool.ruleSpecDraft,
       capabilities: tool.capabilities || [],
       snakemakeWrappers: tool.snakemakeWrappers || [],
       snakemakeWrapperCount: tool.snakemakeWrapperCount || 0,

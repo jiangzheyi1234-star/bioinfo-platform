@@ -7,12 +7,14 @@ import type { AddedTool } from "./tools-page-model";
 import {
   createGeneratedWorkflowDraft,
   createStepDraft,
+  createStepParams,
   readRuleInputs,
   readRuleOutputs,
   validateGeneratedWorkflowDraft,
   type GeneratedWorkflowDraft,
   type GeneratedWorkflowExposedOutput,
   type GeneratedWorkflowInputBinding,
+  type GeneratedWorkflowParamValue,
 } from "./generated-workflow-model";
 import {
   databaseMatchesWorkflowResource,
@@ -27,6 +29,7 @@ type BuilderAction =
   | { type: "set_step_id"; stepId: string; nextId: string }
   | { type: "set_step_tool"; stepId: string; tool: AddedTool }
   | { type: "set_input"; stepId: string; inputName: string; binding: GeneratedWorkflowInputBinding }
+  | { type: "set_step_param"; stepId: string; paramName: string; value: GeneratedWorkflowParamValue }
   | { type: "add_output"; output: GeneratedWorkflowExposedOutput }
   | { type: "remove_output"; index: number }
   | { type: "set_output"; index: number; output: GeneratedWorkflowExposedOutput }
@@ -105,6 +108,8 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     },
     setInputBinding: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) =>
       dispatch({ type: "set_input", stepId, inputName, binding }),
+    setStepParam: (stepId: string, paramName: string, value: GeneratedWorkflowParamValue) =>
+      dispatch({ type: "set_step_param", stepId, paramName, value }),
     addExposedOutput: (output: GeneratedWorkflowExposedOutput) => dispatch({ type: "add_output", output }),
     removeExposedOutput: (index: number) => dispatch({ type: "remove_output", index }),
     setExposedOutput: (index: number, output: GeneratedWorkflowExposedOutput) => dispatch({ type: "set_output", index, output }),
@@ -158,6 +163,19 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
         ...state.draft,
         steps: state.draft.steps.map((step) =>
           step.id === action.stepId ? { ...step, inputs: { ...step.inputs, [action.inputName]: action.binding } } : step
+        ),
+      },
+    };
+  }
+  if (action.type === "set_step_param") {
+    return {
+      ...state,
+      draft: {
+        ...state.draft,
+        steps: state.draft.steps.map((step) =>
+          step.id === action.stepId
+            ? { ...step, params: { ...(step.params || {}), [action.paramName]: action.value } }
+            : step
         ),
       },
     };
@@ -217,10 +235,11 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
 function setStepTool(state: BuilderState, stepId: string, tool: AddedTool): BuilderState {
   const inputs = Object.fromEntries(readRuleInputs(tool).map((input) => [input.name, ""]));
   const outputNames = new Set(readRuleOutputs(tool).map((output) => output.name));
+  const params = createStepParams(tool);
   return {
     ...state,
     draft: {
-      steps: state.draft.steps.map((step) => step.id === stepId ? { ...step, toolId: tool.id, inputs } : step),
+      steps: state.draft.steps.map((step) => step.id === stepId ? { ...step, toolId: tool.id, inputs, params } : step),
       exposeOutputs: state.draft.exposeOutputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
     },
   };

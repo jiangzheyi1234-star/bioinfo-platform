@@ -122,6 +122,7 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
         "sourceUrl": str(payload.get("sourceUrl") or ""),
         "testCommand": str(payload.get("testCommand") or ""),
         "ruleTemplate": payload.get("ruleTemplate") or {},
+        "ruleSpecDraft": payload.get("ruleSpecDraft") or {},
         "capabilities": payload.get("capabilities") or [],
         "snakemakeWrappers": list(payload.get("snakemakeWrappers") or []),
         "status": str(payload.get("status") or "declared"),
@@ -218,13 +219,12 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     inputs = _normalize_rule_inputs(template.get("inputs"))
     outputs = _normalize_rule_outputs(template.get("outputs"))
     resources = _normalize_rule_resources(template.get("resources"))
-    params = template.get("params") or {}
-    if not isinstance(params, dict):
-        raise ToolRegistryError("TOOL_RULE_PARAMS_INVALID")
+    params = _normalize_rule_params(template.get("params"))
     _validate_command_tokens(
         command,
         input_names={item["name"] for item in inputs},
         output_names={item["name"] for item in outputs},
+        param_names=set(params),
     )
     normalized: dict[str, Any] = {
         "commandTemplate": command,
@@ -309,6 +309,18 @@ def _normalize_rule_resources(raw: Any) -> dict[str, dict[str, Any]]:
     return resources
 
 
+def _normalize_rule_params(raw: Any) -> dict[str, Any]:
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("TOOL_RULE_PARAMS_INVALID")
+    params: dict[str, Any] = {}
+    for key, value in raw.items():
+        name = _normalize_io_name(key)
+        params[name] = value
+    return params
+
+
 def _normalize_io_name(raw: Any) -> str:
     name = str(raw or "").strip()
     if not name:
@@ -326,7 +338,7 @@ def _validate_relative_output_path(path: str) -> None:
         raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID")
 
 
-def _validate_command_tokens(command: str, *, input_names: set[str], output_names: set[str]) -> None:
+def _validate_command_tokens(command: str, *, input_names: set[str], output_names: set[str], param_names: set[str]) -> None:
     if "{resource." in command:
         raise ToolRegistryError("TOOL_RULE_RESOURCE_TOKEN_UNSUPPORTED")
     for match in RULE_TOKEN_RE.finditer(command):
@@ -342,6 +354,11 @@ def _validate_command_tokens(command: str, *, input_names: set[str], output_name
         if body.startswith("output."):
             name = body.removeprefix("output.").removesuffix(":q")
             if name in output_names:
+                continue
+            raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
+        if body.startswith("params."):
+            name = body.removeprefix("params.").removesuffix(":q")
+            if name in param_names:
                 continue
             raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
         if DATABASE_TOKEN_RE.match(body) or CONFIG_TOKEN_RE.match(body):

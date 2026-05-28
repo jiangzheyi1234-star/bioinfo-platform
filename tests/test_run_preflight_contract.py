@@ -124,6 +124,81 @@ def test_preflight_accepts_unordered_generated_step_references(tmp_path: Path) -
     )
 
 
+def test_preflight_accepts_generated_step_params(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::filter",
+            "name": "filter",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "head -n {params.limit} {input.primary:q} > {output.filtered:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "filtered", "path": "filtered.txt", "kind": "log", "mimeType": "text/plain"}],
+                "params": {"limit": {"type": "integer", "default": 3}},
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+
+    preflight_run_spec(
+        cfg,
+        pipeline,
+        {
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "inputs": [{"role": "reads"}],
+            "workflow": {
+                "steps": [
+                    {
+                        "id": "filter",
+                        "tool": {"id": "conda-forge::filter"},
+                        "inputs": {"primary": {"fromInput": "reads"}},
+                        "params": {"limit": 5},
+                    }
+                ]
+            },
+        },
+    )
+
+
+def test_preflight_rejects_invalid_generated_step_params(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    _register_tool(cfg, "conda-forge::source", output_name="seed")
+
+    try:
+        preflight_run_spec(
+            cfg,
+            pipeline,
+            {
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "workflow": {
+                    "steps": [
+                        {
+                            "id": "source",
+                            "tool": {"id": "conda-forge::source"},
+                            "params": ["not", "a", "dict"],
+                        }
+                    ]
+                },
+            },
+        )
+    except RunPreflightError as exc:
+        assert str(exc) == "WORKFLOW_STEP_PARAMS_INVALID"
+    else:
+        raise AssertionError("invalid generated step params should be rejected before run creation")
+
+
 def test_preflight_rejects_generated_step_cycles(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

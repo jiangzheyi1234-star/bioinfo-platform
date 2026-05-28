@@ -14,6 +14,7 @@ export type ToolSearchItem = {
   targetPlatformSupported?: boolean;
   testCommand?: string;
   ruleTemplate?: Record<string, unknown>;
+  ruleSpecDraft?: RuleSpecDraft;
   capabilities?: ToolCapability[];
   snakemakeWrappers?: SnakemakeWrapperMatch[];
   snakemakeWrapperCount?: number;
@@ -39,9 +40,24 @@ export type ToolCapability = {
 export type SnakemakeWrapperMatch = {
   name: string;
   toolName: string;
+  wrapperRepository?: string;
+  wrapperRef?: string;
   wrapperPath: string;
+  wrapperIdentifier?: string;
   wrapperUrl: string;
   environmentUrl?: string;
+  ruleTemplateDraft?: RuleSpecDraft;
+  ruleSpecDraft?: RuleSpecDraft;
+};
+
+export type RuleSpecDraft = {
+  source: "snakemake-wrapper" | "conda-package" | string;
+  status?: string;
+  reason?: string;
+  requiresUserCompletion?: boolean;
+  lock?: Record<string, unknown>;
+  ruleTemplate?: Record<string, unknown>;
+  notes?: string[];
 };
 
 export type ToolSearchResponse = {

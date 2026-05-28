@@ -139,6 +139,43 @@ def test_tool_rule_template_is_persisted(tmp_path: Path) -> None:
     assert saved["ruleTemplate"]["commandTemplate"] == "wc -c {input.primary:q} > {output.count:q}"
 
 
+def test_tool_rule_spec_draft_is_persisted(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    saved = upsert_tool(
+        cfg,
+        {
+            "id": "bioconda::fastq",
+            "name": "fastq",
+            "source": "bioconda",
+            "sourceLabel": "Bioconda",
+            "packageSpec": "bioconda::fastq=2.0.4",
+            "targetPlatformSupported": True,
+            "ruleSpecDraft": {
+                "source": "conda-package",
+                "requiresUserCompletion": True,
+                "lock": {"type": "conda-package", "packageSpec": "bioconda::fastq=2.0.4"},
+                "ruleTemplate": {
+                    "commandTemplate": "fastq {input.primary:q} > {output.primary:q}",
+                    "inputs": [{"name": "primary"}],
+                    "outputs": [
+                        {
+                            "name": "primary",
+                            "path": "fastq.out",
+                            "kind": "file",
+                            "mimeType": "application/octet-stream",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+
+    assert saved["ruleSpecDraft"]["source"] == "conda-package"
+    assert saved["ruleSpecDraft"]["lock"]["packageSpec"] == "bioconda::fastq=2.0.4"
+
+
 def test_tool_rule_template_rejects_incomplete_outputs(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -189,6 +226,30 @@ def test_tool_rule_template_rejects_unknown_command_tokens(tmp_path: Path) -> No
         assert str(exc) == "TOOL_RULE_TOKEN_UNSUPPORTED: {input.missing:q}"
     else:
         raise AssertionError("unknown input token should be rejected")
+
+
+def test_tool_rule_template_accepts_declared_param_tokens(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    saved = add_registered_tool(
+        cfg,
+        {
+            "id": "conda-forge::coreutils",
+            "name": "coreutils",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "head -n {params.limit} {input.primary:q} > {output.filtered:q}",
+                "inputs": [{"name": "primary"}],
+                "outputs": [{"name": "filtered", "path": "filtered.txt", "kind": "log", "mimeType": "text/plain"}],
+                "params": {"limit": {"type": "integer", "default": 10}},
+            },
+        },
+    )
+
+    assert saved["ruleTemplate"]["params"]["limit"]["default"] == 10
 
 
 def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(tmp_path: Path, monkeypatch) -> None:
@@ -269,6 +330,82 @@ def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(t
     assert "cp " in snakefile
     assert "count_bytes-wc-count.txt" in run_config["workflow"]["steps"][1]["inputs"]["primary"]
     assert run_config["outputs"]["final"].endswith("copy_summary-final-count.txt")
+
+
+def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypatch) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::awk-filter",
+            "name": "awk-filter",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "head -n {params.limit} {input.primary:q} > {output.filtered:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "filtered", "path": "filtered.txt", "kind": "log", "mimeType": "text/plain"}],
+                "params": {"limit": {"type": "integer", "default": 3}},
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+    upload = persist_upload(
+        cfg,
+        filename="reads.txt",
+        content_base64="QUJDREVGCg==",
+        mime_type="text/plain",
+    )
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_generated_params",
+        request_id="req_generated_params",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "projectId": "proj_demo",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
+            "workflow": {
+                "steps": [
+                    {
+                        "id": "filter_reads",
+                        "tool": {"id": "conda-forge::awk-filter"},
+                        "params": {"limit": 5},
+                    }
+                ]
+            },
+        },
+    )
+
+    work_dir = Path(cfg.work_dir) / "run_generated_params"
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
+
+    assert len(calls) == 2
+    assert "head -n 5" in snakefile
+    assert "{params.limit}" not in snakefile
+    assert run_config["workflow"]["steps"][0]["params"]["limit"] == 5
 
 
 def test_generated_workflow_topologically_orders_explicit_dag_bindings_and_exposed_outputs(

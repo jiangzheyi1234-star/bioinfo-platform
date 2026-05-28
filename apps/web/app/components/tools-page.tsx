@@ -81,7 +81,7 @@ export function ToolsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-x-12 gap-y-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-6 min-[820px]:grid-cols-[minmax(0,1fr)_340px]">
               <ToolSearchResults
                 error={state.error}
                 filtered={state.filtered}

@@ -35,6 +35,8 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(tools)").fetchall()}
     if "rule_template_json" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN rule_template_json TEXT NOT NULL DEFAULT '{}'")
+    if "rule_spec_draft_json" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN rule_spec_draft_json TEXT NOT NULL DEFAULT '{}'")
     if "capabilities_json" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'")
     if "snakemake_wrappers_json" not in columns:
@@ -144,6 +146,7 @@ def _tool_row_to_dict(row) -> dict[str, Any]:
         "sourceUrl": row["source_url"],
         "testCommand": row["test_command"],
         "ruleTemplate": json.loads(row["rule_template_json"] or "{}"),
+        "ruleSpecDraft": json.loads(row["rule_spec_draft_json"] or "{}"),
         "capabilities": json.loads(row["capabilities_json"] or "[]"),
         "snakemakeWrappers": json.loads(row["snakemake_wrappers_json"] or "[]"),
         "snakemakeWrapperCount": len(json.loads(row["snakemake_wrappers_json"] or "[]")),
@@ -185,9 +188,9 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
             INSERT INTO tools (
                 tool_id, name, source, source_label, version, package_spec, summary,
                 target_platform, target_platform_supported, platforms_json, source_url,
-                test_command, rule_template_json, capabilities_json, snakemake_wrappers_json,
+                test_command, rule_template_json, rule_spec_draft_json, capabilities_json, snakemake_wrappers_json,
                 status, message, created_at, updated_at, last_checked_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tool_id) DO UPDATE SET
                 name = excluded.name,
                 source = excluded.source,
@@ -201,6 +204,7 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 source_url = excluded.source_url,
                 test_command = excluded.test_command,
                 rule_template_json = excluded.rule_template_json,
+                rule_spec_draft_json = excluded.rule_spec_draft_json,
                 capabilities_json = excluded.capabilities_json,
                 snakemake_wrappers_json = excluded.snakemake_wrappers_json,
                 status = excluded.status,
@@ -221,6 +225,7 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 str(tool.get("sourceUrl") or ""),
                 str(tool.get("testCommand") or ""),
                 json.dumps(dict(tool.get("ruleTemplate") or {}), ensure_ascii=False),
+                json.dumps(dict(tool.get("ruleSpecDraft") or {}), ensure_ascii=False),
                 json.dumps(list(tool.get("capabilities") or []), ensure_ascii=False),
                 json.dumps(list(tool.get("snakemakeWrappers") or []), ensure_ascii=False),
                 status,

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
+from apps.api.rule_spec_drafts import build_dependency_rule_spec_draft
 from apps.api.snakemake_wrappers import find_snakemake_wrappers_for_tool
 
 
@@ -159,14 +160,27 @@ def _attach_snakemake_wrappers(items: list[dict[str, Any]]) -> list[dict[str, An
     for item in items:
         tool_name = str(item.get("name") or "").strip()
         wrappers = find_snakemake_wrappers_for_tool(tool_name)
+        first_wrapper_draft = _first_wrapper_rule_spec_draft(wrappers)
         enriched.append(
             {
                 **item,
                 "snakemakeWrappers": wrappers,
                 "snakemakeWrapperCount": len(wrappers),
+                "ruleSpecDraft": first_wrapper_draft or build_dependency_rule_spec_draft(item),
             }
         )
     return enriched
+
+
+def _first_wrapper_rule_spec_draft(wrappers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for wrapper in wrappers:
+        draft = wrapper.get("ruleSpecDraft")
+        if isinstance(draft, dict):
+            return draft
+        legacy = wrapper.get("ruleTemplateDraft")
+        if isinstance(legacy, dict):
+            return legacy
+    return None
 
 
 def _normalize_query(query: str) -> str:

@@ -37,6 +37,7 @@ class GeneratedWorkflowStep:
     env_path: Path
     inputs: dict[str, str]
     outputs: dict[str, Path]
+    params: dict[str, Any]
     command_template: str
 
 
@@ -86,6 +87,13 @@ def prepare_generated_tool_workflow(
         safe_step_id = _safe_identifier(step_id)
         env_path = env_dir / (f"{safe_tool_id}.yaml" if len(requested_steps) == 1 else f"{safe_step_id}-{safe_tool_id}.yaml")
         rule_template = _resolve_rule_template(tool=tool, tool_request=tool_request)
+        params = _resolve_step_params(
+            rule_template=rule_template,
+            requested_step=requested_step,
+            tool_request=tool_request,
+            run_spec=run_spec,
+            single_step=len(requested_steps) == 1,
+        )
         inputs = _resolve_step_inputs(
             requested_step=requested_step,
             rule_template=rule_template,
@@ -112,6 +120,7 @@ def prepare_generated_tool_workflow(
                 env_path=Path("envs") / env_path.name,
                 inputs=inputs,
                 outputs=outputs,
+                params=params,
                 command_template=str(rule_template["commandTemplate"]),
             )
         )
@@ -156,6 +165,7 @@ def prepare_generated_tool_workflow(
                             "tool": _config_tool(step),
                             "inputs": step.inputs,
                             "outputs": {name: str(path) for name, path in step.outputs.items()},
+                            "params": step.params,
                         }
                         for step in generated_steps
                     ],
@@ -294,6 +304,70 @@ def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]
     if isinstance(request_template, dict) and request_template.get("commandTemplate"):
         return normalize_rule_template(request_template, required=True)
     raise ValueError("TOOL_RULE_TEMPLATE_REQUIRED")
+
+
+_MISSING = object()
+
+
+def _resolve_step_params(
+    *,
+    rule_template: dict[str, Any],
+    requested_step: dict[str, Any],
+    tool_request: dict[str, Any],
+    run_spec: dict[str, Any],
+    single_step: bool,
+) -> dict[str, Any]:
+    declared = _declared_rule_params(rule_template)
+    resolved = {name: value for name, value in declared.items() if value is not _MISSING}
+    if single_step and "params" in run_spec:
+        resolved.update(_validate_step_params(run_spec.get("params"), declared))
+    if "params" in tool_request:
+        resolved.update(_validate_step_params(tool_request.get("params"), declared))
+    if "params" in requested_step:
+        resolved.update(_validate_step_params(requested_step.get("params"), declared))
+    for name in _command_param_names(str(rule_template.get("commandTemplate") or "")):
+        if name not in resolved:
+            raise ValueError(f"WORKFLOW_STEP_PARAM_REQUIRED: {name}")
+    return resolved
+
+
+def _declared_rule_params(rule_template: dict[str, Any]) -> dict[str, Any]:
+    raw = rule_template.get("params") or {}
+    if not isinstance(raw, dict):
+        raise ValueError("TOOL_RULE_PARAMS_INVALID")
+    declared: dict[str, Any] = {}
+    for key, value in raw.items():
+        name = _safe_snakemake_name(str(key or ""))
+        if isinstance(value, dict):
+            declared[name] = _normalize_param_value(value["default"]) if "default" in value else _MISSING
+        else:
+            declared[name] = _normalize_param_value(value)
+    return declared
+
+
+def _validate_step_params(raw: Any, declared: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("WORKFLOW_STEP_PARAMS_INVALID")
+    resolved: dict[str, Any] = {}
+    for key, value in raw.items():
+        name = _safe_snakemake_name(str(key or ""))
+        if name not in declared:
+            raise ValueError(f"WORKFLOW_STEP_PARAM_UNKNOWN: {name}")
+        resolved[name] = _normalize_param_value(value)
+    return resolved
+
+
+def _normalize_param_value(value: Any) -> str | int | float | bool:
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    raise ValueError("WORKFLOW_STEP_PARAM_VALUE_INVALID")
+
+
+def _command_param_names(command_template: str) -> set[str]:
+    return {
+        match.group(1)
+        for match in re.finditer(r"\{params\.([A-Za-z_][A-Za-z0-9_]*)(?::q)?\}", command_template)
+    }
 
 
 def _resolve_step_inputs(
@@ -538,6 +612,7 @@ def _render_snakefile(
             step.command_template,
             inputs=step.inputs,
             outputs=step.outputs,
+            params=step.params,
             output_dir=output_dir,
             databases=databases,
             resources=resources,
@@ -574,6 +649,7 @@ def _render_command(
     *,
     inputs: dict[str, str],
     outputs: dict[str, Path],
+    params: dict[str, Any],
     output_dir: str,
     databases: dict[str, dict[str, Any]],
     resources: dict[str, dict[str, Any]],
@@ -597,6 +673,10 @@ def _render_command(
     for name, path in outputs.items():
         replacements[f"{{output.{name}}}"] = shlex.quote(str(path))
         replacements[f"{{output.{name}:q}}"] = shlex.quote(str(path))
+    for name, value in params.items():
+        rendered = shlex.quote(str(value))
+        replacements[f"{{params.{name}}}"] = rendered
+        replacements[f"{{params.{name}:q}}"] = rendered
     for role, database in databases.items():
         safe_role = _safe_identifier(role)
         for key in ["id", "name", "type", "templateId", "version", "path", "manifestPath", "checksum"]:
