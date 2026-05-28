@@ -303,7 +303,21 @@ export function outputArtifactNames(item: WorkflowCatalogItem) {
 }
 
 export function selectableTools(tools: AddedTool[]) {
-  return tools.filter((tool) => tool.targetPlatformSupported === true);
+  return tools
+    .map((tool, index) => ({ tool, index, score: ruleReadyToolScore(tool) }))
+    .filter((entry) => entry.tool.targetPlatformSupported === true)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.tool);
+}
+
+function ruleReadyToolScore(tool: AddedTool) {
+  const template = (tool.ruleTemplate || {}) as Record<string, unknown>;
+  let score = 0;
+  if (typeof template.commandTemplate === "string" && template.commandTemplate.trim()) score += 4;
+  if (Array.isArray(template.inputs) && template.inputs.length > 0) score += 2;
+  if (Array.isArray(template.outputs) && template.outputs.length > 0) score += 2;
+  if (Array.isArray(tool.capabilities) && tool.capabilities.length > 0) score += 1;
+  return score;
 }
 
 export function selectableDatabases(databases: DatabaseItem[]) {

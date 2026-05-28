@@ -25,6 +25,9 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "serverId" in api
     assert "contentBase64" in api
     assert "generated-tool-run-v1" in model
+    assert "ruleReadyToolScore" in model
+    assert "commandTemplate" in model
+    assert "targetPlatformSupported === true" in model
     assert "buildGeneratedWorkflowRunSpec" in api
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
