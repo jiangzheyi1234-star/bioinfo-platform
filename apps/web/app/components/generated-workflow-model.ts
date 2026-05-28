@@ -1,4 +1,5 @@
 import type { AddedTool, ToolCapabilitySlot } from "./tools-page-model";
+import { validateStepParamBindings } from "./generated-workflow-param-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
@@ -312,6 +313,12 @@ export function validateGeneratedWorkflowDraft(
         errors.push({ code: "TOOL_INPUT_REQUIRED", message: `步骤 ${step.id} 缺少输入 ${input.name}`, stepId: step.id, inputName: input.name });
       }
     }
+    errors.push(...validateStepParamBindings({
+      stepId: step.id,
+      params: step.params || {},
+      paramSpecs: readRuleParams(tool),
+      ruleTemplate: readToolRuleTemplate(tool),
+    }));
   }
 
   for (const step of stepDraft.steps) {

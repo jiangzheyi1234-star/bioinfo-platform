@@ -40,6 +40,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
+    param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
     runtime_editor_path = COMPONENTS / "generated-workflow-runtime-editor.tsx"
@@ -54,6 +55,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert ui_path.exists()
     assert graph_node_path.exists()
     assert node_settings_path.exists()
+    assert param_contract_path.exists()
     assert rule_spec_panel_path.exists()
     assert step_params_editor_path.exists()
     assert runtime_editor_path.exists()
@@ -63,6 +65,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     builder_ui = ui_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
+    param_contract = param_contract_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
     runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
@@ -104,6 +107,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
     assert "outputIsExposable" in model
     assert "validateDefaultExposedOutputs" in model
+    assert "validateStepParamBindings" in model
     assert "capabilities" in model
     assert "runSpec.workflow = {" in model
     assert "contractVersion:" in model
@@ -114,6 +118,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "ruleSpecDraft: readToolRuleSpecDraft(tool)" in model
     assert "resourceBindings" in model
     assert "databases" not in model
+    assert "WORKFLOW_STEP_PARAM_REQUIRED" in param_contract
+    assert "commandParamNames" in param_contract
 
     assert "useReducer" in builder_hook
     assert "useGeneratedWorkflowBuilder" in builder_hook
@@ -176,7 +182,16 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "工具 Palette" in builder_ui
     assert "Inspector" in builder_ui
     assert "PortBindingsEditor" in builder_ui
+    assert "function InputBindingRow" not in builder_ui
+    assert "builder.draft.steps.map((step, index)" not in builder_ui
+    assert "Step {index + 1}" not in builder_ui
+    assert "inputCount={inputCount}" in builder_ui
+    assert "上传文件" in builder_ui
+    assert "输入 role" in builder_ui
+    assert "直接路径" in builder_ui
     assert "removeGraphEdge" in builder_ui
+    assert "builder.removeStep(selectedNode.id)" in builder_ui
+    assert "删除节点" in builder_ui
     assert "删除连线" in builder_ui
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
