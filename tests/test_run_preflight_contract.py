@@ -124,6 +124,43 @@ def test_preflight_accepts_unordered_generated_step_references(tmp_path: Path) -
     )
 
 
+def test_preflight_accepts_generated_graph_contract(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    _register_tool(cfg, "conda-forge::source", output_name="seed")
+    _register_tool(cfg, "conda-forge::copy", output_name="copied")
+
+    preflight_run_spec(
+        cfg,
+        pipeline,
+        {
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "inputs": [{"role": "reads"}],
+            "workflow": {
+                "nodes": [
+                    {
+                        "id": "copy",
+                        "toolId": "conda-forge::copy",
+                    },
+                    {
+                        "id": "source",
+                        "toolId": "conda-forge::source",
+                        "inputs": {"primary": {"fromInput": "reads"}},
+                    },
+                ],
+                "edges": [
+                    {
+                        "from": {"nodeId": "source", "port": "seed"},
+                        "to": {"nodeId": "copy", "port": "primary"},
+                    }
+                ],
+                "outputs": [{"from": {"nodeId": "copy", "port": "copied"}, "as": "copied"}],
+            },
+        },
+    )
+
+
 def test_preflight_accepts_generated_step_params(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

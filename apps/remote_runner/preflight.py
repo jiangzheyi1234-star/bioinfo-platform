@@ -13,6 +13,7 @@ from .generated_workflow import (
     _step_tool_request,
     _topologically_order_steps,
 )
+from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .pipeline import PipelineDefinition
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .storage import fetch_tool
@@ -50,6 +51,10 @@ def _preflight_pipeline_resources(cfg: RemoteRunnerConfig, pipeline: PipelineDef
 def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> None:
     if "database" in run_spec or "databases" in run_spec:
         raise RunPreflightError("RESOURCE_BINDINGS_REQUIRED")
+    try:
+        run_spec = normalize_generated_workflow_run_spec(run_spec)
+    except ValueError as exc:
+        raise RunPreflightError(str(exc)) from exc
     try:
         requested_steps = _topologically_order_steps(_resolve_requested_steps(run_spec))
     except ValueError as exc:

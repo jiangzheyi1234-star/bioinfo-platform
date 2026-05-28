@@ -363,6 +363,91 @@ def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(t
     assert run_config["outputs"]["final"].endswith("copy_summary-final-count.txt")
 
 
+def test_generated_graph_workflow_writes_rules_and_edges(tmp_path: Path, monkeypatch) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    for tool_id, command, output_name, output_path in [
+        ("conda-forge::coreutils-count", "wc -c {input.primary:q} > {output.count:q}", "count", "wc-count.txt"),
+        ("conda-forge::coreutils-copy", "cp {input.primary:q} {output.final:q}", "final", "final-count.txt"),
+    ]:
+        upsert_tool(
+            cfg,
+            {
+                "id": tool_id,
+                "name": tool_id.rsplit("::", 1)[-1],
+                "source": "conda-forge",
+                "sourceLabel": "conda-forge",
+                "version": "9.5",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatform": "linux-64",
+                "targetPlatformSupported": True,
+                "ruleTemplate": {
+                    "commandTemplate": command,
+                    "inputs": [{"name": "primary", "type": "file", "required": True}],
+                    "outputs": [{"name": output_name, "path": output_path, "kind": "log", "mimeType": "text/plain"}],
+                },
+                "status": "declared",
+                "message": "Tool declared.",
+            },
+        )
+    upload = persist_upload(
+        cfg,
+        filename="reads.txt",
+        content_base64="QUJDREVGCg==",
+        mime_type="text/plain",
+    )
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_generated_graph_contract",
+        request_id="req_generated_graph_contract",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "projectId": "proj_demo",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
+            "workflow": {
+                "nodes": [
+                    {"id": "copy_summary", "toolId": "conda-forge::coreutils-copy"},
+                    {"id": "count_bytes", "toolId": "conda-forge::coreutils-count", "inputs": {"primary": {"fromUpload": 0}}},
+                ],
+                "edges": [
+                    {
+                        "from": {"nodeId": "count_bytes", "port": "count"},
+                        "to": {"nodeId": "copy_summary", "port": "primary"},
+                    }
+                ],
+                "outputs": [{"from": {"nodeId": "copy_summary", "port": "final"}, "as": "final"}],
+            },
+        },
+    )
+
+    work_dir = Path(cfg.work_dir) / "run_generated_graph_contract"
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+
+    assert len(calls) == 2
+    assert [step["id"] for step in run_config["workflow"]["steps"]] == ["count_bytes", "copy_summary"]
+    assert "count_bytes-wc-count.txt" in run_config["workflow"]["steps"][1]["inputs"]["primary"]
+    assert run_config["outputs"]["final"].endswith("copy_summary-final-count.txt")
+    assert "rule step_01_count_bytes:" in snakefile
+    assert "rule step_02_copy_summary:" in snakefile
+
+
 def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

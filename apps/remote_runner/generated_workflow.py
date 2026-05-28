@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_outputs import output_artifact_flags, render_rule_output_lines
 from .rule_runtime import (
@@ -64,6 +65,7 @@ def prepare_generated_tool_workflow(
 ) -> GeneratedWorkflow:
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")
+    run_spec = normalize_generated_workflow_run_spec(run_spec)
 
     workflow_dir = work_dir / "workflow"
     env_dir = workflow_dir / "envs"
@@ -229,6 +231,7 @@ def prepare_generated_tool_workflow(
 
 
 def _resolve_requested_steps(run_spec: dict[str, Any]) -> list[dict[str, Any]]:
+    run_spec = normalize_generated_workflow_run_spec(run_spec)
     workflow = run_spec.get("workflow")
     if isinstance(workflow, dict):
         steps = workflow.get("steps")
