@@ -30,6 +30,7 @@ const WORKFLOW_TOOLS_CACHE_KEY = "workflow:tools";
 const WORKFLOW_DATABASES_CACHE_KEY = "workflow:databases";
 const WORKFLOW_SERVER_CACHE_KEY = "workflow:server";
 const WORKFLOW_RUNS_CACHE_KEY = "workflow:runs";
+const WORKFLOW_SAMPLE_DATA_TIMEOUT_MS = 180_000;
 
 function refreshQuery(options: FetchOptions) {
   return options.forceRefresh ? "?refresh=true" : "";
@@ -196,7 +197,7 @@ export async function uploadWorkflowSampleData(pipelineId: string): Promise<Work
   const response = await requestLocalApiJson<{ data: { items: WorkflowUpload[] } }>(
     "POST",
     `/api/v1/workflow-sample-data/${encodeURIComponent(pipelineId)}/uploads`,
-    { body: {} }
+    { body: {}, timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS }
   );
   return response.data.items || [];
 }

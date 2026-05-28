@@ -275,7 +275,7 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
 
     work_dir = Path(cfg.work_dir) / "run_resource_binding"
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
 
     assert run_config["databases"]["blast_nt_db"] == str(blast_dir / "nt")
     assert "databaseAssets" not in run_config
@@ -302,17 +302,32 @@ def test_static_pipeline_writes_resource_config_from_manifest(tmp_path: Path, mo
     _patch_tool_probe_success(monkeypatch)
     release_dir = tmp_path / "release"
     pipeline_dir = release_dir / "pipelines" / "static-resource-v1"
-    pipeline_dir.mkdir(parents=True)
-    (pipeline_dir / "Snakefile").write_text('configfile: "run-config.json"\n', encoding="utf-8")
+    workflow_dir = pipeline_dir / "workflow"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "Snakefile").write_text('configfile: "run-config.json"\n', encoding="utf-8")
+    (pipeline_dir / ".test").mkdir(parents=True)
+    (pipeline_dir / ".test" / "run-config.json").write_text("{}", encoding="utf-8")
     (pipeline_dir / "pipeline.json").write_text(
         json.dumps(
             {
                 "pipelineId": "static-resource-v1",
                 "name": "Static Resource",
                 "version": "1.0.0",
-                "snakefile": "Snakefile",
+                "snakefile": "workflow/Snakefile",
                 "enabled": True,
                 "inputsSchema": {"type": "array", "minItems": 1},
+                "outputSchema": {
+                    "type": "object",
+                    "artifacts": [
+                        {
+                            "kind": "log",
+                            "mimeType": "text/plain",
+                            "name": "result.txt",
+                            "key": "result",
+                        }
+                    ],
+                },
+                "execution": {"outputs": {"result": "result.txt"}},
                 "resources": {
                     "blast_nt_db": {
                         "required": True,

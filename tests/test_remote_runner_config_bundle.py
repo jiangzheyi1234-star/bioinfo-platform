@@ -56,13 +56,14 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "remote_runner" / "run.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "pipeline.json").exists()
-    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "Snakefile").exists()
-    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "envs" / "base.yaml").exists()
+    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "workflow" / "Snakefile").exists()
+    assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "workflow" / "envs" / "base.yaml").exists()
     assert (
         bundle.bundle_dir
         / "remote_runner"
         / "pipelines"
         / "file-summary-v1"
+        / "workflow"
         / "scripts"
         / "generate_outputs.py"
     ).exists()
