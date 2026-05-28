@@ -15,6 +15,10 @@ class ReleaseArtifactSpec:
     default_platform: str
     bundle_env_var: str
     search_root_env_vars: tuple[str, ...]
+    conda_explicit_specs: dict[str, str]
+    sha256: dict[str, str]
+    size_bytes: dict[str, int]
+    lock_sha256: dict[str, str]
 
     def archive_filename(self, platform: str | None = None) -> str:
         return f"{self.name}-{self.version}-{platform or self.default_platform}.tar.gz"
@@ -73,6 +77,26 @@ def _load_manifest_from_path(path_str: str) -> RemoteRunnerReleaseManifest:
             default_platform=str(raw_spec.get("default_platform") or "").strip(),
             bundle_env_var=str(raw_spec.get("bundle_env_var") or "").strip(),
             search_root_env_vars=tuple(str(item).strip() for item in search_root_env_vars if str(item).strip()),
+            conda_explicit_specs={
+                str(platform).strip(): str(relative_path).strip()
+                for platform, relative_path in (raw_spec.get("conda_explicit_specs") or {}).items()
+                if str(platform).strip() and str(relative_path).strip()
+            },
+            sha256={
+                str(platform).strip(): str(value).strip().lower()
+                for platform, value in (raw_spec.get("sha256") or {}).items()
+                if str(platform).strip() and str(value).strip()
+            },
+            size_bytes={
+                str(platform).strip(): int(value)
+                for platform, value in (raw_spec.get("size_bytes") or {}).items()
+                if str(platform).strip()
+            },
+            lock_sha256={
+                str(platform).strip(): str(value).strip().lower()
+                for platform, value in (raw_spec.get("lock_sha256") or {}).items()
+                if str(platform).strip() and str(value).strip()
+            },
         )
         if not all((spec.name, spec.service, spec.version, spec.default_platform, spec.bundle_env_var)):
             raise RuntimeError(f"remote runner release manifest artifact is incomplete: {path}#{key}")

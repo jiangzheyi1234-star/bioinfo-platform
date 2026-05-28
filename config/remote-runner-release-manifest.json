@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "relative_search_roots": [
-    "dist/remote-runner",
-    "resources/remote-runner"
+    "resources/remote-runner",
+    "dist/remote-runner"
   ],
   "artifacts": {
     "remote_runner": {
@@ -13,7 +13,19 @@
       "bundle_env_var": "H2OMETA_REMOTE_RUNNER_BUNDLE",
       "search_root_env_vars": [
         "H2OMETA_REMOTE_RUNNER_DIR"
-      ]
+      ],
+      "conda_explicit_specs": {
+        "linux-64": "config/remote-runner-conda-specs/h2ometa-remote-runner/0.1.1-control-plane/linux-64.explicit.txt"
+      },
+      "sha256": {
+        "linux-64": "2d09a377ccfc49381928cabf762f2301d3097ba410a87ab73efd819f958b79c2"
+      },
+      "size_bytes": {
+        "linux-64": 97561286
+      },
+      "lock_sha256": {
+        "linux-64": "2a5c0c27f7ec75cbb525c7289e1f21f17312aa5b3d015df7996c84fd78325c38"
+      }
     },
     "workflow_runtime": {
       "name": "h2ometa-workflow-runtime",
@@ -23,7 +35,19 @@
       "bundle_env_var": "H2OMETA_WORKFLOW_RUNTIME_BUNDLE",
       "search_root_env_vars": [
         "H2OMETA_WORKFLOW_RUNTIME_DIR"
-      ]
+      ],
+      "conda_explicit_specs": {
+        "linux-64": "config/remote-runner-conda-specs/h2ometa-workflow-runtime/0.1.0/linux-64.explicit.txt"
+      },
+      "sha256": {
+        "linux-64": "f5ad850222722b7b29f5a18efd9669852f2c47b5a35c2ff6a0ec859bbe2ae074"
+      },
+      "size_bytes": {
+        "linux-64": 151990339
+      },
+      "lock_sha256": {
+        "linux-64": "89e18e81b81d3045b0e68175b3a0810efc8f5ef11c41ff7837432c91bf2e9458"
+      }
     }
   }
 }
