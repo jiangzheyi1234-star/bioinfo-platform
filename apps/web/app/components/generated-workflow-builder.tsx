@@ -286,6 +286,11 @@ function WorkflowGraphWorkbench({
                 </div>
               </div>
               <GeneratedWorkflowRuleSpecPanel tool={selectedTool} />
+              <StepParamsEditor
+                params={selectedNode.params || {}}
+                paramSpecs={readRuleParams(selectedTool)}
+                onChange={(paramName, value) => builder.setStepParam(selectedNode.id, paramName, value)}
+              />
               <GeneratedWorkflowRuntimeEditor
                 runtime={selectedNode.runtime}
                 tool={selectedTool}
