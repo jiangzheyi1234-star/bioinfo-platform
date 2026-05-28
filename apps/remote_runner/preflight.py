@@ -14,6 +14,7 @@ from .generated_workflow import (
     _topologically_order_steps,
 )
 from .pipeline import PipelineDefinition
+from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .storage import fetch_tool
 from .tools import normalize_rule_template
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
@@ -56,6 +57,7 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
     rule_templates: list[dict[str, Any]] = []
     seen_steps: set[str] = set()
     known_outputs: dict[str, set[str]] = {}
+    known_output_specs: dict[str, dict[str, dict[str, str]]] = {}
     for index, step in enumerate(requested_steps):
         step_id = _step_id(step, index)
         if not step_id:
@@ -89,10 +91,18 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             )
         except ValueError as exc:
             raise RunPreflightError(str(exc)) from exc
-        _preflight_step_inputs(step, known_outputs, list(run_spec.get("inputs") or []))
+        _preflight_step_inputs(
+            step,
+            known_outputs,
+            known_output_specs,
+            list(run_spec.get("inputs") or []),
+            rule_template,
+            tool,
+        )
         _preflight_required_step_inputs(step, rule_template)
         rule_templates.append(rule_template)
         known_outputs[step_id] = {str(item.get("name") or "") for item in rule_template.get("outputs") or []}
+        known_output_specs[step_id] = build_output_port_specs(rule_template, tool)
     _preflight_exposed_outputs(run_spec, known_outputs)
     try:
         resource_specs = collect_workflow_resource_specs(rule_templates)
@@ -108,14 +118,17 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
 def _preflight_step_inputs(
     step: dict[str, Any],
     known_outputs: dict[str, set[str]],
+    known_output_specs: dict[str, dict[str, dict[str, str]]],
     run_inputs: list[dict[str, Any]],
+    rule_template: dict[str, Any],
+    tool: dict[str, Any],
 ) -> None:
     raw_inputs = step.get("inputs")
     if raw_inputs is None:
         return
     if not isinstance(raw_inputs, dict) or not raw_inputs:
         raise RunPreflightError("WORKFLOW_STEP_INPUTS_INVALID")
-    for binding in raw_inputs.values():
+    for input_name, binding in raw_inputs.items():
         if isinstance(binding, str):
             continue
         if not isinstance(binding, dict):
@@ -128,6 +141,16 @@ def _preflight_step_inputs(
             output_name = str(binding.get("output") or binding.get("fromOutput") or "tool_output").strip()
             if output_name not in known_outputs[normalized_step]:
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}")
+            try:
+                validate_input_binding_compatibility(
+                    input_name=_safe_snakemake_name(str(input_name or "")),
+                    binding=binding,
+                    rule_template=rule_template,
+                    tool=tool,
+                    upstream_output_specs=known_output_specs,
+                )
+            except ValueError as exc:
+                raise RunPreflightError(str(exc)) from exc
             continue
         if "fromUpload" in binding:
             raw_index = binding.get("fromUpload")

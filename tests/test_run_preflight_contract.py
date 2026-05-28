@@ -199,6 +199,138 @@ def test_preflight_rejects_invalid_generated_step_params(tmp_path: Path) -> None
         raise AssertionError("invalid generated step params should be rejected before run creation")
 
 
+def test_preflight_rejects_incompatible_generated_step_ports(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::source",
+            "name": "source",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.primary:q} {output.reads:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [
+                    {
+                        "name": "reads",
+                        "path": "reads.bam",
+                        "kind": "alignment",
+                        "mimeType": "application/x-bam",
+                    }
+                ],
+            },
+        },
+    )
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::consumer",
+            "name": "consumer",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.reads:q} {output.report:q}",
+                "inputs": [{"name": "reads", "type": "file", "kind": "sequence", "mimeType": "application/gzip"}],
+                "outputs": [{"name": "report", "path": "report.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
+        },
+    )
+
+    try:
+        preflight_run_spec(
+            cfg,
+            pipeline,
+            {
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "inputs": [{"role": "input"}],
+                "workflow": {
+                    "steps": [
+                        {"id": "source", "tool": {"id": "conda-forge::source"}, "inputs": {"primary": {"fromInput": "input"}}},
+                        {
+                            "id": "consumer",
+                            "tool": {"id": "conda-forge::consumer"},
+                            "inputs": {"reads": {"fromStep": "source", "output": "reads"}},
+                        },
+                    ]
+                },
+            },
+        )
+    except RunPreflightError as exc:
+        assert str(exc) == "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: source.reads -> reads"
+    else:
+        raise AssertionError("incompatible generated workflow ports should be rejected")
+
+
+def test_preflight_accepts_capability_compatible_generated_step_ports(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    capability_output = {
+        "id": "emit_fastq",
+        "outputs": [{"name": "reads", "data": "EDAM:data_2044", "format": "EDAM:format_1930"}],
+    }
+    capability_input = {
+        "id": "consume_fastq",
+        "inputs": [{"name": "reads", "data": "EDAM:data_2044", "format": "EDAM:format_1930"}],
+    }
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::source",
+            "name": "source",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "capabilities": [capability_output],
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.primary:q} {output.reads:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "reads", "path": "reads.fastq.gz", "kind": "sequence", "mimeType": "application/gzip"}],
+            },
+        },
+    )
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::consumer",
+            "name": "consumer",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "capabilities": [capability_input],
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.reads:q} {output.report:q}",
+                "inputs": [{"name": "reads", "type": "file"}],
+                "outputs": [{"name": "report", "path": "report.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
+        },
+    )
+
+    preflight_run_spec(
+        cfg,
+        pipeline,
+        {
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "inputs": [{"role": "input"}],
+            "workflow": {
+                "steps": [
+                    {"id": "source", "tool": {"id": "conda-forge::source"}, "inputs": {"primary": {"fromInput": "input"}}},
+                    {
+                        "id": "consumer",
+                        "tool": {"id": "conda-forge::consumer"},
+                        "inputs": {"reads": {"fromStep": "source", "output": "reads"}},
+                    },
+                ]
+            },
+        },
+    )
+
+
 def test_preflight_rejects_generated_step_cycles(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

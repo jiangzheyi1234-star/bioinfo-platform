@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_outputs import output_artifact_flags, render_rule_output_lines
 from .rule_runtime import (
     RuleRuntimeDirectives,
@@ -77,6 +78,7 @@ def prepare_generated_tool_workflow(
     workflow_resource_config: dict[str, Any] = {"resources": {}, "config": {}}
     generated_steps: list[GeneratedWorkflowStep] = []
     outputs_by_step_id: dict[str, dict[str, Path]] = {}
+    output_port_specs_by_step_id: dict[str, dict[str, dict[str, str]]] = {}
 
     for index, requested_step in enumerate(requested_steps):
         tool_request = _step_tool_request(requested_step)
@@ -107,8 +109,10 @@ def prepare_generated_tool_workflow(
         inputs = _resolve_step_inputs(
             requested_step=requested_step,
             rule_template=rule_template,
+            tool=tool,
             resolved_inputs=resolved_inputs,
             outputs_by_step_id=outputs_by_step_id,
+            output_port_specs_by_step_id=output_port_specs_by_step_id,
             previous_outputs=generated_steps[-1].outputs if generated_steps else None,
         )
         output_prefix = safe_step_id if len(requested_steps) > 1 else ""
@@ -144,6 +148,7 @@ def prepare_generated_tool_workflow(
         if step_id in outputs_by_step_id:
             raise ValueError(f"WORKFLOW_STEP_DUPLICATE: {step_id}")
         outputs_by_step_id[step_id] = outputs
+        output_port_specs_by_step_id[step_id] = build_output_port_specs(rule_template, tool)
 
     workflow_resource_config = build_workflow_resource_config(
         cfg,
@@ -392,16 +397,21 @@ def _resolve_step_inputs(
     *,
     requested_step: dict[str, Any],
     rule_template: dict[str, Any],
+    tool: dict[str, Any],
     resolved_inputs: list[dict[str, Any]],
     outputs_by_step_id: dict[str, dict[str, Path]],
+    output_port_specs_by_step_id: dict[str, dict[str, dict[str, str]]],
     previous_outputs: dict[str, Path] | None,
 ) -> dict[str, str]:
     explicit_inputs = requested_step.get("inputs")
     if explicit_inputs is not None:
         mapped = _resolve_explicit_step_inputs(
             explicit_inputs,
+            rule_template=rule_template,
+            tool=tool,
             resolved_inputs=resolved_inputs,
             outputs_by_step_id=outputs_by_step_id,
+            output_port_specs_by_step_id=output_port_specs_by_step_id,
         )
         _validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
         return mapped
@@ -447,8 +457,11 @@ def _validate_required_step_inputs(*, rule_template: dict[str, Any], inputs: dic
 def _resolve_explicit_step_inputs(
     raw: Any,
     *,
+    rule_template: dict[str, Any],
+    tool: dict[str, Any],
     resolved_inputs: list[dict[str, Any]],
     outputs_by_step_id: dict[str, dict[str, Path]],
+    output_port_specs_by_step_id: dict[str, dict[str, dict[str, str]]],
 ) -> dict[str, str]:
     if not isinstance(raw, dict) or not raw:
         raise ValueError("WORKFLOW_STEP_INPUTS_INVALID")
@@ -457,6 +470,13 @@ def _resolve_explicit_step_inputs(
         input_name = _safe_snakemake_name(str(name or ""))
         if not input_name:
             raise ValueError("WORKFLOW_STEP_INPUT_NAME_REQUIRED")
+        validate_input_binding_compatibility(
+            input_name=input_name,
+            binding=binding,
+            rule_template=rule_template,
+            tool=tool,
+            upstream_output_specs=output_port_specs_by_step_id,
+        )
         mapped[input_name] = _resolve_input_binding(
             binding,
             resolved_inputs=resolved_inputs,
@@ -746,10 +766,6 @@ def _render_env_yaml(*, source: str, package_spec: str) -> str:
 
 
 def _channels_for_source(source: str) -> list[str]:
-    if source == "bioconda":
-        return ["conda-forge", "bioconda"]
-    if source == "conda-forge":
-        return ["conda-forge", "bioconda"]
     return ["conda-forge", "bioconda"]
 
 
@@ -766,22 +782,11 @@ def _safe_snakemake_name(value: str) -> str:
     return name
 
 
-def _safe_output_name(value: str) -> str:
-    name = Path(value).name.strip()
-    if not name or name in {".", ".."}:
-        raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
-    return name
-
-
 def _safe_relative_output_path(value: str) -> Path:
     posix_path = PurePosixPath(value.replace("\\", "/"))
-    if (
-        Path(value).is_absolute()
-        or posix_path.is_absolute()
-        or any(part in {"", ".", ".."} for part in posix_path.parts)
-    ):
+    parts = list(posix_path.parts)
+    if Path(value).is_absolute() or posix_path.is_absolute() or any(part in {"", ".", ".."} for part in parts):
         raise ValueError("TOOL_OUTPUT_PATH_INVALID")
-    parts = [_safe_output_name(part) for part in posix_path.parts]
     if not parts:
         raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
     return Path(*parts)
