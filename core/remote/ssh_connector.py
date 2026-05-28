@@ -24,6 +24,7 @@ def ssh_connect(
     timeout: int = 5,
 ) -> ConnectResult:
     """建立 SSH 连接."""
+    timeout = max(1, int(timeout))
     try:
         socket.create_connection((ip, port), timeout=timeout).close()
     except Exception as e:
@@ -38,6 +39,9 @@ def ssh_connect(
             "port": port,
             "username": user,
             "timeout": timeout,
+            "banner_timeout": timeout,
+            "auth_timeout": timeout,
+            "channel_timeout": timeout,
             "allow_agent": use_agent,
             "look_for_keys": use_agent,
         }
@@ -47,8 +51,10 @@ def ssh_connect(
             kwargs["password"] = password
         client.connect(**kwargs)
     except paramiko.AuthenticationException:
+        client.close()
         return ConnectResult(False, "Authentication failed")
     except Exception as e:
+        client.close()
         return ConnectResult(False, str(e))
 
     try:
@@ -85,7 +91,10 @@ def run_diagnostics(
 
     # SSH handshake
     try:
-        t = paramiko.Transport((ip, port))
+        sock = socket.create_connection((ip, port), timeout=5)
+        t = paramiko.Transport(sock)
+        t.banner_timeout = 5
+        t.auth_timeout = 5
         t.connect()
         steps.append(
             {"name": "SSH", "status": "ok", "message": t.remote_version or "connected"}
@@ -104,6 +113,9 @@ def run_diagnostics(
             "port": port,
             "username": user,
             "timeout": 5,
+            "banner_timeout": 5,
+            "auth_timeout": 5,
+            "channel_timeout": 5,
             "allow_agent": use_agent,
             "look_for_keys": use_agent,
         }

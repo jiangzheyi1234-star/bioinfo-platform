@@ -67,7 +67,9 @@ class RuntimeService(RunnerOperationsMixin):
         self._terminal_sessions: dict[str, TerminalSession] = {}
         self._runner_ensure_mutex = threading.Lock()
         self._runner_ensure_inflight: set[str] = set()
+        self._connect_in_progress = False
         self._auto_connect_attempted = False
+        self._auto_connect_in_progress = False
         self._auto_connect_failed = False
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
@@ -79,7 +81,7 @@ class RuntimeService(RunnerOperationsMixin):
                 return
             self._service_locator.initialize()
             self._initialized = True
-            self._attempt_startup_auto_connect()
+            self._attempt_startup_auto_connect_in_background()
 
     def shutdown(self) -> None:
         with self._lock:
@@ -452,22 +454,11 @@ class RuntimeService(RunnerOperationsMixin):
             previous_password_ref = str(merged.get("password_ref", "") or "").strip()
             remember_auth = bool(merged.get("remember_auth", True))
             auto_connect_requested = bool(merged.get("auto_connect_on_startup", False))
+            self._connect_in_progress = True
 
-        use_agent = auth_mode == "agent"
-        result = ssh_connect(
-            ip=host,
-            port=port,
-            user=user,
-            password=password,
-            key_file=identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
-            use_agent=use_agent,
-            timeout=timeout,
-        )
-        if not result.ok or result.client is None:
-            raise RuntimeServiceError(result.message)
-
-        def _reconnect():
-            r = ssh_connect(
+        try:
+            use_agent = auth_mode == "agent"
+            result = ssh_connect(
                 ip=host,
                 port=port,
                 user=user,
@@ -476,67 +467,98 @@ class RuntimeService(RunnerOperationsMixin):
                 use_agent=use_agent,
                 timeout=timeout,
             )
-            if not r.ok:
-                raise RuntimeError(r.message)
-            return r.client
+            if not result.ok or result.client is None:
+                raise RuntimeServiceError(result.message)
 
-        with self._lock:
-            self._service_locator.ssh_service = SSHService(
-                initial_client=result.client, connect_fn=_reconnect
-            )
-            next_password_ref = previous_password_ref
-            if auth_mode in {"key_file", "ssh_config", "agent"}:
-                delete_ssh_password(previous_password_ref)
-                next_password_ref = ""
-            elif patch and "password" in patch:
-                if password:
-                    next_password_ref = store_ssh_password(
-                        host=host,
-                        port=port,
-                        user=user,
-                        password=password,
-                    )
-                else:
+            def _reconnect():
+                r = ssh_connect(
+                    ip=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    key_file=identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
+                    use_agent=use_agent,
+                    timeout=timeout,
+                )
+                if not r.ok:
+                    raise RuntimeError(r.message)
+                return r.client
+
+            with self._lock:
+                self._service_locator.ssh_service = SSHService(
+                    initial_client=result.client, connect_fn=_reconnect
+                )
+                next_password_ref = previous_password_ref
+                if auth_mode in {"key_file", "ssh_config", "agent"}:
                     delete_ssh_password(previous_password_ref)
                     next_password_ref = ""
-            persisted = {
-                **merged,
-                "auth_mode": auth_mode,
-                "ssh_host_alias": str(merged.get("ssh_host_alias", "") or "").strip(),
-                "remember_auth": remember_auth,
-                "password_ref": next_password_ref,
-                "identity_ref": identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
-                "host": host if auth_mode != "ssh_config" else "",
-                "port": port if auth_mode != "ssh_config" else 22,
-                "user": user if auth_mode != "ssh_config" else "",
-                "timeout_sec": timeout,
-                "auto_connect_on_startup": bool(remember_auth and auto_connect_requested),
-            }
-            if not persisted["remember_auth"]:
-                persisted["password_ref"] = ""
-                persisted["identity_ref"] = ""
-                persisted["ssh_host_alias"] = ""
-                persisted["auto_connect_on_startup"] = False
-            save_config(self._merge_patch(current, {"ssh": persisted}))
-            self._auto_connect_failed = False
-            self._auto_connect_error = ""
-            self._auto_connect_notice_key = ""
-            status = self._get_ssh_status_unlocked()
-
-        server = self._build_primary_server_identity(ssh_status=status)
-        if server is None:
+                elif patch and "password" in patch:
+                    if password:
+                        next_password_ref = store_ssh_password(
+                            host=host,
+                            port=port,
+                            user=user,
+                            password=password,
+                        )
+                    else:
+                        delete_ssh_password(previous_password_ref)
+                        next_password_ref = ""
+                persisted = {
+                    **merged,
+                    "auth_mode": auth_mode,
+                    "ssh_host_alias": str(merged.get("ssh_host_alias", "") or "").strip(),
+                    "remember_auth": remember_auth,
+                    "password_ref": next_password_ref,
+                    "identity_ref": identity_ref if auth_mode in {"key_file", "ssh_config"} else "",
+                    "host": host if auth_mode != "ssh_config" else "",
+                    "port": port if auth_mode != "ssh_config" else 22,
+                    "user": user if auth_mode != "ssh_config" else "",
+                    "timeout_sec": timeout,
+                    "auto_connect_on_startup": bool(remember_auth and auto_connect_requested),
+                }
+                if not persisted["remember_auth"]:
+                    persisted["password_ref"] = ""
+                    persisted["identity_ref"] = ""
+                    persisted["ssh_host_alias"] = ""
+                    persisted["auto_connect_on_startup"] = False
+                save_config(self._merge_patch(current, {"ssh": persisted}))
+                self._auto_connect_failed = False
+                self._auto_connect_error = ""
+                self._auto_connect_notice_key = ""
+                status = self._get_ssh_status_unlocked()
+                server = self._build_primary_server_identity(ssh_status=status)
+                if server is not None:
+                    server_id = str(server["serverId"])
+                    self._save_runner_preparing_snapshot(
+                        server_id=server_id,
+                        message="Checking remote runner...",
+                    )
+                    status = self._get_ssh_status_unlocked()
+            if server is not None:
+                self._ensure_runner_ready_in_background(server_id)
             return status
-        try:
-            ensure_result = self.ensure_remote_runner_ready(str(server["serverId"]))
-            status["runner"] = ensure_result["data"]["runner"]
-        except RuntimeServiceError as exc:
-            status["runner"] = {
-                "state": "repair_needed",
-                "message": str(exc) or "Remote runner is not ready.",
-                "ready": False,
-                "reasonCode": "RUNNER_NOT_READY",
-            }
-        return status
+        finally:
+            with self._lock:
+                self._connect_in_progress = False
+
+    def _attempt_startup_auto_connect_in_background(self) -> None:
+        if self._auto_connect_attempted or self._auto_connect_in_progress:
+            return
+        self._auto_connect_in_progress = True
+
+        def _worker() -> None:
+            try:
+                self._attempt_startup_auto_connect()
+            finally:
+                with self._lock:
+                    self._auto_connect_in_progress = False
+
+        thread = threading.Thread(
+            target=_worker,
+            name="h2ometa-startup-auto-connect",
+            daemon=True,
+        )
+        thread.start()
 
     def disconnect_ssh(self) -> dict:
         with self._lock:
@@ -749,8 +771,10 @@ class RuntimeService(RunnerOperationsMixin):
         registry_entry: dict[str, Any],
     ) -> dict[str, Any]:
         snapshot = registry_entry.get("last_health_snapshot")
-        if isinstance(snapshot, dict) and str(snapshot.get("reasonCode") or "") == "RUNNER_STOPPED":
-            return status
+        if isinstance(snapshot, dict):
+            reason_code = str(snapshot.get("reasonCode") or "")
+            if reason_code in {"RUNNER_STOPPED", "RUNNER_SETUP_FAILED", "RUNNER_NOT_READY"}:
+                return status
         try:
             if ssh is None or not getattr(ssh, "is_connected", False):
                 return status
@@ -1130,9 +1154,11 @@ class RuntimeService(RunnerOperationsMixin):
             "timeout_sec": cfg.get("timeout_sec", 5),
             "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
             "auto_connect_attempted": self._auto_connect_attempted,
+            "auto_connect_in_progress": self._auto_connect_in_progress,
             "auto_connect_failed": self._auto_connect_failed,
             "auto_connect_error": self._auto_connect_error,
-            "message": "SSH connected" if connected else "SSH disconnected",
+            "connecting": self._connect_in_progress,
+            "message": "SSH connecting" if self._connect_in_progress or self._auto_connect_in_progress else ("SSH connected" if connected else "SSH disconnected"),
         }
         server = self._build_primary_server_identity(ssh_status=status)
         if connected and server is not None:

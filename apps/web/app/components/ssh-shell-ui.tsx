@@ -19,6 +19,16 @@ import { cn } from "@/lib/utils";
 import { normalizeFetchError, type SSHFormState, type SSHStatus } from "./ssh-shell-model";
 
 function resolveRemoteStatus(status: SSHStatus | null) {
+  if (status?.connecting || status?.auto_connect_in_progress) {
+    const target = status.host ? `SSH: ${status.host}` : "SSH";
+    return {
+      label: "SSH 连接中",
+      message: target,
+      dotClass: "animate-pulse bg-blue-500",
+      toneClass: "text-blue-700",
+      stages: ["正在建立 SSH 连接", "等待认证结果", "连接成功后准备远程服务"],
+    };
+  }
   if (!status?.connected) {
     return {
       label: "未连接",
@@ -264,6 +274,7 @@ export function RemoteStatusBar({
 type SshSidebarProps = {
   pathname: string;
   status: SSHStatus | null;
+  connectBusy: boolean;
   disconnectBusy: boolean;
   ensureRunnerBusy: boolean;
   onOpenConnect: () => void;
@@ -274,6 +285,7 @@ type SshSidebarProps = {
 export function SshSidebar({
   pathname,
   status,
+  connectBusy,
   disconnectBusy,
   ensureRunnerBusy,
   onOpenConnect,
@@ -290,6 +302,7 @@ export function SshSidebar({
       status.runner?.state !== "repair_needed" &&
       status.runner?.state !== "failed"
   );
+  const connecting = connectBusy || Boolean(status?.connecting || status?.auto_connect_in_progress);
   const canRepairRunner = Boolean(status?.connected && !status.runner?.ready);
 
   return (
@@ -316,7 +329,7 @@ export function SshSidebar({
                 status?.connected ? "cursor-default" : ""
               )}
             >
-              {remotePreparing ? (
+              {connecting || remotePreparing ? (
                 <RefreshCw strokeWidth={1.5} className="animate-spin text-blue-600 size-4 mr-2" />
               ) : (
                 <Server
@@ -325,7 +338,9 @@ export function SshSidebar({
                 />
               )}
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-900">连接</p>
+                <p className="truncate text-sm font-medium text-slate-900">
+                  {connecting ? "连接中" : remotePreparing ? "准备中" : "连接"}
+                </p>
               </div>
             </Button>
             {status?.connected ? (

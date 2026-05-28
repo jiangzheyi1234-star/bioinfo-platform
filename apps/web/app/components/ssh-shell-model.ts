@@ -16,7 +16,9 @@ export type SSHStatus = {
   timeout_sec?: number;
   auto_connect_on_startup?: boolean;
   message: string;
+  connecting?: boolean;
   auto_connect_attempted?: boolean;
+  auto_connect_in_progress?: boolean;
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
   runner?: {

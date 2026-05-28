@@ -314,6 +314,19 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
+if "%H2OMETA_HEADLESS_LAUNCH%"=="1" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\scripts\start-web-stack-hidden.ps1" -RepoRoot "%REPO_ROOT%" -ApiLauncher "%RUN_LOCAL_API_DEV%" -WebLauncher "%RUN_WEB_DEV%"
+    if errorlevel 1 (
+        pause
+        endlocal & exit /b 1
+    )
+    echo.
+    echo [OK] Hidden launch commands submitted.
+    echo API health: %API_URL%/health
+    echo Web UI: %WEB_URL%
+    endlocal & exit /b 0
+)
+
 ver >nul
 start "H2OMeta API" cmd /k call "%RUN_LOCAL_API_DEV%"
 if errorlevel 1 (
