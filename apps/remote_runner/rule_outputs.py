@@ -6,7 +6,7 @@ from typing import Any
 
 
 def render_rule_output_lines(outputs: dict[str, Path], rule_template: dict[str, Any]) -> str:
-    specs = _output_specs_by_name(rule_template)
+    specs = rule_output_specs_by_name(rule_template)
     return "".join(
         f"        {_safe_snakemake_name(name)}={_render_output_value(path, specs.get(name, {}))},\n"
         for name, path in outputs.items()
@@ -21,6 +21,23 @@ def output_artifact_flags(spec: dict[str, Any]) -> dict[str, bool]:
     return flags
 
 
+def output_is_exposable(spec: dict[str, Any]) -> bool:
+    return not bool(spec.get("temp"))
+
+
+def validate_exposed_output_spec(step_id: str, output_name: str, spec: dict[str, Any]) -> None:
+    if not output_is_exposable(spec):
+        raise ValueError(f"WORKFLOW_OUTPUT_TEMP_EXPOSED: {step_id}.{output_name}")
+
+
+def rule_output_specs_by_name(rule_template: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    specs: dict[str, dict[str, Any]] = {}
+    for item in rule_template.get("outputs") or []:
+        if isinstance(item, dict):
+            specs[str(item.get("name") or "")] = item
+    return specs
+
+
 def _render_output_value(path: Path, spec: dict[str, Any]) -> str:
     rendered = repr(str(path))
     if bool(spec.get("directory")):
@@ -30,15 +47,6 @@ def _render_output_value(path: Path, spec: dict[str, Any]) -> str:
     if bool(spec.get("temp")):
         rendered = f"temp({rendered})"
     return rendered
-
-
-def _output_specs_by_name(rule_template: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    specs: dict[str, dict[str, Any]] = {}
-    for item in rule_template.get("outputs") or []:
-        if isinstance(item, dict):
-            specs[str(item.get("name") or "")] = item
-    return specs
-
 
 def _safe_snakemake_name(value: str) -> str:
     name = re.sub(r"[^A-Za-z0-9_]+", "_", value).strip("_") or "output"

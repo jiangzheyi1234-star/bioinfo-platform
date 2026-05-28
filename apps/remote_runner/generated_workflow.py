@@ -11,7 +11,8 @@ from .config import RemoteRunnerConfig
 from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
-from .rule_outputs import output_artifact_flags, render_rule_output_lines
+from .rule_outputs import output_artifact_flags, render_rule_output_lines, validate_exposed_output_spec
+from .rule_templates import rule_template_candidates
 from .rule_runtime import (
     RuleRuntimeDirectives,
     render_runtime_directives,
@@ -150,7 +151,7 @@ def prepare_generated_tool_workflow(
                 outputs=outputs,
                 params=params,
                 runtime=runtime,
-                command_template=str(rule_template["commandTemplate"]),
+                command_template=str(rule_template.get("commandTemplate") or ""),
             )
         )
         if step_id in outputs_by_step_id:
@@ -329,12 +330,8 @@ def _config_tool(step: GeneratedWorkflowStep) -> dict[str, Any]:
 
 
 def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]) -> dict[str, Any]:
-    manifest_template = tool.get("ruleTemplate")
-    if isinstance(manifest_template, dict) and manifest_template.get("commandTemplate"):
-        return normalize_rule_template(manifest_template, required=True)
-    request_template = tool_request.get("ruleTemplate")
-    if isinstance(request_template, dict) and request_template.get("commandTemplate"):
-        return normalize_rule_template(request_template, required=True)
+    for candidate in rule_template_candidates(tool, tool_request):
+        return normalize_rule_template(candidate, required=True)
     raise ValueError("TOOL_RULE_TEMPLATE_REQUIRED")
 
 
@@ -578,6 +575,8 @@ def _resolve_exposed_outputs(
     raw = workflow_spec.get("outputs") or workflow_spec.get("exposeOutputs")
     if raw in (None, {}, []):
         last_step = steps[-1]
+        for name in last_step.outputs:
+            validate_exposed_output_spec(last_step.step_id, name, _output_spec(last_step, name))
         return {
             name: {"step": last_step, "output": name, "path": path, "spec": _output_spec(last_step, name)}
             for name, path in last_step.outputs.items()
@@ -602,11 +601,13 @@ def _resolve_exposed_outputs(
             raise ValueError(f"WORKFLOW_OUTPUT_STEP_UNKNOWN: {step_id}")
         if output_name not in step_outputs:
             raise ValueError(f"WORKFLOW_OUTPUT_NAME_UNKNOWN: {step_id}.{output_name}")
+        spec = _output_spec(step, output_name)
+        validate_exposed_output_spec(step_id, output_name, spec)
         exposed[alias] = {
             "step": step,
             "output": output_name,
             "path": step_outputs[output_name],
-            "spec": _output_spec(step, output_name),
+            "spec": spec,
         }
     if not exposed:
         raise ValueError("WORKFLOW_OUTPUTS_REQUIRED")
@@ -656,17 +657,7 @@ def _render_snakefile(
     workflow_targets = "".join(f"        {str(path)!r},\n" for path in final_outputs.values())
     rule_blocks = []
     for step in steps:
-        command = _render_command(
-            step.command_template,
-            inputs=step.inputs,
-            outputs=step.outputs,
-            params=step.params,
-            runtime=step.runtime,
-            output_dir=output_dir,
-            databases=databases,
-            resources=resources,
-            resource_config=resource_config,
-        )
+        wrapper = str(step.rule_template.get("wrapper") or "").strip()
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
         output_lines = render_rule_output_lines(step.outputs, step.rule_template)
         runtime_lines = render_runtime_directives(step.runtime)
@@ -674,6 +665,31 @@ def _render_snakefile(
             f"        mkdir -p {shlex.quote(path)}\n"
             for path in runtime_log_parent_dirs(step.runtime)
         )
+        conda_lines = ""
+        if wrapper:
+            action_lines = f"    wrapper:\n        {wrapper!r}\n"
+        else:
+            command = _render_command(
+                step.command_template,
+                inputs=step.inputs,
+                outputs=step.outputs,
+                params=step.params,
+                runtime=step.runtime,
+                output_dir=output_dir,
+                databases=databases,
+                resources=resources,
+                resource_config=resource_config,
+            )
+            conda_lines = f"    conda:\n        {step.env_path.as_posix()!r}\n"
+            action_lines = (
+                "    shell:\n"
+                "        r\"\"\"\n"
+                "        set -euo pipefail\n"
+                f"        mkdir -p {shlex.quote(output_dir)}\n"
+                f"{log_mkdir_lines}"
+                f"        {command}\n"
+                "        \"\"\"\n"
+            )
         rule_blocks.append(
             f"rule {step.rule_name}:\n"
             "    input:\n"
@@ -681,15 +697,8 @@ def _render_snakefile(
             "    output:\n"
             f"{output_lines}"
             f"{runtime_lines}"
-            "    conda:\n"
-            f"        {step.env_path.as_posix()!r}\n"
-            "    shell:\n"
-            "        r\"\"\"\n"
-            "        set -euo pipefail\n"
-            f"        mkdir -p {shlex.quote(output_dir)}\n"
-            f"{log_mkdir_lines}"
-            f"        {command}\n"
-            "        \"\"\"\n"
+            f"{conda_lines}"
+            f"{action_lines}"
         )
     return (
         'configfile: "run-config.json"\n\n'

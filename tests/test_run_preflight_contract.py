@@ -585,6 +585,49 @@ def test_preflight_rejects_invalid_generated_output_alias(tmp_path: Path) -> Non
         raise AssertionError("invalid generated output alias should be rejected before run creation")
 
 
+def test_preflight_rejects_exposed_temp_generated_output(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::temp-output",
+            "name": "temp-output",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.primary:q} {output.cache:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "cache", "path": "cache.txt", "kind": "log", "mimeType": "text/plain", "temp": True}],
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+
+    try:
+        preflight_run_spec(
+            cfg,
+            pipeline,
+            {
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "workflow": {
+                    "steps": [{"id": "source", "tool": {"id": "conda-forge::temp-output"}}],
+                    "outputs": {"cache": {"step": "source", "output": "cache"}},
+                },
+            },
+        )
+    except RunPreflightError as exc:
+        assert str(exc) == "WORKFLOW_OUTPUT_TEMP_EXPOSED: source.cache"
+    else:
+        raise AssertionError("temp generated output should not be exposable as a final artifact")
+
+
 def test_preflight_rejects_missing_required_generated_step_input(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

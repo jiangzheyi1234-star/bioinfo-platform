@@ -276,11 +276,11 @@ export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params, r
   return runSpec;
 }
 
-export function generatedToolResourceEntries(tools: Pick<AddedTool, "ruleTemplate">[]) {
+export function generatedToolResourceEntries(tools: Pick<AddedTool, "ruleTemplate" | "ruleSpecDraft">[]) {
   const entries: [string, WorkflowResourceSpec][] = [];
   const seen = new Set<string>();
   for (const tool of tools) {
-    const resources = (tool.ruleTemplate as { resources?: unknown } | undefined)?.resources;
+    const resources = (readToolRuleTemplate(tool) as { resources?: unknown }).resources;
     if (!resources || typeof resources !== "object" || Array.isArray(resources)) continue;
     for (const [key, value] of Object.entries(resources as Record<string, unknown>)) {
       if (seen.has(key) || !value || typeof value !== "object" || Array.isArray(value)) continue;
@@ -311,13 +311,35 @@ export function selectableTools(tools: AddedTool[]) {
 }
 
 function ruleReadyToolScore(tool: AddedTool) {
-  const template = (tool.ruleTemplate || {}) as Record<string, unknown>;
+  const template = readToolRuleTemplate(tool);
   let score = 0;
   if (typeof template.commandTemplate === "string" && template.commandTemplate.trim()) score += 4;
+  if (typeof template.wrapper === "string" && template.wrapper.trim()) score += 4;
   if (Array.isArray(template.inputs) && template.inputs.length > 0) score += 2;
   if (Array.isArray(template.outputs) && template.outputs.length > 0) score += 2;
   if (Array.isArray(tool.capabilities) && tool.capabilities.length > 0) score += 1;
   return score;
+}
+
+function readToolRuleTemplate(tool: Pick<AddedTool, "ruleTemplate" | "ruleSpecDraft">): Record<string, unknown> {
+  const manifest = (tool.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = (tool.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  if (
+    typeof manifest.commandTemplate === "string" ||
+    typeof manifest.wrapper === "string"
+  ) {
+    return manifest;
+  }
+  if (typeof draft.commandTemplate === "string" || typeof draft.wrapper === "string") {
+    return draft;
+  }
+  if (
+    Array.isArray(manifest.inputs) ||
+    Array.isArray(manifest.outputs)
+  ) {
+    return manifest;
+  }
+  return draft;
 }
 
 export function selectableDatabases(databases: DatabaseItem[]) {

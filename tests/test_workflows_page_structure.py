@@ -88,6 +88,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "fromStep" in model
     assert "exposeOutputs" in model
     assert "buildGeneratedWorkflowRunSpec" in model
+    assert "readToolRuleTemplate" in model
+    assert "ruleSpecDraft?.ruleTemplate" in model
+    assert "hasRuleAction" in model
     assert "validateGeneratedWorkflowDraft" in model
     assert "portsCompatible" in model
     assert "portCompatibilityScore" in model
@@ -97,6 +100,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "fallbackIndex" in model
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
+    assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
+    assert "outputIsExposable" in model
     assert "capabilities" in model
     assert "runSpec.workflow = {" in model
     assert "contractVersion:" in model

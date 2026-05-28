@@ -215,8 +215,11 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
         raise ToolRegistryError("TOOL_RULE_TEMPLATE_INVALID")
     template = dict(raw)
     command = str(template.get("commandTemplate") or "").strip()
-    if not command:
+    wrapper = _normalize_rule_wrapper(template.get("wrapper"))
+    if not command and not wrapper:
         raise ToolRegistryError("TOOL_RULE_COMMAND_REQUIRED")
+    if command and wrapper:
+        raise ToolRegistryError("TOOL_RULE_ACTION_CONFLICT")
     inputs = _normalize_rule_inputs(template.get("inputs"))
     outputs = _normalize_rule_outputs(template.get("outputs"))
     resource_parts = _normalize_rule_resources(template.get("resources"))
@@ -229,22 +232,26 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     log = _normalize_rule_log(template.get("log"))
     params = _normalize_rule_params(template.get("params"))
     environment = _normalize_rule_environment(template.get("environment"))
-    _validate_command_tokens(
-        command,
-        input_names={item["name"] for item in inputs},
-        output_names={item["name"] for item in outputs},
-        param_names=set(params),
-        threads_declared=threads is not None,
-        scheduler_resource_names=set(scheduler_resources),
-        log_names=_rule_log_names(log),
-        has_log=bool(log),
-    )
+    if command:
+        _validate_command_tokens(
+            command,
+            input_names={item["name"] for item in inputs},
+            output_names={item["name"] for item in outputs},
+            param_names=set(params),
+            threads_declared=threads is not None,
+            scheduler_resource_names=set(scheduler_resources),
+            log_names=_rule_log_names(log),
+            has_log=bool(log),
+        )
     normalized: dict[str, Any] = {
-        "commandTemplate": command,
         "inputs": inputs,
         "outputs": outputs,
         "params": dict(params),
     }
+    if command:
+        normalized["commandTemplate"] = command
+    if wrapper:
+        normalized["wrapper"] = wrapper
     if threads is not None:
         normalized["threads"] = threads
     if scheduler_resources:
@@ -256,6 +263,15 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     if environment:
         normalized["environment"] = environment
     return normalized
+
+
+def _normalize_rule_wrapper(raw: Any) -> str:
+    wrapper = str(raw or "").strip()
+    if not wrapper:
+        return ""
+    if any(char.isspace() for char in wrapper):
+        raise ToolRegistryError("TOOL_RULE_WRAPPER_INVALID")
+    return wrapper
 
 
 def _normalize_rule_inputs(raw: Any) -> list[dict[str, Any]]:
