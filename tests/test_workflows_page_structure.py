@@ -21,7 +21,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert '"/api/v1/workflow-templates"' in api
     assert '"/api/v1/runs"' in api
     assert '"/api/v1/uploads"' in api
-    assert '"/api/v1/servers"' in api
+    assert "/api/v1/servers" in api
     assert "serverId" in api
     assert "contentBase64" in api
     assert "generated-tool-run-v1" in model
@@ -39,6 +39,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     page_hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
     page_ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
+    detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
 
     assert model_path.exists()
     assert hook_path.exists()
@@ -74,4 +75,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "buildGeneratedRunSpec" not in page_model
     assert "buildGeneratedWorkflowRunSpec" in api
     assert "useGeneratedWorkflowBuilder" in page_hook
-    assert "GeneratedWorkflowBuilder" in page_ui
+    assert "GeneratedWorkflowBuilder" in detail_page
+    assert "generatedBuilder" in page_ui
+
+
+def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:
+    api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
+
+    assert "WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
+    assert "timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
+    assert "/api/v1/workflow-sample-data/" in api

@@ -95,13 +95,13 @@ def test_generated_tool_run_writes_snakefile_and_per_rule_conda_env(tmp_path: Pa
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_tool"
-    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
-    env_yaml = (work_dir / "envs" / "conda-forge_coreutils.yaml").read_text(encoding="utf-8")
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    env_yaml = (work_dir / "workflow" / "envs" / "conda-forge_coreutils.yaml").read_text(encoding="utf-8")
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
 
     assert len(calls) == 2
     assert calls[0][0] == cfg.snakemake_command
-    assert calls[0][calls[0].index("--snakefile") + 1] == str(work_dir / "Snakefile")
+    assert calls[0][calls[0].index("--snakefile") + 1] == str(work_dir / "workflow" / "Snakefile")
     assert "--workflow-profile" in calls[0]
     assert str(Path(cfg.workflow_profile_dir)) in calls[0]
     assert 'conda:'.encode().decode() in snakefile
@@ -258,7 +258,7 @@ def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(t
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_linear"
-    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
 
     assert len(calls) == 2
@@ -392,7 +392,7 @@ def test_generated_workflow_topologically_orders_explicit_dag_bindings_and_expos
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_dag"
-    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
 
     assert len(calls) == 2
