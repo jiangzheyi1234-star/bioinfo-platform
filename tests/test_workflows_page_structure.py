@@ -168,6 +168,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "ruleTemplateForTool" in runtime_editor_ui
     assert "未声明 log" in runtime_editor_ui
     assert "builder.graphDraft.nodes" in builder_ui
+    assert "defaultThreadsForTemplate" in runtime_editor_ui
+    assert "schedulerResourceDefaults(template)" in runtime_editor_ui
+    assert "ruleSpecResourceDefaults" in runtime_editor_ui
+    assert "template.resources" in runtime_editor_ui
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui
     assert "Inspector" in builder_ui

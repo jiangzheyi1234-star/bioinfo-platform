@@ -23,8 +23,8 @@ export function GeneratedWorkflowRuntimeEditor({
   onChange: (runtime: GeneratedWorkflowStepRuntime) => void;
 }) {
   const template = ruleTemplateForTool(tool);
-  const defaultThreads = defaultRuntimeValue(template.threads);
-  const defaultResources = schedulerResourceDefaults(template.schedulerResources || template.runtimeResources);
+  const defaultThreads = defaultThreadsForTemplate(template);
+  const defaultResources = schedulerResourceDefaults(template);
   const runtimeResources = runtime.resources || runtime.schedulerResources || {};
   const resourceKeys = uniqueKeys([...Object.keys(defaultResources), ...Object.keys(runtimeResources)]);
   const defaultLogs = logDefaults(template.log);
@@ -113,7 +113,7 @@ function ruleTemplateForTool(tool: AddedTool | undefined): Record<string, unknow
 }
 
 function hasRuntimeShape(template: Record<string, unknown>) {
-  return Boolean(template.threads || template.schedulerResources || template.runtimeResources || template.log);
+  return Boolean(template.threads || template.resources || template.schedulerResources || template.runtimeResources || template.log);
 }
 
 function updateThreads(runtime: GeneratedWorkflowStepRuntime, raw: string): GeneratedWorkflowStepRuntime {
@@ -224,13 +224,43 @@ function parseRuntimeScalar(value: string): RuntimeScalar {
   return Number.isFinite(numeric) && String(numeric) === value ? numeric : value;
 }
 
-function schedulerResourceDefaults(raw: unknown): Record<string, RuntimeScalar> {
+function defaultThreadsForTemplate(template: Record<string, unknown>): RuntimeScalar | undefined {
+  return defaultRuntimeValue(template.threads) ?? defaultRuntimeValue(ruleSpecResources(template.resources).threads);
+}
+
+function schedulerResourceDefaults(template: Record<string, unknown>): Record<string, RuntimeScalar> {
+  return {
+    ...ruleSpecResourceDefaults(template.resources),
+    ...runtimeResourceDefaults(template.schedulerResources || template.runtimeResources),
+  };
+}
+
+function runtimeResourceDefaults(raw: unknown): Record<string, RuntimeScalar> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   return Object.fromEntries(
     Object.entries(raw as Record<string, unknown>)
       .map(([key, value]) => [key, defaultRuntimeValue(value)] as const)
       .filter((entry): entry is [string, RuntimeScalar] => entry[1] !== undefined)
   );
+}
+
+function ruleSpecResourceDefaults(raw: unknown): Record<string, RuntimeScalar> {
+  return Object.fromEntries(
+    Object.entries(ruleSpecResources(raw))
+      .filter(([key, value]) => key !== "threads" && !hasWorkflowResourceMarkers(value))
+      .map(([key, value]) => [key, defaultRuntimeValue(value)] as const)
+      .filter((entry): entry is [string, RuntimeScalar] => entry[1] !== undefined)
+  );
+}
+
+function ruleSpecResources(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function hasWorkflowResourceMarkers(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const item = raw as Record<string, unknown>;
+  return Boolean(item.acceptedTemplates || item.acceptedCapabilities || item.configKey);
 }
 
 function defaultRuntimeValue(raw: unknown): RuntimeScalar | undefined {
