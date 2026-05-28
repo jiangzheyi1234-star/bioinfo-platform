@@ -27,6 +27,7 @@ from .pipeline import (
     list_pipelines,
     validate_run_spec_for_pipeline,
 )
+from .preflight import RunPreflightError, preflight_run_spec
 from .storage import (
     canonical_payload_hash,
     create_run_record,
@@ -379,6 +380,10 @@ async def create_run(
         detail = str(exc)
         status_code = 404 if detail == "PIPELINE_NOT_FOUND" else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+    try:
+        preflight_run_spec(cfg, pipeline, run_spec)
+    except RunPreflightError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not str(run_spec.get("pipelineVersion") or "").strip():
         run_spec["pipelineVersion"] = pipeline.version
     payload_hash = canonical_payload_hash({"serverId": server_id, "runSpec": run_spec})
