@@ -135,7 +135,8 @@ function readRuleSpecProvenance(
   const draft = tool.ruleSpecDraft;
   const lock = objectValue(draft?.lock);
   const wrapperIdentifier = stringValue(lock.wrapperIdentifier) || stringValue(template.wrapper);
-  const wrapperPath = stringValue(lock.wrapperPath);
+  const parsedWrapper = parseWrapperIdentifier(wrapperIdentifier);
+  const wrapperPath = stringValue(lock.wrapperPath) || parsedWrapper.wrapperPath;
   const wrapperMatch = tool.snakemakeWrappers?.find((wrapper) => {
     return (
       (wrapperIdentifier && wrapper.wrapperIdentifier === wrapperIdentifier) ||
@@ -143,10 +144,10 @@ function readRuleSpecProvenance(
     );
   });
   const provenance = {
-    source: stringValue(draft?.source) || stringValue(template.source),
-    lockType: stringValue(lock.type),
+    source: stringValue(draft?.source) || (wrapperIdentifier ? "snakemake-wrapper" : stringValue(template.source)),
+    lockType: stringValue(lock.type) || (wrapperIdentifier ? "snakemake-wrapper" : ""),
     wrapperRepository: stringValue(lock.wrapperRepository) || stringValue(wrapperMatch?.wrapperRepository),
-    wrapperRef: stringValue(lock.wrapperRef) || stringValue(wrapperMatch?.wrapperRef),
+    wrapperRef: stringValue(lock.wrapperRef) || stringValue(wrapperMatch?.wrapperRef) || parsedWrapper.wrapperRef,
     wrapperPath: wrapperPath || stringValue(wrapperMatch?.wrapperPath),
     wrapperIdentifier,
     packageSpec: stringValue(lock.packageSpec) || stringValue(tool.selectedPackageSpec || tool.packageSpec),
@@ -155,6 +156,14 @@ function readRuleSpecProvenance(
     environmentUrl: stringValue(wrapperMatch?.environmentUrl),
   };
   return Object.values(provenance).some(Boolean) ? provenance : null;
+}
+
+function parseWrapperIdentifier(identifier: string): { wrapperRef: string; wrapperPath: string } {
+  const parts = identifier.split("/").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 4) {
+    return { wrapperRef: "", wrapperPath: parts.join("/") };
+  }
+  return { wrapperRef: parts[0], wrapperPath: parts.slice(1).join("/") };
 }
 
 function readCondaEnvironment(raw: unknown): CondaEnvironmentSummary | null {
