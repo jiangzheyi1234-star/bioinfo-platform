@@ -19,6 +19,24 @@ _TYPE_CATEGORY_DEFAULTS = {
     "annotation": "annotation",
 }
 
+_TYPE_CAPABILITY_DEFAULTS = {
+    "taxonomy": ["taxonomy_database"],
+    "amr": ["amr_database"],
+    "sequence_index": ["sequence_search_database"],
+    "functional_profile": ["functional_profile_database"],
+    "profile_hmm": ["profile_hmm_database"],
+    "annotation": ["annotation_database"],
+    "reference": ["reference_database"],
+}
+
+_RUNTIME_SHAPE_DEFAULTS = {
+    "directory": {"kind": "scalarPath", "valueKey": "default", "jsonType": "string"},
+    "file": {"kind": "scalarPath", "valueKey": "default", "jsonType": "string"},
+    "prefix": {"kind": "prefix", "valueKey": "default", "jsonType": "string"},
+    "primary_with_sidecars": {"kind": "primaryFile", "valueKey": "default", "jsonType": "string"},
+    "composite": {"kind": "namedEntries", "valueKey": "resolved", "jsonType": "object"},
+}
+
 DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
     "kraken2": {
         "type": "taxonomy",
@@ -520,6 +538,8 @@ def list_database_templates() -> list[dict[str, Any]]:
             "pathKind": str(template.get("pathKind") or "directory"),
             "pathLabel": _template_path_label(template),
             "runtimeValue": _template_runtime_value(template),
+            "runtimeShape": _template_runtime_shape(template),
+            "capabilities": _template_capabilities(template),
             "selectorKind": str(template.get("pathKind") or "directory"),
             "selector": {
                 "kind": str(template.get("pathKind") or "directory"),
@@ -545,6 +565,14 @@ def list_database_templates() -> list[dict[str, Any]]:
         }
         for template_id, template in DATABASE_TEMPLATES.items()
     ]
+
+
+def database_template_runtime_shape(template: dict[str, Any]) -> dict[str, Any]:
+    return _template_runtime_shape(template)
+
+
+def database_template_capabilities(template: dict[str, Any]) -> list[str]:
+    return _template_capabilities(template)
 
 
 def _template_category(template: dict[str, Any]) -> str:
@@ -629,6 +657,36 @@ def _template_runtime(template: dict[str, Any]) -> dict[str, str]:
         "resolved_entries": f"{label} uses <resolved 字段对象>",
     }
     return {"example": examples.get(runtime_value, f"{label} uses <resolved.default>")}
+
+
+def _template_runtime_shape(template: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(template.get("runtimeShape"), dict):
+        return dict(template["runtimeShape"])
+    path_kind = str(template.get("pathKind") or "directory")
+    shape = dict(_RUNTIME_SHAPE_DEFAULTS.get(path_kind, _RUNTIME_SHAPE_DEFAULTS["directory"]))
+    if path_kind == "composite":
+        shape["entries"] = {
+            str(key): {
+                "pathKind": str((spec if isinstance(spec, dict) else {}).get("pathKind") or "directory"),
+                "required": bool((spec if isinstance(spec, dict) else {}).get("required", True)),
+            }
+            for key, spec in dict(template.get("fields") or {}).items()
+        }
+    return shape
+
+
+def _template_capabilities(template: dict[str, Any]) -> list[str]:
+    raw = template.get("capabilities")
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    db_type = str(template.get("type") or "reference")
+    capabilities = list(_TYPE_CAPABILITY_DEFAULTS.get(db_type, ["reference_database"]))
+    path_kind = str(template.get("pathKind") or "directory")
+    if path_kind == "prefix":
+        capabilities.append("indexed_database")
+    if path_kind == "composite":
+        capabilities.append("multi_asset_database")
+    return capabilities
 
 
 def _template_file_extensions(template: dict[str, Any]) -> list[str]:

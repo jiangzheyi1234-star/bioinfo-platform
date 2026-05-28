@@ -34,11 +34,20 @@ def build_workflow_resource_config(
         accepted_templates = [str(item).strip().lower() for item in spec.get("acceptedTemplates") or [] if str(item).strip()]
         if accepted_templates and template_id not in accepted_templates:
             raise ValueError(f"WORKFLOW_RESOURCE_TEMPLATE_UNSUPPORTED: {resource_key}")
+        template_capabilities = [
+            str(item).strip()
+            for item in (database.get("metadata") or {}).get("capabilities") or DATABASE_TEMPLATES.get(template_id, {}).get("capabilities") or []
+            if str(item).strip()
+        ]
+        accepted_capabilities = [str(item).strip() for item in spec.get("acceptedCapabilities") or [] if str(item).strip()]
+        if accepted_capabilities and not any(capability in template_capabilities for capability in accepted_capabilities):
+            raise ValueError(f"WORKFLOW_RESOURCE_CAPABILITY_UNSUPPORTED: {resource_key}")
 
         input_path = str(database.get("inputPath") or database.get("path") or "")
         path = compute_database_entry_path(database)
         resolved_values = database_resolved_values(database) or {"default": path}
         config_value = database_resolved_config_value(database)
+        runtime_shape = dict((database.get("metadata") or {}).get("runtimeShape") or DATABASE_TEMPLATES.get(template_id, {}).get("runtimeShape") or {})
         path_mode = str(database.get("pathMode") or (database.get("metadata") or {}).get("pathMode") or DATABASE_TEMPLATES.get(template_id, {}).get("pathKind") or "")
         config_key = str(spec.get("configKey") or resource_key).strip()
         if not config_key:
@@ -58,6 +67,8 @@ def build_workflow_resource_config(
             "inputPath": input_path,
             "entryPath": path,
             "pathMode": path_mode,
+            "runtimeShape": runtime_shape,
+            "capabilities": template_capabilities,
             "configKey": config_key,
             "required": required,
         }
