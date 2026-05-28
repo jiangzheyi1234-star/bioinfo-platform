@@ -19,18 +19,20 @@ Build the control-plane artifact:
 
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
-$env:UV_PYTHON='python'
+Remove-Item Env:UV_PYTHON -ErrorAction SilentlyContinue
+$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv'
 $env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'
-uv run python scripts\build_remote_runner_artifact_on_server.py
+uv run --frozen python scripts\build_remote_runner_artifact_on_server.py
 ```
 
 Build the workflow runtime artifact:
 
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
-$env:UV_PYTHON='python'
+Remove-Item Env:UV_PYTHON -ErrorAction SilentlyContinue
+$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv'
 $env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'
-uv run python scripts\build_workflow_runtime_artifact_on_server.py
+uv run --frozen python scripts\build_workflow_runtime_artifact_on_server.py
 ```
 
 Both build commands must run from a real Windows PowerShell or `cmd.exe` session and build Linux artifacts on the configured remote Linux host. Do not produce release handoff packages by re-tarring already installed remote release directories.
@@ -40,5 +42,5 @@ The default build path consumes the manifest-declared explicit conda specs; clea
 Validate the managed release artifacts:
 
 ```powershell
-uv run python scripts\check_remote_runner_release_artifacts.py
+uv run --frozen python scripts\check_remote_runner_release_artifacts.py
 ```

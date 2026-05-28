@@ -25,7 +25,53 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "serverId" in api
     assert "contentBase64" in api
     assert "generated-tool-run-v1" in model
-    assert "buildGeneratedRunSpec" in model
+    assert "buildGeneratedWorkflowRunSpec" in api
     assert "export function useWorkflowsPageState" in hook
-    assert "export function WorkflowTemplateList" in ui
+    assert "export { WorkflowCatalogTable }" in ui
     assert "export function WorkflowRunBuilder" in ui
+
+
+def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
+    model_path = COMPONENTS / "generated-workflow-model.ts"
+    hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
+    ui_path = COMPONENTS / "generated-workflow-builder.tsx"
+    page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
+    api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
+    page_hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
+    page_ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
+
+    assert model_path.exists()
+    assert hook_path.exists()
+    assert ui_path.exists()
+
+    model = model_path.read_text(encoding="utf-8")
+    builder_hook = hook_path.read_text(encoding="utf-8")
+    builder_ui = ui_path.read_text(encoding="utf-8")
+
+    assert "export type GeneratedWorkflowDraft" in model
+    assert "export type GeneratedWorkflowInputBinding" in model
+    assert "fromUpload" in model
+    assert "fromInput" in model
+    assert "fromStep" in model
+    assert "exposeOutputs" in model
+    assert "buildGeneratedWorkflowRunSpec" in model
+    assert "validateGeneratedWorkflowDraft" in model
+    assert "runSpec.workflow = {" in model
+    assert "resourceBindings" in model
+    assert "databases" not in model
+
+    assert "useReducer" in builder_hook
+    assert "useGeneratedWorkflowBuilder" in builder_hook
+    assert "validation" in builder_hook
+    assert "resourceBindings" in builder_hook
+
+    assert "GeneratedWorkflowBuilder" in builder_ui
+    assert "Select" in builder_ui
+    assert "Alert" in builder_ui
+    assert "fromStep" in builder_ui
+    assert "exposeOutputs" in builder_ui
+
+    assert "buildGeneratedRunSpec" not in page_model
+    assert "buildGeneratedWorkflowRunSpec" in api
+    assert "useGeneratedWorkflowBuilder" in page_hook
+    assert "GeneratedWorkflowBuilder" in page_ui

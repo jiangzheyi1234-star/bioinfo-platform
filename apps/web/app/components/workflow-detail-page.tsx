@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 
 import { useWorkflowsPageState } from "./use-workflows-page-state";
 import { fetchWorkflowCatalog } from "./workflows-page-api";
+import { GeneratedWorkflowBuilder } from "./generated-workflow-builder";
 import { WorkflowDagPreview } from "./workflow-dag-preview";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowRunBuilder } from "./workflows-page-ui";
@@ -63,25 +64,28 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
             onFilesChange={state.setFiles}
             onLoadSampleData={() => void state.loadSampleData()}
             onSubmit={() => void state.submitRun()}
-            runnableTools={state.runnableTools}
             isGeneratedToolRun={state.isGeneratedToolRun}
-            selectedDatabaseIds={state.selectedDatabaseIds}
             selectedResourceDatabaseIds={state.selectedResourceDatabaseIds}
-            selectedToolIds={state.selectedToolIds}
             server={state.server}
             submitError={state.submitError}
             submittedRun={state.submittedRun}
             submitting={state.submitting}
             runDetail={state.runDetail}
             runDetailError={state.runDetailError}
-            toggleDatabase={state.toggleDatabase}
-            toggleTool={state.toggleTool}
             workflowResources={state.workflowResources}
             onWorkflowResourceBindingChange={state.setWorkflowResourceBinding}
             missingRequiredResourceKeys={state.missingRequiredResourceKeys}
             selectedWorkflow={selectedWorkflow}
             params={state.params}
             onParamsChange={state.setParams}
+            generatedBuilder={
+              <GeneratedWorkflowBuilder
+                availableDatabases={state.availableDatabases}
+                builder={state.generatedBuilder}
+                inputCount={state.files.length}
+                tools={state.runnableTools}
+              />
+            }
             dagPreview={
               <WorkflowDagPreview
                 files={state.files}

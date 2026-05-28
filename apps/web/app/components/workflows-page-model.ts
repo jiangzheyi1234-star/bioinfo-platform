@@ -251,13 +251,6 @@ export type WorkflowResourceBinding = {
 
 export type WorkflowResourceBindings = Record<string, WorkflowResourceBinding>;
 
-export type BuildGeneratedRunSpecInput = {
-  projectId: string;
-  uploads: WorkflowUpload[];
-  tools: Pick<AddedTool, "id" | "ruleTemplate">[];
-  resourceBindings?: WorkflowResourceBindings;
-};
-
 export type BuildPipelineRunSpecInput = {
   projectId: string;
   pipelineId: string;
@@ -283,36 +276,6 @@ export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params, r
   return runSpec;
 }
 
-export function buildGeneratedRunSpec({ projectId, uploads, tools, resourceBindings }: BuildGeneratedRunSpecInput) {
-  const runSpec: Record<string, unknown> = {
-    projectId,
-    pipelineId: GENERATED_TOOL_RUN_PIPELINE_ID,
-    inputs: uploads.map((upload, index) => ({
-      uploadId: upload.uploadId,
-      filename: upload.filename,
-      role: index === 0 ? "input" : `input_${index + 1}`,
-    })),
-  };
-  if (resourceBindings && Object.keys(resourceBindings).length > 0) {
-    runSpec.resourceBindings = resourceBindings;
-  }
-  const toolRequests = tools.map((tool) => ({
-    id: tool.id,
-    ...(tool.ruleTemplate ? { ruleTemplate: tool.ruleTemplate } : {}),
-  }));
-  if (toolRequests.length === 1) {
-    runSpec.tool = toolRequests[0];
-  } else {
-    runSpec.workflow = {
-      steps: toolRequests.map((tool, index) => ({
-        id: `step_${index + 1}`,
-        tool,
-      })),
-    };
-  }
-  return runSpec;
-}
-
 export function generatedToolResourceEntries(tools: Pick<AddedTool, "ruleTemplate">[]) {
   const entries: [string, WorkflowResourceSpec][] = [];
   const seen = new Set<string>();
@@ -328,19 +291,6 @@ export function generatedToolResourceEntries(tools: Pick<AddedTool, "ruleTemplat
     }
   }
   return entries;
-}
-
-export function buildGeneratedResourceBindings(tools: Pick<AddedTool, "ruleTemplate">[], databases: DatabaseItem[]) {
-  const selected = databases.filter((database) => database.status === "available");
-  const usedIds = new Set<string>();
-  const bindings: WorkflowResourceBindings = {};
-  for (const [key, spec] of generatedToolResourceEntries(tools)) {
-    const match = selected.find((database) => !usedIds.has(database.id) && databaseMatchesWorkflowResource(database, spec));
-    if (!match) continue;
-    usedIds.add(match.id);
-    bindings[key] = { databaseId: match.id };
-  }
-  return bindings;
 }
 
 export function runnableCatalogItems(items: WorkflowCatalogItem[]) {

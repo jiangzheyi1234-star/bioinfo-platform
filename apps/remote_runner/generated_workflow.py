@@ -58,7 +58,7 @@ def prepare_generated_tool_workflow(
     env_dir.mkdir(parents=True, exist_ok=True)
     config_path = work_dir / "run-config.json"
     snakefile = workflow_dir / "Snakefile"
-    requested_steps = _resolve_requested_steps(run_spec)
+    requested_steps = _topologically_order_steps(_resolve_requested_steps(run_spec))
     workflow_spec = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
     if "database" in run_spec or "databases" in run_spec:
         raise ValueError("RESOURCE_BINDINGS_REQUIRED")
@@ -210,6 +210,58 @@ def _resolve_requested_steps(run_spec: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"id": "run_tool", "tool": tool_request}]
 
 
+def _topologically_order_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(steps) <= 1:
+        return steps
+    step_ids = [_step_id(step, index) for index, step in enumerate(steps)]
+    step_by_id: dict[str, dict[str, Any]] = {}
+    index_by_id: dict[str, int] = {}
+    for index, (step_id, step) in enumerate(zip(step_ids, steps, strict=True)):
+        if step_id in step_by_id:
+            raise ValueError(f"WORKFLOW_STEP_DUPLICATE: {step_id}")
+        step_by_id[step_id] = step
+        index_by_id[step_id] = index
+
+    dependencies: dict[str, set[str]] = {step_id: set() for step_id in step_ids}
+    dependents: dict[str, set[str]] = {step_id: set() for step_id in step_ids}
+    for step_id, step in zip(step_ids, steps, strict=True):
+        for raw_step_id, dependency_id in _step_input_dependencies(step):
+            if dependency_id not in step_by_id:
+                raise ValueError(f"WORKFLOW_STEP_INPUT_STEP_UNKNOWN: {raw_step_id}")
+            dependencies[step_id].add(dependency_id)
+            dependents[dependency_id].add(step_id)
+
+    ready = sorted((step_id for step_id, deps in dependencies.items() if not deps), key=index_by_id.__getitem__)
+    ordered_ids: list[str] = []
+    while ready:
+        step_id = ready.pop(0)
+        ordered_ids.append(step_id)
+        for dependent_id in sorted(dependents[step_id], key=index_by_id.__getitem__):
+            dependencies[dependent_id].discard(step_id)
+            if not dependencies[dependent_id] and dependent_id not in ordered_ids and dependent_id not in ready:
+                ready.append(dependent_id)
+        ready.sort(key=index_by_id.__getitem__)
+
+    if len(ordered_ids) != len(steps):
+        cycle_ids = [step_id for step_id in step_ids if dependencies[step_id]]
+        raise ValueError(f"WORKFLOW_STEP_CYCLE: {', '.join(cycle_ids)}")
+    return [step_by_id[step_id] for step_id in ordered_ids]
+
+
+def _step_input_dependencies(step: dict[str, Any]) -> list[tuple[str, str]]:
+    raw_inputs = step.get("inputs")
+    if not isinstance(raw_inputs, dict):
+        return []
+    dependencies: list[tuple[str, str]] = []
+    for binding in raw_inputs.values():
+        if not isinstance(binding, dict):
+            continue
+        from_step = str(binding.get("fromStep") or binding.get("step") or "").strip()
+        if from_step:
+            dependencies.append((from_step, _safe_identifier(from_step)))
+    return dependencies
+
+
 def _step_tool_request(step: dict[str, Any]) -> dict[str, Any]:
     tool_request = step.get("tool")
     if isinstance(tool_request, dict):
@@ -254,11 +306,13 @@ def _resolve_step_inputs(
 ) -> dict[str, str]:
     explicit_inputs = requested_step.get("inputs")
     if explicit_inputs is not None:
-        return _resolve_explicit_step_inputs(
+        mapped = _resolve_explicit_step_inputs(
             explicit_inputs,
             resolved_inputs=resolved_inputs,
             outputs_by_step_id=outputs_by_step_id,
         )
+        _validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
+        return mapped
     if previous_outputs is None:
         return _resolve_inputs(rule_template=rule_template, resolved_inputs=resolved_inputs)
     specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
@@ -284,7 +338,18 @@ def _resolve_step_inputs(
         mapped["primary"] = str(primary_upstream)
     if not mapped:
         raise ValueError("TOOL_INPUT_REQUIRED")
+    _validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
     return mapped
+
+
+def _validate_required_step_inputs(*, rule_template: dict[str, Any], inputs: dict[str, str]) -> None:
+    provided = {_safe_snakemake_name(name) for name in inputs}
+    for index, spec in enumerate([item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]):
+        if not bool(spec.get("required", True)):
+            continue
+        name = str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")).strip()
+        if name and _safe_snakemake_name(name) not in provided:
+            raise ValueError(f"TOOL_INPUT_REQUIRED: {name}")
 
 
 def _resolve_explicit_step_inputs(

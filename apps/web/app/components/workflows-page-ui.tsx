@@ -1,18 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Database, Loader2, Play, UploadCloud, Wrench, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Database, Loader2, Play, UploadCloud, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import type { DatabaseItem } from "./database-page-model";
-import type { AddedTool } from "./tools-page-model";
 import { WorkflowCurrentRunPanel } from "./workflow-current-run-panel";
 import { WorkflowParamsForm } from "./workflow-params-form";
 import {
@@ -122,19 +120,14 @@ export function WorkflowRunBuilder({
   onFilesChange,
   onLoadSampleData,
   onSubmit,
-  runnableTools,
   isGeneratedToolRun,
-  selectedDatabaseIds,
   selectedResourceDatabaseIds,
-  selectedToolIds,
   server,
   submitError,
   submittedRun,
   submitting,
   runDetail,
   runDetailError,
-  toggleDatabase,
-  toggleTool,
   workflowResources,
   onWorkflowResourceBindingChange,
   missingRequiredResourceKeys,
@@ -142,6 +135,7 @@ export function WorkflowRunBuilder({
   params,
   onParamsChange,
   dagPreview,
+  generatedBuilder,
 }: {
   availableDatabases: DatabaseItem[];
   canSubmit: boolean;
@@ -151,19 +145,14 @@ export function WorkflowRunBuilder({
   onFilesChange: (files: File[]) => void;
   onLoadSampleData: () => void;
   onSubmit: () => void;
-  runnableTools: AddedTool[];
   isGeneratedToolRun: boolean;
-  selectedDatabaseIds: string[];
   selectedResourceDatabaseIds: Record<string, string>;
-  selectedToolIds: string[];
   server: WorkflowServer | null;
   submitError: string;
   submittedRun: WorkflowRun | null;
   submitting: boolean;
   runDetail: WorkflowRunDetail | null;
   runDetailError: string;
-  toggleDatabase: (id: string) => void;
-  toggleTool: (id: string) => void;
   workflowResources: Array<[string, WorkflowResourceSpec]>;
   onWorkflowResourceBindingChange: (resourceKey: string, databaseId: string) => void;
   missingRequiredResourceKeys: string[];
@@ -171,6 +160,7 @@ export function WorkflowRunBuilder({
   params: Record<string, unknown>;
   onParamsChange: (values: Record<string, unknown>) => void;
   dagPreview?: React.ReactNode;
+  generatedBuilder?: React.ReactNode;
 }) {
   const currentRun = runDetail?.run || submittedRun || null;
   const ready = Boolean(server?.ready);
@@ -348,34 +338,7 @@ export function WorkflowRunBuilder({
           </div>
         </div>
 
-          {isGeneratedToolRun ? (
-            <div className="space-y-5 border-t border-slate-100 px-5 py-5">
-              <SelectionGroup
-                emptyText="还没有可运行工具"
-                icon={<Wrench strokeWidth={1.5} className="h-4 w-4" />}
-                items={runnableTools.map((tool) => ({
-                  id: tool.id,
-                  title: tool.name,
-                  detail: tool.packageSpec,
-                  checked: selectedToolIds.includes(tool.id),
-                }))}
-                title="工具步骤"
-                onToggle={toggleTool}
-              />
-              <SelectionGroup
-                emptyText="还没有可用数据库"
-                icon={<Database strokeWidth={1.5} className="h-4 w-4" />}
-                items={availableDatabases.map((database) => ({
-                  id: database.id,
-                  title: database.name,
-                  detail: database.metadata?.templateLabel || database.type,
-                  checked: selectedDatabaseIds.includes(database.id),
-                }))}
-                title="数据库绑定"
-                onToggle={toggleDatabase}
-              />
-            </div>
-          ) : null}
+          {isGeneratedToolRun ? generatedBuilder : null}
       </div>
 
       {currentRun && <WorkflowCurrentRunPanel run={currentRun} detail={runDetail} />}
@@ -524,49 +487,6 @@ function WorkflowFilePicker({
           </div>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-function SelectionGroup({
-  emptyText,
-  icon,
-  items,
-  onToggle,
-  title,
-}: {
-  emptyText: string;
-  icon: React.ReactNode;
-  items: Array<{ id: string; title: string; detail: string; checked: boolean }>;
-  onToggle: (id: string) => void;
-  title: string;
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-900">
-        {icon}
-        {title}
-      </div>
-      {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-slate-200 py-3 text-center text-sm text-slate-400">
-          {emptyText}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-x-12 gap-y-2 md:grid-cols-2">
-          {items.map((item) => (
-            <label
-              key={item.id}
-              className="flex cursor-pointer items-center rounded-lg border border-transparent bg-white px-3 py-3 hover:border-slate-200 hover:bg-slate-50"
-            >
-              <Checkbox checked={item.checked} onCheckedChange={() => onToggle(item.id)} />
-              <span className="ml-3 min-w-0">
-                <span className="block truncate text-sm font-medium text-slate-800">{item.title}</span>
-                <span className="block truncate font-mono text-xs text-slate-500">{item.detail}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

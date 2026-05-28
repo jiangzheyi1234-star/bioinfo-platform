@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 use std::{env, net::TcpStream, thread};
 use tauri::Manager;
@@ -49,49 +49,31 @@ fn terminate_backend_child(child: &mut Child) {
 }
 
 fn candidate_python_commands() -> Vec<PythonCommand> {
-    let mut commands = vec![];
-    
-    // Prefer project .venv if exists
-    if let Ok(workdir) = repo_backend_workdir() {
-        let venv_python = if cfg!(windows) {
-            workdir.join(".venv").join("Scripts").join("python.exe")
-        } else {
-            workdir.join(".venv").join("bin").join("python")
-        };
-        if venv_python.exists() {
-            commands.push(PythonCommand {
-                program: venv_python.display().to_string(),
-                args: vec![],
-            });
-        }
-    }
-    
-    // Fallback to uv
-    commands.push(PythonCommand {
+    let mut commands = vec![PythonCommand {
         program: "uv".to_string(),
         args: vec![
             "run".to_string(),
-            "--isolated".to_string(),
-            "--no-project".to_string(),
-            "--with-requirements".to_string(),
-            "apps/api/requirements.txt".to_string(),
+            "--frozen".to_string(),
             "python".to_string(),
         ],
-    });
-    
+    }];
+
     if let Ok(explicit) = std::env::var("H2OMETA_PYTHON") {
         if !explicit.trim().is_empty() {
-            commands.insert(0, PythonCommand {
-                program: explicit,
-                args: vec![],
-            });
+            commands.insert(
+                0,
+                PythonCommand {
+                    program: explicit,
+                    args: vec![],
+                },
+            );
         }
     }
-    
+
     if cfg!(windows) {
         return commands;
     }
-    
+
     commands.extend(vec![
         PythonCommand {
             program: "python3".to_string(),
@@ -174,11 +156,16 @@ fn explicit_backend_command() -> Result<Option<BackendCommand>, String> {
 }
 
 fn sibling_sidecar_command() -> Result<Option<BackendCommand>, String> {
-    let exe_path = env::current_exe().map_err(|err| format!("resolve current exe failed: {}", err))?;
+    let exe_path =
+        env::current_exe().map_err(|err| format!("resolve current exe failed: {}", err))?;
     let exe_dir = exe_path
         .parent()
         .ok_or_else(|| format!("cannot resolve parent dir for {}", exe_path.display()))?;
-    let binary_name = if cfg!(windows) { "h2ometa-api.exe" } else { "h2ometa-api" };
+    let binary_name = if cfg!(windows) {
+        "h2ometa-api.exe"
+    } else {
+        "h2ometa-api"
+    };
     let candidate = exe_dir.join(binary_name);
     if !candidate.exists() {
         return Ok(None);
@@ -330,15 +317,16 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
             .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
             .env("H2OMETA_BACKEND_SOURCE", "repo")
             .env("UV_CACHE_DIR", uv_cache_dir)
+            .env("UV_PROJECT_ENVIRONMENT", workdir.join(".venv"))
+            .env("UV_PYTHON_INSTALL_DIR", workdir.join(".codex-uv-python"))
+            .env_remove("UV_PYTHON")
             .env("WSL_UTF8", "1")
             .env("PYTHONUTF8", "1")
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_file_err));
 
         match cmd.spawn() {
-            Ok(child) => {
-                return Ok(SpawnedBackend { child, log_path })
-            }
+            Ok(child) => return Ok(SpawnedBackend { child, log_path }),
             Err(err) => {
                 last_error = format!("spawn backend failed with {}: {}", cmd_spec.program, err);
             }
@@ -381,8 +369,8 @@ fn read_log_tail(log_path: &Path, max_chars: usize) -> String {
 }
 
 fn fetch_local_backend_version() -> Result<String, String> {
-    let mut stream =
-        TcpStream::connect("127.0.0.1:8765").map_err(|err| format!("connect backend version failed: {}", err))?;
+    let mut stream = TcpStream::connect("127.0.0.1:8765")
+        .map_err(|err| format!("connect backend version failed: {}", err))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|err| format!("set backend read timeout failed: {}", err))?;

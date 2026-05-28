@@ -38,7 +38,8 @@ Run the local preflight after building or copying artifacts:
 
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
-$env:UV_PYTHON='python'
+Remove-Item Env:UV_PYTHON -ErrorAction SilentlyContinue
+$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv'
 $env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'
 uv run python scripts\check_remote_runner_release_artifacts.py
 ```

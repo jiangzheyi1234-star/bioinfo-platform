@@ -271,7 +271,10 @@ def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(t
     assert run_config["outputs"]["final"].endswith("copy_summary-final-count.txt")
 
 
-def test_generated_workflow_supports_explicit_dag_bindings_and_exposed_outputs(tmp_path: Path, monkeypatch) -> None:
+def test_generated_workflow_topologically_orders_explicit_dag_bindings_and_exposed_outputs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     tool_specs = [
@@ -357,6 +360,19 @@ def test_generated_workflow_supports_explicit_dag_bindings_and_exposed_outputs(t
             "workflow": {
                 "steps": [
                     {
+                        "id": "merge",
+                        "tool": {"id": "conda-forge::merge"},
+                        "inputs": {
+                            "left": {"fromStep": "branch_a", "output": "left"},
+                            "right": {"fromStep": "branch_b", "output": "right"},
+                        },
+                    },
+                    {
+                        "id": "branch_b",
+                        "tool": {"id": "conda-forge::branch-b"},
+                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
+                    },
+                    {
                         "id": "source",
                         "tool": {"id": "conda-forge::source"},
                         "inputs": {"primary": {"fromUpload": 0}},
@@ -365,19 +381,6 @@ def test_generated_workflow_supports_explicit_dag_bindings_and_exposed_outputs(t
                         "id": "branch_a",
                         "tool": {"id": "conda-forge::branch-a"},
                         "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
-                    },
-                    {
-                        "id": "branch_b",
-                        "tool": {"id": "conda-forge::branch-b"},
-                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
-                    },
-                    {
-                        "id": "merge",
-                        "tool": {"id": "conda-forge::merge"},
-                        "inputs": {
-                            "left": {"fromStep": "branch_a", "output": "left"},
-                            "right": {"fromStep": "branch_b", "output": "right"},
-                        },
                     },
                 ],
                 "outputs": {
@@ -395,6 +398,7 @@ def test_generated_workflow_supports_explicit_dag_bindings_and_exposed_outputs(t
     assert len(calls) == 2
     assert "rule step_01_source:" in snakefile
     assert "rule step_04_merge:" in snakefile
+    assert [step["id"] for step in run_config["workflow"]["steps"]] == ["source", "branch_b", "branch_a", "merge"]
     assert "source-seed.txt" in run_config["workflow"]["steps"][1]["inputs"]["primary"]
     assert "branch_a-left.txt" in run_config["workflow"]["steps"][3]["inputs"]["left"]
     assert "branch_b-right.txt" in run_config["workflow"]["steps"][3]["inputs"]["right"]

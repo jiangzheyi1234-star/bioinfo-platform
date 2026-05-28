@@ -3,9 +3,8 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { AddedTool, ToolsResponse } from "./tools-page-model";
+import { buildGeneratedWorkflowRunSpec, type GeneratedWorkflowDraft } from "./generated-workflow-model";
 import {
-  buildGeneratedRunSpec,
-  buildGeneratedResourceBindings,
   buildPipelineRunSpec,
   type WorkflowArtifactPreview,
   type WorkflowCatalogItem,
@@ -121,21 +120,24 @@ export async function submitGeneratedWorkflowRun({
   server,
   projectId,
   files,
+  draft,
   tools,
-  databases,
+  resourceBindings,
 }: {
   server: WorkflowServer;
   projectId: string;
   files: File[];
+  draft: GeneratedWorkflowDraft;
   tools: AddedTool[];
-  databases: DatabaseItem[];
+  resourceBindings?: WorkflowResourceBindings;
 }): Promise<WorkflowRun> {
   const uploads = await Promise.all(files.map((file) => uploadWorkflowFile(file)));
-  const runSpec = buildGeneratedRunSpec({
+  const runSpec = buildGeneratedWorkflowRunSpec({
     projectId,
     uploads,
+    draft,
     tools,
-    resourceBindings: buildGeneratedResourceBindings(tools, databases),
+    resourceBindings,
   });
   const requestId = `req_workflow_ui_${Date.now()}`;
   const response = await requestLocalApiJson<WorkflowRunResponse>("POST", "/api/v1/runs", {
