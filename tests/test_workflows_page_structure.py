@@ -35,6 +35,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     model_path = COMPONENTS / "generated-workflow-model.ts"
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
+    graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     page_hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -44,10 +45,12 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert model_path.exists()
     assert hook_path.exists()
     assert ui_path.exists()
+    assert graph_node_path.exists()
 
     model = model_path.read_text(encoding="utf-8")
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
+    graph_node_ui = graph_node_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
     assert "export type GeneratedWorkflowStepRuntime" in model
@@ -91,10 +94,12 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
     assert "RuleGraphNodeCard" in builder_ui
-    assert "RulePortColumn" in builder_ui
-    assert "输入端口" in builder_ui
-    assert "输出端口" in builder_ui
-    assert "data-port-direction" in builder_ui
+    assert "function RuleGraphNodeCard" not in builder_ui
+    assert "export function RuleGraphNodeCard" in graph_node_ui
+    assert "RulePortColumn" in graph_node_ui
+    assert "输入端口" in graph_node_ui
+    assert "输出端口" in graph_node_ui
+    assert "data-port-direction" in graph_node_ui
     assert "builder.graphDraft.nodes" in builder_ui
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui
