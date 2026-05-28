@@ -5,8 +5,8 @@ import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { AddedTool, ToolsResponse } from "./tools-page-model";
 import {
   buildGeneratedRunSpec,
+  buildGeneratedResourceBindings,
   buildPipelineRunSpec,
-  workflowDatabaseRole,
   type WorkflowArtifactPreview,
   type WorkflowCatalogItem,
   type WorkflowCatalogResponse,
@@ -135,10 +135,7 @@ export async function submitGeneratedWorkflowRun({
     projectId,
     uploads,
     tools,
-    databases: databases.map((database, index) => ({
-      id: database.id,
-      role: workflowDatabaseRole(database, index),
-    })),
+    resourceBindings: buildGeneratedResourceBindings(tools, databases),
   });
   const requestId = `req_workflow_ui_${Date.now()}`;
   const response = await requestLocalApiJson<WorkflowRunResponse>("POST", "/api/v1/runs", {

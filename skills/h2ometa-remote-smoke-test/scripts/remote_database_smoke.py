@@ -113,7 +113,7 @@ def build_run_submit_payload(
             "projectId": project_id,
             "pipelineId": "generated-tool-run-v1",
             "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-            "databases": [{"id": database["id"], "role": "taxonomy"}],
+            "resourceBindings": {"taxonomy": {"databaseId": database["id"]}},
             "tool": {"id": tool["id"]},
         },
     }
@@ -208,9 +208,16 @@ def main() -> int:
                 "targetPlatformSupported": True,
                 "platforms": ["linux-64"],
                 "ruleTemplate": {
-                    "commandTemplate": "printf '%s\\n' {database.taxonomy.path:q} > {output.tool_output:q}",
+                    "commandTemplate": "printf '%s\\n' {config.taxonomy:q} > {output.tool_output:q}",
                     "inputs": [{"name": "primary", "type": "file", "required": True}],
                     "outputs": [{"name": "tool_output", "path": "database-path.txt", "kind": "log", "mimeType": "text/plain"}],
+                    "resources": {
+                        "taxonomy": {
+                            "type": "database",
+                            "configKey": "taxonomy",
+                            "acceptedCapabilities": ["reference_database", "taxonomy_database"],
+                        }
+                    },
                 },
             },
             timeout=30,

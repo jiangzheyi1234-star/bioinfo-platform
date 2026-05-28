@@ -8,7 +8,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .databases import resolve_run_databases
 from .storage import fetch_tool
 from .tools import normalize_rule_template
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
@@ -61,7 +60,9 @@ def prepare_generated_tool_workflow(
     snakefile = workflow_dir / "Snakefile"
     requested_steps = _resolve_requested_steps(run_spec)
     workflow_spec = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
-    resolved_databases = resolve_run_databases(cfg, run_spec)
+    if "database" in run_spec or "databases" in run_spec:
+        raise ValueError("RESOURCE_BINDINGS_REQUIRED")
+    resolved_databases: dict[str, dict[str, Any]] = {}
     workflow_resource_config: dict[str, Any] = {"resources": {}, "config": {}}
     generated_steps: list[GeneratedWorkflowStep] = []
     outputs_by_step_id: dict[str, dict[str, Path]] = {}
@@ -123,7 +124,7 @@ def prepare_generated_tool_workflow(
         workflow_resource_spec=collect_workflow_resource_specs([step.rule_template for step in generated_steps]),
         bindings=dict(run_spec.get("resourceBindings") or {}),
     )
-    databases_config = workflow_resource_config["config"] if workflow_resource_config["config"] else resolved_databases
+    databases_config = workflow_resource_config["config"]
 
     exposed_outputs = _resolve_exposed_outputs(
         workflow_spec=workflow_spec,

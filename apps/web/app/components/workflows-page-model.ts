@@ -245,11 +245,6 @@ export type WorkflowRunResponse = {
   requestId?: string;
 };
 
-export type WorkflowDatabaseBinding = {
-  id: string;
-  role: string;
-};
-
 export type WorkflowResourceBinding = {
   databaseId: string;
 };
@@ -260,7 +255,7 @@ export type BuildGeneratedRunSpecInput = {
   projectId: string;
   uploads: WorkflowUpload[];
   tools: Pick<AddedTool, "id" | "ruleTemplate">[];
-  databases: WorkflowDatabaseBinding[];
+  resourceBindings?: WorkflowResourceBindings;
 };
 
 export type BuildPipelineRunSpecInput = {
@@ -288,7 +283,7 @@ export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params, r
   return runSpec;
 }
 
-export function buildGeneratedRunSpec({ projectId, uploads, tools, databases }: BuildGeneratedRunSpecInput) {
+export function buildGeneratedRunSpec({ projectId, uploads, tools, resourceBindings }: BuildGeneratedRunSpecInput) {
   const runSpec: Record<string, unknown> = {
     projectId,
     pipelineId: GENERATED_TOOL_RUN_PIPELINE_ID,
@@ -298,8 +293,8 @@ export function buildGeneratedRunSpec({ projectId, uploads, tools, databases }: 
       role: index === 0 ? "input" : `input_${index + 1}`,
     })),
   };
-  if (databases.length > 0) {
-    runSpec.databases = databases;
+  if (resourceBindings && Object.keys(resourceBindings).length > 0) {
+    runSpec.resourceBindings = resourceBindings;
   }
   const toolRequests = tools.map((tool) => ({
     id: tool.id,
@@ -318,6 +313,36 @@ export function buildGeneratedRunSpec({ projectId, uploads, tools, databases }: 
   return runSpec;
 }
 
+export function generatedToolResourceEntries(tools: Pick<AddedTool, "ruleTemplate">[]) {
+  const entries: [string, WorkflowResourceSpec][] = [];
+  const seen = new Set<string>();
+  for (const tool of tools) {
+    const resources = (tool.ruleTemplate as { resources?: unknown } | undefined)?.resources;
+    if (!resources || typeof resources !== "object" || Array.isArray(resources)) continue;
+    for (const [key, value] of Object.entries(resources as Record<string, unknown>)) {
+      if (seen.has(key) || !value || typeof value !== "object" || Array.isArray(value)) continue;
+      const spec = value as WorkflowResourceSpec;
+      if ((spec.type || "database") !== "database") continue;
+      seen.add(key);
+      entries.push([key, spec]);
+    }
+  }
+  return entries;
+}
+
+export function buildGeneratedResourceBindings(tools: Pick<AddedTool, "ruleTemplate">[], databases: DatabaseItem[]) {
+  const selected = databases.filter((database) => database.status === "available");
+  const usedIds = new Set<string>();
+  const bindings: WorkflowResourceBindings = {};
+  for (const [key, spec] of generatedToolResourceEntries(tools)) {
+    const match = selected.find((database) => !usedIds.has(database.id) && databaseMatchesWorkflowResource(database, spec));
+    if (!match) continue;
+    usedIds.add(match.id);
+    bindings[key] = { databaseId: match.id };
+  }
+  return bindings;
+}
+
 export function runnableCatalogItems(items: WorkflowCatalogItem[]) {
   return items.filter((item) => item.runnable);
 }
@@ -325,14 +350,6 @@ export function runnableCatalogItems(items: WorkflowCatalogItem[]) {
 export function outputArtifactNames(item: WorkflowCatalogItem) {
   const artifacts = item.outputSchema?.artifacts || [];
   return artifacts.map((artifact) => artifact.name || artifact.kind || "artifact").filter(Boolean).join(", ");
-}
-
-export function workflowDatabaseRole(database: DatabaseItem, index: number) {
-  const metadata = database.metadata || {};
-  const raw = metadata.templateId || database.type || `database_${index + 1}`;
-  const role = raw.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
-  if (!role) return `database_${index + 1}`;
-  return /^\d/.test(role) ? `database_${role}` : role;
 }
 
 export function selectableTools(tools: AddedTool[]) {

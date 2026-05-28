@@ -60,5 +60,5 @@ def test_database_submit_payload_includes_local_api_server_id() -> None:
     )
 
     assert payload["serverId"] == "srv_real"
-    assert payload["runSpec"]["databases"] == [{"id": "taxonomy-db-custom-smoke", "role": "taxonomy"}]
+    assert payload["runSpec"]["resourceBindings"] == {"taxonomy": {"databaseId": "taxonomy-db-custom-smoke"}}
     assert payload["runSpec"]["tool"] == {"id": "conda-forge::coreutils-database-smoke"}
