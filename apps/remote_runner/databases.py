@@ -9,7 +9,7 @@ from typing import Any
 from . import database_validation
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .config import RemoteRunnerConfig
-from .database_templates import DATABASE_TEMPLATES, list_database_templates
+from .database_templates import DATABASE_TEMPLATES, database_template_capabilities, database_template_runtime_shape, list_database_templates
 from .storage import get_connection, now_iso
 
 
@@ -185,6 +185,8 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
         metadata["inputPath"] = str(item.get("path") or "")
         metadata["entryPath"] = ""
         metadata["pathMode"] = path_kind
+        metadata["runtimeShape"] = database_template_runtime_shape(template or {})
+        metadata["capabilities"] = database_template_capabilities(template or {})
         metadata["resolvedPath"] = {"kind": path_kind, "path": str(item.get("path") or ""), "entries": composite_resolved}
         if template is not None:
             command = _render_composite_tool_probe_command(template, composite_resolved)
@@ -293,6 +295,8 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
         }
     )
     metadata["pathMode"] = path_kind
+    metadata["runtimeShape"] = database_template_runtime_shape(template or {})
+    metadata["capabilities"] = database_template_capabilities(template or {})
     metadata["resolvedPath"] = dict(metadata.get("resolvedPath") or {})
     metadata["input"] = database_input_metadata(metadata["inputPath"])
     metadata["resolved"] = database_resolved_metadata(metadata["entryPath"])
