@@ -57,12 +57,17 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "exposeOutputs" in model
     assert "buildGeneratedWorkflowRunSpec" in model
     assert "validateGeneratedWorkflowDraft" in model
+    assert "portsCompatible" in model
+    assert "findCompatibleOutputBinding" in model
+    assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
+    assert "capabilities" in model
     assert "runSpec.workflow = {" in model
     assert "resourceBindings" in model
     assert "databases" not in model
 
     assert "useReducer" in builder_hook
     assert "useGeneratedWorkflowBuilder" in builder_hook
+    assert "findCompatibleOutputBinding" in builder_hook
     assert "validation" in builder_hook
     assert "resourceBindings" in builder_hook
 
@@ -70,6 +75,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "Select" in builder_ui
     assert "Alert" in builder_ui
     assert "fromStep" in builder_ui
+    assert "portsCompatible" in builder_ui
+    assert "不兼容" in builder_ui
     assert "exposeOutputs" in builder_ui
 
     assert "buildGeneratedRunSpec" not in page_model

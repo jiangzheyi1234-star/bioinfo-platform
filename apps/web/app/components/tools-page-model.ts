@@ -22,8 +22,13 @@ export type ToolSearchItem = {
 
 export type ToolCapabilitySlot = {
   name: string;
+  type?: string;
+  kind?: string;
+  mimeType?: string;
   data?: string;
   format?: string;
+  edamData?: string;
+  edamFormat?: string;
   required?: boolean;
   primary?: boolean;
 };

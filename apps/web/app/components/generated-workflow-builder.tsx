@@ -13,11 +13,15 @@ import { cn } from "@/lib/utils";
 import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import {
+  describePortSpec,
+  portsCompatible,
   readRuleInputs,
   readRuleOutputs,
   readRuleParams,
   type GeneratedWorkflowInputBinding,
   type GeneratedWorkflowParamValue,
+  type RuleInputSpec,
+  type RuleOutputSpec,
   type RuleParamSpec,
 } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
@@ -118,9 +122,10 @@ export function GeneratedWorkflowBuilder({
                     key={`${step.id}-${input.name}`}
                     binding={step.inputs[input.name]}
                     inputCount={inputCount}
-                    inputName={input.name}
-                    outputCandidates={outputCandidates.filter((candidate) => candidate.stepId !== step.id)}
-                    required={input.required !== false}
+                    input={input}
+                    outputCandidates={outputCandidates
+                      .filter((candidate) => candidate.stepId !== step.id)
+                      .map((candidate) => ({ ...candidate, compatible: portsCompatible(input, candidate.port) }))}
                     onChange={(binding) => builder.setInputBinding(step.id, input.name, binding)}
                   />
                 ))}
@@ -242,31 +247,34 @@ type OutputCandidate = {
   label: string;
   stepId: string;
   output: string;
+  port: RuleOutputSpec;
+  compatible?: boolean;
 };
 
 function InputBindingRow({
   binding,
+  input,
   inputCount,
-  inputName,
   outputCandidates,
-  required,
   onChange,
 }: {
   binding: GeneratedWorkflowInputBinding | undefined;
+  input: RuleInputSpec;
   inputCount: number;
-  inputName: string;
   outputCandidates: OutputCandidate[];
-  required: boolean;
   onChange: (binding: GeneratedWorkflowInputBinding) => void;
 }) {
   const type = bindingKind(binding);
+  const required = input.required !== false;
+  const compatibleOutputCandidates = outputCandidates.filter((candidate) => candidate.compatible !== false);
   return (
     <div className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 md:grid-cols-[120px_150px_minmax(0,1fr)]">
       <div className="min-w-0">
-        <div className="truncate font-mono text-xs text-slate-700">{inputName}</div>
+        <div className="truncate font-mono text-xs text-slate-700">{input.name}</div>
         <div className={cn("text-[11px]", required ? "text-amber-600" : "text-slate-400")}>{required ? "required" : "optional"}</div>
+        <div className="truncate text-[11px] text-slate-400">{describePortSpec(input)}</div>
       </div>
-      <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, outputCandidates))}>
+      <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, compatibleOutputCandidates))}>
         <SelectTrigger className="h-8 bg-white text-xs">
           <SelectValue />
         </SelectTrigger>
@@ -303,10 +311,11 @@ function BindingValueEditor({
 }) {
   if (type === "fromStep") {
     const value = typeof binding === "object" && binding && "fromStep" in binding ? `${binding.fromStep}.${binding.output}` : "__none__";
+    const compatibleCandidates = outputCandidates.filter((candidate) => candidate.compatible !== false);
     return (
       <Select value={value} onValueChange={(next) => {
         const candidate = outputCandidates.find((item) => item.value === next);
-        if (candidate) onChange({ fromStep: candidate.stepId, output: candidate.output });
+        if (candidate && candidate.compatible !== false) onChange({ fromStep: candidate.stepId, output: candidate.output });
       }}>
         <SelectTrigger className="h-8 bg-white text-xs">
           <SelectValue placeholder="选择上游输出" />
@@ -314,10 +323,15 @@ function BindingValueEditor({
         <SelectContent>
           <SelectItem value="__none__">未绑定</SelectItem>
           {outputCandidates.map((candidate) => (
-            <SelectItem key={candidate.value} value={candidate.value}>
-              {candidate.label}
+            <SelectItem key={candidate.value} value={candidate.value} disabled={candidate.compatible === false}>
+              {candidate.compatible === false ? `${candidate.label}（不兼容）` : candidate.label}
             </SelectItem>
           ))}
+          {compatibleCandidates.length === 0 && outputCandidates.length > 0 ? (
+            <SelectItem value="__no_compatible__" disabled>
+              无兼容上游输出
+            </SelectItem>
+          ) : null}
         </SelectContent>
       </Select>
     );
@@ -473,9 +487,10 @@ function buildOutputCandidates(steps: GeneratedWorkflowBuilderController["draft"
     const tool = tools.find((item) => item.id === step.toolId);
     return readRuleOutputs(tool).map((output) => ({
       value: `${step.id}.${output.name}`,
-      label: `${step.id}.${output.name}`,
+      label: `${step.id}.${output.name} · ${describePortSpec(output)}`,
       stepId: step.id,
       output: output.name,
+      port: output,
     }));
   });
 }
