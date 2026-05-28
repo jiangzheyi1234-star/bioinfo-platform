@@ -8,6 +8,7 @@ from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.pipeline import list_pipelines
 from apps.remote_runner.storage import persist_upload, upsert_tool
+from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -130,12 +131,64 @@ def test_tool_rule_template_is_persisted(tmp_path: Path) -> None:
             "ruleTemplate": {
                 "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
                 "inputs": [{"name": "primary"}],
-                "outputs": [{"name": "count", "path": "wc-count.txt"}],
+                "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
             },
         },
     )
 
     assert saved["ruleTemplate"]["commandTemplate"] == "wc -c {input.primary:q} > {output.count:q}"
+
+
+def test_tool_rule_template_rejects_incomplete_outputs(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    try:
+        add_registered_tool(
+            cfg,
+            {
+                "id": "conda-forge::coreutils",
+                "name": "coreutils",
+                "source": "conda-forge",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatformSupported": True,
+                "ruleTemplate": {
+                    "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
+                    "inputs": [{"name": "primary"}],
+                    "outputs": [{"name": "count", "path": "wc-count.txt"}],
+                },
+            },
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_RULE_OUTPUT_SPEC_INVALID"
+    else:
+        raise AssertionError("incomplete output metadata should be rejected")
+
+
+def test_tool_rule_template_rejects_unknown_command_tokens(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    try:
+        add_registered_tool(
+            cfg,
+            {
+                "id": "conda-forge::coreutils",
+                "name": "coreutils",
+                "source": "conda-forge",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatformSupported": True,
+                "ruleTemplate": {
+                    "commandTemplate": "wc -c {input.missing:q} > {output.count:q}",
+                    "inputs": [{"name": "primary"}],
+                    "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
+                },
+            },
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_RULE_TOKEN_UNSUPPORTED: {input.missing:q}"
+    else:
+        raise AssertionError("unknown input token should be rejected")
 
 
 def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(tmp_path: Path, monkeypatch) -> None:

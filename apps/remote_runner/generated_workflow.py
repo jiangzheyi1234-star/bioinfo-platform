@@ -4,12 +4,13 @@ import json
 import re
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
 from .databases import resolve_run_databases
 from .storage import fetch_tool
+from .tools import normalize_rule_template
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
 
 
@@ -214,49 +215,11 @@ def _config_tool(step: GeneratedWorkflowStep) -> dict[str, Any]:
 def _resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]) -> dict[str, Any]:
     manifest_template = tool.get("ruleTemplate")
     if isinstance(manifest_template, dict) and manifest_template.get("commandTemplate"):
-        outputs = _normalize_output_specs(manifest_template.get("outputs"))
-        return {
-            "commandTemplate": str(manifest_template.get("commandTemplate") or ""),
-            "inputs": list(manifest_template.get("inputs") or [{"name": "primary", "type": "file", "required": True}]),
-            "outputs": outputs,
-            "params": dict(manifest_template.get("params") or {}),
-            "resources": dict(manifest_template.get("resources") or {}),
-        }
-    requested = str(tool_request.get("command") or tool_request.get("commandTemplate") or "").strip()
-    if requested:
-        output_name = str(tool_request.get("outputName") or "").strip()
-        if not output_name:
-            raise ValueError("TOOL_OUTPUT_NAME_REQUIRED")
-        return {
-            "commandTemplate": requested,
-            "inputs": [{"name": "primary", "type": "file", "required": True}],
-            "outputs": [
-                {
-                    "name": "tool_output",
-                    "path": _safe_output_name(output_name),
-                    "kind": "log",
-                    "mimeType": "text/plain",
-                }
-            ],
-            "params": {},
-        }
+        return normalize_rule_template(manifest_template, required=True)
+    request_template = tool_request.get("ruleTemplate")
+    if isinstance(request_template, dict) and request_template.get("commandTemplate"):
+        return normalize_rule_template(request_template, required=True)
     raise ValueError("TOOL_RULE_TEMPLATE_REQUIRED")
-
-
-def _normalize_output_specs(raw: Any) -> list[dict[str, Any]]:
-    specs = [item for item in (raw or []) if isinstance(item, dict)]
-    if not specs:
-        raise ValueError("TOOL_OUTPUTS_REQUIRED")
-    normalized: list[dict[str, Any]] = []
-    for index, spec in enumerate(specs):
-        name = str(spec.get("name") or ("tool_output" if index == 0 else f"output_{index + 1}")).strip()
-        path = str(spec.get("path") or "").strip()
-        kind = str(spec.get("kind") or "").strip()
-        mime_type = str(spec.get("mimeType") or "").strip()
-        if not name or not path or not kind or not mime_type:
-            raise ValueError("TOOL_OUTPUT_SPEC_INVALID")
-        normalized.append({**spec, "name": name, "path": path, "kind": kind, "mimeType": mime_type})
-    return normalized
 
 
 def _resolve_step_inputs(
@@ -322,9 +285,13 @@ def _resolve_outputs(*, rule_template: dict[str, Any], result_dir: Path, output_
         requested_path = str(spec.get("path") or "").strip()
         if not requested_path:
             raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
-        path = _safe_output_name(requested_path)
+        path = _safe_relative_output_path(requested_path)
         if output_prefix:
-            path = f"{output_prefix}-{path}"
+            path = (
+                Path(path.parent, f"{output_prefix}-{path.name}")
+                if path.parent != Path(".")
+                else Path(f"{output_prefix}-{path.name}")
+            )
         outputs[name] = result_dir / path
     if not outputs:
         raise ValueError("TOOL_OUTPUT_REQUIRED")
@@ -488,3 +455,17 @@ def _safe_output_name(value: str) -> str:
     if not name or name in {".", ".."}:
         raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
     return name
+
+
+def _safe_relative_output_path(value: str) -> Path:
+    posix_path = PurePosixPath(value.replace("\\", "/"))
+    if (
+        Path(value).is_absolute()
+        or posix_path.is_absolute()
+        or any(part in {"", ".", ".."} for part in posix_path.parts)
+    ):
+        raise ValueError("TOOL_OUTPUT_PATH_INVALID")
+    parts = [_safe_output_name(part) for part in posix_path.parts]
+    if not parts:
+        raise ValueError("TOOL_OUTPUT_PATH_REQUIRED")
+    return Path(*parts)

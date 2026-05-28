@@ -13,6 +13,7 @@ export type ToolSearchItem = {
   targetPlatform?: string;
   targetPlatformSupported?: boolean;
   testCommand?: string;
+  ruleTemplate?: Record<string, unknown>;
 };
 
 export type ToolSearchResponse = {

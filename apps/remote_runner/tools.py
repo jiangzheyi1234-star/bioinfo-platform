@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
@@ -12,6 +13,12 @@ class ToolRegistryError(ValueError):
 
 
 ALLOWED_SOURCES = {"bioconda", "conda-forge"}
+RULE_IO_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+RULE_TOKEN_RE = re.compile(r"\{[^{}\s]+\}")
+DATABASE_TOKEN_RE = re.compile(
+    r"^database\.[A-Za-z_][A-Za-z0-9_]*\.(id|name|type|templateId|version|path|manifestPath|checksum)(:q)?$"
+)
+CONFIG_TOKEN_RE = re.compile(r"^config\.[A-Za-z_][A-Za-z0-9_]*(:q)?$")
 
 
 def list_registered_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
@@ -20,7 +27,7 @@ def list_registered_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
 
 def add_registered_tool(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
     item = _normalize_tool_manifest(payload)
-    _validate_rule_template(item.get("ruleTemplate") or {})
+    item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=False)
     return upsert_tool(cfg, item)
 
 
@@ -66,6 +73,15 @@ def check_registered_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, An
             status="failed",
             message=f"Conda command does not exist: {conda_command}",
         )
+    try:
+        normalize_rule_template(item.get("ruleTemplate"), required=True)
+    except ToolRegistryError as exc:
+        return update_tool_status(
+            cfg,
+            tool_id=normalized,
+            status="failed",
+            message=str(exc),
+        )
 
     return update_tool_status(
         cfg,
@@ -102,27 +118,152 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
         "platforms": [str(item) for item in (payload.get("platforms") or []) if str(item).strip()],
         "sourceUrl": str(payload.get("sourceUrl") or ""),
         "testCommand": str(payload.get("testCommand") or ""),
-        "ruleTemplate": dict(payload.get("ruleTemplate") or {}),
+        "ruleTemplate": payload.get("ruleTemplate") or {},
         "status": str(payload.get("status") or "declared"),
         "message": str(payload.get("message") or "Tool declared."),
     }
 
 
-def _validate_rule_template(template: dict[str, Any]) -> None:
-    if not template:
-        return
+def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any]:
+    if raw in (None, {}):
+        if required:
+            raise ToolRegistryError("TOOL_RULE_TEMPLATE_REQUIRED")
+        return {}
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("TOOL_RULE_TEMPLATE_INVALID")
+    template = dict(raw)
     command = str(template.get("commandTemplate") or "").strip()
     if not command:
         raise ToolRegistryError("TOOL_RULE_COMMAND_REQUIRED")
-    inputs = template.get("inputs") or [{"name": "primary"}]
-    outputs = template.get("outputs") or []
-    if not isinstance(inputs, list) or not inputs:
+    inputs = _normalize_rule_inputs(template.get("inputs"))
+    outputs = _normalize_rule_outputs(template.get("outputs"))
+    resources = _normalize_rule_resources(template.get("resources"))
+    params = template.get("params") or {}
+    if not isinstance(params, dict):
+        raise ToolRegistryError("TOOL_RULE_PARAMS_INVALID")
+    _validate_command_tokens(
+        command,
+        input_names={item["name"] for item in inputs},
+        output_names={item["name"] for item in outputs},
+    )
+    normalized: dict[str, Any] = {
+        "commandTemplate": command,
+        "inputs": inputs,
+        "outputs": outputs,
+        "params": dict(params),
+    }
+    if resources:
+        normalized["resources"] = resources
+    return normalized
+
+
+def _normalize_rule_inputs(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        raw = [{"name": "primary", "type": "file", "required": True}]
+    if not isinstance(raw, list) or not raw:
         raise ToolRegistryError("TOOL_RULE_INPUTS_INVALID")
-    if not isinstance(outputs, list) or not outputs:
+    inputs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ToolRegistryError("TOOL_RULE_INPUTS_INVALID")
+        name = _normalize_io_name(item.get("name"))
+        if name in seen:
+            raise ToolRegistryError(f"TOOL_RULE_IO_NAME_DUPLICATE: {name}")
+        seen.add(name)
+        inputs.append(
+            {
+                **item,
+                "name": name,
+                "type": str(item.get("type") or "file"),
+                "required": bool(item.get("required", True)),
+            }
+        )
+    return inputs
+
+
+def _normalize_rule_outputs(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list) or not raw:
         raise ToolRegistryError("TOOL_RULE_OUTPUTS_INVALID")
-    input_names = {str(item.get("name") or "").strip() for item in inputs if isinstance(item, dict)}
-    output_names = {str(item.get("name") or "").strip() for item in outputs if isinstance(item, dict)}
-    if "" in input_names or "" in output_names:
+    outputs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ToolRegistryError("TOOL_RULE_OUTPUTS_INVALID")
+        name = _normalize_io_name(item.get("name"))
+        if name in seen:
+            raise ToolRegistryError(f"TOOL_RULE_IO_NAME_DUPLICATE: {name}")
+        seen.add(name)
+        path = str(item.get("path") or "").strip()
+        kind = str(item.get("kind") or "").strip()
+        mime_type = str(item.get("mimeType") or "").strip()
+        if not path or not kind or not mime_type:
+            raise ToolRegistryError("TOOL_RULE_OUTPUT_SPEC_INVALID")
+        _validate_relative_output_path(path)
+        outputs.append({**item, "name": name, "path": path, "kind": kind, "mimeType": mime_type})
+    return outputs
+
+
+def _normalize_rule_resources(raw: Any) -> dict[str, dict[str, Any]]:
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("WORKFLOW_RESOURCE_SPEC_INVALID")
+    resources: dict[str, dict[str, Any]] = {}
+    for key, value in raw.items():
+        resource_key = str(key or "").strip()
+        if not resource_key or not RULE_IO_NAME_RE.match(resource_key):
+            raise ToolRegistryError("WORKFLOW_RESOURCE_KEY_REQUIRED")
+        if not isinstance(value, dict):
+            raise ToolRegistryError(f"WORKFLOW_RESOURCE_SPEC_INVALID: {resource_key}")
+        config_key = str(value.get("configKey") or resource_key).strip()
+        if not config_key or not RULE_IO_NAME_RE.match(config_key):
+            raise ToolRegistryError(f"WORKFLOW_RESOURCE_CONFIG_KEY_REQUIRED: {resource_key}")
+        accepted_templates = value.get("acceptedTemplates") or []
+        if accepted_templates and (
+            not isinstance(accepted_templates, list)
+            or any(not str(item).strip() for item in accepted_templates)
+        ):
+            raise ToolRegistryError(f"WORKFLOW_RESOURCE_ACCEPTED_TEMPLATES_INVALID: {resource_key}")
+        resources[resource_key] = {**value, "configKey": config_key}
+    return resources
+
+
+def _normalize_io_name(raw: Any) -> str:
+    name = str(raw or "").strip()
+    if not name:
         raise ToolRegistryError("TOOL_RULE_IO_NAME_REQUIRED")
-    if not output_names:
-        raise ToolRegistryError("TOOL_RULE_OUTPUTS_INVALID")
+    if not RULE_IO_NAME_RE.match(name):
+        raise ToolRegistryError(f"TOOL_RULE_IO_NAME_INVALID: {name}")
+    return name
+
+
+def _validate_relative_output_path(path: str) -> None:
+    posix_path = PurePosixPath(path.replace("\\", "/"))
+    if Path(path).is_absolute() or posix_path.is_absolute() or path in {".", ".."}:
+        raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID")
+    if any(part in {"", ".", ".."} for part in posix_path.parts):
+        raise ToolRegistryError("TOOL_RULE_OUTPUT_PATH_INVALID")
+
+
+def _validate_command_tokens(command: str, *, input_names: set[str], output_names: set[str]) -> None:
+    if "{resource." in command:
+        raise ToolRegistryError("TOOL_RULE_RESOURCE_TOKEN_UNSUPPORTED")
+    for match in RULE_TOKEN_RE.finditer(command):
+        token = match.group(0)
+        body = token[1:-1]
+        if body in {"input", "input:q", "output", "output:q", "output_dir", "output_dir:q"}:
+            continue
+        if body.startswith("input."):
+            name = body.removeprefix("input.").removesuffix(":q")
+            if name in input_names:
+                continue
+            raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
+        if body.startswith("output."):
+            name = body.removeprefix("output.").removesuffix(":q")
+            if name in output_names:
+                continue
+            raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
+        if DATABASE_TOKEN_RE.match(body) or CONFIG_TOKEN_RE.match(body):
+            continue
+        raise ToolRegistryError(f"TOOL_RULE_TOKEN_UNSUPPORTED: {token}")
