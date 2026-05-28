@@ -54,6 +54,7 @@ export async function addToolDependency(tool: AddedTool): Promise<void> {
       sourceUrl: tool.sourceUrl,
       testCommand: tool.testCommand || "",
       ruleTemplate: tool.ruleTemplate,
+      capabilities: tool.capabilities || [],
     },
   });
 }

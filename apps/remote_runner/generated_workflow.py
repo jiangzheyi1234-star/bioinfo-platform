@@ -228,6 +228,7 @@ def _config_tool(step: GeneratedWorkflowStep) -> dict[str, Any]:
         "source": str(step.tool.get("source") or ""),
         "version": str(step.tool.get("version") or ""),
         "packageSpec": package_spec,
+        "capabilities": list(step.tool.get("capabilities") or []),
         "ruleTemplate": step.rule_template,
     }
 

@@ -14,6 +14,24 @@ export type ToolSearchItem = {
   targetPlatformSupported?: boolean;
   testCommand?: string;
   ruleTemplate?: Record<string, unknown>;
+  capabilities?: ToolCapability[];
+};
+
+export type ToolCapabilitySlot = {
+  name: string;
+  data?: string;
+  format?: string;
+  required?: boolean;
+  primary?: boolean;
+};
+
+export type ToolCapability = {
+  id: string;
+  label?: string;
+  operation?: string;
+  topics?: string[];
+  inputs?: ToolCapabilitySlot[];
+  outputs?: ToolCapabilitySlot[];
 };
 
 export type ToolSearchResponse = {

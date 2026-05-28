@@ -80,6 +80,7 @@ class ToolManifestRequest(BaseModel):
     sourceUrl: str | None = None
     testCommand: str | None = None
     ruleTemplate: dict[str, Any] | None = None
+    capabilities: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DatabaseManifestRequest(BaseModel):
