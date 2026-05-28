@@ -175,6 +175,9 @@ function WorkflowGraphWorkbench({
     [nodes, selectedNodeId]
   );
   const selectedTool = selectedNode ? toolById.get(selectedNode.toolId) : undefined;
+  const removeGraphEdge = (edge: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]) => {
+    builder.setInputBinding(edge.to.nodeId, edge.to.port, "");
+  };
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -240,10 +243,21 @@ function WorkflowGraphWorkbench({
             {edges.length === 0 ? (
               <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>
             ) : edges.map((edge) => (
-              <div key={edge.id} className="rounded-md bg-white px-3 py-2 font-mono text-xs text-slate-700">
-                <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
-                <span className="px-2 text-slate-400">-&gt;</span>
-                <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+              <div key={edge.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-white px-3 py-2">
+                <div className="min-w-0 font-mono text-xs text-slate-700">
+                  <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
+                  <span className="px-2 text-slate-400">-&gt;</span>
+                  <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 bg-white px-2 text-[11px]"
+                  onClick={() => removeGraphEdge(edge)}
+                  aria-label="删除连线"
+                >
+                  <Trash2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+                </Button>
               </div>
             ))}
           </div>
