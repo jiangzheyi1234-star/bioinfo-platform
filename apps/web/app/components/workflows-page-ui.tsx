@@ -224,7 +224,7 @@ export function WorkflowRunBuilder({
 
   return (
     <section className="space-y-5">
-      {dagPreview}
+      {!isGeneratedToolRun ? dagPreview : null}
 
       <div className="rounded-xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
