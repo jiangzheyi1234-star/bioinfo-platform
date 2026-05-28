@@ -460,6 +460,7 @@ export function buildGeneratedWorkflowRunSpec({
           tool: {
             id: node.toolId,
             ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
+            ...(tool ? { ruleSpecDraft: readToolRuleSpecDraft(tool) } : {}),
           },
           inputs: normalizeStepInputBindings(node.inputs, normalizedNodeIds),
           params: tool ? normalizeStepParams(node.params, readRuleParams(tool)) : {},
@@ -496,6 +497,7 @@ export function buildGeneratedWorkflowRunSpec({
         tool: {
           id: step.toolId,
           ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
+          ...(tool ? { ruleSpecDraft: readToolRuleSpecDraft(tool) } : {}),
         },
         inputs: normalizeStepInputBindings(step.inputs, normalizedStepIds),
         params: tool ? normalizeStepParams(step.params, readRuleParams(tool)) : {},
@@ -524,6 +526,11 @@ function readToolRuleTemplate(tool: AddedTool | undefined): Record<string, unkno
   if (hasRuleAction(draft)) return draft;
   if (hasRuleTemplateShape(manifest)) return manifest;
   return draft;
+}
+
+function readToolRuleSpecDraft(tool: AddedTool | undefined) {
+  const draft = tool?.ruleSpecDraft;
+  return draft && Object.keys(draft).length > 0 ? draft : undefined;
 }
 
 function hasRuleAction(template: Record<string, unknown>) {

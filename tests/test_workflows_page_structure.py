@@ -90,6 +90,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "buildGeneratedWorkflowRunSpec" in model
     assert "readToolRuleTemplate" in model
     assert "ruleSpecDraft?.ruleTemplate" in model
+    assert "readToolRuleSpecDraft" in model
     assert "hasRuleAction" in model
     assert "validateGeneratedWorkflowDraft" in model
     assert "portsCompatible" in model
@@ -110,6 +111,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "edges: draft.edges.map" in model
     assert "outputs: draft.exposeOutputs.map" in model
     assert "runtime: normalizeStepRuntime" in model
+    assert "ruleSpecDraft: readToolRuleSpecDraft(tool)" in model
     assert "resourceBindings" in model
     assert "databases" not in model
 
