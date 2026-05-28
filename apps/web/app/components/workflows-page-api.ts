@@ -3,7 +3,7 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { AddedTool, ToolsResponse } from "./tools-page-model";
-import { buildGeneratedWorkflowRunSpec, type GeneratedWorkflowDraft } from "./generated-workflow-model";
+import { buildGeneratedWorkflowRunSpec, type GeneratedWorkflowDraft, type GeneratedWorkflowGraphDraft } from "./generated-workflow-model";
 import {
   buildPipelineRunSpec,
   type WorkflowArtifactPreview,
@@ -128,7 +128,7 @@ export async function submitGeneratedWorkflowRun({
   server: WorkflowServer;
   projectId: string;
   files: File[];
-  draft: GeneratedWorkflowDraft;
+  draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft;
   tools: AddedTool[];
   resourceBindings?: WorkflowResourceBindings;
 }): Promise<WorkflowRun> {

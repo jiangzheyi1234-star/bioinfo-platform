@@ -383,9 +383,7 @@ export function buildGeneratedWorkflowRunSpec({
   tools,
   resourceBindings,
 }: BuildGeneratedWorkflowRunSpecInput) {
-  const stepDraft = isGeneratedWorkflowGraphDraft(draft) ? graphDraftToGeneratedWorkflowDraft(draft) : draft;
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
-  const normalizedStepIds = new Map(stepDraft.steps.map((step) => [step.id, normalizeStepId(step.id)]));
   const runSpec: Record<string, unknown> = {
     projectId,
     pipelineId: GENERATED_TOOL_RUN_PIPELINE_ID,
@@ -398,6 +396,44 @@ export function buildGeneratedWorkflowRunSpec({
   if (resourceBindings && Object.keys(resourceBindings).length > 0) {
     runSpec.resourceBindings = resourceBindings;
   }
+  if (isGeneratedWorkflowGraphDraft(draft)) {
+    const normalizedNodeIds = new Map(draft.nodes.map((node) => [node.id, normalizeStepId(node.id)]));
+    runSpec.workflow = {
+      nodes: draft.nodes.map((node) => {
+        const tool = toolById.get(node.toolId);
+        return {
+          id: normalizedNodeIds.get(node.id) || normalizeStepId(node.id),
+          toolId: node.toolId,
+          tool: {
+            id: node.toolId,
+            ...(tool?.ruleTemplate ? { ruleTemplate: tool.ruleTemplate } : {}),
+          },
+          inputs: normalizeStepInputBindings(node.inputs, normalizedNodeIds),
+          params: tool ? normalizeStepParams(node.params, readRuleParams(tool)) : {},
+        };
+      }),
+      edges: draft.edges.map((edge) => ({
+        from: {
+          nodeId: normalizedNodeIds.get(edge.from.nodeId) || normalizeStepId(edge.from.nodeId),
+          port: edge.from.port,
+        },
+        to: {
+          nodeId: normalizedNodeIds.get(edge.to.nodeId) || normalizeStepId(edge.to.nodeId),
+          port: edge.to.port,
+        },
+      })),
+      outputs: draft.exposeOutputs.map((output) => ({
+        from: {
+          nodeId: normalizedNodeIds.get(output.fromStep) || normalizeStepId(output.fromStep),
+          port: output.output,
+        },
+        as: output.as,
+      })),
+    };
+    return runSpec;
+  }
+  const stepDraft = draft;
+  const normalizedStepIds = new Map(stepDraft.steps.map((step) => [step.id, normalizeStepId(step.id)]));
   runSpec.workflow = {
     steps: stepDraft.steps.map((step) => {
       const tool = toolById.get(step.toolId);

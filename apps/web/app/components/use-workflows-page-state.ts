@@ -231,7 +231,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
             server,
             projectId: selectedWorkflow?.id || "proj_workflow_ui",
             files,
-            draft: generatedBuilder.draft,
+            draft: generatedBuilder.graphDraft,
             tools: generatedBuilder.selectedTools,
             resourceBindings: generatedBuilder.resourceBindings,
           });
