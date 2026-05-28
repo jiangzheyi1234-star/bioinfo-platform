@@ -298,8 +298,26 @@ def _normalize_rule_outputs(raw: Any) -> list[dict[str, Any]]:
         if not path or not kind or not mime_type:
             raise ToolRegistryError("TOOL_RULE_OUTPUT_SPEC_INVALID")
         _validate_relative_output_path(path)
-        outputs.append({**item, "name": name, "path": path, "kind": kind, "mimeType": mime_type})
+        temp = _normalize_rule_output_flag(item, name=name, field="temp")
+        protected = _normalize_rule_output_flag(item, name=name, field="protected")
+        directory = _normalize_rule_output_flag(item, name=name, field="directory")
+        if temp and protected:
+            raise ToolRegistryError(f"TOOL_RULE_OUTPUT_FLAGS_INVALID: {name}")
+        normalized = {**item, "name": name, "path": path, "kind": kind, "mimeType": mime_type}
+        for flag_name, enabled in [("temp", temp), ("protected", protected), ("directory", directory)]:
+            if enabled:
+                normalized[flag_name] = True
+            elif flag_name in normalized:
+                del normalized[flag_name]
+        outputs.append(normalized)
     return outputs
+
+
+def _normalize_rule_output_flag(item: dict[str, Any], *, name: str, field: str) -> bool:
+    value = item.get(field, False)
+    if not isinstance(value, bool):
+        raise ToolRegistryError(f"TOOL_RULE_OUTPUT_FLAG_INVALID: {name}.{field}")
+    return value
 
 
 def _normalize_rule_resources(raw: Any) -> dict[str, Any]:

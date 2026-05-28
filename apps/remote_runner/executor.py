@@ -293,12 +293,13 @@ def _collect_artifacts(
         if key not in outputs:
             raise ValueError(f"OUTPUT_ARTIFACT_KEY_UNKNOWN: {key}")
         path = Path(outputs[key])
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"OUTPUT_ARTIFACT_MISSING: {key}")
         kind = str(artifact.get("kind") or "").strip()
         mime_type = str(artifact.get("mimeType") or "").strip()
         if not kind or not mime_type:
             raise ValueError(f"OUTPUT_ARTIFACT_METADATA_REQUIRED: {key}")
+        directory = bool(artifact.get("directory")) or kind == "directory" or mime_type == "inode/directory"
+        if not path.exists() or (directory and not path.is_dir()) or (not directory and not path.is_file()):
+            raise ValueError(f"OUTPUT_ARTIFACT_MISSING: {key}")
         artifacts.append(persist_artifact(cfg, run_id=run_id, kind=kind, path=path, mime_type=mime_type))
     return artifacts
 
