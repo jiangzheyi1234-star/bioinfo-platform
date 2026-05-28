@@ -15,6 +15,7 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import {
   describePortSpec,
+  portCompatibilityScore,
   portsCompatible,
   readRuleInputs,
   readRuleOutputs,
@@ -136,7 +137,11 @@ export function GeneratedWorkflowBuilder({
                     input={input}
                     outputCandidates={outputCandidates
                       .filter((candidate) => candidate.stepId !== step.id)
-                      .map((candidate) => ({ ...candidate, compatible: portsCompatible(input, candidate.port) }))}
+                      .map((candidate) => ({
+                        ...candidate,
+                        compatible: portsCompatible(input, candidate.port),
+                        compatibilityScore: portCompatibilityScore(input, candidate.port),
+                      }))}
                     onChange={(binding) => builder.setInputBinding(step.id, input.name, binding)}
                   />
                 ))}
@@ -325,8 +330,11 @@ function PortBindingsEditor({
         const edgeForInput = edges.find((edge) => edge.to.nodeId === node.id && edge.to.port === input.name);
         const compatibleOutputCandidates = outputCandidates
           .filter((candidate) => candidate.stepId !== node.id)
-          .filter((candidate) => portsCompatible(input, candidate.port));
+          .map((candidate) => ({ ...candidate, compatibilityScore: portCompatibilityScore(input, candidate.port) }))
+          .filter((candidate) => candidate.compatibilityScore !== null)
+          .sort((left, right) => (right.compatibilityScore || 0) - (left.compatibilityScore || 0));
         const value = edgeForInput ? `${edgeForInput.from.nodeId}.${edgeForInput.from.port}` : "__none__";
+        const recommended = compatibleOutputCandidates[0];
         return (
           <div key={input.name} className="grid gap-1 rounded-md bg-white px-2 py-2">
             <div className="flex min-w-0 items-center justify-between gap-2">
@@ -342,6 +350,15 @@ function PortBindingsEditor({
                   onClick={() => onBind(input.name, "")}
                 >
                   解绑
+                </Button>
+              ) : recommended ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 bg-white px-2 text-[11px]"
+                  onClick={() => onBind(input.name, { fromStep: recommended.stepId, output: recommended.output })}
+                >
+                  应用推荐
                 </Button>
               ) : null}
             </div>
@@ -363,7 +380,7 @@ function PortBindingsEditor({
                 <SelectItem value="__none__">未绑定</SelectItem>
                 {compatibleOutputCandidates.map((candidate) => (
                   <SelectItem key={candidate.value} value={candidate.value}>
-                    {candidate.label}
+                    {candidate.value === recommended?.value ? `${candidate.label}（推荐）` : candidate.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -478,6 +495,7 @@ type OutputCandidate = {
   output: string;
   port: RuleOutputSpec;
   compatible?: boolean;
+  compatibilityScore?: number | null;
 };
 
 function InputBindingRow({
@@ -495,7 +513,7 @@ function InputBindingRow({
 }) {
   const type = bindingKind(binding);
   const required = input.required !== false;
-  const compatibleOutputCandidates = outputCandidates.filter((candidate) => candidate.compatible !== false);
+  const compatibleOutputCandidates = rankOutputCandidates(outputCandidates.filter((candidate) => candidate.compatible !== false));
   return (
     <div className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 md:grid-cols-[120px_150px_minmax(0,1fr)]">
       <div className="min-w-0">
@@ -540,7 +558,9 @@ function BindingValueEditor({
 }) {
   if (type === "fromStep") {
     const value = typeof binding === "object" && binding && "fromStep" in binding ? `${binding.fromStep}.${binding.output}` : "__none__";
-    const compatibleCandidates = outputCandidates.filter((candidate) => candidate.compatible !== false);
+    const rankedCandidates = rankOutputCandidates(outputCandidates);
+    const compatibleCandidates = rankedCandidates.filter((candidate) => candidate.compatible !== false);
+    const recommended = compatibleCandidates[0];
     return (
       <Select value={value} onValueChange={(next) => {
         const candidate = outputCandidates.find((item) => item.value === next);
@@ -551,9 +571,11 @@ function BindingValueEditor({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">未绑定</SelectItem>
-          {outputCandidates.map((candidate) => (
+          {rankedCandidates.map((candidate) => (
             <SelectItem key={candidate.value} value={candidate.value} disabled={candidate.compatible === false}>
-              {candidate.compatible === false ? `${candidate.label}（不兼容）` : candidate.label}
+              {candidate.compatible === false
+                ? `${candidate.label}（不兼容）`
+                : candidate.value === recommended?.value ? `${candidate.label}（推荐）` : candidate.label}
             </SelectItem>
           ))}
           {compatibleCandidates.length === 0 && outputCandidates.length > 0 ? (
@@ -739,4 +761,8 @@ function defaultBinding(type: string, outputCandidates: OutputCandidate[]): Gene
   if (type === "fromInput") return { fromInput: "input" };
   if (type === "path") return "";
   return { fromUpload: 0 };
+}
+
+function rankOutputCandidates(candidates: OutputCandidate[]) {
+  return [...candidates].sort((left, right) => (right.compatibilityScore ?? -1) - (left.compatibilityScore ?? -1));
 }
