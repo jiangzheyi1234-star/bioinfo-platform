@@ -126,6 +126,7 @@ def prepare_generated_tool_workflow(
         )
         runtime = resolve_rule_runtime_directives(
             rule_template=rule_template,
+            requested_step=requested_step,
             result_dir=result_dir,
             output_prefix=output_prefix,
         )

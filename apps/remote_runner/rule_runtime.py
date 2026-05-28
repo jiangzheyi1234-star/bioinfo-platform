@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import shlex
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 
 RuleScalar = str | int | float
+_MISSING = object()
+RUNTIME_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -19,13 +22,28 @@ class RuleRuntimeDirectives:
 def resolve_rule_runtime_directives(
     *,
     rule_template: dict[str, Any],
+    requested_step: dict[str, Any] | None = None,
     result_dir: Path,
     output_prefix: str = "",
 ) -> RuleRuntimeDirectives:
+    override = _step_runtime_override(requested_step or {})
+    threads = _optional_int(rule_template.get("threads"))
+    if "threads" in override:
+        threads = _required_positive_int(override.get("threads"), error_code="WORKFLOW_STEP_THREADS_INVALID")
+    resources = dict(rule_template.get("schedulerResources") or {})
+    raw_resources = override.get("resources", override.get("schedulerResources", _MISSING))
+    if raw_resources is not _MISSING:
+        resources.update(_runtime_resources(raw_resources))
+    log_raw = override["log"] if "log" in override else rule_template.get("log")
     return RuleRuntimeDirectives(
-        threads=_optional_int(rule_template.get("threads")),
-        resources=dict(rule_template.get("schedulerResources") or {}),
-        log=_resolve_log_paths(rule_template.get("log"), result_dir=result_dir, output_prefix=output_prefix),
+        threads=threads,
+        resources=resources,
+        log=_resolve_log_paths(
+            log_raw,
+            result_dir=result_dir,
+            output_prefix=output_prefix,
+            invalid_error="WORKFLOW_STEP_LOG_INVALID" if "log" in override else "",
+        ),
     )
 
 
@@ -88,7 +106,37 @@ def runtime_log_parent_dirs(runtime: RuleRuntimeDirectives) -> list[str]:
     return parents
 
 
-def _resolve_log_paths(raw: Any, *, result_dir: Path, output_prefix: str) -> str | dict[str, str]:
+def _step_runtime_override(requested_step: dict[str, Any]) -> dict[str, Any]:
+    raw = requested_step.get("runtime")
+    if raw in (None, {}):
+        override: dict[str, Any] = {}
+    elif isinstance(raw, dict):
+        override = dict(raw)
+    else:
+        raise ValueError("WORKFLOW_STEP_RUNTIME_INVALID")
+    for key in ["threads", "schedulerResources", "log"]:
+        if key in requested_step and key not in override:
+            override[key] = requested_step[key]
+    return override
+
+
+def _runtime_resources(raw: Any) -> dict[str, RuleScalar]:
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("WORKFLOW_STEP_RESOURCES_INVALID")
+    resources: dict[str, RuleScalar] = {}
+    for key, value in raw.items():
+        name = str(key or "").strip()
+        if not name or not RUNTIME_NAME_RE.match(name):
+            raise ValueError("WORKFLOW_STEP_RESOURCE_KEY_INVALID")
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)) or value == "":
+            raise ValueError(f"WORKFLOW_STEP_RESOURCE_VALUE_INVALID: {name}")
+        resources[name] = value
+    return resources
+
+
+def _resolve_log_paths(raw: Any, *, result_dir: Path, output_prefix: str, invalid_error: str = "") -> str | dict[str, str]:
     if raw in (None, "", {}):
         return ""
     if isinstance(raw, str):
@@ -99,6 +147,8 @@ def _resolve_log_paths(raw: Any, *, result_dir: Path, output_prefix: str) -> str
             for name, path in raw.items()
             if str(name).strip() and str(path).strip()
         }
+    if invalid_error:
+        raise ValueError(invalid_error)
     return ""
 
 
@@ -120,3 +170,9 @@ def _safe_relative_path(value: str) -> Path:
 
 def _optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _required_positive_int(value: Any, *, error_code: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(error_code)
+    return value

@@ -70,6 +70,8 @@ def _step_from_node(node: Any, index: int) -> dict[str, Any]:
     }
     if isinstance(node.get("params"), dict):
         step["params"] = dict(node["params"])
+    if isinstance(node.get("runtime"), dict):
+        step["runtime"] = dict(node["runtime"])
     return step
 
 
