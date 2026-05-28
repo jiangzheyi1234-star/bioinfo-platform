@@ -186,6 +186,12 @@ class RemoteRunnerHttpClient:
                 "version": str(workflow.get("version") or ""),
                 "snakemakeCommand": str(workflow.get("snakemakeCommand") or ""),
                 "snakemakeVersion": str(workflow.get("snakemakeVersion") or ""),
+                "workflowProfileConfigured": bool(workflow.get("workflowProfileConfigured")),
+                "workflowProfileOk": bool(workflow.get("workflowProfileOk")),
+                "workflowProfileMessage": str(workflow.get("workflowProfileMessage") or ""),
+                "workflowProfileDir": str(workflow.get("workflowProfileDir") or ""),
+                "workflowProfileName": str(workflow.get("workflowProfileName") or ""),
+                "workflowProfilePath": str(workflow.get("workflowProfilePath") or ""),
             },
             "pipelineRegistry": {
                 "ok": normalized_pipeline_ok,

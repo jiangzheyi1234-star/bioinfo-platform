@@ -77,6 +77,54 @@ The runner writes `execution.outputs` into `run-config.json` as absolute result 
 
 `outputSchema.artifacts[*].key` must be present and must match a key in `execution.outputs`. The runner collects artifacts from this manifest binding instead of scanning the result directory and guessing kind or MIME type from file extensions. Declared artifacts are required outputs: if a declared output file is missing after Snakemake succeeds, the run must fail loudly or record an explicit failed state.
 
+### `resources` Contract
+
+`resources` is a map from stable resource keys to resource specs. Today H2OMeta supports database resources:
+
+```json
+{
+  "resources": {
+    "reference_database": {
+      "type": "database",
+      "required": true,
+      "description": "Reference database used by this workflow.",
+      "configKey": "reference_database",
+      "acceptedTemplates": ["blast"],
+      "acceptedCapabilities": ["sequence_search"]
+    }
+  }
+}
+```
+
+Resource specs are part of the import contract for future local workflow bundles. Bundle import must reject malformed resource specs instead of silently turning them into params or ignoring them:
+
+- resource keys must be non-empty stable strings;
+- `type` currently defaults to and must be `database`;
+- `required`, when present, must be a boolean;
+- `configKey` defaults to the resource key and must be non-empty;
+- `acceptedTemplates` and `acceptedCapabilities`, when present, must be non-empty string arrays.
+
+The frontend uses this manifest section to render database binding controls for normal pipelines. The run submission sends selected database instances as `runSpec.resourceBindings`, keyed by the manifest resource key:
+
+```json
+{
+  "runSpec": {
+    "pipelineId": "database-backed-analysis-v1",
+    "resourceBindings": {
+      "reference_database": { "databaseId": "db_ncbi_nt" }
+    }
+  }
+}
+```
+
+During execution, the remote runner resolves those bindings and writes three related sections into `run-config.json`:
+
+- `databases`: config-key-to-runtime-value map for Snakefiles and rules.
+- `resourceConfig`: same resolved map kept for explicit resource-aware command templates.
+- `resources`: provenance and path-resolution metadata for bound databases.
+
+Snakefiles should read database runtime paths from `config["databases"][configKey]` or `config["resourceConfig"][configKey]`, and read provenance from `config["resources"][resourceKey]` only when they need database metadata in reports or logs.
+
 ## Snakemake `workflow/` Contract
 
 `workflow/Snakefile` is the entry point. It should:
@@ -99,7 +147,7 @@ include: "rules/summarize.smk"
 include: "rules/report.smk"
 ```
 
-Rule files should avoid product-specific assumptions. They should consume `config["inputs"]`, `config["params"]`, and `config["outputs"]`.
+Rule files should avoid product-specific assumptions. They should consume `config["inputs"]`, `config["params"]`, `config["outputs"]`, and resource bindings from `config["databases"]` or `config["resourceConfig"]`.
 
 ## Config Contract
 
@@ -131,6 +179,7 @@ Rule files should avoid product-specific assumptions. They should consume `confi
 - `pipeline_version`;
 - `params`;
 - `inputs`;
+- `databases`;
 - `resources`;
 - `resourceConfig`;
 - `outputs`.

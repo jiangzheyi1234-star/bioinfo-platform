@@ -123,6 +123,7 @@ def test_bootstrap_reuses_existing_runner_without_resolving_local_artifact(monke
                         "workflow_runtime_source": "artifact",
                         "workflow_runtime_version": "0.1.0",
                         "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                        "snakemake_version": "9.19.0",
                     }
                 ), ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
@@ -303,6 +304,7 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
                         "workflow_runtime_source": "artifact",
                         "workflow_runtime_version": "0.1.0",
                         "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                        "snakemake_version": "9.19.0",
                     }
                 ), ""
             if "PATH=" in cmd and "import snakemake" in cmd:

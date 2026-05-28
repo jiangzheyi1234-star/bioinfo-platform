@@ -144,7 +144,7 @@ def _with_workflow_runtime(payload: dict[str, Any], cfg) -> dict[str, Any]:
         "snakemakeVersion": str(workflow.get("snakemakeVersion") or cfg.snakemake_version or ""),
         "workflowProfileConfigured": bool(workflow.get("workflowProfileConfigured")),
         "workflowProfileOk": bool(workflow.get("workflowProfileOk", True)),
-        "workflowProfileMessage": str(workflow.get("message") or ""),
+        "workflowProfileMessage": str(workflow.get("workflowProfileMessage") or ""),
         "workflowProfileDir": str(workflow.get("workflowProfileDir") or cfg.workflow_profile_dir or ""),
         "workflowProfileName": str(workflow.get("workflowProfileName") or cfg.workflow_profile_name or ""),
         "workflowProfilePath": str(workflow.get("workflowProfilePath") or ""),

@@ -167,6 +167,7 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
     assert uploaded_config["snakemake_command"] == (
         "/home/zyserver/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake"
     )
+    assert uploaded_config["snakemake_version"] == "9.19.0"
     assert any("shared/config/runner.json" in remote for _local, remote in uploads)
     assert any("current.tmp" in cmd and "mv -Tf" in cmd for cmd in executed)
     assert any("bash /home/zyserver/.h2ometa/runner/current/start_service.sh" in cmd for cmd in executed)

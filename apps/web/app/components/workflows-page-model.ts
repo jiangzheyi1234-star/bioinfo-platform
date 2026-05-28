@@ -20,10 +20,20 @@ export type WorkflowCatalogItem = {
     artifacts?: Array<{ kind?: string; mimeType?: string; name?: string }>;
   };
   uiSchema?: Record<string, unknown>;
+  resources?: Record<string, WorkflowResourceSpec>;
   tags?: string[];
   moduleCount?: number | null;
   inputCount?: number | null;
   outputCount?: number | null;
+};
+
+export type WorkflowResourceSpec = {
+  type?: string;
+  required?: boolean;
+  description?: string;
+  configKey?: string;
+  acceptedTemplates?: string[];
+  acceptedCapabilities?: string[];
 };
 
 export type WorkflowCatalogResponse = {
@@ -59,12 +69,75 @@ export type WorkflowServer = {
   label?: string;
   connected?: boolean;
   ready?: boolean;
+  reasonCode?: string;
+  message?: string;
+  health?: {
+    startup?: WorkflowHealthCheck;
+    live?: WorkflowHealthCheck;
+    ready?: WorkflowHealthCheck;
+    workflowRuntime?: WorkflowRuntimeHealth;
+    pipelineRegistry?: WorkflowPipelineRegistryHealth;
+  };
+  runner?: {
+    ready?: boolean;
+    message?: string;
+    reasonCode?: string;
+    bootstrapMetadata?: {
+      workflow_profile?: {
+        path?: string;
+        config?: string;
+        written?: boolean;
+      };
+      canary?: {
+        ok?: boolean;
+        status?: string;
+        message?: string;
+        submission?: {
+          runId?: string;
+        };
+        run?: {
+          runId?: string;
+        };
+        result?: {
+          resultId?: string;
+          artifactCount?: number;
+        };
+        preview?: unknown;
+      };
+    };
+  };
 };
 
 export type WorkflowServersResponse = {
   data: {
     items: WorkflowServer[];
   };
+};
+
+export type WorkflowRuntimeHealth = {
+  ok?: boolean;
+  message?: string;
+  provider?: string;
+  source?: string;
+  version?: string;
+  snakemakeVersion?: string;
+  workflowProfileConfigured?: boolean;
+  workflowProfileOk?: boolean;
+  workflowProfileMessage?: string;
+  workflowProfileDir?: string;
+  workflowProfileName?: string;
+  workflowProfilePath?: string;
+};
+
+export type WorkflowPipelineRegistryHealth = {
+  ok?: boolean;
+  message?: string;
+  count?: number;
+};
+
+export type WorkflowHealthCheck = {
+  ok?: boolean;
+  message?: string;
 };
 
 export type WorkflowUpload = {
@@ -177,6 +250,12 @@ export type WorkflowDatabaseBinding = {
   role: string;
 };
 
+export type WorkflowResourceBinding = {
+  databaseId: string;
+};
+
+export type WorkflowResourceBindings = Record<string, WorkflowResourceBinding>;
+
 export type BuildGeneratedRunSpecInput = {
   projectId: string;
   uploads: WorkflowUpload[];
@@ -189,10 +268,11 @@ export type BuildPipelineRunSpecInput = {
   pipelineId: string;
   uploads: WorkflowUpload[];
   params?: Record<string, unknown>;
+  resourceBindings?: WorkflowResourceBindings;
 };
 
-export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params }: BuildPipelineRunSpecInput) {
-  return {
+export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params, resourceBindings }: BuildPipelineRunSpecInput) {
+  const runSpec: Record<string, unknown> = {
     projectId,
     pipelineId,
     inputs: uploads.map((upload, index) => ({
@@ -202,6 +282,10 @@ export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params }:
     })),
     params: params || {},
   };
+  if (resourceBindings && Object.keys(resourceBindings).length > 0) {
+    runSpec.resourceBindings = resourceBindings;
+  }
+  return runSpec;
 }
 
 export function buildGeneratedRunSpec({ projectId, uploads, toolIds, databases }: BuildGeneratedRunSpecInput) {
@@ -253,6 +337,43 @@ export function selectableTools(tools: AddedTool[]) {
 
 export function selectableDatabases(databases: DatabaseItem[]) {
   return databases.filter((database) => database.status === "available");
+}
+
+export function workflowResourceEntries(item: WorkflowCatalogItem | null) {
+  const resources = item?.resources || {};
+  return Object.entries(resources).filter(([, spec]) => (spec.type || "database") === "database");
+}
+
+export function databaseMatchesWorkflowResource(database: DatabaseItem, spec: WorkflowResourceSpec) {
+  if (database.status !== "available") return false;
+  const metadata = database.metadata || {};
+  if (spec.acceptedTemplates?.length && !spec.acceptedTemplates.includes(String(metadata.templateId || ""))) {
+    return false;
+  }
+  if (spec.acceptedCapabilities?.length) {
+    const rawCapabilities = (metadata as { capabilities?: unknown }).capabilities;
+    const capabilities = Array.isArray(rawCapabilities) ? rawCapabilities.map(String) : [];
+    return spec.acceptedCapabilities.some((capability) => capabilities.includes(capability));
+  }
+  return true;
+}
+
+export function buildWorkflowResourceBindings(
+  selectedResourceDatabaseIds: Record<string, string>,
+  item: WorkflowCatalogItem | null,
+  databases: DatabaseItem[]
+): WorkflowResourceBindings {
+  const availableIds = new Set(databases.filter((database) => database.status === "available").map((database) => database.id));
+  return Object.fromEntries(
+    workflowResourceEntries(item)
+      .map(([key, spec]) => [key, spec, selectedResourceDatabaseIds[key]] as const)
+      .filter(([, spec, databaseId]) => {
+        if (!databaseId || !availableIds.has(databaseId)) return false;
+        const database = databases.find((item) => item.id === databaseId);
+        return Boolean(database && databaseMatchesWorkflowResource(database, spec));
+      })
+      .map(([key, , databaseId]) => [key, { databaseId }])
+  );
 }
 
 export function workflowErrorMessage(err: unknown, fallback: string) {

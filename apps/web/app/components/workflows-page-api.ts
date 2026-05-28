@@ -15,6 +15,7 @@ import {
   type WorkflowRunDetailResponse,
   type WorkflowRunResponse,
   type WorkflowServer,
+  type WorkflowResourceBindings,
   type WorkflowServersResponse,
   type WorkflowTemplateSummary,
   type WorkflowTemplatesResponse,
@@ -159,6 +160,7 @@ export async function submitPipelineWorkflowRun({
   files,
   sampleUploads,
   params,
+  resourceBindings,
 }: {
   server: WorkflowServer;
   projectId: string;
@@ -166,6 +168,7 @@ export async function submitPipelineWorkflowRun({
   files: File[];
   sampleUploads?: WorkflowUpload[];
   params?: Record<string, unknown>;
+  resourceBindings?: WorkflowResourceBindings;
 }): Promise<WorkflowRun> {
   const uploads = sampleUploads && sampleUploads.length > 0
     ? sampleUploads
@@ -175,6 +178,7 @@ export async function submitPipelineWorkflowRun({
     pipelineId,
     uploads,
     params: params || {},
+    resourceBindings,
   });
   const requestId = `req_workflow_ui_${Date.now()}`;
   const response = await requestLocalApiJson<WorkflowRunResponse>("POST", "/api/v1/runs", {

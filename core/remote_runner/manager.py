@@ -23,6 +23,7 @@ from core.remote_runner.client import RemoteRunnerHttpClient
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 from core.remote_runner.readiness import RemoteRunnerReadinessMixin
 from core.remote_runner.remote_io import RemoteRunnerRemoteIoMixin
+from core.remote_runner.workflow_runtime_policy import allow_remote_workflow_runtime_registration, workflow_runtime_artifact_required_message
 
 
 class RemoteRunnerManagerError(RuntimeError):
@@ -31,12 +32,7 @@ class RemoteRunnerManagerError(RuntimeError):
         self.bootstrap_metadata = bootstrap_metadata
 
 
-class RemoteRunnerManager(
-    RemoteRunnerRemoteIoMixin,
-    RemoteRunnerReadinessMixin,
-    RemoteRunnerProxyMixin,
-    RemoteRunnerCatalogMixin,
-):
+class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin, RemoteRunnerProxyMixin, RemoteRunnerCatalogMixin):
     def __init__(
         self,
         artifact_provider: RemoteRunnerArtifactProvider | None = None,
@@ -1095,6 +1091,7 @@ class RemoteRunnerManager(
         try:
             return self._workflow_artifact_provider.resolve(version=version, platform=platform)
         except RemoteRunnerArtifactError as exc:
+            if not allow_remote_workflow_runtime_registration(): raise RemoteRunnerManagerError(workflow_runtime_artifact_required_message()) from exc
             return self._resolve_remote_workflow_artifact(
                 ssh_service=ssh_service,
                 version=version,
@@ -1124,6 +1121,9 @@ class RemoteRunnerManager(
             raise RemoteRunnerManagerError("remote workflow runtime manifest platform mismatch")
         if str(manifest.get("provider") or "") != "conda-pack":
             raise RemoteRunnerManagerError("remote workflow runtime manifest must declare conda-pack provider")
+        packages = manifest.get("packages") if isinstance(manifest.get("packages"), dict) else {}
+        if not str(packages.get("snakemake") or "").strip():
+            raise RemoteRunnerManagerError("remote workflow runtime manifest must declare snakemake package version")
 
         sha256 = cls._read_remote_workflow_artifact_sha(
             ssh_service=ssh_service,
@@ -1201,6 +1201,7 @@ class RemoteRunnerManager(
             "workflow_runtime_source": str(expected.get("source") or ""),
             "workflow_runtime_version": str(expected.get("version") or ""),
             "snakemake_command": str(expected.get("snakemake_command") or ""),
+            "snakemake_version": str(expected.get("snakemake_version") or ""),
         }
         for key, value in expected_config.items():
             if str(config.get(key) or "") != value:
@@ -1245,7 +1246,7 @@ class RemoteRunnerManager(
                 reusable = False
                 workflow_metadata["action"] = "reinstalled"
         if not reusable:
-            if self._can_register_existing_workflow_runtime(ssh_service=ssh_service, runtime=runtime):
+            if allow_remote_workflow_runtime_registration() and self._can_register_existing_workflow_runtime(ssh_service=ssh_service, runtime=runtime):
                 workflow_metadata["action"] = "registered"
                 runtime_verified = True
             else:
@@ -1427,7 +1428,7 @@ class RemoteRunnerManager(
             "workflow_runtime_provider",
             "workflow_runtime_source",
             "workflow_runtime_version",
-            "snakemake_command",
+            "snakemake_command", "snakemake_version",
             "workflow_profile_dir",
             "workflow_profile_name",
         )

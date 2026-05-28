@@ -41,7 +41,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(Path("dist") / "remote-runner"),
+        default=str(Path("resources") / "remote-runner"),
         help="Directory where the versioned .tar.gz and .sha256 files are written.",
     )
     args = parser.parse_args()
@@ -58,7 +58,18 @@ def main() -> int:
     if not conda_pack.exists():
         raise SystemExit(f"workflow runtime env missing bin/conda-pack: {env_dir}")
     subprocess.run([str(env_python), "-c", "import snakemake"], check=True)
-    subprocess.run([str(env_dir / "bin" / "snakemake"), "--version"], check=True)
+    snakemake_version = str(args.snakemake_version or "").strip()
+    snakemake_version_result = subprocess.run(
+        [str(env_dir / "bin" / "snakemake"), "--version"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if not snakemake_version:
+        version_lines = snakemake_version_result.stdout.strip().splitlines()
+        snakemake_version = version_lines[0].strip() if version_lines else ""
+    if not snakemake_version:
+        raise SystemExit("workflow runtime env produced an empty Snakemake version")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -91,7 +102,7 @@ def main() -> int:
             "condaUnpack": "workflow-env/bin/conda-unpack",
             "snakemake": "workflow-env/bin/snakemake",
         },
-        "packages": {"snakemake": args.snakemake_version},
+        "packages": {"snakemake": snakemake_version},
     }
     (bundle_dir / "bootstrap_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
