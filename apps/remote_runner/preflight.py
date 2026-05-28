@@ -6,6 +6,7 @@ from .config import RemoteRunnerConfig
 from .generated_workflow import (
     _resolve_requested_steps,
     _resolve_rule_template,
+    _resolve_step_params,
     _safe_identifier,
     _safe_snakemake_name,
     _step_id,
@@ -75,6 +76,16 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             rule_template = normalize_rule_template(
                 _resolve_rule_template(tool=tool, tool_request=tool_request),
                 required=True,
+            )
+        except ValueError as exc:
+            raise RunPreflightError(str(exc)) from exc
+        try:
+            _resolve_step_params(
+                rule_template=rule_template,
+                requested_step=step,
+                tool_request=tool_request,
+                run_spec=run_spec,
+                single_step=len(requested_steps) == 1,
             )
         except ValueError as exc:
             raise RunPreflightError(str(exc)) from exc

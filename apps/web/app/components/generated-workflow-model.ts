@@ -9,10 +9,14 @@ export type GeneratedWorkflowInputBinding =
   | { fromStep: string; output: string }
   | string;
 
+export type GeneratedWorkflowParamValue = string | number | boolean;
+export type GeneratedWorkflowStepParams = Record<string, GeneratedWorkflowParamValue>;
+
 export type GeneratedWorkflowStepDraft = {
   id: string;
   toolId: string;
   inputs: Record<string, GeneratedWorkflowInputBinding>;
+  params: GeneratedWorkflowStepParams;
 };
 
 export type GeneratedWorkflowExposedOutput = {
@@ -60,6 +64,17 @@ type RuleOutputSpec = {
   name: string;
 };
 
+export type RuleParamSpec = {
+  name: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  default?: GeneratedWorkflowParamValue;
+  enum?: GeneratedWorkflowParamValue[];
+  minimum?: number;
+  maximum?: number;
+};
+
 export function normalizeStepId(value: string, fallback = "step") {
   const normalized = value
     .trim()
@@ -101,6 +116,22 @@ export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
     .filter((item) => item.name.length > 0);
 }
 
+export function readRuleParams(tool: AddedTool | undefined): RuleParamSpec[] {
+  const params = (tool?.ruleTemplate as { params?: unknown } | undefined)?.params;
+  if (!params || typeof params !== "object" || Array.isArray(params)) return [];
+  return Object.entries(params as Record<string, unknown>)
+    .map(([name, raw]) => normalizeRuleParam(name, raw))
+    .filter((item): item is RuleParamSpec => Boolean(item));
+}
+
+export function createStepParams(tool: AddedTool): GeneratedWorkflowStepParams {
+  return Object.fromEntries(
+    readRuleParams(tool)
+      .filter((param) => param.default !== undefined)
+      .map((param) => [param.name, param.default as GeneratedWorkflowParamValue])
+  );
+}
+
 export function createGeneratedWorkflowDraft(tools: AddedTool[]): GeneratedWorkflowDraft {
   const first = tools[0];
   return {
@@ -118,6 +149,7 @@ export function createStepDraft(tool: AddedTool, existingIds: string[]): Generat
     id: stepId,
     toolId: tool.id,
     inputs,
+    params: createStepParams(tool),
   };
 }
 
@@ -224,6 +256,7 @@ export function buildGeneratedWorkflowRunSpec({
           ...(tool?.ruleTemplate ? { ruleTemplate: tool.ruleTemplate } : {}),
         },
         inputs: normalizeStepInputBindings(step.inputs, normalizedStepIds),
+        params: tool ? normalizeStepParams(step.params, readRuleParams(tool)) : {},
       };
     }),
     exposeOutputs: draft.exposeOutputs.map((output) => ({
@@ -233,6 +266,44 @@ export function buildGeneratedWorkflowRunSpec({
     })),
   };
   return runSpec;
+}
+
+function normalizeRuleParam(name: string, raw: unknown): RuleParamSpec | null {
+  const normalizedName = String(name || "").trim();
+  if (!normalizedName) return null;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const item = raw as Record<string, unknown>;
+    const defaultValue = normalizeParamValue(item.default);
+    const enumValues = Array.isArray(item.enum)
+      ? item.enum.map(normalizeParamValue).filter((value): value is GeneratedWorkflowParamValue => value !== undefined)
+      : undefined;
+    return {
+      name: normalizedName,
+      type: String(item.type || ""),
+      title: String(item.title || ""),
+      description: String(item.description || ""),
+      ...(defaultValue !== undefined ? { default: defaultValue } : {}),
+      ...(enumValues && enumValues.length > 0 ? { enum: enumValues } : {}),
+      ...(typeof item.minimum === "number" ? { minimum: item.minimum } : {}),
+      ...(typeof item.maximum === "number" ? { maximum: item.maximum } : {}),
+    };
+  }
+  const value = normalizeParamValue(raw);
+  return value === undefined ? { name: normalizedName } : { name: normalizedName, default: value };
+}
+
+function normalizeStepParams(params: GeneratedWorkflowStepParams, specs: RuleParamSpec[]) {
+  const specNames = new Set(specs.map((spec) => spec.name));
+  return Object.fromEntries(
+    Object.entries(params)
+      .filter(([name, value]) => specNames.has(name) && value !== "")
+      .map(([name, value]) => [name, value])
+  );
+}
+
+function normalizeParamValue(value: unknown): GeneratedWorkflowParamValue | undefined {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  return undefined;
 }
 
 function isStepBinding(binding: GeneratedWorkflowInputBinding | undefined): binding is { fromStep: string; output: string } {

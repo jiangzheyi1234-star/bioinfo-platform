@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from apps.api import tool_capabilities
@@ -124,16 +126,89 @@ def test_tool_search_attaches_matching_snakemake_wrappers(monkeypatch) -> None:
     assert item["snakemakeWrapperCount"] == 1
     assert item["snakemakeWrappers"][0]["wrapperPath"] == "bio/samtools/sort"
     assert item["snakemakeWrappers"][0]["toolName"] == "samtools"
+    assert item["snakemakeWrappers"][0]["wrapperRef"] == "test-wrapper-ref"
+    assert item["snakemakeWrappers"][0]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
+    assert item["snakemakeWrappers"][0]["ruleTemplateDraft"]["requiresUserCompletion"] is True
+    assert item["snakemakeWrappers"][0]["ruleSpecDraft"]["lock"]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
+    assert item["ruleSpecDraft"]["source"] == "snakemake-wrapper"
+    assert item["ruleSpecDraft"]["lock"]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
 
 
-def _samtools_sort_wrapper(name: str) -> dict[str, str]:
+def test_tool_search_builds_dependency_rule_spec_draft_without_wrapper(monkeypatch) -> None:
+    tool_capabilities._CACHE.clear()
+
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [
+                {
+                    "id": "bioconda::fastq",
+                    "name": "fastq",
+                    "summary": "A simple FASTQ toolbox",
+                    "source": "bioconda",
+                    "sourceLabel": "Bioconda",
+                    "packageSpec": "bioconda::fastq=2.0.4",
+                    "latestVersion": "2.0.4",
+                    "versions": ["2.0.4"],
+                    "sourceUrl": "https://anaconda.org/bioconda/fastq",
+                    "platforms": ["noarch"],
+                    "targetPlatform": target_platform,
+                    "targetPlatformSupported": True,
+                }
+            ],
+            "total": 1,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+        },
+    )
+    monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
+
+    response = tool_capabilities.search_tool_capabilities("fastq", target_platform="linux-64")
+
+    item = response["data"]["items"][0]
+    draft = item["ruleSpecDraft"]
+    assert item["snakemakeWrapperCount"] == 0
+    assert draft["source"] == "conda-package"
+    assert draft["requiresUserCompletion"] is True
+    assert draft["lock"]["packageSpec"] == "bioconda::fastq=2.0.4"
+    assert draft["ruleTemplate"]["inputs"][0]["name"] == "primary"
+    assert draft["ruleTemplate"]["outputs"][0]["name"] == "primary"
+    assert "fastq" in draft["ruleTemplate"]["commandTemplate"]
+
+
+def _samtools_sort_wrapper(name: str) -> dict[str, Any]:
     root = "https://github.com/snakemake/snakemake-wrappers/tree/master/bio/samtools/sort"
     return {
         "name": "samtools sort",
         "toolName": name,
+        "wrapperRepository": "snakemake/snakemake-wrappers",
+        "wrapperRef": "test-wrapper-ref",
         "wrapperPath": "bio/samtools/sort",
+        "wrapperIdentifier": "test-wrapper-ref/bio/samtools/sort",
         "wrapperUrl": root,
         "environmentUrl": f"{root}/environment.yaml",
+        "ruleTemplateDraft": {
+            "source": "snakemake-wrapper",
+            "wrapper": "test-wrapper-ref/bio/samtools/sort",
+            "requiresUserCompletion": True,
+        },
+        "ruleSpecDraft": {
+            "source": "snakemake-wrapper",
+            "requiresUserCompletion": True,
+            "lock": {
+                "type": "snakemake-wrapper",
+                "wrapperRepository": "snakemake/snakemake-wrappers",
+                "wrapperRef": "test-wrapper-ref",
+                "wrapperPath": "bio/samtools/sort",
+                "wrapperIdentifier": "test-wrapper-ref/bio/samtools/sort",
+            },
+            "ruleTemplate": {
+                "source": "snakemake-wrapper",
+                "wrapper": "test-wrapper-ref/bio/samtools/sort",
+            },
+        },
     }
 
 
