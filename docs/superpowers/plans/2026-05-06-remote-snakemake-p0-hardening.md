@@ -18,13 +18,13 @@
 - Modify: `E:\code\bio_ui\core\remote_runner\bundle.py`
 - Modify: `E:\code\bio_ui\core\remote_runner\artifact.py`
 - Modify: `E:\code\bio_ui\run.bat`
-- Modify: `E:\code\bio_ui\scripts\deploy_remote_runner_artifact.py`
+- Superseded: standalone deploy script was removed; release deployment uses manifest-declared artifacts and bootstrap orchestration.
 
 - [ ] Add one repo-owned manifest describing control-plane artifact name, workflow-runtime artifact name, versions, and relative search roots.
 - [ ] Make Python artifact resolution load filenames and versions from the manifest instead of duplicating them in multiple modules.
 - [ ] Make `run.bat` resolve both artifact paths from the same manifest rather than hardcoding separate filenames.
 - [ ] Add `stop_service.sh` to the packaged remote runner bundle so stop/start/check lifecycle entrypoints are complete.
-- [ ] Make the standalone deploy script fail loudly unless used in the intended narrowed scope, and stop presenting itself as a full cold-start bootstrap path.
+- [ ] Keep standalone deployment out of the supported release path; use manifest-declared artifacts and bootstrap orchestration instead.
 
 **Acceptance:**
 - One manifest file is the source of truth for artifact versions and filenames.

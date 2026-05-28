@@ -32,6 +32,9 @@ def test_remote_build_script_uses_target_platform_and_workflow_python_for_manife
         platform="linux-aarch64",
         snakemake_version="9.19.0",
         artifact_name="h2ometa-workflow-runtime-0.1.0-linux-aarch64.tar.gz",
+        runtime_source="clean-solve",
+        lock_file_name="",
+        lock_sha256="",
     )
 
     assert "https://micro.mamba.pm/api/micromamba/linux-aarch64/latest" in script
@@ -42,9 +45,18 @@ def test_remote_build_script_uses_target_platform_and_workflow_python_for_manife
 
 
 def test_remote_script_plan_uses_manifest_artifact_name() -> None:
-    plan = build_remote_script_plan(version="0.1.0", platform="linux-64", snakemake_version="")
+    plan = build_remote_script_plan(
+        version="0.1.0",
+        platform="linux-64",
+        snakemake_version="",
+        runtime_source="lockfile",
+        lock_file_name="linux-64.explicit.txt",
+        lock_sha256="abc123",
+    )
 
     assert plan["artifactName"] == "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
     assert plan["version"] == "0.1.0"
     assert plan["platform"] == "linux-64"
-    assert "snakemake>=9,<10" in plan["remoteScript"]
+    assert "micromamba create -y -p \"$BUILD_ROOT/workflow-env-src\" --file explicit.txt" in plan["remoteScript"]
+    assert '"lockFile": "linux-64.explicit.txt"' in plan["remoteScript"]
+    assert '"lockSha256": "abc123"' in plan["remoteScript"]
