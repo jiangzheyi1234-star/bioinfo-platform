@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 
+GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1"
+
+
 def normalize_generated_workflow_run_spec(run_spec: dict[str, Any]) -> dict[str, Any]:
     workflow = run_spec.get("workflow")
     if not isinstance(workflow, dict) or "nodes" not in workflow:
@@ -15,6 +18,7 @@ def normalize_generated_workflow_run_spec(run_spec: dict[str, Any]) -> dict[str,
 def normalize_generated_workflow_graph(workflow: dict[str, Any]) -> dict[str, Any]:
     if "steps" in workflow:
         raise ValueError("WORKFLOW_GRAPH_STEPS_CONFLICT")
+    _validate_graph_contract_version(workflow)
     nodes = workflow.get("nodes")
     if not isinstance(nodes, list) or not nodes:
         raise ValueError("WORKFLOW_GRAPH_NODES_REQUIRED")
@@ -44,6 +48,15 @@ def normalize_generated_workflow_graph(workflow: dict[str, Any]) -> dict[str, An
     if outputs is not None:
         normalized["outputs"] = outputs
     return normalized
+
+
+def _validate_graph_contract_version(workflow: dict[str, Any]) -> None:
+    raw_version = workflow.get("contractVersion")
+    version = str(raw_version or "").strip()
+    if not version:
+        raise ValueError("WORKFLOW_GRAPH_CONTRACT_VERSION_REQUIRED")
+    if version != GENERATED_WORKFLOW_RULE_CONTRACT_VERSION:
+        raise ValueError(f"WORKFLOW_GRAPH_CONTRACT_VERSION_UNSUPPORTED: {version}")
 
 
 def _step_from_node(node: Any, index: int) -> dict[str, Any]:

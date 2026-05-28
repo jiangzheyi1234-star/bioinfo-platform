@@ -138,6 +138,7 @@ def test_preflight_accepts_generated_graph_contract(tmp_path: Path) -> None:
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
             "inputs": [{"role": "reads"}],
             "workflow": {
+                "contractVersion": "rule-contract-v1",
                 "nodes": [
                     {
                         "id": "copy",
@@ -159,6 +160,36 @@ def test_preflight_accepts_generated_graph_contract(tmp_path: Path) -> None:
             },
         },
     )
+
+
+def test_preflight_rejects_generated_graph_without_contract_version(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    _register_tool(cfg, "conda-forge::source", output_name="seed")
+    _register_tool(cfg, "conda-forge::copy", output_name="copied")
+
+    try:
+        preflight_run_spec(
+            cfg,
+            pipeline,
+            {
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "inputs": [{"role": "reads"}],
+                "workflow": {
+                    "nodes": [
+                        {"id": "source", "toolId": "conda-forge::source", "inputs": {"primary": {"fromInput": "reads"}}},
+                        {"id": "copy", "toolId": "conda-forge::copy"},
+                    ],
+                    "edges": [{"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "copy", "port": "primary"}}],
+                    "outputs": [{"from": {"nodeId": "copy", "port": "copied"}, "as": "copied"}],
+                },
+            },
+        )
+    except RunPreflightError as exc:
+        assert str(exc) == "WORKFLOW_GRAPH_CONTRACT_VERSION_REQUIRED"
+    else:
+        raise AssertionError("generated graph payloads should declare their rule contract version")
 
 
 def test_preflight_accepts_generated_step_params(tmp_path: Path) -> None:
