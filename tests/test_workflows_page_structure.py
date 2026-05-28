@@ -102,6 +102,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
     assert "outputIsExposable" in model
+    assert "validateDefaultExposedOutputs" in model
     assert "capabilities" in model
     assert "runSpec.workflow = {" in model
     assert "contractVersion:" in model
@@ -203,6 +204,8 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "snakemakeWrappers" in model
     assert "snakemakeWrapperCount" in model
     assert "ruleSpecDraft" in model
+    assert "syncRuleSpecDraftPackageLock" in model
+    assert "applySelectedPackageLock" in model
     assert "WrapperBadge" in ui
     assert "Snakemake wrapper" in ui
     assert "RulePortPreview" in ui
@@ -214,6 +217,9 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "生成自定义 RuleSpec" in ui
     assert "snakemakeWrappers" in api
     assert "ruleSpecDraft" in api
+    hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    assert "const baseSelected" in hook
+    assert "applySelectedPackageLock(baseSelected" in hook
 
 
 def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:

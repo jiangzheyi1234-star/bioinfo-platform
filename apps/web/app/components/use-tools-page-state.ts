@@ -12,6 +12,7 @@ import {
 import {
   type AddedTool,
   type ToolSearchItem,
+  applySelectedPackageLock,
   dependencyKey,
   searchErrorMessage,
   toolErrorMessage,
@@ -108,13 +109,14 @@ export function useToolsPageState() {
     return items.filter((item) => item.source === source);
   }, [items, source]);
 
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0];
-  const selectedVersion = selected ? (versionOverrides[selected.id] ?? selected.latestVersion ?? "") : "";
-  const selectedPackageSpec = selected
+  const baseSelected = filtered.find((item) => item.id === selectedId) ?? filtered[0];
+  const selectedVersion = baseSelected ? (versionOverrides[baseSelected.id] ?? baseSelected.latestVersion ?? "") : "";
+  const selectedPackageSpec = baseSelected
     ? selectedVersion.trim()
-      ? `${selected.source}::${selected.name}=${selectedVersion.trim()}`
-      : `${selected.source}::${selected.name}`
+      ? `${baseSelected.source}::${baseSelected.name}=${selectedVersion.trim()}`
+      : `${baseSelected.source}::${baseSelected.name}`
     : "";
+  const selected = baseSelected ? applySelectedPackageLock(baseSelected, selectedVersion, selectedPackageSpec) : undefined;
   const selectedAlreadyAdded = Boolean(
     selectedPackageSpec && addedTools.some((tool) => dependencyKey(tool.selectedPackageSpec || tool.packageSpec) === dependencyKey(selectedPackageSpec))
   );
