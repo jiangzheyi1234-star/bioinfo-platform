@@ -103,6 +103,7 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                         "workflow_runtime_source": "artifact",
                         "workflow_runtime_version": "0.1.0",
                         "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                        "snakemake_version": "9.19.0",
                     }
                 ), ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
@@ -164,6 +165,7 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
     assert result["bootstrap_metadata"]["tooling"]["service_runtime"]["source"] == "artifact"
 
 def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_missing(monkeypatch) -> None:
+    monkeypatch.setenv("H2OMETA_ALLOW_REMOTE_WORKFLOW_RUNTIME_REGISTRATION", "1")
     monkeypatch.setattr(
         "core.remote_runner.manager.RemoteRunnerManager._ensure_workflow_runtime",
         _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,

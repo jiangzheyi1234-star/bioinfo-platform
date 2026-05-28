@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Database, Loader2, Play, UploadCloud, Wrench } from "lucide-react";
+import { AlertCircle, CheckCircle2, Database, Loader2, Play, UploadCloud, Wrench, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import type { DatabaseItem } from "./database-page-model";
@@ -21,11 +22,13 @@ import {
   fetchWorkflowTools,
 } from "./workflows-page-api";
 import {
+  databaseMatchesWorkflowResource,
   outputArtifactNames,
   type JsonSchema,
   type WorkflowCatalogItem,
   type WorkflowRun,
   type WorkflowRunDetail,
+  type WorkflowResourceSpec,
   type WorkflowServer,
   type WorkflowUpload,
 } from "./workflows-page-model";
@@ -122,6 +125,7 @@ export function WorkflowRunBuilder({
   runnableTools,
   isGeneratedToolRun,
   selectedDatabaseIds,
+  selectedResourceDatabaseIds,
   selectedToolIds,
   server,
   submitError,
@@ -131,6 +135,9 @@ export function WorkflowRunBuilder({
   runDetailError,
   toggleDatabase,
   toggleTool,
+  workflowResources,
+  onWorkflowResourceBindingChange,
+  missingRequiredResourceKeys,
   selectedWorkflow,
   params,
   onParamsChange,
@@ -147,6 +154,7 @@ export function WorkflowRunBuilder({
   runnableTools: AddedTool[];
   isGeneratedToolRun: boolean;
   selectedDatabaseIds: string[];
+  selectedResourceDatabaseIds: Record<string, string>;
   selectedToolIds: string[];
   server: WorkflowServer | null;
   submitError: string;
@@ -156,6 +164,9 @@ export function WorkflowRunBuilder({
   runDetailError: string;
   toggleDatabase: (id: string) => void;
   toggleTool: (id: string) => void;
+  workflowResources: Array<[string, WorkflowResourceSpec]>;
+  onWorkflowResourceBindingChange: (resourceKey: string, databaseId: string) => void;
+  missingRequiredResourceKeys: string[];
   selectedWorkflow: WorkflowCatalogItem | null;
   params: Record<string, unknown>;
   onParamsChange: (values: Record<string, unknown>) => void;
@@ -164,6 +175,62 @@ export function WorkflowRunBuilder({
   const currentRun = runDetail?.run || submittedRun || null;
   const ready = Boolean(server?.ready);
   const inputCount = files.length + sampleUploads.length;
+  const workflowRuntime = server?.health?.workflowRuntime;
+  const pipelineRegistry = server?.health?.pipelineRegistry;
+  const workflowProfile = server?.runner?.bootstrapMetadata?.workflow_profile;
+  const canary = server?.runner?.bootstrapMetadata?.canary;
+  const workflowRuntimeDetail = [
+    workflowRuntime?.provider,
+    workflowRuntime?.source,
+    workflowRuntime?.version,
+  ].filter(Boolean).join(" / ");
+  const workflowProfileChecked = typeof workflowRuntime?.workflowProfileOk === "boolean" || Boolean(workflowProfile);
+  const workflowProfileDetail = workflowRuntime?.workflowProfileMessage || workflowRuntime?.workflowProfilePath || workflowProfile?.config || workflowProfile?.path || "未检查";
+  const canaryDetail = canary
+    ? [
+        canary.status || canary.message,
+        canary.run?.runId || canary.submission?.runId,
+        canary.result?.resultId,
+        typeof canary.result?.artifactCount === "number" ? `${canary.result.artifactCount} artifacts` : "",
+      ].filter(Boolean).join(" / ")
+    : "未记录";
+  const readinessChecks = [
+    {
+      label: "SSH",
+      ok: Boolean(server?.connected),
+      detail: server?.connected ? "connected" : "未连接",
+    },
+    {
+      label: "Runner live",
+      ok: Boolean(server?.health?.live?.ok),
+      detail: server?.health?.live?.message || server?.runner?.message || "未检查",
+    },
+    {
+      label: "Runtime",
+      ok: Boolean(workflowRuntime?.ok),
+      detail: workflowRuntimeDetail || server?.message || server?.reasonCode || "未检查",
+    },
+    {
+      label: "Snakemake",
+      ok: Boolean(workflowRuntime?.snakemakeVersion),
+      detail: workflowRuntime?.snakemakeVersion || workflowRuntime?.message || "未检查",
+    },
+    {
+      label: "Profile",
+      ok: workflowRuntime?.workflowProfileOk === true || Boolean(workflowProfile?.written),
+      detail: workflowProfileChecked ? workflowProfileDetail : "未检查",
+    },
+    {
+      label: "Pipelines",
+      ok: Boolean(pipelineRegistry?.ok),
+      detail: typeof pipelineRegistry?.count === "number" ? `${pipelineRegistry.count} 个` : pipelineRegistry?.message || "未检查",
+    },
+    {
+      label: "Canary",
+      ok: Boolean(canary?.ok),
+      detail: canaryDetail,
+    },
+  ];
 
   return (
     <section className="space-y-5">
@@ -192,6 +259,15 @@ export function WorkflowRunBuilder({
               values={params}
               onChange={onParamsChange}
             />
+            {!isGeneratedToolRun && workflowResources.length > 0 ? (
+              <WorkflowResourceBindingsPanel
+                availableDatabases={availableDatabases}
+                bindings={selectedResourceDatabaseIds}
+                missingRequiredResourceKeys={missingRequiredResourceKeys}
+                resources={workflowResources}
+                onChange={onWorkflowResourceBindingChange}
+              />
+            ) : null}
           </div>
 
           <div className="border-t border-slate-100 p-5 sm:border-l sm:border-t-0">
@@ -213,6 +289,21 @@ export function WorkflowRunBuilder({
                       not ready
                     </span>
                   )}
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {readinessChecks.map((check) => (
+                    <div key={check.label} className="flex min-w-0 items-start gap-2 text-xs">
+                      {check.ok ? (
+                        <CheckCircle2 strokeWidth={1.5} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                      ) : (
+                        <XCircle strokeWidth={1.5} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+                      )}
+                      <div className="min-w-0">
+                        <span className={cn("font-medium", check.ok ? "text-slate-700" : "text-red-700")}>{check.label}</span>
+                        <span className="ml-1 break-words text-slate-500">{check.detail}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -289,6 +380,70 @@ export function WorkflowRunBuilder({
 
       {currentRun && <WorkflowCurrentRunPanel run={currentRun} detail={runDetail} />}
     </section>
+  );
+}
+
+function WorkflowResourceBindingsPanel({
+  availableDatabases,
+  bindings,
+  missingRequiredResourceKeys,
+  resources,
+  onChange,
+}: {
+  availableDatabases: DatabaseItem[];
+  bindings: Record<string, string>;
+  missingRequiredResourceKeys: string[];
+  resources: Array<[string, WorkflowResourceSpec]>;
+  onChange: (resourceKey: string, databaseId: string) => void;
+}) {
+  const missing = new Set(missingRequiredResourceKeys);
+  return (
+    <div className="grid gap-4 px-5 py-5 md:grid-cols-[160px_minmax(0,1fr)]">
+      <div>
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-950 text-xs text-white">3</span>
+          数据库资源
+        </div>
+      </div>
+      <div className="space-y-3">
+        {resources.map(([resourceKey, spec]) => {
+          const candidates = availableDatabases.filter((database) => databaseMatchesWorkflowResource(database, spec));
+          const value = bindings[resourceKey] || "__none__";
+          return (
+            <div key={resourceKey} className="rounded-lg border border-slate-200 px-3 py-3">
+              <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                    <Database strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
+                    <span className="truncate">{resourceKey}</span>
+                  </div>
+                  {spec.description ? <div className="mt-1 text-xs text-slate-500">{spec.description}</div> : null}
+                </div>
+                <span className={cn("rounded border px-1.5 text-[11px]", spec.required ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-500")}>
+                  {spec.required ? "必选" : "可选"}
+                </span>
+              </div>
+              <Select value={value} onValueChange={(nextValue) => onChange(resourceKey, nextValue === "__none__" ? "" : nextValue)}>
+                <SelectTrigger className={cn("h-9", missing.has(resourceKey) ? "border-red-300 text-red-700" : "")}>
+                  <SelectValue placeholder="选择数据库" />
+                </SelectTrigger>
+                <SelectContent>
+                  {!spec.required ? <SelectItem value="__none__">不绑定</SelectItem> : null}
+                  {candidates.map((database) => (
+                    <SelectItem key={database.id} value={database.id}>
+                      {database.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="mt-1.5 text-[11px] text-slate-400">
+                {candidates.length > 0 ? `${candidates.length} 个可用数据库` : "没有匹配的可用数据库"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
