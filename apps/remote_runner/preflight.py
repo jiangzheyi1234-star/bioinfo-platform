@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .config import RemoteRunnerConfig
@@ -16,6 +17,7 @@ from .generated_workflow import (
 from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .pipeline import PipelineDefinition
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
+from .rule_runtime import resolve_rule_runtime_directives
 from .storage import fetch_tool
 from .tools import normalize_rule_template
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
@@ -93,6 +95,14 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
                 tool_request=tool_request,
                 run_spec=run_spec,
                 single_step=len(requested_steps) == 1,
+            )
+        except ValueError as exc:
+            raise RunPreflightError(str(exc)) from exc
+        try:
+            resolve_rule_runtime_directives(
+                rule_template=rule_template,
+                requested_step=step,
+                result_dir=Path("."),
             )
         except ValueError as exc:
             raise RunPreflightError(str(exc)) from exc
