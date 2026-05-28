@@ -252,6 +252,37 @@ def test_tool_rule_template_accepts_declared_param_tokens(tmp_path: Path) -> Non
     assert saved["ruleTemplate"]["params"]["limit"]["default"] == 10
 
 
+def test_tool_rule_template_accepts_runtime_directive_tokens(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    saved = add_registered_tool(
+        cfg,
+        {
+            "id": "conda-forge::coreutils",
+            "name": "coreutils",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "wc -c --threads {threads} --mem {resources.mem_mb} {input.primary:q} > {output.count:q} 2> {log:q}",
+                "inputs": [{"name": "primary"}],
+                "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
+                "resources": {
+                    "threads": {"default": 4},
+                    "mem_mb": {"default": 8000},
+                },
+                "log": "logs/wc-count.log",
+            },
+        },
+    )
+
+    assert saved["ruleTemplate"]["threads"] == 4
+    assert saved["ruleTemplate"]["schedulerResources"]["mem_mb"] == 8000
+    assert saved["ruleTemplate"]["log"] == "logs/wc-count.log"
+    assert "resources" not in saved["ruleTemplate"]
+
+
 def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -406,6 +437,82 @@ def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypat
     assert "head -n 5" in snakefile
     assert "{params.limit}" not in snakefile
     assert run_config["workflow"]["steps"][0]["params"]["limit"] == 5
+
+
+def test_generated_workflow_renders_runtime_directives(tmp_path: Path, monkeypatch) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::runtime-demo",
+            "name": "runtime-demo",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "printf '%s\\t%s\\n' {threads} {resources.mem_mb} > {output.report:q} 2> {log.stderr:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "report", "path": "runtime-report.txt", "kind": "log", "mimeType": "text/plain"}],
+                "threads": {"default": 4},
+                "schedulerResources": {"mem_mb": {"default": 8000}, "runtime": {"default": 30}},
+                "log": {"stderr": "logs/runtime-demo.stderr.log"},
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+    upload = persist_upload(
+        cfg,
+        filename="reads.txt",
+        content_base64="QUJDREVGCg==",
+        mime_type="text/plain",
+    )
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_generated_runtime",
+        request_id="req_generated_runtime",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "projectId": "proj_demo",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
+            "tool": {"id": "conda-forge::runtime-demo"},
+        },
+    )
+
+    work_dir = Path(cfg.work_dir) / "run_generated_runtime"
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
+    step_config = run_config["workflow"]["steps"][0]
+
+    assert "    threads: 4\n" in snakefile
+    assert "    resources:\n        mem_mb=8000,\n        runtime=30,\n" in snakefile
+    assert "    log:\n        stderr=" in snakefile
+    assert "runtime-demo.stderr.log" in snakefile
+    assert "{threads}" not in snakefile
+    assert "{resources.mem_mb}" not in snakefile
+    assert "{log.stderr:q}" not in snakefile
+    assert "printf '%s\\t%s\\n' 4 8000" in snakefile
+    assert "mkdir -p" in snakefile
+    assert step_config["threads"] == 4
+    assert step_config["resources"] == {"mem_mb": 8000, "runtime": 30}
+    stderr_log = Path(step_config["log"]["stderr"])
+    assert stderr_log.name == "runtime-demo.stderr.log"
+    assert stderr_log.parent.name == "logs"
 
 
 def test_generated_workflow_topologically_orders_explicit_dag_bindings_and_exposed_outputs(
