@@ -136,6 +136,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "selectedNode.params" in builder_ui
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
     assert "commandTemplate" in rule_spec_panel_ui
+    assert "ruleTemplateForTool" in rule_spec_panel_ui
     assert "readRuleSpecProvenance" in rule_spec_panel_ui
     assert "ruleSpecDraft" in rule_spec_panel_ui
     assert "wrapperRef" in rule_spec_panel_ui
@@ -161,6 +162,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "logDefaults" in runtime_editor_ui
     assert "namedLogEntries" in runtime_editor_ui
     assert "updateLogPath" in runtime_editor_ui
+    assert "ruleTemplateForTool" in runtime_editor_ui
     assert "未声明 log" in runtime_editor_ui
     assert "builder.graphDraft.nodes" in builder_ui
     assert "selectedNodeId" in builder_ui
@@ -205,6 +207,7 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "Snakemake wrapper" in ui
     assert "RulePortPreview" in ui
     assert "rulePortItems" in ui
+    assert "hasRuleAction" in ui
     assert "formatRulePortLabel" in ui
     assert "输入端口" in ui
     assert "输出端口" in ui

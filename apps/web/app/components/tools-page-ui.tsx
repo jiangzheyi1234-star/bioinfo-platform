@@ -168,7 +168,15 @@ function formatRulePortLabel(port: RulePortItem) {
 }
 
 function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
-  return (item.ruleTemplate || item.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  const manifest = (item.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = (item.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  if (hasRuleAction(manifest)) return manifest;
+  if (hasRuleAction(draft)) return draft;
+  return Object.keys(manifest).length > 0 ? manifest : draft;
+}
+
+function hasRuleAction(template: Record<string, unknown>) {
+  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper));
 }
 
 function recordValue(raw: unknown): Record<string, unknown> {
