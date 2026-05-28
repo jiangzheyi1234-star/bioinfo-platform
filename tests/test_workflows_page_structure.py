@@ -39,6 +39,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
+    node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     runtime_editor_path = COMPONENTS / "generated-workflow-runtime-editor.tsx"
     page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
@@ -51,6 +52,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert hook_path.exists()
     assert ui_path.exists()
     assert graph_node_path.exists()
+    assert node_settings_path.exists()
     assert rule_spec_panel_path.exists()
     assert runtime_editor_path.exists()
 
@@ -58,6 +60,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
+    node_settings_ui = node_settings_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
 
@@ -111,6 +114,12 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
 
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
+    assert "GeneratedWorkflowNodeSettings" in builder_ui
+    assert "export function GeneratedWorkflowNodeSettings" in node_settings_ui
+    assert "节点设置" in node_settings_ui
+    assert "节点 ID" in node_settings_ui
+    assert "onStepIdChange" in node_settings_ui
+    assert "onStepToolChange" in node_settings_ui
     assert "GeneratedWorkflowRuleSpecPanel" in builder_ui
     assert "selectedNode.params" in builder_ui
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
