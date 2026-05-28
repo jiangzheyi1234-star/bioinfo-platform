@@ -326,7 +326,13 @@ export function validateGeneratedWorkflowDraft(
     }
   }
 
+  const exposedAliases = new Set<string>();
   for (const exposed of stepDraft.exposeOutputs) {
+    const alias = exposed.as.trim();
+    if (alias && exposedAliases.has(alias)) {
+      errors.push({ code: "WORKFLOW_OUTPUT_ALIAS_DUPLICATE", message: `暴露输出名称重复: ${alias}` });
+    }
+    if (alias) exposedAliases.add(alias);
     if (!outputsByStep.get(exposed.fromStep)?.has(exposed.output) || !exposed.as.trim()) {
       errors.push({ code: "WORKFLOW_OUTPUT_BINDING_INVALID", message: `输出暴露无效: ${exposed.as || exposed.fromStep}` });
     }

@@ -67,6 +67,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "portsCompatible" in model
     assert "findCompatibleOutputBinding" in model
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
+    assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "capabilities" in model
     assert "runSpec.workflow = {" in model
     assert "resourceBindings" in model
@@ -86,6 +87,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "工具 Palette" in builder_ui
     assert "Inspector" in builder_ui
     assert "PortBindingsEditor" in builder_ui
+    assert "removeGraphEdge" in builder_ui
+    assert "删除连线" in builder_ui
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
     assert "解绑" in builder_ui
