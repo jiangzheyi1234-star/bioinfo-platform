@@ -554,7 +554,8 @@ function OutputExposureEditor({
   builder: GeneratedWorkflowBuilderController;
   outputCandidates: OutputCandidate[];
 }) {
-  const first = outputCandidates[0];
+  const exposableCandidates = outputCandidates.filter((candidate) => candidate.port.temp !== true);
+  const first = exposableCandidates[0];
   return (
     <div className="rounded-lg border border-slate-200 px-3 py-3">
       <div className="flex items-center justify-between gap-3">
@@ -573,12 +574,14 @@ function OutputExposureEditor({
       <div className="mt-3 grid gap-2">
         {builder.draft.exposeOutputs.length === 0 ? (
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">默认暴露拓扑末端步骤输出。</div>
+        ) : exposableCandidates.length === 0 ? (
+          <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">没有可暴露输出。</div>
         ) : builder.draft.exposeOutputs.map((output, index) => (
           <div key={`${output.fromStep}-${output.output}-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]">
             <Select
               value={`${output.fromStep}.${output.output}`}
               onValueChange={(value) => {
-                const candidate = outputCandidates.find((item) => item.value === value);
+                const candidate = exposableCandidates.find((item) => item.value === value);
                 if (candidate) builder.setExposedOutput(index, { ...output, fromStep: candidate.stepId, output: candidate.output });
               }}
             >
@@ -586,7 +589,7 @@ function OutputExposureEditor({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {outputCandidates.map((candidate) => (
+                {exposableCandidates.map((candidate) => (
                   <SelectItem key={candidate.value} value={candidate.value}>{candidate.label}</SelectItem>
                 ))}
               </SelectContent>

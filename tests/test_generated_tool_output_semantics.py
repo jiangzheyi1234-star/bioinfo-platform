@@ -4,7 +4,7 @@ from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import _collect_artifacts, run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
+from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from apps.remote_runner.storage import persist_upload, upsert_tool
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 
@@ -179,6 +179,51 @@ def test_generated_workflow_renders_output_semantics(tmp_path: Path, monkeypatch
     assert artifacts["cache"]["directory"] is True
     assert artifacts["cache"]["temp"] is True
     assert artifacts["report"]["protected"] is True
+
+
+def test_generated_workflow_rejects_exposed_temp_outputs(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::temp-output",
+            "name": "temp-output",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "cp {input.primary:q} {output.cache:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "cache", "path": "cache.txt", "kind": "log", "mimeType": "text/plain", "temp": True}],
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+    input_path = tmp_path / "reads.txt"
+    input_path.write_text("ACGT\n", encoding="utf-8")
+
+    try:
+        prepare_generated_tool_workflow(
+            cfg,
+            run_id="run_temp_output",
+            request_id="req_temp_output",
+            run_spec={
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "tool": {"id": "conda-forge::temp-output"},
+            },
+            resolved_inputs=[{"path": str(input_path), "role": "input"}],
+            work_dir=tmp_path / "work",
+            result_dir=tmp_path / "results",
+        )
+    except ValueError as exc:
+        assert str(exc) == "WORKFLOW_OUTPUT_TEMP_EXPOSED: run_tool.cache"
+    else:
+        raise AssertionError("generated workflow should reject temp outputs as final artifacts")
 
 
 def test_output_artifact_collection_accepts_declared_directories(tmp_path: Path) -> None:

@@ -147,7 +147,7 @@ export function uniqueStepId(base: string, existingIds: string[]) {
 }
 
 export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
-  const inputs = (tool?.ruleTemplate as { inputs?: unknown } | undefined)?.inputs;
+  const inputs = (readToolRuleTemplate(tool) as { inputs?: unknown }).inputs;
   if (!Array.isArray(inputs)) return [];
   return inputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
@@ -158,7 +158,7 @@ export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
 }
 
 export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
-  const outputs = (tool?.ruleTemplate as { outputs?: unknown } | undefined)?.outputs;
+  const outputs = (readToolRuleTemplate(tool) as { outputs?: unknown }).outputs;
   if (!Array.isArray(outputs)) return [];
   return outputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
@@ -169,7 +169,7 @@ export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
 }
 
 export function readRuleParams(tool: AddedTool | undefined): RuleParamSpec[] {
-  const params = (tool?.ruleTemplate as { params?: unknown } | undefined)?.params;
+  const params = (readToolRuleTemplate(tool) as { params?: unknown }).params;
   if (!params || typeof params !== "object" || Array.isArray(params)) return [];
   return Object.entries(params as Record<string, unknown>)
     .map(([name, raw]) => normalizeRuleParam(name, raw))
@@ -286,6 +286,7 @@ export function validateGeneratedWorkflowDraft(
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
   const normalizedIds = new Map<string, string>();
   const outputsByStep = new Map<string, Set<string>>();
+  const outputSpecsByStep = new Map<string, Map<string, RuleOutputSpec>>();
   const outgoing = new Map<string, string[]>();
   const incomingCount = new Map<string, number>();
 
@@ -304,6 +305,7 @@ export function validateGeneratedWorkflowDraft(
     }
     const outputs = readRuleOutputs(tool);
     outputsByStep.set(step.id, new Set(outputs.map((output) => output.name)));
+    outputSpecsByStep.set(step.id, new Map(outputs.map((output) => [output.name, output])));
     for (const input of readRuleInputs(tool)) {
       const binding = step.inputs[input.name];
       if (input.required && !binding) {
@@ -352,8 +354,15 @@ export function validateGeneratedWorkflowDraft(
       errors.push({ code: "WORKFLOW_OUTPUT_ALIAS_DUPLICATE", message: `暴露输出名称重复: ${alias}` });
     }
     if (alias) exposedAliases.add(alias);
-    if (!outputsByStep.get(exposed.fromStep)?.has(exposed.output) || !exposed.as.trim()) {
+    const outputSpec = outputSpecsByStep.get(exposed.fromStep)?.get(exposed.output);
+    if (!outputSpec || !exposed.as.trim()) {
       errors.push({ code: "WORKFLOW_OUTPUT_BINDING_INVALID", message: `输出暴露无效: ${exposed.as || exposed.fromStep}` });
+    } else if (!outputIsExposable(outputSpec)) {
+      errors.push({
+        code: "WORKFLOW_OUTPUT_TEMP_EXPOSED",
+        message: `临时输出不能暴露为最终产物: ${exposed.fromStep}.${exposed.output}`,
+        stepId: exposed.fromStep,
+      });
     }
   }
 
@@ -446,7 +455,7 @@ export function buildGeneratedWorkflowRunSpec({
           toolId: node.toolId,
           tool: {
             id: node.toolId,
-            ...(tool?.ruleTemplate ? { ruleTemplate: tool.ruleTemplate } : {}),
+            ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
           },
           inputs: normalizeStepInputBindings(node.inputs, normalizedNodeIds),
           params: tool ? normalizeStepParams(node.params, readRuleParams(tool)) : {},
@@ -482,7 +491,7 @@ export function buildGeneratedWorkflowRunSpec({
         id: normalizeStepId(step.id),
         tool: {
           id: step.toolId,
-          ...(tool?.ruleTemplate ? { ruleTemplate: tool.ruleTemplate } : {}),
+          ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
         },
         inputs: normalizeStepInputBindings(step.inputs, normalizedStepIds),
         params: tool ? normalizeStepParams(step.params, readRuleParams(tool)) : {},
@@ -502,6 +511,27 @@ export function isGeneratedWorkflowGraphDraft(
   draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft
 ): draft is GeneratedWorkflowGraphDraft {
   return "nodes" in draft && "edges" in draft;
+}
+
+function readToolRuleTemplate(tool: AddedTool | undefined): Record<string, unknown> {
+  const manifest = (tool?.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = (tool?.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  if (hasRuleAction(manifest)) return manifest;
+  if (hasRuleAction(draft)) return draft;
+  if (hasRuleTemplateShape(manifest)) return manifest;
+  return draft;
+}
+
+function hasRuleAction(template: Record<string, unknown>) {
+  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper));
+}
+
+function hasRuleTemplateShape(template: Record<string, unknown>) {
+  return Boolean(
+    Array.isArray(template.inputs) ||
+    Array.isArray(template.outputs) ||
+    (template.params && typeof template.params === "object" && !Array.isArray(template.params))
+  );
 }
 
 function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: ToolCapabilitySlot): RuleInputSpec {
@@ -536,6 +566,10 @@ function outputSemanticTags(port: RuleInputSpec | RuleOutputSpec): string[] {
     output.protected ? "protected" : "",
     output.temp ? "temp" : "",
   ].filter(Boolean);
+}
+
+function outputIsExposable(output: RuleOutputSpec): boolean {
+  return output.temp !== true;
 }
 
 function readPortCompatibility(

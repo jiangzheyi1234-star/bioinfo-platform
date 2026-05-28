@@ -17,6 +17,7 @@ from .generated_workflow import (
 from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .pipeline import PipelineDefinition
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
+from .rule_outputs import rule_output_specs_by_name, validate_exposed_output_spec
 from .rule_runtime import resolve_rule_runtime_directives
 from .storage import fetch_tool
 from .tools import normalize_rule_template
@@ -64,6 +65,7 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
     rule_templates: list[dict[str, Any]] = []
     seen_steps: set[str] = set()
     known_outputs: dict[str, set[str]] = {}
+    known_output_rule_specs: dict[str, dict[str, dict[str, Any]]] = {}
     known_output_specs: dict[str, dict[str, dict[str, str]]] = {}
     for index, step in enumerate(requested_steps):
         step_id = _step_id(step, index)
@@ -117,8 +119,9 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
         _preflight_required_step_inputs(step, rule_template)
         rule_templates.append(rule_template)
         known_outputs[step_id] = {str(item.get("name") or "") for item in rule_template.get("outputs") or []}
+        known_output_rule_specs[step_id] = rule_output_specs_by_name(rule_template)
         known_output_specs[step_id] = build_output_port_specs(rule_template, tool)
-    _preflight_exposed_outputs(run_spec, known_outputs)
+    _preflight_exposed_outputs(run_spec, known_outputs, known_output_rule_specs)
     try:
         resource_specs = collect_workflow_resource_specs(rule_templates)
         build_workflow_resource_config(
@@ -197,7 +200,11 @@ def _preflight_required_step_inputs(step: dict[str, Any], rule_template: dict[st
             raise RunPreflightError(f"TOOL_INPUT_REQUIRED: {name}")
 
 
-def _preflight_exposed_outputs(run_spec: dict[str, Any], known_outputs: dict[str, set[str]]) -> None:
+def _preflight_exposed_outputs(
+    run_spec: dict[str, Any],
+    known_outputs: dict[str, set[str]],
+    known_output_rule_specs: dict[str, dict[str, dict[str, Any]]],
+) -> None:
     workflow = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
     raw_outputs = workflow.get("outputs") or workflow.get("exposeOutputs")
     if raw_outputs in (None, {}, []):
@@ -223,3 +230,11 @@ def _preflight_exposed_outputs(run_spec: dict[str, Any], known_outputs: dict[str
             raise RunPreflightError(f"WORKFLOW_OUTPUT_STEP_UNKNOWN: {step_id}")
         if output_name not in known_outputs[normalized_step]:
             raise RunPreflightError(f"WORKFLOW_OUTPUT_NAME_UNKNOWN: {step_id}.{output_name}")
+        try:
+            validate_exposed_output_spec(
+                step_id,
+                output_name,
+                known_output_rule_specs.get(normalized_step, {}).get(output_name, {}),
+            )
+        except ValueError as exc:
+            raise RunPreflightError(str(exc)) from exc
