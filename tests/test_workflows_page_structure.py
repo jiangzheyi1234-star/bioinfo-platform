@@ -136,6 +136,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "wrapperRef" in rule_spec_panel_ui
     assert "wrapperPath" in rule_spec_panel_ui
     assert "wrapperIdentifier" in rule_spec_panel_ui
+    assert "parseWrapperIdentifier" in rule_spec_panel_ui
     assert "snakemakeWrappers" in rule_spec_panel_ui
     assert "官方 wrapper 已锁定" in rule_spec_panel_ui
     assert "environment" in rule_spec_panel_ui
