@@ -347,26 +347,30 @@ export function validateGeneratedWorkflowDraft(
     }
   }
 
+  const orderedStepIds = topologicalStepIds(stepDraft.steps.map((step) => step.id), incomingCount, outgoing);
   const exposedAliases = new Set<string>();
-  for (const exposed of stepDraft.exposeOutputs) {
-    const alias = exposed.as.trim();
-    if (alias && exposedAliases.has(alias)) {
-      errors.push({ code: "WORKFLOW_OUTPUT_ALIAS_DUPLICATE", message: `暴露输出名称重复: ${alias}` });
-    }
-    if (alias) exposedAliases.add(alias);
-    const outputSpec = outputSpecsByStep.get(exposed.fromStep)?.get(exposed.output);
-    if (!outputSpec || !exposed.as.trim()) {
-      errors.push({ code: "WORKFLOW_OUTPUT_BINDING_INVALID", message: `输出暴露无效: ${exposed.as || exposed.fromStep}` });
-    } else if (!outputIsExposable(outputSpec)) {
-      errors.push({
-        code: "WORKFLOW_OUTPUT_TEMP_EXPOSED",
-        message: `临时输出不能暴露为最终产物: ${exposed.fromStep}.${exposed.output}`,
-        stepId: exposed.fromStep,
-      });
+  if (stepDraft.exposeOutputs.length === 0) {
+    validateDefaultExposedOutputs(stepDraft, outputSpecsByStep, orderedStepIds, errors);
+  } else {
+    for (const exposed of stepDraft.exposeOutputs) {
+      const alias = exposed.as.trim();
+      if (alias && exposedAliases.has(alias)) {
+        errors.push({ code: "WORKFLOW_OUTPUT_ALIAS_DUPLICATE", message: `暴露输出名称重复: ${alias}` });
+      }
+      if (alias) exposedAliases.add(alias);
+      const outputSpec = outputSpecsByStep.get(exposed.fromStep)?.get(exposed.output);
+      if (!outputSpec || !exposed.as.trim()) {
+        errors.push({ code: "WORKFLOW_OUTPUT_BINDING_INVALID", message: `输出暴露无效: ${exposed.as || exposed.fromStep}` });
+      } else if (!outputIsExposable(outputSpec)) {
+        errors.push({
+          code: "WORKFLOW_OUTPUT_TEMP_EXPOSED",
+          message: `临时输出不能暴露为最终产物: ${exposed.fromStep}.${exposed.output}`,
+          stepId: exposed.fromStep,
+        });
+      }
     }
   }
 
-  const orderedStepIds = topologicalStepIds(stepDraft.steps.map((step) => step.id), incomingCount, outgoing);
   if (orderedStepIds.length !== stepDraft.steps.length) {
     errors.push({ code: "WORKFLOW_STEP_CYCLE", message: "步骤依赖存在环" });
   }
@@ -570,6 +574,26 @@ function outputSemanticTags(port: RuleInputSpec | RuleOutputSpec): string[] {
 
 function outputIsExposable(output: RuleOutputSpec): boolean {
   return output.temp !== true;
+}
+
+function validateDefaultExposedOutputs(
+  stepDraft: GeneratedWorkflowDraft,
+  outputSpecsByStep: Map<string, Map<string, RuleOutputSpec>>,
+  orderedStepIds: string[],
+  errors: GeneratedWorkflowValidationIssue[]
+) {
+  const lastStepId = orderedStepIds[orderedStepIds.length - 1];
+  const lastStep = stepDraft.steps.find((step) => step.id === lastStepId) || stepDraft.steps[stepDraft.steps.length - 1];
+  if (!lastStep) return;
+  for (const [outputName, outputSpec] of outputSpecsByStep.get(lastStep.id) || new Map()) {
+    if (!outputIsExposable(outputSpec)) {
+      errors.push({
+        code: "WORKFLOW_OUTPUT_TEMP_EXPOSED",
+        message: `临时输出不能暴露为最终产物: ${lastStep.id}.${outputName}`,
+        stepId: lastStep.id,
+      });
+    }
+  }
 }
 
 function readPortCompatibility(

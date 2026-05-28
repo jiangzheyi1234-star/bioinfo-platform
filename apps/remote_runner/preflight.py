@@ -208,6 +208,18 @@ def _preflight_exposed_outputs(
     workflow = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
     raw_outputs = workflow.get("outputs") or workflow.get("exposeOutputs")
     if raw_outputs in (None, {}, []):
+        if not known_outputs:
+            return
+        step_id = next(reversed(known_outputs))
+        for output_name in known_outputs[step_id]:
+            try:
+                validate_exposed_output_spec(
+                    step_id,
+                    output_name,
+                    known_output_rule_specs.get(step_id, {}).get(output_name, {}),
+                )
+            except ValueError as exc:
+                raise RunPreflightError(str(exc)) from exc
         return
     if not isinstance(raw_outputs, (dict, list)):
         raise RunPreflightError("WORKFLOW_OUTPUT_BINDING_INVALID")
