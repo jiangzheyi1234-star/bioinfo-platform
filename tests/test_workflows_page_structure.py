@@ -152,6 +152,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "draft: generatedBuilder.graphDraft" in page_hook
     assert "GeneratedWorkflowBuilder" in detail_page
     assert "generatedBuilder" in page_ui
+    assert "!isGeneratedToolRun ? dagPreview : null" in page_ui
 
 
 def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
