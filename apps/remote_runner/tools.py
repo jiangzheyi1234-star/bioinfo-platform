@@ -228,6 +228,7 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     threads = _normalize_rule_threads(template.get("threads"), fallback=resource_parts["threads"])
     log = _normalize_rule_log(template.get("log"))
     params = _normalize_rule_params(template.get("params"))
+    environment = _normalize_rule_environment(template.get("environment"))
     _validate_command_tokens(
         command,
         input_names={item["name"] for item in inputs},
@@ -252,6 +253,8 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
         normalized["resources"] = resources
     if log:
         normalized["log"] = log
+    if environment:
+        normalized["environment"] = environment
     return normalized
 
 
@@ -439,6 +442,46 @@ def _normalize_rule_params(raw: Any) -> dict[str, Any]:
         name = _normalize_io_name(key)
         params[name] = value
     return params
+
+
+def _normalize_rule_environment(raw: Any) -> dict[str, Any]:
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("TOOL_RULE_ENVIRONMENT_INVALID")
+    conda = raw.get("conda")
+    if conda in (None, {}):
+        return {}
+    if not isinstance(conda, dict):
+        raise ToolRegistryError("TOOL_RULE_ENVIRONMENT_CONDA_INVALID")
+    channels = _normalize_string_list(conda.get("channels"), error_code="TOOL_RULE_ENVIRONMENT_CHANNELS_INVALID")
+    dependencies = _normalize_string_list(
+        conda.get("dependencies"),
+        error_code="TOOL_RULE_ENVIRONMENT_DEPENDENCIES_INVALID",
+    )
+    normalized_conda: dict[str, Any] = {}
+    if channels:
+        normalized_conda["channels"] = channels
+    if dependencies:
+        normalized_conda["dependencies"] = dependencies
+    return {"conda": normalized_conda} if normalized_conda else {}
+
+
+def _normalize_string_list(raw: Any, *, error_code: str) -> list[str]:
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        raise ToolRegistryError(error_code)
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = str(item or "").strip()
+        if not value:
+            raise ToolRegistryError(error_code)
+        if value not in seen:
+            values.append(value)
+            seen.add(value)
+    return values
 
 
 def _normalize_io_name(raw: Any) -> str:

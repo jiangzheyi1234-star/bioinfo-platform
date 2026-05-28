@@ -10,6 +10,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
+from .rule_environment import render_rule_conda_env_yaml
 from .rule_outputs import output_artifact_flags, render_rule_output_lines
 from .rule_runtime import (
     RuleRuntimeDirectives,
@@ -129,7 +130,11 @@ def prepare_generated_tool_workflow(
             output_prefix=output_prefix,
         )
         env_path.write_text(
-            _render_env_yaml(source=str(tool.get("source") or ""), package_spec=package_spec),
+            render_rule_conda_env_yaml(
+                rule_template=rule_template,
+                source=str(tool.get("source") or ""),
+                package_spec=package_spec,
+            ),
             encoding="utf-8",
         )
         generated_steps.append(
@@ -755,21 +760,6 @@ def _render_command(
     for token, value in replacements.items():
         command = command.replace(token, value)
     return command
-
-
-def _render_env_yaml(*, source: str, package_spec: str) -> str:
-    channels = _channels_for_source(source)
-    channel_lines = "".join(f"  - {channel}\n" for channel in [*channels, "nodefaults"])
-    return (
-        "channels:\n"
-        f"{channel_lines}"
-        "dependencies:\n"
-        f"  - {json.dumps(package_spec)}\n"
-    )
-
-
-def _channels_for_source(source: str) -> list[str]:
-    return ["conda-forge", "bioconda"]
 
 
 def _safe_identifier(value: str) -> str:
