@@ -234,10 +234,12 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
 }
 
 function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools: AddedTool[]): BuilderState {
+  const stepIndex = state.draft.steps.findIndex((step) => step.id === stepId);
+  const upstreamSteps = stepIndex >= 0 ? state.draft.steps.slice(0, stepIndex) : [];
   const inputs = Object.fromEntries(
     readRuleInputs(tool).map((input) => [
       input.name,
-      findCompatibleOutputBinding(input, state.draft.steps, tools, stepId) || "",
+      findCompatibleOutputBinding(input, upstreamSteps, tools) || "",
     ])
   );
   const outputNames = new Set(readRuleOutputs(tool).map((output) => output.name));

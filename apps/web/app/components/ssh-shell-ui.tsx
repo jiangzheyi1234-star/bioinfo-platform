@@ -329,9 +329,9 @@ export function SshSidebar({
   const connectionIconClass = runnerFailed ? "text-amber-600" : status?.connected ? "text-blue-600" : "text-zinc-500";
 
   return (
-    <aside className="border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r md:border-slate-200">
-      <div className="flex h-full flex-col gap-3 p-3">
-        <div className="rounded-xl px-2 py-1">
+    <aside className="overflow-hidden border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r md:border-slate-200">
+      <div className="flex h-full flex-col gap-2 p-2 md:gap-3 md:p-3">
+        <div className="rounded-xl px-0 py-1 md:px-2">
           <div
             className={cn(
               "group flex items-center overflow-hidden rounded-lg",
@@ -349,19 +349,19 @@ export function SshSidebar({
                 }
               }}
               className={cn(
-                "h-full min-w-0 flex-1 justify-start rounded-none bg-transparent px-0 text-left hover:bg-transparent",
+                "h-full min-w-0 flex-1 justify-center rounded-none bg-transparent px-0 text-left hover:bg-transparent md:justify-start",
                 status?.connected ? "cursor-default" : ""
               )}
             >
               {connectionIconBusy ? (
-                <RefreshCw strokeWidth={1.5} className={cn("size-4 mr-2", connectionIconClass, "animate-spin")} />
+                <RefreshCw strokeWidth={1.5} className={cn("size-4 md:mr-2", connectionIconClass, "animate-spin")} />
               ) : (
                 <Server
                   strokeWidth={1.5}
-                  className={cn("size-4 mr-2", connectionIconClass)}
+                  className={cn("size-4 md:mr-2", connectionIconClass)}
                 />
               )}
-              <div className="min-w-0 flex-1">
+              <div className="hidden min-w-0 flex-1 md:block">
                 <p className="truncate text-sm font-medium text-slate-900">{connectionLabel}</p>
                 {status?.connected && !runnerReady ? (
                   <p className={cn("truncate text-[11px]", runnerFailed ? "text-amber-700" : "text-slate-500")}>
@@ -378,7 +378,7 @@ export function SshSidebar({
                     variant="ghost"
                     size="icon"
                     className={cn(
-                      "size-8 appearance-none rounded-none border-0 bg-transparent p-1 text-slate-400",
+                      "hidden size-8 appearance-none rounded-none border-0 bg-transparent p-1 text-slate-400 md:inline-flex",
                       "opacity-0 shadow-none outline-none transition hover:bg-slate-100 hover:text-slate-700",
                       "group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                     )}
@@ -402,62 +402,62 @@ export function SshSidebar({
           </div>
         </div>
 
-        <div className="px-2 space-y-1">
+        <div className="space-y-1 px-0 md:px-2">
            <Button
             asChild
             variant="ghost"
             className={cn(
-              "w-full justify-start h-8 px-0",
+              "h-8 w-full justify-center px-0 md:justify-start",
               workflowCatalogActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
             )}
           >
             <Link href="/workflows" aria-current={workflowCatalogActive ? "page" : undefined}>
-              <span className="w-6 flex justify-center">
+              <span className="flex w-8 justify-center md:w-6">
                 <Workflow
                   strokeWidth={1.5}
                   className={cn("size-4", workflowCatalogActive ? "text-zinc-900" : "text-zinc-500")}
                 />
               </span>
-              <span>流程和数据库</span>
+              <span className="sr-only md:not-sr-only">流程和数据库</span>
             </Link>
           </Button>
           <Button
             asChild
             variant="ghost"
             className={cn(
-              "w-full justify-start h-8 px-0",
+              "h-8 w-full justify-center px-0 md:justify-start",
               resultsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
             )}
           >
             <Link href="/workflows/results" aria-current={resultsActive ? "page" : undefined}>
-              <span className="w-6 flex justify-center">
+              <span className="flex w-8 justify-center md:w-6">
                 <Clock3
                   strokeWidth={1.5}
                   className={cn("size-4", resultsActive ? "text-zinc-900" : "text-zinc-500")}
                 />
               </span>
-              <span>运行记录</span>
+              <span className="sr-only md:not-sr-only">运行记录</span>
             </Link>
           </Button>
         </div>
 
-        <div className="mt-auto pt-3 px-2">
+        <div className="mt-auto px-0 pt-3 md:px-2">
           <Button
             asChild
             variant="ghost"
             className={cn(
-              "w-full justify-start h-8 px-0",
+              "h-8 w-full justify-center px-0 md:justify-start",
               settingsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
             )}
           >
             <Link href="/settings" aria-current={settingsActive ? "page" : undefined}>
-              <span className="w-6 flex justify-center">
+              <span className="flex w-8 justify-center md:w-6">
                 <Settings
                   strokeWidth={1.5}
                   className={cn("size-4", settingsActive ? "text-zinc-900" : "text-zinc-500")}
                 />
               </span>
-              <span>设置</span>
+              <span className="sr-only md:not-sr-only">设置</span>
             </Link>
           </Button>
         </div>

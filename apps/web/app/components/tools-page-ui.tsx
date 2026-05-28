@@ -9,7 +9,7 @@ export function SourceBadge({ source, label }: { source: string; label: string }
   return (
     <span
       className={cn(
-        "inline-flex h-5 items-center rounded border px-1.5 text-[11px] leading-none",
+        "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] leading-none",
         source === "bioconda" && "border-emerald-200 bg-emerald-50 text-emerald-700",
         source === "conda-forge" && "border-sky-200 bg-sky-50 text-sky-700",
         source !== "bioconda" && source !== "conda-forge" && "border-slate-200 bg-slate-50 text-slate-600"
@@ -46,7 +46,7 @@ export function PlatformBadge({ item }: { item: ToolSearchItem }) {
     <span
       title={platforms.length > 0 ? `支持平台：${platforms.join(", ")}` : undefined}
       className={cn(
-        "inline-flex h-5 items-center rounded border px-1.5 text-[11px] leading-none",
+        "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] leading-none",
         supported && "border-blue-200 bg-blue-50 text-blue-700",
         unsupported && "border-amber-200 bg-amber-50 text-amber-700",
         !supported && !unsupported && hasPlatformInfo && "border-blue-200 bg-blue-50 text-blue-700",
@@ -64,7 +64,7 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
   return (
     <span
       title={`${count} 个 Snakemake wrapper 可复用`}
-      className="inline-flex h-5 items-center rounded border border-violet-200 bg-violet-50 px-1.5 text-[11px] leading-none text-violet-700"
+      className="inline-flex h-5 shrink-0 items-center rounded border border-violet-200 bg-violet-50 px-1.5 text-[11px] leading-none text-violet-700"
     >
       <Workflow strokeWidth={1.5} className="mr-1 h-3 w-3" />
       {count} wrapper
@@ -105,15 +105,15 @@ export function ResultRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group flex w-full items-center rounded-lg border px-4 py-3 text-left transition",
+        "group flex w-full items-center rounded-lg border px-3 py-3 text-left transition sm:px-4",
         selected
           ? "border-blue-200 bg-blue-50/60"
           : "border-transparent bg-white hover:border-slate-200 hover:bg-slate-50"
       )}
     >
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-sm font-medium text-slate-900">{item.name}</h3>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h3 className="min-w-0 truncate text-sm font-medium text-slate-900">{item.name}</h3>
           <SourceBadge source={item.source} label={item.sourceLabel} />
           <PlatformBadge item={item} />
           <WrapperBadge item={item} />
@@ -178,8 +178,8 @@ export function ToolsLibrarySection({
               className="group flex items-center rounded-lg border border-transparent bg-white px-3 py-3 transition-colors hover:border-slate-200 hover:bg-slate-50"
             >
               <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="truncate text-sm font-medium text-slate-800">{tool.name}</h3>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h3 className="min-w-0 truncate text-sm font-medium text-slate-800">{tool.name}</h3>
                   <SourceBadge source={tool.source} label={tool.sourceLabel} />
                   <PlatformBadge item={tool} />
                   <WrapperBadge item={tool} />
