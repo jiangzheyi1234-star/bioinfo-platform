@@ -62,12 +62,14 @@ logs/
 .tmp_*
 *.tmp
 *.log
+.h2ometa-*.pid
 *.swp
 *.swo
 
 # Dev/debug scripts
 diagnose_*.py
 run_*.py
+!apps/api/run_submission_status.py
 run_*.bat
 test_web_*.py
 test_detection_page_*.py
