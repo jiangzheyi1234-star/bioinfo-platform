@@ -70,6 +70,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "capabilities" in model
     assert "runSpec.workflow = {" in model
+    assert "nodes: draft.nodes.map" in model
+    assert "edges: draft.edges.map" in model
+    assert "outputs: draft.exposeOutputs.map" in model
     assert "resourceBindings" in model
     assert "databases" not in model
 
@@ -101,7 +104,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
 
     assert "buildGeneratedRunSpec" not in page_model
     assert "buildGeneratedWorkflowRunSpec" in api
+    assert "type GeneratedWorkflowGraphDraft" in api
     assert "useGeneratedWorkflowBuilder" in page_hook
+    assert "draft: generatedBuilder.graphDraft" in page_hook
     assert "GeneratedWorkflowBuilder" in detail_page
     assert "generatedBuilder" in page_ui
 
