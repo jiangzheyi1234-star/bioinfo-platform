@@ -161,6 +161,12 @@ if errorlevel 1 (
     pause
     endlocal & exit /b 1
 )
+echo [INFO] Checking local Web server on 127.0.0.1:3765...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%STOP_EXISTING_LOCAL_API%" -HostAddress 127.0.0.1 -Port 3765
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
+)
 
 echo [INFO] Desktop dev will launch its own local backend after startup checks...
 
@@ -297,6 +303,12 @@ if not exist "%STOP_EXISTING_LOCAL_API%" (
     endlocal & exit /b 1
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%STOP_EXISTING_LOCAL_API%" -HostAddress 127.0.0.1 -Port 8765
+if errorlevel 1 (
+    pause
+    endlocal & exit /b 1
+)
+echo [INFO] Checking local Web server on 127.0.0.1:3765...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%STOP_EXISTING_LOCAL_API%" -HostAddress 127.0.0.1 -Port 3765
 if errorlevel 1 (
     pause
     endlocal & exit /b 1
