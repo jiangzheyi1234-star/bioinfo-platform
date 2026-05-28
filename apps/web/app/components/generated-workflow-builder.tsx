@@ -27,6 +27,7 @@ import {
   type RuleParamSpec,
 } from "./generated-workflow-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-panel";
 import { GeneratedWorkflowRuntimeEditor } from "./generated-workflow-runtime-editor";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
@@ -285,6 +286,13 @@ function WorkflowGraphWorkbench({
                   <div className="text-[11px] text-slate-400">params</div>
                 </div>
               </div>
+              <GeneratedWorkflowNodeSettings
+                nodeId={selectedNode.id}
+                toolId={selectedNode.toolId}
+                tools={tools}
+                onStepIdChange={(nextId: string) => builder.setStepId(selectedNode.id, nextId)}
+                onStepToolChange={(toolId: string) => builder.setStepTool(selectedNode.id, toolId)}
+              />
               <GeneratedWorkflowRuleSpecPanel tool={selectedTool} />
               <StepParamsEditor
                 params={selectedNode.params || {}}
