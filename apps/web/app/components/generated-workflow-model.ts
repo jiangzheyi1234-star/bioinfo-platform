@@ -12,12 +12,19 @@ export type GeneratedWorkflowGraphInputBinding = Exclude<GeneratedWorkflowInputB
 
 export type GeneratedWorkflowParamValue = string | number | boolean;
 export type GeneratedWorkflowStepParams = Record<string, GeneratedWorkflowParamValue>;
+export type GeneratedWorkflowStepRuntime = {
+  threads?: number;
+  resources?: Record<string, string | number>;
+  schedulerResources?: Record<string, string | number>;
+  log?: string | Record<string, string>;
+};
 
 export type GeneratedWorkflowStepDraft = {
   id: string;
   toolId: string;
   inputs: Record<string, GeneratedWorkflowInputBinding>;
   params: GeneratedWorkflowStepParams;
+  runtime: GeneratedWorkflowStepRuntime;
 };
 
 export type GeneratedWorkflowExposedOutput = {
@@ -41,6 +48,7 @@ export type GeneratedWorkflowGraphNode = {
   toolId: string;
   inputs: Record<string, GeneratedWorkflowGraphInputBinding>;
   params: GeneratedWorkflowStepParams;
+  runtime: GeneratedWorkflowStepRuntime;
 };
 
 export type GeneratedWorkflowGraphEdge = {
@@ -202,6 +210,7 @@ export function createStepDraft(
     toolId: tool.id,
     inputs,
     params: createStepParams(tool),
+    runtime: {},
   };
 }
 
@@ -225,6 +234,7 @@ export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft
       toolId: step.toolId,
       inputs,
       params: { ...step.params },
+      runtime: { ...step.runtime },
     };
   });
   return {
@@ -240,6 +250,7 @@ export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflow
     toolId: node.toolId,
     inputs: { ...node.inputs } as Record<string, GeneratedWorkflowInputBinding>,
     params: { ...node.params },
+    runtime: { ...node.runtime },
   }));
   const stepById = new Map(steps.map((step) => [step.id, step]));
   for (const edge of graphDraft.edges) {
@@ -414,6 +425,7 @@ export function buildGeneratedWorkflowRunSpec({
           },
           inputs: normalizeStepInputBindings(node.inputs, normalizedNodeIds),
           params: tool ? normalizeStepParams(node.params, readRuleParams(tool)) : {},
+          runtime: normalizeStepRuntime(node.runtime),
         };
       }),
       edges: draft.edges.map((edge) => ({
@@ -449,6 +461,7 @@ export function buildGeneratedWorkflowRunSpec({
         },
         inputs: normalizeStepInputBindings(step.inputs, normalizedStepIds),
         params: tool ? normalizeStepParams(step.params, readRuleParams(tool)) : {},
+        runtime: normalizeStepRuntime(step.runtime),
       };
     }),
     exposeOutputs: draft.exposeOutputs.map((output) => ({
@@ -563,6 +576,40 @@ function normalizeStepParams(params: GeneratedWorkflowStepParams, specs: RulePar
       .filter(([name, value]) => specNames.has(name) && value !== "")
       .map(([name, value]) => [name, value])
   );
+}
+
+function normalizeStepRuntime(runtime: GeneratedWorkflowStepRuntime | undefined) {
+  const normalized: GeneratedWorkflowStepRuntime = {};
+  if (runtime?.threads && Number.isInteger(runtime.threads) && runtime.threads > 0) {
+    normalized.threads = runtime.threads;
+  }
+  const resources = normalizeRuntimeResources(runtime?.resources || runtime?.schedulerResources);
+  if (Object.keys(resources).length > 0) {
+    normalized.resources = resources;
+  }
+  const log = normalizeRuntimeLog(runtime?.log);
+  if (log) {
+    normalized.log = log;
+  }
+  return normalized;
+}
+
+function normalizeRuntimeResources(resources: GeneratedWorkflowStepRuntime["resources"] | undefined) {
+  if (!resources) return {};
+  return Object.fromEntries(
+    Object.entries(resources)
+      .map(([name, value]) => [name.trim(), value] as const)
+      .filter(([name, value]) => Boolean(name) && (typeof value === "string" || typeof value === "number") && value !== "")
+  );
+}
+
+function normalizeRuntimeLog(log: GeneratedWorkflowStepRuntime["log"] | undefined) {
+  if (typeof log === "string") return log.trim();
+  if (!log) return "";
+  const entries = Object.entries(log)
+    .map(([name, path]) => [name.trim(), path.trim()] as const)
+    .filter(([name, path]) => Boolean(name) && Boolean(path));
+  return entries.length > 0 ? Object.fromEntries(entries) : "";
 }
 
 function normalizeParamValue(value: unknown): GeneratedWorkflowParamValue | undefined {
