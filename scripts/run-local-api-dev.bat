@@ -21,7 +21,12 @@ if not "%ERRORLEVEL%"=="0" (
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>nul
 echo [INFO] UV cache dir: %UV_CACHE_DIR%
 
-call uv run --isolated --no-project --with-requirements apps/api/requirements.txt python -m apps.api.run
+set "UV_PYTHON="
+set "UV_PROJECT_ENVIRONMENT=%H2OMETA_WORKDIR%\.venv"
+set "UV_PYTHON_INSTALL_DIR=%H2OMETA_WORKDIR%\.codex-uv-python"
+echo [INFO] UV project environment: %UV_PROJECT_ENVIRONMENT%
+
+call uv run --frozen python -m apps.api.run
 set "APP_EXIT=%ERRORLEVEL%"
 :after_run
 if not "%APP_EXIT%"=="0" (

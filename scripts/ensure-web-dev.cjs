@@ -82,21 +82,8 @@ normalizeNodeModulesPath();
 
 let installed = false;
 
-if (process.platform === "win32") {
-  installed = runInstall(
-    "corepack.cmd",
-    ["pnpm", "install", "--no-lockfile"],
-    "corepack pnpm install --no-lockfile"
-  );
-  if (!installed) {
-    console.log("[INFO] Falling back to npm install on Windows.");
-  }
-}
-
-if (!installed) {
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  installed = runInstall(npmCommand, ["install"], "npm install");
-}
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+installed = runInstall(npmCommand, ["install"], "npm install");
 
 if (!installed) {
   fail("Web dependency installation failed.");

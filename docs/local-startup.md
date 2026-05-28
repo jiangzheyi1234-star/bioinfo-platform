@@ -17,6 +17,7 @@ This starts:
 - Web UI: `http://127.0.0.1:3765`
 
 `run.bat --web` resolves the manifest-declared prebuilt remote-runner artifacts, stops any stale listener on `127.0.0.1:8765`, then starts the API and Next.js dev server in separate terminal windows.
+The local API process uses the repo uv project environment (`pyproject.toml`/`uv.lock`) with `uv run --frozen`; Python dependencies have a single source of truth in the uv project files.
 
 ## Desktop Dev
 

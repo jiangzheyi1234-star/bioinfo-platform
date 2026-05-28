@@ -9,7 +9,7 @@ Goal: make user-selected tools enter Snakemake as reproducible per-rule environm
 | 3. Multi-step linear workflows | Done | Allow ordered tools where outputs of step N feed step N+1. | Verified locally with focused pytest and remotely with `remote_generated_linear_workflow_smoke.py`; generated Snakefile has multiple rules and a final `rule all` over selected outputs. |
 | 4. Reference database registry | Done | Register existing remote reference database paths, validate template-specific database layouts, show them in the database page, and expose database paths to generated Snakemake config. | Verified locally with focused pytest; remote validation covered by `remote_database_smoke.py`. |
 | 5. UI workflow builder | Pending | Frontend can select installed tools/databases, bind inputs/params, and submit generated workflow runs. | User can create and submit a simple tool workflow from the app without editing JSON. |
-| 6. DAG and wrapper support | Pending | Support branching DAGs and Snakemake wrappers/modules for curated tools. | Tool-backed workflows remain portable and can use official wrapper/module patterns where available. |
+| 6. DAG and wrapper support | P0 done, wrappers pending | Generated workflows support explicit DAG input bindings, automatic topological ordering, cycle rejection, and explicit exposed outputs. Snakemake wrapper/module support remains pending. | Tool-backed workflows can express branches/merges without requiring callers to submit steps in dependency order; future curated tool work can add wrapper/module patterns. |
 
 Phase 1 design:
 
@@ -31,6 +31,21 @@ Phase 3 design:
 - Step 1 consumes uploaded inputs; each later step consumes the previous step's primary output by default.
 - `rule all` targets the final step outputs, letting Snakemake infer and execute the intermediate rule dependencies.
 - Multi-step outputs are prefixed by step id to avoid file name collisions while remaining visible under the run result directory.
+
+Phase 6/P0 DAG binding design:
+
+- The virtual pipeline id remains `generated-tool-run-v1`.
+- A run can provide `runSpec.workflow.steps` as the generated workflow contract. The runner sorts explicit `fromStep` dependencies into a deterministic topological order before rendering.
+- Each step may use explicit input bindings under `inputs`, keyed by the tool rule input name:
+  - `{"fromStep": "step_id", "output": "output_name"}` binds to another step output. `step` and `fromOutput` are accepted aliases.
+  - `{"fromUpload": 0}` binds to an uploaded input by index.
+  - `{"fromInput": "reads"}` binds to an uploaded input by role. `role` is accepted as an alias.
+  - A string binding is treated as a direct path.
+- Branch and merge workflows are supported by binding multiple later steps to the same upstream output and by binding merge-step inputs to different upstream step outputs.
+- `workflow.outputs` or `workflow.exposeOutputs` may explicitly select final artifacts. Bindings can be strings such as `"merge.final"` or objects such as `{"fromStep": "merge", "output": "final", "as": "merged"}`. `name` is accepted as an alias for `as`.
+- If no explicit outputs are provided, the runner exposes the last topologically ordered step's outputs.
+- `run-config.json` records resolved per-step inputs/outputs under `workflow.steps`, resolved exposed outputs under `workflow.outputs`, and the final artifact map under top-level `outputs`.
+- Invalid DAGs fail before rendering: unknown `fromStep` references raise `WORKFLOW_STEP_INPUT_STEP_UNKNOWN`, duplicate normalized step ids raise `WORKFLOW_STEP_DUPLICATE`, and dependency cycles raise `WORKFLOW_STEP_CYCLE`.
 
 Phase 4 design:
 

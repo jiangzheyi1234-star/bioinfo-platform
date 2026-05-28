@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
-import pytest
-from fastapi import HTTPException
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -18,38 +13,10 @@ from apps.remote_runner.config import (
     write_runtime_state,
 )
 from apps.remote_runner.config import RemoteRunnerConfig
-from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.main import (
-    RunCreateRequest,
-    UploadCreateRequest,
-    create_run,
-    create_upload,
-    get_pipeline_api,
-    get_pipelines,
-    get_result_api,
-    get_result_preview_api,
-    get_run as get_run_api,
-    get_run_events_api,
-    get_run_logs_api,
-    get_run_results_api,
-    get_runs as list_runs_api,
-    health_live,
-    health_ready,
-    health_startup,
-    list_results_api,
-)
 from config import get_app_cache_dir
-from core.remote_runner.artifact import RemoteRunnerArtifactError
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
-from core.remote_runner.client import RemoteRunnerClientError
-from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from tests.helpers.remote_runner_control_plane import (
-    _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
-    _default_workflow_runtime,
     _fake_runtime_dir,
-    _fake_workflow_artifact,
-    _runtime_state_json,
-    _write_file_summary_pipeline,
 )
 
 def test_get_app_cache_dir_prefers_platform_cache_locations(monkeypatch, tmp_path: Path) -> None:
@@ -87,7 +54,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
 
     assert (bundle.bundle_dir / "remote_runner" / "main.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "run.py").exists()
-    assert (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
+    assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "pipeline.json").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "Snakefile").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "envs" / "base.yaml").exists()
@@ -117,8 +84,6 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert b"\r\n" not in launch_script_path.read_bytes()
     assert bundle.archive_path.exists()
     assert bundle.platform == "linux-64"
-    requirements = (bundle.bundle_dir / "remote_runner" / "requirements.txt").read_text(encoding="utf-8")
-    assert "snakemake" not in requirements
 
 def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"

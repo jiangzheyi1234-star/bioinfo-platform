@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
+import { GENERATED_TOOL_RUN_PIPELINE_ID } from "./generated-workflow-model";
+import { useGeneratedWorkflowBuilder } from "./use-generated-workflow-builder";
 import {
   fetchRunsList,
   fetchWorkflowCatalog,
@@ -40,8 +42,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [loading, setLoading] = useState(() => !getCachedWorkflowCatalog());
   const [error, setError] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(initialWorkflowId);
-  const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
-  const [selectedDatabaseIds, setSelectedDatabaseIds] = useState<string[]>([]);
   const [selectedResourceDatabaseIds, setSelectedResourceDatabaseIds] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
   const [sampleUploads, setSampleUploads] = useState<WorkflowUpload[]>([]);
@@ -77,9 +77,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     ]);
     if (toolsResult.status === "fulfilled") {
       const nextTools = toolsResult.value;
-      const runnableTools = selectableTools(nextTools);
       setTools(nextTools);
-      setSelectedToolIds((current) => current.length > 0 ? current : runnableTools[0]?.id ? [runnableTools[0].id] : []);
     }
     if (databasesResult.status === "fulfilled") {
       setDatabases(databasesResult.value);
@@ -105,7 +103,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   const selectedWorkflow = catalog.find((item) => item.id === selectedWorkflowId) || catalog[0] || null;
   const selectedPipelineId = selectedWorkflow?.kind === "pipeline" && selectedWorkflow.runnable ? selectedWorkflow.id : "";
-  const isGeneratedToolRun = selectedPipelineId === "generated-tool-run-v1" || !selectedPipelineId;
+  const isGeneratedToolRun = selectedPipelineId === GENERATED_TOOL_RUN_PIPELINE_ID || !selectedPipelineId;
 
   useEffect(() => {
     setSampleUploads([]);
@@ -127,9 +125,8 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   const runnableTools = useMemo(() => selectableTools(tools), [tools]);
   const availableDatabases = useMemo(() => selectableDatabases(databases), [databases]);
+  const generatedBuilder = useGeneratedWorkflowBuilder(runnableTools, availableDatabases, files.length);
   const workflowResources = useMemo(() => workflowResourceEntries(selectedWorkflow), [selectedWorkflow]);
-  const selectedTools = runnableTools.filter((tool) => selectedToolIds.includes(tool.id));
-  const selectedDatabases = availableDatabases.filter((database) => selectedDatabaseIds.includes(database.id));
   const missingRequiredResourceKeys = workflowResources
     .filter(([key, spec]) => {
       if (!spec.required) return false;
@@ -147,7 +144,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       server.ready === true &&
       pipelineInputCount > 0 &&
       selectedWorkflow?.runnable &&
-      (!isGeneratedToolRun || selectedTools.length > 0) &&
+      (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
       (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
       !submitting &&
       !sampleLoading
@@ -200,14 +197,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     };
   }, [submittedRun, activeRunId]);
 
-  function toggleTool(id: string) {
-    setSelectedToolIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  }
-
-  function toggleDatabase(id: string) {
-    setSelectedDatabaseIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  }
-
   function setWorkflowResourceBinding(resourceKey: string, databaseId: string) {
     setSelectedResourceDatabaseIds((current) => {
       const next = { ...current };
@@ -242,8 +231,9 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
             server,
             projectId: selectedWorkflow?.id || "proj_workflow_ui",
             files,
-            tools: selectedTools,
-            databases: selectedDatabases,
+            draft: generatedBuilder.draft,
+            tools: generatedBuilder.selectedTools,
+            resourceBindings: generatedBuilder.resourceBindings,
           });
       setSubmittedRun(run);
       setActiveRunId(run.runId);
@@ -297,19 +287,18 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     loading,
     params,
     runnableTools,
+    generatedBuilder,
     isGeneratedToolRun,
     runDetail,
     runDetailError,
     runHistory,
     sampleLoading,
     sampleUploads,
-    selectedDatabaseIds,
-    selectedDatabases,
     selectedResourceDatabaseIds,
     selectedWorkflow,
     selectedWorkflowId,
-    selectedToolIds,
-    selectedTools,
+    selectedToolIds: generatedBuilder.selectedToolIds,
+    selectedTools: generatedBuilder.selectedTools,
     server,
     selectRun,
     setFiles: updateFiles,
@@ -320,8 +309,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     submitRun,
     submittedRun,
     submitting,
-    toggleDatabase,
-    toggleTool,
     workflowResources,
     missingRequiredResourceKeys,
   };

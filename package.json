@@ -5,9 +5,5 @@
     "firecrawl:init": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 init --all --browser",
     "firecrawl:login": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 login --browser",
     "firecrawl:status": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 --status"
-  },
-  "devDependencies": {
-    "@next/swc-linux-x64-gnu": "15.2.4",
-    "lightningcss-linux-x64-gnu": "^1.32.0"
   }
 }
