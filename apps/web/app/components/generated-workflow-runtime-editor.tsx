@@ -22,7 +22,7 @@ export function GeneratedWorkflowRuntimeEditor({
   tool: AddedTool | undefined;
   onChange: (runtime: GeneratedWorkflowStepRuntime) => void;
 }) {
-  const template = (tool?.ruleTemplate || {}) as Record<string, unknown>;
+  const template = ruleTemplateForTool(tool);
   const defaultThreads = defaultRuntimeValue(template.threads);
   const defaultResources = schedulerResourceDefaults(template.schedulerResources || template.runtimeResources);
   const runtimeResources = runtime.resources || runtime.schedulerResources || {};
@@ -102,6 +102,18 @@ export function GeneratedWorkflowRuntimeEditor({
       </div>
     </div>
   );
+}
+
+function ruleTemplateForTool(tool: AddedTool | undefined): Record<string, unknown> {
+  const manifest = (tool?.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = (tool?.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  if (hasRuntimeShape(manifest)) return manifest;
+  if (hasRuntimeShape(draft)) return draft;
+  return Object.keys(manifest).length > 0 ? manifest : draft;
+}
+
+function hasRuntimeShape(template: Record<string, unknown>) {
+  return Boolean(template.threads || template.schedulerResources || template.runtimeResources || template.log);
 }
 
 function updateThreads(runtime: GeneratedWorkflowStepRuntime, raw: string): GeneratedWorkflowStepRuntime {

@@ -20,7 +20,7 @@ type RuleSpecProvenanceSummary = {
 
 export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | undefined }) {
   const draft = tool?.ruleSpecDraft;
-  const template = (tool?.ruleTemplate || draft?.ruleTemplate || {}) as Record<string, unknown>;
+  const template = ruleTemplateForTool(tool);
   const commandTemplate = stringValue(template.commandTemplate);
   const wrapperIdentifier = stringValue(template.wrapper);
   const commandDisplay = commandTemplate || (wrapperIdentifier ? `wrapper: ${wrapperIdentifier}` : "");
@@ -125,6 +125,18 @@ function RuleSpecList({ label, values }: { label: string; values: string[] }) {
       )}
     </div>
   );
+}
+
+function ruleTemplateForTool(tool: AddedTool | undefined): Record<string, unknown> {
+  const manifest = (tool?.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = (tool?.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  if (hasRuleAction(manifest)) return manifest;
+  if (hasRuleAction(draft)) return draft;
+  return Object.keys(manifest).length > 0 ? manifest : draft;
+}
+
+function hasRuleAction(template: Record<string, unknown>) {
+  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper));
 }
 
 function readRuleSpecProvenance(
