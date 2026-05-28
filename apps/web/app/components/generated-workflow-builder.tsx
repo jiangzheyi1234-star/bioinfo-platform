@@ -6,7 +6,6 @@ import { AlertCircle, Database, Plus, Trash2, Workflow } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
@@ -82,79 +81,10 @@ export function GeneratedWorkflowBuilder({
         builder={builder}
         nodes={builder.graphDraft.nodes}
         edges={builder.graphDraft.edges}
+        inputCount={inputCount}
         outputCandidates={outputCandidates}
         tools={tools}
       />
-
-      <div className="grid gap-3">
-        {builder.draft.steps.map((step, index) => {
-          const tool = tools.find((item) => item.id === step.toolId);
-          return (
-            <div key={step.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-              <div className="grid gap-3 lg:grid-cols-[120px_minmax(0,1fr)_auto]">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase text-slate-400">Step {index + 1}</div>
-                  <Input
-                    value={step.id}
-                    onChange={(event) => builder.setStepId(step.id, event.target.value)}
-                    className="mt-1 h-8 font-mono text-xs"
-                    aria-label="step id"
-                  />
-                </div>
-                <div>
-                  <Label className="text-[11px] font-semibold uppercase text-slate-400">工具</Label>
-                  <Select value={step.toolId} onValueChange={(toolId) => builder.setStepTool(step.id, toolId)}>
-                    <SelectTrigger className="mt-1 h-8">
-                      <SelectValue placeholder="选择工具" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tools.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="self-end h-8 bg-white px-2"
-                  disabled={builder.draft.steps.length <= 1}
-                  onClick={() => builder.removeStep(step.id)}
-                  aria-label="删除步骤"
-                >
-                  <Trash2 strokeWidth={1.5} className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-
-              <div className="mt-3 grid gap-2">
-                {readRuleInputs(tool).map((input) => (
-                  <InputBindingRow
-                    key={`${step.id}-${input.name}`}
-                    binding={step.inputs[input.name]}
-                    inputCount={inputCount}
-                    input={input}
-                    outputCandidates={outputCandidates
-                      .filter((candidate) => candidate.stepId !== step.id)
-                      .map((candidate) => ({
-                        ...candidate,
-                        compatible: portsCompatible(input, candidate.port),
-                        compatibilityScore: portCompatibilityScore(input, candidate.port),
-                      }))}
-                    onChange={(binding) => builder.setInputBinding(step.id, input.name, binding)}
-                  />
-                ))}
-              </div>
-              <StepParamsEditor
-                params={step.params || {}}
-                paramSpecs={readRuleParams(tool)}
-                onChange={(paramName, value) => builder.setStepParam(step.id, paramName, value)}
-              />
-            </div>
-          );
-        })}
-      </div>
 
       <OutputExposureEditor builder={builder} outputCandidates={outputCandidates} />
       <GeneratedResourceBindings builder={builder} availableDatabases={availableDatabases} />
@@ -166,12 +96,14 @@ function WorkflowGraphWorkbench({
   builder,
   nodes,
   edges,
+  inputCount,
   outputCandidates,
   tools,
 }: {
   builder: GeneratedWorkflowBuilderController;
   nodes: GeneratedWorkflowBuilderController["graphDraft"]["nodes"];
   edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
+  inputCount: number;
   outputCandidates: OutputCandidate[];
   tools: AddedTool[];
 }) {
@@ -267,8 +199,26 @@ function WorkflowGraphWorkbench({
           {selectedNode ? (
             <div className="grid gap-2">
               <div>
-                <div className="truncate font-mono text-xs text-slate-800">{selectedNode.id}</div>
-                <div className="truncate text-[11px] text-slate-500">{selectedTool?.name || selectedNode.toolId}</div>
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-xs text-slate-800">{selectedNode.id}</div>
+                    <div className="truncate text-[11px] text-slate-500">{selectedTool?.name || selectedNode.toolId}</div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-7 shrink-0 bg-white px-2 text-[11px]"
+                    disabled={nodes.length <= 1}
+                    onClick={() => {
+                      builder.removeStep(selectedNode.id);
+                      setSelectedNodeId("");
+                    }}
+                    aria-label="删除节点"
+                  >
+                    <Trash2 strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+                    删除节点
+                  </Button>
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded bg-white px-2 py-1">
@@ -304,6 +254,7 @@ function WorkflowGraphWorkbench({
               />
               <PortBindingsEditor
                 edges={edges}
+                inputCount={inputCount}
                 node={selectedNode}
                 outputCandidates={outputCandidates}
                 tool={selectedTool}
@@ -321,12 +272,14 @@ function WorkflowGraphWorkbench({
 
 function PortBindingsEditor({
   edges,
+  inputCount,
   node,
   onBind,
   outputCandidates,
   tool,
 }: {
   edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
+  inputCount: number;
   node: GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
   onBind: (inputName: string, binding: GeneratedWorkflowInputBinding) => void;
   outputCandidates: OutputCandidate[];
@@ -341,64 +294,25 @@ function PortBindingsEditor({
       <div className="text-[11px] font-semibold uppercase text-slate-400">端口绑定</div>
       {inputs.map((input) => {
         const edgeForInput = edges.find((edge) => edge.to.nodeId === node.id && edge.to.port === input.name);
-        const compatibleOutputCandidates = outputCandidates
+        const binding = edgeForInput
+          ? { fromStep: edgeForInput.from.nodeId, output: edgeForInput.from.port }
+          : node.inputs[input.name];
+        const candidates = outputCandidates
           .filter((candidate) => candidate.stepId !== node.id)
-          .map((candidate) => ({ ...candidate, compatibilityScore: portCompatibilityScore(input, candidate.port) }))
-          .filter((candidate) => candidate.compatibilityScore !== null)
-          .sort((left, right) => (right.compatibilityScore || 0) - (left.compatibilityScore || 0));
-        const value = edgeForInput ? `${edgeForInput.from.nodeId}.${edgeForInput.from.port}` : "__none__";
-        const recommended = compatibleOutputCandidates[0];
+          .map((candidate) => ({
+            ...candidate,
+            compatible: portsCompatible(input, candidate.port),
+            compatibilityScore: portCompatibilityScore(input, candidate.port),
+          }));
         return (
-          <div key={input.name} className="grid gap-1 rounded-md bg-white px-2 py-2">
-            <div className="flex min-w-0 items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate font-mono text-[11px] text-slate-700">{input.name}</div>
-                <div className="truncate text-[11px] text-slate-400">{describePortSpec(input)}</div>
-              </div>
-              {edgeForInput ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-7 bg-white px-2 text-[11px]"
-                  onClick={() => onBind(input.name, "")}
-                >
-                  解绑
-                </Button>
-              ) : recommended ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-7 bg-white px-2 text-[11px]"
-                  onClick={() => onBind(input.name, { fromStep: recommended.stepId, output: recommended.output })}
-                >
-                  应用推荐
-                </Button>
-              ) : null}
-            </div>
-            <Select
-              value={value}
-              onValueChange={(next) => {
-                if (next === "__none__") {
-                  onBind(input.name, "");
-                  return;
-                }
-                const candidate = compatibleOutputCandidates.find((item) => item.value === next);
-                if (candidate) onBind(input.name, { fromStep: candidate.stepId, output: candidate.output });
-              }}
-            >
-              <SelectTrigger className="h-8 bg-white text-xs">
-                <SelectValue placeholder="选择上游输出" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">未绑定</SelectItem>
-                {compatibleOutputCandidates.map((candidate) => (
-                  <SelectItem key={candidate.value} value={candidate.value}>
-                    {candidate.value === recommended?.value ? `${candidate.label}（推荐）` : candidate.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <PortBindingRow
+            key={input.name}
+            binding={binding}
+            input={input}
+            inputCount={inputCount}
+            outputCandidates={candidates}
+            onChange={(nextBinding) => onBind(input.name, nextBinding)}
+          />
         );
       })}
     </div>
@@ -415,7 +329,7 @@ type OutputCandidate = {
   compatibilityScore?: number | null;
 };
 
-function InputBindingRow({
+function PortBindingRow({
   binding,
   input,
   inputCount,
@@ -431,36 +345,60 @@ function InputBindingRow({
   const type = bindingKind(binding);
   const required = input.required !== false;
   const compatibleOutputCandidates = rankOutputCandidates(outputCandidates.filter((candidate) => candidate.compatible !== false));
+  const recommended = compatibleOutputCandidates[0];
+  const hasBinding = Boolean(binding);
   return (
-    <div className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 md:grid-cols-[120px_150px_minmax(0,1fr)]">
-      <div className="min-w-0">
-        <div className="truncate font-mono text-xs text-slate-700">{input.name}</div>
-        <div className={cn("text-[11px]", required ? "text-amber-600" : "text-slate-400")}>{required ? "required" : "optional"}</div>
-        <div className="truncate text-[11px] text-slate-400">{describePortSpec(input)}</div>
+    <div className="grid gap-2 rounded-md bg-white px-2 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-mono text-[11px] text-slate-700">{input.name}</div>
+          <div className="truncate text-[11px] text-slate-400">{describePortSpec(input)}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className={cn("text-[11px]", required ? "text-amber-600" : "text-slate-400")}>
+            {required ? "required" : "optional"}
+          </div>
+          {hasBinding ? (
+            <Button type="button" variant="outline" className="h-7 bg-white px-2 text-[11px]" onClick={() => onChange("")}>
+              解绑
+            </Button>
+          ) : recommended ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 bg-white px-2 text-[11px]"
+              onClick={() => onChange({ fromStep: recommended.stepId, output: recommended.output })}
+            >
+              应用推荐
+            </Button>
+          ) : null}
+        </div>
       </div>
-      <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, compatibleOutputCandidates))}>
-        <SelectTrigger className="h-8 bg-white text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="fromUpload">上传文件</SelectItem>
-          <SelectItem value="fromInput">输入 role</SelectItem>
-          <SelectItem value="fromStep">上游输出</SelectItem>
-          <SelectItem value="path">直接路径</SelectItem>
-        </SelectContent>
-      </Select>
-      <BindingValueEditor
-        binding={binding}
-        inputCount={inputCount}
-        outputCandidates={outputCandidates}
-        type={type}
-        onChange={onChange}
-      />
+      <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
+        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, compatibleOutputCandidates))}>
+          <SelectTrigger className="h-8 bg-white text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="fromUpload">上传文件</SelectItem>
+            <SelectItem value="fromInput">输入 role</SelectItem>
+            <SelectItem value="fromStep">上游输出</SelectItem>
+            <SelectItem value="path">直接路径</SelectItem>
+          </SelectContent>
+        </Select>
+        <PortBindingValueEditor
+          binding={binding}
+          inputCount={inputCount}
+          outputCandidates={outputCandidates}
+          type={type}
+          onChange={onChange}
+        />
+      </div>
     </div>
   );
 }
 
-function BindingValueEditor({
+function PortBindingValueEditor({
   binding,
   inputCount,
   outputCandidates,
@@ -480,6 +418,10 @@ function BindingValueEditor({
     const recommended = compatibleCandidates[0];
     return (
       <Select value={value} onValueChange={(next) => {
+        if (next === "__none__") {
+          onChange("");
+          return;
+        }
         const candidate = outputCandidates.find((item) => item.value === next);
         if (candidate && candidate.compatible !== false) onChange({ fromStep: candidate.stepId, output: candidate.output });
       }}>
@@ -539,7 +481,7 @@ function BindingValueEditor({
       <SelectContent>
         {Array.from({ length: Math.max(inputCount, 1) }).map((_, index) => (
           <SelectItem key={index} value={String(index)}>
-            upload {index + 1}
+            输入文件 {index + 1}
           </SelectItem>
         ))}
       </SelectContent>
