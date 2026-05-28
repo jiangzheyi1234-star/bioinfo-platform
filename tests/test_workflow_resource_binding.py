@@ -236,7 +236,7 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
             "ruleTemplate": {
                 "commandTemplate": "printf '%s\\n' {config.blast_nt_db:q} > {output.tool_output:q}",
                 "inputs": [{"name": "primary", "type": "file", "required": True}],
-                "outputs": [{"name": "tool_output", "path": "blast-db.txt"}],
+                "outputs": [{"name": "tool_output", "path": "blast-db.txt", "kind": "log", "mimeType": "text/plain"}],
                 "resources": {
                     "blast_nt_db": {
                         "label": "BLAST nt database",

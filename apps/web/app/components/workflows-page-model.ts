@@ -259,7 +259,7 @@ export type WorkflowResourceBindings = Record<string, WorkflowResourceBinding>;
 export type BuildGeneratedRunSpecInput = {
   projectId: string;
   uploads: WorkflowUpload[];
-  toolIds: string[];
+  tools: Pick<AddedTool, "id" | "ruleTemplate">[];
   databases: WorkflowDatabaseBinding[];
 };
 
@@ -288,7 +288,7 @@ export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params, r
   return runSpec;
 }
 
-export function buildGeneratedRunSpec({ projectId, uploads, toolIds, databases }: BuildGeneratedRunSpecInput) {
+export function buildGeneratedRunSpec({ projectId, uploads, tools, databases }: BuildGeneratedRunSpecInput) {
   const runSpec: Record<string, unknown> = {
     projectId,
     pipelineId: GENERATED_TOOL_RUN_PIPELINE_ID,
@@ -301,13 +301,17 @@ export function buildGeneratedRunSpec({ projectId, uploads, toolIds, databases }
   if (databases.length > 0) {
     runSpec.databases = databases;
   }
-  if (toolIds.length === 1) {
-    runSpec.tool = { id: toolIds[0] };
+  const toolRequests = tools.map((tool) => ({
+    id: tool.id,
+    ...(tool.ruleTemplate ? { ruleTemplate: tool.ruleTemplate } : {}),
+  }));
+  if (toolRequests.length === 1) {
+    runSpec.tool = toolRequests[0];
   } else {
     runSpec.workflow = {
-      steps: toolIds.map((toolId, index) => ({
+      steps: toolRequests.map((tool, index) => ({
         id: `step_${index + 1}`,
-        tool: { id: toolId },
+        tool,
       })),
     };
   }

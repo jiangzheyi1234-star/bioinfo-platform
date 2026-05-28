@@ -134,7 +134,7 @@ export async function submitGeneratedWorkflowRun({
   const runSpec = buildGeneratedRunSpec({
     projectId,
     uploads,
-    toolIds: tools.map((tool) => tool.id),
+    tools,
     databases: databases.map((database, index) => ({
       id: database.id,
       role: workflowDatabaseRole(database, index),
