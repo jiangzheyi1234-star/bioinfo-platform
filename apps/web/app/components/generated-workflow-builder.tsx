@@ -74,6 +74,12 @@ export function GeneratedWorkflowBuilder({
         </Alert>
       ) : null}
 
+      <WorkflowGraphOverview
+        nodes={builder.graphDraft.nodes}
+        edges={builder.graphDraft.edges}
+        tools={tools}
+      />
+
       <div className="grid gap-3">
         {builder.draft.steps.map((step, index) => {
           const tool = tools.find((item) => item.id === step.toolId);
@@ -142,6 +148,62 @@ export function GeneratedWorkflowBuilder({
 
       <OutputExposureEditor builder={builder} outputCandidates={outputCandidates} />
       <GeneratedResourceBindings builder={builder} availableDatabases={availableDatabases} />
+    </div>
+  );
+}
+
+function WorkflowGraphOverview({
+  nodes,
+  edges,
+  tools,
+}: {
+  nodes: GeneratedWorkflowBuilderController["graphDraft"]["nodes"];
+  edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
+  tools: AddedTool[];
+}) {
+  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Workflow strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-slate-900">规则图</div>
+            <div className="text-[11px] text-slate-500">{nodes.length} nodes / {edges.length} edges</div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid gap-2">
+          {nodes.length === 0 ? (
+            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">还没有规则节点。</div>
+          ) : nodes.map((node) => {
+            const tool = toolById.get(node.toolId);
+            return (
+              <div key={node.id} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs text-slate-800">{node.id}</div>
+                  <div className="truncate text-[11px] text-slate-500">{tool?.name || node.toolId}</div>
+                </div>
+                <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                  rule
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="grid gap-2">
+          {edges.length === 0 ? (
+            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>
+          ) : edges.map((edge) => (
+            <div key={edge.id} className="rounded-md bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700">
+              <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
+              <span className="px-2 text-slate-400">-&gt;</span>
+              <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
