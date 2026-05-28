@@ -1,4 +1,4 @@
-import type { AddedTool } from "./tools-page-model";
+import type { AddedTool, ToolCapabilitySlot } from "./tools-page-model";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
@@ -55,13 +55,27 @@ export type ValidateGeneratedWorkflowDraftOptions = {
   inputCount?: number;
 };
 
-type RuleInputSpec = {
+const COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"] as const;
+
+type RulePortCompatibilityField = (typeof COMPATIBILITY_FIELDS)[number];
+
+export type RuleInputSpec = {
   name: string;
   required?: boolean;
+  type?: string;
+  kind?: string;
+  mimeType?: string;
+  data?: string;
+  format?: string;
 };
 
-type RuleOutputSpec = {
+export type RuleOutputSpec = {
   name: string;
+  type?: string;
+  kind?: string;
+  mimeType?: string;
+  data?: string;
+  format?: string;
 };
 
 export type RuleParamSpec = {
@@ -100,10 +114,7 @@ export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
   if (!Array.isArray(inputs)) return [];
   return inputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    .map((item) => ({
-      name: String(item.name || "").trim(),
-      required: item.required !== false,
-    }))
+    .map((item) => normalizeRuleInputSpec(item, findCapabilitySlot(tool, "inputs", String(item.name || "").trim())))
     .filter((item) => item.name.length > 0);
 }
 
@@ -112,7 +123,7 @@ export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
   if (!Array.isArray(outputs)) return [];
   return outputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    .map((item) => ({ name: String(item.name || "").trim() }))
+    .map((item) => normalizeRuleOutputSpec(item, findCapabilitySlot(tool, "outputs", String(item.name || "").trim())))
     .filter((item) => item.name.length > 0);
 }
 
@@ -140,10 +151,18 @@ export function createGeneratedWorkflowDraft(tools: AddedTool[]): GeneratedWorkf
   };
 }
 
-export function createStepDraft(tool: AddedTool, existingIds: string[]): GeneratedWorkflowStepDraft {
+export function createStepDraft(
+  tool: AddedTool,
+  existingIds: string[],
+  upstreamSteps: GeneratedWorkflowStepDraft[] = [],
+  tools: AddedTool[] = []
+): GeneratedWorkflowStepDraft {
   const stepId = uniqueStepId(tool.name || tool.id, existingIds);
   const inputs = Object.fromEntries(
-    readRuleInputs(tool).map((input, index) => [input.name, index === 0 ? { fromUpload: 0 } : ""])
+    readRuleInputs(tool).map((input, index) => [
+      input.name,
+      findCompatibleOutputBinding(input, upstreamSteps, tools) || (index === 0 ? { fromUpload: 0 } : ""),
+    ])
   );
   return {
     id: stepId,
@@ -178,7 +197,8 @@ export function validateGeneratedWorkflowDraft(
       errors.push({ code: "TOOL_UNKNOWN", message: `步骤 ${step.id} 未选择可用工具`, stepId: step.id });
       continue;
     }
-    outputsByStep.set(step.id, new Set(readRuleOutputs(tool).map((output) => output.name)));
+    const outputs = readRuleOutputs(tool);
+    outputsByStep.set(step.id, new Set(outputs.map((output) => output.name)));
     for (const input of readRuleInputs(tool)) {
       const binding = step.inputs[input.name];
       if (input.required && !binding) {
@@ -197,6 +217,15 @@ export function validateGeneratedWorkflowDraft(
       }
       if (!outputsByStep.get(sourceStep.id)?.has(binding.output)) {
         errors.push({ code: "WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN", message: `未知输出 ${binding.fromStep}.${binding.output}`, stepId: step.id, inputName });
+        continue;
+      }
+      if (!stepInputBindingIsCompatible(inputName, binding, step.toolId, sourceStep.toolId, toolById)) {
+        errors.push({
+          code: "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE",
+          message: `输出 ${binding.fromStep}.${binding.output} 与输入 ${step.id}.${inputName} 类型不兼容`,
+          stepId: step.id,
+          inputName,
+        });
       }
       outgoing.get(sourceStep.id)?.push(step.id);
       incomingCount.set(step.id, (incomingCount.get(step.id) || 0) + 1);
@@ -223,6 +252,36 @@ export function validateGeneratedWorkflowDraft(
   }
 
   return { errors, warnings: [], orderedStepIds };
+}
+
+export function findCompatibleOutputBinding(
+  input: RuleInputSpec,
+  upstreamSteps: GeneratedWorkflowStepDraft[],
+  tools: AddedTool[],
+  excludeStepId?: string
+): { fromStep: string; output: string } | undefined {
+  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  for (let index = upstreamSteps.length - 1; index >= 0; index -= 1) {
+    const step = upstreamSteps[index];
+    if (!step || step.id === excludeStepId) continue;
+    const tool = toolById.get(step.toolId);
+    const output = readRuleOutputs(tool).find((candidate) => portsCompatible(input, candidate));
+    if (output) return { fromStep: step.id, output: output.name };
+  }
+  return undefined;
+}
+
+export function portsCompatible(input: RuleInputSpec, output: RuleOutputSpec): boolean {
+  return COMPATIBILITY_FIELDS.every((field) => {
+    const inputValue = input[field];
+    const outputValue = output[field];
+    return !inputValue || !outputValue || inputValue === outputValue;
+  });
+}
+
+export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {
+  const parts = [port.kind, port.mimeType, port.format, port.data, port.type].filter((value): value is string => Boolean(value));
+  return parts.length > 0 ? parts.join(" · ") : "any file";
 }
 
 export function buildGeneratedWorkflowRunSpec({
@@ -268,6 +327,69 @@ export function buildGeneratedWorkflowRunSpec({
   return runSpec;
 }
 
+function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: ToolCapabilitySlot): RuleInputSpec {
+  const name = String(item.name || "").trim();
+  return {
+    name,
+    required: item.required !== false && capabilitySlot?.required !== false,
+    ...readPortCompatibility(item, capabilitySlot),
+  };
+}
+
+function normalizeRuleOutputSpec(item: Record<string, unknown>, capabilitySlot?: ToolCapabilitySlot): RuleOutputSpec {
+  return {
+    name: String(item.name || "").trim(),
+    ...readPortCompatibility(item, capabilitySlot),
+  };
+}
+
+function readPortCompatibility(
+  item: Record<string, unknown>,
+  capabilitySlot?: ToolCapabilitySlot
+): Partial<Record<RulePortCompatibilityField, string>> {
+  const spec: Partial<Record<RulePortCompatibilityField, string>> = {};
+  for (const field of COMPATIBILITY_FIELDS) {
+    const value = stringValue(item[field]) || stringValue(capabilitySlot?.[field]);
+    if (value) spec[field] = value;
+  }
+  if (!spec.format) {
+    const value = stringValue(item.edamFormat) || stringValue(capabilitySlot?.edamFormat);
+    if (value) spec.format = value;
+  }
+  if (!spec.data) {
+    const value = stringValue(item.edamData) || stringValue(capabilitySlot?.edamData);
+    if (value) spec.data = value;
+  }
+  return spec;
+}
+
+function findCapabilitySlot(
+  tool: AddedTool | undefined,
+  direction: "inputs" | "outputs",
+  name: string
+): ToolCapabilitySlot | undefined {
+  const normalizedName = name.trim();
+  if (!normalizedName) return undefined;
+  for (const capability of tool?.capabilities || []) {
+    for (const slot of capability[direction] || []) {
+      if (slot.name === normalizedName) return slot;
+    }
+  }
+  return undefined;
+}
+
+function stepInputBindingIsCompatible(
+  inputName: string,
+  binding: { fromStep: string; output: string },
+  stepToolId: string,
+  sourceToolId: string,
+  toolById: Map<string, AddedTool>
+): boolean {
+  const input = readRuleInputs(toolById.get(stepToolId)).find((candidate) => candidate.name === inputName);
+  const output = readRuleOutputs(toolById.get(sourceToolId)).find((candidate) => candidate.name === binding.output);
+  return !input || !output || portsCompatible(input, output);
+}
+
 function normalizeRuleParam(name: string, raw: unknown): RuleParamSpec | null {
   const normalizedName = String(name || "").trim();
   if (!normalizedName) return null;
@@ -304,6 +426,10 @@ function normalizeStepParams(params: GeneratedWorkflowStepParams, specs: RulePar
 function normalizeParamValue(value: unknown): GeneratedWorkflowParamValue | undefined {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
   return undefined;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function isStepBinding(binding: GeneratedWorkflowInputBinding | undefined): binding is { fromStep: string; output: string } {

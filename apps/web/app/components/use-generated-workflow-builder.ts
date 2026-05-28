@@ -8,6 +8,7 @@ import {
   createGeneratedWorkflowDraft,
   createStepDraft,
   createStepParams,
+  findCompatibleOutputBinding,
   readRuleInputs,
   readRuleOutputs,
   validateGeneratedWorkflowDraft,
@@ -24,10 +25,10 @@ import {
 
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
-  | { type: "add_step"; tool: AddedTool }
+  | { type: "add_step"; tool: AddedTool; tools: AddedTool[] }
   | { type: "remove_step"; stepId: string }
   | { type: "set_step_id"; stepId: string; nextId: string }
-  | { type: "set_step_tool"; stepId: string; tool: AddedTool }
+  | { type: "set_step_tool"; stepId: string; tool: AddedTool; tools: AddedTool[] }
   | { type: "set_input"; stepId: string; inputName: string; binding: GeneratedWorkflowInputBinding }
   | { type: "set_step_param"; stepId: string; paramName: string; value: GeneratedWorkflowParamValue }
   | { type: "add_output"; output: GeneratedWorkflowExposedOutput }
@@ -98,13 +99,13 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     resourceBindings,
     addStep: (toolId: string) => {
       const tool = toolById.get(toolId);
-      if (tool) dispatch({ type: "add_step", tool });
+      if (tool) dispatch({ type: "add_step", tool, tools });
     },
     removeStep: (stepId: string) => dispatch({ type: "remove_step", stepId }),
     setStepId: (stepId: string, nextId: string) => dispatch({ type: "set_step_id", stepId, nextId }),
     setStepTool: (stepId: string, toolId: string) => {
       const tool = toolById.get(toolId);
-      if (tool) dispatch({ type: "set_step_tool", stepId, tool });
+      if (tool) dispatch({ type: "set_step_tool", stepId, tool, tools });
     },
     setInputBinding: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) =>
       dispatch({ type: "set_input", stepId, inputName, binding }),
@@ -128,7 +129,7 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     return { ...state, draft: createGeneratedWorkflowDraft(action.tools) };
   }
   if (action.type === "add_step") {
-    const nextStep = createStepDraft(action.tool, state.draft.steps.map((step) => step.id));
+    const nextStep = createStepDraft(action.tool, state.draft.steps.map((step) => step.id), state.draft.steps, action.tools);
     return { ...state, draft: { ...state.draft, steps: [...state.draft.steps, nextStep] } };
   }
   if (action.type === "remove_step") {
@@ -154,7 +155,7 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     return renameStep(state, action.stepId, action.nextId);
   }
   if (action.type === "set_step_tool") {
-    return setStepTool(state, action.stepId, action.tool);
+    return setStepTool(state, action.stepId, action.tool, action.tools);
   }
   if (action.type === "set_input") {
     return {
@@ -232,8 +233,13 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
   };
 }
 
-function setStepTool(state: BuilderState, stepId: string, tool: AddedTool): BuilderState {
-  const inputs = Object.fromEntries(readRuleInputs(tool).map((input) => [input.name, ""]));
+function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools: AddedTool[]): BuilderState {
+  const inputs = Object.fromEntries(
+    readRuleInputs(tool).map((input) => [
+      input.name,
+      findCompatibleOutputBinding(input, state.draft.steps, tools, stepId) || "",
+    ])
+  );
   const outputNames = new Set(readRuleOutputs(tool).map((output) => output.name));
   const params = createStepParams(tool);
   return {
