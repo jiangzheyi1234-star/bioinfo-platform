@@ -60,6 +60,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export type GeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowGraphNode" in model
     assert "export type GeneratedWorkflowGraphEdge" in model
+    assert "temp?: boolean" in model
+    assert "protected?: boolean" in model
+    assert "directory?: boolean" in model
+    assert "readOutputSemantics" in model
+    assert "outputSemanticTags" in model
     assert "createGeneratedWorkflowGraphDraft" in model
     assert "generatedWorkflowDraftToGraphDraft" in model
     assert "graphDraftToGeneratedWorkflowDraft" in model
@@ -108,6 +113,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export function GeneratedWorkflowRuntimeEditor" in runtime_editor_ui
     assert "线程" in runtime_editor_ui
     assert "调度资源" in runtime_editor_ui
+    assert "日志" in runtime_editor_ui
+    assert "updateLog" in runtime_editor_ui
     assert "builder.graphDraft.nodes" in builder_ui
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui

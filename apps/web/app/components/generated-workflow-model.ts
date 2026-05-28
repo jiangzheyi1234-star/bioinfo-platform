@@ -109,6 +109,9 @@ export type RuleOutputSpec = {
   mimeType?: string;
   data?: string;
   format?: string;
+  temp?: boolean;
+  protected?: boolean;
+  directory?: boolean;
 };
 
 export type RuleParamSpec = {
@@ -387,7 +390,14 @@ export function portsCompatible(input: RuleInputSpec, output: RuleOutputSpec): b
 }
 
 export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {
-  const parts = [port.kind, port.mimeType, port.format, port.data, port.type].filter((value): value is string => Boolean(value));
+  const parts = [
+    port.kind,
+    port.mimeType,
+    port.format,
+    port.data,
+    port.type,
+    ...outputSemanticTags(port),
+  ].filter((value): value is string => Boolean(value));
   return parts.length > 0 ? parts.join(" · ") : "any file";
 }
 
@@ -492,7 +502,25 @@ function normalizeRuleOutputSpec(item: Record<string, unknown>, capabilitySlot?:
   return {
     name: String(item.name || "").trim(),
     ...readPortCompatibility(item, capabilitySlot),
+    ...readOutputSemantics(item),
   };
+}
+
+function readOutputSemantics(item: Record<string, unknown>): Pick<RuleOutputSpec, "temp" | "protected" | "directory"> {
+  return {
+    ...(item.temp === true ? { temp: true } : {}),
+    ...(item.protected === true ? { protected: true } : {}),
+    ...(item.directory === true ? { directory: true } : {}),
+  };
+}
+
+function outputSemanticTags(port: RuleInputSpec | RuleOutputSpec): string[] {
+  const output = port as RuleOutputSpec;
+  return [
+    output.directory ? "directory" : "",
+    output.protected ? "protected" : "",
+    output.temp ? "temp" : "",
+  ].filter(Boolean);
 }
 
 function readPortCompatibility(

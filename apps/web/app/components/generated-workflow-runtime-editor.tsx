@@ -60,6 +60,18 @@ export function GeneratedWorkflowRuntimeEditor({
             </div>
           ))}
         </div>
+        <div>
+          <Label className="text-[11px] text-slate-500" htmlFor="generated-runtime-log">
+            日志
+          </Label>
+          <Input
+            id="generated-runtime-log"
+            placeholder="logs/{step}.log"
+            value={typeof runtime.log === "string" ? runtime.log : ""}
+            onChange={(event) => onChange(updateLog(runtime, event.target.value))}
+            className="mt-1 h-8 font-mono text-xs"
+          />
+        </div>
       </div>
     </div>
   );
@@ -90,6 +102,17 @@ function updateResource(runtime: GeneratedWorkflowStepRuntime, key: string, raw:
   const next: GeneratedWorkflowStepRuntime = { ...runtime, resources };
   delete next.schedulerResources;
   if (Object.keys(resources).length === 0) delete next.resources;
+  return next;
+}
+
+function updateLog(runtime: GeneratedWorkflowStepRuntime, raw: string): GeneratedWorkflowStepRuntime {
+  const value = raw.trim();
+  const next = { ...runtime };
+  if (value) {
+    next.log = value;
+  } else {
+    delete next.log;
+  }
   return next;
 }
 
