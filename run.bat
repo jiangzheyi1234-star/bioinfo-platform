@@ -13,6 +13,7 @@ set "ENSURE_DESKTOP_DEV=%REPO_ROOT%\scripts\ensure-desktop-dev.cjs"
 set "RUN_LOCAL_API_DEV=%REPO_ROOT%\scripts\run-local-api-dev.bat"
 set "RUN_DESKTOP_DEV=%REPO_ROOT%\scripts\run-desktop-dev.bat"
 set "RUN_WEB_DEV=%REPO_ROOT%\scripts\run-web-dev.bat"
+set "STOP_EXISTING_LOCAL_API=%REPO_ROOT%\scripts\stop-existing-local-api.ps1"
 set "RELEASE_MANIFEST_PATH=%REPO_ROOT%\config\remote-runner-release-manifest.json"
 set "LOCAL_CONDA_ENV=bio_ui"
 set "LOCAL_CONDA_EXE=C:\Users\Administrator\miniconda3\Scripts\conda.exe"
@@ -149,7 +150,13 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-call :stop_existing_local_api
+echo [INFO] Checking local API server on 127.0.0.1:8765...
+if not exist "%STOP_EXISTING_LOCAL_API%" (
+    echo [ERROR] API stop helper not found: %STOP_EXISTING_LOCAL_API%
+    pause
+    endlocal & exit /b 1
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%STOP_EXISTING_LOCAL_API%" -HostAddress 127.0.0.1 -Port 8765
 if errorlevel 1 (
     pause
     endlocal & exit /b 1
@@ -200,7 +207,13 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-call :stop_existing_local_api
+echo [INFO] Checking local API server on 127.0.0.1:8765...
+if not exist "%STOP_EXISTING_LOCAL_API%" (
+    echo [ERROR] API stop helper not found: %STOP_EXISTING_LOCAL_API%
+    pause
+    endlocal & exit /b 1
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%STOP_EXISTING_LOCAL_API%" -HostAddress 127.0.0.1 -Port 8765
 if errorlevel 1 (
     pause
     endlocal & exit /b 1
@@ -277,7 +290,13 @@ if errorlevel 1 (
     endlocal & exit /b 1
 )
 
-call :stop_existing_local_api
+echo [INFO] Checking local API server on 127.0.0.1:8765...
+if not exist "%STOP_EXISTING_LOCAL_API%" (
+    echo [ERROR] API stop helper not found: %STOP_EXISTING_LOCAL_API%
+    pause
+    endlocal & exit /b 1
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%STOP_EXISTING_LOCAL_API%" -HostAddress 127.0.0.1 -Port 8765
 if errorlevel 1 (
     pause
     endlocal & exit /b 1
@@ -348,13 +367,4 @@ exit /b 0
 
 :resolve_release_artifact
 for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repoRoot=[System.IO.Path]::GetFullPath('%REPO_ROOT%'); $manifest=Get-Content -Raw -Path '%RELEASE_MANIFEST_PATH%' | ConvertFrom-Json; $artifact=$manifest.artifacts.%~2; if($null -eq $artifact){ throw 'artifact key not found in release manifest: %~2' }; $filename='{0}-{1}-{2}.tar.gz' -f $artifact.name, $artifact.version, $artifact.default_platform; $roots=@(); foreach($envName in @($artifact.search_root_env_vars)){ $value=[Environment]::GetEnvironmentVariable([string]$envName); if($value){ $roots += $value } }; foreach($relative in $manifest.relative_search_roots){ $roots += (Join-Path $repoRoot $relative) }; foreach($candidate in $roots){ $path=Join-Path $candidate $filename; if(Test-Path $path){ [Console]::WriteLine($path); exit 0 } }"`) do set "%~1=%%I"
-exit /b 0
-
-:stop_existing_local_api
-echo [INFO] Checking local API server on 127.0.0.1:8765...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $listeners=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue); if($listeners.Count -eq 0){ Write-Host '[INFO] No existing API listener found.'; exit 0 }; $pids=$listeners | Select-Object -ExpandProperty OwningProcess -Unique; foreach($processId in $pids){ $proc=Get-CimInstance Win32_Process -Filter \"ProcessId=$processId\" -ErrorAction SilentlyContinue; if($proc){ Write-Host ('[INFO] Existing API listener PID {0}: {1}' -f $processId,$proc.CommandLine) } else { Write-Host ('[INFO] Existing API listener PID {0}' -f $processId) }; Stop-Process -Id $processId -Force -ErrorAction Stop; Write-Host ('[INFO] Stopped stale local API PID {0}.' -f $processId) }; Start-Sleep -Milliseconds 500; $remaining=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue); if($remaining.Count -gt 0){ Write-Host '[ERROR] 127.0.0.1:8765 is still in use after stop attempt.'; exit 1 }; exit 0"
-if errorlevel 1 (
-    echo [ERROR] Failed to stop stale local API on 127.0.0.1:8765.
-    exit /b 1
-)
 exit /b 0
