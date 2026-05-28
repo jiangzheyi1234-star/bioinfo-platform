@@ -79,6 +79,7 @@ export function GeneratedWorkflowBuilder({
         builder={builder}
         nodes={builder.graphDraft.nodes}
         edges={builder.graphDraft.edges}
+        outputCandidates={outputCandidates}
         tools={tools}
       />
 
@@ -158,11 +159,13 @@ function WorkflowGraphWorkbench({
   builder,
   nodes,
   edges,
+  outputCandidates,
   tools,
 }: {
   builder: GeneratedWorkflowBuilderController;
   nodes: GeneratedWorkflowBuilderController["graphDraft"]["nodes"];
   edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
+  outputCandidates: OutputCandidate[];
   tools: AddedTool[];
 }) {
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
@@ -268,12 +271,93 @@ function WorkflowGraphWorkbench({
                   <div className="text-[11px] text-slate-400">params</div>
                 </div>
               </div>
+              <PortBindingsEditor
+                edges={edges}
+                node={selectedNode}
+                outputCandidates={outputCandidates}
+                tool={selectedTool}
+                onBind={(inputName, binding) => builder.setInputBinding(selectedNode.id, inputName, binding)}
+              />
             </div>
           ) : (
             <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">未选择节点。</div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PortBindingsEditor({
+  edges,
+  node,
+  onBind,
+  outputCandidates,
+  tool,
+}: {
+  edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
+  node: GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
+  onBind: (inputName: string, binding: GeneratedWorkflowInputBinding) => void;
+  outputCandidates: OutputCandidate[];
+  tool: AddedTool | undefined;
+}) {
+  const inputs = readRuleInputs(tool);
+  if (inputs.length === 0) {
+    return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">此节点没有输入端口。</div>;
+  }
+  return (
+    <div className="grid gap-2">
+      <div className="text-[11px] font-semibold uppercase text-slate-400">端口绑定</div>
+      {inputs.map((input) => {
+        const edgeForInput = edges.find((edge) => edge.to.nodeId === node.id && edge.to.port === input.name);
+        const compatibleOutputCandidates = outputCandidates
+          .filter((candidate) => candidate.stepId !== node.id)
+          .filter((candidate) => portsCompatible(input, candidate.port));
+        const value = edgeForInput ? `${edgeForInput.from.nodeId}.${edgeForInput.from.port}` : "__none__";
+        return (
+          <div key={input.name} className="grid gap-1 rounded-md bg-white px-2 py-2">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate font-mono text-[11px] text-slate-700">{input.name}</div>
+                <div className="truncate text-[11px] text-slate-400">{describePortSpec(input)}</div>
+              </div>
+              {edgeForInput ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 bg-white px-2 text-[11px]"
+                  onClick={() => onBind(input.name, "")}
+                >
+                  解绑
+                </Button>
+              ) : null}
+            </div>
+            <Select
+              value={value}
+              onValueChange={(next) => {
+                if (next === "__none__") {
+                  onBind(input.name, "");
+                  return;
+                }
+                const candidate = compatibleOutputCandidates.find((item) => item.value === next);
+                if (candidate) onBind(input.name, { fromStep: candidate.stepId, output: candidate.output });
+              }}
+            >
+              <SelectTrigger className="h-8 bg-white text-xs">
+                <SelectValue placeholder="选择上游输出" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">未绑定</SelectItem>
+                {compatibleOutputCandidates.map((candidate) => (
+                  <SelectItem key={candidate.value} value={candidate.value}>
+                    {candidate.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      })}
     </div>
   );
 }

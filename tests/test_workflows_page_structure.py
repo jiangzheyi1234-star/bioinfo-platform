@@ -85,6 +85,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui
     assert "Inspector" in builder_ui
+    assert "PortBindingsEditor" in builder_ui
+    assert "edgeForInput" in builder_ui
+    assert "compatibleOutputCandidates" in builder_ui
+    assert "解绑" in builder_ui
     assert "Select" in builder_ui
     assert "Alert" in builder_ui
     assert "fromStep" in builder_ui
