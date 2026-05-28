@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
+from apps.api.snakemake_wrappers import find_snakemake_wrappers_for_tool
 
 
 ANACONDA_SEARCH_URL = "https://api.anaconda.org/search"
@@ -93,9 +94,10 @@ def search_tool_capabilities(
         page_size=bounded_page_size,
     )
     if index_page["total"] > 0:
+        items = _attach_snakemake_wrappers(index_page["items"])
         return {
             "data": {
-                "items": index_page["items"],
+                "items": items,
                 "query": normalized,
                 "online": False,
                 "cached": True,
@@ -134,6 +136,7 @@ def search_tool_capabilities(
         limit=ONLINE_FALLBACK_RESULT_LIMIT,
     )
     all_items = [hit.to_dict() for hit in hits[:ONLINE_FALLBACK_RESULT_LIMIT]]
+    all_items = _attach_snakemake_wrappers(all_items)
     _CACHE[cache_key] = (now, all_items)
     items = _page_items(all_items, page=bounded_page, page_size=bounded_page_size)
     return {
@@ -149,6 +152,21 @@ def search_tool_capabilities(
             "hasMore": bounded_page * bounded_page_size < len(all_items),
         }
     }
+
+
+def _attach_snakemake_wrappers(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for item in items:
+        tool_name = str(item.get("name") or "").strip()
+        wrappers = find_snakemake_wrappers_for_tool(tool_name)
+        enriched.append(
+            {
+                **item,
+                "snakemakeWrappers": wrappers,
+                "snakemakeWrapperCount": len(wrappers),
+            }
+        )
+    return enriched
 
 
 def _normalize_query(query: str) -> str:

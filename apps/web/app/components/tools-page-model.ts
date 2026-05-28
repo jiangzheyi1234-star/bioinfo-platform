@@ -15,6 +15,8 @@ export type ToolSearchItem = {
   testCommand?: string;
   ruleTemplate?: Record<string, unknown>;
   capabilities?: ToolCapability[];
+  snakemakeWrappers?: SnakemakeWrapperMatch[];
+  snakemakeWrapperCount?: number;
 };
 
 export type ToolCapabilitySlot = {
@@ -32,6 +34,14 @@ export type ToolCapability = {
   topics?: string[];
   inputs?: ToolCapabilitySlot[];
   outputs?: ToolCapabilitySlot[];
+};
+
+export type SnakemakeWrapperMatch = {
+  name: string;
+  toolName: string;
+  wrapperPath: string;
+  wrapperUrl: string;
+  environmentUrl?: string;
 };
 
 export type ToolSearchResponse = {

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS tools (
     test_command TEXT NOT NULL,
     rule_template_json TEXT NOT NULL DEFAULT '{}',
     capabilities_json TEXT NOT NULL DEFAULT '[]',
+    snakemake_wrappers_json TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL,
     message TEXT NOT NULL,
     created_at TEXT NOT NULL,

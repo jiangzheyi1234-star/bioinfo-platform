@@ -149,6 +149,7 @@ def test_tool_search_uses_bioconda_index_before_online_search(tmp_path: Path, mo
         raise AssertionError("online search should not run when local index matches")
 
     monkeypatch.setattr(tool_capabilities, "_search_anaconda", fail_online)
+    monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
 
     response = tool_capabilities.search_tool_capabilities("k", limit=5)
 

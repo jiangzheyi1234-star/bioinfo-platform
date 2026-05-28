@@ -82,6 +82,8 @@ class ToolManifestRequest(BaseModel):
     testCommand: str | None = None
     ruleTemplate: dict[str, Any] | None = None
     capabilities: list[dict[str, Any]] = Field(default_factory=list)
+    snakemakeWrappers: list[dict[str, Any]] = Field(default_factory=list)
+    snakemakeWrapperCount: int = 0
 
 
 class DatabaseManifestRequest(BaseModel):
