@@ -80,8 +80,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "resourceBindings" in builder_hook
 
     assert "GeneratedWorkflowBuilder" in builder_ui
-    assert "WorkflowGraphOverview" in builder_ui
+    assert "WorkflowGraphWorkbench" in builder_ui
     assert "builder.graphDraft.nodes" in builder_ui
+    assert "selectedNodeId" in builder_ui
+    assert "工具 Palette" in builder_ui
+    assert "Inspector" in builder_ui
     assert "Select" in builder_ui
     assert "Alert" in builder_ui
     assert "fromStep" in builder_ui

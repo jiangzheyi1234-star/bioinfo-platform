@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { AlertCircle, Database, Plus, Trash2, Workflow } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -74,7 +75,8 @@ export function GeneratedWorkflowBuilder({
         </Alert>
       ) : null}
 
-      <WorkflowGraphOverview
+      <WorkflowGraphWorkbench
+        builder={builder}
         nodes={builder.graphDraft.nodes}
         edges={builder.graphDraft.edges}
         tools={tools}
@@ -152,16 +154,24 @@ export function GeneratedWorkflowBuilder({
   );
 }
 
-function WorkflowGraphOverview({
+function WorkflowGraphWorkbench({
+  builder,
   nodes,
   edges,
   tools,
 }: {
+  builder: GeneratedWorkflowBuilderController;
   nodes: GeneratedWorkflowBuilderController["graphDraft"]["nodes"];
   edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
   tools: AddedTool[];
 }) {
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const selectedNode = useMemo(
+    () => nodes.find((node) => node.id === selectedNodeId) || nodes[0],
+    [nodes, selectedNodeId]
+  );
+  const selectedTool = selectedNode ? toolById.get(selectedNode.toolId) : undefined;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -173,35 +183,95 @@ function WorkflowGraphOverview({
           </div>
         </div>
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="grid gap-2">
-          {nodes.length === 0 ? (
-            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">还没有规则节点。</div>
-          ) : nodes.map((node) => {
-            const tool = toolById.get(node.toolId);
-            return (
-              <div key={node.id} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-xs text-slate-800">{node.id}</div>
-                  <div className="truncate text-[11px] text-slate-500">{tool?.name || node.toolId}</div>
-                </div>
-                <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
-                  rule
-                </span>
-              </div>
-            );
-          })}
+
+      <div className="mt-3 grid gap-3 xl:grid-cols-[180px_minmax(0,1fr)_240px]">
+        <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-2">
+          <div className="mb-2 px-1 text-[11px] font-semibold uppercase text-slate-400">工具 Palette</div>
+          <div className="grid gap-1.5">
+            {tools.map((tool) => (
+              <Button
+                key={tool.id}
+                type="button"
+                variant="outline"
+                className="h-auto justify-start bg-white px-2 py-1.5 text-left text-xs"
+                onClick={() => builder.addStep(tool.id)}
+              >
+                <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{tool.name}</span>
+              </Button>
+            ))}
+          </div>
         </div>
-        <div className="grid gap-2">
-          {edges.length === 0 ? (
-            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>
-          ) : edges.map((edge) => (
-            <div key={edge.id} className="rounded-md bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700">
-              <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
-              <span className="px-2 text-slate-400">-&gt;</span>
-              <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+
+        <div className="min-h-[190px] rounded-md border border-slate-100 bg-slate-50 px-3 py-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-xs font-medium text-slate-700">画布</div>
+            <div className="font-mono text-[11px] text-slate-400">{edges.length} edges</div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {nodes.length === 0 ? (
+              <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。</div>
+            ) : nodes.map((node) => {
+              const tool = toolById.get(node.toolId);
+              const selected = selectedNode?.id === node.id;
+              return (
+                <button
+                  key={node.id}
+                  type="button"
+                  className={cn(
+                    "grid min-h-16 gap-1 rounded-md border bg-white px-3 py-2 text-left",
+                    selected ? "border-blue-300 ring-2 ring-blue-100" : "border-slate-200"
+                  )}
+                  onClick={() => setSelectedNodeId(node.id)}
+                >
+                  <span className="truncate font-mono text-xs text-slate-800">{node.id}</span>
+                  <span className="truncate text-[11px] text-slate-500">{tool?.name || node.toolId}</span>
+                  <span className="text-[11px] text-slate-400">
+                    {readRuleInputs(tool).length} in · {readRuleOutputs(tool).length} out
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 grid gap-1.5">
+            {edges.length === 0 ? (
+              <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>
+            ) : edges.map((edge) => (
+              <div key={edge.id} className="rounded-md bg-white px-3 py-2 font-mono text-xs text-slate-700">
+                <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
+                <span className="px-2 text-slate-400">-&gt;</span>
+                <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase text-slate-400">Inspector</div>
+          {selectedNode ? (
+            <div className="grid gap-2">
+              <div>
+                <div className="truncate font-mono text-xs text-slate-800">{selectedNode.id}</div>
+                <div className="truncate text-[11px] text-slate-500">{selectedTool?.name || selectedNode.toolId}</div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded bg-white px-2 py-1">
+                  <div className="text-sm font-semibold text-slate-800">{readRuleInputs(selectedTool).length}</div>
+                  <div className="text-[11px] text-slate-400">inputs</div>
+                </div>
+                <div className="rounded bg-white px-2 py-1">
+                  <div className="text-sm font-semibold text-slate-800">{readRuleOutputs(selectedTool).length}</div>
+                  <div className="text-[11px] text-slate-400">outputs</div>
+                </div>
+                <div className="rounded bg-white px-2 py-1">
+                  <div className="text-sm font-semibold text-slate-800">{readRuleParams(selectedTool).length}</div>
+                  <div className="text-[11px] text-slate-400">params</div>
+                </div>
+              </div>
             </div>
-          ))}
+          ) : (
+            <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">未选择节点。</div>
+          )}
         </div>
       </div>
     </div>
