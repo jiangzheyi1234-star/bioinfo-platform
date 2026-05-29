@@ -157,6 +157,7 @@ function WorkflowGraphWorkbench({
               const selected = selectedNode?.id === node.id;
               return (
                 <RuleGraphNodeCard
+                  edges={edges}
                   key={node.id}
                   node={node}
                   onSelect={() => setSelectedNodeId(node.id)}

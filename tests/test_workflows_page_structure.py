@@ -199,11 +199,24 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "snakemakeWrappers" in rule_spec_panel_ui
     assert "官方 wrapper 已锁定" in rule_spec_panel_ui
     assert "environment" in rule_spec_panel_ui
+    assert "RuleSpecContractSummary" in rule_spec_panel_ui
+    assert "输入端口" in rule_spec_panel_ui
+    assert "输出端口" in rule_spec_panel_ui
+    assert "参数默认值" in rule_spec_panel_ui
+    assert "调度资源 / log" in rule_spec_panel_ui
+    assert "formatRuleOutputSemantics" in rule_spec_panel_ui
     assert "GeneratedWorkflowRuntimeEditor" in builder_ui
     assert "RuleGraphNodeCard" in builder_ui
+    assert "edges={edges}" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui
     assert "export function RuleGraphNodeCard" in graph_node_ui
     assert "RulePortColumn" in graph_node_ui
+    assert "portBindingState" in graph_node_ui
+    assert "outputFanoutCount" in graph_node_ui
+    assert "data-port-state" in graph_node_ui
+    assert "已连接" in graph_node_ui
+    assert "待绑定" in graph_node_ui
+    assert "fan-out" in graph_node_ui
     assert "输入端口" in graph_node_ui
     assert "输出端口" in graph_node_ui
     assert "data-port-direction" in graph_node_ui
