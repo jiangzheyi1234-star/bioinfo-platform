@@ -138,6 +138,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "slot.primary === true" in port_contract
     assert "fallbackIndex" in port_contract
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
+    assert "WORKFLOW_STEP_INPUT_PORT_UNKNOWN" in model
+    assert "declaredInputNames" in model
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
     assert "WORKFLOW_STEP_OUTPUT_PATH_REQUIRED" in model

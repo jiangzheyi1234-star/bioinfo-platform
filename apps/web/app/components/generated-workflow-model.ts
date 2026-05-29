@@ -333,7 +333,18 @@ export function validateGeneratedWorkflowDraft(
     const inputs = readRuleInputs(tool);
     const outputs = readRuleOutputs(tool);
     const ruleTemplate = readToolRuleTemplate(tool);
+    const declaredInputNames = new Set(inputs.map((input) => input.name));
     errors.push(...validateRuleActionContract({ stepId: step.id, ruleTemplate }));
+    for (const inputName of Object.keys(step.inputs)) {
+      if (!declaredInputNames.has(inputName)) {
+        errors.push({
+          code: "WORKFLOW_STEP_INPUT_PORT_UNKNOWN",
+          message: `步骤 ${step.id} 绑定了未声明输入端口 ${inputName}`,
+          stepId: step.id,
+          inputName,
+        });
+      }
+    }
     for (const output of outputs) {
       if (!output.path) {
         errors.push({
