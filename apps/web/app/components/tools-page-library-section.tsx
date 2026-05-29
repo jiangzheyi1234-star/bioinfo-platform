@@ -107,7 +107,7 @@ function RuleSpecNodeCard({
   return (
     <article
       data-node-state={state.kind}
-      className="rounded-lg border border-slate-200 bg-white px-3 py-3 transition-colors hover:border-blue-200 hover:bg-blue-50/30 sm:px-4"
+      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30 sm:px-4"
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -119,6 +119,7 @@ function RuleSpecNodeCard({
             <WrapperBadge item={tool} />
           </div>
           <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
+          <RuleSpecNodeStatusRow state={state} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -144,12 +145,6 @@ function RuleSpecNodeCard({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <RuleSpecNodeFact label="Action" value={state.actionLabel} muted={!state.hasAction} />
-        <RuleSpecNodeFact label="Ports" value={`${state.inputs} in / ${state.outputs} out`} detail={`${state.params} params`} />
-        <RuleSpecNodeFact label="Env" value={state.envLabel} muted={!state.hasEnv} />
-      </div>
-
       <RulePortPreview item={tool} compact />
 
       {editing ? (
@@ -162,6 +157,16 @@ function RuleSpecNodeCard({
         />
       ) : null}
     </article>
+  );
+}
+
+function RuleSpecNodeStatusRow({ state }: { state: RuleSpecNodeState }) {
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+      <RuleSpecNodeStatusChip label="Action" value={state.actionLabel} warning={!state.hasAction} />
+      <RuleSpecNodeStatusChip label="Ports" value={`${state.inputs} in / ${state.outputs} out`} detail={`${state.params} params`} />
+      <RuleSpecNodeStatusChip label="Env" value={state.envLabel} warning={!state.hasEnv} wide />
+    </div>
   );
 }
 
@@ -181,23 +186,32 @@ function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
   );
 }
 
-function RuleSpecNodeFact({
+function RuleSpecNodeStatusChip({
   detail,
   label,
-  muted,
+  warning,
   value,
+  wide,
 }: {
   detail?: string;
   label: string;
-  muted?: boolean;
+  warning?: boolean;
   value: string;
+  wide?: boolean;
 }) {
   return (
-    <div className={cn("min-w-0 rounded-md border px-2 py-2", muted ? "border-amber-100 bg-amber-50/60" : "border-slate-200 bg-slate-50")}>
-      <div className="text-[10px] font-medium uppercase leading-none text-slate-400">{label}</div>
-      <div className={cn("mt-1 truncate text-xs font-medium", muted ? "text-amber-700" : "text-slate-700")}>{value}</div>
-      {detail ? <div className="mt-0.5 truncate text-[11px] text-slate-400">{detail}</div> : null}
-    </div>
+    <span
+      className={cn(
+        "inline-flex h-6 max-w-full items-center gap-1 rounded border px-1.5 text-[11px] leading-none",
+        warning ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600",
+        wide && "sm:max-w-[20rem]"
+      )}
+      title={detail ? `${label}: ${value} / ${detail}` : `${label}: ${value}`}
+    >
+      <span className={cn("shrink-0 font-medium", warning ? "text-amber-600" : "text-slate-400")}>{label}</span>
+      <span className="min-w-0 truncate font-mono">{value}</span>
+      {detail ? <span className="shrink-0 text-slate-400">· {detail}</span> : null}
+    </span>
   );
 }
 
