@@ -20,6 +20,9 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export async function searchToolCapabilities" in api
     assert "export async function updateToolRuleTemplate" in api
     assert "/api/v1/tools/${encodeURIComponent(id)}/rule-template" in api
+    assert "invalidateWorkflowToolCaches" in api
+    assert "invalidateAsyncCachePrefix(\"workflow:\")" in api
+    assert api.count("invalidateWorkflowToolCaches();") >= 3
     assert "TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "export function useToolsPageState" in hook

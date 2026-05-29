@@ -313,9 +313,7 @@ export function selectableTools(tools: AddedTool[]) {
 function ruleReadyToolScore(tool: AddedTool) {
   const template = readToolRuleTemplate(tool);
   let score = 0;
-  if (typeof template.commandTemplate === "string" && template.commandTemplate.trim()) score += 4;
-  if (typeof template.wrapper === "string" && template.wrapper.trim()) score += 4;
-  if (typeof template.script === "string" && template.script.trim()) score += 4;
+  if (toolHasRuleAction(template)) score += 4;
   if (Array.isArray(template.inputs) && template.inputs.length > 0) score += 2;
   if (Array.isArray(template.outputs) && template.outputs.length > 0) score += 2;
   if (Array.isArray(tool.capabilities) && tool.capabilities.length > 0) score += 1;
@@ -325,14 +323,10 @@ function ruleReadyToolScore(tool: AddedTool) {
 function readToolRuleTemplate(tool: Pick<AddedTool, "ruleTemplate" | "ruleSpecDraft">): Record<string, unknown> {
   const manifest = (tool.ruleTemplate || {}) as Record<string, unknown>;
   const draft = (tool.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
-  if (
-    typeof manifest.commandTemplate === "string" ||
-    typeof manifest.wrapper === "string" ||
-    typeof manifest.script === "string"
-  ) {
+  if (toolHasRuleAction(manifest)) {
     return manifest;
   }
-  if (typeof draft.commandTemplate === "string" || typeof draft.wrapper === "string" || typeof draft.script === "string") {
+  if (toolHasRuleAction(draft)) {
     return draft;
   }
   if (
@@ -342,6 +336,23 @@ function readToolRuleTemplate(tool: Pick<AddedTool, "ruleTemplate" | "ruleSpecDr
     return manifest;
   }
   return draft;
+}
+
+function toolHasRuleAction(template: Record<string, unknown>) {
+  return Boolean(
+    stringValue(template.commandTemplate) ||
+    stringValue(template.wrapper) ||
+    stringValue(template.script) ||
+    Object.keys(objectValue(template.module)).length > 0
+  );
+}
+
+function objectValue(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function stringValue(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim() : "";
 }
 
 export function selectableDatabases(databases: DatabaseItem[]) {

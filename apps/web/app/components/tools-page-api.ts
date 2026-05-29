@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
+import { invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
 
 import {
   type AddedTool,
@@ -12,6 +13,10 @@ import {
 } from "./tools-page-model";
 
 const TOOL_SEARCH_REQUEST_TIMEOUT_MS = 90_000;
+
+function invalidateWorkflowToolCaches() {
+  invalidateAsyncCachePrefix("workflow:");
+}
 
 export async function fetchAddedTools(): Promise<AddedTool[]> {
   const response = await requestLocalApiJson<ToolsResponse>("GET", "/api/v1/tools", { cache: "no-store" });
@@ -63,16 +68,19 @@ export async function addToolDependency(tool: AddedTool): Promise<void> {
       snakemakeWrapperCount: tool.snakemakeWrapperCount || 0,
     },
   });
+  invalidateWorkflowToolCaches();
 }
 
 export async function updateToolRuleTemplate(id: string, ruleTemplate: RuleSpecTemplate): Promise<void> {
   await requestLocalApiJson("PATCH", `/api/v1/tools/${encodeURIComponent(id)}/rule-template`, {
     body: { ruleTemplate },
   });
+  invalidateWorkflowToolCaches();
 }
 
 export async function removeToolDependency(id: string): Promise<void> {
   await requestLocalApiJson("DELETE", `/api/v1/tools/${encodeURIComponent(id)}`);
+  invalidateWorkflowToolCaches();
 }
 
 export async function openToolSourceUrl(url: string): Promise<void> {
