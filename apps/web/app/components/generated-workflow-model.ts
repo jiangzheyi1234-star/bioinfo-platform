@@ -1,5 +1,6 @@
 import type { AddedTool, ToolCapabilitySlot } from "./tools-page-model";
 import { validateStepParamBindings } from "./generated-workflow-param-contract";
+import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
@@ -319,6 +320,7 @@ export function validateGeneratedWorkflowDraft(
       paramSpecs: readRuleParams(tool),
       ruleTemplate: readToolRuleTemplate(tool),
     }));
+    errors.push(...validateStepRuntime(step.id, step.runtime));
   }
 
   for (const step of stepDraft.steps) {
@@ -691,40 +693,6 @@ function normalizeStepParams(params: GeneratedWorkflowStepParams, specs: RulePar
       .filter(([name, value]) => specNames.has(name) && value !== "")
       .map(([name, value]) => [name, value])
   );
-}
-
-function normalizeStepRuntime(runtime: GeneratedWorkflowStepRuntime | undefined) {
-  const normalized: GeneratedWorkflowStepRuntime = {};
-  if (runtime?.threads && Number.isInteger(runtime.threads) && runtime.threads > 0) {
-    normalized.threads = runtime.threads;
-  }
-  const resources = normalizeRuntimeResources(runtime?.resources || runtime?.schedulerResources);
-  if (Object.keys(resources).length > 0) {
-    normalized.resources = resources;
-  }
-  const log = normalizeRuntimeLog(runtime?.log);
-  if (log) {
-    normalized.log = log;
-  }
-  return normalized;
-}
-
-function normalizeRuntimeResources(resources: GeneratedWorkflowStepRuntime["resources"] | undefined) {
-  if (!resources) return {};
-  return Object.fromEntries(
-    Object.entries(resources)
-      .map(([name, value]) => [name.trim(), value] as const)
-      .filter(([name, value]) => Boolean(name) && (typeof value === "string" || typeof value === "number") && value !== "")
-  );
-}
-
-function normalizeRuntimeLog(log: GeneratedWorkflowStepRuntime["log"] | undefined) {
-  if (typeof log === "string") return log.trim();
-  if (!log) return "";
-  const entries = Object.entries(log)
-    .map(([name, path]) => [name.trim(), path.trim()] as const)
-    .filter(([name, path]) => Boolean(name) && Boolean(path));
-  return entries.length > 0 ? Object.fromEntries(entries) : "";
 }
 
 function normalizeParamValue(value: unknown): GeneratedWorkflowParamValue | undefined {
