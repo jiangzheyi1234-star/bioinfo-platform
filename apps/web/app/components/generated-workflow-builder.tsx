@@ -156,6 +156,7 @@ function WorkflowGraphWorkbench({
             onSelectNode={setSelectedNodeId}
             selectedNodeId={selectedNode?.id || ""}
             tools={tools}
+            validationIssues={builder.validation.errors}
           />
           <div className="mt-3 grid gap-1.5">
             {edges.length === 0 ? (
