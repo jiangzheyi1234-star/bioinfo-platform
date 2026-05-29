@@ -434,6 +434,8 @@ function ruleActionLabelForTool(tool: AddedTool) {
   if (wrapper) return `wrapper: ${wrapper}`;
   const script = stringValue(template.script);
   if (script) return `script: ${script}`;
+  const moduleSpec = recordValue(template.module);
+  if (stringValue(moduleSpec.rule) && stringValue(moduleSpec.snakefile)) return `module: ${stringValue(moduleSpec.rule)}`;
   const command = stringValue(template.commandTemplate);
   if (command) return command;
   if (readRuleInputs(tool).length > 0 || readRuleOutputs(tool).length > 0) return "端口契约待补 action";
@@ -467,7 +469,12 @@ function ruleTemplateForPaletteTool(tool: AddedTool): Record<string, unknown> {
 }
 
 function hasPaletteRuleAction(template: Record<string, unknown>) {
-  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper) || stringValue(template.script));
+  return Boolean(
+    stringValue(template.commandTemplate) ||
+    stringValue(template.wrapper) ||
+    stringValue(template.script) ||
+    Object.keys(recordValue(template.module)).length > 0
+  );
 }
 
 function recordValue(raw: unknown): Record<string, unknown> {

@@ -2,25 +2,22 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
 from .generated_workflow_graph import normalize_generated_workflow_run_spec, workflow_graph_config
-from .rule_action import materialize_rule_script_assets, render_rule_action_lines, rule_action_kind
+from .rule_action import materialize_rule_assets
 from .rule_command import command_param_names, validate_command_input_tokens_bound
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
-from .rule_outputs import output_artifact_flags, output_spec_metadata, render_rule_output_lines, rule_output_metadata, validate_exposed_output_spec
-from .rule_params import render_rule_param_lines
+from .rule_outputs import output_artifact_flags, output_spec_metadata, rule_output_metadata, validate_exposed_output_spec
+from .rule_rendering import render_generated_workflow_snakefile
 from .rule_templates import rule_template_candidate_entries
 from .rule_runtime import (
     RuleRuntimeDirectives,
-    render_runtime_directives,
     resolve_rule_runtime_directives,
-    runtime_command_replacements,
     runtime_config,
 )
 from .storage import fetch_tool
@@ -141,7 +138,7 @@ def prepare_generated_tool_workflow(
             ),
             encoding="utf-8",
         )
-        materialize_rule_script_assets(rule_template=rule_template, workflow_dir=workflow_dir)
+        materialize_rule_assets(rule_template=rule_template, workflow_dir=workflow_dir)
         generated_steps.append(
             GeneratedWorkflowStep(
                 step_id=step_id,
@@ -224,7 +221,7 @@ def prepare_generated_tool_workflow(
         encoding="utf-8",
     )
     snakefile.write_text(
-        _render_snakefile(
+        render_generated_workflow_snakefile(
             steps=generated_steps,
             final_outputs=final_outputs,
             output_dir=str(result_dir),
@@ -680,125 +677,6 @@ def _final_output_artifacts(outputs: dict[str, dict[str, Any]]) -> list[dict[str
             }
         )
     return artifacts
-
-
-def _render_snakefile(
-    *,
-    steps: list[GeneratedWorkflowStep],
-    final_outputs: dict[str, str],
-    output_dir: str,
-    databases: dict[str, dict[str, Any]],
-    resources: dict[str, dict[str, Any]],
-    resource_config: dict[str, str],
-) -> str:
-    workflow_targets = "".join(f"        {str(path)!r},\n" for path in final_outputs.values())
-    rule_blocks = []
-    for step in steps:
-        input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
-        output_lines = render_rule_output_lines(step.outputs, step.rule_template) + render_rule_param_lines(step.params)
-        runtime_lines = render_runtime_directives(step.runtime)
-        action_kind = rule_action_kind(step.rule_template)
-        command = (
-            ""
-            if action_kind in {"wrapper", "script"}
-            else _render_command(
-                step.command_template,
-                inputs=step.inputs,
-                outputs=step.outputs,
-                params=step.params,
-                runtime=step.runtime,
-                output_dir=output_dir,
-                databases=databases,
-                resources=resources,
-                resource_config=resource_config,
-            )
-        )
-        action_lines = render_rule_action_lines(
-            rule_template=step.rule_template,
-            env_path=step.env_path,
-            output_dir=output_dir,
-            runtime=step.runtime,
-            shell_command=command,
-        )
-        rule_blocks.append(
-            f"rule {step.rule_name}:\n"
-            "    input:\n"
-            f"{input_lines}"
-            "    output:\n"
-            f"{output_lines}"
-            f"{runtime_lines}"
-            f"{action_lines}"
-        )
-    return (
-        'configfile: "run-config.json"\n\n'
-        "rule all:\n"
-        "    input:\n"
-        f"{workflow_targets}\n"
-        + "\n\n".join(rule_blocks)
-    )
-
-
-def _render_command(
-    command_template: str,
-    *,
-    inputs: dict[str, str],
-    outputs: dict[str, Path],
-    params: dict[str, Any],
-    runtime: RuleRuntimeDirectives,
-    output_dir: str,
-    databases: dict[str, dict[str, Any]],
-    resources: dict[str, dict[str, Any]],
-    resource_config: dict[str, str],
-) -> str:
-    if "{resource." in command_template:
-        raise ValueError("WORKFLOW_RESOURCE_DIRECT_TOKEN_UNSUPPORTED")
-    primary_input = inputs.get("primary") or next(iter(inputs.values()))
-    primary_output = outputs.get("tool_output") or next(iter(outputs.values()))
-    replacements = {
-        "{input}": shlex.quote(primary_input),
-        "{input:q}": shlex.quote(primary_input),
-        "{output}": shlex.quote(str(primary_output)),
-        "{output:q}": shlex.quote(str(primary_output)),
-        "{output_dir}": shlex.quote(output_dir),
-        "{output_dir:q}": shlex.quote(output_dir),
-    }
-    for name, path in inputs.items():
-        replacements[f"{{input.{name}}}"] = shlex.quote(path)
-        replacements[f"{{input.{name}:q}}"] = shlex.quote(path)
-    for name, path in outputs.items():
-        replacements[f"{{output.{name}}}"] = shlex.quote(str(path))
-        replacements[f"{{output.{name}:q}}"] = shlex.quote(str(path))
-    for name, value in params.items():
-        rendered = shlex.quote(str(value))
-        replacements[f"{{params.{name}}}"] = rendered
-        replacements[f"{{params.{name}:q}}"] = rendered
-    replacements.update(runtime_command_replacements(runtime))
-    for role, database in databases.items():
-        safe_role = _safe_identifier(role)
-        for key in ["id", "name", "type", "templateId", "version", "path", "manifestPath", "checksum"]:
-            value = str(database.get(key) or "")
-            replacements[f"{{database.{role}.{key}}}"] = shlex.quote(value)
-            replacements[f"{{database.{role}.{key}:q}}"] = shlex.quote(value)
-            replacements[f"{{database.{safe_role}.{key}}}"] = shlex.quote(value)
-            replacements[f"{{database.{safe_role}.{key}:q}}"] = shlex.quote(value)
-    for resource_key, resource in resources.items():
-        safe_key = _safe_identifier(resource_key)
-        for key in ["resourceKey", "databaseId", "name", "type", "templateId", "templateLabel", "version", "path", "configKey"]:
-            value = str(resource.get(key) or "")
-            replacements[f"{{resource.{resource_key}.{key}}}"] = shlex.quote(value)
-            replacements[f"{{resource.{resource_key}.{key}:q}}"] = shlex.quote(value)
-            replacements[f"{{resource.{safe_key}.{key}}}"] = shlex.quote(value)
-            replacements[f"{{resource.{safe_key}.{key}:q}}"] = shlex.quote(value)
-    for key, value in resource_config.items():
-        safe_key = _safe_identifier(key)
-        replacements[f"{{config.{key}}}"] = f"{{config[databases][{key}]}}"
-        replacements[f"{{config.{key}:q}}"] = f"{{config[databases][{key}]:q}}"
-        replacements[f"{{config.{safe_key}}}"] = f"{{config[databases][{key}]}}"
-        replacements[f"{{config.{safe_key}:q}}"] = f"{{config[databases][{key}]:q}}"
-    command = command_template
-    for token, value in replacements.items():
-        command = command.replace(token, value)
-    return command
 
 
 def _safe_identifier(value: str) -> str:

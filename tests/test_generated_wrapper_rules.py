@@ -6,6 +6,7 @@ from pathlib import Path
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -104,6 +105,96 @@ def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> No
     assert "shell:" not in snakefile
     assert "conda:" not in snakefile
     assert run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastqc"
+
+
+def test_generated_workflow_renders_snakemake_module_use_rule(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    saved = add_registered_tool(
+        cfg,
+        {
+            "id": "conda-forge::module-count",
+            "name": "module-count",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "module": {"name": "qc_module", "snakefile": "modules/qc/Snakefile", "rule": "count_reads"},
+                "moduleAssets": [
+                    {
+                        "path": "modules/qc/Snakefile",
+                        "content": (
+                            "rule count_reads:\n"
+                            "    input:\n"
+                            "        reads='placeholder.fastq'\n"
+                            "    output:\n"
+                            "        report='placeholder.txt'\n"
+                            "    shell:\n"
+                            "        'wc -l {input.reads} > {output.report}'\n"
+                        ),
+                    }
+                ],
+                "inputs": [{"name": "reads", "type": "file", "required": True}],
+                "outputs": [{"name": "report", "path": "module-report.txt", "kind": "log", "mimeType": "text/plain"}],
+                "params": {"limit": {"type": "integer", "default": 10}},
+                "resources": {"threads": {"default": 2}, "mem_mb": {"default": 4000}},
+                "log": "logs/module-count.log",
+            },
+        },
+    )
+
+    prepare_generated_tool_workflow(
+        cfg,
+        run_id="run_module_rule",
+        request_id="req_module_rule",
+        run_spec={"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "conda-forge::module-count"}},
+        resolved_inputs=_input(tmp_path),
+        work_dir=tmp_path / "work",
+        result_dir=tmp_path / "results",
+    )
+
+    snakefile = (tmp_path / "work" / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
+    module_asset = tmp_path / "work" / "workflow" / "modules" / "qc" / "Snakefile"
+
+    assert saved["ruleTemplate"]["module"] == {"name": "qc_module", "snakefile": "modules/qc/Snakefile", "rule": "count_reads"}
+    assert module_asset.exists()
+    assert "module run_tool_module:" in snakefile
+    assert "'modules/qc/Snakefile'" in snakefile
+    assert "use rule count_reads from run_tool_module as run_tool with:" in snakefile
+    assert "reads=" in snakefile
+    assert "report=" in snakefile
+    assert "threads: 2" in snakefile
+    assert "mem_mb=4000" in snakefile
+    assert "module-count.log" in snakefile
+    assert "shell:" not in snakefile
+    assert run_config["tool"]["ruleTemplate"]["module"]["rule"] == "count_reads"
+
+
+def test_tool_rule_template_rejects_module_without_locked_asset(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    try:
+        add_registered_tool(
+            cfg,
+            {
+                "id": "conda-forge::module-without-asset",
+                "name": "module-without-asset",
+                "source": "conda-forge",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatformSupported": True,
+                "ruleTemplate": {
+                    "module": {"snakefile": "modules/qc/Snakefile", "rule": "count_reads"},
+                    "inputs": [{"name": "reads", "type": "file", "required": True}],
+                    "outputs": [{"name": "report", "path": "module-report.txt", "kind": "log", "mimeType": "text/plain"}],
+                },
+            },
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_RULE_MODULE_ASSET_REQUIRED"
+    else:
+        raise AssertionError("module ruleTemplate should require a locked local Snakefile asset")
 
 
 def test_generated_workflow_preserves_rule_spec_provenance(tmp_path: Path) -> None:

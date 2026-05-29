@@ -25,6 +25,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export type RuleSpecEnvironment" in model
     assert "export type RuleSpecLock" in model
     assert "ruleTemplate?: RuleSpecTemplate" in model
+    assert "module?: RuleSpecModule" in model
+    assert "moduleAssets?: Array<{ path: string; content: string }>" in model
     assert "lock?: RuleSpecLock" in model
     assert "export function uniqueDependencies" in model
     assert 'title="工具"' in page
@@ -55,6 +57,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "工具库" in ui
     assert "工具预览" in ui
     assert "加入工具" in ui
+    assert "module:" in ui
     assert "规则节点库" not in ui
     assert "工具节点预览" not in ui
     assert "加入工具节点" not in ui

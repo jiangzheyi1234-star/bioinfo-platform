@@ -12,11 +12,18 @@ class RuleActionError(ValueError):
 
 
 def rule_action_kind(rule_template: dict[str, Any]) -> str:
+    if isinstance(rule_template.get("module"), dict) and rule_template["module"]:
+        return "module"
     if str(rule_template.get("wrapper") or "").strip():
         return "wrapper"
     if str(rule_template.get("script") or "").strip():
         return "script"
     return "shell"
+
+
+def materialize_rule_assets(*, rule_template: dict[str, Any], workflow_dir: Path) -> None:
+    materialize_rule_script_assets(rule_template=rule_template, workflow_dir=workflow_dir)
+    materialize_rule_module_assets(rule_template=rule_template, workflow_dir=workflow_dir)
 
 
 def materialize_rule_script_assets(*, rule_template: dict[str, Any], workflow_dir: Path) -> None:
@@ -44,6 +51,34 @@ def materialize_rule_script_assets(*, rule_template: dict[str, Any], workflow_di
         seen_script = seen_script or path == script
     if not seen_script:
         raise RuleActionError("TOOL_RULE_SCRIPT_ASSET_REQUIRED")
+
+
+def materialize_rule_module_assets(*, rule_template: dict[str, Any], workflow_dir: Path) -> None:
+    module = rule_template.get("module")
+    if not isinstance(module, dict) or not module:
+        return
+    snakefile = str(module.get("snakefile") or "").strip()
+    raw_assets = rule_template.get("moduleAssets")
+    if not isinstance(raw_assets, list) or not raw_assets:
+        raise RuleActionError("TOOL_RULE_MODULE_ASSET_REQUIRED")
+    seen_snakefile = False
+    for item in raw_assets:
+        if not isinstance(item, dict):
+            raise RuleActionError("TOOL_RULE_MODULE_ASSET_INVALID")
+        path = str(item.get("path") or "").strip().replace("\\", "/")
+        content = item.get("content")
+        if not path or Path(path).is_absolute() or any(part in {"", ".", ".."} for part in Path(path).parts):
+            raise RuleActionError("TOOL_RULE_MODULE_ASSET_PATH_INVALID")
+        if not isinstance(content, str):
+            raise RuleActionError(f"TOOL_RULE_MODULE_ASSET_CONTENT_INVALID: {path}")
+        target = workflow_dir / path
+        if target.exists() and target.read_text(encoding="utf-8") != content:
+            raise RuleActionError(f"TOOL_RULE_MODULE_ASSET_CONFLICT: {path}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8", newline="\n")
+        seen_snakefile = seen_snakefile or path == snakefile
+    if not seen_snakefile:
+        raise RuleActionError("TOOL_RULE_MODULE_ASSET_REQUIRED")
 
 
 def render_rule_action_lines(

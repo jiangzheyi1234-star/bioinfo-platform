@@ -79,7 +79,7 @@ export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
   const params = template.params && typeof template.params === "object" && !Array.isArray(template.params)
     ? Object.keys(template.params).length
     : 0;
-  const hasRuleSpec = Boolean(template.commandTemplate || template.wrapper || template.script || inputs > 0 || outputs > 0 || params > 0);
+  const hasRuleSpec = Boolean(template.commandTemplate || template.wrapper || template.script || template.module || inputs > 0 || outputs > 0 || params > 0);
   return (
     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
       <Workflow strokeWidth={1.5} className="h-3 w-3 text-slate-400" />
@@ -184,7 +184,12 @@ function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
 }
 
 function hasRuleAction(template: Record<string, unknown>) {
-  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper) || stringValue(template.script));
+  return Boolean(
+    stringValue(template.commandTemplate) ||
+    stringValue(template.wrapper) ||
+    stringValue(template.script) ||
+    Object.keys(recordValue(template.module)).length > 0
+  );
 }
 
 function recordValue(raw: unknown): Record<string, unknown> {
@@ -483,7 +488,8 @@ function ruleSpecDraftLockText(draft: RuleSpecDraft | undefined) {
 function ruleSpecDraftCommand(draft: RuleSpecDraft | undefined) {
   const template = draft?.ruleTemplate || {};
   if (typeof template.commandTemplate === "string") return template.commandTemplate;
-  return typeof template.script === "string" ? `script: ${template.script}` : "";
+  if (typeof template.script === "string") return `script: ${template.script}`;
+  return template.module ? `module: ${template.module.rule}` : "";
 }
 
 function RuleSpecDraftPreview({ draft }: { draft: RuleSpecDraft | undefined }) {
@@ -571,6 +577,8 @@ function ruleSpecActionText(template: Record<string, unknown>) {
   if (wrapper) return `wrapper: ${wrapper}`;
   const script = stringValue(template.script);
   if (script) return `script: ${script}`;
+  const moduleSpec = recordValue(template.module);
+  if (stringValue(moduleSpec.rule) && stringValue(moduleSpec.snakefile)) return `module: ${stringValue(moduleSpec.rule)}`;
   const command = stringValue(template.commandTemplate);
   if (command) return command;
   return "";

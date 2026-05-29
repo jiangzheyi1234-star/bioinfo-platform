@@ -26,4 +26,5 @@ def has_rule_action(template: dict[str, Any]) -> bool:
         str(template.get("commandTemplate") or "").strip()
         or str(template.get("wrapper") or "").strip()
         or str(template.get("script") or "").strip()
+        or (isinstance(template.get("module"), dict) and template["module"])
     )

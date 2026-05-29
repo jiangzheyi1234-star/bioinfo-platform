@@ -71,6 +71,12 @@ export type RuleSpecEnvironment = {
   container?: string | { url?: string; image?: string };
 };
 
+export type RuleSpecModule = {
+  name?: string;
+  snakefile: string;
+  rule: string;
+};
+
 export type RuleSpecResource = {
   type?: string;
   default?: RuleSpecScalar;
@@ -86,6 +92,8 @@ export type RuleSpecTemplate = {
   wrapper?: string;
   script?: string;
   scriptAssets?: Array<{ path: string; content: string }>;
+  module?: RuleSpecModule;
+  moduleAssets?: Array<{ path: string; content: string }>;
   inputs?: RuleSpecPort[];
   outputs?: RuleSpecPort[];
   params?: Record<string, RuleSpecParam | RuleSpecScalar>;
