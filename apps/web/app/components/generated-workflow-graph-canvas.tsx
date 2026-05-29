@@ -27,7 +27,7 @@ export function GeneratedWorkflowGraphCanvas({
 }) {
   const toolById = useMemo(() => new Map(tools.map((tool) => [tool.id, tool])), [tools]);
   if (nodes.length === 0) {
-    return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。</div>;
+    return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。从工具库添加 RuleSpec 节点。</div>;
   }
   return (
     <div className="relative min-h-[190px] overflow-hidden rounded-md">

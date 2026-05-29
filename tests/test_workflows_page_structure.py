@@ -108,6 +108,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "path?: string" in model
     assert "readOutputSemantics" in model
     assert "outputSemanticTags" in model
+    assert "steps: []" in model
+    assert "steps: first ? [createStepDraft(first, [])] : []" not in model
     assert "createGeneratedWorkflowGraphDraft" in model
     assert "generatedWorkflowDraftToGraphDraft" in model
     assert "graphDraftToGeneratedWorkflowDraft" in model
@@ -282,6 +284,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validationIssues={builder.validation.errors}" in builder_ui
     assert "GeneratedWorkflowGraphCanvas" in builder_ui
     assert "export function GeneratedWorkflowGraphCanvas" in graph_canvas_ui
+    assert "从工具库添加 RuleSpec 节点" in graph_canvas_ui
     assert "WorkflowGraphEdgeLayer" in graph_canvas_ui
     assert "data-workflow-graph-edge-layer" in graph_canvas_ui
     assert "data-workflow-graph-edge" in graph_canvas_ui
