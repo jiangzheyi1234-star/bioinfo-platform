@@ -84,6 +84,8 @@ export type RuleSpecResource = {
 export type RuleSpecTemplate = {
   commandTemplate?: string;
   wrapper?: string;
+  script?: string;
+  scriptAssets?: Array<{ path: string; content: string }>;
   inputs?: RuleSpecPort[];
   outputs?: RuleSpecPort[];
   params?: Record<string, RuleSpecParam | RuleSpecScalar>;

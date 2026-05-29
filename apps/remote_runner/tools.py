@@ -216,9 +216,12 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     template = dict(raw)
     command = str(template.get("commandTemplate") or "").strip()
     wrapper = _normalize_rule_wrapper(template.get("wrapper"))
-    if not command and not wrapper:
+    script = _normalize_rule_script(template.get("script"))
+    script_assets = _normalize_rule_script_assets(template.get("scriptAssets"), script=script)
+    actions = [bool(command), bool(wrapper), bool(script)]
+    if not any(actions):
         raise ToolRegistryError("TOOL_RULE_COMMAND_REQUIRED")
-    if command and wrapper:
+    if sum(actions) > 1:
         raise ToolRegistryError("TOOL_RULE_ACTION_CONFLICT")
     inputs = _normalize_rule_inputs(template.get("inputs"))
     outputs = _normalize_rule_outputs(template.get("outputs"))
@@ -252,6 +255,9 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
         normalized["commandTemplate"] = command
     if wrapper:
         normalized["wrapper"] = wrapper
+    if script:
+        normalized["script"] = script
+        normalized["scriptAssets"] = script_assets
     if threads is not None:
         normalized["threads"] = threads
     if scheduler_resources:
@@ -272,6 +278,53 @@ def _normalize_rule_wrapper(raw: Any) -> str:
     if any(char.isspace() for char in wrapper):
         raise ToolRegistryError("TOOL_RULE_WRAPPER_INVALID")
     return wrapper
+
+
+def _normalize_rule_script(raw: Any) -> str:
+    script = str(raw or "").strip()
+    if not script:
+        return ""
+    if any(char.isspace() for char in script) or "://" in script or script.startswith("~"):
+        raise ToolRegistryError("TOOL_RULE_SCRIPT_INVALID")
+    try:
+        _validate_relative_output_path(script)
+    except ToolRegistryError as exc:
+        raise ToolRegistryError("TOOL_RULE_SCRIPT_INVALID") from exc
+    return script
+
+
+def _normalize_rule_script_assets(raw: Any, *, script: str) -> list[dict[str, str]]:
+    if raw in (None, []):
+        if script:
+            raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSET_REQUIRED")
+        return []
+    if not script:
+        raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSET_UNSUPPORTED")
+    if not isinstance(raw, list):
+        raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSETS_INVALID")
+    assets: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSET_INVALID")
+        path = _normalize_rule_script_asset_path(item.get("path"))
+        content = item.get("content")
+        if not isinstance(content, str):
+            raise ToolRegistryError(f"TOOL_RULE_SCRIPT_ASSET_CONTENT_INVALID: {path}")
+        if path in seen:
+            raise ToolRegistryError(f"TOOL_RULE_SCRIPT_ASSET_DUPLICATE: {path}")
+        seen.add(path)
+        assets.append({"path": path, "content": content})
+    if script not in seen:
+        raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSET_REQUIRED")
+    return assets
+
+
+def _normalize_rule_script_asset_path(raw: Any) -> str:
+    path = _normalize_rule_script(raw)
+    if not path:
+        raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSET_PATH_REQUIRED")
+    return path
 
 
 def _normalize_rule_inputs(raw: Any) -> list[dict[str, Any]]:

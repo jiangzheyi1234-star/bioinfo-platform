@@ -315,6 +315,7 @@ function ruleReadyToolScore(tool: AddedTool) {
   let score = 0;
   if (typeof template.commandTemplate === "string" && template.commandTemplate.trim()) score += 4;
   if (typeof template.wrapper === "string" && template.wrapper.trim()) score += 4;
+  if (typeof template.script === "string" && template.script.trim()) score += 4;
   if (Array.isArray(template.inputs) && template.inputs.length > 0) score += 2;
   if (Array.isArray(template.outputs) && template.outputs.length > 0) score += 2;
   if (Array.isArray(tool.capabilities) && tool.capabilities.length > 0) score += 1;
@@ -326,11 +327,12 @@ function readToolRuleTemplate(tool: Pick<AddedTool, "ruleTemplate" | "ruleSpecDr
   const draft = (tool.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
   if (
     typeof manifest.commandTemplate === "string" ||
-    typeof manifest.wrapper === "string"
+    typeof manifest.wrapper === "string" ||
+    typeof manifest.script === "string"
   ) {
     return manifest;
   }
-  if (typeof draft.commandTemplate === "string" || typeof draft.wrapper === "string") {
+  if (typeof draft.commandTemplate === "string" || typeof draft.wrapper === "string" || typeof draft.script === "string") {
     return draft;
   }
   if (

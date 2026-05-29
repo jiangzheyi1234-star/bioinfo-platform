@@ -10,6 +10,8 @@ import {
   uniqueDependencies,
 } from "./tools-page-model";
 
+const TOOL_SEARCH_REQUEST_TIMEOUT_MS = 90_000;
+
 export async function fetchAddedTools(): Promise<AddedTool[]> {
   const response = await requestLocalApiJson<ToolsResponse>("GET", "/api/v1/tools", { cache: "no-store" });
   return uniqueDependencies(
@@ -33,7 +35,7 @@ export async function searchToolCapabilities({
   const response = await requestLocalApiJson<ToolSearchResponse>(
     "GET",
     `/api/v1/tool-capabilities/search?q=${encodeURIComponent(query)}&page=${page}&pageSize=${TOOL_SEARCH_PAGE_SIZE}&targetPlatform=linux-64`,
-    { cache: "no-store", signal }
+    { cache: "no-store", signal, timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
   );
   return response.data;
 }
