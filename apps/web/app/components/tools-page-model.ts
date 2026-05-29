@@ -13,7 +13,7 @@ export type ToolSearchItem = {
   targetPlatform?: string;
   targetPlatformSupported?: boolean;
   testCommand?: string;
-  ruleTemplate?: Record<string, unknown>;
+  ruleTemplate?: RuleSpecTemplate;
   ruleSpecDraft?: RuleSpecDraft;
   capabilities?: ToolCapability[];
   snakemakeWrappers?: SnakemakeWrapperMatch[];
@@ -42,6 +42,66 @@ export type ToolCapability = {
   outputs?: ToolCapabilitySlot[];
 };
 
+export type RuleSpecScalar = string | number | boolean;
+
+export type RuleSpecPort = ToolCapabilitySlot & {
+  path?: string;
+  temp?: boolean;
+  protected?: boolean;
+  directory?: boolean;
+};
+
+export type RuleSpecParam = {
+  type?: string;
+  title?: string;
+  description?: string;
+  default?: RuleSpecScalar;
+  enum?: RuleSpecScalar[];
+  minimum?: number;
+  maximum?: number;
+};
+
+export type RuleSpecCondaEnvironment = {
+  channels?: string[];
+  dependencies?: string[];
+};
+
+export type RuleSpecEnvironment = {
+  conda?: RuleSpecCondaEnvironment;
+  container?: string | { url?: string; image?: string };
+};
+
+export type RuleSpecResource = {
+  type?: string;
+  default?: RuleSpecScalar;
+  required?: boolean;
+  description?: string;
+  configKey?: string;
+  acceptedTemplates?: string[];
+  acceptedCapabilities?: string[];
+};
+
+export type RuleSpecTemplate = {
+  commandTemplate?: string;
+  wrapper?: string;
+  inputs?: RuleSpecPort[];
+  outputs?: RuleSpecPort[];
+  params?: Record<string, RuleSpecParam | RuleSpecScalar>;
+  resources?: Record<string, RuleSpecResource | RuleSpecScalar>;
+  environment?: RuleSpecEnvironment;
+  log?: string | Record<string, string>;
+};
+
+export type RuleSpecLock = {
+  packageSpec?: string;
+  version?: string;
+  wrapperRepository?: string;
+  wrapperRef?: string;
+  wrapperPath?: string;
+  wrapperIdentifier?: string;
+  [key: string]: unknown;
+};
+
 export type SnakemakeWrapperMatch = {
   name: string;
   toolName: string;
@@ -60,8 +120,8 @@ export type RuleSpecDraft = {
   status?: string;
   reason?: string;
   requiresUserCompletion?: boolean;
-  lock?: Record<string, unknown>;
-  ruleTemplate?: Record<string, unknown>;
+  lock?: RuleSpecLock;
+  ruleTemplate?: RuleSpecTemplate;
   notes?: string[];
 };
 

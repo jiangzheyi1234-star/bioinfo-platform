@@ -18,6 +18,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export async function searchToolCapabilities" in api
     assert "export function useToolsPageState" in hook
     assert "export type ToolSearchItem" in model
+    assert "export type RuleSpecTemplate" in model
+    assert "export type RuleSpecEnvironment" in model
+    assert "export type RuleSpecLock" in model
+    assert "ruleTemplate?: RuleSpecTemplate" in model
+    assert "lock?: RuleSpecLock" in model
     assert "export function uniqueDependencies" in model
     assert "工具节点库" in page
     assert "添加工具节点" in page
@@ -30,6 +35,13 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export function ToolSearchResults" in ui
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
+    assert "RuleSpecContractPreview" in ui
+    assert "ruleSpecEnvironmentItems" in ui
+    assert "ruleSpecResourceItems" in ui
+    assert "ruleSpecParamItems" in ui
+    assert "运行环境" in ui
+    assert "运行资源" in ui
+    assert "参数 schema" in ui
     assert "outputSemanticTags" in ui
     assert '["directory", "protected", "temp"]' in ui
     assert "...port.semantics" in ui
