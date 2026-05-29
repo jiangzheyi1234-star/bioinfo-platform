@@ -565,7 +565,7 @@ export function isGeneratedWorkflowGraphDraft(
   return "nodes" in draft && "edges" in draft;
 }
 
-function readToolRuleTemplate(tool: AddedTool | undefined): Record<string, unknown> {
+export function readToolRuleTemplate(tool: AddedTool | undefined): Record<string, unknown> {
   const manifest = (tool?.ruleTemplate || {}) as Record<string, unknown>;
   const draft = (tool?.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
   if (hasRuleAction(manifest)) return manifest;

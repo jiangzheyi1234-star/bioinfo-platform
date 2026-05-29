@@ -44,6 +44,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
     port_contract_path = COMPONENTS / "generated-workflow-port-contract.ts"
     rule_action_contract_path = COMPONENTS / "generated-workflow-rule-action-contract.ts"
+    snakefile_preview_path = COMPONENTS / "generated-workflow-snakefile-preview.tsx"
     runtime_contract_path = COMPONENTS / "generated-workflow-runtime-contract.ts"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
@@ -63,6 +64,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert param_contract_path.exists()
     assert port_contract_path.exists()
     assert rule_action_contract_path.exists()
+    assert snakefile_preview_path.exists()
     assert runtime_contract_path.exists()
     assert rule_spec_panel_path.exists()
     assert step_params_editor_path.exists()
@@ -77,6 +79,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     param_contract = param_contract_path.read_text(encoding="utf-8")
     port_contract = port_contract_path.read_text(encoding="utf-8")
     rule_action_contract = rule_action_contract_path.read_text(encoding="utf-8")
+    snakefile_preview_ui = snakefile_preview_path.read_text(encoding="utf-8")
     runtime_contract = runtime_contract_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
@@ -145,6 +148,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "readPortCompatibility" in port_contract
     assert "describePortCompatibility" in port_contract
     assert "validateRuleActionContract" in model
+    assert "export function readToolRuleTemplate" in model
     assert "WORKFLOW_RULE_ACTION_REQUIRED" in rule_action_contract
     assert "WORKFLOW_RULE_ACTION_CONFLICT" in rule_action_contract
     assert '["commandTemplate", "wrapper"]' in rule_action_contract
@@ -186,6 +190,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "onStepIdChange" in node_settings_ui
     assert "onStepToolChange" in node_settings_ui
     assert "GeneratedWorkflowRuleSpecPanel" in builder_ui
+    assert "GeneratedWorkflowSnakefilePreview" in builder_ui
     assert "selectedNode.params" in builder_ui
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
     assert "commandTemplate" in rule_spec_panel_ui
@@ -205,6 +210,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "参数默认值" in rule_spec_panel_ui
     assert "调度资源 / log" in rule_spec_panel_ui
     assert "formatRuleOutputSemantics" in rule_spec_panel_ui
+    assert "export function GeneratedWorkflowSnakefilePreview" in snakefile_preview_ui
+    assert "Snakefile preview" in snakefile_preview_ui
+    assert "rulePreviewLines" in snakefile_preview_ui
+    assert "renderOutputValue" in snakefile_preview_ui
+    assert "shell:" in snakefile_preview_ui
+    assert "wrapper:" in snakefile_preview_ui
+    assert "conda:" in snakefile_preview_ui
     assert "GeneratedWorkflowRuntimeEditor" in builder_ui
     assert "RuleGraphNodeCard" in builder_ui
     assert "edges={edges}" in builder_ui
