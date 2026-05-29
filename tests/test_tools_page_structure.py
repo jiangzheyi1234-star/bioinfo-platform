@@ -69,7 +69,15 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "outputSemanticTags" in ui
     assert '["directory", "protected", "temp"]' in ui
     assert "...port.semantics" in ui
-    assert "工具库" in library
+    assert "规则节点库" in library
+    assert "RuleSpecNodeCard" in library
+    assert "RuleSpecNodeReadinessBadge" in library
+    assert "ruleSpecNodeState" in library
+    assert "可运行" in library
+    assert "待补 action" in library
+    assert "Action" in library
+    assert "Ports" in library
+    assert "Env" in library
     assert "工具预览" in ui
     assert "加入工具" in ui
     assert "module:" in ui
