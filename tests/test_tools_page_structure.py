@@ -56,6 +56,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export function ToolRuleSpecEditor" in editor
     assert "保存 RuleSpec" in editor
     assert "RuleSpec JSON" in editor
+    assert "starterRuleTemplateForKnownTool" in editor
+    assert "fastqc" in editor
+    assert "--outdir {output.qc_dir:q}" in editor
+    assert "directory: true" in editor
+    assert "qc_dir" in editor
     assert "export function ToolSearchResults" in ui
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
