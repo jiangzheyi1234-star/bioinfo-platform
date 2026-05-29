@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { AddedTool, RuleSpecTemplate } from "./tools-page-model";
+import { ruleSpecReadinessForTool, type ToolRuleReadiness } from "./tool-rule-readiness";
 import { PlatformBadge, RulePortPreview, SourceBadge, WrapperBadge } from "./tools-page-ui";
 import { ToolRuleSpecEditor } from "./tools-page-rule-spec-editor";
 
@@ -103,7 +104,7 @@ function RuleSpecNodeCard({
   onRemove: () => void;
   onSaveRuleSpec: (ruleTemplate: RuleSpecTemplate) => void;
 }) {
-  const state = ruleSpecNodeState(tool);
+  const state = ruleSpecReadinessForTool(tool);
   return (
     <article
       data-node-state={state.kind}
@@ -164,7 +165,7 @@ function RuleSpecNodeStatusRow({ state }: { state: RuleSpecNodeState }) {
   return (
     <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
       <RuleSpecNodeStatusChip label="Action" value={state.actionLabel} warning={!state.hasAction} />
-      <RuleSpecNodeStatusChip label="Ports" value={`${state.inputs} in / ${state.outputs} out`} detail={`${state.params} params`} />
+      <RuleSpecNodeStatusChip label="Ports" value={`${state.inputs} in / ${state.outputs} out`} detail={`${state.params} params`} warning={!state.outputsReady} />
       <RuleSpecNodeStatusChip label="Env" value={state.envLabel} warning={!state.hasEnv} wide />
     </div>
   );
@@ -175,12 +176,14 @@ function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
     <span
       className={cn(
         "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] leading-none",
-        state.kind === "ready"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-amber-200 bg-amber-50 text-amber-700"
+        state.kind === "workflow-ready"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : state.kind === "dependency-only"
+              ? "border-slate-200 bg-slate-50 text-slate-600"
+              : "border-amber-200 bg-amber-50 text-amber-700"
       )}
     >
-      {state.kind === "ready" ? <CheckCircle2 strokeWidth={1.5} className="mr-1 h-3 w-3" /> : null}
+      {state.kind === "workflow-ready" ? <CheckCircle2 strokeWidth={1.5} className="mr-1 h-3 w-3" /> : null}
       {state.label}
     </span>
   );
@@ -215,83 +218,4 @@ function RuleSpecNodeStatusChip({
   );
 }
 
-type RuleSpecNodeState = {
-  actionLabel: string;
-  envLabel: string;
-  hasAction: boolean;
-  hasEnv: boolean;
-  inputs: number;
-  kind: "ready" | "missing-action" | "missing-env";
-  label: "可运行" | "待补 action" | "待补 env";
-  outputs: number;
-  params: number;
-};
-
-function ruleSpecNodeState(tool: AddedTool): RuleSpecNodeState {
-  const template = ruleTemplateForLibraryTool(tool);
-  const actionLabel = ruleSpecActionLabel(template);
-  const inputs = template.inputs?.length || 0;
-  const outputs = template.outputs?.length || 0;
-  const params = template.params ? Object.keys(template.params).length : 0;
-  const dependencies = template.environment?.conda?.dependencies || [];
-  const hasEnv = dependencies.length > 0 || Boolean(tool.selectedPackageSpec || tool.packageSpec);
-  if (!actionLabel) {
-    return {
-      actionLabel: "待补 action",
-      envLabel: environmentLabel(tool, dependencies),
-      hasAction: false,
-      hasEnv,
-      inputs,
-      kind: "missing-action",
-      label: "待补 action",
-      outputs,
-      params,
-    };
-  }
-  if (!hasEnv) {
-    return {
-      actionLabel,
-      envLabel: "待补 env",
-      hasAction: true,
-      hasEnv: false,
-      inputs,
-      kind: "missing-env",
-      label: "待补 env",
-      outputs,
-      params,
-    };
-  }
-  return {
-    actionLabel,
-    envLabel: environmentLabel(tool, dependencies),
-    hasAction: true,
-    hasEnv: true,
-    inputs,
-    kind: "ready",
-    label: "可运行",
-    outputs,
-    params,
-  };
-}
-
-function ruleTemplateForLibraryTool(tool: AddedTool): RuleSpecTemplate {
-  const manifest = tool.ruleTemplate || {};
-  const draft = tool.ruleSpecDraft?.ruleTemplate || {};
-  if (ruleSpecActionLabel(manifest)) return manifest;
-  if (ruleSpecActionLabel(draft)) return draft;
-  return Object.keys(manifest).length > 0 ? manifest : draft;
-}
-
-function ruleSpecActionLabel(template: RuleSpecTemplate) {
-  if (template.wrapper) return "wrapper";
-  if (template.commandTemplate) return "command";
-  if (template.script) return "script";
-  if (template.module) return "module";
-  return "";
-}
-
-function environmentLabel(tool: AddedTool, dependencies: string[]) {
-  if (dependencies.length > 1) return `${dependencies.length} deps`;
-  if (dependencies.length === 1) return dependencies[0];
-  return tool.selectedPackageSpec || tool.packageSpec || "待补 env";
-}
+type RuleSpecNodeState = ToolRuleReadiness;

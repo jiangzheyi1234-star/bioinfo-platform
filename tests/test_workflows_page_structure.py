@@ -11,6 +11,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     page = (COMPONENTS / "workflows-page.tsx").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
+    readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
 
@@ -26,10 +27,11 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "contentBase64" in api
     assert "generated-tool-run-v1" in model
     assert "ruleReadyToolScore" in model
-    assert "commandTemplate" in model
-    assert "toolHasRuleAction(template)" in model
-    assert "objectValue(template.module)" in model
-    assert "targetPlatformSupported === true" in model
+    assert "commandTemplate" in readiness
+    assert "hasRuleAction(template)" in readiness
+    assert "ruleActionFields(template)" in readiness
+    assert "targetPlatformSupported === true" in readiness
+    assert "ruleSpecReadinessForTool(entry.tool).workflowReady" in model
     assert "buildGeneratedWorkflowRunSpec" in api
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
@@ -121,7 +123,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "exposeOutputs" in model
     assert "buildGeneratedWorkflowRunSpec" in model
     assert "readToolRuleTemplate" in model
-    assert "ruleSpecDraft?.ruleTemplate" in model
+    readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
+    assert "tool.ruleSpecDraft" in readiness
+    assert "draft?.ruleTemplate" in readiness
     assert "readToolRuleSpecDraft" in model
     assert "hasRuleAction" in model
     assert "validateGeneratedWorkflowDraft" in model

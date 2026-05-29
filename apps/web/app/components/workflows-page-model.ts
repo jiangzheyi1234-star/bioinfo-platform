@@ -1,5 +1,6 @@
 import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
+import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
 
@@ -305,7 +306,7 @@ export function outputArtifactNames(item: WorkflowCatalogItem) {
 export function selectableTools(tools: AddedTool[]) {
   return tools
     .map((tool, index) => ({ tool, index, score: ruleReadyToolScore(tool) }))
-    .filter((entry) => entry.tool.targetPlatformSupported === true)
+    .filter((entry) => ruleSpecReadinessForTool(entry.tool).workflowReady)
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map((entry) => entry.tool);
 }
@@ -321,38 +322,11 @@ function ruleReadyToolScore(tool: AddedTool) {
 }
 
 function readToolRuleTemplate(tool: Pick<AddedTool, "ruleTemplate" | "ruleSpecDraft">): Record<string, unknown> {
-  const manifest = (tool.ruleTemplate || {}) as Record<string, unknown>;
-  const draft = (tool.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
-  if (toolHasRuleAction(manifest)) {
-    return manifest;
-  }
-  if (toolHasRuleAction(draft)) {
-    return draft;
-  }
-  if (
-    Array.isArray(manifest.inputs) ||
-    Array.isArray(manifest.outputs)
-  ) {
-    return manifest;
-  }
-  return draft;
+  return displayRuleTemplateForTool(tool as AddedTool);
 }
 
 function toolHasRuleAction(template: Record<string, unknown>) {
-  return Boolean(
-    stringValue(template.commandTemplate) ||
-    stringValue(template.wrapper) ||
-    stringValue(template.script) ||
-    Object.keys(objectValue(template.module)).length > 0
-  );
-}
-
-function objectValue(raw: unknown): Record<string, unknown> {
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-}
-
-function stringValue(raw: unknown): string {
-  return typeof raw === "string" ? raw.trim() : "";
+  return hasRuleAction(template);
 }
 
 export function selectableDatabases(databases: DatabaseItem[]) {

@@ -69,6 +69,45 @@ def test_generated_workflow_uses_rule_spec_draft_template(tmp_path: Path) -> Non
     assert run_config["tool"]["ruleSpecDraft"]["source"] == "conda-package"
 
 
+def test_generated_workflow_rejects_rule_spec_draft_requiring_user_completion(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::unconfirmed-draft",
+            "name": "unconfirmed-draft",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::unconfirmed-draft=1.0",
+            "targetPlatformSupported": True,
+            "ruleSpecDraft": {
+                "source": "conda-package",
+                "requiresUserCompletion": True,
+                "ruleTemplate": {
+                    "commandTemplate": "wc -l {input.reads:q} > {output.report:q}",
+                    "inputs": [{"name": "reads", "type": "file", "required": True}],
+                    "outputs": [{"name": "report", "path": "draft-report.txt", "kind": "log", "mimeType": "text/plain"}],
+                },
+            },
+        },
+    )
+
+    try:
+        prepare_generated_tool_workflow(
+            cfg,
+            run_id="run_unconfirmed_draft",
+            request_id="req_unconfirmed_draft",
+            run_spec={"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "conda-forge::unconfirmed-draft"}},
+            resolved_inputs=_input(tmp_path),
+            work_dir=tmp_path / "work",
+            result_dir=tmp_path / "results",
+        )
+    except ValueError as exc:
+        assert str(exc) == "TOOL_RULE_TEMPLATE_REQUIRED"
+    else:
+        raise AssertionError("unconfirmed RuleSpec drafts must not be executable workflow nodes")
+
+
 def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

@@ -20,6 +20,12 @@ import {
 import { validateRuleActionContract } from "./generated-workflow-rule-action-contract";
 import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
+import {
+  displayRuleTemplateForTool,
+  executableRuleTemplateForTool,
+  hasRuleAction,
+  ruleSpecReadinessForTool,
+} from "./tool-rule-readiness";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
 export const GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1";
@@ -329,6 +335,10 @@ export function validateGeneratedWorkflowDraft(
       errors.push({ code: "TOOL_UNKNOWN", message: `步骤 ${step.id} 未选择可用工具`, stepId: step.id });
       continue;
     }
+    const readiness = ruleSpecReadinessForTool(tool);
+    if (!readiness.workflowReady) {
+      errors.push({ code: "WORKFLOW_TOOL_NOT_READY", message: `步骤 ${step.id} 的工具还不能加入流程`, stepId: step.id });
+    }
     const inputs = readRuleInputs(tool);
     const outputs = readRuleOutputs(tool);
     const ruleTemplate = readToolRuleTemplate(tool);
@@ -586,34 +596,13 @@ export function isGeneratedWorkflowGraphDraft(
 }
 
 export function readToolRuleTemplate(tool: AddedTool | undefined): Record<string, unknown> {
-  const manifest = (tool?.ruleTemplate || {}) as Record<string, unknown>;
-  const draft = (tool?.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
-  if (hasRuleAction(manifest)) return manifest;
-  if (hasRuleAction(draft)) return draft;
-  if (hasRuleTemplateShape(manifest)) return manifest;
-  return draft;
+  const template = executableRuleTemplateForTool(tool);
+  return hasRuleAction(template) ? template : displayRuleTemplateForTool(tool);
 }
 
 function readToolRuleSpecDraft(tool: AddedTool | undefined) {
   const draft = tool?.ruleSpecDraft;
-  return draft && Object.keys(draft).length > 0 ? draft : undefined;
-}
-
-function hasRuleAction(template: Record<string, unknown>) {
-  return Boolean(
-    stringValue(template.commandTemplate) ||
-    stringValue(template.wrapper) ||
-    stringValue(template.script) ||
-    (template.module && typeof template.module === "object" && !Array.isArray(template.module))
-  );
-}
-
-function hasRuleTemplateShape(template: Record<string, unknown>) {
-  return Boolean(
-    Array.isArray(template.inputs) ||
-    Array.isArray(template.outputs) ||
-    (template.params && typeof template.params === "object" && !Array.isArray(template.params))
-  );
+  return draft && draft.requiresUserCompletion !== true && Object.keys(draft).length > 0 ? draft : undefined;
 }
 
 function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: CapabilityPortSlot): RuleInputSpec {
