@@ -16,6 +16,15 @@ export type RulePortRecommendation = {
   reason: string;
 };
 
+export type RulePortEdgeAudit = {
+  source: "auto" | "manual";
+  decision: RulePortRecommendationDecision | "manual";
+  hardChecks: string[];
+  evidence: string[];
+  confidence: number;
+  reason: string;
+};
+
 type RulePortRecommendationPort = RulePortCompatibilitySpec &
   RulePortCapabilityMetadata & {
     name?: string;
@@ -61,6 +70,21 @@ export function explainPortRecommendation(
 
 export function isAutoBindablePortRecommendation(recommendation: RulePortRecommendation): boolean {
   return recommendation.decision === "recommended";
+}
+
+export function autoEdgeAudit(recommendation: RulePortRecommendation): RulePortEdgeAudit {
+  return { source: "auto", ...recommendation };
+}
+
+export function manualEdgeAudit(): RulePortEdgeAudit {
+  return {
+    source: "manual",
+    decision: "manual",
+    hardChecks: ["用户手动选择上游输出"],
+    evidence: ["手动连接"],
+    confidence: 1,
+    reason: "手动连接",
+  };
 }
 
 function matchedFields(input: RulePortRecommendationPort, output: RulePortRecommendationPort): RulePortCompatibilityField[] {

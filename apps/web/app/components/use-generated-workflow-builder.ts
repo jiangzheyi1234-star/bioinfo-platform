@@ -26,6 +26,7 @@ import {
   generatedToolResourceEntries,
   type WorkflowResourceBindings,
 } from "./workflows-page-model";
+import { manualEdgeAudit } from "./generated-workflow-recommendation-contract";
 
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
@@ -165,10 +166,14 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     return setStepTool(state, action.stepId, action.tool, action.tools);
   }
   if (action.type === "set_input") {
+    const binding =
+      action.binding && typeof action.binding === "object" && "fromStep" in action.binding && "output" in action.binding && !action.binding.audit
+        ? { ...action.binding, audit: manualEdgeAudit() }
+        : action.binding;
     return updateStepDraft(state, (draft) => ({
       ...draft,
       steps: draft.steps.map((step) =>
-          step.id === action.stepId ? { ...step, inputs: { ...step.inputs, [action.inputName]: action.binding } } : step
+          step.id === action.stepId ? { ...step, inputs: { ...step.inputs, [action.inputName]: binding } } : step
       ),
     }));
   }
@@ -228,7 +233,7 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
         const inputs = Object.fromEntries(
           Object.entries(step.inputs).map(([name, binding]) => [
             name,
-            isRemovedStepBinding(binding, stepId) ? { fromStep: trimmed, output: binding.output } : binding,
+            isRemovedStepBinding(binding, stepId) ? { fromStep: trimmed, output: binding.output, audit: binding.audit } : binding,
           ])
         );
         return step.id === stepId ? { ...step, id: trimmed, inputs } : { ...step, inputs };

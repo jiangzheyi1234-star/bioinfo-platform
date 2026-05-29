@@ -11,8 +11,11 @@ import {
   type RulePortCapabilityMetadata,
 } from "./generated-workflow-port-contract";
 import {
+  autoEdgeAudit,
   explainPortRecommendation,
   isAutoBindablePortRecommendation,
+  manualEdgeAudit,
+  type RulePortEdgeAudit,
 } from "./generated-workflow-recommendation-contract";
 import { validateRuleActionContract } from "./generated-workflow-rule-action-contract";
 import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
@@ -24,7 +27,7 @@ export const GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1";
 export type GeneratedWorkflowInputBinding =
   | { fromUpload: number }
   | { fromInput: string }
-  | { fromStep: string; output: string }
+  | { fromStep: string; output: string; audit?: RulePortEdgeAudit }
   | string;
 export type GeneratedWorkflowGraphInputBinding = Exclude<GeneratedWorkflowInputBinding, { fromStep: string; output: string }>;
 
@@ -73,6 +76,7 @@ export type GeneratedWorkflowGraphEdge = {
   id: string;
   from: GeneratedWorkflowGraphPortRef;
   to: GeneratedWorkflowGraphPortRef;
+  audit?: RulePortEdgeAudit;
 };
 
 export type GeneratedWorkflowGraphDraft = {
@@ -251,7 +255,7 @@ export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft
           from: { nodeId: binding.fromStep, port: binding.output },
           to: { nodeId: step.id, port: inputName },
         };
-        edges.push({ id: graphEdgeId(edge.from, edge.to, edges.length), ...edge });
+        edges.push({ id: graphEdgeId(edge.from, edge.to, edges.length), ...edge, audit: binding.audit || manualEdgeAudit() });
       } else {
         inputs[inputName] = binding;
       }
@@ -283,7 +287,7 @@ export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflow
   for (const edge of graphDraft.edges) {
     const target = stepById.get(edge.to.nodeId);
     if (!target) continue;
-    target.inputs[edge.to.port] = { fromStep: edge.from.nodeId, output: edge.from.port };
+    target.inputs[edge.to.port] = { fromStep: edge.from.nodeId, output: edge.from.port, audit: edge.audit };
   }
   return {
     steps,
@@ -433,9 +437,9 @@ export function findCompatibleOutputBinding(
   upstreamSteps: GeneratedWorkflowStepDraft[],
   tools: AddedTool[],
   excludeStepId?: string
-): { fromStep: string; output: string } | undefined {
+): { fromStep: string; output: string; audit?: RulePortEdgeAudit } | undefined {
   const toolById = new Map(tools.map((tool) => [tool.id, tool]));
-  let best: { fromStep: string; output: string; score: number } | undefined;
+  let best: { fromStep: string; output: string; score: number; audit?: RulePortEdgeAudit } | undefined;
   for (let index = upstreamSteps.length - 1; index >= 0; index -= 1) {
     const step = upstreamSteps[index];
     if (!step || step.id === excludeStepId) continue;
@@ -444,11 +448,11 @@ export function findCompatibleOutputBinding(
       const score = portCompatibilityScore(input, output);
       const recommendation = explainPortRecommendation(input, output);
       if (score !== null && isAutoBindablePortRecommendation(recommendation) && (!best || score > best.score)) {
-        best = { fromStep: step.id, output: output.name, score };
+        best = { fromStep: step.id, output: output.name, score, audit: autoEdgeAudit(recommendation) };
       }
     }
   }
-  return best ? { fromStep: best.fromStep, output: best.output } : undefined;
+  return best ? { fromStep: best.fromStep, output: best.output, audit: best.audit } : undefined;
 }
 
 export function portsCompatible(input: RuleInputSpec, output: RuleOutputSpec): boolean {
@@ -527,6 +531,7 @@ export function buildGeneratedWorkflowRunSpec({
           nodeId: normalizedNodeIds.get(edge.to.nodeId) || normalizeStepId(edge.to.nodeId),
           port: edge.to.port,
         },
+        audit: edge.audit,
       })),
       outputs: draft.exposeOutputs.map((output) => ({
         from: {
