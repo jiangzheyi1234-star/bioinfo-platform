@@ -16,7 +16,7 @@ import {
   readRuleOutputs,
   readRuleParams,
 } from "./generated-workflow-model";
-import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import { GeneratedWorkflowGraphCanvas } from "./generated-workflow-graph-canvas";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import {
   GeneratedWorkflowPortBindingsEditor,
@@ -150,24 +150,13 @@ function WorkflowGraphWorkbench({
             <div className="text-xs font-medium text-slate-700">画布</div>
             <div className="font-mono text-[11px] text-slate-400">{edges.length} edges</div>
           </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {nodes.length === 0 ? (
-              <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。</div>
-            ) : nodes.map((node) => {
-              const tool = toolById.get(node.toolId);
-              const selected = selectedNode?.id === node.id;
-              return (
-                <RuleGraphNodeCard
-                  edges={edges}
-                  key={node.id}
-                  node={node}
-                  onSelect={() => setSelectedNodeId(node.id)}
-                  selected={selected}
-                  tool={tool}
-                />
-              );
-            })}
-          </div>
+          <GeneratedWorkflowGraphCanvas
+            edges={edges}
+            nodes={nodes}
+            onSelectNode={setSelectedNodeId}
+            selectedNodeId={selectedNode?.id || ""}
+            tools={tools}
+          />
           <div className="mt-3 grid gap-1.5">
             {edges.length === 0 ? (
               <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>

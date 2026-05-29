@@ -39,6 +39,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
+    graph_canvas_path = COMPONENTS / "generated-workflow-graph-canvas.tsx"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
     command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
@@ -61,6 +62,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert hook_path.exists()
     assert ui_path.exists()
     assert graph_node_path.exists()
+    assert graph_canvas_path.exists()
     assert node_settings_path.exists()
     assert command_contract_path.exists()
     assert param_contract_path.exists()
@@ -78,6 +80,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
+    graph_canvas_ui = graph_canvas_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
     command_contract = command_contract_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
@@ -260,7 +263,15 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "PortBindingValueEditor" in port_bindings_editor_ui
     assert "defaultBinding(nextType, compatibleOutputCandidates)" in port_bindings_editor_ui
     assert "manualOnlyCandidate" in port_bindings_editor_ui
-    assert "RuleGraphNodeCard" in builder_ui
+    assert "RuleGraphNodeCard" in graph_canvas_ui
+    assert "GeneratedWorkflowGraphCanvas" in builder_ui
+    assert "export function GeneratedWorkflowGraphCanvas" in graph_canvas_ui
+    assert "WorkflowGraphEdgeLayer" in graph_canvas_ui
+    assert "data-workflow-graph-edge-layer" in graph_canvas_ui
+    assert "data-workflow-graph-edge" in graph_canvas_ui
+    assert "markerEnd" in graph_canvas_ui
+    assert "viewBox" in graph_canvas_ui
+    assert "edgePath" in graph_canvas_ui
     assert "edges={edges}" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui
     assert "export function RuleGraphNodeCard" in graph_node_ui
