@@ -133,7 +133,7 @@ function WorkflowGraphWorkbench({
 
       <div className="mt-3 grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)_260px]">
         <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-2">
-          <div className="mb-2 px-1 text-[11px] font-semibold uppercase text-slate-400">工具 Palette · 规则节点库</div>
+          <div className="mb-2 px-1 text-[11px] font-semibold text-slate-400">工具库</div>
           <div className="grid gap-1.5">
             {tools.map((tool) => (
               <RulePaletteCard

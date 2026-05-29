@@ -310,9 +310,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "ruleSpecResourceDefaults" in runtime_editor_ui
     assert "template.resources" in runtime_editor_ui
     assert "selectedNodeId" in builder_ui
-    assert "工具 Palette" in builder_ui
+    assert "工具库" in builder_ui
     assert "RulePaletteCard" in builder_ui
-    assert "规则节点库" in builder_ui
+    assert "规则节点库" not in builder_ui
     assert "ruleActionLabelForTool" in builder_ui
     assert "rulePortsLabelForTool" in builder_ui
     assert "ruleEnvironmentLabelForTool" in builder_ui

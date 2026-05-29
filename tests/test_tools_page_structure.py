@@ -27,11 +27,15 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "ruleTemplate?: RuleSpecTemplate" in model
     assert "lock?: RuleSpecLock" in model
     assert "export function uniqueDependencies" in model
-    assert "工具节点库" in page
-    assert "添加工具节点" in page
-    assert "返回节点库" in page
+    assert 'title="工具"' in page
+    assert "添加工具" in page
+    assert "返回工具库" in page
+    assert "工具节点库" not in page
+    assert "添加工具节点" not in page
+    assert "返回节点库" not in page
     assert "在线搜索 Bioconda / conda-forge 工具" in page
-    assert "加入工具节点失败" in hook
+    assert "加入工具失败" in hook
+    assert "加入工具节点失败" not in hook
     assert "export function SourceBadge" in ui
     assert "export function ResultRow" in ui
     assert "export function ToolsLibrarySection" in ui
@@ -48,9 +52,12 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "outputSemanticTags" in ui
     assert '["directory", "protected", "temp"]' in ui
     assert "...port.semantics" in ui
-    assert "规则节点库" in ui
-    assert "工具节点预览" in ui
-    assert "加入工具节点" in ui
+    assert "工具库" in ui
+    assert "工具预览" in ui
+    assert "加入工具" in ui
+    assert "规则节点库" not in ui
+    assert "工具节点预览" not in ui
+    assert "加入工具节点" not in ui
     assert "targetPlatform=linux-64" in api
     assert "formatPlatformBadgeText" in ui
     assert "export function PlatformChips" in ui
