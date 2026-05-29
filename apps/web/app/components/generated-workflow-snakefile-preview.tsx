@@ -4,8 +4,10 @@ import {
   readRuleOutputs,
   readRuleParams,
   readToolRuleTemplate,
+  type GeneratedWorkflowGraphDraft,
   type GeneratedWorkflowGraphNode,
   type GeneratedWorkflowStepRuntime,
+  type RuleInputSpec,
   type RuleOutputSpec,
 } from "./generated-workflow-model";
 
@@ -29,7 +31,57 @@ export function GeneratedWorkflowSnakefilePreview({
   );
 }
 
-function rulePreviewLines({ node, tool }: { node: GeneratedWorkflowGraphNode; tool: AddedTool | undefined }): string[] {
+export function GeneratedWorkflowGraphSnakefilePreview({
+  draft,
+  tools,
+}: {
+  draft: GeneratedWorkflowGraphDraft;
+  tools: AddedTool[];
+}) {
+  const lines = graphPreviewLines({ draft, tools });
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-3">
+      <div className="mb-2 text-[11px] font-semibold uppercase text-slate-400">Workflow Snakefile preview</div>
+      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-100 bg-slate-950 px-3 py-2 font-mono text-[11px] leading-5 text-slate-100">
+        {lines.join("\n")}
+      </pre>
+    </div>
+  );
+}
+
+function graphPreviewLines({ draft, tools }: { draft: GeneratedWorkflowGraphDraft; tools: AddedTool[] }): string[] {
+  if (draft.nodes.length === 0) return ["# Add RuleSpec nodes to preview a Snakefile."];
+  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  const outputPaths = outputPathMap(draft, toolById);
+  const targets = exposedTargetPaths(draft, toolById, outputPaths);
+  const lines = ['configfile: "run-config.json"', "", "rule all:", "    input:"];
+  lines.push(...targets.map((target) => `        ${JSON.stringify(target)},`));
+  for (const node of draft.nodes) {
+    const tool = toolById.get(node.toolId);
+    lines.push(
+      "",
+      ...rulePreviewLines({
+        node,
+        tool,
+        inputPath: (input, index) => inputPathForRulePort(draft, outputPaths, node, input, index),
+        outputPath: (output, index) => outputPathForRulePort(draft, node, output, index),
+      })
+    );
+  }
+  return lines;
+}
+
+function rulePreviewLines({
+  inputPath,
+  node,
+  outputPath,
+  tool,
+}: {
+  inputPath?: (input: RuleInputSpec, index: number) => string;
+  node: GeneratedWorkflowGraphNode;
+  outputPath?: (output: RuleOutputSpec, index: number) => string;
+  tool: AddedTool | undefined;
+}): string[] {
   const template = readToolRuleTemplate(tool);
   const inputs = readRuleInputs(tool);
   const outputs = readRuleOutputs(tool);
@@ -39,11 +91,11 @@ function rulePreviewLines({ node, tool }: { node: GeneratedWorkflowGraphNode; to
   const lines = [`rule ${safeSnakemakeName(node.id)}:`];
   lines.push("    input:");
   lines.push(
-    ...inputs.map((input, index) => `        ${safeSnakemakeName(input.name)}=${quotePreviewPath(input.name, "input", index)},`)
+    ...inputs.map((input, index) => `        ${safeSnakemakeName(input.name)}=${JSON.stringify(inputPath?.(input, index) || input.name)},`)
   );
   lines.push("    output:");
   lines.push(
-    ...outputs.map((output, index) => `        ${safeSnakemakeName(output.name)}=${renderOutputValue(output, index)},`)
+    ...outputs.map((output, index) => `        ${safeSnakemakeName(output.name)}=${renderOutputValue(output, index, outputPath?.(output, index))},`)
   );
   const paramLines = params.map(
     (param) => `        ${safeSnakemakeName(param.name)}=${JSON.stringify(node.params[param.name] ?? param.default ?? "")},`
@@ -84,12 +136,68 @@ function rulePreviewLines({ node, tool }: { node: GeneratedWorkflowGraphNode; to
   return lines;
 }
 
-function renderOutputValue(output: RuleOutputSpec, index: number) {
-  let rendered = quotePreviewPath(output.path || `${output.name || `output_${index + 1}`}.dat`, "output", index);
+function renderOutputValue(output: RuleOutputSpec, index: number, pathOverride = "") {
+  let rendered = JSON.stringify(pathOverride || output.path || `${output.name || `output_${index + 1}`}.dat`);
   if (output.directory === true) rendered = `directory(${rendered})`;
   if (output.protected === true) rendered = `protected(${rendered})`;
   if (output.temp === true) rendered = `temp(${rendered})`;
   return rendered;
+}
+
+function inputPathForRulePort(
+  draft: GeneratedWorkflowGraphDraft,
+  outputPaths: Map<string, string>,
+  node: GeneratedWorkflowGraphNode,
+  input: RuleInputSpec,
+  index: number
+) {
+  const edge = draft.edges.find((item) => item.to.nodeId === node.id && item.to.port === input.name);
+  if (edge) return outputPaths.get(portKey(edge.from.nodeId, edge.from.port)) || `results/${edge.from.nodeId}/${edge.from.port}`;
+  const binding = node.inputs[input.name];
+  if (typeof binding === "string") return binding || `inputs/${input.name || index + 1}`;
+  if (binding && "fromUpload" in binding) return `inputs/upload_${binding.fromUpload + 1}`;
+  if (binding && "fromInput" in binding) return `inputs/${binding.fromInput}`;
+  return `inputs/${input.name || index + 1}`;
+}
+
+function outputPathMap(draft: GeneratedWorkflowGraphDraft, toolById: Map<string, AddedTool>) {
+  const outputPaths = new Map<string, string>();
+  for (const node of draft.nodes) {
+    for (const [index, output] of readRuleOutputs(toolById.get(node.toolId)).entries()) {
+      outputPaths.set(portKey(node.id, output.name), outputPathForRulePort(draft, node, output, index));
+    }
+  }
+  return outputPaths;
+}
+
+function outputPathForRulePort(draft: GeneratedWorkflowGraphDraft, node: GeneratedWorkflowGraphNode, output: RuleOutputSpec, index: number) {
+  const rawPath = output.path || `${output.name || `output_${index + 1}`}.dat`;
+  if (draft.nodes.length <= 1) return rawPath;
+  const parts = rawPath.replace(/\\/g, "/").split("/");
+  const filename = parts.pop() || rawPath;
+  return [...parts, `${safeSnakemakeName(node.id)}-${filename}`].filter(Boolean).join("/");
+}
+
+function exposedTargetPaths(
+  draft: GeneratedWorkflowGraphDraft,
+  toolById: Map<string, AddedTool>,
+  outputPaths: Map<string, string>
+) {
+  if (draft.exposeOutputs.length > 0) {
+    return draft.exposeOutputs.map((output) => outputPaths.get(portKey(output.fromStep, output.output)) || output.output);
+  }
+  const consumed = new Set(draft.edges.map((edge) => portKey(edge.from.nodeId, edge.from.port)));
+  const leafTargets = draft.nodes.flatMap((node) =>
+    readRuleOutputs(toolById.get(node.toolId))
+      .map((output) => ({ output, path: outputPaths.get(portKey(node.id, output.name)) || output.name }))
+      .filter(({ output }) => !consumed.has(portKey(node.id, output.name)))
+      .map(({ path }) => path)
+  );
+  return leafTargets.length > 0 ? leafTargets : Array.from(outputPaths.values()).slice(-1);
+}
+
+function portKey(nodeId: string, port: string) {
+  return `${nodeId}.${port}`;
 }
 
 function runtimePreviewItems(template: Record<string, unknown>, runtime: GeneratedWorkflowStepRuntime) {
@@ -127,11 +235,6 @@ function normalizeLogPreview(raw: unknown): Record<string, string> {
       .map(([name, value]) => [name.trim(), stringValue(value)] as const)
       .filter(([name, value]) => Boolean(name && value))
   );
-}
-
-function quotePreviewPath(value: string, direction: "input" | "output", index: number) {
-  const fallback = direction === "input" ? `inputs/${index + 1}.dat` : `results/${index + 1}.dat`;
-  return JSON.stringify(value || fallback);
 }
 
 function hasCondaEnvironment(template: Record<string, unknown>) {
