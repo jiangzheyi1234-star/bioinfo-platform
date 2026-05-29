@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import type { AddedTool } from "./tools-page-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
-import { readRuleInputs, readRuleOutputs } from "./generated-workflow-model";
+import { readRuleInputs, readRuleOutputs, type GeneratedWorkflowValidationIssue } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 
 type GraphNode = GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
@@ -16,12 +16,14 @@ export function GeneratedWorkflowGraphCanvas({
   onSelectNode,
   selectedNodeId,
   tools,
+  validationIssues,
 }: {
   edges: GraphEdge[];
   nodes: GraphNode[];
   onSelectNode: (nodeId: string) => void;
   selectedNodeId: string;
   tools: AddedTool[];
+  validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
   const toolById = useMemo(() => new Map(tools.map((tool) => [tool.id, tool])), [tools]);
   if (nodes.length === 0) {
@@ -41,6 +43,7 @@ export function GeneratedWorkflowGraphCanvas({
               onSelect={() => onSelectNode(node.id)}
               selected={selected}
               tool={toolById.get(node.toolId)}
+              validationIssues={validationIssues.filter((issue) => issue.stepId === node.id)}
             />
           );
         })}

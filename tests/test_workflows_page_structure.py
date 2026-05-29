@@ -276,6 +276,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "defaultBinding(nextType, compatibleOutputCandidates)" in port_bindings_editor_ui
     assert "manualOnlyCandidate" in port_bindings_editor_ui
     assert "RuleGraphNodeCard" in graph_canvas_ui
+    assert "validationIssues={validationIssues" in graph_canvas_ui
+    assert "validationIssues={builder.validation.errors}" in builder_ui
     assert "GeneratedWorkflowGraphCanvas" in builder_ui
     assert "export function GeneratedWorkflowGraphCanvas" in graph_canvas_ui
     assert "WorkflowGraphEdgeLayer" in graph_canvas_ui
@@ -294,6 +296,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "function RuleGraphNodeCard" not in builder_ui
     assert "export function RuleGraphNodeCard" in graph_node_ui
     assert "RulePortColumn" in graph_node_ui
+    assert "GeneratedWorkflowValidationIssue" in graph_node_ui
+    assert "unknownInputIssues" in graph_node_ui
+    assert "data-port-error" in graph_node_ui
+    assert "data-node-state" in graph_node_ui
+    assert "未知输入端口" in graph_node_ui
     assert "portBindingState" in graph_node_ui
     assert "outputFanoutCount" in graph_node_ui
     assert "data-port-state" in graph_node_ui
