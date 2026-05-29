@@ -40,6 +40,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
+    command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
     port_contract_path = COMPONENTS / "generated-workflow-port-contract.ts"
     runtime_contract_path = COMPONENTS / "generated-workflow-runtime-contract.ts"
@@ -57,6 +58,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert ui_path.exists()
     assert graph_node_path.exists()
     assert node_settings_path.exists()
+    assert command_contract_path.exists()
     assert param_contract_path.exists()
     assert port_contract_path.exists()
     assert runtime_contract_path.exists()
@@ -69,6 +71,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     builder_ui = ui_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
+    command_contract = command_contract_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
     port_contract = port_contract_path.read_text(encoding="utf-8")
     runtime_contract = runtime_contract_path.read_text(encoding="utf-8")
@@ -121,6 +124,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
     assert "outputIsExposable" in model
     assert "validateDefaultExposedOutputs" in model
+    assert "validateStepCommandPortBindings" in model
+    assert "commandPortReferences" in command_contract
+    assert "WORKFLOW_STEP_INPUT_TOKEN_UNKNOWN" in command_contract
+    assert "WORKFLOW_STEP_OUTPUT_TOKEN_UNKNOWN" in command_contract
     assert "validateStepParamBindings" in model
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract
