@@ -576,6 +576,60 @@ def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypat
     assert run_config["workflow"]["steps"][0]["params"]["limit"] == 5
 
 
+def test_generated_workflow_renders_step_params_directive(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::params-directive",
+            "name": "params-directive",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "head -n {params.limit} {input.primary:q} > {output.filtered:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "filtered", "path": "filtered.txt", "kind": "log", "mimeType": "text/plain"}],
+                "params": {"limit": {"type": "integer", "default": 3}},
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+    reads = tmp_path / "reads.txt"
+    reads.write_text("ACGT\n", encoding="utf-8")
+
+    generated = prepare_generated_tool_workflow(
+        cfg,
+        run_id="run_generated_params_directive",
+        request_id="req_generated_params_directive",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "workflow": {
+                "steps": [
+                    {
+                        "id": "filter_reads",
+                        "tool": {"id": "conda-forge::params-directive"},
+                        "inputs": {"primary": {"fromInput": "reads"}},
+                        "params": {"limit": 5},
+                    }
+                ]
+            },
+        },
+        resolved_inputs=[{"path": str(reads), "role": "reads", "filename": "reads.txt"}],
+        work_dir=tmp_path / "work",
+        result_dir=tmp_path / "results",
+    )
+
+    snakefile = generated.snakefile.read_text(encoding="utf-8")
+
+    assert "    params:\n        limit=5,\n" in snakefile
+
+
 def test_generated_workflow_renders_runtime_directives(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

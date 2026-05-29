@@ -13,6 +13,7 @@ from .rule_command import command_param_names, validate_command_input_tokens_bou
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
 from .rule_outputs import output_artifact_flags, render_rule_output_lines, validate_exposed_output_spec
+from .rule_params import render_rule_param_lines
 from .rule_templates import rule_template_candidate_entries
 from .rule_runtime import (
     RuleRuntimeDirectives,
@@ -25,7 +26,6 @@ from .rule_runtime import (
 from .storage import fetch_tool
 from .tools import normalize_rule_template
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
-
 
 GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1"
 GENERATED_TOOL_RUN_VERSION = "0.1.0"
@@ -693,7 +693,7 @@ def _render_snakefile(
     for step in steps:
         wrapper = str(step.rule_template.get("wrapper") or "").strip()
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
-        output_lines = render_rule_output_lines(step.outputs, step.rule_template)
+        output_lines = render_rule_output_lines(step.outputs, step.rule_template) + render_rule_param_lines(step.params)
         runtime_lines = render_runtime_directives(step.runtime)
         log_mkdir_lines = "".join(
             f"        mkdir -p {shlex.quote(path)}\n"
