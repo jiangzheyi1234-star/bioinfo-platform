@@ -50,6 +50,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
     runtime_editor_path = COMPONENTS / "generated-workflow-runtime-editor.tsx"
+    port_bindings_editor_path = COMPONENTS / "generated-workflow-port-bindings-editor.tsx"
     page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     page_hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -71,6 +72,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert rule_spec_panel_path.exists()
     assert step_params_editor_path.exists()
     assert runtime_editor_path.exists()
+    assert port_bindings_editor_path.exists()
 
     model = model_path.read_text(encoding="utf-8")
     builder_hook = hook_path.read_text(encoding="utf-8")
@@ -87,6 +89,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
     runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
+    port_bindings_editor_ui = port_bindings_editor_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
     assert "GENERATED_WORKFLOW_RULE_CONTRACT_VERSION" in model
@@ -250,6 +253,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "wrapper:" in snakefile_preview_ui
     assert "conda:" in snakefile_preview_ui
     assert "GeneratedWorkflowRuntimeEditor" in builder_ui
+    assert "GeneratedWorkflowPortBindingsEditor" in builder_ui
+    assert "function PortBindingsEditor" not in builder_ui
+    assert "export function GeneratedWorkflowPortBindingsEditor" in port_bindings_editor_ui
+    assert "PortBindingRow" in port_bindings_editor_ui
+    assert "PortBindingValueEditor" in port_bindings_editor_ui
+    assert "defaultBinding(nextType, compatibleOutputCandidates)" in port_bindings_editor_ui
+    assert "manualOnlyCandidate" in port_bindings_editor_ui
     assert "RuleGraphNodeCard" in builder_ui
     assert "edges={edges}" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui
@@ -289,14 +299,14 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "RuleSpec 节点" in builder_ui
     assert "运行环境" in builder_ui
     assert "Inspector" in builder_ui
-    assert "PortBindingsEditor" in builder_ui
+    assert "GeneratedWorkflowPortBindingsEditor" in builder_ui
     assert "function InputBindingRow" not in builder_ui
     assert "builder.draft.steps.map((step, index)" not in builder_ui
     assert "Step {index + 1}" not in builder_ui
     assert "inputCount={inputCount}" in builder_ui
-    assert "上传文件" in builder_ui
-    assert "输入 role" in builder_ui
-    assert "直接路径" in builder_ui
+    assert "上传文件" in port_bindings_editor_ui
+    assert "输入 role" in port_bindings_editor_ui
+    assert "直接路径" in port_bindings_editor_ui
     assert "removeGraphEdge" in builder_ui
     assert "builder.removeStep(selectedNode.id)" in builder_ui
     assert "删除节点" in builder_ui
@@ -304,29 +314,28 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "EdgeAuditBadge" in builder_ui
     assert "自动推荐" in builder_ui
     assert "手动连接" in builder_ui
-    assert "edgeForInput" in builder_ui
-    assert "compatibleOutputCandidates" in builder_ui
-    assert "recommendedOutputCandidates" in builder_ui
-    assert "defaultBinding(nextType, compatibleOutputCandidates)" in builder_ui
-    assert "candidate.recommendation?.decision === \"recommended\"" in builder_ui
-    assert "compatibilityReason" in builder_ui
-    assert "explainPortRecommendation" in builder_ui
-    assert "recommendation.evidence" in builder_ui
-    assert "recommendation.confidence" in builder_ui
-    assert "推荐原因" in builder_ui
-    assert "推荐证据" in builder_ui
-    assert "手动连接提示" in builder_ui
-    assert "confidence" in builder_ui
-    assert "compatibilityScore" in builder_ui
-    assert "应用推荐" in builder_ui
-    assert "autoEdgeAudit(recommended.recommendation)" in builder_ui
-    assert "（推荐）" in builder_ui
-    assert "解绑" in builder_ui
-    assert "Select" in builder_ui
+    assert "edgeForInput" in port_bindings_editor_ui
+    assert "compatibleOutputCandidates" in port_bindings_editor_ui
+    assert "recommendedOutputCandidates" in port_bindings_editor_ui
+    assert "candidate.recommendation?.decision === \"recommended\"" in port_bindings_editor_ui
+    assert "compatibilityReason" in port_bindings_editor_ui
+    assert "explainPortRecommendation" in port_bindings_editor_ui
+    assert "recommendation.evidence" in port_bindings_editor_ui
+    assert "recommendation.confidence" in port_bindings_editor_ui
+    assert "推荐原因" in port_bindings_editor_ui
+    assert "推荐证据" in port_bindings_editor_ui
+    assert "手动连接提示" in port_bindings_editor_ui
+    assert "confidence" in port_bindings_editor_ui
+    assert "compatibilityScore" in port_bindings_editor_ui
+    assert "应用推荐" in port_bindings_editor_ui
+    assert "autoEdgeAudit(recommended.recommendation)" in port_bindings_editor_ui
+    assert "（推荐）" in port_bindings_editor_ui
+    assert "解绑" in port_bindings_editor_ui
+    assert "Select" in port_bindings_editor_ui
     assert "Alert" in builder_ui
     assert "fromStep" in builder_ui
-    assert "portsCompatible" in builder_ui
-    assert "不兼容" in builder_ui
+    assert "portsCompatible" in port_bindings_editor_ui
+    assert "不兼容" in port_bindings_editor_ui
     assert "exposeOutputs" in builder_ui
 
     assert "buildGeneratedRunSpec" not in page_model
