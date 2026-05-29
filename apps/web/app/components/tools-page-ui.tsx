@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { RuleSpecDraft, ToolSearchItem } from "./tools-page-model";
+import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
 export function SourceBadge({ source, label }: { source: string; label: string }) {
   return (
@@ -73,22 +74,16 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
 }
 
 export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
-  const template = ruleTemplateForItem(item);
-  const inputs = Array.isArray(template.inputs) ? template.inputs.length : 0;
-  const outputs = Array.isArray(template.outputs) ? template.outputs.length : 0;
-  const params = template.params && typeof template.params === "object" && !Array.isArray(template.params)
-    ? Object.keys(template.params).length
-    : 0;
-  const hasRuleSpec = Boolean(template.commandTemplate || template.wrapper || template.script || template.module || inputs > 0 || outputs > 0 || params > 0);
+  const readiness = ruleSpecReadinessForTool(item);
   return (
     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
       <Workflow strokeWidth={1.5} className="h-3 w-3 text-slate-400" />
-      <span>{hasRuleSpec ? "RuleSpec" : "RuleSpec 待补全"}</span>
-      <span>{inputs} in</span>
+      <span>{readiness.label}</span>
+      <span>{readiness.inputs} in</span>
       <span>/</span>
-      <span>{outputs} out</span>
+      <span>{readiness.outputs} out</span>
       <span>/</span>
-      <span>{params} params</span>
+      <span>{readiness.params} params</span>
     </div>
   );
 }
@@ -176,20 +171,7 @@ function outputSemanticTags(port: Record<string, unknown>) {
 }
 
 function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
-  const manifest = (item.ruleTemplate || {}) as Record<string, unknown>;
-  const draft = (item.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
-  if (hasRuleAction(manifest)) return manifest;
-  if (hasRuleAction(draft)) return draft;
-  return Object.keys(manifest).length > 0 ? manifest : draft;
-}
-
-function hasRuleAction(template: Record<string, unknown>) {
-  return Boolean(
-    stringValue(template.commandTemplate) ||
-    stringValue(template.wrapper) ||
-    stringValue(template.script) ||
-    Object.keys(recordValue(template.module)).length > 0
-  );
+  return displayRuleTemplateForTool(item);
 }
 
 function recordValue(raw: unknown): Record<string, unknown> {
@@ -365,7 +347,7 @@ function SnakemakeWrapperPreview({
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div className="text-[11px] uppercase text-slate-400">Snakemake wrapper</div>
-        <div className="mt-1 text-xs leading-5 text-slate-500">未命中同名官方 wrapper；可作为 shell RuleSpec 节点使用。</div>
+        <div className="mt-1 text-xs leading-5 text-slate-500">未命中同名官方 wrapper；可先加入工具库，补全 RuleSpec 后用于流程。</div>
       </div>
     );
   }
@@ -446,7 +428,7 @@ function RuleSpecContractPreview({ item }: { item: ToolSearchItem }) {
   const params = ruleSpecParamItems(template);
   const resources = ruleSpecResourceItems(template);
   const environment = ruleSpecEnvironmentItems(template);
-  const hasContract = Boolean(action || params.length > 0 || resources.length > 0 || environment.length > 0);
+  const hasContract = Boolean(hasRuleAction(template) || params.length > 0 || resources.length > 0 || environment.length > 0);
   if (!hasContract) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">

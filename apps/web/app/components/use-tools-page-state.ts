@@ -19,6 +19,7 @@ import {
   searchErrorMessage,
   toolErrorMessage,
 } from "./tools-page-model";
+import { withCuratedRuleTemplate } from "./tool-rule-readiness";
 
 export function useToolsPageState() {
   const [view, setView] = useState<"library" | "search">("library");
@@ -153,12 +154,12 @@ export function useToolsPageState() {
       }
       return;
     }
-    const nextTool: AddedTool = {
+    const nextTool = withCuratedRuleTemplate<AddedTool>({
       ...selected,
       selectedVersion,
       selectedPackageSpec,
       packageSpec: selectedPackageSpec,
-    };
+    });
     void (async () => {
       setToolsError("");
       try {

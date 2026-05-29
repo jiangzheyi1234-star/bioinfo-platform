@@ -12,11 +12,16 @@ def rule_template_candidate_entries(tool: dict[str, Any], tool_request: dict[str
     for owner in [tool, tool_request]:
         draft = owner.get("ruleSpecDraft")
         rule_spec_draft = draft if isinstance(draft, dict) else {}
+        confirmed_draft = {} if bool(rule_spec_draft.get("requiresUserCompletion")) else rule_spec_draft
         template = owner.get("ruleTemplate")
         if isinstance(template, dict) and has_rule_action(template):
-            candidates.append({"template": template, "ruleSpecDraft": rule_spec_draft})
+            candidates.append({"template": template, "ruleSpecDraft": confirmed_draft})
         draft_template = rule_spec_draft.get("ruleTemplate")
-        if isinstance(draft_template, dict) and has_rule_action(draft_template):
+        if (
+            isinstance(draft_template, dict)
+            and has_rule_action(draft_template)
+            and not bool(rule_spec_draft.get("requiresUserCompletion"))
+        ):
             candidates.append({"template": draft_template, "ruleSpecDraft": rule_spec_draft})
     return candidates
 

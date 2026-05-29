@@ -31,6 +31,7 @@ import {
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
+import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
 type GeneratedWorkflowBuilderProps = {
   builder: GeneratedWorkflowBuilderController;
@@ -45,8 +46,9 @@ export function GeneratedWorkflowBuilder({
   availableDatabases,
   inputCount,
 }: GeneratedWorkflowBuilderProps) {
-  const firstTool = tools[0];
-  const outputCandidates = buildOutputCandidates(builder.draft.steps, tools);
+  const workflowReadyTools = tools.filter((tool) => ruleSpecReadinessForTool(tool).workflowReady);
+  const firstTool = workflowReadyTools[0];
+  const outputCandidates = buildOutputCandidates(builder.draft.steps, workflowReadyTools);
 
   return (
     <div className="space-y-5 border-t border-slate-100 px-5 py-5">
@@ -85,7 +87,7 @@ export function GeneratedWorkflowBuilder({
         edges={builder.graphDraft.edges}
         inputCount={inputCount}
         outputCandidates={outputCandidates}
-        tools={tools}
+        tools={workflowReadyTools}
       />
 
       <OutputExposureEditor builder={builder} outputCandidates={outputCandidates} />
@@ -135,7 +137,9 @@ function WorkflowGraphWorkbench({
         <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-2">
           <div className="mb-2 px-1 text-[11px] font-semibold text-slate-400">工具库</div>
           <div className="grid gap-1.5">
-            {tools.map((tool) => (
+            {tools.length === 0 ? (
+              <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">没有可加入流程的工具。</div>
+            ) : tools.map((tool) => (
               <RulePaletteCard
                 key={tool.id}
                 tool={tool}
@@ -462,20 +466,7 @@ function ruleEnvironmentLabelForTool(tool: AddedTool) {
 }
 
 function ruleTemplateForPaletteTool(tool: AddedTool): Record<string, unknown> {
-  const manifest = (tool.ruleTemplate || {}) as Record<string, unknown>;
-  const draft = (tool.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
-  if (hasPaletteRuleAction(manifest)) return manifest;
-  if (hasPaletteRuleAction(draft)) return draft;
-  return Object.keys(manifest).length > 0 ? manifest : draft;
-}
-
-function hasPaletteRuleAction(template: Record<string, unknown>) {
-  return Boolean(
-    stringValue(template.commandTemplate) ||
-    stringValue(template.wrapper) ||
-    stringValue(template.script) ||
-    Object.keys(recordValue(template.module)).length > 0
-  );
+  return displayRuleTemplateForTool(tool);
 }
 
 function recordValue(raw: unknown): Record<string, unknown> {

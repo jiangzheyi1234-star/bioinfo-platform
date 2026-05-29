@@ -13,6 +13,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     library = (COMPONENTS / "tools-page-library-section.tsx").read_text(encoding="utf-8")
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
     editor = (COMPONENTS / "tools-page-rule-spec-editor.tsx").read_text(encoding="utf-8")
+    readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
 
@@ -57,10 +58,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "保存 RuleSpec" in editor
     assert "RuleSpec JSON" in editor
     assert "starterRuleTemplateForKnownTool" in editor
-    assert "fastqc" in editor
-    assert "--outdir {output.qc_dir:q}" in editor
-    assert "directory: true" in editor
-    assert "qc_dir" in editor
+    assert "fastqc" in readiness
+    assert "--outdir {output.qc_dir:q}" in readiness
+    assert "directory: true" in readiness
+    assert "qc_dir" in readiness
     assert "export function ToolSearchResults" in ui
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
@@ -79,9 +80,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "RuleSpecNodeReadinessBadge" in library
     assert "RuleSpecNodeStatusRow" in library
     assert "RuleSpecNodeStatusChip" in library
-    assert "ruleSpecNodeState" in library
-    assert "可运行" in library
-    assert "待补 action" in library
+    assert "ruleSpecReadinessForTool" in library
+    assert "可加入流程" in readiness
+    assert "待确认 RuleSpec" in readiness
+    assert "仅依赖" in readiness
     assert "Action" in library
     assert "Ports" in library
     assert "Env" in library

@@ -6,6 +6,7 @@ import { Loader2, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import type { AddedTool, RuleSpecTemplate } from "./tools-page-model";
+import { starterRuleTemplateForKnownTool } from "./tool-rule-readiness";
 
 export function ToolRuleSpecEditor({
   error,
@@ -83,35 +84,6 @@ function starterRuleTemplate(tool: AddedTool): RuleSpecTemplate {
     commandTemplate: `${tool.name || "tool"} {input.primary:q} > {output.report:q}`,
     inputs: [{ name: "primary", type: "file", required: true }],
     outputs: [{ name: "report", path: `results/${name}-report.txt`, kind: "report", mimeType: "text/plain" }],
-    params: {},
-    resources: { threads: { default: 1 } },
-  };
-  if (packageSpec) {
-    template.environment = {
-      conda: {
-        channels: uniqueChannels(tool.source),
-        dependencies: [packageSpec],
-      },
-    };
-  }
-  return template;
-}
-
-function starterRuleTemplateForKnownTool(tool: AddedTool): RuleSpecTemplate | null {
-  const name = safeName(tool.name || "");
-  const packageSpec = (tool.selectedPackageSpec || tool.packageSpec || "").trim();
-  if (name !== "fastqc") return null;
-  const template: RuleSpecTemplate = {
-    commandTemplate: "mkdir -p {output.qc_dir:q} && fastqc {input.reads:q} --outdir {output.qc_dir:q}",
-    inputs: [{ name: "reads", type: "file", kind: "sequence", required: true }],
-    outputs: [
-      {
-        name: "qc_dir",
-        path: "results/fastqc",
-        kind: "report",
-        directory: true,
-      },
-    ],
     params: {},
     resources: { threads: { default: 1 } },
   };
