@@ -79,6 +79,7 @@ export function useToolsPageState() {
         setSearchTotal(response.total ?? nextItems.length);
         setSearchHasMore(Boolean(response.hasMore));
         setSearchComplete(response.complete !== false);
+        setError("");
         setSelectedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id || ""));
       } catch (err) {
         if (controller.signal.aborted) {

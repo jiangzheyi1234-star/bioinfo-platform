@@ -12,7 +12,7 @@ from .generated_workflow_graph import normalize_generated_workflow_run_spec, wor
 from .rule_command import command_param_names, validate_command_input_tokens_bound
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
-from .rule_outputs import output_artifact_flags, render_rule_output_lines, validate_exposed_output_spec
+from .rule_outputs import output_artifact_flags, output_spec_metadata, render_rule_output_lines, rule_output_metadata, validate_exposed_output_spec
 from .rule_params import render_rule_param_lines
 from .rule_templates import rule_template_candidate_entries
 from .rule_runtime import (
@@ -200,6 +200,7 @@ def prepare_generated_tool_workflow(
                             "tool": _config_tool(step),
                             "inputs": step.inputs,
                             "outputs": {name: str(path) for name, path in step.outputs.items()},
+                            "outputSpecs": rule_output_metadata(step.outputs, step.rule_template),
                             "params": step.params,
                             **runtime_config(step.runtime),
                         }
@@ -210,6 +211,7 @@ def prepare_generated_tool_workflow(
                             "step": str(binding["step"].step_id),
                             "output": str(binding["output"]),
                             "path": str(binding["path"]),
+                            **output_spec_metadata(dict(binding.get("spec") or {})),
                         }
                         for name, binding in exposed_outputs.items()
                     },

@@ -120,8 +120,17 @@ def test_search_bioconda_index_page_returns_total_before_slicing(tmp_path: Path)
     assert page["page"] == 2
     assert page["pageSize"] == 20
     assert page["hasMore"] is True
+    assert page["indexAvailable"] is True
     assert len(page["items"]) == 20
     assert page["items"][0]["name"] == "kraken-helper-20"
+
+
+def test_search_bioconda_index_page_reports_missing_index(tmp_path: Path) -> None:
+    page = bioconda_tool_index.search_bioconda_index_page("kraken", page=1, page_size=20, cache_dir=tmp_path / "cache")
+
+    assert page["items"] == []
+    assert page["total"] == 0
+    assert page["indexAvailable"] is False
 
 
 def test_tool_search_uses_bioconda_index_before_online_search(tmp_path: Path, monkeypatch) -> None:

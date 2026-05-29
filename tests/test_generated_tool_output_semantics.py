@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
@@ -166,19 +167,29 @@ def test_generated_workflow_renders_output_semantics(tmp_path: Path, monkeypatch
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
             "projectId": "proj_demo",
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "tool": {"id": "conda-forge::output-semantics"},
+            "workflow": {
+                "steps": [{"id": "run_tool", "tool": {"id": "conda-forge::output-semantics"}}],
+                "outputs": {"report": "run_tool.report"},
+            },
         },
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_output_semantics"
     snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
     artifacts = {item["key"]: item for item in collected["output_schema"]["artifacts"]}
+    output_specs = run_config["workflow"]["steps"][0]["outputSpecs"]
+    exposed_outputs = run_config["workflow"]["outputs"]
 
     assert "cache=temp(directory(" in snakefile
     assert "report=protected(" in snakefile
-    assert artifacts["cache"]["directory"] is True
-    assert artifacts["cache"]["temp"] is True
+    assert "cache" not in artifacts
     assert artifacts["report"]["protected"] is True
+    assert output_specs["cache"]["directory"] is True
+    assert output_specs["cache"]["temp"] is True
+    assert output_specs["cache"]["kind"] == "directory"
+    assert output_specs["report"]["protected"] is True
+    assert exposed_outputs["report"]["protected"] is True
 
 
 def test_generated_workflow_rejects_exposed_temp_outputs(tmp_path: Path) -> None:
