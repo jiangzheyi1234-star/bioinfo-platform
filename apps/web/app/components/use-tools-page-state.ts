@@ -156,7 +156,7 @@ export function useToolsPageState() {
         await loadAddedTools();
         setView("library");
       } catch (err) {
-        setToolsError(toolErrorMessage(err, "加入工具节点失败"));
+        setToolsError(toolErrorMessage(err, "加入工具失败"));
       }
     })();
   }

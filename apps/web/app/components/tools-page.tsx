@@ -20,17 +20,17 @@ export function ToolsPage() {
       <WorkflowWorkspaceTabs />
       <div className="mx-auto max-w-5xl space-y-6">
         <WorkflowPageHeader
-          title="工具节点库"
+          title="工具"
           actions={
             state.view === "library" ? (
               <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("search")}>
                 <Plus strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                添加工具节点
+                添加工具
               </Button>
             ) : (
               <Button variant="outline" className="h-9 bg-white px-3 text-slate-600" onClick={() => state.setView("library")}>
                 <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                返回节点库
+                返回工具库
               </Button>
             )
           }

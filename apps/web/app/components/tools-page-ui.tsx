@@ -271,7 +271,7 @@ export function ToolsLibrarySection({
   return (
     <section className="min-w-0">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-slate-900">规则节点库</h2>
+        <h2 className="text-sm font-medium text-slate-900">工具库</h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -293,7 +293,7 @@ export function ToolsLibrarySection({
           正在读取工具列表
         </div>
       ) : addedTools.length === 0 ? (
-        <div className="py-3 text-sm text-slate-400">还没有加入工具节点</div>
+        <div className="py-3 text-sm text-slate-400">还没有加入工具</div>
       ) : (
         <div className="grid grid-cols-1 gap-x-12 gap-y-2 md:grid-cols-2">
           {addedTools.map((tool) => (
@@ -381,7 +381,7 @@ export function ToolSearchResults({
           <div className="px-1 py-3 text-sm text-slate-400">输入至少 2 个字符开始搜索</div>
         ) : filtered.length === 0 ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
-            没有找到匹配工具节点
+            没有找到匹配工具
           </div>
         ) : (
           <>
@@ -652,7 +652,7 @@ export function ToolPreviewPanel({
 }) {
   return (
     <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40 min-[820px]:sticky min-[820px]:top-4 min-[820px]:self-start">
-      <h2 className="text-sm font-medium text-slate-900">工具节点预览</h2>
+      <h2 className="text-sm font-medium text-slate-900">工具预览</h2>
       {selected ? (
         <div className="mt-4 space-y-4">
           <div>
@@ -743,7 +743,7 @@ dependencies:
             disabled={!canAddSelected}
             onClick={onAdd}
           >
-            {selectedAlreadyAdded ? "已加入" : "加入工具节点"}
+            {selectedAlreadyAdded ? "已加入" : "加入工具"}
           </Button>
         </div>
       ) : (
