@@ -1,12 +1,12 @@
 "use client";
 
-import { Loader2, RefreshCw, Trash2, Workflow } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Trash2, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { AddedTool, RuleSpecTemplate } from "./tools-page-model";
-import { PlatformBadge, RuleNodeSummary, RulePortPreview, SourceBadge, WrapperBadge } from "./tools-page-ui";
+import { PlatformBadge, RulePortPreview, SourceBadge, WrapperBadge } from "./tools-page-ui";
 import { ToolRuleSpecEditor } from "./tools-page-rule-spec-editor";
 
 export function ToolsLibrarySection({
@@ -37,7 +37,7 @@ export function ToolsLibrarySection({
   return (
     <section className="min-w-0">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-slate-900">工具库</h2>
+        <h2 className="text-sm font-medium text-slate-900">规则节点库</h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -65,59 +65,219 @@ export function ToolsLibrarySection({
           {addedTools.map((tool) => {
             const editing = editingRuleSpecToolId === tool.id;
             return (
-              <div
+              <RuleSpecNodeCard
                 key={tool.id}
-                className="rounded-lg border border-transparent bg-white px-3 py-3 transition-colors hover:border-slate-200 hover:bg-slate-50"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <h3 className="min-w-0 truncate text-sm font-medium text-slate-800">{tool.name}</h3>
-                      <SourceBadge source={tool.source} label={tool.sourceLabel} />
-                      <PlatformBadge item={tool} />
-                      <WrapperBadge item={tool} />
-                    </div>
-                    <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
-                    <RuleNodeSummary item={tool} />
-                    <RulePortPreview item={tool} compact />
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-slate-400 hover:bg-white hover:text-blue-600"
-                      onClick={() => onEditRuleSpec(tool.id)}
-                      title="补全 RuleSpec"
-                    >
-                      <Workflow strokeWidth={1.5} className="h-3.5 w-3.5" />
-                      <span className="sr-only">补全 RuleSpec</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-slate-400 hover:bg-white hover:text-red-600"
-                      onClick={() => onRemove(tool.id)}
-                      title="移除"
-                    >
-                      <Trash2 strokeWidth={1.5} className="h-3.5 w-3.5" />
-                      <span className="sr-only">移除</span>
-                    </Button>
-                  </div>
-                </div>
-                {editing ? (
-                  <ToolRuleSpecEditor
-                    error={ruleSpecEditError}
-                    saving={ruleSpecSavingId === tool.id}
-                    tool={tool}
-                    onCancel={onCancelRuleSpecEdit}
-                    onSave={(ruleTemplate) => onSaveRuleSpec(tool.id, ruleTemplate)}
-                  />
-                ) : null}
-              </div>
+                editing={editing}
+                ruleSpecEditError={ruleSpecEditError}
+                ruleSpecSaving={ruleSpecSavingId === tool.id}
+                tool={tool}
+                onCancelRuleSpecEdit={onCancelRuleSpecEdit}
+                onEditRuleSpec={() => onEditRuleSpec(tool.id)}
+                onRemove={() => onRemove(tool.id)}
+                onSaveRuleSpec={(ruleTemplate) => onSaveRuleSpec(tool.id, ruleTemplate)}
+              />
             );
           })}
         </div>
       )}
     </section>
   );
+}
+
+function RuleSpecNodeCard({
+  editing,
+  ruleSpecEditError,
+  ruleSpecSaving,
+  tool,
+  onCancelRuleSpecEdit,
+  onEditRuleSpec,
+  onRemove,
+  onSaveRuleSpec,
+}: {
+  editing: boolean;
+  ruleSpecEditError: string;
+  ruleSpecSaving: boolean;
+  tool: AddedTool;
+  onCancelRuleSpecEdit: () => void;
+  onEditRuleSpec: () => void;
+  onRemove: () => void;
+  onSaveRuleSpec: (ruleTemplate: RuleSpecTemplate) => void;
+}) {
+  const state = ruleSpecNodeState(tool);
+  return (
+    <article
+      data-node-state={state.kind}
+      className="rounded-lg border border-slate-200 bg-white px-3 py-3 transition-colors hover:border-blue-200 hover:bg-blue-50/30 sm:px-4"
+    >
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h3 className="min-w-0 truncate text-sm font-medium text-slate-900">{tool.name}</h3>
+            <RuleSpecNodeReadinessBadge state={state} />
+            <SourceBadge source={tool.source} label={tool.sourceLabel} />
+            <PlatformBadge item={tool} />
+            <WrapperBadge item={tool} />
+          </div>
+          <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:bg-white hover:text-blue-600"
+            onClick={onEditRuleSpec}
+            title="补全 RuleSpec"
+          >
+            <Workflow strokeWidth={1.5} className="h-3.5 w-3.5" />
+            <span className="sr-only">补全 RuleSpec</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:bg-white hover:text-red-600"
+            onClick={onRemove}
+            title="移除"
+          >
+            <Trash2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+            <span className="sr-only">移除</span>
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <RuleSpecNodeFact label="Action" value={state.actionLabel} muted={!state.hasAction} />
+        <RuleSpecNodeFact label="Ports" value={`${state.inputs} in / ${state.outputs} out`} detail={`${state.params} params`} />
+        <RuleSpecNodeFact label="Env" value={state.envLabel} muted={!state.hasEnv} />
+      </div>
+
+      <RulePortPreview item={tool} compact />
+
+      {editing ? (
+        <ToolRuleSpecEditor
+          error={ruleSpecEditError}
+          saving={ruleSpecSaving}
+          tool={tool}
+          onCancel={onCancelRuleSpecEdit}
+          onSave={onSaveRuleSpec}
+        />
+      ) : null}
+    </article>
+  );
+}
+
+function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] leading-none",
+        state.kind === "ready"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-amber-200 bg-amber-50 text-amber-700"
+      )}
+    >
+      {state.kind === "ready" ? <CheckCircle2 strokeWidth={1.5} className="mr-1 h-3 w-3" /> : null}
+      {state.label}
+    </span>
+  );
+}
+
+function RuleSpecNodeFact({
+  detail,
+  label,
+  muted,
+  value,
+}: {
+  detail?: string;
+  label: string;
+  muted?: boolean;
+  value: string;
+}) {
+  return (
+    <div className={cn("min-w-0 rounded-md border px-2 py-2", muted ? "border-amber-100 bg-amber-50/60" : "border-slate-200 bg-slate-50")}>
+      <div className="text-[10px] font-medium uppercase leading-none text-slate-400">{label}</div>
+      <div className={cn("mt-1 truncate text-xs font-medium", muted ? "text-amber-700" : "text-slate-700")}>{value}</div>
+      {detail ? <div className="mt-0.5 truncate text-[11px] text-slate-400">{detail}</div> : null}
+    </div>
+  );
+}
+
+type RuleSpecNodeState = {
+  actionLabel: string;
+  envLabel: string;
+  hasAction: boolean;
+  hasEnv: boolean;
+  inputs: number;
+  kind: "ready" | "missing-action" | "missing-env";
+  label: "可运行" | "待补 action" | "待补 env";
+  outputs: number;
+  params: number;
+};
+
+function ruleSpecNodeState(tool: AddedTool): RuleSpecNodeState {
+  const template = ruleTemplateForLibraryTool(tool);
+  const actionLabel = ruleSpecActionLabel(template);
+  const inputs = template.inputs?.length || 0;
+  const outputs = template.outputs?.length || 0;
+  const params = template.params ? Object.keys(template.params).length : 0;
+  const dependencies = template.environment?.conda?.dependencies || [];
+  const hasEnv = dependencies.length > 0 || Boolean(tool.selectedPackageSpec || tool.packageSpec);
+  if (!actionLabel) {
+    return {
+      actionLabel: "待补 action",
+      envLabel: environmentLabel(tool, dependencies),
+      hasAction: false,
+      hasEnv,
+      inputs,
+      kind: "missing-action",
+      label: "待补 action",
+      outputs,
+      params,
+    };
+  }
+  if (!hasEnv) {
+    return {
+      actionLabel,
+      envLabel: "待补 env",
+      hasAction: true,
+      hasEnv: false,
+      inputs,
+      kind: "missing-env",
+      label: "待补 env",
+      outputs,
+      params,
+    };
+  }
+  return {
+    actionLabel,
+    envLabel: environmentLabel(tool, dependencies),
+    hasAction: true,
+    hasEnv: true,
+    inputs,
+    kind: "ready",
+    label: "可运行",
+    outputs,
+    params,
+  };
+}
+
+function ruleTemplateForLibraryTool(tool: AddedTool): RuleSpecTemplate {
+  const manifest = tool.ruleTemplate || {};
+  const draft = tool.ruleSpecDraft?.ruleTemplate || {};
+  if (ruleSpecActionLabel(manifest)) return manifest;
+  if (ruleSpecActionLabel(draft)) return draft;
+  return Object.keys(manifest).length > 0 ? manifest : draft;
+}
+
+function ruleSpecActionLabel(template: RuleSpecTemplate) {
+  if (template.wrapper) return "wrapper";
+  if (template.commandTemplate) return "command";
+  if (template.script) return "script";
+  if (template.module) return "module";
+  return "";
+}
+
+function environmentLabel(tool: AddedTool, dependencies: string[]) {
+  if (dependencies.length > 1) return `${dependencies.length} deps`;
+  if (dependencies.length === 1) return dependencies[0];
+  return tool.selectedPackageSpec || tool.packageSpec || "待补 env";
 }
