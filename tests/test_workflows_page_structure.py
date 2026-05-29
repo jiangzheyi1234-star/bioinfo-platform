@@ -88,6 +88,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "temp?: boolean" in model
     assert "protected?: boolean" in model
     assert "directory?: boolean" in model
+    assert "path?: string" in model
     assert "readOutputSemantics" in model
     assert "outputSemanticTags" in model
     assert "createGeneratedWorkflowGraphDraft" in model
@@ -122,6 +123,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
+    assert "WORKFLOW_STEP_OUTPUT_PATH_REQUIRED" in model
     assert "outputIsExposable" in model
     assert "validateDefaultExposedOutputs" in model
     assert "validateStepCommandPortBindings" in model
@@ -131,6 +133,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateStepParamBindings" in model
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract
+    assert "describePortCompatibility" in port_contract
     assert "runSpec.workflow = {" in model
     assert "contractVersion:" in model
     assert "nodes: draft.nodes.map" in model
@@ -222,6 +225,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "删除连线" in builder_ui
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
+    assert "compatibilityReason" in builder_ui
+    assert "推荐原因" in builder_ui
     assert "compatibilityScore" in builder_ui
     assert "应用推荐" in builder_ui
     assert "（推荐）" in builder_ui

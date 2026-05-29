@@ -22,6 +22,7 @@ import {
   type RuleInputSpec,
   type RuleOutputSpec,
 } from "./generated-workflow-model";
+import { describePortCompatibility } from "./generated-workflow-port-contract";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-panel";
@@ -302,6 +303,7 @@ function PortBindingsEditor({
           .map((candidate) => ({
             ...candidate,
             compatible: portsCompatible(input, candidate.port),
+            compatibilityReason: describePortCompatibility(input, candidate.port),
             compatibilityScore: portCompatibilityScore(input, candidate.port),
           }));
         return (
@@ -326,6 +328,7 @@ type OutputCandidate = {
   output: string;
   port: RuleOutputSpec;
   compatible?: boolean;
+  compatibilityReason?: string;
   compatibilityScore?: number | null;
 };
 
@@ -394,6 +397,9 @@ function PortBindingRow({
           onChange={onChange}
         />
       </div>
+      {recommended?.compatibilityReason ? (
+        <div className="truncate text-[11px] text-slate-500">推荐原因: {recommended.compatibilityReason}</div>
+      ) : null}
     </div>
   );
 }
@@ -433,8 +439,10 @@ function PortBindingValueEditor({
           {rankedCandidates.map((candidate) => (
             <SelectItem key={candidate.value} value={candidate.value} disabled={candidate.compatible === false}>
               {candidate.compatible === false
-                ? `${candidate.label}（不兼容）`
-                : candidate.value === recommended?.value ? `${candidate.label}（推荐）` : candidate.label}
+                ? `${candidate.label}（${candidate.compatibilityReason || "不兼容"}）`
+                : candidate.value === recommended?.value
+                  ? `${candidate.label}（推荐） · ${candidate.compatibilityReason || "兼容"}`
+                  : candidate.label}
             </SelectItem>
           ))}
           {compatibleCandidates.length === 0 && outputCandidates.length > 0 ? (

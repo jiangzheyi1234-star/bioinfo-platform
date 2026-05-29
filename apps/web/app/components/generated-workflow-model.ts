@@ -113,6 +113,7 @@ export type RuleInputSpec = RulePortCapabilityMetadata & {
 
 export type RuleOutputSpec = RulePortCapabilityMetadata & {
   name: string;
+  path?: string;
   type?: string;
   kind?: string;
   mimeType?: string;
@@ -323,6 +324,15 @@ export function validateGeneratedWorkflowDraft(
     const inputs = readRuleInputs(tool);
     const outputs = readRuleOutputs(tool);
     const ruleTemplate = readToolRuleTemplate(tool);
+    for (const output of outputs) {
+      if (!output.path) {
+        errors.push({
+          code: "WORKFLOW_STEP_OUTPUT_PATH_REQUIRED",
+          message: `步骤 ${step.id} 输出 ${output.name} 缺少 path`,
+          stepId: step.id,
+        });
+      }
+    }
     outputsByStep.set(step.id, new Set(outputs.map((output) => output.name)));
     outputSpecsByStep.set(step.id, new Map(outputs.map((output) => [output.name, output])));
     for (const input of inputs) {
@@ -590,6 +600,7 @@ function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: 
 function normalizeRuleOutputSpec(item: Record<string, unknown>, capabilitySlot?: CapabilityPortSlot): RuleOutputSpec {
   return {
     name: String(item.name || "").trim(),
+    ...(stringValue(item.path) ? { path: stringValue(item.path) } : {}),
     ...readPortCompatibility(item, capabilitySlot),
     ...readCapabilityMetadata(item, capabilitySlot),
     ...readOutputSemantics(item),
