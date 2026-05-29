@@ -1,5 +1,14 @@
-import type { AddedTool, ToolCapabilitySlot } from "./tools-page-model";
+import type { AddedTool } from "./tools-page-model";
 import { validateStepParamBindings } from "./generated-workflow-param-contract";
+import {
+  COMPATIBILITY_FIELDS,
+  capabilityPortItemsForTool,
+  capabilitySlotForRulePort,
+  readCapabilityMetadata,
+  readPortCompatibility,
+  type CapabilityPortSlot,
+  type RulePortCapabilityMetadata,
+} from "./generated-workflow-port-contract";
 import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 
@@ -91,11 +100,7 @@ export type ValidateGeneratedWorkflowDraftOptions = {
   inputCount?: number;
 };
 
-const COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"] as const;
-
-type RulePortCompatibilityField = (typeof COMPATIBILITY_FIELDS)[number];
-
-export type RuleInputSpec = {
+export type RuleInputSpec = RulePortCapabilityMetadata & {
   name: string;
   required?: boolean;
   type?: string;
@@ -105,7 +110,7 @@ export type RuleInputSpec = {
   format?: string;
 };
 
-export type RuleOutputSpec = {
+export type RuleOutputSpec = RulePortCapabilityMetadata & {
   name: string;
   type?: string;
   kind?: string;
@@ -150,24 +155,33 @@ export function uniqueStepId(base: string, existingIds: string[]) {
 
 export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
   const inputs = (readToolRuleTemplate(tool) as { inputs?: unknown }).inputs;
-  if (!Array.isArray(inputs)) return [];
-  return inputs
+  const ports = !Array.isArray(inputs) ? [] : inputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
     .map((item, index) =>
       normalizeRuleInputSpec(item, capabilitySlotForRulePort(tool, "inputs", String(item.name || "").trim(), index))
     )
     .filter((item) => item.name.length > 0);
+  return ports.length > 0 ? ports : capabilityPortsForTool(tool, "inputs") as RuleInputSpec[];
 }
 
 export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
   const outputs = (readToolRuleTemplate(tool) as { outputs?: unknown }).outputs;
-  if (!Array.isArray(outputs)) return [];
-  return outputs
+  const ports = !Array.isArray(outputs) ? [] : outputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
     .map((item, index) =>
       normalizeRuleOutputSpec(item, capabilitySlotForRulePort(tool, "outputs", String(item.name || "").trim(), index))
     )
     .filter((item) => item.name.length > 0);
+  return ports.length > 0 ? ports : capabilityPortsForTool(tool, "outputs") as RuleOutputSpec[];
+}
+
+export function capabilityPortsForTool(
+  tool: AddedTool | undefined,
+  direction: "inputs" | "outputs"
+): Array<RuleInputSpec | RuleOutputSpec> {
+  return capabilityPortItemsForTool(tool, direction)
+    .map((item) => (direction === "inputs" ? normalizeRuleInputSpec(item, item) : normalizeRuleOutputSpec(item, item)))
+    .filter((port) => port.name.length > 0);
 }
 
 export function readRuleParams(tool: AddedTool | undefined): RuleParamSpec[] {
@@ -554,19 +568,21 @@ function hasRuleTemplateShape(template: Record<string, unknown>) {
   );
 }
 
-function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: ToolCapabilitySlot): RuleInputSpec {
+function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: CapabilityPortSlot): RuleInputSpec {
   const name = String(item.name || "").trim();
   return {
     name,
     required: item.required !== false && capabilitySlot?.required !== false,
     ...readPortCompatibility(item, capabilitySlot),
+    ...readCapabilityMetadata(item, capabilitySlot),
   };
 }
 
-function normalizeRuleOutputSpec(item: Record<string, unknown>, capabilitySlot?: ToolCapabilitySlot): RuleOutputSpec {
+function normalizeRuleOutputSpec(item: Record<string, unknown>, capabilitySlot?: CapabilityPortSlot): RuleOutputSpec {
   return {
     name: String(item.name || "").trim(),
     ...readPortCompatibility(item, capabilitySlot),
+    ...readCapabilityMetadata(item, capabilitySlot),
     ...readOutputSemantics(item),
   };
 }
@@ -610,44 +626,6 @@ function validateDefaultExposedOutputs(
       });
     }
   }
-}
-
-function readPortCompatibility(
-  item: Record<string, unknown>,
-  capabilitySlot?: ToolCapabilitySlot
-): Partial<Record<RulePortCompatibilityField, string>> {
-  const spec: Partial<Record<RulePortCompatibilityField, string>> = {};
-  for (const field of COMPATIBILITY_FIELDS) {
-    const value = stringValue(item[field]) || stringValue(capabilitySlot?.[field]);
-    if (value) spec[field] = value;
-  }
-  if (!spec.format) {
-    const value = stringValue(item.edamFormat) || stringValue(capabilitySlot?.edamFormat);
-    if (value) spec.format = value;
-  }
-  if (!spec.data) {
-    const value = stringValue(item.edamData) || stringValue(capabilitySlot?.edamData);
-    if (value) spec.data = value;
-  }
-  return spec;
-}
-
-function capabilitySlotForRulePort(
-  tool: AddedTool | undefined,
-  direction: "inputs" | "outputs",
-  name: string,
-  fallbackIndex: number
-): ToolCapabilitySlot | undefined {
-  const normalizedName = name.trim();
-  const slots = (tool?.capabilities || []).flatMap((capability) => capability[direction] || []);
-  if (normalizedName) {
-    const exact = slots.find((slot) => slot.name === normalizedName);
-    if (exact) return exact;
-  }
-  const genericPrimaryName = ["primary", "tool_output", "output"].includes(normalizedName);
-  const primary = slots.find((slot) => slot.primary === true);
-  if (primary && (fallbackIndex === 0 || genericPrimaryName)) return primary;
-  return slots[fallbackIndex];
 }
 
 function stepInputBindingIsCompatible(
