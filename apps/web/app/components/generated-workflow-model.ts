@@ -344,6 +344,7 @@ export function validateGeneratedWorkflowDraft(
     errors.push(...validateStepCommandPortBindings({
       stepId: step.id,
       inputSpecs: inputs,
+      inputBindings: step.inputs,
       outputSpecs: outputs,
       ruleTemplate,
     }));

@@ -1,4 +1,5 @@
 import type {
+  GeneratedWorkflowInputBinding,
   GeneratedWorkflowValidationIssue,
   RuleInputSpec,
   RuleOutputSpec,
@@ -25,11 +26,13 @@ export function commandPortReferences(ruleTemplate: Record<string, unknown>): Co
 
 export function validateStepCommandPortBindings({
   inputSpecs,
+  inputBindings,
   outputSpecs,
   ruleTemplate,
   stepId,
 }: {
   inputSpecs: RuleInputSpec[];
+  inputBindings?: Record<string, GeneratedWorkflowInputBinding>;
   outputSpecs: RuleOutputSpec[];
   ruleTemplate: Record<string, unknown>;
   stepId: string;
@@ -46,6 +49,15 @@ export function validateStepCommandPortBindings({
         stepId,
         inputName: name,
       });
+      continue;
+    }
+    if (inputBindings && !commandInputBindingIsBound(inputBindings[name])) {
+      issues.push({
+        code: "WORKFLOW_STEP_INPUT_TOKEN_UNBOUND",
+        message: `commandTemplate 引用了未绑定输入 ${stepId}.${name}`,
+        stepId,
+        inputName: name,
+      });
     }
   }
   for (const name of references.outputs) {
@@ -58,4 +70,12 @@ export function validateStepCommandPortBindings({
     }
   }
   return issues;
+}
+
+function commandInputBindingIsBound(binding: GeneratedWorkflowInputBinding | undefined): boolean {
+  if (!binding) return false;
+  if (typeof binding === "string") return binding.trim().length > 0;
+  if ("fromUpload" in binding) return Number.isInteger(binding.fromUpload) && binding.fromUpload >= 0;
+  if ("fromInput" in binding) return binding.fromInput.trim().length > 0;
+  return binding.fromStep.trim().length > 0 && binding.output.trim().length > 0;
 }
