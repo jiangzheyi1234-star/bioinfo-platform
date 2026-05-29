@@ -1,4 +1,5 @@
 import type { AddedTool } from "./tools-page-model";
+import { validateStepCommandPortBindings } from "./generated-workflow-command-contract";
 import { validateStepParamBindings } from "./generated-workflow-param-contract";
 import {
   COMPATIBILITY_FIELDS,
@@ -319,20 +320,28 @@ export function validateGeneratedWorkflowDraft(
       errors.push({ code: "TOOL_UNKNOWN", message: `步骤 ${step.id} 未选择可用工具`, stepId: step.id });
       continue;
     }
+    const inputs = readRuleInputs(tool);
     const outputs = readRuleOutputs(tool);
+    const ruleTemplate = readToolRuleTemplate(tool);
     outputsByStep.set(step.id, new Set(outputs.map((output) => output.name)));
     outputSpecsByStep.set(step.id, new Map(outputs.map((output) => [output.name, output])));
-    for (const input of readRuleInputs(tool)) {
+    for (const input of inputs) {
       const binding = step.inputs[input.name];
       if (input.required && !binding) {
         errors.push({ code: "TOOL_INPUT_REQUIRED", message: `步骤 ${step.id} 缺少输入 ${input.name}`, stepId: step.id, inputName: input.name });
       }
     }
+    errors.push(...validateStepCommandPortBindings({
+      stepId: step.id,
+      inputSpecs: inputs,
+      outputSpecs: outputs,
+      ruleTemplate,
+    }));
     errors.push(...validateStepParamBindings({
       stepId: step.id,
       params: step.params || {},
       paramSpecs: readRuleParams(tool),
-      ruleTemplate: readToolRuleTemplate(tool),
+      ruleTemplate,
     }));
     errors.push(...validateStepRuntime(step.id, step.runtime));
   }
