@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -13,6 +14,20 @@ def normalize_generated_workflow_run_spec(run_spec: dict[str, Any]) -> dict[str,
     normalized = dict(run_spec)
     normalized["workflow"] = normalize_generated_workflow_graph(workflow)
     return normalized
+
+
+def workflow_graph_config(workflow: Any) -> dict[str, Any] | None:
+    if not isinstance(workflow, dict) or "nodes" not in workflow:
+        return None
+    graph: dict[str, Any] = {
+        "contractVersion": str(workflow.get("contractVersion") or ""),
+        "nodes": _json_safe(workflow.get("nodes") if isinstance(workflow.get("nodes"), list) else []),
+        "edges": _json_safe(workflow.get("edges") if isinstance(workflow.get("edges"), list) else []),
+    }
+    outputs = workflow.get("outputs") if "outputs" in workflow else workflow.get("exposeOutputs")
+    if outputs not in (None, {}, []):
+        graph["outputs"] = _json_safe(outputs)
+    return graph
 
 
 def normalize_generated_workflow_graph(workflow: dict[str, Any]) -> dict[str, Any]:
@@ -128,3 +143,7 @@ def _normalize_graph_output_binding(binding: Any, fallback_key: object) -> Any:
             raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
         return {"fromStep": node_id, "output": port, "as": alias}
     return dict(binding)
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value))

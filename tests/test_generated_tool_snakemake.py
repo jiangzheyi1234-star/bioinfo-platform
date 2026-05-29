@@ -500,6 +500,78 @@ def test_generated_graph_workflow_writes_rules_and_edges(tmp_path: Path, monkeyp
     assert "rule step_02_copy_summary:" in snakefile
 
 
+def test_generated_graph_run_config_preserves_graph_contract(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    for tool_id, command, output_name, output_path in [
+        ("conda-forge::graph-source", "cp {input.primary:q} {output.seed:q}", "seed", "seed.txt"),
+        ("conda-forge::graph-copy", "cp {input.primary:q} {output.final:q}", "final", "final.txt"),
+    ]:
+        upsert_tool(
+            cfg,
+            {
+                "id": tool_id,
+                "name": tool_id.rsplit("::", 1)[-1],
+                "source": "conda-forge",
+                "sourceLabel": "conda-forge",
+                "version": "9.5",
+                "packageSpec": "conda-forge::coreutils=9.5",
+                "targetPlatform": "linux-64",
+                "targetPlatformSupported": True,
+                "ruleTemplate": {
+                    "commandTemplate": command,
+                    "inputs": [{"name": "primary", "type": "file", "required": True}],
+                    "outputs": [{"name": output_name, "path": output_path, "kind": "log", "mimeType": "text/plain"}],
+                },
+                "status": "declared",
+                "message": "Tool declared.",
+            },
+        )
+    reads = tmp_path / "reads.txt"
+    reads.write_text("ACGT\n", encoding="utf-8")
+
+    prepare_generated_tool_workflow(
+        cfg,
+        run_id="run_generated_graph_config",
+        request_id="req_generated_graph_config",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "workflow": {
+                "contractVersion": "rule-contract-v1",
+                "nodes": [
+                    {"id": "source", "toolId": "conda-forge::graph-source", "inputs": {"primary": {"fromInput": "reads"}}},
+                    {"id": "copy", "toolId": "conda-forge::graph-copy"},
+                ],
+                "edges": [
+                    {
+                        "from": {"nodeId": "source", "port": "seed"},
+                        "to": {"nodeId": "copy", "port": "primary"},
+                        "audit": {"source": "auto", "decision": "recommended", "reason": "匹配 type"},
+                    }
+                ],
+                "outputs": [{"from": {"nodeId": "copy", "port": "final"}, "as": "final"}],
+            },
+        },
+        resolved_inputs=[{"path": str(reads), "role": "reads", "filename": "reads.txt"}],
+        work_dir=tmp_path / "work",
+        result_dir=tmp_path / "results",
+    )
+
+    run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
+    graph = run_config["workflow"]["graph"]
+
+    assert graph["contractVersion"] == "rule-contract-v1"
+    assert [node["id"] for node in graph["nodes"]] == ["source", "copy"]
+    assert graph["edges"] == [
+        {
+            "from": {"nodeId": "source", "port": "seed"},
+            "to": {"nodeId": "copy", "port": "primary"},
+            "audit": {"source": "auto", "decision": "recommended", "reason": "匹配 type"},
+        }
+    ]
+    assert graph["outputs"] == [{"from": {"nodeId": "copy", "port": "final"}, "as": "final"}]
+
+
 def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
