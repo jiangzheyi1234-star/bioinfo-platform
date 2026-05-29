@@ -158,6 +158,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "confidence: number" in recommendation_contract
     assert "explainPortRecommendation" in recommendation_contract
     assert "isAutoBindablePortRecommendation" in recommendation_contract
+    assert "export type RulePortEdgeAudit" in recommendation_contract
+    assert "autoEdgeAudit" in recommendation_contract
+    assert "manualEdgeAudit" in recommendation_contract
+    assert 'source: "auto"' in recommendation_contract
+    assert 'source: "manual"' in recommendation_contract
     assert "类型证据不足，保留为手动连接" in recommendation_contract
     assert '"recommended"' in recommendation_contract
     assert '"blocked"' in recommendation_contract
@@ -170,6 +175,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_RULE_ACTION_CONFLICT" in rule_action_contract
     assert '["commandTemplate", "wrapper"]' in rule_action_contract
     assert "runSpec.workflow = {" in model
+    assert "audit?: RulePortEdgeAudit" in model
+    assert "audit: edge.audit" in model
+    assert "audit: binding.audit" in model
     assert "contractVersion:" in model
     assert "nodes: draft.nodes.map" in model
     assert "edges: draft.edges.map" in model
@@ -193,6 +201,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validation" in builder_hook
     assert "resourceBindings" in builder_hook
     assert "setStepRuntime" in builder_hook
+    assert "audit: manualEdgeAudit()" in builder_hook
 
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
@@ -292,6 +301,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "builder.removeStep(selectedNode.id)" in builder_ui
     assert "删除节点" in builder_ui
     assert "删除连线" in builder_ui
+    assert "EdgeAuditBadge" in builder_ui
+    assert "自动推荐" in builder_ui
+    assert "手动连接" in builder_ui
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
     assert "recommendedOutputCandidates" in builder_ui
@@ -306,6 +318,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "confidence" in builder_ui
     assert "compatibilityScore" in builder_ui
     assert "应用推荐" in builder_ui
+    assert "autoEdgeAudit(recommended.recommendation)" in builder_ui
     assert "（推荐）" in builder_ui
     assert "解绑" in builder_ui
     assert "Select" in builder_ui

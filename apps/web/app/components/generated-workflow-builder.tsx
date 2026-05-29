@@ -23,6 +23,7 @@ import {
   type RuleOutputSpec,
 } from "./generated-workflow-model";
 import {
+  autoEdgeAudit,
   explainPortRecommendation,
   isAutoBindablePortRecommendation,
   type RulePortRecommendation,
@@ -180,10 +181,13 @@ function WorkflowGraphWorkbench({
               <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>
             ) : edges.map((edge) => (
               <div key={edge.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-white px-3 py-2">
-                <div className="min-w-0 font-mono text-xs text-slate-700">
-                  <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
-                  <span className="px-2 text-slate-400">-&gt;</span>
-                  <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+                <div className="min-w-0">
+                  <div className="font-mono text-xs text-slate-700">
+                    <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
+                    <span className="px-2 text-slate-400">-&gt;</span>
+                    <span className="break-all">{edge.to.nodeId}.{edge.to.port}</span>
+                  </div>
+                  <EdgeAuditBadge audit={edge.audit} />
                 </div>
                 <Button
                   type="button"
@@ -394,9 +398,7 @@ function PortBindingRow({
   const type = bindingKind(binding);
   const required = input.required !== false;
   const compatibleOutputCandidates = rankOutputCandidates(outputCandidates.filter((candidate) => candidate.compatible !== false));
-  const recommendedOutputCandidates = compatibleOutputCandidates.filter((candidate) =>
-    candidate.recommendation?.decision === "recommended" && isAutoBindablePortRecommendation(candidate.recommendation)
-  );
+  const recommendedOutputCandidates = compatibleOutputCandidates.filter(isRecommendedOutputCandidate);
   const recommended = recommendedOutputCandidates[0];
   const manualOnlyCandidate = compatibleOutputCandidates.find((candidate) => candidate.recommendation?.decision === "ambiguous");
   const hasBinding = Boolean(binding);
@@ -420,7 +422,9 @@ function PortBindingRow({
               type="button"
               variant="outline"
               className="h-7 bg-white px-2 text-[11px]"
-              onClick={() => onChange({ fromStep: recommended.stepId, output: recommended.output })}
+              onClick={() =>
+                onChange({ fromStep: recommended.stepId, output: recommended.output, audit: autoEdgeAudit(recommended.recommendation) })
+              }
             >
               应用推荐
             </Button>
@@ -461,6 +465,19 @@ function PortBindingRow({
           手动连接提示: {manualOnlyCandidate.recommendation.evidence.join(" · ")}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function isRecommendedOutputCandidate(candidate: OutputCandidate): candidate is OutputCandidate & { recommendation: RulePortRecommendation } {
+  return candidate.recommendation?.decision === "recommended" && isAutoBindablePortRecommendation(candidate.recommendation);
+}
+
+function EdgeAuditBadge({ audit }: { audit: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]["audit"] }) {
+  if (!audit) return null;
+  return (
+    <div className="mt-1 truncate text-[10px] text-slate-500">
+      {audit.source === "auto" ? "自动推荐" : "手动连接"} · {audit.reason}
     </div>
   );
 }
