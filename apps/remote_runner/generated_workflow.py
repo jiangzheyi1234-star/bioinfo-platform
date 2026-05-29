@@ -110,6 +110,7 @@ def prepare_generated_tool_workflow(
             single_step=len(requested_steps) == 1,
         )
         inputs = _resolve_step_inputs(
+            step_id=step_id,
             requested_step=requested_step,
             rule_template=rule_template,
             tool=tool,
@@ -432,6 +433,7 @@ def _normalize_param_value(value: Any) -> str | int | float | bool:
 
 def _resolve_step_inputs(
     *,
+    step_id: str,
     requested_step: dict[str, Any],
     rule_template: dict[str, Any],
     tool: dict[str, Any],
@@ -444,6 +446,7 @@ def _resolve_step_inputs(
     if explicit_inputs is not None:
         mapped = _resolve_explicit_step_inputs(
             explicit_inputs,
+            step_id=step_id,
             rule_template=rule_template,
             tool=tool,
             resolved_inputs=resolved_inputs,
@@ -496,6 +499,7 @@ def _validate_required_step_inputs(*, rule_template: dict[str, Any], inputs: dic
 def _resolve_explicit_step_inputs(
     raw: Any,
     *,
+    step_id: str,
     rule_template: dict[str, Any],
     tool: dict[str, Any],
     resolved_inputs: list[dict[str, Any]],
@@ -505,10 +509,13 @@ def _resolve_explicit_step_inputs(
     if not isinstance(raw, dict) or not raw:
         raise ValueError("WORKFLOW_STEP_INPUTS_INVALID")
     mapped: dict[str, str] = {}
+    declared_inputs = _declared_rule_input_names(rule_template)
     for name, binding in raw.items():
         input_name = _safe_snakemake_name(str(name or ""))
         if not input_name:
             raise ValueError("WORKFLOW_STEP_INPUT_NAME_REQUIRED")
+        if input_name not in declared_inputs:
+            raise ValueError(f"WORKFLOW_STEP_INPUT_PORT_UNKNOWN: {step_id}.{input_name}")
         validate_input_binding_compatibility(
             input_name=input_name,
             binding=binding,
@@ -522,6 +529,16 @@ def _resolve_explicit_step_inputs(
             outputs_by_step_id=outputs_by_step_id,
         )
     return mapped
+
+
+def _declared_rule_input_names(rule_template: dict[str, Any]) -> set[str]:
+    specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
+    if not specs:
+        return {"primary"}
+    return {
+        _safe_snakemake_name(str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")))
+        for index, spec in enumerate(specs)
+    }
 
 
 def _resolve_input_binding(

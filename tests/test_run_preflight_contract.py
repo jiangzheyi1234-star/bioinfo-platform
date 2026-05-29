@@ -162,6 +162,68 @@ def test_preflight_accepts_generated_graph_contract(tmp_path: Path) -> None:
     )
 
 
+def test_preflight_rejects_generated_graph_edge_to_unknown_input_port(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    _register_tool(cfg, "conda-forge::source", output_name="seed")
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::sink",
+            "name": "sink",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "printf ok > {output.copied:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": False}],
+                "outputs": [{"name": "copied", "path": "copied.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+
+    try:
+        preflight_run_spec(
+            cfg,
+            pipeline,
+            {
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "inputs": [{"role": "reads"}],
+                "workflow": {
+                    "contractVersion": "rule-contract-v1",
+                    "nodes": [
+                        {
+                            "id": "source",
+                            "toolId": "conda-forge::source",
+                            "inputs": {"primary": {"fromInput": "reads"}},
+                        },
+                        {
+                            "id": "sink",
+                            "toolId": "conda-forge::sink",
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "from": {"nodeId": "source", "port": "seed"},
+                            "to": {"nodeId": "sink", "port": "ghost"},
+                        }
+                    ],
+                    "outputs": [{"from": {"nodeId": "sink", "port": "copied"}, "as": "copied"}],
+                },
+            },
+        )
+    except RunPreflightError as exc:
+        assert str(exc) == "WORKFLOW_STEP_INPUT_PORT_UNKNOWN: sink.ghost"
+    else:
+        raise AssertionError("generated graph edges should target declared RuleSpec input ports")
+
+
 def test_preflight_rejects_generated_graph_without_contract_version(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

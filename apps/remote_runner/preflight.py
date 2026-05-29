@@ -8,6 +8,7 @@ from .generated_workflow import (
     _resolve_requested_steps,
     _resolve_rule_template,
     _resolve_step_params,
+    _declared_rule_input_names,
     _safe_identifier,
     _safe_snakemake_name,
     _step_id,
@@ -110,6 +111,7 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             raise RunPreflightError(str(exc)) from exc
         _preflight_step_inputs(
             step,
+            step_id,
             known_outputs,
             known_output_specs,
             list(run_spec.get("inputs") or []),
@@ -135,6 +137,7 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
 
 def _preflight_step_inputs(
     step: dict[str, Any],
+    step_id: str,
     known_outputs: dict[str, set[str]],
     known_output_specs: dict[str, dict[str, dict[str, str]]],
     run_inputs: list[dict[str, Any]],
@@ -146,7 +149,11 @@ def _preflight_step_inputs(
         return
     if not isinstance(raw_inputs, dict) or not raw_inputs:
         raise RunPreflightError("WORKFLOW_STEP_INPUTS_INVALID")
+    declared_inputs = _declared_rule_input_names(rule_template)
     for input_name, binding in raw_inputs.items():
+        normalized_input_name = _safe_snakemake_name(str(input_name or ""))
+        if normalized_input_name not in declared_inputs:
+            raise RunPreflightError(f"WORKFLOW_STEP_INPUT_PORT_UNKNOWN: {step_id}.{normalized_input_name}")
         if isinstance(binding, str):
             continue
         if not isinstance(binding, dict):
@@ -161,7 +168,7 @@ def _preflight_step_inputs(
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}")
             try:
                 validate_input_binding_compatibility(
-                    input_name=_safe_snakemake_name(str(input_name or "")),
+                    input_name=normalized_input_name,
                     binding=binding,
                     rule_template=rule_template,
                     tool=tool,
