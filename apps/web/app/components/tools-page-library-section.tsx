@@ -37,7 +37,7 @@ export function ToolsLibrarySection({
   return (
     <section className="min-w-0">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-slate-900">规则节点库</h2>
+        <h2 className="text-sm font-medium text-slate-900">工具</h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
