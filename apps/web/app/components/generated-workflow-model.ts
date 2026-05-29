@@ -211,10 +211,9 @@ export function createStepParams(tool: AddedTool): GeneratedWorkflowStepParams {
   );
 }
 
-export function createGeneratedWorkflowDraft(tools: AddedTool[]): GeneratedWorkflowDraft {
-  const first = tools[0];
+export function createGeneratedWorkflowDraft(_tools: AddedTool[]): GeneratedWorkflowDraft {
   return {
-    steps: first ? [createStepDraft(first, [])] : [],
+    steps: [],
     exposeOutputs: [],
   };
 }
