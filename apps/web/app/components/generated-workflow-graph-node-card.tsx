@@ -66,32 +66,44 @@ function RulePortColumn({
           <span className="rounded border border-dashed border-slate-200 px-2 py-1 text-[10px] text-slate-400">
             {direction === "input" ? "无输入端口" : "无输出端口"}
           </span>
-        ) : ports.slice(0, 3).map((port) => {
-          const state = direction === "input"
-            ? portBindingState(node, edges, port as RuleInputSpec)
-            : outputFanoutState(node, edges, port as RuleOutputSpec);
-          return (
-          <span
-            key={port.name}
-            className="grid min-w-0 grid-cols-[6px_minmax(0,1fr)] items-center gap-1 rounded bg-slate-50 px-1.5 py-1"
-            data-port-state={state.state}
-          >
-            <span className={cn("h-1.5 w-1.5 rounded-full", direction === "input" ? "bg-blue-400" : "bg-emerald-400")} />
-            <span className="min-w-0">
-              <span className="block truncate font-mono text-[10px] text-slate-700">{port.name}</span>
-              <span className="block truncate text-[10px] text-slate-400">{describePortSpec(port)}</span>
-              <span className={cn("block truncate text-[10px]", state.state === "unbound" ? "text-amber-500" : "text-slate-400")}>
-                {state.label}
-              </span>
-              {port.capabilityLabel ? (
-                <span className="block truncate text-[10px] text-violet-500" title={`能力来源: ${port.capabilityLabel}`}>
-                  能力来源 · {port.capabilityLabel}
+        ) : (
+          ports.slice(0, 3).map((port) => {
+            const state = direction === "input"
+              ? portBindingState(node, edges, port as RuleInputSpec)
+              : outputFanoutState(node, edges, port as RuleOutputSpec);
+            return (
+              <span
+                key={port.name}
+                className="grid min-w-0 grid-cols-[6px_minmax(0,1fr)] items-center gap-1 rounded bg-slate-50 px-1.5 py-1"
+                data-port-state={state.state}
+              >
+                <span
+                  className={cn("h-1.5 w-1.5 rounded-full", direction === "input" ? "bg-blue-400" : "bg-emerald-400")}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-mono text-[10px] text-slate-700">{port.name}</span>
+                  <span className="block truncate text-[10px] text-slate-400">{describePortSpec(port)}</span>
+                  <span
+                    className={cn(
+                      "block truncate text-[10px]",
+                      state.state === "unbound" ? "text-amber-500" : "text-slate-400"
+                    )}
+                  >
+                    {state.label}
+                  </span>
+                  {port.capabilityLabel ? (
+                    <span
+                      className="block truncate text-[10px] text-violet-500"
+                      title={`能力来源: ${port.capabilityLabel}`}
+                    >
+                      能力来源 · {port.capabilityLabel}
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-            </span>
-          </span>
-        );
-        })}
+              </span>
+            );
+          })
+        )}
       </span>
     </span>
   );
@@ -119,7 +131,10 @@ function outputFanoutState(
   port: RuleOutputSpec
 ) {
   const fanout = outputFanoutCount(node, edges, port);
-  return { state: fanout > 0 ? "bound" : "available", label: fanout > 0 ? `fan-out ${fanout}` : "可连接" };
+  return {
+    state: fanout > 0 ? "bound" : "available",
+    label: fanout > 0 ? `fan-out ${fanout}` : "可连接",
+  };
 }
 
 function outputFanoutCount(
