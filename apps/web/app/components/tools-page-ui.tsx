@@ -145,14 +145,16 @@ function rulePortItems(template: Record<string, unknown>, key: "inputs" | "outpu
     .map((item, index) => {
       const port = recordValue(item);
       const name = stringValue(port.name) || `${key.slice(0, -1)}_${index + 1}`;
+      const semantics = key === "outputs" ? outputSemanticTags(port) : [];
       const detail = ["type", "kind", "mimeType", "format", "edamFormat"]
         .map((field) => stringValue(port[field]))
+        .concat(semantics)
         .filter(Boolean)
         .join(" / ");
       const summary = ["kind", "format", "edamFormat", "mimeType", "type"]
         .map((field) => stringValue(port[field]))
         .find(Boolean) || "";
-      return { name, detail: detail || "未声明类型", summary };
+      return { name, detail: detail || "未声明类型", summary, semantics };
     })
     .filter((item) => item.name);
 }
@@ -161,10 +163,16 @@ type RulePortItem = {
   name: string;
   detail: string;
   summary: string;
+  semantics: string[];
 };
 
 function formatRulePortLabel(port: RulePortItem) {
-  return port.summary ? `${port.name} · ${port.summary}` : port.name;
+  const summary = [port.summary, ...port.semantics].filter(Boolean).join(" · ");
+  return summary ? `${port.name} · ${summary}` : port.name;
+}
+
+function outputSemanticTags(port: Record<string, unknown>) {
+  return ["directory", "protected", "temp"].filter((field) => port[field] === true);
 }
 
 function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
