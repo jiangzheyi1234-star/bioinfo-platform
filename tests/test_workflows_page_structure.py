@@ -269,8 +269,14 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WorkflowGraphEdgeLayer" in graph_canvas_ui
     assert "data-workflow-graph-edge-layer" in graph_canvas_ui
     assert "data-workflow-graph-edge" in graph_canvas_ui
+    assert "data-from-port" in graph_canvas_ui
+    assert "data-to-port" in graph_canvas_ui
     assert "markerEnd" in graph_canvas_ui
     assert "viewBox" in graph_canvas_ui
+    assert "readRuleInputs" in graph_canvas_ui
+    assert "readRuleOutputs" in graph_canvas_ui
+    assert "portAnchorForEdge" in graph_canvas_ui
+    assert "portOffset" in graph_canvas_ui
     assert "edgePath" in graph_canvas_ui
     assert "edges={edges}" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui

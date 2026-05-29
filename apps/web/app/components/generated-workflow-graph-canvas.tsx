@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import type { AddedTool } from "./tools-page-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import { readRuleInputs, readRuleOutputs } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 
 type GraphNode = GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
@@ -28,7 +29,7 @@ export function GeneratedWorkflowGraphCanvas({
   }
   return (
     <div className="relative min-h-[190px] overflow-hidden rounded-md">
-      <WorkflowGraphEdgeLayer edges={edges} nodes={nodes} />
+      <WorkflowGraphEdgeLayer edges={edges} nodes={nodes} toolById={toolById} />
       <div className="relative z-10 grid gap-2 md:grid-cols-2">
         {nodes.map((node) => {
           const selected = selectedNodeId === node.id;
@@ -48,11 +49,30 @@ export function GeneratedWorkflowGraphCanvas({
   );
 }
 
-function WorkflowGraphEdgeLayer({ edges, nodes }: { edges: GraphEdge[]; nodes: GraphNode[] }) {
+function WorkflowGraphEdgeLayer({
+  edges,
+  nodes,
+  toolById,
+}: {
+  edges: GraphEdge[];
+  nodes: GraphNode[];
+  toolById: Map<string, AddedTool>;
+}) {
   const positions = nodePositions(nodes);
   const visibleEdges = edges
-    .map((edge) => ({ edge, from: positions.get(edge.from.nodeId), to: positions.get(edge.to.nodeId) }))
-    .filter((item): item is { edge: GraphEdge; from: GraphPoint; to: GraphPoint } => Boolean(item.from && item.to));
+    .map((edge) => {
+      const fromNode = nodes.find((node) => node.id === edge.from.nodeId);
+      const toNode = nodes.find((node) => node.id === edge.to.nodeId);
+      const fromPosition = positions.get(edge.from.nodeId);
+      const toPosition = positions.get(edge.to.nodeId);
+      if (!fromNode || !toNode || !fromPosition || !toPosition) return null;
+      return {
+        edge,
+        from: portAnchorForEdge({ edge, node: fromNode, position: fromPosition, tool: toolById.get(fromNode.toolId), direction: "output" }),
+        to: portAnchorForEdge({ edge, node: toNode, position: toPosition, tool: toolById.get(toNode.toolId), direction: "input" }),
+      };
+    })
+    .filter((item): item is { edge: GraphEdge; from: GraphPoint; to: GraphPoint } => Boolean(item));
   if (visibleEdges.length === 0) return null;
   return (
     <svg
@@ -71,6 +91,8 @@ function WorkflowGraphEdgeLayer({ edges, nodes }: { edges: GraphEdge[]; nodes: G
         <path
           key={edge.id}
           d={edgePath(from, to)}
+          data-from-port={edge.from.port}
+          data-to-port={edge.to.port}
           data-workflow-graph-edge
           fill="none"
           markerEnd="url(#workflow-graph-arrow)"
@@ -88,6 +110,12 @@ type GraphPoint = {
   y: number;
 };
 
+type GraphNodePosition = {
+  centerY: number;
+  inputX: number;
+  outputX: number;
+};
+
 function nodePositions(nodes: GraphNode[]) {
   const columns = nodes.length <= 1 ? 1 : 2;
   const rows = Math.max(1, Math.ceil(nodes.length / columns));
@@ -95,11 +123,45 @@ function nodePositions(nodes: GraphNode[]) {
     nodes.map((node, index) => {
       const column = index % columns;
       const row = Math.floor(index / columns);
-      const x = columns === 1 ? 500 : column === 0 ? 245 : 755;
-      const y = ((row + 0.5) / rows) * 1000;
-      return [node.id, { x, y }];
+      const centerX = columns === 1 ? 500 : column === 0 ? 245 : 755;
+      return [
+        node.id,
+        {
+          centerY: ((row + 0.5) / rows) * 1000,
+          inputX: Math.max(40, centerX - 210),
+          outputX: Math.min(960, centerX + 210),
+        },
+      ];
     })
   );
+}
+
+function portAnchorForEdge({
+  direction,
+  edge,
+  node,
+  position,
+  tool,
+}: {
+  direction: "input" | "output";
+  edge: GraphEdge;
+  node: GraphNode;
+  position: GraphNodePosition;
+  tool: AddedTool | undefined;
+}) {
+  const portName = direction === "output" ? edge.from.port : edge.to.port;
+  const ports = direction === "output" ? readRuleOutputs(tool) : readRuleInputs(tool);
+  const portIndex = Math.max(0, ports.findIndex((port) => port.name === portName));
+  return {
+    x: direction === "output" ? position.outputX : position.inputX,
+    y: position.centerY + portOffset(portIndex, Math.max(1, ports.length || Object.keys(node.inputs).length)),
+  };
+}
+
+function portOffset(index: number, count: number) {
+  const visibleCount = Math.min(Math.max(count, 1), 3);
+  const visibleIndex = Math.min(index, visibleCount - 1);
+  return (visibleIndex - (visibleCount - 1) / 2) * 52;
 }
 
 function edgePath(from: GraphPoint, to: GraphPoint) {
