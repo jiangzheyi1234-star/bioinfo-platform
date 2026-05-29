@@ -43,6 +43,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
     port_contract_path = COMPONENTS / "generated-workflow-port-contract.ts"
+    recommendation_contract_path = COMPONENTS / "generated-workflow-recommendation-contract.ts"
     rule_action_contract_path = COMPONENTS / "generated-workflow-rule-action-contract.ts"
     snakefile_preview_path = COMPONENTS / "generated-workflow-snakefile-preview.tsx"
     runtime_contract_path = COMPONENTS / "generated-workflow-runtime-contract.ts"
@@ -63,6 +64,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert command_contract_path.exists()
     assert param_contract_path.exists()
     assert port_contract_path.exists()
+    assert recommendation_contract_path.exists()
     assert rule_action_contract_path.exists()
     assert snakefile_preview_path.exists()
     assert runtime_contract_path.exists()
@@ -78,6 +80,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     command_contract = command_contract_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
     port_contract = port_contract_path.read_text(encoding="utf-8")
+    recommendation_contract = recommendation_contract_path.read_text(encoding="utf-8")
     rule_action_contract = rule_action_contract_path.read_text(encoding="utf-8")
     snakefile_preview_ui = snakefile_preview_path.read_text(encoding="utf-8")
     runtime_contract = runtime_contract_path.read_text(encoding="utf-8")
@@ -147,7 +150,21 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract
     assert "describePortCompatibility" in port_contract
+    assert "export type RulePortRecommendationDecision" in recommendation_contract
+    assert "export type RulePortRecommendation" in recommendation_contract
+    assert "decision: RulePortRecommendationDecision" in recommendation_contract
+    assert "hardChecks: string[]" in recommendation_contract
+    assert "evidence: string[]" in recommendation_contract
+    assert "confidence: number" in recommendation_contract
+    assert "explainPortRecommendation" in recommendation_contract
+    assert "isAutoBindablePortRecommendation" in recommendation_contract
+    assert "类型证据不足，保留为手动连接" in recommendation_contract
+    assert '"recommended"' in recommendation_contract
+    assert '"blocked"' in recommendation_contract
+    assert '"ambiguous"' in recommendation_contract
     assert "validateRuleActionContract" in model
+    assert "isAutoBindablePortRecommendation" in model
+    assert "explainPortRecommendation(input, output)" in model
     assert "export function readToolRuleTemplate" in model
     assert "WORKFLOW_RULE_ACTION_REQUIRED" in rule_action_contract
     assert "WORKFLOW_RULE_ACTION_CONFLICT" in rule_action_contract
@@ -271,8 +288,16 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "删除连线" in builder_ui
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
+    assert "recommendedOutputCandidates" in builder_ui
+    assert "candidate.recommendation?.decision === \"recommended\"" in builder_ui
     assert "compatibilityReason" in builder_ui
+    assert "explainPortRecommendation" in builder_ui
+    assert "recommendation.evidence" in builder_ui
+    assert "recommendation.confidence" in builder_ui
     assert "推荐原因" in builder_ui
+    assert "推荐证据" in builder_ui
+    assert "手动连接提示" in builder_ui
+    assert "confidence" in builder_ui
     assert "compatibilityScore" in builder_ui
     assert "应用推荐" in builder_ui
     assert "（推荐）" in builder_ui

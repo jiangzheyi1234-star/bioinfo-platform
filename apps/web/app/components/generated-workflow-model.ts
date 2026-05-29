@@ -10,6 +10,10 @@ import {
   type CapabilityPortSlot,
   type RulePortCapabilityMetadata,
 } from "./generated-workflow-port-contract";
+import {
+  explainPortRecommendation,
+  isAutoBindablePortRecommendation,
+} from "./generated-workflow-recommendation-contract";
 import { validateRuleActionContract } from "./generated-workflow-rule-action-contract";
 import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
@@ -438,7 +442,8 @@ export function findCompatibleOutputBinding(
     const tool = toolById.get(step.toolId);
     for (const output of readRuleOutputs(tool)) {
       const score = portCompatibilityScore(input, output);
-      if (score !== null && (!best || score > best.score)) {
+      const recommendation = explainPortRecommendation(input, output);
+      if (score !== null && isAutoBindablePortRecommendation(recommendation) && (!best || score > best.score)) {
         best = { fromStep: step.id, output: output.name, score };
       }
     }

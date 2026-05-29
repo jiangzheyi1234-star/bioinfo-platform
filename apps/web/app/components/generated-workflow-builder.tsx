@@ -22,7 +22,11 @@ import {
   type RuleInputSpec,
   type RuleOutputSpec,
 } from "./generated-workflow-model";
-import { describePortCompatibility } from "./generated-workflow-port-contract";
+import {
+  explainPortRecommendation,
+  isAutoBindablePortRecommendation,
+  type RulePortRecommendation,
+} from "./generated-workflow-recommendation-contract";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-panel";
@@ -331,12 +335,16 @@ function PortBindingsEditor({
           : node.inputs[input.name];
         const candidates = outputCandidates
           .filter((candidate) => candidate.stepId !== node.id)
-          .map((candidate) => ({
-            ...candidate,
-            compatible: portsCompatible(input, candidate.port),
-            compatibilityReason: describePortCompatibility(input, candidate.port),
-            compatibilityScore: portCompatibilityScore(input, candidate.port),
-          }));
+          .map((candidate) => {
+            const recommendation = explainPortRecommendation(input, candidate.port);
+            return {
+              ...candidate,
+              compatible: portsCompatible(input, candidate.port),
+              compatibilityReason: recommendation.reason,
+              compatibilityScore: portCompatibilityScore(input, candidate.port),
+              recommendation,
+            };
+          });
         return (
           <PortBindingRow
             key={input.name}
@@ -361,6 +369,7 @@ type OutputCandidate = {
   compatible?: boolean;
   compatibilityReason?: string;
   compatibilityScore?: number | null;
+  recommendation?: RulePortRecommendation;
 };
 
 function PortBindingRow({
@@ -379,7 +388,11 @@ function PortBindingRow({
   const type = bindingKind(binding);
   const required = input.required !== false;
   const compatibleOutputCandidates = rankOutputCandidates(outputCandidates.filter((candidate) => candidate.compatible !== false));
-  const recommended = compatibleOutputCandidates[0];
+  const recommendedOutputCandidates = compatibleOutputCandidates.filter((candidate) =>
+    candidate.recommendation?.decision === "recommended" && isAutoBindablePortRecommendation(candidate.recommendation)
+  );
+  const recommended = recommendedOutputCandidates[0];
+  const manualOnlyCandidate = compatibleOutputCandidates.find((candidate) => candidate.recommendation?.decision === "ambiguous");
   const hasBinding = Boolean(binding);
   return (
     <div className="grid gap-2 rounded-md bg-white px-2 py-2">
@@ -409,7 +422,7 @@ function PortBindingRow({
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, compatibleOutputCandidates))}>
+        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, recommendedOutputCandidates))}>
           <SelectTrigger className="h-8 bg-white text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -430,6 +443,17 @@ function PortBindingRow({
       </div>
       {recommended?.compatibilityReason ? (
         <div className="truncate text-[11px] text-slate-500">推荐原因: {recommended.compatibilityReason}</div>
+      ) : null}
+      {recommended?.recommendation ? (
+        <div className="truncate text-[11px] text-slate-500">
+          推荐证据: {recommended.recommendation.evidence.join(" · ")} · confidence{" "}
+          {formatRecommendationConfidence(recommended.recommendation.confidence)}
+        </div>
+      ) : null}
+      {!recommended && manualOnlyCandidate?.recommendation ? (
+        <div className="truncate text-[11px] text-slate-500">
+          手动连接提示: {manualOnlyCandidate.recommendation.evidence.join(" · ")}
+        </div>
       ) : null}
     </div>
   );
@@ -452,7 +476,7 @@ function PortBindingValueEditor({
     const value = typeof binding === "object" && binding && "fromStep" in binding ? `${binding.fromStep}.${binding.output}` : "__none__";
     const rankedCandidates = rankOutputCandidates(outputCandidates);
     const compatibleCandidates = rankedCandidates.filter((candidate) => candidate.compatible !== false);
-    const recommended = compatibleCandidates[0];
+    const recommended = compatibleCandidates.find((candidate) => candidate.recommendation?.decision === "recommended");
     return (
       <Select value={value} onValueChange={(next) => {
         if (next === "__none__") {
@@ -718,4 +742,8 @@ function defaultBinding(type: string, outputCandidates: OutputCandidate[]): Gene
 
 function rankOutputCandidates(candidates: OutputCandidate[]) {
   return [...candidates].sort((left, right) => (right.compatibilityScore ?? -1) - (left.compatibilityScore ?? -1));
+}
+
+function formatRecommendationConfidence(confidence: number) {
+  return `${Math.round(confidence * 100)}%`;
 }
