@@ -129,7 +129,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateStepCommandPortBindings" in model
     assert "commandPortReferences" in command_contract
     assert "WORKFLOW_STEP_INPUT_TOKEN_UNKNOWN" in command_contract
+    assert "WORKFLOW_STEP_INPUT_TOKEN_UNBOUND" in command_contract
     assert "WORKFLOW_STEP_OUTPUT_TOKEN_UNKNOWN" in command_contract
+    assert "inputBindings" in command_contract
     assert "validateStepParamBindings" in model
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract

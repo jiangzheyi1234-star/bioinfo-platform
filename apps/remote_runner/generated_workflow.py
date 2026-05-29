@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .generated_workflow_graph import normalize_generated_workflow_run_spec
+from .rule_command import command_param_names, validate_command_input_tokens_bound
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
 from .rule_outputs import output_artifact_flags, render_rule_output_lines, validate_exposed_output_spec
@@ -391,7 +392,7 @@ def _resolve_step_params(
         resolved.update(_validate_step_params(tool_request.get("params"), declared))
     if "params" in requested_step:
         resolved.update(_validate_step_params(requested_step.get("params"), declared))
-    for name in _command_param_names(str(rule_template.get("commandTemplate") or "")):
+    for name in command_param_names(str(rule_template.get("commandTemplate") or "")):
         if name not in resolved:
             raise ValueError(f"WORKFLOW_STEP_PARAM_REQUIRED: {name}")
     return resolved
@@ -429,13 +430,6 @@ def _normalize_param_value(value: Any) -> str | int | float | bool:
     raise ValueError("WORKFLOW_STEP_PARAM_VALUE_INVALID")
 
 
-def _command_param_names(command_template: str) -> set[str]:
-    return {
-        match.group(1)
-        for match in re.finditer(r"\{params\.([A-Za-z_][A-Za-z0-9_]*)(?::q)?\}", command_template)
-    }
-
-
 def _resolve_step_inputs(
     *,
     requested_step: dict[str, Any],
@@ -457,6 +451,7 @@ def _resolve_step_inputs(
             output_port_specs_by_step_id=output_port_specs_by_step_id,
         )
         _validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
+        validate_command_input_tokens_bound(rule_template=rule_template, inputs=mapped)
         return mapped
     if previous_outputs is None:
         return _resolve_inputs(rule_template=rule_template, resolved_inputs=resolved_inputs)
@@ -484,6 +479,7 @@ def _resolve_step_inputs(
     if not mapped:
         raise ValueError("TOOL_INPUT_REQUIRED")
     _validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
+    validate_command_input_tokens_bound(rule_template=rule_template, inputs=mapped)
     return mapped
 
 
@@ -577,6 +573,7 @@ def _resolve_inputs(*, rule_template: dict[str, Any], resolved_inputs: list[dict
         mapped["primary"] = str(resolved_inputs[0]["path"])
     if not mapped:
         raise ValueError("TOOL_INPUT_REQUIRED")
+    validate_command_input_tokens_bound(rule_template=rule_template, inputs=mapped)
     return mapped
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
+from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from apps.remote_runner.pipeline import list_pipelines
 from apps.remote_runner.storage import persist_upload, upsert_tool
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
@@ -226,6 +226,57 @@ def test_tool_rule_template_rejects_unknown_command_tokens(tmp_path: Path) -> No
         assert str(exc) == "TOOL_RULE_TOKEN_UNSUPPORTED: {input.missing:q}"
     else:
         raise AssertionError("unknown input token should be rejected")
+
+
+def test_generated_workflow_rejects_unbound_command_input_token(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::optional-input",
+            "name": "optional-input",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "cat {input.primary:q} {input.sidecar:q} > {output.count:q}",
+                "inputs": [
+                    {"name": "primary", "type": "file", "required": True},
+                    {"name": "sidecar", "type": "file", "required": False},
+                ],
+                "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
+        },
+    )
+    reads = tmp_path / "reads.txt"
+    reads.write_text("ACGT\n", encoding="utf-8")
+
+    try:
+        prepare_generated_tool_workflow(
+            cfg,
+            run_id="run_unbound_command_input",
+            request_id="req_unbound_command_input",
+            run_spec={
+                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+                "workflow": {
+                    "steps": [
+                        {
+                            "id": "count",
+                            "tool": {"id": "conda-forge::optional-input"},
+                            "inputs": {"primary": {"fromInput": "input"}},
+                        }
+                    ]
+                },
+            },
+            resolved_inputs=[{"path": str(reads), "role": "input", "filename": "reads.txt"}],
+            work_dir=tmp_path / "work",
+            result_dir=tmp_path / "results",
+        )
+    except ValueError as exc:
+        assert str(exc) == "WORKFLOW_STEP_INPUT_TOKEN_UNBOUND: sidecar"
+    else:
+        raise AssertionError("command input token should require a concrete input binding")
 
 
 def test_tool_rule_template_accepts_declared_param_tokens(tmp_path: Path) -> None:
