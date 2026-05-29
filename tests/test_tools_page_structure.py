@@ -18,6 +18,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export async function searchToolCapabilities" in api
     assert "export function useToolsPageState" in hook
     assert "export type ToolSearchItem" in model
+    assert "localIndexAvailable?: boolean" in model
     assert "export type RuleSpecTemplate" in model
     assert "export type RuleSpecEnvironment" in model
     assert "export type RuleSpecLock" in model

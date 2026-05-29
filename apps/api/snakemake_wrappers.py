@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import time
-import urllib.error
 import urllib.request
-import zipfile
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +14,6 @@ from config import get_app_cache_dir
 SNAKEMAKE_WRAPPERS_REPOSITORY = "snakemake/snakemake-wrappers"
 SNAKEMAKE_WRAPPERS_REF = "v9.8.0"
 SNAKEMAKE_WRAPPERS_TREE_URL = f"https://api.github.com/repos/{SNAKEMAKE_WRAPPERS_REPOSITORY}/git/trees/{SNAKEMAKE_WRAPPERS_REF}?recursive=1"
-SNAKEMAKE_WRAPPERS_ZIP_URL = f"https://github.com/{SNAKEMAKE_WRAPPERS_REPOSITORY}/archive/refs/tags/{SNAKEMAKE_WRAPPERS_REF}.zip"
 SNAKEMAKE_WRAPPERS_WEB_ROOT = f"https://github.com/{SNAKEMAKE_WRAPPERS_REPOSITORY}/tree/{SNAKEMAKE_WRAPPERS_REF}"
 WRAPPER_CACHE_TTL_SECONDS = 3600
 WRAPPER_LOOKUP_TIMEOUT_SECONDS = 8.0
@@ -31,10 +27,7 @@ def find_snakemake_wrappers_for_tool(tool_name: str) -> list[dict[str, Any]]:
     normalized = _normalize_tool_name(tool_name)
     if not normalized:
         return []
-    try:
-        index = _wrapper_index()
-    except (OSError, TimeoutError, ValueError, urllib.error.URLError):
-        return []
+    index = _wrapper_index()
     return list(index.get(normalized, []))[:MAX_WRAPPER_MATCHES_PER_TOOL]
 
 
@@ -43,18 +36,12 @@ def _wrapper_index() -> dict[str, list[dict[str, Any]]]:
     now = time.time()
     if _WRAPPER_CACHE and now - _WRAPPER_CACHE[0] < WRAPPER_CACHE_TTL_SECONDS:
         return _WRAPPER_CACHE[1]
-    try:
-        payload = _request_wrapper_tree()
-        index = _build_wrapper_index(payload)
-    except (OSError, TimeoutError, ValueError, urllib.error.URLError):
-        try:
-            payload = _request_wrapper_zip_tree()
-            index = _build_wrapper_index(payload)
-        except (OSError, TimeoutError, ValueError, urllib.error.URLError, zipfile.BadZipFile):
-            cached_index = _load_cached_wrapper_index()
-            if cached_index is None:
-                raise
-            index = cached_index
+    cached_index = _load_cached_wrapper_index()
+    if cached_index is not None:
+        _WRAPPER_CACHE = (now, cached_index)
+        return cached_index
+    payload = _request_wrapper_tree()
+    index = _build_wrapper_index(payload)
     _save_cached_wrapper_index(index)
     _WRAPPER_CACHE = (now, index)
     return index
@@ -73,22 +60,6 @@ def _request_wrapper_tree() -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("SNAKEMAKE_WRAPPER_TREE_INVALID")
     return payload
-
-
-def _request_wrapper_zip_tree() -> dict[str, Any]:
-    request = urllib.request.Request(
-        SNAKEMAKE_WRAPPERS_ZIP_URL,
-        headers={"User-Agent": "h2ometa-tool-search"},
-    )
-    with urllib.request.urlopen(request, timeout=WRAPPER_LOOKUP_TIMEOUT_SECONDS) as response:
-        raw = response.read()
-    tree: list[dict[str, str]] = []
-    with zipfile.ZipFile(BytesIO(raw)) as archive:
-        for name in archive.namelist():
-            normalized = _normalize_zip_member(name)
-            if normalized:
-                tree.append({"type": "blob", "path": normalized})
-    return {"tree": tree}
 
 
 def _build_wrapper_index(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -154,13 +125,6 @@ def _wrapper_dir(path: str) -> str:
     return path.rsplit("/", 1)[0]
 
 
-def _normalize_zip_member(name: str) -> str:
-    parts = [part for part in str(name or "").replace("\\", "/").split("/") if part]
-    if len(parts) < 2:
-        return ""
-    return "/".join(parts[1:])
-
-
 def _wrapper_index_cache_path() -> Path:
     return get_app_cache_dir() / "snakemake-wrappers" / WRAPPER_INDEX_CACHE_FILENAME
 
@@ -173,16 +137,20 @@ def _load_cached_wrapper_index() -> dict[str, list[dict[str, Any]]] | None:
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    except OSError as exc:
+        raise OSError(f"SNAKEMAKE_WRAPPER_CACHE_UNREADABLE: {path}") from exc
+    except ValueError as exc:
+        raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {path}") from exc
     index = payload.get("index") if isinstance(payload, dict) else None
     if not isinstance(index, dict):
-        return None
+        raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {path}")
     normalized: dict[str, list[dict[str, Any]]] = {}
     for key, entries in index.items():
         if not isinstance(key, str) or not isinstance(entries, list):
-            continue
+            raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {path}")
         normalized[key] = [dict(item) for item in entries if isinstance(item, dict)]
+        if len(normalized[key]) != len(entries):
+            raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {path}")
     return normalized
 
 

@@ -5,12 +5,27 @@ from typing import Any
 import pytest
 
 from apps.api import tool_capabilities
+from apps.api import snakemake_wrappers
 
 
 def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
+    tool_capabilities._CACHE.clear()
+
     def fail_search(_query: str, *, target_platform: str, limit: int):
         raise TimeoutError("timed out")
 
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "indexAvailable": False,
+        },
+    )
     monkeypatch.setattr(tool_capabilities, "_search_anaconda", fail_search)
 
     with pytest.raises(TimeoutError, match="timed out"):
@@ -18,16 +33,30 @@ def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
 
 
 def test_tool_search_propagates_online_search_network_error(monkeypatch) -> None:
+    tool_capabilities._CACHE.clear()
+
     def fail_search(_query: str, *, target_platform: str, limit: int):
         raise OSError("name resolution failed")
 
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "indexAvailable": True,
+        },
+    )
     monkeypatch.setattr(tool_capabilities, "_search_anaconda", fail_search)
 
     with pytest.raises(OSError, match="name resolution failed"):
         tool_capabilities.search_tool_capabilities("not-a-known-tool", limit=5)
 
 
-def test_online_fallback_fetches_once_and_pages_cached_results(monkeypatch) -> None:
+def test_online_search_fetches_once_and_pages_cached_results(monkeypatch) -> None:
     tool_capabilities._CACHE.clear()
     calls: list[int] = []
     monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
@@ -68,7 +97,7 @@ def test_online_fallback_fetches_once_and_pages_cached_results(monkeypatch) -> N
     second = tool_capabilities.search_tool_capabilities("demo", page=2, page_size=20)
     third = tool_capabilities.search_tool_capabilities("demo", page=3, page_size=20)
 
-    assert calls == [tool_capabilities.ONLINE_FALLBACK_RESULT_LIMIT]
+    assert calls == [tool_capabilities.ONLINE_SEARCH_RESULT_LIMIT]
     assert [item["name"] for item in first["data"]["items"]][-1] == "demo-tool-19"
     assert [item["name"] for item in second["data"]["items"]][0] == "demo-tool-20"
     assert [item["name"] for item in third["data"]["items"]] == [
@@ -176,6 +205,33 @@ def test_tool_search_builds_dependency_rule_spec_draft_without_wrapper(monkeypat
     assert draft["ruleTemplate"]["inputs"][0]["name"] == "primary"
     assert draft["ruleTemplate"]["outputs"][0]["name"] == "primary"
     assert "fastq" in draft["ruleTemplate"]["commandTemplate"]
+
+
+def test_snakemake_wrapper_lookup_uses_disk_cache_before_network(monkeypatch) -> None:
+    snakemake_wrappers._WRAPPER_CACHE = None
+    cached_index = {"samtools": [_samtools_sort_wrapper("samtools")]}
+    monkeypatch.setattr(snakemake_wrappers, "_load_cached_wrapper_index", lambda: cached_index)
+
+    def fail_network() -> dict[str, Any]:
+        raise AssertionError("network wrapper lookup should not run when disk cache exists")
+
+    monkeypatch.setattr(snakemake_wrappers, "_request_wrapper_tree", fail_network)
+    wrappers = snakemake_wrappers.find_snakemake_wrappers_for_tool("samtools")
+
+    assert wrappers[0]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
+
+
+def test_snakemake_wrapper_lookup_propagates_network_error_without_cache(monkeypatch) -> None:
+    snakemake_wrappers._WRAPPER_CACHE = None
+    monkeypatch.setattr(snakemake_wrappers, "_load_cached_wrapper_index", lambda: None)
+
+    def fail_network() -> dict[str, Any]:
+        raise TimeoutError("wrapper index timed out")
+
+    monkeypatch.setattr(snakemake_wrappers, "_request_wrapper_tree", fail_network)
+
+    with pytest.raises(TimeoutError, match="wrapper index timed out"):
+        snakemake_wrappers.find_snakemake_wrappers_for_tool("samtools")
 
 
 def _samtools_sort_wrapper(name: str) -> dict[str, Any]:

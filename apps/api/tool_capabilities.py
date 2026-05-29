@@ -19,10 +19,10 @@ ANACONDA_SEARCH_URL = "https://api.anaconda.org/search"
 ANACONDA_PACKAGE_URL = "https://api.anaconda.org/package"
 SUPPORTED_CHANNELS = ("bioconda", "conda-forge")
 CACHE_TTL_SECONDS = 300
-ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS = 30.0
-ANACONDA_SEARCH_TIMEOUT_SECONDS = 20.0
-ANACONDA_EXACT_LOOKUP_TIMEOUT_SECONDS = 5.0
-ONLINE_FALLBACK_RESULT_LIMIT = 200
+ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS = 6.0
+ANACONDA_SEARCH_TIMEOUT_SECONDS = 5.0
+ANACONDA_EXACT_LOOKUP_TIMEOUT_SECONDS = 2.0
+ONLINE_SEARCH_RESULT_LIMIT = 200
 
 _CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
@@ -108,6 +108,7 @@ def search_tool_capabilities(
                 "page": index_page["page"],
                 "pageSize": index_page["pageSize"],
                 "hasMore": index_page["hasMore"],
+                "localIndexAvailable": bool(index_page.get("indexAvailable")),
             }
         }
 
@@ -128,15 +129,16 @@ def search_tool_capabilities(
                 "page": bounded_page,
                 "pageSize": bounded_page_size,
                 "hasMore": bounded_page * bounded_page_size < len(all_items),
+                "localIndexAvailable": bool(index_page.get("indexAvailable")),
             }
         }
 
     hits = _search_anaconda(
         normalized,
         target_platform=normalized_target_platform,
-        limit=ONLINE_FALLBACK_RESULT_LIMIT,
+        limit=ONLINE_SEARCH_RESULT_LIMIT,
     )
-    all_items = [hit.to_dict() for hit in hits[:ONLINE_FALLBACK_RESULT_LIMIT]]
+    all_items = [hit.to_dict() for hit in hits[:ONLINE_SEARCH_RESULT_LIMIT]]
     all_items = _attach_snakemake_wrappers(all_items)
     _CACHE[cache_key] = (now, all_items)
     items = _page_items(all_items, page=bounded_page, page_size=bounded_page_size)
@@ -151,6 +153,7 @@ def search_tool_capabilities(
             "page": bounded_page,
             "pageSize": bounded_page_size,
             "hasMore": bounded_page * bounded_page_size < len(all_items),
+            "localIndexAvailable": bool(index_page.get("indexAvailable")),
         }
     }
 
@@ -231,6 +234,7 @@ def _search_bioconda_index_items(
         "page": int(index_page.get("page") or page),
         "pageSize": int(index_page.get("pageSize") or page_size),
         "hasMore": bool(index_page.get("hasMore")),
+        "indexAvailable": bool(index_page.get("indexAvailable")),
     }
 
 

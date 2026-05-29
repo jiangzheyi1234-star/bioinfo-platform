@@ -51,6 +51,7 @@ def search_bioconda_index_page(
             "page": bounded_page,
             "pageSize": bounded_page_size,
             "hasMore": False,
+            "indexAvailable": False,
         }
     index = load_bioconda_index(cache_dir=cache_dir)
     if index is None:
@@ -60,6 +61,7 @@ def search_bioconda_index_page(
             "page": bounded_page,
             "pageSize": bounded_page_size,
             "hasMore": False,
+            "indexAvailable": False,
         }
     records = index.get("packages")
     if not isinstance(records, list):
@@ -69,6 +71,7 @@ def search_bioconda_index_page(
             "page": bounded_page,
             "pageSize": bounded_page_size,
             "hasMore": False,
+            "indexAvailable": False,
         }
 
     scored: list[tuple[int, str, dict[str, Any]]] = []
@@ -89,6 +92,7 @@ def search_bioconda_index_page(
         "page": bounded_page,
         "pageSize": bounded_page_size,
         "hasMore": offset + len(page_items) < total,
+        "indexAvailable": True,
     }
 
 

@@ -136,6 +136,7 @@ export type ToolSearchResponse = {
     pageSize?: number;
     hasMore?: boolean;
     complete?: boolean;
+    localIndexAvailable?: boolean;
   };
 };
 
