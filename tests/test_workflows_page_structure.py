@@ -41,6 +41,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
+    port_contract_path = COMPONENTS / "generated-workflow-port-contract.ts"
     runtime_contract_path = COMPONENTS / "generated-workflow-runtime-contract.ts"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
@@ -57,6 +58,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert graph_node_path.exists()
     assert node_settings_path.exists()
     assert param_contract_path.exists()
+    assert port_contract_path.exists()
     assert runtime_contract_path.exists()
     assert rule_spec_panel_path.exists()
     assert step_params_editor_path.exists()
@@ -68,6 +70,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
+    port_contract = port_contract_path.read_text(encoding="utf-8")
     runtime_contract = runtime_contract_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
@@ -102,9 +105,17 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "portsCompatible" in model
     assert "portCompatibilityScore" in model
     assert "findCompatibleOutputBinding" in model
-    assert "capabilitySlotForRulePort" in model
-    assert "slot.primary === true" in model
-    assert "fallbackIndex" in model
+    assert "capabilityPortsForTool" in model
+    assert "capabilitySlotForRulePort" in port_contract
+    assert "capabilityPortItemsForTool" in port_contract
+    assert "export type RulePortCapabilityMetadata" in port_contract
+    assert "capabilityId?: string" in port_contract
+    assert "capabilityLabel?: string" in port_contract
+    assert "tool?.capabilities" in port_contract
+    assert "能力来源" in graph_node_ui
+    assert "capabilityLabel" in graph_node_ui
+    assert "slot.primary === true" in port_contract
+    assert "fallbackIndex" in port_contract
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
     assert "WORKFLOW_OUTPUT_ALIAS_DUPLICATE" in model
     assert "WORKFLOW_OUTPUT_TEMP_EXPOSED" in model
@@ -112,7 +123,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateDefaultExposedOutputs" in model
     assert "validateStepParamBindings" in model
     assert "validateStepRuntime" in model
-    assert "capabilities" in model
+    assert "readPortCompatibility" in port_contract
     assert "runSpec.workflow = {" in model
     assert "contractVersion:" in model
     assert "nodes: draft.nodes.map" in model
