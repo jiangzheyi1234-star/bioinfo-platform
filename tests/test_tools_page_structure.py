@@ -72,12 +72,16 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert ">工具</h2>" in library
     assert "RuleSpecNodeCard" in library
     assert "RuleSpecNodeReadinessBadge" in library
+    assert "RuleSpecNodeStatusRow" in library
+    assert "RuleSpecNodeStatusChip" in library
     assert "ruleSpecNodeState" in library
     assert "可运行" in library
     assert "待补 action" in library
     assert "Action" in library
     assert "Ports" in library
     assert "Env" in library
+    assert "RuleSpecNodeFact" not in library
+    assert "sm:grid-cols-3" not in library
     assert "工具预览" in ui
     assert "加入工具" in ui
     assert "module:" in ui
