@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .generated_workflow_graph import normalize_generated_workflow_run_spec
+from .generated_workflow_graph import normalize_generated_workflow_run_spec, workflow_graph_config
 from .rule_command import command_param_names, validate_command_input_tokens_bound
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
@@ -69,7 +69,7 @@ def prepare_generated_tool_workflow(
 ) -> GeneratedWorkflow:
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")
-    run_spec = normalize_generated_workflow_run_spec(run_spec)
+    graph_config, run_spec = workflow_graph_config(run_spec.get("workflow")), normalize_generated_workflow_run_spec(run_spec)
 
     workflow_dir = work_dir / "workflow"
     env_dir = workflow_dir / "envs"
@@ -192,6 +192,7 @@ def prepare_generated_tool_workflow(
                 "inputs": resolved_inputs,
                 "tool": _config_tool(generated_steps[0]),
                 "workflow": {
+                    **({"graph": graph_config} if graph_config else {}),
                     "steps": [
                         {
                             "id": step.step_id,
@@ -238,7 +239,6 @@ def prepare_generated_tool_workflow(
         outputs=final_outputs,
         output_schema={"type": "object", "artifacts": final_artifacts},
     )
-
 
 def _resolve_requested_steps(run_spec: dict[str, Any]) -> list[dict[str, Any]]:
     run_spec = normalize_generated_workflow_run_spec(run_spec)
