@@ -130,21 +130,16 @@ function WorkflowGraphWorkbench({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-[180px_minmax(0,1fr)_240px]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)_260px]">
         <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-2">
-          <div className="mb-2 px-1 text-[11px] font-semibold uppercase text-slate-400">工具 Palette</div>
+          <div className="mb-2 px-1 text-[11px] font-semibold uppercase text-slate-400">工具 Palette · 规则节点库</div>
           <div className="grid gap-1.5">
             {tools.map((tool) => (
-              <Button
+              <RulePaletteCard
                 key={tool.id}
-                type="button"
-                variant="outline"
-                className="h-auto justify-start bg-white px-2 py-1.5 text-left text-xs"
+                tool={tool}
                 onClick={() => builder.addStep(tool.id)}
-              >
-                <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 shrink-0" />
-                <span className="min-w-0 truncate">{tool.name}</span>
-              </Button>
+              />
             ))}
           </div>
         </div>
@@ -268,6 +263,39 @@ function WorkflowGraphWorkbench({
         </div>
       </div>
     </div>
+  );
+}
+
+function RulePaletteCard({ onClick, tool }: { onClick: () => void; tool: AddedTool }) {
+  const action = ruleActionLabelForTool(tool);
+  const ports = rulePortsLabelForTool(tool);
+  const environment = ruleEnvironmentLabelForTool(tool);
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      className="h-auto w-full items-start justify-start gap-2 bg-white px-2 py-2 text-left text-xs"
+      onClick={onClick}
+    >
+      <Plus strokeWidth={1.5} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+      <span className="grid min-w-0 flex-1 gap-1">
+        <span className="flex min-w-0 items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-medium text-slate-800">{tool.name}</span>
+          <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] leading-none text-slate-500">
+            RuleSpec 节点
+          </span>
+        </span>
+        <span className="truncate font-mono text-[11px] leading-4 text-slate-500" title={action}>
+          {action}
+        </span>
+        <span className="flex min-w-0 flex-wrap gap-1">
+          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">{ports}</span>
+          <span className="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700" title={environment}>
+            {environment}
+          </span>
+        </span>
+      </span>
+    </Button>
   );
 }
 
@@ -614,6 +642,58 @@ function buildOutputCandidates(steps: GeneratedWorkflowBuilderController["draft"
       port: output,
     }));
   });
+}
+
+function ruleActionLabelForTool(tool: AddedTool) {
+  const template = ruleTemplateForPaletteTool(tool);
+  const wrapper = stringValue(template.wrapper);
+  if (wrapper) return `wrapper: ${wrapper}`;
+  const command = stringValue(template.commandTemplate);
+  if (command) return command;
+  if (readRuleInputs(tool).length > 0 || readRuleOutputs(tool).length > 0) return "端口契约待补 action";
+  return "RuleSpec 待补全";
+}
+
+function rulePortsLabelForTool(tool: AddedTool) {
+  return `${readRuleInputs(tool).length} in / ${readRuleOutputs(tool).length} out / ${readRuleParams(tool).length} params`;
+}
+
+function ruleEnvironmentLabelForTool(tool: AddedTool) {
+  const template = ruleTemplateForPaletteTool(tool);
+  const environment = recordValue(template.environment);
+  const conda = recordValue(environment.conda);
+  const dependencies = stringArray(conda.dependencies);
+  const channels = stringArray(conda.channels);
+  const container = stringValue(environment.container) || stringValue(recordValue(environment.container).url) || stringValue(recordValue(environment.container).image);
+  if (dependencies.length > 0) return `运行环境 ${dependencies.length} deps`;
+  if (channels.length > 0) return `运行环境 ${channels.length} channels`;
+  if (container) return "运行环境 container";
+  if (tool.selectedPackageSpec || tool.packageSpec) return "运行环境 package lock";
+  return "运行环境待声明";
+}
+
+function ruleTemplateForPaletteTool(tool: AddedTool): Record<string, unknown> {
+  const manifest = (tool.ruleTemplate || {}) as Record<string, unknown>;
+  const draft = (tool.ruleSpecDraft?.ruleTemplate || {}) as Record<string, unknown>;
+  if (hasPaletteRuleAction(manifest)) return manifest;
+  if (hasPaletteRuleAction(draft)) return draft;
+  return Object.keys(manifest).length > 0 ? manifest : draft;
+}
+
+function hasPaletteRuleAction(template: Record<string, unknown>) {
+  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper));
+}
+
+function recordValue(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function stringArray(raw: unknown) {
+  return Array.isArray(raw) ? raw.map(stringValue).filter(Boolean) : [];
+}
+
+function stringValue(raw: unknown) {
+  return typeof raw === "string" ? raw.trim() : "";
 }
 
 function bindingKind(binding: GeneratedWorkflowInputBinding | undefined) {
