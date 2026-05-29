@@ -208,6 +208,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "onStepToolChange" in node_settings_ui
     assert "GeneratedWorkflowRuleSpecPanel" in builder_ui
     assert "GeneratedWorkflowSnakefilePreview" in builder_ui
+    assert "GeneratedWorkflowGraphSnakefilePreview" in builder_ui
     assert "selectedNode.params" in builder_ui
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
     assert "commandTemplate" in rule_spec_panel_ui
@@ -228,8 +229,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "调度资源 / log" in rule_spec_panel_ui
     assert "formatRuleOutputSemantics" in rule_spec_panel_ui
     assert "export function GeneratedWorkflowSnakefilePreview" in snakefile_preview_ui
+    assert "export function GeneratedWorkflowGraphSnakefilePreview" in snakefile_preview_ui
     assert "Snakefile preview" in snakefile_preview_ui
+    assert "Workflow Snakefile preview" in snakefile_preview_ui
+    assert "graphPreviewLines" in snakefile_preview_ui
     assert "rulePreviewLines" in snakefile_preview_ui
+    assert "rule all:" in snakefile_preview_ui
+    assert "inputPathForRulePort" in snakefile_preview_ui
     assert "renderOutputValue" in snakefile_preview_ui
     assert "shell:" in snakefile_preview_ui
     assert "wrapper:" in snakefile_preview_ui

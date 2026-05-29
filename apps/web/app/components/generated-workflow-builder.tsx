@@ -31,7 +31,10 @@ import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-panel";
 import { GeneratedWorkflowRuntimeEditor } from "./generated-workflow-runtime-editor";
-import { GeneratedWorkflowSnakefilePreview } from "./generated-workflow-snakefile-preview";
+import {
+  GeneratedWorkflowGraphSnakefilePreview,
+  GeneratedWorkflowSnakefilePreview,
+} from "./generated-workflow-snakefile-preview";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
@@ -268,6 +271,9 @@ function WorkflowGraphWorkbench({
             <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">未选择节点。</div>
           )}
         </div>
+      </div>
+      <div className="mt-3">
+        <GeneratedWorkflowGraphSnakefilePreview draft={builder.graphDraft} tools={tools} />
       </div>
     </div>
   );
