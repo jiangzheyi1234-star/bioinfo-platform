@@ -218,7 +218,9 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     wrapper = _normalize_rule_wrapper(template.get("wrapper"))
     script = _normalize_rule_script(template.get("script"))
     script_assets = _normalize_rule_script_assets(template.get("scriptAssets"), script=script)
-    actions = [bool(command), bool(wrapper), bool(script)]
+    module = _normalize_rule_module(template.get("module"))
+    module_assets = _normalize_rule_module_assets(template.get("moduleAssets"), module=module)
+    actions = [bool(command), bool(wrapper), bool(script), bool(module)]
     if not any(actions):
         raise ToolRegistryError("TOOL_RULE_COMMAND_REQUIRED")
     if sum(actions) > 1:
@@ -258,6 +260,9 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     if script:
         normalized["script"] = script
         normalized["scriptAssets"] = script_assets
+    if module:
+        normalized["module"] = module
+        normalized["moduleAssets"] = module_assets
     if threads is not None:
         normalized["threads"] = threads
     if scheduler_resources:
@@ -324,6 +329,64 @@ def _normalize_rule_script_asset_path(raw: Any) -> str:
     path = _normalize_rule_script(raw)
     if not path:
         raise ToolRegistryError("TOOL_RULE_SCRIPT_ASSET_PATH_REQUIRED")
+    return path
+
+
+def _normalize_rule_module(raw: Any) -> dict[str, str]:
+    if raw in (None, "", {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise ToolRegistryError("TOOL_RULE_MODULE_INVALID")
+    snakefile = str(raw.get("snakefile") or "").strip()
+    rule = str(raw.get("rule") or raw.get("useRule") or "").strip()
+    if not snakefile:
+        raise ToolRegistryError("TOOL_RULE_MODULE_SNAKEFILE_REQUIRED")
+    if not rule:
+        raise ToolRegistryError("TOOL_RULE_MODULE_RULE_REQUIRED")
+    _validate_relative_module_path(snakefile)
+    if not RULE_IO_NAME_RE.match(rule):
+        raise ToolRegistryError(f"TOOL_RULE_MODULE_RULE_INVALID: {rule}")
+    name = str(raw.get("name") or "").strip()
+    if name and not RULE_IO_NAME_RE.match(name):
+        raise ToolRegistryError(f"TOOL_RULE_MODULE_NAME_INVALID: {name}")
+    normalized = {"snakefile": snakefile, "rule": rule}
+    if name:
+        normalized["name"] = name
+    return normalized
+
+
+def _normalize_rule_module_assets(raw: Any, *, module: dict[str, str]) -> list[dict[str, str]]:
+    if raw in (None, []):
+        if module:
+            raise ToolRegistryError("TOOL_RULE_MODULE_ASSET_REQUIRED")
+        return []
+    if not module:
+        raise ToolRegistryError("TOOL_RULE_MODULE_ASSET_UNSUPPORTED")
+    if not isinstance(raw, list):
+        raise ToolRegistryError("TOOL_RULE_MODULE_ASSETS_INVALID")
+    assets: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ToolRegistryError("TOOL_RULE_MODULE_ASSET_INVALID")
+        path = _normalize_rule_module_asset_path(item.get("path"))
+        content = item.get("content")
+        if not isinstance(content, str):
+            raise ToolRegistryError(f"TOOL_RULE_MODULE_ASSET_CONTENT_INVALID: {path}")
+        if path in seen:
+            raise ToolRegistryError(f"TOOL_RULE_MODULE_ASSET_DUPLICATE: {path}")
+        seen.add(path)
+        assets.append({"path": path, "content": content})
+    if module["snakefile"] not in seen:
+        raise ToolRegistryError("TOOL_RULE_MODULE_ASSET_REQUIRED")
+    return assets
+
+
+def _normalize_rule_module_asset_path(raw: Any) -> str:
+    path = str(raw or "").strip().replace("\\", "/")
+    if not path:
+        raise ToolRegistryError("TOOL_RULE_MODULE_ASSET_PATH_REQUIRED")
+    _validate_relative_module_path(path)
     return path
 
 
@@ -575,6 +638,13 @@ def _validate_relative_log_path(path: str) -> None:
         _validate_relative_output_path(path)
     except ToolRegistryError as exc:
         raise ToolRegistryError("TOOL_RULE_LOG_PATH_INVALID") from exc
+
+
+def _validate_relative_module_path(path: str) -> None:
+    try:
+        _validate_relative_output_path(path)
+    except ToolRegistryError as exc:
+        raise ToolRegistryError("TOOL_RULE_MODULE_PATH_INVALID") from exc
 
 
 def _validate_command_tokens(

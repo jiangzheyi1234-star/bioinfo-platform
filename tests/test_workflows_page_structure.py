@@ -179,7 +179,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export function readToolRuleTemplate" in model
     assert "WORKFLOW_RULE_ACTION_REQUIRED" in rule_action_contract
     assert "WORKFLOW_RULE_ACTION_CONFLICT" in rule_action_contract
-    assert '["commandTemplate", "wrapper", "script"]' in rule_action_contract
+    assert '["commandTemplate", "wrapper", "script", "module"]' in rule_action_contract
     assert "runSpec.workflow = {" in model
     assert "audit?: RulePortEdgeAudit" in model
     assert "audit: edge.audit" in model
@@ -255,6 +255,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "shell:" in snakefile_preview_ui
     assert "wrapper:" in snakefile_preview_ui
     assert "script:" in snakefile_preview_ui
+    assert "module " in snakefile_preview_ui
+    assert "use rule" in snakefile_preview_ui
     assert "conda:" in snakefile_preview_ui
     assert "hasRunnableCondaEnvironment" in snakefile_preview_ui
     assert "tool?.selectedPackageSpec || tool?.packageSpec" in snakefile_preview_ui
@@ -358,6 +360,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "不兼容" in port_bindings_editor_ui
     assert "exposeOutputs" in builder_ui
     assert "script:" in builder_ui
+    assert "module:" in builder_ui
 
     assert "buildGeneratedRunSpec" not in page_model
     assert "buildGeneratedWorkflowRunSpec" in api

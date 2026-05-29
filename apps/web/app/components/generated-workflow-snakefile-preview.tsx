@@ -89,7 +89,20 @@ function rulePreviewLines({
   const commandTemplate = stringValue(template.commandTemplate);
   const wrapper = stringValue(template.wrapper);
   const script = stringValue(template.script);
-  const lines = [`rule ${safeSnakemakeName(node.id)}:`];
+  const moduleSpec = objectValue(template.module);
+  const moduleRule = stringValue(moduleSpec.rule);
+  const moduleSnakefile = stringValue(moduleSpec.snakefile);
+  const ruleName = safeSnakemakeName(node.id);
+  const moduleName = safeSnakemakeName(`${node.id}_module`);
+  const lines = moduleRule && moduleSnakefile
+    ? [
+        `module ${moduleName}:`,
+        "    snakefile:",
+        `        ${JSON.stringify(moduleSnakefile)}`,
+        "",
+        `use rule ${moduleRule} from ${moduleName} as ${ruleName} with:`,
+      ]
+    : [`rule ${ruleName}:`];
   lines.push("    input:");
   lines.push(
     ...inputs.map((input, index) => `        ${safeSnakemakeName(input.name)}=${JSON.stringify(inputPath?.(input, index) || input.name)},`)
@@ -120,6 +133,9 @@ function rulePreviewLines({
     lines.push(
       ...Object.entries(runtime.log).map(([name, value]) => `        ${safeSnakemakeName(name)}=${JSON.stringify(value)},`)
     );
+  }
+  if (moduleRule && moduleSnakefile) {
+    return lines;
   }
   if (wrapper) {
     lines.push("    wrapper:");
