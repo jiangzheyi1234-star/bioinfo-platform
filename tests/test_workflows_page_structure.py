@@ -273,7 +273,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export function GeneratedWorkflowPortBindingsEditor" in port_bindings_editor_ui
     assert "PortBindingRow" in port_bindings_editor_ui
     assert "PortBindingValueEditor" in port_bindings_editor_ui
-    assert "defaultBinding(nextType, compatibleOutputCandidates)" in port_bindings_editor_ui
+    assert "defaultBinding(nextType, recommendedOutputCandidates)" in port_bindings_editor_ui
+    assert "defaultBinding(nextType, compatibleOutputCandidates)" not in port_bindings_editor_ui
+    assert "recommendedCandidates[0]" in port_bindings_editor_ui
     assert "manualOnlyCandidate" in port_bindings_editor_ui
     assert "RuleGraphNodeCard" in graph_canvas_ui
     assert "validationIssues={validationIssues" in graph_canvas_ui

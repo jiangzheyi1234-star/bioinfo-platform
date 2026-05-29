@@ -139,7 +139,7 @@ function PortBindingRow({
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, compatibleOutputCandidates))}>
+        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, recommendedOutputCandidates))}>
           <SelectTrigger className="h-8 bg-white text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -282,9 +282,9 @@ function bindingKind(binding: GeneratedWorkflowInputBinding | undefined) {
   return "fromUpload";
 }
 
-function defaultBinding(type: string, outputCandidates: GeneratedWorkflowOutputCandidate[]): GeneratedWorkflowInputBinding {
+function defaultBinding(type: string, recommendedCandidates: GeneratedWorkflowOutputCandidate[]): GeneratedWorkflowInputBinding {
   if (type === "fromStep") {
-    const first = outputCandidates[0];
+    const first = recommendedCandidates[0];
     return first ? { fromStep: first.stepId, output: first.output } : "";
   }
   if (type === "fromInput") return { fromInput: "input" };
