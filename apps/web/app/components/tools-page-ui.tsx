@@ -508,6 +508,126 @@ function RuleSpecDraftPreview({ draft }: { draft: RuleSpecDraft | undefined }) {
   );
 }
 
+function RuleSpecContractPreview({ item }: { item: ToolSearchItem }) {
+  const template = ruleTemplateForItem(item);
+  const action = ruleSpecActionText(template);
+  const params = ruleSpecParamItems(template);
+  const resources = ruleSpecResourceItems(template);
+  const environment = ruleSpecEnvironmentItems(template);
+  const hasContract = Boolean(action || params.length > 0 || resources.length > 0 || environment.length > 0);
+  if (!hasContract) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mb-2 text-[11px] uppercase text-slate-400">RuleSpec contract</div>
+      <div className="grid gap-2">
+        <RuleSpecContractRow label="Action" value={action || "待补全"} monospace={Boolean(action)} />
+        <RuleSpecContractList label="运行环境" items={environment} empty="未声明 conda/container" />
+        <RuleSpecContractList label="参数 schema" items={params} empty="未声明参数" />
+        <RuleSpecContractList label="运行资源" items={resources} empty="未声明 threads/resources/log" />
+      </div>
+    </div>
+  );
+}
+
+function RuleSpecContractRow({
+  label,
+  monospace = false,
+  value,
+}: {
+  label: string;
+  monospace?: boolean;
+  value: string;
+}) {
+  return (
+    <div className="grid gap-1 rounded-md bg-slate-50 px-2 py-1.5">
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      <div className={cn("truncate text-[11px] text-slate-700", monospace && "font-mono")}>{value}</div>
+    </div>
+  );
+}
+
+function RuleSpecContractList({ empty, items, label }: { empty: string; items: string[]; label: string }) {
+  return (
+    <div className="grid gap-1 rounded-md bg-slate-50 px-2 py-1.5">
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      {items.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <span key={`${label}-${item}`} className="max-w-full truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[11px] text-slate-400">{empty}</div>
+      )}
+    </div>
+  );
+}
+
+function ruleSpecActionText(template: Record<string, unknown>) {
+  const wrapper = stringValue(template.wrapper);
+  if (wrapper) return `wrapper: ${wrapper}`;
+  const command = stringValue(template.commandTemplate);
+  if (command) return command;
+  return "";
+}
+
+function ruleSpecEnvironmentItems(template: Record<string, unknown>) {
+  const environment = recordValue(template.environment);
+  const conda = recordValue(environment.conda);
+  const channels = stringArray(conda.channels);
+  const dependencies = stringArray(conda.dependencies);
+  const container = typeof environment.container === "string"
+    ? environment.container.trim()
+    : stringValue(recordValue(environment.container).url) || stringValue(recordValue(environment.container).image);
+  return [
+    channels.length > 0 ? `channels:${channels.join(",")}` : "",
+    ...dependencies.slice(0, 5),
+    dependencies.length > 5 ? `+${dependencies.length - 5} deps` : "",
+    container ? `container:${container}` : "",
+  ].filter(Boolean);
+}
+
+function ruleSpecParamItems(template: Record<string, unknown>) {
+  const params = recordValue(template.params);
+  return Object.entries(params).map(([name, raw]) => {
+    const spec = recordValue(raw);
+    const type = stringValue(spec.type) || scalarType(raw);
+    const defaultValue = spec.default !== undefined ? spec.default : scalarValue(raw);
+    const defaultText = defaultValue !== undefined ? `=${String(defaultValue)}` : "";
+    return `${name}${type ? `:${type}` : ""}${defaultText}`;
+  });
+}
+
+function ruleSpecResourceItems(template: Record<string, unknown>) {
+  const resources = recordValue(template.resources);
+  const resourceItems = Object.entries(resources).map(([name, raw]) => {
+    const spec = recordValue(raw);
+    const defaultValue = spec.default !== undefined ? spec.default : raw;
+    const defaultText = defaultValue !== undefined && typeof defaultValue !== "object" ? `=${String(defaultValue)}` : "";
+    return `${name}${defaultText}`;
+  });
+  const log = template.log;
+  return [
+    ...resourceItems,
+    typeof log === "string" && log.trim() ? `log:${log.trim()}` : "",
+    log && typeof log === "object" && !Array.isArray(log) ? `log:${Object.keys(log).join(",")}` : "",
+  ].filter(Boolean);
+}
+
+function stringArray(raw: unknown) {
+  return Array.isArray(raw) ? raw.map((item) => String(item || "").trim()).filter(Boolean) : [];
+}
+
+function scalarType(raw: unknown) {
+  return typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean" ? typeof raw : "";
+}
+
+function scalarValue(raw: unknown) {
+  return typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean" ? raw : undefined;
+}
+
 export function ToolPreviewPanel({
   canAddSelected,
   onAdd,
@@ -544,6 +664,7 @@ export function ToolPreviewPanel({
           </div>
 
           <RulePortPreview item={selected} />
+          <RuleSpecContractPreview item={selected} />
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <div className="text-[11px] uppercase text-slate-400">目标平台</div>
             <div className="mt-1 text-xs text-slate-700">
