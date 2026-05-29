@@ -432,7 +432,7 @@ function PortBindingRow({
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, recommendedOutputCandidates))}>
+        <Select value={type} onValueChange={(nextType) => onChange(defaultBinding(nextType, compatibleOutputCandidates))}>
           <SelectTrigger className="h-8 bg-white text-xs">
             <SelectValue />
           </SelectTrigger>
