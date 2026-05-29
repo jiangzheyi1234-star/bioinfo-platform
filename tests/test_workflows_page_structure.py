@@ -307,6 +307,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "edgeForInput" in builder_ui
     assert "compatibleOutputCandidates" in builder_ui
     assert "recommendedOutputCandidates" in builder_ui
+    assert "defaultBinding(nextType, compatibleOutputCandidates)" in builder_ui
     assert "candidate.recommendation?.decision === \"recommended\"" in builder_ui
     assert "compatibilityReason" in builder_ui
     assert "explainPortRecommendation" in builder_ui
