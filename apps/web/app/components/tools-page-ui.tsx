@@ -79,7 +79,7 @@ export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
   const params = template.params && typeof template.params === "object" && !Array.isArray(template.params)
     ? Object.keys(template.params).length
     : 0;
-  const hasRuleSpec = Boolean(template.commandTemplate || template.wrapper || inputs > 0 || outputs > 0 || params > 0);
+  const hasRuleSpec = Boolean(template.commandTemplate || template.wrapper || template.script || inputs > 0 || outputs > 0 || params > 0);
   return (
     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
       <Workflow strokeWidth={1.5} className="h-3 w-3 text-slate-400" />
@@ -184,7 +184,7 @@ function ruleTemplateForItem(item: ToolSearchItem): Record<string, unknown> {
 }
 
 function hasRuleAction(template: Record<string, unknown>) {
-  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper));
+  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper) || stringValue(template.script));
 }
 
 function recordValue(raw: unknown): Record<string, unknown> {
@@ -482,7 +482,8 @@ function ruleSpecDraftLockText(draft: RuleSpecDraft | undefined) {
 
 function ruleSpecDraftCommand(draft: RuleSpecDraft | undefined) {
   const template = draft?.ruleTemplate || {};
-  return typeof template.commandTemplate === "string" ? template.commandTemplate : "";
+  if (typeof template.commandTemplate === "string") return template.commandTemplate;
+  return typeof template.script === "string" ? `script: ${template.script}` : "";
 }
 
 function RuleSpecDraftPreview({ draft }: { draft: RuleSpecDraft | undefined }) {
@@ -568,6 +569,8 @@ function RuleSpecContractList({ empty, items, label }: { empty: string; items: s
 function ruleSpecActionText(template: Record<string, unknown>) {
   const wrapper = stringValue(template.wrapper);
   if (wrapper) return `wrapper: ${wrapper}`;
+  const script = stringValue(template.script);
+  if (script) return `script: ${script}`;
   const command = stringValue(template.commandTemplate);
   if (command) return command;
   return "";

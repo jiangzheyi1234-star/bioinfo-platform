@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .generated_workflow_graph import normalize_generated_workflow_run_spec, workflow_graph_config
+from .rule_action import materialize_rule_script_assets, render_rule_action_lines, rule_action_kind
 from .rule_command import command_param_names, validate_command_input_tokens_bound
 from .rule_ports import build_output_port_specs, validate_input_binding_compatibility
 from .rule_environment import render_rule_conda_env_yaml
@@ -21,7 +22,6 @@ from .rule_runtime import (
     resolve_rule_runtime_directives,
     runtime_command_replacements,
     runtime_config,
-    runtime_log_parent_dirs,
 )
 from .storage import fetch_tool
 from .tools import normalize_rule_template
@@ -141,6 +141,7 @@ def prepare_generated_tool_workflow(
             ),
             encoding="utf-8",
         )
+        materialize_rule_script_assets(rule_template=rule_template, workflow_dir=workflow_dir)
         generated_steps.append(
             GeneratedWorkflowStep(
                 step_id=step_id,
@@ -693,19 +694,14 @@ def _render_snakefile(
     workflow_targets = "".join(f"        {str(path)!r},\n" for path in final_outputs.values())
     rule_blocks = []
     for step in steps:
-        wrapper = str(step.rule_template.get("wrapper") or "").strip()
         input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
         output_lines = render_rule_output_lines(step.outputs, step.rule_template) + render_rule_param_lines(step.params)
         runtime_lines = render_runtime_directives(step.runtime)
-        log_mkdir_lines = "".join(
-            f"        mkdir -p {shlex.quote(path)}\n"
-            for path in runtime_log_parent_dirs(step.runtime)
-        )
-        conda_lines = ""
-        if wrapper:
-            action_lines = f"    wrapper:\n        {wrapper!r}\n"
-        else:
-            command = _render_command(
+        action_kind = rule_action_kind(step.rule_template)
+        command = (
+            ""
+            if action_kind in {"wrapper", "script"}
+            else _render_command(
                 step.command_template,
                 inputs=step.inputs,
                 outputs=step.outputs,
@@ -716,16 +712,14 @@ def _render_snakefile(
                 resources=resources,
                 resource_config=resource_config,
             )
-            conda_lines = f"    conda:\n        {step.env_path.as_posix()!r}\n"
-            action_lines = (
-                "    shell:\n"
-                "        r\"\"\"\n"
-                "        set -euo pipefail\n"
-                f"        mkdir -p {shlex.quote(output_dir)}\n"
-                f"{log_mkdir_lines}"
-                f"        {command}\n"
-                "        \"\"\"\n"
-            )
+        )
+        action_lines = render_rule_action_lines(
+            rule_template=step.rule_template,
+            env_path=step.env_path,
+            output_dir=output_dir,
+            runtime=step.runtime,
+            shell_command=command,
+        )
         rule_blocks.append(
             f"rule {step.rule_name}:\n"
             "    input:\n"
@@ -733,7 +727,6 @@ def _render_snakefile(
             "    output:\n"
             f"{output_lines}"
             f"{runtime_lines}"
-            f"{conda_lines}"
             f"{action_lines}"
         )
     return (

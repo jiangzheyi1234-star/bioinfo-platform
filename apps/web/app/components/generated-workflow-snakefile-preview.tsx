@@ -88,6 +88,7 @@ function rulePreviewLines({
   const params = readRuleParams(tool);
   const commandTemplate = stringValue(template.commandTemplate);
   const wrapper = stringValue(template.wrapper);
+  const script = stringValue(template.script);
   const lines = [`rule ${safeSnakemakeName(node.id)}:`];
   lines.push("    input:");
   lines.push(
@@ -125,9 +126,14 @@ function rulePreviewLines({
     lines.push(`        ${JSON.stringify(wrapper)}`);
     return lines;
   }
-  if (hasCondaEnvironment(template)) {
+  if (hasRunnableCondaEnvironment(template, tool)) {
     lines.push("    conda:");
     lines.push(`        ${JSON.stringify(`envs/${safeSnakemakeName(node.id)}.yaml`)}`);
+  }
+  if (script) {
+    lines.push("    script:");
+    lines.push(`        ${JSON.stringify(script)}`);
+    return lines;
   }
   lines.push("    shell:");
   lines.push("        r\"\"\"");
@@ -237,9 +243,9 @@ function normalizeLogPreview(raw: unknown): Record<string, string> {
   );
 }
 
-function hasCondaEnvironment(template: Record<string, unknown>) {
+function hasRunnableCondaEnvironment(template: Record<string, unknown>, tool: AddedTool | undefined) {
   const conda = objectValue(objectValue(template.environment).conda);
-  return Object.keys(conda).length > 0;
+  return Object.keys(conda).length > 0 || Boolean(tool?.selectedPackageSpec || tool?.packageSpec);
 }
 
 function defaultRuntimeValue(raw: unknown): RuntimeScalar | undefined {

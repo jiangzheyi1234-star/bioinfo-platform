@@ -590,7 +590,7 @@ function readToolRuleSpecDraft(tool: AddedTool | undefined) {
 }
 
 function hasRuleAction(template: Record<string, unknown>) {
-  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper));
+  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper) || stringValue(template.script));
 }
 
 function hasRuleTemplateShape(template: Record<string, unknown>) {

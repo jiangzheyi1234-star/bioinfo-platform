@@ -1,6 +1,6 @@
 import type { GeneratedWorkflowValidationIssue } from "./generated-workflow-model";
 
-const RULE_ACTION_FIELDS = ["commandTemplate", "wrapper"] as const;
+const RULE_ACTION_FIELDS = ["commandTemplate", "wrapper", "script"] as const;
 
 export type RuleActionField = (typeof RULE_ACTION_FIELDS)[number];
 

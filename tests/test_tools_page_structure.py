@@ -16,6 +16,8 @@ def test_tools_page_has_focused_support_modules() -> None:
 
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
+    assert "TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
+    assert "timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "export function useToolsPageState" in hook
     assert "export type ToolSearchItem" in model
     assert "localIndexAvailable?: boolean" in model

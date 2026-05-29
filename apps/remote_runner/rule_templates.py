@@ -22,4 +22,8 @@ def rule_template_candidate_entries(tool: dict[str, Any], tool_request: dict[str
 
 
 def has_rule_action(template: dict[str, Any]) -> bool:
-    return bool(str(template.get("commandTemplate") or "").strip() or str(template.get("wrapper") or "").strip())
+    return bool(
+        str(template.get("commandTemplate") or "").strip()
+        or str(template.get("wrapper") or "").strip()
+        or str(template.get("script") or "").strip()
+    )
