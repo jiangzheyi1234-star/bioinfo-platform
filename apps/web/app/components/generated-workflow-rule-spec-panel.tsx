@@ -18,6 +18,10 @@ type RuleSpecProvenanceSummary = {
   environmentUrl: string;
 };
 
+type RulePortSummary = Record<string, unknown> & {
+  name: string;
+};
+
 export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | undefined }) {
   const draft = tool?.ruleSpecDraft;
   const template = ruleTemplateForTool(tool);
@@ -31,6 +35,7 @@ export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | und
       <div className="mb-2 text-[11px] font-semibold uppercase text-slate-400">RuleSpec</div>
       <div className="grid gap-2">
         <RuleSpecProvenance provenance={provenance} />
+        <RuleSpecContractSummary template={template} />
         <div className="rounded border border-slate-100 bg-slate-50 px-2 py-2">
           <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">commandTemplate / wrapper</div>
           <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-700">
@@ -51,6 +56,71 @@ export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | und
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RuleSpecContractSummary({ template }: { template: Record<string, unknown> }) {
+  const inputs = rulePortItems(template.inputs);
+  const outputs = rulePortItems(template.outputs);
+  const params = ruleParamItems(template.params);
+  const runtime = ruleRuntimeItems(template);
+  return (
+    <div className="grid gap-2 rounded border border-slate-100 bg-slate-50 px-2 py-2">
+      <div className="grid gap-2 md:grid-cols-2">
+        <RuleSpecContractSection label="输入端口" emptyLabel="未声明 inputs">
+          {inputs.map((item) => (
+            <RuleSpecContractRow key={item.name} name={item.name} value={formatRulePortItem(item)} />
+          ))}
+        </RuleSpecContractSection>
+        <RuleSpecContractSection label="输出端口" emptyLabel="未声明 outputs">
+          {outputs.map((item) => (
+            <RuleSpecContractRow
+              key={item.name}
+              name={item.name}
+              value={[formatRulePortItem(item), formatRuleOutputSemantics(item)].filter(Boolean).join(" · ")}
+            />
+          ))}
+        </RuleSpecContractSection>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        <RuleSpecContractSection label="参数默认值" emptyLabel="未声明 params">
+          {params.map((item) => (
+            <RuleSpecContractRow key={item.name} name={item.name} value={item.value} />
+          ))}
+        </RuleSpecContractSection>
+        <RuleSpecContractSection label="调度资源 / log" emptyLabel="未声明 resources/log">
+          {runtime.map((item) => (
+            <RuleSpecContractRow key={item.name} name={item.name} value={item.value} />
+          ))}
+        </RuleSpecContractSection>
+      </div>
+    </div>
+  );
+}
+
+function RuleSpecContractSection({
+  children,
+  emptyLabel,
+  label,
+}: {
+  children: React.ReactNode[];
+  emptyLabel: string;
+  label: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">{label}</div>
+      {children.length > 0 ? <div className="grid gap-1">{children}</div> : <div className="text-[11px] text-slate-400">{emptyLabel}</div>}
+    </div>
+  );
+}
+
+function RuleSpecContractRow({ name, value }: { name: string; value: string }) {
+  return (
+    <div className="grid min-w-0 grid-cols-[72px_minmax(0,1fr)] gap-2 text-[11px]">
+      <div className="truncate font-mono text-slate-500">{name}</div>
+      <div className="truncate text-slate-600">{value || "declared"}</div>
     </div>
   );
 }
@@ -125,6 +195,86 @@ function RuleSpecList({ label, values }: { label: string; values: string[] }) {
       )}
     </div>
   );
+}
+
+function rulePortItems(raw: unknown): RulePortSummary[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+    .map((item, index) => ({ ...item, name: stringValue(item.name) || `port_${index + 1}` }));
+}
+
+function ruleParamItems(raw: unknown): { name: string; value: string }[] {
+  const params = objectValue(raw);
+  return Object.entries(params).map(([name, spec]) => ({
+    name,
+    value: formatRuleDefaultValue(spec),
+  }));
+}
+
+function ruleRuntimeItems(template: Record<string, unknown>): { name: string; value: string }[] {
+  const items: { name: string; value: string }[] = [];
+  const threads = defaultRuntimeValue(template.threads) ?? defaultRuntimeValue(objectValue(template.resources).threads);
+  if (threads !== "") items.push({ name: "threads", value: threads });
+  for (const [name, spec] of Object.entries(objectValue(template.resources))) {
+    if (name !== "threads" && !hasWorkflowResourceMarkers(spec)) {
+      const value = defaultRuntimeValue(spec);
+      if (value !== "") items.push({ name, value });
+    }
+  }
+  for (const [name, spec] of Object.entries(objectValue(template.schedulerResources || template.runtimeResources))) {
+    const value = defaultRuntimeValue(spec);
+    if (value !== "") items.push({ name, value });
+  }
+  const log = template.log;
+  if (typeof log === "string" && log.trim()) {
+    items.push({ name: "log", value: log.trim() });
+  } else if (log && typeof log === "object" && !Array.isArray(log)) {
+    for (const [name, path] of Object.entries(log as Record<string, unknown>)) {
+      const value = stringValue(path);
+      if (value) items.push({ name, value });
+    }
+  }
+  return items;
+}
+
+function formatRulePortItem(item: Record<string, unknown>): string {
+  return [stringValue(item.type), stringValue(item.kind), stringValue(item.mimeType), item.required === false ? "optional" : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatRuleOutputSemantics(item: Record<string, unknown>): string {
+  return [
+    item.directory === true ? "directory" : "",
+    item.protected === true ? "protected" : "",
+    item.temp === true ? "temp" : "",
+    stringValue(item.path),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatRuleDefaultValue(raw: unknown): string {
+  if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "declared";
+  const item = raw as Record<string, unknown>;
+  const value = item.default ?? item.value;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return [stringValue(item.type), stringValue(item.description)].filter(Boolean).join(" · ") || "declared";
+}
+
+function defaultRuntimeValue(raw: unknown): string {
+  if (typeof raw === "string" || typeof raw === "number") return String(raw);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  const value = (raw as Record<string, unknown>).default ?? (raw as Record<string, unknown>).value;
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function hasWorkflowResourceMarkers(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const item = raw as Record<string, unknown>;
+  return Boolean(item.acceptedTemplates || item.acceptedCapabilities || item.configKey);
 }
 
 function ruleTemplateForTool(tool: AddedTool | undefined): Record<string, unknown> {
