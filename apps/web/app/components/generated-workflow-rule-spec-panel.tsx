@@ -28,7 +28,8 @@ export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | und
   const commandTemplate = stringValue(template.commandTemplate);
   const wrapperIdentifier = stringValue(template.wrapper);
   const script = stringValue(template.script);
-  const commandDisplay = commandTemplate || (wrapperIdentifier ? `wrapper: ${wrapperIdentifier}` : script ? `script: ${script}` : "");
+  const moduleAction = moduleActionDisplay(template);
+  const commandDisplay = commandTemplate || (wrapperIdentifier ? `wrapper: ${wrapperIdentifier}` : script ? `script: ${script}` : moduleAction);
   const environment = readCondaEnvironment(template.environment);
   const provenance = readRuleSpecProvenance(tool, template);
   return (
@@ -38,7 +39,7 @@ export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | und
         <RuleSpecProvenance provenance={provenance} />
         <RuleSpecContractSummary template={template} />
         <div className="rounded border border-slate-100 bg-slate-50 px-2 py-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">commandTemplate / wrapper / script</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">commandTemplate / wrapper / script / module</div>
           <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-700">
             {commandDisplay || "未声明 rule action"}
           </pre>
@@ -287,7 +288,20 @@ function ruleTemplateForTool(tool: AddedTool | undefined): Record<string, unknow
 }
 
 function hasRuleAction(template: Record<string, unknown>) {
-  return Boolean(stringValue(template.commandTemplate) || stringValue(template.wrapper) || stringValue(template.script));
+  return Boolean(
+    stringValue(template.commandTemplate) ||
+    stringValue(template.wrapper) ||
+    stringValue(template.script) ||
+    Object.keys(objectValue(template.module)).length > 0
+  );
+}
+
+function moduleActionDisplay(template: Record<string, unknown>) {
+  const moduleSpec = objectValue(template.module);
+  const rule = stringValue(moduleSpec.rule);
+  const snakefile = stringValue(moduleSpec.snakefile);
+  if (!rule && !snakefile) return "";
+  return `module: ${[rule, snakefile].filter(Boolean).join(" from ")}`;
 }
 
 function readRuleSpecProvenance(

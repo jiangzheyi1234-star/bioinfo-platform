@@ -27,6 +27,8 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "generated-tool-run-v1" in model
     assert "ruleReadyToolScore" in model
     assert "commandTemplate" in model
+    assert "toolHasRuleAction(template)" in model
+    assert "objectValue(template.module)" in model
     assert "targetPlatformSupported === true" in model
     assert "buildGeneratedWorkflowRunSpec" in api
     assert "export function useWorkflowsPageState" in hook
@@ -228,12 +230,15 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export function GeneratedWorkflowRuleSpecPanel" in rule_spec_panel_ui
     assert "commandTemplate" in rule_spec_panel_ui
     assert "ruleTemplateForTool" in rule_spec_panel_ui
+    assert "moduleActionDisplay" in rule_spec_panel_ui
+    assert "module:" in rule_spec_panel_ui
     assert "readRuleSpecProvenance" in rule_spec_panel_ui
     assert "ruleSpecDraft" in rule_spec_panel_ui
     assert "wrapperRef" in rule_spec_panel_ui
     assert "wrapperPath" in rule_spec_panel_ui
     assert "wrapperIdentifier" in rule_spec_panel_ui
     assert "parseWrapperIdentifier" in rule_spec_panel_ui
+    assert "Object.keys(objectValue(template.module)).length > 0" in rule_spec_panel_ui
     assert "snakemakeWrappers" in rule_spec_panel_ui
     assert "官方 wrapper 已锁定" in rule_spec_panel_ui
     assert "environment" in rule_spec_panel_ui
