@@ -8,9 +8,11 @@ import {
   openToolSourceUrl,
   removeToolDependency,
   searchToolCapabilities,
+  updateToolRuleTemplate,
 } from "./tools-page-api";
 import {
   type AddedTool,
+  type RuleSpecTemplate,
   type ToolSearchItem,
   applySelectedPackageLock,
   dependencyKey,
@@ -34,6 +36,9 @@ export function useToolsPageState() {
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchComplete, setSearchComplete] = useState(true);
+  const [editingRuleSpecToolId, setEditingRuleSpecToolId] = useState("");
+  const [ruleSpecSavingId, setRuleSpecSavingId] = useState("");
+  const [ruleSpecEditError, setRuleSpecEditError] = useState("");
 
   async function loadAddedTools() {
     setToolsLoading(true);
@@ -135,6 +140,11 @@ export function useToolsPageState() {
     }));
   }
 
+  function editToolRuleTemplate(id: string) {
+    setRuleSpecEditError("");
+    setEditingRuleSpecToolId(id);
+  }
+
   function addSelectedTool() {
     if (!selected || !canAddSelected) {
       if (selectedAlreadyAdded) {
@@ -173,9 +183,26 @@ export function useToolsPageState() {
     })();
   }
 
+  function saveToolRuleTemplate(id: string, ruleTemplate: RuleSpecTemplate) {
+    void (async () => {
+      setRuleSpecSavingId(id);
+      setRuleSpecEditError("");
+      try {
+        await updateToolRuleTemplate(id, ruleTemplate);
+        await loadAddedTools();
+        setEditingRuleSpecToolId("");
+      } catch (err) {
+        setRuleSpecEditError(toolErrorMessage(err, "保存 RuleSpec 失败"));
+      } finally {
+        setRuleSpecSavingId("");
+      }
+    })();
+  }
+
   return {
     addedTools,
     canAddSelected,
+    editingRuleSpecToolId,
     error,
     filtered,
     loading,
@@ -196,6 +223,8 @@ export function useToolsPageState() {
     source,
     toolsError,
     toolsLoading,
+    ruleSpecEditError,
+    ruleSpecSavingId,
     updateQuery,
     updateSelectedVersion,
     view,
@@ -203,5 +232,8 @@ export function useToolsPageState() {
     loadAddedTools,
     openToolSourceUrl,
     removeAddedTool,
+    editToolRuleTemplate,
+    saveToolRuleTemplate,
+    setEditingRuleSpecToolId,
   };
 }

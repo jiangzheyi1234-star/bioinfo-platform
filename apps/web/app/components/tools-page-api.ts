@@ -4,6 +4,7 @@ import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import {
   type AddedTool,
+  type RuleSpecTemplate,
   type ToolSearchResponse,
   TOOL_SEARCH_PAGE_SIZE,
   type ToolsResponse,
@@ -61,6 +62,12 @@ export async function addToolDependency(tool: AddedTool): Promise<void> {
       snakemakeWrappers: tool.snakemakeWrappers || [],
       snakemakeWrapperCount: tool.snakemakeWrapperCount || 0,
     },
+  });
+}
+
+export async function updateToolRuleTemplate(id: string, ruleTemplate: RuleSpecTemplate): Promise<void> {
+  await requestLocalApiJson("PATCH", `/api/v1/tools/${encodeURIComponent(id)}/rule-template`, {
+    body: { ruleTemplate },
   });
 }
 
