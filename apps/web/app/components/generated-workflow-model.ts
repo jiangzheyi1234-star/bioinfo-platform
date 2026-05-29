@@ -10,6 +10,7 @@ import {
   type CapabilityPortSlot,
   type RulePortCapabilityMetadata,
 } from "./generated-workflow-port-contract";
+import { validateRuleActionContract } from "./generated-workflow-rule-action-contract";
 import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 
@@ -324,6 +325,7 @@ export function validateGeneratedWorkflowDraft(
     const inputs = readRuleInputs(tool);
     const outputs = readRuleOutputs(tool);
     const ruleTemplate = readToolRuleTemplate(tool);
+    errors.push(...validateRuleActionContract({ stepId: step.id, ruleTemplate }));
     for (const output of outputs) {
       if (!output.path) {
         errors.push({

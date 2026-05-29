@@ -43,6 +43,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
     port_contract_path = COMPONENTS / "generated-workflow-port-contract.ts"
+    rule_action_contract_path = COMPONENTS / "generated-workflow-rule-action-contract.ts"
     runtime_contract_path = COMPONENTS / "generated-workflow-runtime-contract.ts"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
@@ -61,6 +62,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert command_contract_path.exists()
     assert param_contract_path.exists()
     assert port_contract_path.exists()
+    assert rule_action_contract_path.exists()
     assert runtime_contract_path.exists()
     assert rule_spec_panel_path.exists()
     assert step_params_editor_path.exists()
@@ -74,6 +76,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     command_contract = command_contract_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
     port_contract = port_contract_path.read_text(encoding="utf-8")
+    rule_action_contract = rule_action_contract_path.read_text(encoding="utf-8")
     runtime_contract = runtime_contract_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
@@ -141,6 +144,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract
     assert "describePortCompatibility" in port_contract
+    assert "validateRuleActionContract" in model
+    assert "WORKFLOW_RULE_ACTION_REQUIRED" in rule_action_contract
+    assert "WORKFLOW_RULE_ACTION_CONFLICT" in rule_action_contract
+    assert '["commandTemplate", "wrapper"]' in rule_action_contract
     assert "runSpec.workflow = {" in model
     assert "contractVersion:" in model
     assert "nodes: draft.nodes.map" in model
@@ -217,6 +224,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "template.resources" in runtime_editor_ui
     assert "selectedNodeId" in builder_ui
     assert "工具 Palette" in builder_ui
+    assert "RulePaletteCard" in builder_ui
+    assert "规则节点库" in builder_ui
+    assert "ruleActionLabelForTool" in builder_ui
+    assert "rulePortsLabelForTool" in builder_ui
+    assert "ruleEnvironmentLabelForTool" in builder_ui
+    assert "RuleSpec 节点" in builder_ui
+    assert "运行环境" in builder_ui
     assert "Inspector" in builder_ui
     assert "PortBindingsEditor" in builder_ui
     assert "function InputBindingRow" not in builder_ui
