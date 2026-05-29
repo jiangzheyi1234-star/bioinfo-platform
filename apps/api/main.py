@@ -18,6 +18,7 @@ from apps.api.models import (
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
     ToolManifestRequest,
+    ToolRuleTemplateRequest,
     UploadSubmitRequest,
     UpdateProjectRequest,
     UpdateSettingsRequest,
@@ -523,6 +524,18 @@ async def list_tools_api(refresh: bool = False) -> dict[str, Any]:
 async def add_tool_api(payload: ToolManifestRequest) -> dict[str, Any]:
     result = await _run_runtime_payload(
         lambda: _runtime().add_tool(payload.model_dump(exclude_none=True)),
+        status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+        wrapper="data",
+    )
+    await invalidate_response_cache("tools", "workflow_catalog")
+    return result
+
+
+@app.patch("/api/v1/tools/{tool_id}/rule-template")
+async def update_tool_rule_template_api(tool_id: str, payload: ToolRuleTemplateRequest) -> dict[str, Any]:
+    result = await _run_runtime_payload(
+        lambda: _runtime().update_tool_rule_template(tool_id, payload.model_dump(exclude_none=True)),
         status_code=400,
         handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
         wrapper="data",

@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { sourceFilters } from "./tools-page-model";
-import { ToolPreviewPanel, ToolSearchResults, ToolsLibrarySection } from "./tools-page-ui";
+import { ToolsLibrarySection } from "./tools-page-library-section";
+import { ToolPreviewPanel, ToolSearchResults } from "./tools-page-ui";
 import { useToolsPageState } from "./use-tools-page-state";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
@@ -39,10 +40,16 @@ export function ToolsPage() {
         {state.view === "library" ? (
           <ToolsLibrarySection
             addedTools={state.addedTools}
+            editingRuleSpecToolId={state.editingRuleSpecToolId}
+            ruleSpecEditError={state.ruleSpecEditError}
+            ruleSpecSavingId={state.ruleSpecSavingId}
             toolsError={state.toolsError}
             toolsLoading={state.toolsLoading}
+            onCancelRuleSpecEdit={() => state.setEditingRuleSpecToolId("")}
+            onEditRuleSpec={state.editToolRuleTemplate}
             onRefresh={() => void state.loadAddedTools()}
             onRemove={state.removeAddedTool}
+            onSaveRuleSpec={state.saveToolRuleTemplate}
           />
         ) : (
           <>

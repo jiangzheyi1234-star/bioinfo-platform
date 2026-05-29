@@ -35,6 +35,24 @@ def add_registered_tool(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dic
     return upsert_tool(cfg, item)
 
 
+def update_registered_tool_rule_template(
+    cfg: RemoteRunnerConfig,
+    tool_id: str,
+    rule_template: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = str(tool_id or "").strip()
+    if not normalized:
+        raise ToolRegistryError("TOOL_ID_REQUIRED")
+    item = fetch_tool(cfg, normalized)
+    if item is None:
+        raise ToolRegistryError("TOOL_NOT_FOUND")
+    item["ruleTemplate"] = normalize_rule_template(rule_template, required=True)
+    item["ruleSpecDraft"] = {}
+    item["status"] = "declared"
+    item["message"] = "RuleSpec saved."
+    return upsert_tool(cfg, item)
+
+
 def remove_registered_tool(cfg: RemoteRunnerConfig, tool_id: str) -> None:
     normalized = str(tool_id or "").strip()
     if not normalized:

@@ -10,15 +10,22 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 def test_tools_page_has_focused_support_modules() -> None:
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    library = (COMPONENTS / "tools-page-library-section.tsx").read_text(encoding="utf-8")
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    editor = (COMPONENTS / "tools-page-rule-spec-editor.tsx").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
 
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
+    assert "export async function updateToolRuleTemplate" in api
+    assert "/api/v1/tools/${encodeURIComponent(id)}/rule-template" in api
     assert "TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "export function useToolsPageState" in hook
+    assert "editingRuleSpecToolId" in hook
+    assert "ruleSpecSavingId" in hook
+    assert "saveToolRuleTemplate" in hook
     assert "export type ToolSearchItem" in model
     assert "localIndexAvailable?: boolean" in model
     assert "export type RuleSpecTemplate" in model
@@ -40,7 +47,12 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "加入工具节点失败" not in hook
     assert "export function SourceBadge" in ui
     assert "export function ResultRow" in ui
-    assert "export function ToolsLibrarySection" in ui
+    assert "export function ToolsLibrarySection" in library
+    assert "ToolRuleSpecEditor" in library
+    assert "补全 RuleSpec" in library
+    assert "export function ToolRuleSpecEditor" in editor
+    assert "保存 RuleSpec" in editor
+    assert "RuleSpec JSON" in editor
     assert "export function ToolSearchResults" in ui
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
@@ -54,7 +66,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "outputSemanticTags" in ui
     assert '["directory", "protected", "temp"]' in ui
     assert "...port.semantics" in ui
-    assert "工具库" in ui
+    assert "工具库" in library
     assert "工具预览" in ui
     assert "加入工具" in ui
     assert "module:" in ui
@@ -77,3 +89,5 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "项目依赖" not in ui
     assert "依赖预览" not in ui
     assert "加入依赖" not in ui
+    assert "连接流程" not in library
+    assert "添加到流程" not in library

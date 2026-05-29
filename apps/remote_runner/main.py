@@ -46,6 +46,7 @@ from .tools import (
     check_registered_tool,
     list_registered_tools,
     remove_registered_tool,
+    update_registered_tool_rule_template,
 )
 
 
@@ -85,6 +86,12 @@ class ToolManifestRequest(BaseModel):
     capabilities: list[dict[str, Any]] = Field(default_factory=list)
     snakemakeWrappers: list[dict[str, Any]] = Field(default_factory=list)
     snakemakeWrapperCount: int = 0
+
+
+class ToolRuleTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ruleTemplate: dict[str, Any] = Field(default_factory=dict)
 
 
 class DatabaseManifestRequest(BaseModel):
@@ -252,6 +259,22 @@ async def add_tool(payload: ToolManifestRequest, authorization: str | None = Hea
         item = add_registered_tool(cfg, payload.model_dump(exclude_none=True))
     except ToolRegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"data": item}
+
+
+@app.patch("/api/v1/tools/{tool_id}/rule-template")
+async def update_tool_rule_template_api(
+    tool_id: str,
+    payload: ToolRuleTemplateRequest,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    try:
+        item = update_registered_tool_rule_template(cfg, tool_id, payload.ruleTemplate)
+    except ToolRegistryError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
     return {"data": item}
 
 

@@ -87,6 +87,13 @@ class ToolManifestRequest(BaseModel):
     snakemakeWrapperCount: int = 0
 
 
+class ToolRuleTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    serverId: str | None = None
+    ruleTemplate: dict[str, Any] = Field(default_factory=dict)
+
+
 class DatabaseManifestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
