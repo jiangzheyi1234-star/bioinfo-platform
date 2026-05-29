@@ -346,6 +346,7 @@ export function validateGeneratedWorkflowDraft(
       inputSpecs: inputs,
       inputBindings: step.inputs,
       outputSpecs: outputs,
+      runtime: step.runtime,
       ruleTemplate,
     }));
     errors.push(...validateStepParamBindings({
