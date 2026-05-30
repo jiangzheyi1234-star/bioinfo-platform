@@ -7,6 +7,8 @@ import {
   deleteDatabase,
   fetchDatabases,
   fetchDatabaseTemplates,
+  getCachedDatabases,
+  getCachedDatabaseTemplates,
   updateDatabaseRecord,
 } from "./database-page-api";
 import {
@@ -95,12 +97,16 @@ function templateByIdUtil(templates: DatabaseTemplate[]) {
 }
 
 export function useDatabasesPageState(): DatabasesPageState {
-  const [templates, setTemplates] = useState<DatabaseTemplate[]>([]);
-  const [items, setItems] = useState<DatabaseItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [initialCachedItems] = useState(() => getCachedDatabases());
+  const [initialCachedTemplates] = useState(() => getCachedDatabaseTemplates());
+  const [templates, setTemplates] = useState<DatabaseTemplate[]>(() => initialCachedTemplates || []);
+  const [items, setItems] = useState<DatabaseItem[]>(() => initialCachedItems || []);
+  const itemsRef = useRef<DatabaseItem[]>(initialCachedItems || []);
+  const templatesRef = useRef<DatabaseTemplate[]>(initialCachedTemplates || []);
+  const [loading, setLoading] = useState(() => !initialCachedItems);
   const [error, setError] = useState("");
   const [templateError, setTemplateError] = useState("");
-  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateLoading, setTemplateLoading] = useState(() => !initialCachedTemplates);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checkingId, setCheckingId] = useState("");
@@ -145,26 +151,37 @@ export function useDatabasesPageState(): DatabasesPageState {
   );
   const canSubmitDatabase = Boolean(selectedTemplate && (isCompositeTemplate ? compositeReady : form.path.trim()));
 
-  const loadDatabases = useCallback(async () => {
-    setLoading(true);
+  const loadDatabases = useCallback(async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
+    const showLoading = !options.silent && itemsRef.current.length === 0;
+    if (showLoading) {
+      setLoading(true);
+    }
     setError("");
     try {
-      setItems(await fetchDatabases());
+      const nextItems = await fetchDatabases({ forceRefresh: options.forceRefresh });
+      itemsRef.current = nextItems;
+      setItems(nextItems);
     } catch (err) {
       setError(databaseErrorMessage(err, "读取数据库列表失败"));
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  const loadDatabaseTemplates = useCallback(async () => {
-    setTemplateLoading(true);
+  const loadDatabaseTemplates = useCallback(async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
+    const showLoading = !options.silent && templatesRef.current.length === 0;
+    if (showLoading) {
+      setTemplateLoading(true);
+    }
     setTemplateError("");
     try {
-      const nextTemplates = await fetchDatabaseTemplates();
+      const nextTemplates = await fetchDatabaseTemplates({ forceRefresh: options.forceRefresh });
       if (nextTemplates.length === 0) {
         throw new Error("远端未返回数据库模板。");
       }
+      templatesRef.current = nextTemplates;
       setTemplates(nextTemplates);
       setForm((current) => {
         if (nextTemplates.some((template) => template.id === current.templateId)) {
@@ -179,17 +196,21 @@ export function useDatabasesPageState(): DatabasesPageState {
         };
       });
     } catch (err) {
-      setTemplates([]);
+      if (templatesRef.current.length === 0) {
+        setTemplates([]);
+      }
       setTemplateError(databaseErrorMessage(err, "读取数据库模板失败"));
     } finally {
-      setTemplateLoading(false);
+      if (showLoading) {
+        setTemplateLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadDatabases();
-    void loadDatabaseTemplates();
-  }, [loadDatabases, loadDatabaseTemplates]);
+    void loadDatabases({ silent: Boolean(initialCachedItems) });
+    void loadDatabaseTemplates({ silent: Boolean(initialCachedTemplates) });
+  }, [initialCachedItems, initialCachedTemplates, loadDatabases, loadDatabaseTemplates]);
 
   const updateForm = useCallback((key: keyof DatabaseForm, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -354,7 +375,11 @@ export function useDatabasesPageState(): DatabasesPageState {
         if (database.status !== "available") {
           throw new Error(database.message || "数据库添加接口未返回可用状态。");
         }
-        setItems((current) => [database, ...current.filter((item) => item.id !== database.id)]);
+        setItems((current) => {
+          const nextItems = [database, ...current.filter((item) => item.id !== database.id)];
+          itemsRef.current = nextItems;
+          return nextItems;
+        });
         setForm(emptyForm(templates[0]));
         setCompositeFields({});
         setActiveCompositeField("");
@@ -385,7 +410,11 @@ export function useDatabasesPageState(): DatabasesPageState {
     setError("");
     try {
       const database = await checkDatabaseAvailability(id);
-      setItems((current) => current.map((item) => (item.id === id ? database : item)));
+      setItems((current) => {
+        const nextItems = current.map((item) => (item.id === id ? database : item));
+        itemsRef.current = nextItems;
+        return nextItems;
+      });
     } catch (err) {
       setError(databaseErrorMessage(err, "校验数据库失败"));
     } finally {
@@ -420,7 +449,11 @@ export function useDatabasesPageState(): DatabasesPageState {
         version: editValues.version.trim(),
         description: editValues.description.trim(),
       });
-      setItems((current) => current.map((item) => (item.id === editingItem.id ? database : item)));
+      setItems((current) => {
+        const nextItems = current.map((item) => (item.id === editingItem.id ? database : item));
+        itemsRef.current = nextItems;
+        return nextItems;
+      });
       setEditingItem(null);
       setEditValues(editForm());
     } catch (err) {
@@ -445,7 +478,11 @@ export function useDatabasesPageState(): DatabasesPageState {
     setError("");
     try {
       await deleteDatabase(id);
-      setItems((current) => current.filter((item) => item.id !== id));
+      setItems((current) => {
+        const nextItems = current.filter((item) => item.id !== id);
+        itemsRef.current = nextItems;
+        return nextItems;
+      });
     } catch (err) {
       setError(databaseErrorMessage(err, "移除数据库失败"));
     }

@@ -9,7 +9,7 @@ from typing import Any
 from . import database_validation
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .config import RemoteRunnerConfig
-from .database_templates import DATABASE_TEMPLATES, database_template_capabilities, database_template_runtime_shape, list_database_templates
+from .database_templates import DATABASE_TEMPLATES, database_template_capabilities, database_template_runtime_shape
 from .storage import get_connection, now_iso
 
 

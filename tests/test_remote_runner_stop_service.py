@@ -5,16 +5,10 @@ from pathlib import Path
 
 from apps.api.main import stop_ssh_remote_service
 from core.app_runtime.service import RuntimeService, ServiceLocator
-from core.data.project_manager import ProjectManager
 
 
-def make_service(tmp_path: Path, ssh_service) -> RuntimeService:
-    manager = ProjectManager(
-        projects_root=tmp_path / "projects",
-        index_path=tmp_path / "projects.json",
-    )
+def make_service(_tmp_path: Path, ssh_service) -> RuntimeService:
     service = RuntimeService(
-        project_manager=manager,
         service_locator=ServiceLocator(ssh_service=ssh_service),
     )
     service._initialized = True

@@ -7,9 +7,18 @@ export type RuleActionField = (typeof RULE_ACTION_FIELDS)[number];
 export function ruleActionFields(ruleTemplate: Record<string, unknown>): RuleActionField[] {
   return RULE_ACTION_FIELDS.filter((field) =>
     field === "module"
-      ? Boolean(ruleTemplate.module && typeof ruleTemplate.module === "object" && !Array.isArray(ruleTemplate.module))
+      ? moduleActionReady(ruleTemplate.module)
       : typeof ruleTemplate[field] === "string" && ruleTemplate[field].trim().length > 0
   );
+}
+
+function moduleActionReady(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const moduleSpec = raw as Record<string, unknown>;
+  return typeof moduleSpec.snakefile === "string" &&
+    moduleSpec.snakefile.trim().length > 0 &&
+    typeof moduleSpec.rule === "string" &&
+    moduleSpec.rule.trim().length > 0;
 }
 
 export function validateRuleActionContract({

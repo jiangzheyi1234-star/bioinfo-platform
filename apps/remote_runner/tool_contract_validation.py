@@ -55,6 +55,7 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
             resolved_inputs=resolved_inputs,
             work_dir=validation_root / "work",
             result_dir=result_dir,
+            require_workflow_ready=False,
         )
     except Exception as exc:
         return _result(

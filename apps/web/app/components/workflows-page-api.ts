@@ -3,7 +3,12 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { AddedTool, ToolsResponse } from "./tools-page-model";
-import { buildGeneratedWorkflowRunSpec, type GeneratedWorkflowDraft, type GeneratedWorkflowGraphDraft } from "./generated-workflow-model";
+import {
+  buildGeneratedWorkflowRunSpec,
+  validateGeneratedWorkflowDraft,
+  type GeneratedWorkflowDraft,
+  type GeneratedWorkflowGraphDraft,
+} from "./generated-workflow-model";
 import {
   buildPipelineRunSpec,
   type WorkflowArtifactPreview,
@@ -16,8 +21,6 @@ import {
   type WorkflowServer,
   type WorkflowResourceBindings,
   type WorkflowServersResponse,
-  type WorkflowTemplateSummary,
-  type WorkflowTemplatesResponse,
   type WorkflowUpload,
 } from "./workflows-page-model";
 
@@ -49,15 +52,6 @@ export async function fetchWorkflowCatalog(options: FetchOptions = {}): Promise<
 
 export function getCachedWorkflowCatalog(): WorkflowCatalogItem[] | undefined {
   return peekAsyncCache<WorkflowCatalogItem[]>(WORKFLOW_CATALOG_CACHE_KEY);
-}
-
-export async function fetchWorkflowTemplates(): Promise<WorkflowTemplateSummary[]> {
-  const response = await requestLocalApiJson<WorkflowTemplatesResponse>(
-    "GET",
-    "/api/v1/workflow-templates",
-    { cache: "no-store" }
-  );
-  return response.data.items || [];
 }
 
 export async function fetchWorkflowTools(options: FetchOptions = {}): Promise<AddedTool[]> {
@@ -132,6 +126,11 @@ export async function submitGeneratedWorkflowRun({
   tools: AddedTool[];
   resourceBindings?: WorkflowResourceBindings;
 }): Promise<WorkflowRun> {
+  const validation = validateGeneratedWorkflowDraft(draft, tools, { inputCount: files.length });
+  if (validation.errors.length > 0) {
+    const firstError = validation.errors[0];
+    throw new Error(`${firstError.code}: ${firstError.message}`);
+  }
   const uploads = await Promise.all(files.map((file) => uploadWorkflowFile(file)));
   const runSpec = buildGeneratedWorkflowRunSpec({
     projectId,

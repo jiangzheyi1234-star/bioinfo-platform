@@ -23,7 +23,6 @@ type RulePortSummary = Record<string, unknown> & {
 };
 
 export function GeneratedWorkflowRuleSpecPanel({ tool }: { tool: AddedTool | undefined }) {
-  const draft = tool?.ruleSpecDraft;
   const template = ruleTemplateForTool(tool);
   const commandTemplate = stringValue(template.commandTemplate);
   const wrapperIdentifier = stringValue(template.wrapper);

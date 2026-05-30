@@ -50,7 +50,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [submitError, setSubmitError] = useState("");
   const [submittedRun, setSubmittedRun] = useState<WorkflowRun | null>(null);
   const [runDetail, setRunDetail] = useState<WorkflowRunDetail | null>(null);
-  const [runDetailError, setRunDetailError] = useState("");
   const [runHistory, setRunHistory] = useState<WorkflowRun[]>([]);
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [activeRunId, setActiveRunId] = useState<string>("");
@@ -103,7 +102,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   const selectedWorkflow = catalog.find((item) => item.id === selectedWorkflowId) || catalog[0] || null;
   const selectedPipelineId = selectedWorkflow?.kind === "pipeline" && selectedWorkflow.runnable ? selectedWorkflow.id : "";
-  const isGeneratedToolRun = selectedPipelineId === GENERATED_TOOL_RUN_PIPELINE_ID || !selectedPipelineId;
+  const isGeneratedToolRun = selectedPipelineId === GENERATED_TOOL_RUN_PIPELINE_ID;
 
   useEffect(() => {
     setSampleUploads([]);
@@ -144,6 +143,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       server.ready === true &&
       pipelineInputCount > 0 &&
       selectedWorkflow?.runnable &&
+      (isGeneratedToolRun || Boolean(selectedPipelineId)) &&
       (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
       (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
       !submitting &&
@@ -181,11 +181,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
         const detail = await fetchWorkflowRunDetail(pollingRunId);
         if (!cancelled) {
           setRunDetail(detail);
-          setRunDetailError("");
         }
       } catch (err) {
         if (!cancelled) {
-          setRunDetailError(workflowErrorMessage(err, "读取运行详情失败"));
+          setSubmitError(workflowErrorMessage(err, "读取运行详情失败"));
         }
       }
     }
@@ -211,6 +210,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   async function submitRun() {
     if (!server || !canSubmit) return;
+    if (!isGeneratedToolRun && !selectedPipelineId) {
+      setSubmitError("当前流程不是可运行 pipeline，不能提交。");
+      return;
+    }
     setSubmitting(true);
     setSubmitError("");
     setSubmittedRun(null);
@@ -290,7 +293,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     generatedBuilder,
     isGeneratedToolRun,
     runDetail,
-    runDetailError,
     runHistory,
     sampleLoading,
     sampleUploads,

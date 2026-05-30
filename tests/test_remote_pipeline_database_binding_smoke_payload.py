@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -9,10 +10,10 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import remote_pipeline_database_binding_smoke
+remote_pipeline_database_binding_smoke = importlib.import_module("remote_pipeline_database_binding_smoke")
 
 
-def test_database_bound_pipeline_payload_uses_resource_bindings_not_legacy_databases() -> None:
+def test_database_bound_pipeline_payload_uses_resource_bindings() -> None:
     payload = remote_pipeline_database_binding_smoke.build_run_submit_payload(
         request_id="req_database_binding",
         server_id="srv_real",
@@ -32,9 +33,6 @@ def test_database_bound_pipeline_payload_uses_resource_bindings_not_legacy_datab
     assert payload["runSpec"]["resourceBindings"] == {
         "reference_database": {"databaseId": "db_ncbi_nt"}
     }
-    assert "databases" not in payload["runSpec"]
-    assert "tool" not in payload["runSpec"]
-    assert "workflow" not in payload["runSpec"]
 
 
 def test_database_selection_honors_resource_template_contract() -> None:

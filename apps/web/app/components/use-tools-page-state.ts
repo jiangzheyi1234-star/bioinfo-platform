@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   addToolDependency,
   checkToolDependency,
   fetchAddedTools,
+  getCachedAddedTools,
   openToolSourceUrl,
   removeToolDependency,
   searchToolCapabilities,
@@ -24,9 +25,11 @@ import {
 import { withCuratedRuleTemplate } from "./tool-rule-readiness";
 
 export function useToolsPageState() {
+  const [initialCachedAddedTools] = useState(() => getCachedAddedTools());
   const [view, setView] = useState<"library" | "search">("library");
-  const [addedTools, setAddedTools] = useState<AddedTool[]>([]);
-  const [toolsLoading, setToolsLoading] = useState(false);
+  const [addedTools, setAddedTools] = useState<AddedTool[]>(() => initialCachedAddedTools || []);
+  const addedToolsRef = useRef<AddedTool[]>(initialCachedAddedTools || []);
+  const [toolsLoading, setToolsLoading] = useState(() => !initialCachedAddedTools);
   const [toolsError, setToolsError] = useState("");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
@@ -44,22 +47,32 @@ export function useToolsPageState() {
   const [ruleSpecEditError, setRuleSpecEditError] = useState("");
   const [checkingToolId, setCheckingToolId] = useState("");
 
-  async function loadAddedTools() {
-    setToolsLoading(true);
+  const loadAddedTools = useCallback(async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
+    const currentTools = addedToolsRef.current;
+    const showLoading = !options.silent && currentTools.length === 0;
+    if (showLoading) {
+      setToolsLoading(true);
+    }
     setToolsError("");
     try {
-      setAddedTools(await fetchAddedTools());
+      const nextTools = await fetchAddedTools({ forceRefresh: options.forceRefresh });
+      addedToolsRef.current = nextTools;
+      setAddedTools(nextTools);
     } catch (err) {
-      setAddedTools([]);
+      if (addedToolsRef.current.length === 0) {
+        setAddedTools([]);
+      }
       setToolsError(toolErrorMessage(err, "读取工具列表失败"));
     } finally {
-      setToolsLoading(false);
+      if (showLoading) {
+        setToolsLoading(false);
+      }
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void loadAddedTools();
-  }, []);
+    void loadAddedTools({ silent: Boolean(initialCachedAddedTools) });
+  }, [initialCachedAddedTools, loadAddedTools]);
 
   useEffect(() => {
     const normalized = query.trim();
@@ -171,7 +184,7 @@ export function useToolsPageState() {
       setToolsError("");
       try {
         await addToolDependency(nextTool);
-        await loadAddedTools();
+        await loadAddedTools({ forceRefresh: true, silent: true });
         setView("library");
       } catch (err) {
         setToolsError(toolErrorMessage(err, "加入工具失败"));
@@ -184,7 +197,7 @@ export function useToolsPageState() {
       setToolsError("");
       try {
         await removeToolDependency(id);
-        await loadAddedTools();
+        await loadAddedTools({ forceRefresh: true, silent: true });
       } catch (err) {
         setToolsError(toolErrorMessage(err, "移除工具失败"));
       }
@@ -197,7 +210,7 @@ export function useToolsPageState() {
       setRuleSpecEditError("");
       try {
         await updateToolRuleTemplate(id, ruleTemplate);
-        await loadAddedTools();
+        await loadAddedTools({ forceRefresh: true, silent: true });
         setEditingRuleSpecToolId("");
       } catch (err) {
         setRuleSpecEditError(toolErrorMessage(err, "保存 RuleSpec 失败"));
@@ -213,7 +226,7 @@ export function useToolsPageState() {
       setToolsError("");
       try {
         await checkToolDependency(id);
-        await loadAddedTools();
+        await loadAddedTools({ forceRefresh: true, silent: true });
       } catch (err) {
         setToolsError(toolErrorMessage(err, "验证工具失败"));
       } finally {
@@ -254,7 +267,7 @@ export function useToolsPageState() {
     updateSelectedVersion,
     view,
     addSelectedTool,
-    loadAddedTools,
+    loadAddedTools: () => loadAddedTools({ forceRefresh: true, silent: addedTools.length > 0 }),
     openToolSourceUrl,
     removeAddedTool,
     checkTool,

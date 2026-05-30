@@ -7,12 +7,14 @@ from typing import Any
 def render_rule_conda_env_yaml(*, rule_template: dict[str, Any], source: str, package_spec: str) -> str:
     conda = rule_template.get("environment", {}).get("conda") if isinstance(rule_template.get("environment"), dict) else None
     conda = conda if isinstance(conda, dict) else {}
-    channels = _string_list(conda.get("channels"), error_code="TOOL_RULE_ENVIRONMENT_CHANNELS_INVALID") or _channels_for_source(source)
+    channels = _string_list(conda.get("channels"), error_code="TOOL_RULE_ENVIRONMENT_CHANNELS_INVALID")
     dependencies = _string_list(
         conda.get("dependencies"),
         error_code="TOOL_RULE_ENVIRONMENT_DEPENDENCIES_INVALID",
-    ) or [package_spec]
-    if not dependencies or any(not item for item in dependencies):
+    )
+    if not channels:
+        raise ValueError("TOOL_RULE_ENVIRONMENT_CHANNELS_REQUIRED")
+    if not dependencies:
         raise ValueError("TOOL_RULE_ENVIRONMENT_DEPENDENCIES_REQUIRED")
     for dependency in dependencies:
         if not _dependency_locked(dependency):
@@ -42,10 +44,6 @@ def _string_list(raw: Any, *, error_code: str) -> list[str]:
         values.append(value)
         seen.add(value)
     return values
-
-
-def _channels_for_source(source: str) -> list[str]:
-    return ["conda-forge", "bioconda"]
 
 
 def _dependency_locked(value: str) -> bool:

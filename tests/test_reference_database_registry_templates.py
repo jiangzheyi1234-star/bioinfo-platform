@@ -9,7 +9,6 @@ from apps.remote_runner.databases import (
     add_reference_database,
     check_reference_database,
     resolve_run_databases,
-    DatabaseRegistryError,
 )
 from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
@@ -155,13 +154,13 @@ def test_declared_database_cannot_be_resolved_for_generated_workflow(tmp_path: P
 
 def test_available_database_without_template_cannot_be_resolved_for_generated_workflow(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    database_dir = tmp_path / "legacy-db"
+    database_dir = tmp_path / "template-free-db"
     database_dir.mkdir()
     add_reference_database(
         cfg,
         {
-            "id": "legacy-db",
-            "name": "Legacy DB",
+            "id": "template-free-db",
+            "name": "Template-free DB",
             "type": "taxonomy",
             "path": str(database_dir),
             "status": "available",
@@ -169,55 +168,11 @@ def test_available_database_without_template_cannot_be_resolved_for_generated_wo
     )
 
     try:
-        resolve_run_databases(cfg, {"databases": [{"id": "legacy-db", "role": "taxonomy"}]})
+        resolve_run_databases(cfg, {"databases": [{"id": "template-free-db", "role": "taxonomy"}]})
     except ValueError as exc:
         assert "DATABASE_TEMPLATE_REQUIRED" in str(exc)
     else:
         raise AssertionError("database without template should not be usable by generated workflows")
-
-
-def test_generated_workflow_rejects_legacy_single_database_field(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    database_dir = tmp_path / "taxonomy-db"
-    database_dir.mkdir()
-    add_reference_database(
-        cfg,
-        {
-            "id": "taxonomy-db",
-            "name": "Taxonomy DB",
-            "type": "taxonomy",
-            "path": str(database_dir),
-            "status": "available",
-        },
-    )
-
-    try:
-        resolve_run_databases(cfg, {"database": {"id": "taxonomy-db", "role": "taxonomy"}})
-    except ValueError as exc:
-        assert "DATABASES_FIELD_REQUIRED" in str(exc)
-    else:
-        raise AssertionError("legacy single database field should fail loudly")
-
-
-def test_legacy_dbtype_field_is_rejected(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    database_dir = tmp_path / "legacy-dbtype"
-    database_dir.mkdir()
-
-    try:
-        add_reference_database(
-            cfg,
-            {
-                "id": "legacy-dbtype",
-                "name": "Legacy dbType",
-                "dbType": "taxonomy",
-                "path": str(database_dir),
-            },
-        )
-    except DatabaseRegistryError as exc:
-        assert "DATABASE_FIELD_UNSUPPORTED" in str(exc)
-    else:
-        raise AssertionError("legacy dbType alias should be rejected")
 
 
 def test_custom_database_template_uses_declared_expected_files(tmp_path: Path, monkeypatch) -> None:

@@ -1,1 +1,1 @@
-"""Internal compatibility package for app_runtime namespace."""
+"""Runtime service package."""

@@ -45,26 +45,6 @@ export type WorkflowCatalogResponse = {
   };
 };
 
-export type WorkflowTemplateSummary = {
-  templateId: string;
-  name: string;
-  version: string;
-  category: string;
-  description: string;
-  engine: string;
-  status: string;
-  tags?: string[];
-  moduleCount?: number;
-  inputCount?: number;
-  outputCount?: number;
-};
-
-export type WorkflowTemplatesResponse = {
-  data: {
-    items: WorkflowTemplateSummary[];
-  };
-};
-
 export type WorkflowServer = {
   serverId: string;
   label?: string;

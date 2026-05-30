@@ -127,7 +127,6 @@ export function WorkflowRunBuilder({
   submittedRun,
   submitting,
   runDetail,
-  runDetailError,
   workflowResources,
   onWorkflowResourceBindingChange,
   missingRequiredResourceKeys,
@@ -152,7 +151,6 @@ export function WorkflowRunBuilder({
   submittedRun: WorkflowRun | null;
   submitting: boolean;
   runDetail: WorkflowRunDetail | null;
-  runDetailError: string;
   workflowResources: Array<[string, WorkflowResourceSpec]>;
   onWorkflowResourceBindingChange: (resourceKey: string, databaseId: string) => void;
   missingRequiredResourceKeys: string[];

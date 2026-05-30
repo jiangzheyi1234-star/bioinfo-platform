@@ -105,7 +105,6 @@ def _build_wrapper_index(payload: dict[str, Any]) -> dict[str, list[dict[str, An
             "wrapperIdentifier": wrapper_identifier,
             "wrapperUrl": f"{SNAKEMAKE_WRAPPERS_WEB_ROOT}/{wrapper_dir}",
             "ruleSpecDraft": rule_spec_draft,
-            "ruleTemplateDraft": rule_spec_draft,
         }
         if wrapper_dir in environment_paths:
             entry["environmentUrl"] = f"{SNAKEMAKE_WRAPPERS_WEB_ROOT}/{wrapper_dir}/environment.yaml"

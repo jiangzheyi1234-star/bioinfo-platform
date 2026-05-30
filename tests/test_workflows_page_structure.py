@@ -19,8 +19,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "const workflowTemplates = [" not in page
     assert "requestLocalApiJson" not in page
     assert "useWorkflowsPageState" in page
-    assert "fetchWorkflowTemplates" in api
-    assert '"/api/v1/workflow-templates"' in api
+    assert "fetchWorkflowTemplates" not in api
     assert '"/api/v1/runs"' in api
     assert '"/api/v1/uploads"' in api
     assert "/api/v1/servers" in api
@@ -134,23 +133,16 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     assert "tool.ruleSpecDraft" in readiness
     assert "draft?.ruleTemplate" in readiness
-    assert "readToolRuleSpecDraft" in model
-    assert "hasRuleAction" in model
+    assert "readToolRuleSpecDraft" not in model
+    assert "hasRuleAction" not in model
     assert "validateGeneratedWorkflowDraft" in model
     assert "portsCompatible" in model
     assert "portCompatibilityScore" in model
     assert "findCompatibleOutputBinding" in model
-    assert "capabilityPortsForTool" in model
-    assert "capabilitySlotForRulePort" in port_contract
-    assert "capabilityPortItemsForTool" in port_contract
-    assert "export type RulePortCapabilityMetadata" in port_contract
-    assert "capabilityId?: string" in port_contract
-    assert "capabilityLabel?: string" in port_contract
-    assert "tool?.capabilities" in port_contract
-    assert "能力来源" in graph_node_ui
-    assert "capabilityLabel" in graph_node_ui
-    assert "slot.primary === true" in port_contract
-    assert "fallbackIndex" in port_contract
+    assert "capabilityPortsForTool" not in model
+    assert "capabilitySlotForRulePort" not in port_contract
+    assert "capabilityPortItemsForTool" not in port_contract
+    assert "tool?.capabilities" not in port_contract
     assert "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE" in model
     assert "WORKFLOW_STEP_INPUT_PORT_UNKNOWN" in model
     assert "declaredInputNames" in model
@@ -207,7 +199,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "edges: draft.edges.map" in model
     assert "outputs: draft.exposeOutputs.map" in model
     assert "runtime: normalizeStepRuntime" in model
-    assert "ruleSpecDraft: readToolRuleSpecDraft(tool)" in model
+    assert "ruleSpecDraft: readToolRuleSpecDraft(tool)" not in model
     assert "resourceBindings" in model
     assert "databases" not in model
     assert "WORKFLOW_STEP_PARAM_REQUIRED" in param_contract

@@ -9,21 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import model_validator
 
 
-class CreateProjectRequest(BaseModel):
-    name: str = Field(min_length=1)
-    description: str = ""
-    open_after_create: bool = True
-
-
-class UpdateProjectRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1)
-    description: str | None = None
-
-
-class UpdateSettingsRequest(BaseModel):
-    patch: dict[str, Any] = Field(default_factory=dict)
-
-
 class SSHConnectionRequest(BaseModel):
     auth_mode: Literal["password_ref", "key_file", "ssh_config", "agent"] | None = None
     ssh_host_alias: str | None = None
@@ -133,9 +118,3 @@ class DatabaseUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     version: str | None = None
     description: str | None = None
-
-
-class WorkflowDraftRequest(BaseModel):
-    templateId: str = Field(min_length=1)
-    name: str | None = None
-    modules: list[dict[str, Any]] | None = None

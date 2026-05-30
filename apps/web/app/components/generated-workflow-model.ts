@@ -3,12 +3,7 @@ import { validateStepCommandPortBindings } from "./generated-workflow-command-co
 import { validateStepParamBindings } from "./generated-workflow-param-contract";
 import {
   COMPATIBILITY_FIELDS,
-  capabilityPortItemsForTool,
-  capabilitySlotForRulePort,
-  readCapabilityMetadata,
   readPortCompatibility,
-  type CapabilityPortSlot,
-  type RulePortCapabilityMetadata,
 } from "./generated-workflow-port-contract";
 import {
   autoEdgeAudit,
@@ -21,9 +16,7 @@ import { validateRuleActionContract } from "./generated-workflow-rule-action-con
 import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
 import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
 import {
-  displayRuleTemplateForTool,
   executableRuleTemplateForTool,
-  hasRuleAction,
   ruleSpecReadinessForTool,
 } from "./tool-rule-readiness";
 
@@ -116,7 +109,7 @@ export type ValidateGeneratedWorkflowDraftOptions = {
   inputCount?: number;
 };
 
-export type RuleInputSpec = RulePortCapabilityMetadata & {
+export type RuleInputSpec = {
   name: string;
   required?: boolean;
   type?: string;
@@ -126,7 +119,7 @@ export type RuleInputSpec = RulePortCapabilityMetadata & {
   format?: string;
 };
 
-export type RuleOutputSpec = RulePortCapabilityMetadata & {
+export type RuleOutputSpec = {
   name: string;
   path?: string;
   type?: string;
@@ -174,31 +167,18 @@ export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
   const inputs = (readToolRuleTemplate(tool) as { inputs?: unknown }).inputs;
   const ports = !Array.isArray(inputs) ? [] : inputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    .map((item, index) =>
-      normalizeRuleInputSpec(item, capabilitySlotForRulePort(tool, "inputs", String(item.name || "").trim(), index))
-    )
+    .map((item) => normalizeRuleInputSpec(item))
     .filter((item) => item.name.length > 0);
-  return ports.length > 0 ? ports : capabilityPortsForTool(tool, "inputs") as RuleInputSpec[];
+  return ports;
 }
 
 export function readRuleOutputs(tool: AddedTool | undefined): RuleOutputSpec[] {
   const outputs = (readToolRuleTemplate(tool) as { outputs?: unknown }).outputs;
   const ports = !Array.isArray(outputs) ? [] : outputs
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    .map((item, index) =>
-      normalizeRuleOutputSpec(item, capabilitySlotForRulePort(tool, "outputs", String(item.name || "").trim(), index))
-    )
+    .map((item) => normalizeRuleOutputSpec(item))
     .filter((item) => item.name.length > 0);
-  return ports.length > 0 ? ports : capabilityPortsForTool(tool, "outputs") as RuleOutputSpec[];
-}
-
-export function capabilityPortsForTool(
-  tool: AddedTool | undefined,
-  direction: "inputs" | "outputs"
-): Array<RuleInputSpec | RuleOutputSpec> {
-  return capabilityPortItemsForTool(tool, direction)
-    .map((item) => (direction === "inputs" ? normalizeRuleInputSpec(item, item) : normalizeRuleOutputSpec(item, item)))
-    .filter((port) => port.name.length > 0);
+  return ports;
 }
 
 export function readRuleParams(tool: AddedTool | undefined): RuleParamSpec[] {
@@ -535,7 +515,6 @@ export function buildGeneratedWorkflowRunSpec({
           tool: {
             id: node.toolId,
             ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
-            ...(tool ? { ruleSpecDraft: readToolRuleSpecDraft(tool) } : {}),
           },
           inputs: normalizeStepInputBindings(node.inputs, normalizedNodeIds),
           params: tool ? normalizeStepParams(node.params, readRuleParams(tool)) : {},
@@ -573,7 +552,6 @@ export function buildGeneratedWorkflowRunSpec({
         tool: {
           id: step.toolId,
           ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
-          ...(tool ? { ruleSpecDraft: readToolRuleSpecDraft(tool) } : {}),
         },
         inputs: normalizeStepInputBindings(step.inputs, normalizedStepIds),
         params: tool ? normalizeStepParams(step.params, readRuleParams(tool)) : {},
@@ -596,31 +574,23 @@ export function isGeneratedWorkflowGraphDraft(
 }
 
 export function readToolRuleTemplate(tool: AddedTool | undefined): Record<string, unknown> {
-  const template = executableRuleTemplateForTool(tool);
-  return hasRuleAction(template) ? template : displayRuleTemplateForTool(tool);
+  return executableRuleTemplateForTool(tool);
 }
 
-function readToolRuleSpecDraft(tool: AddedTool | undefined) {
-  const draft = tool?.ruleSpecDraft;
-  return draft && draft.requiresUserCompletion !== true && Object.keys(draft).length > 0 ? draft : undefined;
-}
-
-function normalizeRuleInputSpec(item: Record<string, unknown>, capabilitySlot?: CapabilityPortSlot): RuleInputSpec {
+function normalizeRuleInputSpec(item: Record<string, unknown>): RuleInputSpec {
   const name = String(item.name || "").trim();
   return {
     name,
-    required: item.required !== false && capabilitySlot?.required !== false,
-    ...readPortCompatibility(item, capabilitySlot),
-    ...readCapabilityMetadata(item, capabilitySlot),
+    required: item.required !== false,
+    ...readPortCompatibility(item),
   };
 }
 
-function normalizeRuleOutputSpec(item: Record<string, unknown>, capabilitySlot?: CapabilityPortSlot): RuleOutputSpec {
+function normalizeRuleOutputSpec(item: Record<string, unknown>): RuleOutputSpec {
   return {
     name: String(item.name || "").trim(),
     ...(stringValue(item.path) ? { path: stringValue(item.path) } : {}),
-    ...readPortCompatibility(item, capabilitySlot),
-    ...readCapabilityMetadata(item, capabilitySlot),
+    ...readPortCompatibility(item),
     ...readOutputSemantics(item),
   };
 }

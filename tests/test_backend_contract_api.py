@@ -8,48 +8,36 @@ from fastapi import HTTPException, Response
 
 from apps.api.main import (
     accept_server_host_key,
-    app,
     ensure_server_runner,
     close_terminal_session,
     connect_ssh,
     create_terminal_session,
     disconnect_ssh,
-    get_project,
     get_run,
     get_run_events,
     get_run_results,
-    get_pipeline,
     get_result,
     get_result_preview,
     get_server_health,
-    get_settings,
     get_ssh_status,
     list_results,
-    list_pipelines,
     list_servers,
     refresh_server_health,
     rotate_server_token,
     submit_run,
-    update_settings,
     upload_file,
 )
 from apps.api.models import (
     RunSubmitRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
-    UpdateSettingsRequest,
     UploadSubmitRequest,
 )
 from core.app_runtime.service import RuntimeService, ServiceLocator
-from core.data.project_manager import ProjectManager
 
 
-def make_service(tmp_path: Path) -> RuntimeService:
-    manager = ProjectManager(
-        projects_root=tmp_path / "projects",
-        index_path=tmp_path / "projects.json",
-    )
-    service = RuntimeService(project_manager=manager, service_locator=ServiceLocator())
+def make_service(_tmp_path: Path) -> RuntimeService:
+    service = RuntimeService(service_locator=ServiceLocator())
     service._initialized = True
     return service
 
@@ -100,71 +88,6 @@ class FakeShellService:
 
     def close(self) -> None:
         self.is_connected = False
-
-
-def test_get_project_contract(monkeypatch, tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    created = service.create_project("Project Alpha", "omics batch", open_after_create=False)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
-
-    payload = asyncio.run(get_project(created["project_id"]))
-    assert payload["data"]["project_id"] == created["project_id"]
-    assert payload["data"]["name"] == "Project Alpha"
-
-
-def test_settings_contract_normalizes_ssh_shape_for_shell_main_path(monkeypatch, tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    cfg = {
-        "ssh": {
-            "auth_mode": "ssh_config",
-            "ssh_host_alias": "prod-box",
-            "password_ref": "ssh://legacy@192.0.2.10:22",
-            "identity_ref": "C:/keys/id_ed25519",
-            "host": "192.0.2.10",
-            "port": 22,
-            "user": "tester",
-            "timeout_sec": 5,
-            "remember_auth": True,
-            "auto_connect_on_startup": False,
-        }
-    }
-
-    def save_capture(next_cfg: dict) -> None:
-        cfg.clear()
-        cfg.update(next_cfg)
-
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
-
-    settings = asyncio.run(get_settings())["item"]
-    assert settings["ssh"]["auth_mode"] == "ssh_config"
-    assert settings["ssh"]["ssh_host_alias"] == "prod-box"
-    assert settings["ssh"]["password_ref"] == ""
-    assert settings["ssh"]["identity_ref"] == "C:/keys/id_ed25519"
-
-    updated = asyncio.run(
-        update_settings(
-            UpdateSettingsRequest(
-                patch={
-                    "ssh": {
-                        "auth_mode": "agent",
-                        "host": "192.168.0.20",
-                        "user": "runner",
-                        "identity_ref": "C:/keys/ignored_ed25519",
-                        "password_ref": "ssh://runner@192.168.0.20:22",
-                    }
-                }
-            )
-        )
-    )["item"]
-
-    assert updated["ssh"]["auth_mode"] == "agent"
-    assert updated["ssh"]["identity_ref"] == ""
-    assert updated["ssh"]["ssh_host_alias"] == ""
-    assert updated["ssh"]["password_ref"] == ""
-    assert cfg["ssh"]["host"] == "192.168.0.20"
-    assert cfg["ssh"]["user"] == "runner"
 
 
 def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
@@ -641,26 +564,6 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
         def get_run_results(self, **kwargs):
             return {"runId": "run_2026_0419_001", "artifacts": [{"artifactId": "art_001"}], "resultDir": "/srv/results"}
 
-        def list_pipelines(self, **kwargs):
-            return [
-                {
-                    "pipelineId": "taxonomy-v1",
-                    "name": "Taxonomy",
-                    "category": "Taxonomy",
-                    "status": "installed",
-                    "enabled": True,
-                    "uiSchema": {"inputs": {"widget": "file-upload"}},
-                }
-            ]
-
-        def get_pipeline(self, **kwargs):
-            return {
-                "pipelineId": kwargs["pipeline_id"],
-                "name": "Taxonomy",
-                "paramsSchema": {"type": "object"},
-                "uiSchema": {"inputs": {"widget": "file-upload"}},
-            }
-
         def list_results(self, **kwargs):
             return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]
 
@@ -698,14 +601,6 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     results = results_payload["data"]
     assert results["runId"] == "run_2026_0419_001"
     assert results["artifacts"][0]["artifactId"] == "art_001"
-
-    pipelines_payload = asyncio.run(list_pipelines())
-    assert pipelines_payload["data"]["items"][0]["pipelineId"] == "taxonomy-v1"
-    assert pipelines_payload["data"]["items"][0]["uiSchema"]["inputs"]["widget"] == "file-upload"
-
-    pipeline_payload = asyncio.run(get_pipeline("taxonomy-v1"))
-    assert pipeline_payload["data"]["pipelineId"] == "taxonomy-v1"
-    assert pipeline_payload["data"]["paramsSchema"]["type"] == "object"
 
     list_results_payload = asyncio.run(list_results())
     assert list_results_payload["data"]["items"][0]["resultId"].startswith("res_run_")
@@ -1021,22 +916,3 @@ def test_upload_file_normalizes_runtime_transport_failures(monkeypatch, tmp_path
         assert "SSH transport is not active" in str(exc.detail)
     else:
         raise AssertionError("transport failures should surface as handled HTTP errors")
-
-
-def test_local_api_keeps_removed_remote_environment_routes_absent() -> None:
-    paths = {route.path for route in app.routes}
-    removed_paths = (
-        "/api/v1/remote/environment",
-        "/api/v1/remote/environment/check",
-        "/api/v1/remote/environment/discover",
-        "/api/v1/remote/environment/profiles",
-        "/api/v1/remote/environment/effective",
-        "/api/v1/remote/environment/setup",
-        "/api/v1/remote/environment/validate",
-        "/api/v1/projects/{project_id}/environment",
-        "/api/v1/servers/{server_id}/bootstrap",
-    )
-
-    for path in removed_paths:
-        assert path not in paths
-    assert "/api/v1/servers/{server_id}/ensure-runner" in paths

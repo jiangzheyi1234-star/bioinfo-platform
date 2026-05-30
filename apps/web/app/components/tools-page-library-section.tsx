@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CheckCircle2, Loader2, PlayCircle, RefreshCw, Trash2, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 import type { AddedTool, RuleSpecTemplate, ToolContractValidationItem } from "./tools-page-model";
 import { ruleSpecReadinessForTool, type ToolRuleReadiness } from "./tool-rule-readiness";
-import { PlatformBadge, SourceBadge, WrapperBadge } from "./tools-page-ui";
+import { PlatformBadge, WrapperBadge } from "./tools-page-ui";
 import { ToolRuleSpecEditor } from "./tools-page-rule-spec-editor";
 
 export function ToolsLibrarySection({
@@ -39,6 +40,8 @@ export function ToolsLibrarySection({
   onRemove: (id: string) => void;
   onSaveRuleSpec: (id: string, ruleTemplate: RuleSpecTemplate) => void;
 }) {
+  const [expandedToolId, setExpandedToolId] = useState("");
+
   return (
     <section className="min-w-0">
       <div className="mb-3 flex items-center justify-between">
@@ -66,12 +69,13 @@ export function ToolsLibrarySection({
       ) : addedTools.length === 0 ? (
         <div className="py-3 text-sm text-slate-400">还没有加入工具</div>
       ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="overflow-hidden rounded-md border border-slate-200/80 bg-white">
           {addedTools.map((tool) => {
             const editing = editingRuleSpecToolId === tool.id;
             return (
-              <RuleSpecNodeCard
+              <ToolContractRow
                 key={tool.id}
+                expanded={expandedToolId === tool.id || editing}
                 editing={editing}
                 ruleSpecEditError={ruleSpecEditError}
                 ruleSpecSaving={ruleSpecSavingId === tool.id}
@@ -80,6 +84,7 @@ export function ToolsLibrarySection({
                 onCancelRuleSpecEdit={onCancelRuleSpecEdit}
                 onCheck={() => onCheck(tool.id)}
                 onEditRuleSpec={() => onEditRuleSpec(tool.id)}
+                onExpand={() => setExpandedToolId((current) => (current === tool.id ? "" : tool.id))}
                 onRemove={() => onRemove(tool.id)}
                 onSaveRuleSpec={(ruleTemplate) => onSaveRuleSpec(tool.id, ruleTemplate)}
               />
@@ -91,26 +96,30 @@ export function ToolsLibrarySection({
   );
 }
 
-function RuleSpecNodeCard({
+function ToolContractRow({
   checking,
   editing,
+  expanded,
   ruleSpecEditError,
   ruleSpecSaving,
   tool,
   onCancelRuleSpecEdit,
   onCheck,
   onEditRuleSpec,
+  onExpand,
   onRemove,
   onSaveRuleSpec,
 }: {
   checking: boolean;
   editing: boolean;
+  expanded: boolean;
   ruleSpecEditError: string;
   ruleSpecSaving: boolean;
   tool: AddedTool;
   onCancelRuleSpecEdit: () => void;
   onCheck: () => void;
   onEditRuleSpec: () => void;
+  onExpand: () => void;
   onRemove: () => void;
   onSaveRuleSpec: (ruleTemplate: RuleSpecTemplate) => void;
 }) {
@@ -119,25 +128,27 @@ function RuleSpecNodeCard({
   return (
     <article
       data-node-state={state.kind}
-      className={cn(
-        "group rounded-md border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300 hover:bg-slate-50/70",
-        editing && "col-span-full"
-      )}
+      className="group border-b border-slate-100 last:border-b-0"
     >
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{tool.name}</h3>
-            <RuleSpecNodeReadinessBadge state={state} />
+      <div className="grid min-h-13 grid-cols-[minmax(0,1fr)_8rem_5.5rem_auto] items-center gap-4 px-3 py-2 transition-colors hover:bg-slate-50/70">
+        <button type="button" className="min-w-0 text-left" onClick={onExpand}>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={cn("h-2 w-2 shrink-0 rounded-full", state.workflowReady ? "bg-emerald-500" : state.kind === "platform-unsupported" ? "bg-red-500" : "bg-amber-500")} />
+            <h3 className="min-w-0 truncate text-sm font-medium text-slate-900">{tool.name}</h3>
           </div>
-          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-            <SourceBadge source={tool.source} label={tool.sourceLabel} />
-            <PlatformBadge item={tool} />
-            <WrapperBadge item={tool} />
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
+            <span className="shrink-0">{tool.sourceLabel}</span>
+            <span className="min-w-0 truncate font-mono">{tool.selectedPackageSpec}</span>
           </div>
-          <p className="mt-2 truncate font-mono text-[11px] text-slate-500">{tool.selectedPackageSpec}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
+        </button>
+
+        <button type="button" className="min-w-0 text-left" onClick={onExpand}>
+          <RuleSpecNodeReadinessBadge state={state} />
+        </button>
+
+        <ToolContractStatusRow tool={tool} />
+
+        <div className="flex shrink-0 items-center justify-end gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
           <Button
             variant="ghost"
             size="icon"
@@ -176,8 +187,22 @@ function RuleSpecNodeCard({
         </div>
       </div>
 
-      <RuleSpecNodeStatusRow state={state} />
-      <ToolContractStatusRow tool={tool} />
+      {expanded ? (
+        <div className="border-t border-slate-100 bg-slate-50/30 px-3 py-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <ContractStageRail state={state} tool={tool} />
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:justify-end">
+              <PlatformBadge item={tool} />
+              <WrapperBadge item={tool} />
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-3">
+            <RuleSpecNodeStatusChip label="Action" value={state.actionLabel} warning={!state.hasAction} />
+            <RuleSpecNodeStatusChip label="Runtime" value={state.runtimeLabel} warning={!state.hasRuntime} />
+            <RuleSpecNodeStatusChip label="Env" value={state.envLabel} warning={!state.hasEnv} />
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <ToolRuleSpecEditor
@@ -195,24 +220,51 @@ function RuleSpecNodeCard({
 function ToolContractStatusRow({ tool }: { tool: AddedTool }) {
   const validation = tool.toolContract?.validation || tool.contractStatus;
   if (!validation) return null;
+  const items = [validation.dryRun, validation.smokeRun, validation.outputValidation, validation.production];
+  const passedCount = items.filter((item) => item?.status === "passed").length;
   return (
-    <div className="mt-3 flex items-center gap-1.5">
-      <ToolContractStatusChip label="Dry-run" shortLabel="D" item={validation.dryRun} />
-      <ToolContractStatusChip label="Smoke" shortLabel="S" item={validation.smokeRun} />
-      <ToolContractStatusChip label="Output" shortLabel="O" item={validation.outputValidation} />
-      <ToolContractStatusChip label="Production" shortLabel="P" item={validation.production} />
+    <div className="flex items-center gap-2 text-[11px] text-slate-400" title={`验证进度 ${passedCount}/${items.length}`}>
+      <span className="font-mono text-slate-500">{passedCount}/{items.length}</span>
+      <div className="flex items-center gap-1">
+        <ToolContractStatusDot label="Dry-run" item={validation.dryRun} />
+        <ToolContractStatusDot label="Smoke" item={validation.smokeRun} />
+        <ToolContractStatusDot label="Output" item={validation.outputValidation} />
+        <ToolContractStatusDot label="Production" item={validation.production} />
+      </div>
     </div>
   );
 }
 
-function ToolContractStatusChip({
+function ContractStageRail({ state, tool }: { state: RuleSpecNodeState; tool: AddedTool }) {
+  const validation = tool.toolContract?.validation || tool.contractStatus;
+  const stages = [
+    { label: "Package", done: Boolean(tool.selectedPackageSpec) },
+    { label: "RuleSpec", done: state.hasAction && state.outputsReady && state.paramsReady },
+    { label: "Env", done: state.hasEnv },
+    { label: "Dry-run", done: validation?.dryRun?.status === "passed" },
+    { label: "Smoke", done: validation?.smokeRun?.status === "passed" },
+    { label: "Output", done: validation?.outputValidation?.status === "passed" },
+    { label: "Production", done: validation?.production?.status === "passed" },
+  ];
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-[11px]">
+      {stages.map((stage, index) => (
+        <span key={stage.label} className={cn("inline-flex items-center gap-1.5", stage.done ? "text-slate-700" : "text-slate-400")}>
+          {index > 0 ? <span className="h-px w-2 bg-slate-200" /> : null}
+          <span className={cn("h-1.5 w-1.5 rounded-full", stage.done ? "bg-emerald-500" : "bg-slate-300")} />
+          {stage.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ToolContractStatusDot({
   item,
   label,
-  shortLabel,
 }: {
   item?: ToolContractValidationItem;
   label: string;
-  shortLabel: string;
 }) {
   const status = item?.status || "not_run";
   const title =
@@ -234,28 +286,15 @@ function ToolContractStatusChip({
   return (
     <span
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-medium leading-none",
+        "h-1.5 w-1.5 rounded-full",
         status === "passed"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          ? "bg-emerald-500"
           : status === "failed"
-            ? "border-red-200 bg-red-50 text-red-700"
-            : "border-slate-200 bg-slate-50 text-slate-500"
+            ? "bg-red-500"
+            : "bg-slate-300"
       )}
       title={title}
-    >
-      {shortLabel}
-      {item?.artifactCount ? <span className="shrink-0 font-mono text-[10px]">({item.artifactCount})</span> : null}
-    </span>
-  );
-}
-
-function RuleSpecNodeStatusRow({ state }: { state: RuleSpecNodeState }) {
-  return (
-    <div className="mt-3 grid grid-cols-3 gap-1 text-[11px]">
-      <RuleSpecNodeStatusChip label="I/O" value={`${state.inputs}/${state.outputs}`} warning={!state.outputsReady} />
-      <RuleSpecNodeStatusChip label="Env" value={state.hasEnv ? "ok" : "todo"} warning={!state.hasEnv} />
-      <RuleSpecNodeStatusChip label="Smoke" value={state.hasSmoke ? "ok" : "todo"} warning={!state.hasSmoke} />
-    </div>
+    />
   );
 }
 
@@ -263,12 +302,12 @@ function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
   return (
     <span
       className={cn(
-        "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[10px] leading-none",
+        "inline-flex h-5 shrink-0 items-center text-xs leading-none",
         state.kind === "workflow-ready"
-            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            ? "text-emerald-700"
             : state.kind === "dependency-only"
-              ? "border-slate-200 bg-slate-50 text-slate-600"
-              : "border-amber-200 bg-amber-50 text-amber-700"
+              ? "text-slate-500"
+              : "text-amber-700"
       )}
     >
       {state.kind === "workflow-ready" ? <CheckCircle2 strokeWidth={1.5} className="mr-1 h-3 w-3" /> : null}
@@ -289,8 +328,8 @@ function RuleSpecNodeStatusChip({
   return (
     <span
       className={cn(
-        "inline-flex h-6 min-w-0 items-center justify-between gap-1 rounded border px-1.5 leading-none",
-        warning ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600"
+        "inline-flex h-6 min-w-0 items-center justify-between gap-1 rounded border border-slate-200 bg-white px-1.5 leading-none",
+        warning ? "text-amber-700" : "text-slate-600"
       )}
       title={`${label}: ${value}`}
     >
