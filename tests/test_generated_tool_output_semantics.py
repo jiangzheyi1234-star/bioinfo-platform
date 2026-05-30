@@ -5,9 +5,13 @@ from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import _collect_artifacts, run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
-from apps.remote_runner.storage import persist_upload, upsert_tool
+from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
+from apps.remote_runner.storage import persist_upload
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
+from tests.generated_workflow_test_helpers import (
+    prepare_unchecked_generated_tool_workflow as prepare_generated_tool_workflow,
+    upsert_ready_tool as upsert_tool,
+)
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -169,7 +173,7 @@ def test_generated_workflow_renders_output_semantics(tmp_path: Path, monkeypatch
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
             "workflow": {
                 "steps": [{"id": "run_tool", "tool": {"id": "conda-forge::output-semantics"}}],
-                "outputs": {"report": "run_tool.report"},
+                "outputs": {"report": {"step": "run_tool", "output": "report"}},
             },
         },
     )

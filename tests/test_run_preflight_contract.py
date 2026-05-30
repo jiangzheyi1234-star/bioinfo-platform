@@ -11,6 +11,13 @@ from apps.remote_runner.storage import upsert_tool as _upsert_tool
 READY_CONTRACT_STATUS = {"dryRun": {"status": "passed"}, "smokeRun": {"status": "passed"}, "outputValidation": {"status": "passed"}}
 
 
+def test_preflight_uses_shared_generated_workflow_planner_boundary() -> None:
+    source = (Path.cwd() / "apps" / "remote_runner" / "preflight.py").read_text(encoding="utf-8")
+
+    assert "generated_workflow_plan" in source
+    assert "from .generated_workflow import (" not in source
+
+
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
     return RemoteRunnerConfig(
         token="run-preflight-token",

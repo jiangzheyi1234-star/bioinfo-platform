@@ -81,9 +81,13 @@ def _step_from_node(node: Any) -> dict[str, Any]:
     if not node_id:
         raise ValueError("WORKFLOW_GRAPH_NODE_ID_REQUIRED")
     tool = node.get("tool")
-    if not isinstance(tool, dict):
-        raise ValueError(f"WORKFLOW_GRAPH_NODE_TOOL_REQUIRED: {node_id}")
-    tool_request = dict(tool)
+    if isinstance(tool, dict):
+        tool_request = dict(tool)
+    else:
+        tool_id = str(node.get("toolId") or "").strip()
+        if not tool_id:
+            raise ValueError(f"WORKFLOW_GRAPH_NODE_TOOL_REQUIRED: {node_id}")
+        tool_request = {"id": tool_id}
     inputs = node.get("inputs") or {}
     if not isinstance(inputs, dict):
         raise ValueError(f"WORKFLOW_GRAPH_NODE_INPUTS_INVALID: {node_id}")
