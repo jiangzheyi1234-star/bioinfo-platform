@@ -8,6 +8,7 @@ import base64
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -50,9 +51,48 @@ def http_json(method: str, api_base: str, path: str, *, payload: dict[str, Any] 
 
 def cleanup_tool(api_base: str, tool_id: str) -> None:
     try:
-        http_json("DELETE", api_base, f"/api/v1/tools/{tool_id}", timeout=10)
+        http_json("DELETE", api_base, f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}", timeout=10)
     except Exception as exc:
         print_json("TOOL_CLEANUP_SKIPPED", {"id": tool_id, "error": str(exc)})
+
+
+def build_coreutils_tool_payload(tool_id: str) -> dict[str, Any]:
+    return {
+        "id": tool_id,
+        "name": "coreutils",
+        "source": "conda-forge",
+        "sourceLabel": "conda-forge",
+        "version": "9.5",
+        "packageSpec": "conda-forge::coreutils=9.5",
+        "summary": "GNU core utilities for generated Snakemake smoke testing.",
+        "targetPlatform": "linux-64",
+        "targetPlatformSupported": True,
+        "platforms": ["linux-64"],
+        "testCommand": "wc --version",
+        "ruleTemplate": {
+            "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
+            "inputs": [{"name": "primary", "type": "file", "required": True}],
+            "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
+            "params": {},
+            "resources": {"threads": {"default": 1}, "mem_mb": {"default": 128}},
+            "log": "logs/coreutils-generated-smoke.log",
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["conda-forge::coreutils=9.5"],
+                }
+            },
+            "smokeTest": {
+                "inputs": {
+                    "primary": {
+                        "filename": "letters.txt",
+                        "content": "ABCDEF\n",
+                        "mimeType": "text/plain",
+                    }
+                }
+            },
+        },
+    }
 
 
 def build_run_submit_payload(
@@ -85,28 +125,20 @@ def main() -> int:
     args = parser.parse_args()
 
     tool_id = "conda-forge::coreutils-generated-smoke"
-    tool_payload = {
-        "id": tool_id,
-        "name": "coreutils",
-        "source": "conda-forge",
-        "sourceLabel": "conda-forge",
-        "version": "9.5",
-        "packageSpec": "conda-forge::coreutils=9.5",
-        "summary": "GNU core utilities for generated Snakemake smoke testing.",
-        "targetPlatform": "linux-64",
-        "targetPlatformSupported": True,
-        "platforms": ["linux-64"],
-        "testCommand": "wc --version",
-        "ruleTemplate": {
-            "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
-            "inputs": [{"name": "primary", "type": "file", "required": True}],
-            "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
-        },
-    }
+    tool_payload = build_coreutils_tool_payload(tool_id)
     try:
         server_id = selected_server_id(args.api_base)
         tool = response_data(http_json("POST", args.api_base, "/api/v1/tools", payload=tool_payload, timeout=30))
         print_json("TOOL_REGISTERED", {"id": tool["id"], "status": tool["status"], "packageSpec": tool["packageSpec"]})
+        tool = response_data(http_json(
+            "POST",
+            args.api_base,
+            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
+            timeout=args.timeout,
+        ))
+        print_json("TOOL_VALIDATED", {"id": tool["id"], "contract": tool.get("toolContract"), "status": tool["status"]})
+        if not bool((tool.get("toolContract") or {}).get("workflowReady")):
+            return 1
 
         sample = b"ABCDEF\n"
         upload = response_data(http_json(

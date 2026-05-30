@@ -93,17 +93,23 @@ async function requestViaBrowserFetch<T>(
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = payload?.detail;
+      const problemDetail =
+        payload?.detail && typeof payload?.detail === "object" && !Array.isArray(payload.detail)
+          ? (payload.detail as Record<string, unknown>)
+          : payload && typeof payload === "object" && !Array.isArray(payload)
+            ? (payload as Record<string, unknown>)
+            : {};
+      const detail = typeof problemDetail.detail === "string" ? problemDetail.detail : payload?.detail;
       const detailMessage =
         typeof detail === "string"
           ? detail
-          : typeof payload?.title === "string"
-            ? payload.title
+          : typeof problemDetail.title === "string"
+            ? problemDetail.title
             : `HTTP ${response.status}`;
       throw new LocalApiError("backend_http_error", detailMessage, response.status, detail, {
-        title: typeof payload?.title === "string" ? payload.title : undefined,
-        requestId: typeof payload?.requestId === "string" ? payload.requestId : undefined,
-        problemCode: typeof payload?.code === "string" ? payload.code : undefined,
+        title: typeof problemDetail.title === "string" ? problemDetail.title : undefined,
+        requestId: typeof problemDetail.requestId === "string" ? problemDetail.requestId : undefined,
+        problemCode: typeof problemDetail.code === "string" ? problemDetail.code : undefined,
       });
     }
     if (

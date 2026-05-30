@@ -94,6 +94,20 @@ class ToolRuleTemplateRequest(BaseModel):
     ruleTemplate: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolProductionEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    serverId: str | None = None
+    runId: str | None = None
+    message: str | None = None
+    logPath: str | None = None
+    evidenceType: str | None = None
+    databaseId: str | None = None
+    templateId: str | None = None
+    role: str | None = None
+    artifactName: str | None = None
+
+
 class DatabaseManifestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

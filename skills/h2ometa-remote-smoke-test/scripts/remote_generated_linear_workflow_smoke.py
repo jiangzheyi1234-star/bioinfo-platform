@@ -8,6 +8,7 @@ import base64
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -50,13 +51,13 @@ def http_json(method: str, api_base: str, path: str, *, payload: dict[str, Any] 
 
 def cleanup_tool(api_base: str, tool_id: str) -> None:
     try:
-        http_json("DELETE", api_base, f"/api/v1/tools/{tool_id}", timeout=10)
+        http_json("DELETE", api_base, f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}", timeout=10)
     except Exception as exc:
         print_json("TOOL_CLEANUP_SKIPPED", {"id": tool_id, "error": str(exc)})
 
 
-def register_tool(api_base: str, *, tool_id: str, command: str, output_name: str, output_path: str) -> dict[str, Any]:
-    payload = {
+def build_coreutils_tool_payload(*, tool_id: str, command: str, output_name: str, output_path: str) -> dict[str, Any]:
+    return {
         "id": tool_id,
         "name": "coreutils",
         "source": "conda-forge",
@@ -72,9 +73,40 @@ def register_tool(api_base: str, *, tool_id: str, command: str, output_name: str
             "commandTemplate": command,
             "inputs": [{"name": "primary", "type": "file", "required": True}],
             "outputs": [{"name": output_name, "path": output_path, "kind": "log", "mimeType": "text/plain"}],
+            "params": {},
+            "resources": {"threads": {"default": 1}, "mem_mb": {"default": 128}},
+            "log": f"logs/{output_name}.log",
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["conda-forge::coreutils=9.5"],
+                }
+            },
+            "smokeTest": {
+                "inputs": {
+                    "primary": {
+                        "filename": "letters.txt",
+                        "content": "ABCDEF\n",
+                        "mimeType": "text/plain",
+                    }
+                }
+            },
         },
     }
-    return response_data(http_json("POST", api_base, "/api/v1/tools", payload=payload, timeout=30))
+
+
+def register_tool(api_base: str, *, tool_id: str, command: str, output_name: str, output_path: str, timeout: float) -> dict[str, Any]:
+    payload = build_coreutils_tool_payload(tool_id=tool_id, command=command, output_name=output_name, output_path=output_path)
+    tool = response_data(http_json("POST", api_base, "/api/v1/tools", payload=payload, timeout=30))
+    checked = response_data(http_json(
+        "POST",
+        api_base,
+        f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
+        timeout=timeout,
+    ))
+    if not bool((checked.get("toolContract") or {}).get("workflowReady")):
+        raise RuntimeError(f"tool contract validation failed: {checked.get('toolContract')}")
+    return checked
 
 
 def build_run_submit_payload(
@@ -120,6 +152,7 @@ def main() -> int:
             command="wc -c {input.primary:q} > {output.count:q}",
             output_name="count",
             output_path="wc-count.txt",
+            timeout=args.timeout,
         )
         copy_tool = register_tool(
             args.api_base,
@@ -127,6 +160,7 @@ def main() -> int:
             command="cp {input.primary:q} {output.final:q}",
             output_name="final",
             output_path="final-count.txt",
+            timeout=args.timeout,
         )
         print_json(
             "TOOLS_REGISTERED",

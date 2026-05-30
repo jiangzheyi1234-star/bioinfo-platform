@@ -78,6 +78,14 @@ export async function updateToolRuleTemplate(id: string, ruleTemplate: RuleSpecT
   invalidateWorkflowToolCaches();
 }
 
+export async function checkToolDependency(id: string): Promise<void> {
+  await requestLocalApiJson("POST", `/api/v1/tools/${encodeURIComponent(id)}/check`, {
+    body: {},
+    timeoutMs: 2_100_000,
+  });
+  invalidateWorkflowToolCaches();
+}
+
 export async function removeToolDependency(id: string): Promise<void> {
   await requestLocalApiJson("DELETE", `/api/v1/tools/${encodeURIComponent(id)}`);
   invalidateWorkflowToolCaches();

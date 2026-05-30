@@ -6,6 +6,7 @@ type RuleActionField = (typeof RULE_ACTION_FIELDS)[number];
 
 export type ToolRuleReadinessKind =
   | "workflow-ready"
+  | "validation-pending"
   | "rule-draft"
   | "dependency-only"
   | "platform-unsupported";
@@ -15,41 +16,60 @@ export type ToolRuleReadiness = {
   envLabel: string;
   hasAction: boolean;
   hasEnv: boolean;
+  hasRuntime: boolean;
+  hasSmoke: boolean;
   inputs: number;
   kind: ToolRuleReadinessKind;
-  label: "可加入流程" | "待确认 RuleSpec" | "仅依赖" | "平台不支持";
+  label: "可加入流程" | "待验证" | "待确认 RuleSpec" | "仅依赖" | "平台不支持";
   outputs: number;
   outputsReady: boolean;
   params: number;
+  paramsReady: boolean;
   requiresUserCompletion: boolean;
+  runtimeLabel: string;
+  smokeLabel: string;
   template: RuleSpecTemplate;
   workflowReady: boolean;
 };
 
 export function ruleSpecReadinessForTool(tool: ToolSearchItem): ToolRuleReadiness {
   const { draft, template } = displayRuleTemplateEntryForTool(tool);
+  const rawActions = ruleActionFields(template, { requireWrapperLock: false });
   const actions = ruleActionFields(template);
+  const wrapperNeedsLock = rawActions.includes("wrapper") && !actions.includes("wrapper");
   const inputs = Array.isArray(template.inputs) ? template.inputs : [];
   const outputs = Array.isArray(template.outputs) ? template.outputs : [];
   const params = objectValue(template.params);
-  const dependencies = template.environment?.conda?.dependencies || [];
-  const hasEnv = dependencies.length > 0 || Boolean(packageSpecForTool(tool));
+  const paramsReady = template.params !== undefined && isRecord(template.params);
+  const hasRuntime = ruleRuntimeReady(template);
+  const conda = template.environment?.conda;
+  const dependencies = conda?.dependencies || [];
+  const channels = conda?.channels || [];
+  const hasEnv = channels.length > 0 && dependencies.length > 0 && dependencies.every(dependencyLocked) && channelPriorityStrict(channels);
+  const hasSmoke = smokeTestReady(template);
   const requiresUserCompletion = draft?.requiresUserCompletion === true;
-  const hasAction = actions.length === 1;
+  const hasAction = rawActions.length === 1 && actions.length === 1;
   const inputsReady = inputs.length > 0 && inputs.every((input) => stringValue(input.name));
   const outputsReady = outputs.length > 0 && outputs.every(outputSpecReady);
   const platformReady = tool.targetPlatformSupported === true;
-  const workflowReady = platformReady && hasAction && inputsReady && outputsReady && hasEnv && !requiresUserCompletion;
+  const localWorkflowReady = platformReady && hasAction && inputsReady && outputsReady && paramsReady && hasRuntime && hasEnv && hasSmoke && !requiresUserCompletion;
+  const contractWorkflowReady = tool.toolContract?.workflowReady;
+  const workflowReady = Boolean(contractWorkflowReady && localWorkflowReady);
   const base = {
-    actionLabel: hasAction ? actions[0] : actions.length > 1 ? "action 冲突" : "待补 action",
-    envLabel: environmentLabel(tool, dependencies),
+    actionLabel: hasAction ? actions[0] : rawActions.length > 1 ? "action 冲突" : wrapperNeedsLock ? "待锁 wrapper" : "待补 action",
+    envLabel: environmentLabel(dependencies, channels),
     hasAction,
     hasEnv,
+    hasRuntime,
+    hasSmoke,
     inputs: inputs.length,
     outputs: outputs.length,
     outputsReady,
     params: Object.keys(params).length,
+    paramsReady,
     requiresUserCompletion,
+    runtimeLabel: hasRuntime ? "threads/resources/log" : "待补 runtime/log",
+    smokeLabel: hasSmoke ? "fixtures ready" : "待补 smoke",
     template,
     workflowReady,
   };
@@ -58,6 +78,9 @@ export function ruleSpecReadinessForTool(tool: ToolSearchItem): ToolRuleReadines
   }
   if (tool.targetPlatformSupported === false) {
     return { ...base, kind: "platform-unsupported", label: "平台不支持" };
+  }
+  if (localWorkflowReady && contractWorkflowReady !== true) {
+    return { ...base, kind: "validation-pending", label: "待验证" };
   }
   if (hasRuleTemplateShape(template) || draft) {
     return { ...base, kind: "rule-draft", label: "待确认 RuleSpec" };
@@ -100,8 +123,17 @@ export function starterRuleTemplateForKnownTool(tool: ToolSearchItem): RuleSpecT
       },
     ],
     params: {},
-    resources: { threads: { default: 1 } },
+    resources: { threads: { default: 1 }, mem_mb: { default: 512 } },
     log: "logs/fastqc.log",
+    smokeTest: {
+      inputs: {
+        reads: {
+          filename: "reads.fastq",
+          content: "@smoke\nACGT\n+\nFFFF\n",
+          mimeType: "text/plain",
+        },
+      },
+    },
   };
   if (packageSpec) {
     template.environment = {
@@ -118,15 +150,39 @@ export function hasRuleAction(template: Record<string, unknown>) {
   return ruleActionFields(template).length > 0;
 }
 
-export function ruleActionFields(template: Record<string, unknown>): RuleActionField[] {
+export function ruleActionFields(
+  template: Record<string, unknown>,
+  options: { requireWrapperLock?: boolean } = { requireWrapperLock: true }
+): RuleActionField[] {
   return RULE_ACTION_FIELDS.filter((field) =>
-    field === "module" ? moduleActionReady(template.module) : typeof template[field] === "string" && template[field].trim().length > 0
+    field === "module"
+      ? moduleActionReady(template.module)
+      : field === "wrapper"
+        ? wrapperActionReady(template.wrapper, options)
+        : typeof template[field] === "string" && template[field].trim().length > 0
   );
 }
 
 function moduleActionReady(raw: unknown) {
-  const module = objectValue(raw);
-  return Boolean(stringValue(module.snakefile) && stringValue(module.rule));
+  const moduleSpec = objectValue(raw);
+  return Boolean(stringValue(moduleSpec.snakefile) && stringValue(moduleSpec.rule));
+}
+
+function wrapperActionReady(raw: unknown, options: { requireWrapperLock?: boolean }) {
+  const wrapper = stringValue(raw);
+  if (!wrapper) return false;
+  return options.requireWrapperLock === false || wrapperRefLocked(wrapper);
+}
+
+function wrapperRefLocked(raw: unknown) {
+  const parts = stringValue(raw)
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return false;
+  const ref = parts[0];
+  if (["bio", "master", "main", "latest", "head", "dev"].includes(ref.toLowerCase())) return false;
+  return /^v?\d+(?:\.\d+){1,}(?:[-+._A-Za-z0-9]*)?$/.test(ref) || /^[0-9a-fA-F]{7,40}$/.test(ref);
 }
 
 function displayRuleTemplateEntryForTool(tool: ToolSearchItem): { draft?: RuleSpecDraft; template: RuleSpecTemplate } {
@@ -140,11 +196,77 @@ function displayRuleTemplateEntryForTool(tool: ToolSearchItem): { draft?: RuleSp
 
 function hasRuleTemplateShape(template: Record<string, unknown>) {
   return Boolean(
-    hasRuleAction(template) ||
+    ruleActionFields(template, { requireWrapperLock: false }).length > 0 ||
     Array.isArray(template.inputs) ||
     Array.isArray(template.outputs) ||
     (template.params && typeof template.params === "object" && !Array.isArray(template.params))
   );
+}
+
+function ruleRuntimeReady(template: RuleSpecTemplate) {
+  return ruleThreadsReady(template) && schedulerResourcesReady(template) && logReady(template.log);
+}
+
+function ruleThreadsReady(template: RuleSpecTemplate) {
+  return positiveInt(template.threads) || positiveInt(resourceDefault(template.resources, "threads"));
+}
+
+function schedulerResourcesReady(template: RuleSpecTemplate) {
+  return (
+    schedulerResourceCount(template.schedulerResources) +
+      schedulerResourceCount(template.runtimeResources) +
+      schedulerResourceCount(template.resources, { skipThreads: true }) >
+    0
+  );
+}
+
+function schedulerResourceCount(raw: unknown, options: { skipThreads?: boolean } = {}) {
+  const resources = objectValue(raw);
+  return Object.entries(resources).filter(([name, value]) => {
+    if (options.skipThreads && name === "threads") return false;
+    return schedulerValueReady(value) && !workflowResourceValue(value);
+  }).length;
+}
+
+function schedulerValueReady(raw: unknown): boolean {
+  if (typeof raw === "number") return Number.isFinite(raw);
+  if (typeof raw === "string") return raw.trim().length > 0;
+  if (!isRecord(raw)) return false;
+  const value = objectValue(raw);
+  return schedulerValueReady(value.default) || schedulerValueReady(value.value);
+}
+
+function workflowResourceValue(raw: unknown) {
+  const value = objectValue(raw);
+  return Boolean(value.acceptedTemplates || value.acceptedCapabilities || value.configKey || value.type === "database");
+}
+
+function resourceDefault(resources: unknown, key: string) {
+  const value = objectValue(resources)[key];
+  const record = objectValue(value);
+  return record.default ?? record.value ?? value;
+}
+
+function positiveInt(raw: unknown) {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1;
+}
+
+function logReady(raw: unknown) {
+  if (typeof raw === "string") return raw.trim().length > 0;
+  const record = objectValue(raw);
+  return Object.keys(record).length > 0 && Object.entries(record).every(([name, path]) => name.trim() && stringValue(path));
+}
+
+function smokeTestReady(template: RuleSpecTemplate) {
+  const inputs = Array.isArray(template.inputs) ? template.inputs : [];
+  const requiredInputs = inputs.filter((input) => input.required !== false);
+  const smokeInputs = objectValue(template.smokeTest?.inputs);
+  return requiredInputs.length > 0 && requiredInputs.every((input) => smokeInputReady(smokeInputs[stringValue(input.name)]));
+}
+
+function smokeInputReady(raw: unknown) {
+  const input = objectValue(raw);
+  return typeof input.content === "string" || stringValue(input.contentBase64).length > 0;
 }
 
 function outputSpecReady(raw: unknown) {
@@ -157,10 +279,13 @@ function outputSpecReady(raw: unknown) {
   );
 }
 
-function environmentLabel(tool: ToolSearchItem, dependencies: string[]) {
+function environmentLabel(dependencies: string[], channels: string[]) {
+  if (dependencies.length > 0 && channels.length === 0) return "待补 channels";
+  if (channels.length > 0 && !channelPriorityStrict(channels)) return "待调 channel priority";
+  if (dependencies.some((dependency) => !dependencyLocked(dependency))) return "待锁 env";
   if (dependencies.length > 1) return `${dependencies.length} deps`;
   if (dependencies.length === 1) return dependencies[0];
-  return packageSpecForTool(tool) || "待补 env";
+  return "待补 env";
 }
 
 function packageSpecForTool(tool: ToolSearchItem) {
@@ -172,8 +297,29 @@ function uniqueChannels(source: string) {
   return Array.from(new Set(["conda-forge", source === "conda-forge" ? "bioconda" : source].filter(Boolean)));
 }
 
+function dependencyLocked(value: string) {
+  const spec = value.trim();
+  if (!spec || /[<>*]/.test(spec)) return false;
+  const packageSpec = spec.split("::").at(-1) || "";
+  const separator = packageSpec.includes("==") ? "==" : packageSpec.includes("=") ? "=" : "";
+  if (!separator) return false;
+  const [name, version] = packageSpec.split(separator);
+  return Boolean(name.trim() && version.trim());
+}
+
+function channelPriorityStrict(channels: string[]) {
+  const condaForgeIndex = channels.indexOf("conda-forge");
+  if (condaForgeIndex < 0) return false;
+  const biocondaIndex = channels.indexOf("bioconda");
+  return biocondaIndex < 0 || condaForgeIndex < biocondaIndex;
+}
+
 function objectValue(raw: unknown): Record<string, unknown> {
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  return isRecord(raw) ? raw : {};
+}
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return Boolean(raw && typeof raw === "object" && !Array.isArray(raw));
 }
 
 function stringValue(raw: unknown): string {

@@ -91,6 +91,7 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             )
         except ValueError as exc:
             raise RunPreflightError(str(exc)) from exc
+        _preflight_tool_contract_ready(tool)
         try:
             _resolve_step_params(
                 rule_template=rule_template,
@@ -192,6 +193,14 @@ def _preflight_step_inputs(
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_ROLE_UNKNOWN: {role}")
             continue
         raise RunPreflightError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
+
+
+def _preflight_tool_contract_ready(tool: dict[str, Any]) -> None:
+    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    if bool(contract.get("workflowReady")):
+        return
+    state = str(contract.get("state") or "AddedDependency")
+    raise RunPreflightError(f"WORKFLOW_TOOL_NOT_READY: {state}")
 
 
 def _preflight_required_step_inputs(step: dict[str, Any], rule_template: dict[str, Any]) -> None:

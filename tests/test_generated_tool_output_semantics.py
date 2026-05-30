@@ -266,3 +266,27 @@ def test_output_artifact_collection_accepts_declared_directories(tmp_path: Path)
     assert artifacts[0]["path"] == str(output_dir)
     assert artifacts[0]["sizeBytes"] == 11
     assert artifacts[0]["sha256"]
+
+
+def test_output_artifact_collection_rejects_empty_text_outputs(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    output = tmp_path / "outputs" / "report.txt"
+    output.parent.mkdir(parents=True)
+    output.write_text("", encoding="utf-8")
+
+    try:
+        _collect_artifacts(
+            cfg,
+            "run_empty_output",
+            output_schema={
+                "artifacts": [
+                    {"key": "report", "kind": "log", "mimeType": "text/plain"},
+                ]
+            },
+            outputs={"report": str(output)},
+        )
+    except ValueError as exc:
+        assert str(exc) == "OUTPUT_ARTIFACT_EMPTY: Output file is empty: report"
+    else:
+        raise AssertionError("empty declared text outputs should fail artifact collection")

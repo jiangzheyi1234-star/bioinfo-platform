@@ -3,6 +3,8 @@ from __future__ import annotations
 
 def classify_run_submission_status(*, detail: str, fallback: int) -> int:
     lowered = detail.lower()
+    if "workflow_tool_not_ready" in lowered or "workflow tool not ready" in lowered:
+        return 409
     readiness_markers = (
         "not ready",
         "workflow runtime",

@@ -9,6 +9,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,10 @@ def ssh_run(client, command: str, *, timeout: int = 20) -> str:
 
 
 def cleanup(api_base: str, tool_id: str, database_ids: list[str]) -> None:
-    paths = [f"/api/v1/tools/{tool_id}", *(f"/api/v1/databases/{database_id}" for database_id in database_ids)]
+    paths = [
+        f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}",
+        *(f"/api/v1/databases/{urllib.parse.quote(database_id, safe='')}" for database_id in database_ids),
+    ]
     for path in paths:
         try:
             http_json("DELETE", api_base, path, timeout=10)
@@ -115,6 +119,51 @@ def build_run_submit_payload(
             "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
             "resourceBindings": {"taxonomy": {"databaseId": database["id"]}},
             "tool": {"id": tool["id"]},
+        },
+    }
+
+
+def build_database_tool_payload(*, tool_id: str, database_id: str) -> dict[str, Any]:
+    return {
+        "id": tool_id,
+        "name": "coreutils",
+        "source": "conda-forge",
+        "sourceLabel": "conda-forge",
+        "version": "9.5",
+        "packageSpec": "conda-forge::coreutils=9.5",
+        "targetPlatform": "linux-64",
+        "targetPlatformSupported": True,
+        "platforms": ["linux-64"],
+        "ruleTemplate": {
+            "commandTemplate": "printf '%s\\n' {config.taxonomy:q} > {output.tool_output:q}",
+            "inputs": [{"name": "primary", "type": "file", "required": True}],
+            "outputs": [{"name": "tool_output", "path": "database-path.txt", "kind": "log", "mimeType": "text/plain"}],
+            "params": {},
+            "resources": {
+                "threads": {"default": 1},
+                "mem_mb": {"default": 128},
+                "taxonomy": {
+                    "type": "database",
+                    "configKey": "taxonomy",
+                }
+            },
+            "log": "logs/coreutils-database-smoke.log",
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["conda-forge::coreutils=9.5"],
+                }
+            },
+            "smokeTest": {
+                "inputs": {
+                    "primary": {
+                        "filename": "reads.txt",
+                        "content": "ABCDEF\n",
+                        "mimeType": "text/plain",
+                    }
+                },
+                "resourceBindings": {"taxonomy": {"databaseId": database_id}},
+            },
         },
     }
 
@@ -158,7 +207,12 @@ def main() -> int:
             },
             timeout=30,
         ))
-        invalid_checked = response_data(http_json("POST", args.api_base, f"/api/v1/databases/{invalid_database['id']}/check", timeout=120))
+        invalid_checked = response_data(http_json(
+            "POST",
+            args.api_base,
+            f"/api/v1/databases/{urllib.parse.quote(str(invalid_database['id']), safe='')}/check",
+            timeout=120,
+        ))
         print_json(
             "REAL_DATABASE_VALIDATION_CHECKED",
             {
@@ -188,7 +242,12 @@ def main() -> int:
             },
             timeout=30,
         ))
-        checked = response_data(http_json("POST", args.api_base, f"/api/v1/databases/{database_id}/check", timeout=30))
+        checked = response_data(http_json(
+            "POST",
+            args.api_base,
+            f"/api/v1/databases/{urllib.parse.quote(database_id, safe='')}/check",
+            timeout=30,
+        ))
         print_json("CUSTOM_DATABASE_CHECKED", {"id": checked["id"], "status": checked["status"], "path": checked["path"]})
         if checked["status"] != "available":
             return 1
@@ -197,32 +256,19 @@ def main() -> int:
             "POST",
             args.api_base,
             "/api/v1/tools",
-            payload={
-                "id": tool_id,
-                "name": "coreutils",
-                "source": "conda-forge",
-                "sourceLabel": "conda-forge",
-                "version": "9.5",
-                "packageSpec": "conda-forge::coreutils=9.5",
-                "targetPlatform": "linux-64",
-                "targetPlatformSupported": True,
-                "platforms": ["linux-64"],
-                "ruleTemplate": {
-                    "commandTemplate": "printf '%s\\n' {config.taxonomy:q} > {output.tool_output:q}",
-                    "inputs": [{"name": "primary", "type": "file", "required": True}],
-                    "outputs": [{"name": "tool_output", "path": "database-path.txt", "kind": "log", "mimeType": "text/plain"}],
-                    "resources": {
-                        "taxonomy": {
-                            "type": "database",
-                            "configKey": "taxonomy",
-                            "acceptedCapabilities": ["reference_database", "taxonomy_database"],
-                        }
-                    },
-                },
-            },
+            payload=build_database_tool_payload(tool_id=tool_id, database_id=database["id"]),
             timeout=30,
         ))
         print_json("TOOL_REGISTERED", {"id": tool["id"], "packageSpec": tool["packageSpec"]})
+        tool = response_data(http_json(
+            "POST",
+            args.api_base,
+            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
+            timeout=args.timeout,
+        ))
+        print_json("TOOL_VALIDATED", {"id": tool["id"], "contract": tool.get("toolContract"), "status": tool["status"]})
+        if not bool((tool.get("toolContract") or {}).get("workflowReady")):
+            return 1
 
         upload = response_data(http_json(
             "POST",

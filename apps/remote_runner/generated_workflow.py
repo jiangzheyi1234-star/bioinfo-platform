@@ -63,6 +63,7 @@ def prepare_generated_tool_workflow(
     resolved_inputs: list[dict[str, Any]],
     work_dir: Path,
     result_dir: Path,
+    require_workflow_ready: bool = False,
 ) -> GeneratedWorkflow:
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")
@@ -96,6 +97,8 @@ def prepare_generated_tool_workflow(
         package_spec = str(tool.get("packageSpec") or "").strip()
         if not package_spec:
             raise ValueError("TOOL_PACKAGE_SPEC_REQUIRED")
+        if require_workflow_ready:
+            _validate_tool_workflow_ready(tool)
 
         step_id = _step_id(requested_step, index)
         safe_tool_id = _safe_identifier(tool_id)
@@ -240,6 +243,14 @@ def prepare_generated_tool_workflow(
         outputs=final_outputs,
         output_schema={"type": "object", "artifacts": final_artifacts},
     )
+
+
+def _validate_tool_workflow_ready(tool: dict[str, Any]) -> None:
+    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    if bool(contract.get("workflowReady")):
+        return
+    state = str(contract.get("state") or "AddedDependency")
+    raise ValueError(f"WORKFLOW_TOOL_NOT_READY: {state}")
 
 def _resolve_requested_steps(run_spec: dict[str, Any]) -> list[dict[str, Any]]:
     run_spec = normalize_generated_workflow_run_spec(run_spec)

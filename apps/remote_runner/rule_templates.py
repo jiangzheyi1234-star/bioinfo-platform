@@ -9,7 +9,9 @@ def rule_template_candidates(tool: dict[str, Any], tool_request: dict[str, Any])
 
 def rule_template_candidate_entries(tool: dict[str, Any], tool_request: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    for owner in [tool, tool_request]:
+    # The request may carry a UI snapshot of the RuleSpec for audit/debug display,
+    # but executable workflow contracts must come from the registered tool record.
+    for owner in [tool]:
         draft = owner.get("ruleSpecDraft")
         rule_spec_draft = draft if isinstance(draft, dict) else {}
         confirmed_draft = {} if bool(rule_spec_draft.get("requiresUserCompletion")) else rule_spec_draft

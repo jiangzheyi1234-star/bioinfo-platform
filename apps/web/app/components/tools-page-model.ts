@@ -18,6 +18,8 @@ export type ToolSearchItem = {
   capabilities?: ToolCapability[];
   snakemakeWrappers?: SnakemakeWrapperMatch[];
   snakemakeWrapperCount?: number;
+  contractStatus?: ToolContractStatus;
+  toolContract?: ToolContract;
 };
 
 export type ToolCapabilitySlot = {
@@ -97,9 +99,18 @@ export type RuleSpecTemplate = {
   inputs?: RuleSpecPort[];
   outputs?: RuleSpecPort[];
   params?: Record<string, RuleSpecParam | RuleSpecScalar>;
+  threads?: number;
   resources?: Record<string, RuleSpecResource | RuleSpecScalar>;
+  schedulerResources?: Record<string, RuleSpecResource | RuleSpecScalar>;
+  runtimeResources?: Record<string, RuleSpecResource | RuleSpecScalar>;
   environment?: RuleSpecEnvironment;
   log?: string | Record<string, string>;
+  smokeTest?: {
+    inputs?: Record<string, { filename?: string; content?: string; contentBase64?: string; mimeType?: string }>;
+    params?: Record<string, RuleSpecScalar>;
+    resourceBindings?: Record<string, string | { databaseId?: string; id?: string }>;
+    timeoutSeconds?: number;
+  };
 };
 
 export type RuleSpecLock = {
@@ -133,6 +144,93 @@ export type RuleSpecDraft = {
   lock?: RuleSpecLock;
   ruleTemplate?: RuleSpecTemplate;
   notes?: string[];
+};
+
+export type ToolContractValidationItem = {
+  status: "not_run" | "passed" | "failed" | "running" | string;
+  code?: string;
+  message?: string;
+  checkedAt?: string;
+  runId?: string;
+  logPath?: string;
+  artifactCount?: string;
+  artifactNames?: string;
+  evidenceType?: string;
+  databaseId?: string;
+  templateId?: string;
+  role?: string;
+  artifactName?: string;
+};
+
+export type ToolContractStatus = {
+  dryRun: ToolContractValidationItem;
+  smokeRun: ToolContractValidationItem;
+  outputValidation: ToolContractValidationItem;
+  production: ToolContractValidationItem;
+};
+
+export type ToolContractState =
+  | "Discovered"
+  | "AddedDependency"
+  | "RuleSpecDrafted"
+  | "RuleSpecConfirmed"
+  | "EnvSpecified"
+  | "SnakemakeRenderable"
+  | "DryRunPassed"
+  | "SmokeRunPassed"
+  | "OutputValidated"
+  | "WorkflowReady"
+  | "ProductionEnabled";
+
+export type ToolContractPackage = {
+  name?: string;
+  packageSpec?: string;
+  source?: string;
+  version?: string;
+  targetPlatform?: string;
+  targetPlatformSupported?: boolean;
+};
+
+export type ToolContractRuleSpec = {
+  source?: string;
+  action?: string;
+  inputs?: number;
+  outputs?: number;
+  params?: number;
+  threads?: number;
+  schedulerResources?: number;
+  log?: number;
+  wrapperLocked?: boolean;
+  requiresUserCompletion?: boolean;
+};
+
+export type ToolContractEnvironment = {
+  specified?: boolean;
+  declared?: boolean;
+  locked?: boolean;
+  channelPriorityStrict?: boolean;
+  channels?: string[];
+  dependencies?: string[];
+};
+
+export type ToolContractSmokeTest = {
+  specified?: boolean;
+  inputs?: number;
+  requiredInputs?: number;
+  missingInputs?: string[];
+};
+
+export type ToolContract = {
+  state: ToolContractState | string;
+  workflowReady: boolean;
+  productionEnabled?: boolean;
+  package?: ToolContractPackage;
+  ruleSpec?: ToolContractRuleSpec;
+  environment?: ToolContractEnvironment;
+  smokeTest?: ToolContractSmokeTest;
+  requirements?: Record<string, boolean>;
+  validation?: ToolContractStatus;
+  reasons?: string[];
 };
 
 export type ToolSearchResponse = {
@@ -176,6 +274,33 @@ export const TOOL_SEARCH_PAGE_SIZE = 20;
 
 export function toolErrorMessage(err: unknown, fallback: string) {
   const message = err instanceof Error ? err.message : String(err || "");
+  if (/TOOL_PACKAGE_VERSION_REQUIRED/.test(message)) {
+    return "请选择一个明确版本后再加入工具。";
+  }
+  if (/TOOL_PACKAGE_VERSION_MISMATCH/.test(message)) {
+    return "工具版本与 packageSpec 中锁定的版本不一致，请重新选择版本。";
+  }
+  if (/TOOL_PACKAGE_SOURCE_MISMATCH/.test(message)) {
+    return "工具来源与 packageSpec 的 channel 不一致，请重新选择来源。";
+  }
+  if (/TOOL_PACKAGE_NAME_MISMATCH/.test(message)) {
+    return "工具名称与 packageSpec 中的包名不一致，请重新选择工具。";
+  }
+  if (/TOOL_RULE_SMOKE_TEST_REQUIRED|TOOL_RULE_SMOKE_INPUT_REQUIRED/.test(message)) {
+    return "请补全 Smoke 测试输入后再验证工具。";
+  }
+  if (/WORKFLOW_TOOL_NOT_READY/.test(message)) {
+    return "该工具还未通过合同验证，暂不能加入流程。";
+  }
+  if (/OUTPUT_ARTIFACT_MISSING/.test(message)) {
+    return "Smoke run 已执行，但没有生成声明的输出产物。";
+  }
+  if (/SNAKEMAKE_DRY_RUN_FAILED/.test(message)) {
+    return "Snakemake dry-run 失败，请检查 RuleSpec 的输入、输出和命令。";
+  }
+  if (/TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY/.test(message)) {
+    return "工具必须先达到 WorkflowReady，才能记录生产验收。";
+  }
   if (/timed out|timeout|超时/i.test(message)) {
     return "远程服务响应超时，请先确认 SSH 底部状态为已连接，并刷新远程服务后再试。";
   }
@@ -198,6 +323,16 @@ export function searchErrorMessage(err: unknown) {
 
 export function dependencyKey(packageSpec: string) {
   return String(packageSpec || "").trim().toLowerCase();
+}
+
+export function packageSpecLocked(packageSpec: string) {
+  const spec = String(packageSpec || "").trim();
+  if (!spec || /[<>*]/.test(spec)) return false;
+  const packageName = spec.split("::").at(-1) || "";
+  const separator = packageName.includes("==") ? "==" : packageName.includes("=") ? "=" : "";
+  if (!separator) return false;
+  const [name, version] = packageName.split(separator);
+  return Boolean(name.trim() && version.trim());
 }
 
 export function syncRuleSpecDraftPackageLock(

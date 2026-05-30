@@ -40,12 +40,14 @@ export function ToolsPage() {
         {state.view === "library" ? (
           <ToolsLibrarySection
             addedTools={state.addedTools}
+            checkingToolId={state.checkingToolId}
             editingRuleSpecToolId={state.editingRuleSpecToolId}
             ruleSpecEditError={state.ruleSpecEditError}
             ruleSpecSavingId={state.ruleSpecSavingId}
             toolsError={state.toolsError}
             toolsLoading={state.toolsLoading}
             onCancelRuleSpecEdit={() => state.setEditingRuleSpecToolId("")}
+            onCheck={state.checkTool}
             onEditRuleSpec={state.editToolRuleTemplate}
             onRefresh={() => void state.loadAddedTools()}
             onRemove={state.removeAddedTool}
@@ -107,6 +109,7 @@ export function ToolsPage() {
                 canAddSelected={state.canAddSelected}
                 selected={state.selected}
                 selectedAlreadyAdded={state.selectedAlreadyAdded}
+                selectedPackageLocked={state.selectedPackageLocked}
                 selectedPackageSpec={state.selectedPackageSpec}
                 selectedVersion={state.selectedVersion}
                 onAdd={state.addSelectedTool}

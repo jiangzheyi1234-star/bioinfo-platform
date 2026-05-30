@@ -79,6 +79,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                 remote_bundle=remote_workflow_bundle,
             )
             remote_workflow_artifact_sha = f"{workflow_runtime_dir}/artifact.sha256"
+            artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
 
             fast_reuse_metadata = self._build_fast_reuse_metadata(
                 server_record=server_record,
@@ -94,6 +95,8 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                 remote_current=remote_current,
                 remote_runtime_state=remote_runtime_state,
                 remote_config=remote_config,
+                remote_artifact_sha=remote_artifact_sha,
+                artifact_sha=str(getattr(artifact, "sha256", "") or ""),
                 workflow_artifact=workflow_artifact,
                 workflow_runtime_dir=workflow_runtime_dir,
                 remote_workflow_artifact_sha=remote_workflow_artifact_sha,
@@ -112,7 +115,6 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                 "remote runner config",
             )
             previous_mode = str((previous_config_payload or {}).get("mode") or server_record.get("runner_mode") or "")
-            artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
             if workflow_artifact.platform != remote_platform:
                 workflow_runtime_dir = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{remote_platform}"
                 remote_workflow_bundle = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{remote_platform}.tar.gz"
@@ -861,6 +863,8 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
         remote_current: str,
         remote_runtime_state: str,
         remote_config: str,
+        remote_artifact_sha: str,
+        artifact_sha: str,
         workflow_artifact: WorkflowRuntimeArtifact,
         workflow_runtime_dir: str,
         remote_workflow_artifact_sha: str,
@@ -888,6 +892,12 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                 or ""
             )
             self._verify_remote_manifest_for_reuse(manifest, version=version, platform=platform)
+
+            exit_code, stdout, _stderr = ssh_service.run(f"cat {shlex.quote(remote_artifact_sha)}", timeout=10)
+            if exit_code != 0:
+                return self._reuse_failed(bootstrap_metadata, "artifact sha marker missing")
+            if artifact_sha and stdout.strip() != artifact_sha:
+                return self._reuse_failed(bootstrap_metadata, "artifact sha mismatch")
 
             exit_code, stdout, stderr = ssh_service.run(f"cat {shlex.quote(remote_runtime_state)}", timeout=10)
             if exit_code != 0:
@@ -917,6 +927,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             self._verify_database_template_catalog_for_reuse(client)
             bootstrap_metadata["deployment_action"] = "reused"
             bootstrap_metadata["reuse_check"] = {"ok": True, "reason": ""}
+            self._mark_reuse_bootstrap_phases_skipped(bootstrap_metadata)
             return {
                 "bootstrap_version": version,
                 "runner_mode": str(server_record.get("runner_mode") or "background_process"),
@@ -996,6 +1007,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             self._verify_database_template_catalog_for_reuse(client)
             bootstrap_metadata["deployment_action"] = "reused"
             bootstrap_metadata["reuse_check"] = {"ok": True, "reason": ""}
+            self._mark_reuse_bootstrap_phases_skipped(bootstrap_metadata)
             return {
                 "bootstrap_version": version,
                 "runner_mode": mode,
@@ -1108,6 +1120,19 @@ printf reclaimed
             ssh_service.run(f"rm -rf {shlex.quote(lock_dir)}", timeout=10)
         except Exception:
             return
+
+    @staticmethod
+    def _mark_reuse_bootstrap_phases_skipped(bootstrap_metadata: dict[str, Any]) -> None:
+        bootstrap_metadata["canary"] = {
+            "status": "skipped",
+            "message": "Existing runner reused; bootstrap canary was not rerun.",
+        }
+        bootstrap_metadata["rollback"] = {
+            "attempted": False,
+            "restored": False,
+            "status": "skipped",
+            "message": "Existing runner reused; rollback was not needed.",
+        }
 
     @staticmethod
     def _reuse_failed(bootstrap_metadata: dict[str, Any], reason: str) -> None:

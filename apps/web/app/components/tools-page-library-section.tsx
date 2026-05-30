@@ -1,35 +1,39 @@
 "use client";
 
-import { CheckCircle2, Loader2, RefreshCw, Trash2, Workflow } from "lucide-react";
+import { CheckCircle2, Loader2, PlayCircle, RefreshCw, Trash2, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { AddedTool, RuleSpecTemplate } from "./tools-page-model";
+import type { AddedTool, RuleSpecTemplate, ToolContractValidationItem } from "./tools-page-model";
 import { ruleSpecReadinessForTool, type ToolRuleReadiness } from "./tool-rule-readiness";
-import { PlatformBadge, RulePortPreview, SourceBadge, WrapperBadge } from "./tools-page-ui";
+import { PlatformBadge, SourceBadge, WrapperBadge } from "./tools-page-ui";
 import { ToolRuleSpecEditor } from "./tools-page-rule-spec-editor";
 
 export function ToolsLibrarySection({
   addedTools,
+  checkingToolId,
   editingRuleSpecToolId,
   ruleSpecEditError,
   ruleSpecSavingId,
   toolsError,
   toolsLoading,
   onCancelRuleSpecEdit,
+  onCheck,
   onEditRuleSpec,
   onRefresh,
   onRemove,
   onSaveRuleSpec,
 }: {
   addedTools: AddedTool[];
+  checkingToolId: string;
   editingRuleSpecToolId: string;
   ruleSpecEditError: string;
   ruleSpecSavingId: string;
   toolsError: string;
   toolsLoading: boolean;
   onCancelRuleSpecEdit: () => void;
+  onCheck: (id: string) => void;
   onEditRuleSpec: (id: string) => void;
   onRefresh: () => void;
   onRemove: (id: string) => void;
@@ -62,7 +66,7 @@ export function ToolsLibrarySection({
       ) : addedTools.length === 0 ? (
         <div className="py-3 text-sm text-slate-400">还没有加入工具</div>
       ) : (
-        <div className="grid grid-cols-1 gap-x-8 gap-y-3 xl:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {addedTools.map((tool) => {
             const editing = editingRuleSpecToolId === tool.id;
             return (
@@ -71,8 +75,10 @@ export function ToolsLibrarySection({
                 editing={editing}
                 ruleSpecEditError={ruleSpecEditError}
                 ruleSpecSaving={ruleSpecSavingId === tool.id}
+                checking={checkingToolId === tool.id}
                 tool={tool}
                 onCancelRuleSpecEdit={onCancelRuleSpecEdit}
+                onCheck={() => onCheck(tool.id)}
                 onEditRuleSpec={() => onEditRuleSpec(tool.id)}
                 onRemove={() => onRemove(tool.id)}
                 onSaveRuleSpec={(ruleTemplate) => onSaveRuleSpec(tool.id, ruleTemplate)}
@@ -86,47 +92,71 @@ export function ToolsLibrarySection({
 }
 
 function RuleSpecNodeCard({
+  checking,
   editing,
   ruleSpecEditError,
   ruleSpecSaving,
   tool,
   onCancelRuleSpecEdit,
+  onCheck,
   onEditRuleSpec,
   onRemove,
   onSaveRuleSpec,
 }: {
+  checking: boolean;
   editing: boolean;
   ruleSpecEditError: string;
   ruleSpecSaving: boolean;
   tool: AddedTool;
   onCancelRuleSpecEdit: () => void;
+  onCheck: () => void;
   onEditRuleSpec: () => void;
   onRemove: () => void;
   onSaveRuleSpec: (ruleTemplate: RuleSpecTemplate) => void;
 }) {
   const state = ruleSpecReadinessForTool(tool);
+  const canCheck = state.kind === "validation-pending" || state.kind === "workflow-ready";
   return (
     <article
       data-node-state={state.kind}
-      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/30 sm:px-4"
+      className={cn(
+        "group rounded-md border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300 hover:bg-slate-50/70",
+        editing && "col-span-full"
+      )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className="min-w-0 truncate text-sm font-medium text-slate-900">{tool.name}</h3>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{tool.name}</h3>
             <RuleSpecNodeReadinessBadge state={state} />
+          </div>
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
             <SourceBadge source={tool.source} label={tool.sourceLabel} />
             <PlatformBadge item={tool} />
             <WrapperBadge item={tool} />
           </div>
-          <p className="mt-1 truncate font-mono text-xs text-slate-500">{tool.selectedPackageSpec}</p>
-          <RuleSpecNodeStatusRow state={state} />
+          <p className="mt-2 truncate font-mono text-[11px] text-slate-500">{tool.selectedPackageSpec}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-slate-400 hover:bg-white hover:text-blue-600"
+            className="h-7 w-7 text-slate-400 hover:bg-white hover:text-emerald-600"
+            disabled={checking || !canCheck}
+            onClick={onCheck}
+            title={canCheck ? "验证工具" : "先补全 RuleSpec 和 env"}
+          >
+            {checking ? (
+              <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <PlayCircle strokeWidth={1.5} className="h-3.5 w-3.5" />
+            )}
+            <span className="sr-only">验证工具</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-slate-400 hover:bg-white hover:text-blue-600"
             onClick={onEditRuleSpec}
             title="补全 RuleSpec"
           >
@@ -136,7 +166,7 @@ function RuleSpecNodeCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-slate-400 hover:bg-white hover:text-red-600"
+            className="h-7 w-7 text-slate-400 hover:bg-white hover:text-red-600"
             onClick={onRemove}
             title="移除"
           >
@@ -146,7 +176,8 @@ function RuleSpecNodeCard({
         </div>
       </div>
 
-      <RulePortPreview item={tool} compact />
+      <RuleSpecNodeStatusRow state={state} />
+      <ToolContractStatusRow tool={tool} />
 
       {editing ? (
         <ToolRuleSpecEditor
@@ -161,12 +192,69 @@ function RuleSpecNodeCard({
   );
 }
 
+function ToolContractStatusRow({ tool }: { tool: AddedTool }) {
+  const validation = tool.toolContract?.validation || tool.contractStatus;
+  if (!validation) return null;
+  return (
+    <div className="mt-3 flex items-center gap-1.5">
+      <ToolContractStatusChip label="Dry-run" shortLabel="D" item={validation.dryRun} />
+      <ToolContractStatusChip label="Smoke" shortLabel="S" item={validation.smokeRun} />
+      <ToolContractStatusChip label="Output" shortLabel="O" item={validation.outputValidation} />
+      <ToolContractStatusChip label="Production" shortLabel="P" item={validation.production} />
+    </div>
+  );
+}
+
+function ToolContractStatusChip({
+  item,
+  label,
+  shortLabel,
+}: {
+  item?: ToolContractValidationItem;
+  label: string;
+  shortLabel: string;
+}) {
+  const status = item?.status || "not_run";
+  const title =
+    [
+      item?.code,
+      item?.message,
+      item?.logPath ? `log=${item.logPath}` : "",
+      item?.runId ? `run=${item.runId}` : "",
+      item?.artifactCount ? `artifacts=${item.artifactCount}` : "",
+      item?.artifactNames ? `artifactNames=${item.artifactNames}` : "",
+      item?.evidenceType ? `evidence=${item.evidenceType}` : "",
+      item?.databaseId ? `database=${item.databaseId}` : "",
+      item?.templateId ? `template=${item.templateId}` : "",
+      item?.role ? `role=${item.role}` : "",
+      item?.artifactName ? `artifact=${item.artifactName}` : "",
+    ]
+      .filter(Boolean)
+      .join("; ") || `${label}: ${status}`;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-medium leading-none",
+        status === "passed"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : status === "failed"
+            ? "border-red-200 bg-red-50 text-red-700"
+            : "border-slate-200 bg-slate-50 text-slate-500"
+      )}
+      title={title}
+    >
+      {shortLabel}
+      {item?.artifactCount ? <span className="shrink-0 font-mono text-[10px]">({item.artifactCount})</span> : null}
+    </span>
+  );
+}
+
 function RuleSpecNodeStatusRow({ state }: { state: RuleSpecNodeState }) {
   return (
-    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-      <RuleSpecNodeStatusChip label="Action" value={state.actionLabel} warning={!state.hasAction} />
-      <RuleSpecNodeStatusChip label="Ports" value={`${state.inputs} in / ${state.outputs} out`} detail={`${state.params} params`} warning={!state.outputsReady} />
-      <RuleSpecNodeStatusChip label="Env" value={state.envLabel} warning={!state.hasEnv} wide />
+    <div className="mt-3 grid grid-cols-3 gap-1 text-[11px]">
+      <RuleSpecNodeStatusChip label="I/O" value={`${state.inputs}/${state.outputs}`} warning={!state.outputsReady} />
+      <RuleSpecNodeStatusChip label="Env" value={state.hasEnv ? "ok" : "todo"} warning={!state.hasEnv} />
+      <RuleSpecNodeStatusChip label="Smoke" value={state.hasSmoke ? "ok" : "todo"} warning={!state.hasSmoke} />
     </div>
   );
 }
@@ -175,7 +263,7 @@ function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
   return (
     <span
       className={cn(
-        "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] leading-none",
+        "inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[10px] leading-none",
         state.kind === "workflow-ready"
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
             : state.kind === "dependency-only"
@@ -190,30 +278,24 @@ function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
 }
 
 function RuleSpecNodeStatusChip({
-  detail,
   label,
   warning,
   value,
-  wide,
 }: {
-  detail?: string;
   label: string;
   warning?: boolean;
   value: string;
-  wide?: boolean;
 }) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 max-w-full items-center gap-1 rounded border px-1.5 text-[11px] leading-none",
-        warning ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600",
-        wide && "sm:max-w-[20rem]"
+        "inline-flex h-6 min-w-0 items-center justify-between gap-1 rounded border px-1.5 leading-none",
+        warning ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600"
       )}
-      title={detail ? `${label}: ${value} / ${detail}` : `${label}: ${value}`}
+      title={`${label}: ${value}`}
     >
       <span className={cn("shrink-0 font-medium", warning ? "text-amber-600" : "text-slate-400")}>{label}</span>
       <span className="min-w-0 truncate font-mono">{value}</span>
-      {detail ? <span className="shrink-0 text-slate-400">· {detail}</span> : null}
     </span>
   );
 }

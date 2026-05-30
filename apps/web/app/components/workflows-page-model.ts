@@ -372,6 +372,9 @@ export function buildWorkflowResourceBindings(
 
 export function workflowErrorMessage(err: unknown, fallback: string) {
   const message = err instanceof Error ? err.message : String(err || "");
+  if (/WORKFLOW_TOOL_NOT_READY/.test(message)) {
+    return "所选工具还未通过合同验证，请先在工具页完成 dry-run、smoke run 和输出验证。";
+  }
   if (/not ready|not prepared|not connected|unreachable|Remote end closed/i.test(message)) {
     return "远程服务暂不可用，请先连接 SSH 并启动远程服务。";
   }

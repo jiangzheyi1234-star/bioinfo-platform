@@ -6,7 +6,8 @@ from pathlib import Path
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.storage import fetch_tool, persist_upload
+from apps.remote_runner.rule_environment import render_rule_conda_env_yaml
+from apps.remote_runner.storage import fetch_tool, persist_upload, upsert_tool
 from apps.remote_runner.tools import add_registered_tool
 
 
@@ -26,11 +27,11 @@ def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
 
 
 def _register_multi_dependency_tool(cfg: RemoteRunnerConfig) -> dict:
-    return add_registered_tool(
+    saved = add_registered_tool(
         cfg,
         {
             "id": "bioconda::fastp-rule",
-            "name": "fastp rule",
+            "name": "fastp",
             "source": "bioconda",
             "sourceLabel": "Bioconda",
             "version": "0.23.4",
@@ -40,6 +41,10 @@ def _register_multi_dependency_tool(cfg: RemoteRunnerConfig) -> dict:
                 "commandTemplate": "printf ok > {output.clean_reads:q}",
                 "inputs": [{"name": "reads", "type": "file", "required": True}],
                 "outputs": [{"name": "clean_reads", "path": "clean.fastq.gz", "kind": "sequence", "mimeType": "application/gzip"}],
+                "params": {},
+                "resources": {"threads": {"default": 1}, "mem_mb": {"default": 128}},
+                "log": "logs/fastp-rule.log",
+                "smokeTest": {"inputs": {"reads": {"filename": "reads.fastq", "content": "@r1\nACGT\n+\nFFFF\n"}}},
                 "environment": {
                     "conda": {
                         "channels": ["conda-forge", "bioconda", "conda-forge"],
@@ -49,6 +54,12 @@ def _register_multi_dependency_tool(cfg: RemoteRunnerConfig) -> dict:
             },
         },
     )
+    saved["contractStatus"] = {
+        "dryRun": {"status": "passed", "message": "Snakemake dry-run passed."},
+        "smokeRun": {"status": "passed", "message": "Snakemake smoke run passed."},
+        "outputValidation": {"status": "passed", "message": "Output validation passed."},
+    }
+    return upsert_tool(cfg, saved)
 
 
 def test_rule_environment_contract_is_persisted(tmp_path: Path) -> None:
@@ -62,6 +73,26 @@ def test_rule_environment_contract_is_persisted(tmp_path: Path) -> None:
     conda = fetched["ruleTemplate"]["environment"]["conda"]
     assert conda["channels"] == ["conda-forge", "bioconda"]
     assert conda["dependencies"] == ["bioconda::fastp=0.23.4", "conda-forge::pigz=2.8"]
+
+
+def test_rule_environment_render_rejects_unlocked_dependencies() -> None:
+    try:
+        render_rule_conda_env_yaml(
+            rule_template={
+                "environment": {
+                    "conda": {
+                        "channels": ["conda-forge", "bioconda"],
+                        "dependencies": ["fastp"],
+                    }
+                }
+            },
+            source="bioconda",
+            package_spec="bioconda::fastp=0.23.4",
+        )
+    except ValueError as exc:
+        assert str(exc) == "TOOL_RULE_ENVIRONMENT_DEPENDENCY_LOCK_REQUIRED: fastp"
+    else:
+        raise AssertionError("generated rule environments must reject unlocked conda dependencies")
 
 
 def test_generated_rule_environment_writes_multi_dependency_env(tmp_path: Path, monkeypatch) -> None:

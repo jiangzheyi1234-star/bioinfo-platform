@@ -59,6 +59,83 @@ def role_for_database(database: dict[str, Any], index: int) -> str:
     return role
 
 
+def template_id_for_database(database: dict[str, Any]) -> str:
+    return str((database.get("metadata") or {}).get("templateId") or database.get("templateId") or "").strip().lower()
+
+
+def build_database_tool_payload(
+    *,
+    tool_id: str,
+    role: str,
+    database: dict[str, Any],
+    output_name: str,
+) -> dict[str, Any]:
+    template_id = template_id_for_database(database)
+    resource_spec: dict[str, Any] = {
+        "type": "database",
+        "configKey": role,
+    }
+    if template_id:
+        resource_spec["acceptedTemplates"] = [template_id]
+    return {
+        "id": tool_id,
+        "name": "coreutils",
+        "source": "conda-forge",
+        "sourceLabel": "conda-forge",
+        "version": "9.5",
+        "packageSpec": "conda-forge::coreutils=9.5",
+        "targetPlatform": "linux-64",
+        "targetPlatformSupported": True,
+        "platforms": ["linux-64"],
+        "ruleTemplate": {
+            "commandTemplate": f"printf '%s\\n' {{config.{role}:q}} > {{output.database_path:q}}",
+            "inputs": [{"name": "primary", "type": "file", "required": True}],
+            "outputs": [{"name": "database_path", "path": output_name, "kind": "log", "mimeType": "text/plain"}],
+            "params": {},
+            "resources": {"threads": {"default": 1}, "mem_mb": {"default": 128}, role: resource_spec},
+            "log": f"logs/coreutils-db-path-smoke-{role}.log",
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["conda-forge::coreutils=9.5"],
+                }
+            },
+            "smokeTest": {
+                "inputs": {
+                    "primary": {
+                        "filename": f"db-smoke-{role}.txt",
+                        "content": "database smoke\n",
+                        "mimeType": "text/plain",
+                    }
+                },
+                "resourceBindings": {role: {"databaseId": str(database["id"]), "templateId": template_id}},
+            },
+        },
+    }
+
+
+def build_run_submit_payload(
+    *,
+    request_id: str,
+    server_id: str,
+    upload: dict[str, Any],
+    database: dict[str, Any],
+    role: str,
+    tool: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "requestId": request_id,
+        "runSpec": {
+            "projectId": "proj_smoke",
+            "pipelineId": "generated-tool-run-v1",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
+            "resourceBindings": {role: {"databaseId": database["id"], "templateId": template_id_for_database(database)}},
+            "tool": {"id": tool["id"]},
+        },
+    }
+
+
 def wait_for_run(api_base: str, run_id: str, *, timeout: float) -> dict[str, Any]:
     deadline = time.time() + timeout
     final: dict[str, Any] = {}
@@ -79,24 +156,23 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, server_id: st
             "POST",
             api_base,
             "/api/v1/tools",
-            payload={
-                "id": tool_id,
-                "name": "coreutils",
-                "source": "conda-forge",
-                "sourceLabel": "conda-forge",
-                "version": "9.5",
-                "packageSpec": "conda-forge::coreutils=9.5",
-                "targetPlatform": "linux-64",
-                "targetPlatformSupported": True,
-                "platforms": ["linux-64"],
-                "ruleTemplate": {
-                    "commandTemplate": f"printf '%s\\n' {{database.{role}.path:q}} > {{output.database_path:q}}",
-                    "inputs": [{"name": "primary", "type": "file", "required": True}],
-                    "outputs": [{"name": "database_path", "path": output_name, "kind": "log", "mimeType": "text/plain"}],
-                },
-            },
+            payload=build_database_tool_payload(tool_id=tool_id, role=role, database=database, output_name=output_name),
             timeout=30,
         ))
+        tool = response_data(http_json(
+            "POST",
+            api_base,
+            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
+            timeout=timeout,
+        ))
+        if not bool((tool.get("toolContract") or {}).get("workflowReady")):
+            return {
+                "id": database["id"],
+                "templateId": (database.get("metadata") or {}).get("templateId"),
+                "status": "failed",
+                "role": role,
+                "error": f"tool contract validation failed: {tool.get('toolContract')}",
+            }
         upload = response_data(http_json(
             "POST",
             api_base,
@@ -112,17 +188,14 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, server_id: st
             "POST",
             api_base,
             "/api/v1/runs",
-            payload={
-                "serverId": server_id,
-                "requestId": f"req_all_db_smoke_{index}_{int(time.time() * 1000)}",
-                "runSpec": {
-                    "projectId": "proj_smoke",
-                    "pipelineId": "generated-tool-run-v1",
-                    "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-                    "databases": [{"id": database["id"], "role": role}],
-                    "tool": {"id": tool["id"]},
-                },
-            },
+            payload=build_run_submit_payload(
+                request_id=f"req_all_db_smoke_{index}_{int(time.time() * 1000)}",
+                server_id=server_id,
+                upload=upload,
+                database=database,
+                role=role,
+                tool=tool,
+            ),
             timeout=30,
         ))
         final = wait_for_run(api_base, submitted["runId"], timeout=timeout)

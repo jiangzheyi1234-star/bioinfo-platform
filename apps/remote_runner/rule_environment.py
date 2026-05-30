@@ -14,6 +14,11 @@ def render_rule_conda_env_yaml(*, rule_template: dict[str, Any], source: str, pa
     ) or [package_spec]
     if not dependencies or any(not item for item in dependencies):
         raise ValueError("TOOL_RULE_ENVIRONMENT_DEPENDENCIES_REQUIRED")
+    for dependency in dependencies:
+        if not _dependency_locked(dependency):
+            raise ValueError(f"TOOL_RULE_ENVIRONMENT_DEPENDENCY_LOCK_REQUIRED: {dependency}")
+    if not _channel_priority_strict(channels):
+        raise ValueError("TOOL_RULE_ENVIRONMENT_CHANNEL_PRIORITY_REQUIRED")
     if "nodefaults" not in channels:
         channels = [*channels, "nodefaults"]
     channel_lines = "".join(f"  - {channel}\n" for channel in channels)
@@ -41,3 +46,29 @@ def _string_list(raw: Any, *, error_code: str) -> list[str]:
 
 def _channels_for_source(source: str) -> list[str]:
     return ["conda-forge", "bioconda"]
+
+
+def _dependency_locked(value: str) -> bool:
+    spec = value.strip()
+    if not spec or any(operator in spec for operator in (">", "<", "*")):
+        return False
+    package = spec.rsplit("::", 1)[-1]
+    if "==" in package:
+        name, version = package.split("==", 1)
+    elif "=" in package:
+        name, version = package.split("=", 1)
+    else:
+        return False
+    return bool(name.strip() and version.strip())
+
+
+def _channel_priority_strict(channels: list[str]) -> bool:
+    if not channels:
+        return False
+    try:
+        conda_forge_index = channels.index("conda-forge")
+    except ValueError:
+        return False
+    if "bioconda" not in channels:
+        return True
+    return conda_forge_index < channels.index("bioconda")

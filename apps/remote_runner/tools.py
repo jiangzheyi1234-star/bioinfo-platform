@@ -5,11 +5,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .storage import delete_tool, fetch_tool, list_tools, update_tool_status, upsert_tool
-
-
-class ToolRegistryError(ValueError):
-    pass
+from .production_evidence import normalize_production_evidence_type, validate_production_evidence_run
+from .rule_smoke import normalize_rule_smoke_test
+from .storage import delete_tool, fetch_tool, list_tools, now_iso, upsert_tool
+from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
+from .tool_package_identity import normalize_package_identity
+from .tools_errors import ToolRegistryError
 
 
 ALLOWED_SOURCES = {"bioconda", "conda-forge"}
@@ -32,6 +33,7 @@ def add_registered_tool(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dic
     item = _normalize_tool_manifest(payload)
     item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=False)
     item["capabilities"] = normalize_tool_capabilities(item.get("capabilities"))
+    item["contractStatus"] = default_contract_status()
     return upsert_tool(cfg, item)
 
 
@@ -48,6 +50,7 @@ def update_registered_tool_rule_template(
         raise ToolRegistryError("TOOL_NOT_FOUND")
     item["ruleTemplate"] = normalize_rule_template(rule_template, required=True)
     item["ruleSpecDraft"] = {}
+    item["contractStatus"] = default_contract_status()
     item["status"] = "declared"
     item["message"] = "RuleSpec saved."
     return upsert_tool(cfg, item)
@@ -72,45 +75,104 @@ def check_registered_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, An
         raise ToolRegistryError("TOOL_NOT_FOUND")
 
     if not bool(item.get("targetPlatformSupported")):
-        return update_tool_status(
-            cfg,
-            tool_id=normalized,
-            status="failed",
-            message=f"{item.get('targetPlatform') or 'linux-64'} is not supported by this package.",
-        )
+        message = f"{item.get('targetPlatform') or 'linux-64'} is not supported by this package."
+        item["contractStatus"] = _contract_failure_status("dryRun", "TOOL_PLATFORM_UNSUPPORTED", message)
+        item["status"] = "failed"
+        item["message"] = message
+        return upsert_tool(cfg, item)
 
-    conda_command = str(cfg.managed_conda_command or "").strip()
-    if not conda_command:
-        return update_tool_status(
-            cfg,
-            tool_id=normalized,
-            status="failed",
-            message="Conda command is not configured on the remote runner.",
-        )
-    conda_path = Path(conda_command)
-    if not conda_path.exists():
-        return update_tool_status(
-            cfg,
-            tool_id=normalized,
-            status="failed",
-            message=f"Conda command does not exist: {conda_command}",
-        )
     try:
-        normalize_rule_template(item.get("ruleTemplate"), required=True)
+        item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=True)
     except ToolRegistryError as exc:
-        return update_tool_status(
-            cfg,
-            tool_id=normalized,
-            status="failed",
-            message=str(exc),
-        )
+        item["contractStatus"] = _contract_failure_status("dryRun", str(exc), str(exc))
+        item["status"] = "failed"
+        item["message"] = str(exc)
+        return upsert_tool(cfg, item)
 
-    return update_tool_status(
-        cfg,
-        tool_id=normalized,
-        status="declared",
-        message="Tool manifest is valid and the workflow runtime is available.",
-    )
+    contract = build_tool_contract(item)
+    if not bool(contract["requirements"]["snakemakeRenderable"]):
+        code = str((contract.get("reasons") or ["TOOL_CONTRACT_INCOMPLETE"])[0])
+        item["contractStatus"] = _contract_failure_status("dryRun", code, code)
+        item["status"] = "failed"
+        item["message"] = code
+        return upsert_tool(cfg, item)
+
+    from .tool_contract_validation import run_tool_contract_validation
+
+    result = run_tool_contract_validation(cfg, item)
+    item["contractStatus"] = result["contractStatus"]
+    item["status"] = "declared" if result["ok"] else "failed"
+    item["message"] = str(result["message"] or "")
+    return upsert_tool(cfg, item)
+
+
+def mark_registered_tool_production_enabled(
+    cfg: RemoteRunnerConfig,
+    tool_id: str,
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = str(tool_id or "").strip()
+    if not normalized:
+        raise ToolRegistryError("TOOL_ID_REQUIRED")
+    item = fetch_tool(cfg, normalized)
+    if item is None:
+        raise ToolRegistryError("TOOL_NOT_FOUND")
+
+    status = normalize_contract_status(item.get("contractStatus"))
+    item["contractStatus"] = status
+    contract = build_tool_contract(item)
+    output_status = str(status.get("outputValidation", {}).get("status") or "")
+    if not bool((contract.get("requirements") or {}).get("outputValidated")) and output_status != "passed":
+        raise ToolRegistryError("TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION")
+    if not bool(contract.get("workflowReady")):
+        raise ToolRegistryError("TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY")
+
+    accepted = dict(evidence or {})
+    run_id = str(accepted.get("runId") or "").strip()
+    if not run_id:
+        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_RUN_ID_REQUIRED")
+    message = str(accepted.get("message") or "").strip()
+    if not message:
+        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_MESSAGE_REQUIRED")
+    evidence_type = normalize_production_evidence_type(accepted.get("evidenceType"))
+    accepted["evidenceType"] = evidence_type
+    artifact_summary = validate_production_evidence_run(cfg, accepted, tool_id=normalized)
+    production = {
+        "status": "passed",
+        "code": "PRODUCTION_ACCEPTED",
+        "message": message,
+        "checkedAt": now_iso(),
+        "runId": run_id,
+    }
+    for key in (
+        "logPath",
+        "evidenceType",
+        "databaseId",
+        "templateId",
+        "role",
+        "artifactName",
+    ):
+        value = str(accepted.get(key) or "").strip()
+        if value:
+            production[key] = value
+    production.update(artifact_summary)
+    status["production"] = production
+    item["contractStatus"] = status
+    item["status"] = "declared"
+    item["message"] = message
+    return upsert_tool(cfg, item)
+
+
+def _contract_failure_status(key: str, code: str, message: str) -> dict[str, dict[str, str]]:
+    return {
+        **default_contract_status(),
+        key: {
+            "status": "failed",
+            "code": code,
+            "message": message,
+            "checkedAt": now_iso(),
+        },
+    }
 
 
 def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
@@ -121,10 +183,12 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     if not name:
         raise ToolRegistryError("TOOL_NAME_REQUIRED")
 
-    package_spec = str(payload.get("packageSpec") or "").strip()
-    if not package_spec:
-        version = str(payload.get("version") or "").strip()
-        package_spec = f"{source}::{name}={version}" if version else f"{source}::{name}"
+    package_identity = normalize_package_identity(
+        source=source,
+        name=name,
+        version=str(payload.get("version") or ""),
+        package_spec=str(payload.get("packageSpec") or ""),
+    )
 
     tool_id = str(payload.get("id") or f"{source}::{name}").strip()
     return {
@@ -132,8 +196,8 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "source": source,
         "sourceLabel": str(payload.get("sourceLabel") or source),
-        "version": str(payload.get("version") or ""),
-        "packageSpec": package_spec,
+        "version": package_identity["version"],
+        "packageSpec": package_identity["packageSpec"],
         "summary": str(payload.get("summary") or ""),
         "targetPlatform": str(payload.get("targetPlatform") or "linux-64"),
         "targetPlatformSupported": bool(payload.get("targetPlatformSupported")),
@@ -253,8 +317,15 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
     }
     threads = _normalize_rule_threads(template.get("threads"), fallback=resource_parts["threads"])
     log = _normalize_rule_log(template.get("log"))
-    params = _normalize_rule_params(template.get("params"))
+    params_declared = "params" in template
+    params = _normalize_rule_params(template.get("params")) if params_declared else {}
     environment = _normalize_rule_environment(template.get("environment"))
+    smoke_test = normalize_rule_smoke_test(
+        template.get("smokeTest"),
+        input_names={item["name"] for item in inputs},
+        param_names=set(params),
+        resource_names=set(resources),
+    )
     if command:
         _validate_command_tokens(
             command,
@@ -266,11 +337,9 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
             log_names=_rule_log_names(log),
             has_log=bool(log),
         )
-    normalized: dict[str, Any] = {
-        "inputs": inputs,
-        "outputs": outputs,
-        "params": dict(params),
-    }
+    normalized: dict[str, Any] = {"inputs": inputs, "outputs": outputs}
+    if params_declared:
+        normalized["params"] = dict(params)
     if command:
         normalized["commandTemplate"] = command
     if wrapper:
@@ -291,6 +360,8 @@ def normalize_rule_template(raw: Any, *, required: bool = True) -> dict[str, Any
         normalized["log"] = log
     if environment:
         normalized["environment"] = environment
+    if smoke_test:
+        normalized["smokeTest"] = smoke_test
     return normalized
 
 
