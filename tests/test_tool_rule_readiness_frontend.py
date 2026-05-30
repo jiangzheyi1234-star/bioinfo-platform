@@ -19,18 +19,40 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     assert "export function executableRuleTemplateForTool" in helper
     assert "requiresUserCompletion === true" in helper
     assert 'kind: "workflow-ready"' in helper
+    assert 'kind: "validation-pending"' in helper
     assert 'kind: "rule-draft"' in helper
     assert 'kind: "dependency-only"' in helper
     assert "outputsReady" in helper
+    assert "paramsReady" in helper
+    assert "ruleRuntimeReady" in helper
+    assert "runtimeLabel" in helper
+    assert "待补 runtime/log" in helper
+    assert "smokeTestReady" in helper
+    assert "input.required !== false" in helper
+    assert "smokeLabel" in helper
+    assert "待补 smoke" in helper
+    assert "wrapperRefLocked" in helper
+    assert "待锁 wrapper" in helper
+    assert "dependencyLocked" in helper
+    assert "channelPriorityStrict" in helper
+    assert "待锁 env" in helper
     assert "mimeType" in helper
     assert "starterRuleTemplateForKnownTool" in helper
     assert "fastqc" in helper
     assert "可加入流程" in helper
+    assert "待验证" in helper
     assert "待确认 RuleSpec" in helper
     assert "仅依赖" in helper
+    assert "tool.toolContract?.workflowReady" in helper
+    assert "contractWorkflowReady === undefined ? localWorkflowReady" not in helper
+    assert "Boolean(contractWorkflowReady && localWorkflowReady)" in helper
 
     assert "ruleSpecReadinessForTool" in library
     assert "state.label" in library
+    assert "验证工具" in library
+    assert "ToolContractStatusRow" in library
+    assert 'label="Production"' in library
+    assert "validation.production" in library
 
     assert "workflowReadyTools" in builder
     assert "ruleSpecReadinessForTool(tool).workflowReady" in builder
@@ -42,3 +64,5 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
 
     assert "withCuratedRuleTemplate" in tools_state
     assert "starterRuleTemplateForKnownTool" in editor
+    assert "mem_mb" in editor
+    assert "log:" in editor

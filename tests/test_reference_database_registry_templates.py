@@ -275,9 +275,16 @@ def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path
             "targetPlatform": "linux-64",
             "targetPlatformSupported": True,
             "ruleTemplate": {
-                "commandTemplate": "printf '%s\\n' {database.taxonomy.path:q} > {output.tool_output:q}",
+                "commandTemplate": "printf '%s\\n' {config.taxonomy:q} > {output.tool_output:q}",
                 "inputs": [{"name": "primary", "type": "file", "required": True}],
                 "outputs": [{"name": "tool_output", "path": "database-path.txt", "kind": "log", "mimeType": "text/plain"}],
+                "params": {},
+                "resources": {
+                    "threads": {"default": 1},
+                    "mem_mb": {"default": 128},
+                    "taxonomy": {"type": "database", "configKey": "taxonomy"},
+                },
+                "log": "logs/coreutils-db.log",
             },
         },
     )
@@ -306,21 +313,25 @@ def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
             "projectId": "proj_demo",
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "databases": [{"id": "taxonomy-db", "role": "taxonomy"}],
+            "resourceBindings": {"taxonomy": {"databaseId": "taxonomy-db"}},
             "tool": {"id": "conda-forge::coreutils-db"},
         },
     )
 
     work_dir = Path(cfg.work_dir) / "run_database_config"
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-    snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
 
-    assert run_config["databases"]["taxonomy"]["path"] == str(database_dir)
-    assert run_config["databases"]["taxonomy"]["inputPath"] == str(database_dir)
-    assert run_config["databases"]["taxonomy"]["entryPath"] == str(database_dir)
-    assert run_config["databases"]["taxonomy"]["pathMode"] == "directory"
-    assert str(database_dir) in snakefile
-    assert "{database.taxonomy.path:q}" not in snakefile
+    resource = run_config["resources"]["taxonomy"]
+    assert run_config["databases"]["taxonomy"] == str(database_dir)
+    assert run_config["resourceConfig"]["taxonomy"] == str(database_dir)
+    assert resource["path"] == str(database_dir)
+    assert resource["inputPath"] == str(database_dir)
+    assert resource["entryPath"] == str(database_dir)
+    assert resource["pathMode"] == "directory"
+    assert str(database_dir) not in snakefile
+    assert "{config[databases][taxonomy]:q}" in snakefile
+    assert "{config.taxonomy:q}" not in snakefile
 
 
 def test_every_database_template_can_be_checked_and_injected_into_generated_workflow(tmp_path: Path, monkeypatch) -> None:
@@ -376,9 +387,20 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
                 "targetPlatform": "linux-64",
                 "targetPlatformSupported": True,
                 "ruleTemplate": {
-                    "commandTemplate": f"printf '%s\\n' {{database.{role}.path:q}} > {{output.tool_output:q}}",
+                    "commandTemplate": f"printf '%s\\n' {{config.{role}:q}} > {{output.tool_output:q}}",
                     "inputs": [{"name": "primary", "type": "file", "required": True}],
                     "outputs": [{"name": "tool_output", "path": f"{template_id}-database-path.txt", "kind": "log", "mimeType": "text/plain"}],
+                    "params": {},
+                    "resources": {
+                        "threads": {"default": 1},
+                        "mem_mb": {"default": 128},
+                        role: {
+                            "type": "database",
+                            "configKey": role,
+                            "acceptedTemplates": [template_id],
+                        }
+                    },
+                    "log": f"logs/coreutils-{template_id}.log",
                 },
             },
         )
@@ -392,23 +414,28 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
                 "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
                 "projectId": "proj_template_matrix",
                 "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-                "databases": [{"id": database_id, "role": role}],
+                "resourceBindings": {role: {"databaseId": database_id}},
                 "tool": {"id": tool_id},
             },
         )
 
         work_dir = Path(cfg.work_dir) / run_id
         run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-        snakefile = (work_dir / "Snakefile").read_text(encoding="utf-8")
-        assert run_config["databases"][role]["path"] == expected_path
-        assert run_config["databases"][role]["inputPath"] == str(selected_path)
-        assert run_config["databases"][role]["entryPath"] == expected_path
-        assert run_config["databases"][role]["pathMode"] == template["pathKind"]
+        snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+        resource = run_config["resources"][role]
+        assert run_config["resourceConfig"][role] == run_config["databases"][role]
+        assert resource["path"] == expected_path
+        assert resource["inputPath"] == str(selected_path)
+        assert resource["entryPath"] == expected_path
+        assert resource["pathMode"] == template["pathKind"]
         if template["pathKind"] == "composite":
-            assert run_config["databases"][role]["resolved"]
+            assert resource["resolved"]
+            assert run_config["databases"][role]
         else:
-            assert expected_path in snakefile
-        assert f"{{database.{role}.path:q}}" not in snakefile
+            assert run_config["databases"][role] == expected_path
+            assert expected_path not in snakefile
+        assert f"{{config[databases][{role}]:q}}" in snakefile
+        assert f"{{config.{role}:q}}" not in snakefile
 
 
 def test_remote_runner_manager_database_catalog_routes(monkeypatch) -> None:

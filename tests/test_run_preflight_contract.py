@@ -6,7 +6,9 @@ from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
-from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.storage import upsert_tool as _upsert_tool
+
+READY_CONTRACT_STATUS = {"dryRun": {"status": "passed"}, "smokeRun": {"status": "passed"}, "outputValidation": {"status": "passed"}}
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -22,6 +24,21 @@ def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
     )
 
 
+def upsert_tool(cfg: RemoteRunnerConfig, tool: dict) -> dict:
+    rule_template = tool.get("ruleTemplate")
+    if isinstance(rule_template, dict):
+        rule_template.setdefault("params", {})
+        rule_template.setdefault("resources", {"threads": {"default": 1}, "mem_mb": {"default": 128}})
+        rule_template.setdefault("log", "logs/tool.log")
+        rule_template.setdefault("smokeTest", {"inputs": {str(item.get("name") or f"input_{index + 1}"): {"filename": f"input_{index + 1}.txt", "content": "smoke\n"} for index, item in enumerate(rule_template.get("inputs", [])) if isinstance(item, dict)}})
+        rule_template.setdefault(
+            "environment",
+            {"conda": {"channels": ["conda-forge", "bioconda"], "dependencies": [tool["packageSpec"]]}},
+        )
+    tool.setdefault("contractStatus", {key: dict(value) for key, value in READY_CONTRACT_STATUS.items()})
+    return _upsert_tool(cfg, tool)
+
+
 def _register_tool(cfg: RemoteRunnerConfig, tool_id: str, output_name: str = "out") -> None:
     upsert_tool(
         cfg,
@@ -31,7 +48,7 @@ def _register_tool(cfg: RemoteRunnerConfig, tool_id: str, output_name: str = "ou
             "source": "conda-forge",
             "sourceLabel": "conda-forge",
             "version": "9.5",
-            "packageSpec": "conda-forge::coreutils=9.5",
+            "packageSpec": f"conda-forge::{tool_id.rsplit('::', 1)[-1]}=9.5",
             "targetPlatform": "linux-64",
             "targetPlatformSupported": True,
             "ruleTemplate": {

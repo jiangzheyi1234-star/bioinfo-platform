@@ -10,6 +10,7 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 def test_workflows_page_uses_live_builder_modules() -> None:
     page = (COMPONENTS / "workflows-page.tsx").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
+    local_api = (ROOT / "apps" / "api" / "main.py").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -27,12 +28,19 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "contentBase64" in api
     assert "generated-tool-run-v1" in model
     assert "ruleReadyToolScore" in model
+    assert "WORKFLOW_TOOL_NOT_READY" in model
+    assert "所选工具还未通过合同验证" in model
     assert "commandTemplate" in readiness
-    assert "hasRuleAction(template)" in readiness
     assert "ruleActionFields(template)" in readiness
+    assert "wrapperRefLocked" in readiness
     assert "targetPlatformSupported === true" in readiness
     assert "ruleSpecReadinessForTool(entry.tool).workflowReady" in model
     assert "buildGeneratedWorkflowRunSpec" in api
+    check_tool_route = local_api[
+        local_api.index('@app.post("/api/v1/tools/{tool_id}/check")') :
+        local_api.index('@app.get("/api/v1/databases")')
+    ]
+    assert 'await invalidate_response_cache("tools", "workflow_catalog")' in check_tool_route
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
     assert "export function WorkflowRunBuilder" in ui

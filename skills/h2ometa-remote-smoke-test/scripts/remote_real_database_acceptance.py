@@ -213,34 +213,136 @@ def cleanup_tool(api_base: str, tool_id: str) -> None:
         print_json("ACCEPTANCE_TOOL_CLEANUP_SKIPPED", {"id": tool_id, "error": str(exc)})
 
 
-def run_snakemake_injection_smoke(api_base: str, database: dict[str, Any], *, server_id: str, index: int, timeout: float) -> dict[str, Any]:
+def build_database_tool_payload(
+    *,
+    tool_id: str,
+    role: str,
+    database: dict[str, Any],
+    output_name: str,
+) -> dict[str, Any]:
+    template_id = template_id_for_database(database)
+    resource_spec: dict[str, Any] = {
+        "type": "database",
+        "configKey": role,
+    }
+    if template_id:
+        resource_spec["acceptedTemplates"] = [template_id]
+    return {
+        "id": tool_id,
+        "name": "coreutils",
+        "source": "conda-forge",
+        "sourceLabel": "conda-forge",
+        "version": "9.5",
+        "packageSpec": "conda-forge::coreutils=9.5",
+        "targetPlatform": "linux-64",
+        "targetPlatformSupported": True,
+        "platforms": ["linux-64"],
+        "ruleTemplate": {
+            "commandTemplate": f"printf '%s\\n' {{config.{role}:q}} > {{output.database_path:q}}",
+            "inputs": [{"name": "primary", "type": "file", "required": True}],
+            "outputs": [{"name": "database_path", "path": output_name, "kind": "log", "mimeType": "text/plain"}],
+            "params": {},
+            "resources": {"threads": {"default": 1}, "mem_mb": {"default": 128}, role: resource_spec},
+            "log": f"logs/coreutils-real-db-acceptance-{role}.log",
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["conda-forge::coreutils=9.5"],
+                }
+            },
+            "smokeTest": {
+                "inputs": {
+                    "primary": {
+                        "filename": f"real-db-acceptance-{role}.txt",
+                        "content": "database acceptance smoke\n",
+                        "mimeType": "text/plain",
+                    }
+                },
+                "resourceBindings": {role: {"databaseId": str(database["id"]), "templateId": template_id}},
+            },
+        },
+    }
+
+
+def build_run_submit_payload(
+    *,
+    request_id: str,
+    server_id: str,
+    upload: dict[str, Any],
+    database: dict[str, Any],
+    role: str,
+    tool: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "requestId": request_id,
+        "runSpec": {
+            "projectId": "proj_real_database_acceptance",
+            "pipelineId": "generated-tool-run-v1",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
+            "resourceBindings": {role: {"databaseId": database["id"], "templateId": template_id_for_database(database)}},
+            "tool": {"id": tool["id"]},
+        },
+    }
+
+
+def build_production_acceptance_payload(
+    *,
+    run_id: str,
+    database: dict[str, Any],
+    role: str,
+    template_id: str,
+    artifact_name: str,
+) -> dict[str, Any]:
+    database_id = str(database.get("id") or "")
+    label = template_id or role
+    return {
+        "runId": run_id,
+        "evidenceType": "real-database-acceptance",
+        "databaseId": database_id,
+        "templateId": template_id,
+        "role": role,
+        "artifactName": artifact_name,
+        "message": f"Accepted {label} database {database_id} in real database acceptance Snakemake run.",
+    }
+
+
+def run_snakemake_injection_smoke(
+    api_base: str,
+    database: dict[str, Any],
+    *,
+    server_id: str,
+    index: int,
+    timeout: float,
+    keep_production_tools: bool,
+) -> dict[str, Any]:
     template_id = template_id_for_database(database)
     role = role_for_template(template_id, index)
     tool_id = f"conda-forge::coreutils-real-db-acceptance-{role}-{index}"
     output_name = f"real-database-{role}-path.txt"
+    keep_tool = False
     try:
         tool = api_data(http_json(
             "POST",
             api_base,
             "/api/v1/tools",
-            payload={
-                "id": tool_id,
-                "name": "coreutils",
-                "source": "conda-forge",
-                "sourceLabel": "conda-forge",
-                "version": "9.5",
-                "packageSpec": "conda-forge::coreutils=9.5",
-                "targetPlatform": "linux-64",
-                "targetPlatformSupported": True,
-                "platforms": ["linux-64"],
-                "ruleTemplate": {
-                    "commandTemplate": f"printf '%s\\n' {{database.{role}.path:q}} > {{output.database_path:q}}",
-                    "inputs": [{"name": "primary", "type": "file", "required": True}],
-                    "outputs": [{"name": "database_path", "path": output_name, "kind": "log", "mimeType": "text/plain"}],
-                },
-            },
+            payload=build_database_tool_payload(tool_id=tool_id, role=role, database=database, output_name=output_name),
             timeout=30,
         ))
+        tool = api_data(http_json(
+            "POST",
+            api_base,
+            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
+            timeout=timeout,
+        ))
+        if not bool((tool.get("toolContract") or {}).get("workflowReady")):
+            return {
+                "id": database.get("id"),
+                "templateId": template_id,
+                "role": role,
+                "status": "failed",
+                "error": f"tool contract validation failed: {tool.get('toolContract')}",
+            }
         upload = api_data(http_json(
             "POST",
             api_base,
@@ -256,17 +358,14 @@ def run_snakemake_injection_smoke(api_base: str, database: dict[str, Any], *, se
             "POST",
             api_base,
             "/api/v1/runs",
-            payload={
-                "serverId": server_id,
-                "requestId": f"req_real_db_acceptance_{index}_{int(time.time() * 1000)}",
-                "runSpec": {
-                    "projectId": "proj_real_database_acceptance",
-                    "pipelineId": "generated-tool-run-v1",
-                    "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-                    "databases": [{"id": database["id"], "role": role}],
-                    "tool": {"id": tool["id"]},
-                },
-            },
+            payload=build_run_submit_payload(
+                request_id=f"req_real_db_acceptance_{index}_{int(time.time() * 1000)}",
+                server_id=server_id,
+                upload=upload,
+                database=database,
+                role=role,
+                tool=tool,
+            ),
             timeout=30,
         ))
         final = wait_for_run(api_base, submitted["runId"], timeout=timeout)
@@ -283,12 +382,40 @@ def run_snakemake_injection_smoke(api_base: str, database: dict[str, Any], *, se
         results = api_data(http_json("GET", api_base, f"/api/v1/runs/{submitted['runId']}/results", timeout=10))
         artifact_names = [Path(str(item.get("path") or "")).name for item in (results.get("artifacts") or [])]
         result["artifactNames"] = artifact_names
-        result["status"] = "completed" if output_name in artifact_names else "failed"
+        if output_name not in artifact_names:
+            result["status"] = "failed"
+            return result
+        production = api_data(http_json(
+            "POST",
+            api_base,
+            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/production",
+            payload=build_production_acceptance_payload(
+                run_id=submitted["runId"],
+                database=database,
+                role=role,
+                template_id=template_id,
+                artifact_name=output_name,
+            ),
+            timeout=30,
+        ))
+        contract = production.get("toolContract") if isinstance(production.get("toolContract"), dict) else {}
+        production_status = (production.get("contractStatus") or {}).get("production") or {}
+        result["productionState"] = contract.get("state")
+        result["productionStatus"] = production_status.get("status")
+        if contract.get("state") != "ProductionEnabled" or production_status.get("status") != "passed":
+            result["status"] = "failed"
+            result["error"] = "production acceptance evidence was not recorded"
+            return result
+        result["status"] = "completed"
+        if keep_production_tools and contract.get("state") == "ProductionEnabled":
+            keep_tool = True
+            result["retainedToolId"] = tool_id
         return result
     except Exception as exc:
         return {"id": database.get("id"), "templateId": template_id, "status": "failed", "error": str(exc)}
     finally:
-        cleanup_tool(api_base, tool_id)
+        if not keep_tool:
+            cleanup_tool(api_base, tool_id)
 
 
 def parse_template_list(values: list[str], *, default: list[str]) -> list[str]:
@@ -305,6 +432,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--skip-snakemake", action="store_true", help="Only validate template coverage, status, probe, and metadata contract.")
     parser.add_argument("--rerun-check", action="store_true", help="POST /databases/{id}/check before validating metadata.")
+    parser.add_argument("--keep-production-tools", action="store_true", help="Keep accepted generated smoke tools so their ProductionEnabled evidence remains queryable.")
     args = parser.parse_args()
 
     required_templates = parse_template_list(args.template, default=PRODUCTION_TEMPLATE_IDS)
@@ -338,7 +466,14 @@ def main() -> int:
         for index, database in enumerate(selected_databases, start=1):
             if database.get("id") not in accepted_by_id:
                 continue
-            result = run_snakemake_injection_smoke(args.api_base, database, server_id=server_id, index=index, timeout=args.timeout)
+            result = run_snakemake_injection_smoke(
+                args.api_base,
+                database,
+                server_id=server_id,
+                index=index,
+                timeout=args.timeout,
+                keep_production_tools=args.keep_production_tools,
+            )
             snakemake_results.append(result)
             print_json("REAL_DATABASE_SNAKEMAKE_RESULT", result)
 

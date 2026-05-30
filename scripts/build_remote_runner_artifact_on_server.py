@@ -134,38 +134,50 @@ def git_status_for_path(path: Path) -> str:
     return result.stdout.strip()
 
 
-def git_tracked_release_files(local_dir: Path) -> list[Path]:
-    result = subprocess.run(
-        ["git", "ls-files", str(local_dir.relative_to(REPO_ROOT))],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+def git_tracked_release_files(local_dir: Path, *, include_untracked: bool = False) -> list[Path]:
+    release_roots = [str(local_dir.relative_to(REPO_ROOT))]
+    commands = [["git", "ls-files", *release_roots]]
+    if include_untracked:
+        commands.append(["git", "ls-files", "--others", "--exclude-standard", *release_roots])
+    raw_paths: list[str] = []
+    for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        raw_paths.extend(result.stdout.splitlines())
     files: list[Path] = []
-    for raw in result.stdout.splitlines():
+    seen: set[Path] = set()
+    for raw in raw_paths:
         path = REPO_ROOT / raw.strip()
+        if path in seen:
+            continue
+        seen.add(path)
         if not path.is_file():
             continue
         rel_parts = path.relative_to(local_dir).parts
-        if ".test" in rel_parts or "__pycache__" in rel_parts:
+        if ".test" in rel_parts and rel_parts[-1] != "run-config.json":
+            continue
+        if "__pycache__" in rel_parts:
             continue
         if path.suffix in {".pyc", ".pyo"}:
             continue
         files.append(path)
     if not files:
-        raise RuntimeError(f"no git-tracked release files found under {local_dir}")
+        raise RuntimeError(f"no release files found under {local_dir}")
     return files
 
 
-def upload_tree(sftp, local_dir: Path, remote_dir: str) -> None:
+def upload_tree(sftp, local_dir: Path, remote_dir: str, *, include_untracked: bool = False) -> None:
     mkdir_p_sftp(sftp, remote_dir)
-    for path in git_tracked_release_files(local_dir):
+    for path in git_tracked_release_files(local_dir, include_untracked=include_untracked):
         rel = path.relative_to(local_dir).as_posix()
         remote_path = posixpath.join(remote_dir, rel)
         mkdir_p_sftp(sftp, posixpath.dirname(remote_path))
         sftp.put(str(path), remote_path)
-
 
 def validate_explicit_lock(path: Path) -> None:
     if not path.exists():
@@ -465,7 +477,12 @@ def main() -> int:
         build_root = run(client, "mktemp -d /tmp/h2ometa-remote-runner.XXXXXX", timeout=30).strip()
         sftp = client.open_sftp()
         try:
-            upload_tree(sftp, REPO_ROOT / "apps" / "remote_runner", posixpath.join(build_root, "bundle", "remote_runner"))
+            upload_tree(
+                sftp,
+                REPO_ROOT / "apps" / "remote_runner",
+                posixpath.join(build_root, "bundle", "remote_runner"),
+                include_untracked=args.allow_dirty_source,
+            )
             if args.runtime_source == "lockfile":
                 sftp.put(str(lock_file), posixpath.join(build_root, "explicit.txt"))
         finally:

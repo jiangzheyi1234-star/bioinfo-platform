@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   addToolDependency,
+  checkToolDependency,
   fetchAddedTools,
   openToolSourceUrl,
   removeToolDependency,
@@ -16,6 +17,7 @@ import {
   type ToolSearchItem,
   applySelectedPackageLock,
   dependencyKey,
+  packageSpecLocked,
   searchErrorMessage,
   toolErrorMessage,
 } from "./tools-page-model";
@@ -40,6 +42,7 @@ export function useToolsPageState() {
   const [editingRuleSpecToolId, setEditingRuleSpecToolId] = useState("");
   const [ruleSpecSavingId, setRuleSpecSavingId] = useState("");
   const [ruleSpecEditError, setRuleSpecEditError] = useState("");
+  const [checkingToolId, setCheckingToolId] = useState("");
 
   async function loadAddedTools() {
     setToolsLoading(true);
@@ -127,7 +130,8 @@ export function useToolsPageState() {
   const selectedAlreadyAdded = Boolean(
     selectedPackageSpec && addedTools.some((tool) => dependencyKey(tool.selectedPackageSpec || tool.packageSpec) === dependencyKey(selectedPackageSpec))
   );
-  const canAddSelected = selected?.targetPlatformSupported === true && !selectedAlreadyAdded;
+  const selectedPackageLocked = packageSpecLocked(selectedPackageSpec);
+  const canAddSelected = Boolean(selected?.targetPlatformSupported === true && selectedPackageLocked && !selectedAlreadyAdded);
 
   function updateQuery(value: string) {
     setQuery(value);
@@ -148,6 +152,9 @@ export function useToolsPageState() {
 
   function addSelectedTool() {
     if (!selected || !canAddSelected) {
+      if (selected && !selectedPackageLocked) {
+        setToolsError("请选择一个明确版本后再加入工具。");
+      }
       if (selectedAlreadyAdded) {
         setToolsError("该依赖版本已经加入项目。");
         setView("library");
@@ -200,9 +207,25 @@ export function useToolsPageState() {
     })();
   }
 
+  function checkTool(id: string) {
+    void (async () => {
+      setCheckingToolId(id);
+      setToolsError("");
+      try {
+        await checkToolDependency(id);
+        await loadAddedTools();
+      } catch (err) {
+        setToolsError(toolErrorMessage(err, "验证工具失败"));
+      } finally {
+        setCheckingToolId("");
+      }
+    })();
+  }
+
   return {
     addedTools,
     canAddSelected,
+    checkingToolId,
     editingRuleSpecToolId,
     error,
     filtered,
@@ -216,6 +239,7 @@ export function useToolsPageState() {
     selectedAlreadyAdded,
     selectedId,
     selectedPackageSpec,
+    selectedPackageLocked,
     selectedVersion,
     setSearchPage,
     setSelectedId,
@@ -233,6 +257,7 @@ export function useToolsPageState() {
     loadAddedTools,
     openToolSourceUrl,
     removeAddedTool,
+    checkTool,
     editToolRuleTemplate,
     saveToolRuleTemplate,
     setEditingRuleSpecToolId,

@@ -20,7 +20,9 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
     assert "export async function updateToolRuleTemplate" in api
+    assert "export async function checkToolDependency" in api
     assert "/api/v1/tools/${encodeURIComponent(id)}/rule-template" in api
+    assert "/api/v1/tools/${encodeURIComponent(id)}/check" in api
     assert "invalidateWorkflowToolCaches" in api
     assert "invalidateAsyncCachePrefix(\"workflow:\")" in api
     assert api.count("invalidateWorkflowToolCaches();") >= 3
@@ -29,16 +31,46 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export function useToolsPageState" in hook
     assert "editingRuleSpecToolId" in hook
     assert "ruleSpecSavingId" in hook
+    assert "checkingToolId" in hook
+    assert "checkTool" in hook
     assert "saveToolRuleTemplate" in hook
     assert "export type ToolSearchItem" in model
     assert "localIndexAvailable?: boolean" in model
     assert "export type RuleSpecTemplate" in model
     assert "export type RuleSpecEnvironment" in model
+    assert "artifactCount?: string" in model
+    assert "artifactNames?: string" in model
+    assert "evidenceType?: string" in model
+    assert "databaseId?: string" in model
+    assert "templateId?: string" in model
+    assert "package?: ToolContractPackage" in model
+    assert "export type ToolContractPackage" in model
+    assert "productionEnabled?: boolean" in model
+    assert "ruleSpec?: ToolContractRuleSpec" in model
+    assert "environment?: ToolContractEnvironment" in model
+    assert "smokeTest?: ToolContractSmokeTest" in model
+    assert "export type ToolContractRuleSpec" in model
+    assert "export type ToolContractEnvironment" in model
+    assert "export type ToolContractSmokeTest" in model
+    assert "TOOL_PACKAGE_VERSION_REQUIRED" in model
+    assert "TOOL_PACKAGE_VERSION_MISMATCH" in model
+    assert "TOOL_PACKAGE_SOURCE_MISMATCH" in model
+    assert "TOOL_PACKAGE_NAME_MISMATCH" in model
+    assert "TOOL_RULE_SMOKE_TEST_REQUIRED" in model
+    assert "WORKFLOW_TOOL_NOT_READY" in model
+    assert "OUTPUT_ARTIFACT_MISSING" in model
+    assert "artifactCount" in library
+    assert "artifactNames" in library
+    assert "evidenceType" in library
+    assert "databaseId" in library
+    assert "templateId" in library
+    assert "schedulerResources?: Record" in model
     assert "export type RuleSpecLock" in model
     assert "ruleTemplate?: RuleSpecTemplate" in model
     assert "module?: RuleSpecModule" in model
     assert "moduleAssets?: Array<{ path: string; content: string }>" in model
     assert "lock?: RuleSpecLock" in model
+    assert "export function packageSpecLocked" in model
     assert "export function uniqueDependencies" in model
     assert 'title="工具"' in page
     assert "添加工具" in page
@@ -48,15 +80,27 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "返回节点库" not in page
     assert "在线搜索 Bioconda / conda-forge 工具" in page
     assert "加入工具失败" in hook
+    assert "selectedPackageLocked" in hook
+    assert "请选择一个明确版本" in hook
     assert "加入工具节点失败" not in hook
     assert "export function SourceBadge" in ui
     assert "export function ResultRow" in ui
     assert "export function ToolsLibrarySection" in library
     assert "ToolRuleSpecEditor" in library
     assert "补全 RuleSpec" in library
+    assert "验证工具" in library
     assert "export function ToolRuleSpecEditor" in editor
     assert "保存 RuleSpec" in editor
-    assert "RuleSpec JSON" in editor
+    assert "RuleSpec 合同确认" in editor
+    assert "JSON.parse" not in editor
+    assert "textarea" not in editor
+    assert "Command" in editor
+    assert "Input" in editor
+    assert "Output" in editor
+    assert "Params" in editor
+    assert "Environment" in editor
+    assert "Smoke" in editor
+    assert "preserveAdditionalPorts" in editor
     assert "starterRuleTemplateForKnownTool" in editor
     assert "fastqc" in readiness
     assert "--outdir {output.qc_dir:q}" in readiness
@@ -68,6 +112,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "RuleSpecContractPreview" in ui
     assert "ruleSpecEnvironmentItems" in ui
     assert "ruleSpecResourceItems" in ui
+    assert "template.schedulerResources" in ui
     assert "ruleSpecParamItems" in ui
     assert "运行环境" in ui
     assert "运行资源" in ui
@@ -80,8 +125,13 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "RuleSpecNodeReadinessBadge" in library
     assert "RuleSpecNodeStatusRow" in library
     assert "RuleSpecNodeStatusChip" in library
+    assert 'label="Runtime"' in library
+    assert "state.runtimeLabel" in library
+    assert 'label="Smoke"' in library
+    assert "state.smokeLabel" in library
     assert "ruleSpecReadinessForTool" in library
     assert "可加入流程" in readiness
+    assert "待验证" in readiness
     assert "待确认 RuleSpec" in readiness
     assert "仅依赖" in readiness
     assert "Action" in library
@@ -91,6 +141,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "sm:grid-cols-3" not in library
     assert "工具预览" in ui
     assert "加入工具" in ui
+    assert "请选择版本" in ui
+    assert "不锁版本" not in ui
     assert "module:" in ui
     assert "规则节点库" not in library
     assert "规则节点库" not in ui

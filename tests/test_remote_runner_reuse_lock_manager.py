@@ -80,10 +80,15 @@ def test_wait_for_runtime_state_rejects_dead_runner_pid() -> None:
     else:
         raise AssertionError("dead runner pid should be rejected")
 
-def test_bootstrap_reuses_existing_runner_without_resolving_local_artifact(monkeypatch) -> None:
+def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     executed: list[str] = []
     uploads: list[tuple[str, str]] = []
+
+    class FakeArtifact:
+        archive_path = Path(__file__)
+        platform = "linux-64"
+        sha256 = "b" * 64
 
     class FakeTunnel:
         local_port = 18765
@@ -108,6 +113,8 @@ def test_bootstrap_reuses_existing_runner_without_resolving_local_artifact(monke
                         "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
                     }
                 ), ""
+            if "cat /home/tester/.h2ometa/runner/releases/" in cmd and "artifact.sha256" in cmd:
+                return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
@@ -168,10 +175,7 @@ def test_bootstrap_reuses_existing_runner_without_resolving_local_artifact(monke
                 }
             }
 
-    def fail_if_artifact_resolves(**_kwargs):
-        raise AssertionError("reuse path should not resolve the local runner artifact")
-
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=fail_if_artifact_resolves)), patch(
+    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
     ), patch("core.remote_runner.manager.resolve_runner_token", lambda token_ref: "phase2-token"), patch(
         "core.remote_runner.manager.store_runner_token"
@@ -186,6 +190,17 @@ def test_bootstrap_reuses_existing_runner_without_resolving_local_artifact(monke
                 "token_ref": "runner://srv_test",
                 "bootstrap_metadata": {
                     "preflight": {"platform": "linux-64"},
+                    "canary": {
+                        "ok": False,
+                        "status": "failed",
+                        "message": "stale canary failure",
+                    },
+                    "rollback": {
+                        "attempted": True,
+                        "restored": False,
+                        "status": "failed",
+                        "message": "stale rollback failure",
+                    },
                     "tooling": {
                         "workflow_runtime": {
                             "artifact_sha": "f" * 64,
@@ -200,6 +215,16 @@ def test_bootstrap_reuses_existing_runner_without_resolving_local_artifact(monke
     assert result["token_ref"] == "runner://srv_test"
     assert result["bootstrap_metadata"]["deployment_action"] == "reused"
     assert result["bootstrap_metadata"]["reuse_check"]["ok"] is True
+    assert result["bootstrap_metadata"]["canary"] == {
+        "status": "skipped",
+        "message": "Existing runner reused; bootstrap canary was not rerun.",
+    }
+    assert result["bootstrap_metadata"]["rollback"] == {
+        "attempted": False,
+        "restored": False,
+        "status": "skipped",
+        "message": "Existing runner reused; rollback was not needed.",
+    }
     assert uploads == []
     assert not any("tar -xzf" in cmd for cmd in executed)
     assert not any("pkill -f" in cmd for cmd in executed)
@@ -229,6 +254,8 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
                         "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
                     }
                 ), ""
+            if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
+                return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
@@ -256,6 +283,8 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
         remote_current="/home/tester/.h2ometa/runner/current",
         remote_runtime_state="/home/tester/.h2ometa/runner/shared/runtime/runner-state.json",
         remote_config="/home/tester/.h2ometa/runner/shared/config/runner.json",
+        remote_artifact_sha="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256",
+        artifact_sha="b" * 64,
         workflow_artifact=_fake_workflow_artifact(),
         workflow_runtime_dir="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
         remote_workflow_artifact_sha="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256",
@@ -264,6 +293,62 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
 
     assert result is None
     assert metadata["reuse_check"] == {"ok": False, "reason": "No such file"}
+
+def test_fast_reuse_rejects_runner_when_remote_runner_artifact_sha_mismatches(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    metadata = {
+        "tooling": {
+            "workflow_runtime": {
+                "artifact_sha": "f" * 64,
+                "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+            }
+        }
+    }
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
+                return 0, "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane\n", ""
+            if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(
+                    {
+                        "service": "h2ometa-remote",
+                        "version": REMOTE_RUNNER_VERSION,
+                        "platform": "linux-64",
+                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+                    }
+                ), ""
+            if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
+                return 0, "a" * 64, ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            raise AssertionError("artifact sha must be verified before opening a tunnel")
+
+    monkeypatch.setattr("core.remote_runner.manager.resolve_runner_token", lambda token_ref: "phase2-token")
+    result = manager._try_reuse_existing_runner_fast(
+        server_id="srv_test",
+        ssh_service=FakeSSH(),
+        server_record={
+            "bootstrap_version": REMOTE_RUNNER_VERSION,
+            "runner_mode": "systemd_user",
+            "token_ref": "runner://srv_test",
+        },
+        version=REMOTE_RUNNER_VERSION,
+        remote_release="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane",
+        remote_current="/home/tester/.h2ometa/runner/current",
+        remote_runtime_state="/home/tester/.h2ometa/runner/shared/runtime/runner-state.json",
+        remote_config="/home/tester/.h2ometa/runner/shared/config/runner.json",
+        remote_artifact_sha="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256",
+        artifact_sha="b" * 64,
+        workflow_artifact=_fake_workflow_artifact(),
+        workflow_runtime_dir="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
+        remote_workflow_artifact_sha="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256",
+        bootstrap_metadata=metadata,
+    )
+
+    assert result is None
+    assert metadata["reuse_check"] == {"ok": False, "reason": "artifact sha mismatch"}
 
 def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monkeypatch) -> None:
     manager = RemoteRunnerManager()
@@ -289,6 +374,8 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
                         "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
                     }
                 ), ""
+            if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
+                return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
@@ -350,6 +437,8 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
         remote_current="/home/tester/.h2ometa/runner/current",
         remote_runtime_state="/home/tester/.h2ometa/runner/shared/runtime/runner-state.json",
         remote_config="/home/tester/.h2ometa/runner/shared/config/runner.json",
+        remote_artifact_sha="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256",
+        artifact_sha="b" * 64,
         workflow_artifact=_fake_workflow_artifact(),
         workflow_runtime_dir="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
         remote_workflow_artifact_sha="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256",

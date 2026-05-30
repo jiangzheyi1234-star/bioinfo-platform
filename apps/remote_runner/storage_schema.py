@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS tools (
     rule_spec_draft_json TEXT NOT NULL DEFAULT '{}',
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     snakemake_wrappers_json TEXT NOT NULL DEFAULT '[]',
+    contract_status_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL,
     message TEXT NOT NULL,
     created_at TEXT NOT NULL,

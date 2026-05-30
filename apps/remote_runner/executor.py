@@ -9,9 +9,11 @@ from pathlib import Path
 from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
+from .tool_contract_validation import _validate_outputs
 from .workflow_resources import build_workflow_resource_config
 from .storage import (
     append_log_lines,
+    fetch_run,
     fetch_upload,
     persist_artifact,
     update_run_state,
@@ -129,6 +131,7 @@ def run_snakemake_execution(
                     resolved_inputs=resolved_inputs,
                     work_dir=work_dir,
                     result_dir=result_dir,
+                    require_workflow_ready=fetch_run(cfg, run_id) is not None,
                 )
                 snakefile = generated.snakefile
                 config_path = generated.config_path
@@ -285,6 +288,9 @@ def _collect_artifacts(
     raw_artifacts = output_schema.get("artifacts")
     if not isinstance(raw_artifacts, list) or not raw_artifacts:
         raise ValueError("OUTPUT_ARTIFACTS_REQUIRED")
+    output_error = _validate_outputs(output_schema=output_schema, outputs=outputs)
+    if output_error:
+        raise ValueError(f"{output_error['code']}: {output_error['message']}")
     artifacts = []
     for artifact in raw_artifacts:
         if not isinstance(artifact, dict):

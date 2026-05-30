@@ -45,6 +45,7 @@ from .tools import (
     add_registered_tool,
     check_registered_tool,
     list_registered_tools,
+    mark_registered_tool_production_enabled,
     remove_registered_tool,
     update_registered_tool_rule_template,
 )
@@ -94,6 +95,19 @@ class ToolRuleTemplateRequest(BaseModel):
     ruleTemplate: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolProductionEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runId: str | None = None
+    message: str | None = None
+    logPath: str | None = None
+    evidenceType: str | None = None
+    databaseId: str | None = None
+    templateId: str | None = None
+    role: str | None = None
+    artifactName: str | None = None
+
+
 class DatabaseManifestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -131,6 +145,12 @@ def _database_registry_status_code(detail: str) -> int:
     if detail == "DATABASE_NOT_FOUND":
         return 404
     return 400
+
+
+def _run_preflight_status_code(detail: str) -> int:
+    if str(detail or "").startswith("WORKFLOW_TOOL_NOT_READY"):
+        return 409
+    return 422
 
 
 def _build_health_payload(status: str, checks: dict[str, bool], cfg_mode: str, version: str) -> dict[str, Any]:
@@ -295,10 +315,49 @@ async def check_tool_api(tool_id: str, authorization: str | None = Header(defaul
     cfg = load_remote_runner_config()
     _require_auth(authorization, cfg.token)
     try:
-        item = check_registered_tool(cfg, tool_id)
+        item = await run_in_threadpool(check_registered_tool, cfg, tool_id)
     except ToolRegistryError as exc:
         detail = str(exc)
         raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
+    return {"data": item}
+
+
+@app.post("/api/v1/tools/{tool_id}/production")
+async def mark_tool_production_api(
+    tool_id: str,
+    payload: ToolProductionEvidenceRequest,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    cfg = load_remote_runner_config()
+    _require_auth(authorization, cfg.token)
+    try:
+        item = await run_in_threadpool(
+            mark_registered_tool_production_enabled,
+            cfg,
+            tool_id,
+            payload.model_dump(exclude_none=True),
+        )
+    except ToolRegistryError as exc:
+        detail = str(exc)
+        if detail == "TOOL_NOT_FOUND":
+            status_code = 404
+        elif detail in {
+            "TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION",
+            "TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY",
+            "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND",
+            "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED",
+            "TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH",
+            "TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH",
+            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED",
+            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_NOT_FOUND",
+            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_EMPTY",
+            "TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH",
+            "TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE",
+        }:
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     return {"data": item}
 
 
@@ -409,7 +468,8 @@ async def create_run(
     try:
         preflight_run_spec(cfg, pipeline, run_spec)
     except RunPreflightError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        detail = str(exc)
+        raise HTTPException(status_code=_run_preflight_status_code(detail), detail=detail) from exc
     if not str(run_spec.get("pipelineVersion") or "").strip():
         run_spec["pipelineVersion"] = pipeline.version
     payload_hash = canonical_payload_hash({"serverId": server_id, "runSpec": run_spec})

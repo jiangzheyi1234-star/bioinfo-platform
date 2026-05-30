@@ -58,6 +58,7 @@ def resolve_ssh_keygen_executable() -> str:
 
 
 _CONFIG_PATH = get_app_data_dir() / "config.json"
+CONFIG_TEXT_ENCODING = "utf-8"
 
 _CACHE: dict | None = None
 _LOCK = threading.RLock()
@@ -92,7 +93,7 @@ def get_config() -> dict:
             _CACHE = default_config()
             return dict(_CACHE)
         try:
-            _CACHE = json.loads(_CONFIG_PATH.read_text())
+            _CACHE = json.loads(_CONFIG_PATH.read_text(encoding=CONFIG_TEXT_ENCODING))
         except Exception:
             _CACHE = default_config()
         return dict(_CACHE)
@@ -102,7 +103,7 @@ def save_config(cfg: dict) -> None:
     global _CACHE
     with _LOCK:
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
+        _CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding=CONFIG_TEXT_ENCODING)
         _CACHE = cfg
 
 

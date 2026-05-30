@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 from .config import RemoteRunnerConfig, ensure_runtime_layout
 from .storage_schema import SCHEMA_SQL
+from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
 
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
@@ -41,6 +42,8 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE tools ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'")
     if "snakemake_wrappers_json" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN snakemake_wrappers_json TEXT NOT NULL DEFAULT '[]'")
+    if "contract_status_json" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN contract_status_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
@@ -132,7 +135,7 @@ def fetch_upload(cfg: RemoteRunnerConfig, upload_id: str) -> dict[str, Any] | No
 
 
 def _tool_row_to_dict(row) -> dict[str, Any]:
-    return {
+    item = {
         "id": row["tool_id"],
         "name": row["name"],
         "source": row["source"],
@@ -150,12 +153,15 @@ def _tool_row_to_dict(row) -> dict[str, Any]:
         "capabilities": json.loads(row["capabilities_json"] or "[]"),
         "snakemakeWrappers": json.loads(row["snakemake_wrappers_json"] or "[]"),
         "snakemakeWrapperCount": len(json.loads(row["snakemake_wrappers_json"] or "[]")),
+        "contractStatus": normalize_contract_status(json.loads(row["contract_status_json"] or "{}")),
         "status": row["status"],
         "message": row["message"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
         "lastCheckedAt": row["last_checked_at"],
     }
+    item["toolContract"] = build_tool_contract(item)
+    return item
 
 
 def list_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
@@ -182,6 +188,15 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
     existing = fetch_tool(cfg, tool_id)
     status = str(tool.get("status") or (existing or {}).get("status") or "declared")
     message = str(tool.get("message") or (existing or {}).get("message") or "Tool declared.")
+    contract_status_provided = "contractStatus" in tool
+    contract_status = normalize_contract_status(
+        tool.get("contractStatus") if contract_status_provided else (existing or {}).get("contractStatus") or default_contract_status()
+    )
+    last_checked_at = (
+        _latest_contract_checked_at(contract_status)
+        if contract_status_provided
+        else str(tool.get("lastCheckedAt") or (existing or {}).get("lastCheckedAt") or "") or None
+    )
     with get_connection(cfg) as connection:
         connection.execute(
             """
@@ -189,8 +204,8 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 tool_id, name, source, source_label, version, package_spec, summary,
                 target_platform, target_platform_supported, platforms_json, source_url,
                 test_command, rule_template_json, rule_spec_draft_json, capabilities_json, snakemake_wrappers_json,
-                status, message, created_at, updated_at, last_checked_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                contract_status_json, status, message, created_at, updated_at, last_checked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tool_id) DO UPDATE SET
                 name = excluded.name,
                 source = excluded.source,
@@ -207,9 +222,11 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 rule_spec_draft_json = excluded.rule_spec_draft_json,
                 capabilities_json = excluded.capabilities_json,
                 snakemake_wrappers_json = excluded.snakemake_wrappers_json,
+                contract_status_json = excluded.contract_status_json,
                 status = excluded.status,
                 message = excluded.message,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                last_checked_at = excluded.last_checked_at
             """,
             (
                 tool_id,
@@ -228,11 +245,12 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 json.dumps(dict(tool.get("ruleSpecDraft") or {}), ensure_ascii=False),
                 json.dumps(list(tool.get("capabilities") or []), ensure_ascii=False),
                 json.dumps(list(tool.get("snakemakeWrappers") or []), ensure_ascii=False),
+                json.dumps(contract_status, ensure_ascii=False),
                 status,
                 message,
                 (existing or {}).get("createdAt") or now,
                 now,
-                (existing or {}).get("lastCheckedAt"),
+                last_checked_at,
             ),
         )
         connection.commit()
@@ -240,6 +258,15 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
     if saved is None:
         raise KeyError(tool_id)
     return saved
+
+
+def _latest_contract_checked_at(contract_status: dict[str, dict[str, str]]) -> str | None:
+    values = [
+        str(item.get("checkedAt") or "").strip()
+        for item in contract_status.values()
+        if isinstance(item, dict) and str(item.get("checkedAt") or "").strip()
+    ]
+    return max(values) if values else None
 
 
 def delete_tool(cfg: RemoteRunnerConfig, tool_id: str) -> None:

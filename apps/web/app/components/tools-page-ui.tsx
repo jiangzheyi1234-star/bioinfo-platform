@@ -519,7 +519,11 @@ function ruleSpecParamItems(template: Record<string, unknown>) {
 }
 
 function ruleSpecResourceItems(template: Record<string, unknown>) {
-  const resources = recordValue(template.resources);
+  const resources = {
+    ...recordValue(template.resources),
+    ...recordValue(template.schedulerResources),
+    ...recordValue(template.runtimeResources),
+  };
   const resourceItems = Object.entries(resources).map(([name, raw]) => {
     const spec = recordValue(raw);
     const defaultValue = spec.default !== undefined ? spec.default : raw;
@@ -553,6 +557,7 @@ export function ToolPreviewPanel({
   onVersionChange,
   selected,
   selectedAlreadyAdded,
+  selectedPackageLocked,
   selectedPackageSpec,
   selectedVersion,
 }: {
@@ -562,6 +567,7 @@ export function ToolPreviewPanel({
   onVersionChange: (id: string, version: string) => void;
   selected: ToolSearchItem | undefined;
   selectedAlreadyAdded: boolean;
+  selectedPackageLocked: boolean;
   selectedPackageSpec: string;
   selectedVersion: string;
 }) {
@@ -613,7 +619,7 @@ export function ToolPreviewPanel({
               onChange={(event) => onVersionChange(selected.id, event.target.value)}
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             >
-              <option value="">不锁版本</option>
+              <option value="">请选择版本</option>
               {selected.latestVersion ? (
                 <option value={selected.latestVersion}>latest {selected.latestVersion}</option>
               ) : null}
@@ -627,7 +633,7 @@ export function ToolPreviewPanel({
                   </option>
                 ))}
             </select>
-            <p className="text-[11px] leading-4 text-slate-400">选择版本会锁定节点运行环境，选择不锁版本则只记录包名。</p>
+            <p className="text-[11px] leading-4 text-slate-400">选择版本会锁定节点运行环境；未锁版本不能加入工具合同。</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -658,7 +664,7 @@ dependencies:
             disabled={!canAddSelected}
             onClick={onAdd}
           >
-            {selectedAlreadyAdded ? "已加入" : "加入工具"}
+            {selectedAlreadyAdded ? "已加入" : !selectedPackageLocked ? "请选择版本" : "加入工具"}
           </Button>
         </div>
       ) : (

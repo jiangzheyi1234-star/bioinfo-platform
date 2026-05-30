@@ -9,6 +9,8 @@ from typing import Any
 from config import resolve_runner_token, store_runner_token
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 
+TOOL_VALIDATION_TIMEOUT_SECONDS = 2100
+
 
 def _is_manager_error(exc: Exception) -> bool:
     return exc.__class__.__name__ == "RemoteRunnerManagerError"
@@ -115,9 +117,21 @@ class RemoteRunnerProxyMixin:
             server_id=str(kwargs["server_id"]),
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
+            timeout=TOOL_VALIDATION_TIMEOUT_SECONDS,
         )
         try:
             return client.post_json(f"/api/v1/tools/{kwargs['tool_id']}/check", {})["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def mark_tool_production_enabled(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.post_json(f"/api/v1/tools/{kwargs['tool_id']}/production", kwargs["payload"])["data"]
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 

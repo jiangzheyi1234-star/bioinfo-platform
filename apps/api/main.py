@@ -28,6 +28,7 @@ from apps.api.run_submission_status import classify_run_submission_status
 from apps.api.runtime import get_runtime_service
 from apps.api.ssh_terminal_routes import stream_terminal_session_with_runtime
 from apps.api.tool_capability_routes import router as tool_capability_router
+from apps.api.tool_contract_routes import router as tool_contract_router
 from apps.api.workflow_catalog_routes import router as workflow_catalog_router
 from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
 from apps.api.response_cache import cached_response, invalidate_response_cache
@@ -79,6 +80,7 @@ app.add_middleware(
 )
 
 app.include_router(tool_capability_router)
+app.include_router(tool_contract_router)
 app.include_router(workflow_catalog_router)
 app.include_router(workflow_sample_data_router)
 
@@ -564,7 +566,7 @@ async def check_tool_api(tool_id: str) -> dict[str, Any]:
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
-    await invalidate_response_cache("tools")
+    await invalidate_response_cache("tools", "workflow_catalog")
     return result
 
 

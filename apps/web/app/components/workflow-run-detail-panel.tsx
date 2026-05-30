@@ -178,6 +178,18 @@ function isPreviewable(mimeType: string) {
   return /text|html|csv|tsv|json|xml|md|log/.test(mimeType);
 }
 
+function isInlineTextPreview(preview: WorkflowArtifactPreview | undefined) {
+  const kind = preview?.preview?.kind || "";
+  const mimeType = preview?.artifact?.mimeType || "";
+  return Boolean(preview?.preview?.content && (kind === "text" || /text|json|xml|md|log/.test(mimeType)));
+}
+
+function inlinePreviewText(preview: WorkflowArtifactPreview | undefined) {
+  const content = preview?.preview?.content || "";
+  if (!content) return "";
+  return content.length > 1200 ? `${content.slice(0, 1200)}\n...` : content;
+}
+
 function downloadArtifact(name: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -251,6 +263,7 @@ function RunArtifacts({
         {artifacts.map((artifact) => {
           const previewable = isPreviewable(artifact.mimeType);
           const existingPreview = previewMap.get(artifact.artifactId);
+          const inlineText = inlinePreviewText(existingPreview);
           return (
             <div key={artifact.artifactId} className="flex flex-col rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-2">
@@ -259,6 +272,11 @@ function RunArtifacts({
               </div>
               <div className="mt-1 truncate font-mono text-[11px] text-slate-500">{artifact.mimeType}</div>
               <div className="mt-1 text-[11px] text-slate-400">{formatBytes(artifact.sizeBytes)}</div>
+              {isInlineTextPreview(existingPreview) ? (
+                <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-2 font-mono text-xs leading-relaxed text-slate-800">
+                  {inlineText}
+                </pre>
+              ) : null}
               <div className="mt-3 flex items-center gap-2">
                 {previewable && (
                   <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={loading} onClick={() => openPreview(artifact)}>
@@ -426,6 +444,10 @@ function preferredTablePreview(previews: WorkflowArtifactPreview[]) {
   );
 }
 
+function preferredTextPreview(previews: WorkflowArtifactPreview[]) {
+  return previews.find((preview) => isInlineTextPreview(preview));
+}
+
 /* ─── Main Panel ─── */
 
 export function WorkflowRunDetailPanel({
@@ -443,6 +465,7 @@ export function WorkflowRunDetailPanel({
   const stdout = detail.logs.stdout?.lines || [];
   const stderr = detail.logs.stderr?.lines || [];
   const tablePreview = preferredTablePreview(previews);
+  const textPreview = preferredTextPreview(previews);
   const inputs = (run.runSpec?.inputs as Array<{ filename?: string }> | undefined) || [];
   const pipelineId = typeof run.pipelineId === "string" ? run.pipelineId : String(run.runSpec?.pipelineId || "—");
 
@@ -504,6 +527,17 @@ export function WorkflowRunDetailPanel({
           <div className="space-y-4">
             <RunDiagnosis run={run} events={events} stderrLines={stderr} />
             <TablePreview preview={tablePreview} />
+            {!tablePreview && textPreview ? (
+              <div className="rounded-lg border border-slate-200 bg-white">
+                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                  <div className="text-sm font-medium text-slate-900">{textPreview.artifact ? artifactName(textPreview.artifact) : "文本预览"}</div>
+                  <span className="text-xs text-slate-400">txt 预览</span>
+                </div>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-800">
+                  {inlinePreviewText(textPreview)}
+                </pre>
+              </div>
+            ) : null}
             {artifacts.length > 0 && (
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="mb-3 text-sm font-medium text-slate-900">产物概览</div>
