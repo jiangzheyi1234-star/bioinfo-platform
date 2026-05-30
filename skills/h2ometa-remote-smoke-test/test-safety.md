@@ -15,10 +15,8 @@ Use this order:
 
 1. If the task only needs documentation or skill edits, no code execution is required.
 2. If the task changes Python files and only needs a quick sanity check, use syntax-level verification from Windows.
-3. If the task requires real `pytest`, stop and ask the user to run it manually from the WSL Codex CLI.
+3. If the task requires real `pytest`, stop and ask the user to run it manually from the project’s normal test environment.
 4. If the task requires a real remote smoke, use the canonical scripts in `skills/h2ometa-remote-smoke-test/scripts/`.
-
-For real remote smoke work, do not stay in a WSL shell and do not invoke Windows `conda.exe` from WSL as a workaround. Switch to Windows PowerShell or cmd first.
 
 ## When To Ask The User To Run `pytest`
 
@@ -53,7 +51,7 @@ When you are unsure, use this sequence:
 1. Read the task and classify it: docs, code-only verification, or real smoke
 2. Check [pitfalls.md](pitfalls.md) for a matching historical failure
 3. Choose the lowest-risk validation that still answers the question
-4. Escalate to user-run WSL `pytest` only when syntax checks and isolated reasoning are not enough
+4. Escalate to user-run `pytest` only when syntax checks and isolated reasoning are not enough
 5. Use real smoke scripts only when the user wants real environment validation
 
 ## Canonical Real-Test Entrypoints

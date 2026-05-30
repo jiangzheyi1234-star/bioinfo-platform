@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import urllib.error
 import urllib.request
@@ -13,23 +12,18 @@ from pathlib import Path
 from typing import Any
 
 from remote_smoke_helpers import (
-    extract_bootstrap_metadata,
     extract_bootstrap_phase_reports,
     ready_ok_from_health_payload,
     response_data_mapping,
     server_context,
     server_items_from_payload,
     service_port_from_server,
-    unwrap_data,
 )
 
 
 DEFAULT_API_BASE = "http://127.0.0.1:8765"
 MINIMAL_PIPELINE_ID = "file-summary-v1"
 FIXED_STALE_PORT = 8876
-WINDOWS_CONDA = r"C:\Users\Administrator\miniconda3\Scripts\conda.exe"
-CANONICAL_SKILL_REMOTE_SMOKE = "skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py"
-CANONICAL_SKILL_REMOTE_PIPELINE = "skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py"
 
 
 def find_repo_root() -> Path:
@@ -91,44 +85,6 @@ def print_failure(summary: str, *, hints: list[str], detail: str | None = None) 
         print(f"  - {hint}")
 
 
-def running_in_wsl() -> bool:
-    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
-        return True
-    proc_version = Path("/proc/version")
-    try:
-        return "microsoft" in proc_version.read_text(encoding="utf-8", errors="ignore").lower()
-    except OSError:
-        return False
-
-
-def _windows_arg(arg: str) -> str:
-    if not arg or any(ch.isspace() for ch in arg) or '"' in arg:
-        escaped = arg.replace('"', '\\"')
-        return f'"{escaped}"'
-    return arg
-
-
-def build_windows_conda_command(script_path: str, argv: list[str]) -> str:
-    joined = " ".join(_windows_arg(arg) for arg in argv)
-    suffix = f" {joined}" if joined else ""
-    return f"{WINDOWS_CONDA} run -n bio_ui python {script_path}{suffix}"
-
-
-def abort_for_wsl(script_path: str, argv: list[str]) -> None:
-    if not running_in_wsl():
-        return
-    command = build_windows_conda_command(script_path, argv)
-    raise SystemExit(
-        "ERROR: this smoke must be started from Windows, not from WSL.\n"
-        "DETAIL: WSL cannot validate the Windows Local API correctly, and calling "
-        "Windows conda.exe from inside WSL is not a supported fallback for this workflow.\n"
-        "NEXT:\n"
-        "  - Open Windows PowerShell or cmd in E:\\code\\bio_ui.\n"
-        f"  - Run `{command}`.\n"
-        "  - If you need the web stack first, start `run.bat --web` from the same Windows shell."
-    )
-
-
 def load_project_modules():
     try:
         from config import (
@@ -140,9 +96,8 @@ def load_project_modules():
         from core.remote.ssh_connector import ssh_connect
     except ImportError as exc:
         raise RuntimeError(
-            "failed to import project modules. If this is WSL Python, stop and rerun from "
-            "Windows PowerShell or cmd instead of invoking Windows conda.exe from WSL: "
-            + build_windows_conda_command(CANONICAL_SKILL_REMOTE_SMOKE, [])
+            "failed to import project modules. Run this script from inside the bio_ui repository "
+            "with the project environment available."
         ) from exc
     return get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password, ssh_connect
 
@@ -415,7 +370,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else sys.argv[1:]
-    abort_for_wsl(CANONICAL_SKILL_REMOTE_SMOKE, args_list)
     parser = build_parser()
     args = parser.parse_args(args_list)
     return run_control_plane_smoke(args.api_base, args.timeout, bootstrap=args.bootstrap)
