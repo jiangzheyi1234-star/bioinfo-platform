@@ -5,7 +5,6 @@ Use this file when a task matches a failure mode that has already happened in `b
 ## Contents
 
 - Windows Codex `pytest` failures
-- WSL versus Windows Local API confusion
 - Real config and keyring pollution
 - Stale fixed port `8876`
 - Duplicate runner startup
@@ -19,25 +18,11 @@ Symptom:
 
 What to do:
 - Do not run `pytest` here.
-- Ask the user to run the needed `pytest` command manually from the WSL Codex CLI.
+- Ask the user to run the needed `pytest` command manually from the project’s normal test environment.
 - If you only need quick confidence on touched Python files, prefer syntax-level verification such as `python -m py_compile` or a narrow import check.
 
 Why this exists:
 - This repository already documents that Windows Codex is not the place to run `pytest`.
-
-## WSL Versus Windows Local API Confusion
-
-Symptom:
-- `curl http://127.0.0.1:8765/health` from WSL says connection refused, but the Windows desktop stack may still be the thing that matters.
-
-What to do:
-- Treat WSL `127.0.0.1` as the wrong observer for Windows Local API health.
-- Re-run the health check from Windows PowerShell or Windows conda.
-- Do not call `C:\Users\Administrator\miniconda3\Scripts\conda.exe` from inside WSL as a substitute for a Windows shell.
-- If no Windows listener exists on `127.0.0.1:8765`, diagnose Local API startup before touching SSH or the remote runner.
-
-Why this exists:
-- WSL and Windows do not share the same localhost view for this workflow.
 
 ## Real Config And Keyring Pollution
 

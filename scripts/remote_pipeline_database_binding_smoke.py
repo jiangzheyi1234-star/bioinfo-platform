@@ -86,7 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else sys.argv[1:]
-    remote_smoke.abort_for_wsl("remote_pipeline_database_binding_smoke.py", args_list)
     args = build_parser().parse_args(args_list)
 
     if not args.skip_control_plane_smoke:

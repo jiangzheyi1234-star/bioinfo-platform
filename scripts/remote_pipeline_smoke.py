@@ -83,7 +83,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else sys.argv[1:]
-    remote_smoke.abort_for_wsl(remote_smoke.CANONICAL_SKILL_REMOTE_PIPELINE, args_list)
     parser = build_parser()
     args = parser.parse_args(args_list)
 

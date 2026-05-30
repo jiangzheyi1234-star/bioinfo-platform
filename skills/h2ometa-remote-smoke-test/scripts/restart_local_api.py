@@ -76,7 +76,7 @@ def main() -> int:
     env = os.environ.copy()
     env["H2OMETA_WORKDIR"] = str(repo_root)
     env["PYTHONUTF8"] = "1"
-    env["WSL_UTF8"] = "1"
+    env["H2OMETA_UTF8"] = "1"
     subprocess.Popen(
         ["cmd.exe", "/c", "scripts\\run-local-api-dev.bat"],
         cwd=str(repo_root),
