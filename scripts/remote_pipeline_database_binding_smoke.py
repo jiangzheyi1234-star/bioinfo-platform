@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import argparse
 import base64
-import json
 import sys
 import time
 from typing import Any
 
+import remote_pipeline_common
 import remote_pipeline_smoke
 import remote_smoke
 
@@ -66,19 +66,6 @@ def build_run_submit_payload(
             "resourceBindings": {resource_key: {"databaseId": database["id"]}},
         },
     }
-
-
-def _wait_for_terminal_run(api_base: str, run_id: str, timeout: float) -> dict[str, Any]:
-    deadline = time.time() + timeout
-    final: dict[str, Any] = {}
-    while time.time() < deadline:
-        final = remote_pipeline_smoke.response_data(
-            remote_pipeline_smoke.http_json("GET", api_base, f"/api/v1/runs/{run_id}", timeout=10)
-        )
-        if final.get("status") in {"completed", "failed"}:
-            return final
-        time.sleep(1.5)
-    return final
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -182,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
 
-        final = _wait_for_terminal_run(args.api_base, run_id, args.timeout)
+        final = remote_pipeline_common.wait_for_terminal_run(args.api_base, run_id, args.timeout)
         remote_pipeline_smoke.print_json(
             "DATABASE_BOUND_RUN_FINAL",
             {"runId": run_id, "status": final.get("status"), "stage": final.get("stage"), "lastError": final.get("lastError")},
@@ -205,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         listed = remote_pipeline_smoke.response_data(
             remote_pipeline_smoke.http_json("GET", args.api_base, "/api/v1/results", timeout=10)
         )["items"]
-        result_id = next(item["resultId"] for item in listed if item["runId"] == run_id)
+        result_id = remote_pipeline_common.result_id_for_run(listed, run_id)
         preview = remote_pipeline_smoke.response_data(
             remote_pipeline_smoke.http_json(
                 "GET",
@@ -214,7 +201,8 @@ def main(argv: list[str] | None = None) -> int:
                 timeout=10,
             )
         )
-        rows = (preview.get("preview") or {}).get("rows") or []
+        preview_table = remote_pipeline_common.preview_table(preview)
+        rows = preview_table.get("rows") or []
         if not any(database["id"] in cell for row in rows for cell in row):
             raise RuntimeError("classified TSV preview does not include the bound database id")
         remote_pipeline_smoke.print_json(
@@ -223,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
                 "artifactId": table["artifactId"],
                 "artifactCount": len(artifacts),
                 "databaseId": database["id"],
-                "columns": (preview.get("preview") or {}).get("columns"),
+                "columns": preview_table.get("columns"),
                 "rows": rows[:3],
             },
         )

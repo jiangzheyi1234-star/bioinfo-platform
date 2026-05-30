@@ -12,6 +12,17 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from remote_smoke_helpers import (
+    extract_bootstrap_metadata,
+    extract_bootstrap_phase_reports,
+    ready_ok_from_health_payload,
+    response_data_mapping,
+    server_context,
+    server_items_from_payload,
+    service_port_from_server,
+    unwrap_data,
+)
+
 
 DEFAULT_API_BASE = "http://127.0.0.1:8765"
 MINIMAL_PIPELINE_ID = "file-summary-v1"
@@ -51,106 +62,6 @@ def redact(value: Any) -> Any:
 
 def print_json(label: str, payload: Any) -> None:
     print(f"{label}: {json.dumps(redact(payload), ensure_ascii=False, sort_keys=True)}")
-
-
-def unwrap_data(payload: Any) -> Any:
-    current = payload
-    while isinstance(current, dict) and isinstance(current.get("data"), dict):
-        keys = set(current.keys())
-        if keys == {"data"}:
-            current = current["data"]
-            continue
-        if keys == {"data", "requestId"}:
-            current = current["data"]
-            continue
-        if keys == {"data", "location", "retryAfter", "requestId"}:
-            current = current["data"]
-            continue
-        break
-    return current
-
-
-def _iter_mappings(payload: Any):
-    if isinstance(payload, dict):
-        yield payload
-        for value in payload.values():
-            yield from _iter_mappings(value)
-    elif isinstance(payload, list):
-        for value in payload:
-            yield from _iter_mappings(value)
-
-
-def _find_mapping(payload: Any, keys: tuple[str, ...]) -> dict[str, Any] | None:
-    for mapping in _iter_mappings(payload):
-        for key in keys:
-            value = mapping.get(key)
-            if isinstance(value, dict):
-                return value
-    return None
-
-
-def extract_bootstrap_metadata(payload: Any) -> dict[str, Any]:
-    data = unwrap_data(payload)
-    metadata = _find_mapping(data, ("bootstrapMetadata", "bootstrap_metadata"))
-    return metadata or {}
-
-
-def _health_phase_report(payload: Any) -> dict[str, str] | None:
-    data = unwrap_data(payload)
-    health = _find_mapping(data, ("health",))
-    if not isinstance(health, dict):
-        return None
-    ready = health.get("ready")
-    if isinstance(ready, dict):
-        ok = bool(ready.get("ok"))
-        message = str(ready.get("message") or "")
-        return {"phase": "readiness", "state": "ok" if ok else "failed", "message": message}
-    return None
-
-
-def _normalize_phase_state(phase: str, payload: dict[str, Any]) -> str:
-    status = str(payload.get("status") or "").strip().lower()
-    ok = payload.get("ok")
-    if phase == "rollback":
-        restored = payload.get("restored")
-        attempted = payload.get("attempted")
-        if restored is True or ok is True or status in {"ok", "completed", "restored", "success"}:
-            return "ok"
-        if attempted is False and not status:
-            return "skipped"
-        if status in {"skipped", "not_needed", "not-needed"}:
-            return "skipped"
-        if attempted is True or ok is False or status in {"failed", "error"}:
-            return "failed"
-        return status or "unknown"
-    if ok is True or status in {"ok", "ready", "completed", "passed", "success"}:
-        return "ok"
-    if ok is False or status in {"failed", "error", "not_ready", "not-ready"}:
-        return "failed"
-    if status in {"skipped", "not_needed", "not-needed"}:
-        return "skipped"
-    return status or "unknown"
-
-
-def extract_bootstrap_phase_reports(payload: Any) -> list[dict[str, str]]:
-    reports: list[dict[str, str]] = []
-    health_report = _health_phase_report(payload)
-    if health_report is not None:
-        reports.append(health_report)
-
-    metadata = extract_bootstrap_metadata(payload)
-    for phase in ("canary", "rollback"):
-        phase_payload = metadata.get(phase)
-        if not isinstance(phase_payload, dict):
-            continue
-        reports.append(
-            {
-                "phase": phase,
-                "state": _normalize_phase_state(phase, phase_payload),
-                "message": str(phase_payload.get("message") or ""),
-            }
-        )
-    return reports
 
 
 def print_bootstrap_phase_report(payload: Any) -> None:
@@ -227,7 +138,7 @@ def load_project_modules():
             resolve_ssh_password,
         )
         from core.remote.ssh_connector import ssh_connect
-    except Exception as exc:
+    except ImportError as exc:
         raise RuntimeError(
             "failed to import project modules. If this is WSL Python, stop and rerun from "
             "Windows PowerShell or cmd instead of invoking Windows conda.exe from WSL: "
@@ -256,7 +167,9 @@ def http_json(method: str, api_base: str, path: str, timeout: float) -> tuple[bo
         except json.JSONDecodeError:
             body = raw
         return False, {"status": exc.code, "error": body}
-    except Exception as exc:
+    except json.JSONDecodeError as exc:
+        return False, {"error": f"invalid JSON response: {exc}"}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return False, {"error": str(exc)}
 
 
@@ -355,7 +268,16 @@ def check_local_api(api_base: str, timeout: float, *, bootstrap: bool) -> tuple[
         print_failure("local API is not reachable", hints=local_api_diagnostics(api_base))
         return False, None
 
-    items = (((servers_payload or {}).get("data") or {}).get("items") or [])
+    malformed_servers_hints = [
+        f"Inspect `{api_base.rstrip('/')}/api/v1/servers` and confirm it returns a Local API server list contract.",
+        "Restart the Windows Local API with `run.bat --web` if the response shape is stale.",
+    ]
+    try:
+        items = server_items_from_payload(servers_payload)
+    except ValueError as exc:
+        print_failure("local API returned a malformed servers payload", detail=str(exc), hints=malformed_servers_hints)
+        return False, None
+
     if not items:
         print_failure(
             "local API returned no registered servers",
@@ -368,19 +290,8 @@ def check_local_api(api_base: str, timeout: float, *, bootstrap: bool) -> tuple[
         return False, None
 
     server = items[0]
-    server_id = str(server.get("serverId") or "")
-    service_port_raw = server.get("service_port")
-    if service_port_raw is None:
-        service_port_raw = server.get("servicePort")
-    service_port = int(service_port_raw) if service_port_raw not in (None, "") else None
-    context = {
-        "serverId": server_id,
-        "label": server.get("label", ""),
-        "connected": server.get("connected", False),
-        "ready": server.get("ready", False),
-        "service_port": service_port,
-        "dynamic_port_expected": None if service_port is None else service_port != FIXED_STALE_PORT,
-    }
+    context = server_context(server, stale_port=FIXED_STALE_PORT)
+    server_id = str(context["serverId"])
     print_json("SERVER_SELECTED", context)
 
     if not server_id:
@@ -416,7 +327,16 @@ def check_local_api(api_base: str, timeout: float, *, bootstrap: bool) -> tuple[
         )
         return False, context
 
-    ready_ok = bool((((payload or {}).get("data") or {}).get("ready") or {}).get("ok"))
+    try:
+        ready_ok = ready_ok_from_health_payload(payload)
+    except ValueError as exc:
+        print_failure(
+            "runner health returned a malformed readiness payload",
+            detail=str(exc),
+            hints=runner_diagnostics(api_base, server_id, phase="readiness"),
+        )
+        return False, context
+
     if not ready_ok:
         print_failure(
             "runner health reported `ready.ok != true`",
@@ -434,11 +354,17 @@ def check_local_api(api_base: str, timeout: float, *, bootstrap: bool) -> tuple[
         )
         return False, context
 
-    data = (refreshed or {}).get("data") or {}
-    refreshed_port_raw = data.get("service_port")
-    if refreshed_port_raw is None:
-        refreshed_port_raw = data.get("servicePort")
-    refreshed_port = int(refreshed_port_raw) if refreshed_port_raw not in (None, "") else None
+    try:
+        data = response_data_mapping(refreshed, "server detail response")
+    except ValueError as exc:
+        print_failure(
+            "server detail returned a malformed payload after health check",
+            detail=str(exc),
+            hints=runner_diagnostics(api_base, server_id),
+        )
+        return False, context
+
+    refreshed_port = service_port_from_server(data)
     if refreshed_port == FIXED_STALE_PORT:
         print_failure(
             "runner still reports the stale fixed port 8876 after health check",

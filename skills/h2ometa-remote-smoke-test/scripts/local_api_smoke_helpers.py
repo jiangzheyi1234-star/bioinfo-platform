@@ -13,6 +13,13 @@ def find_repo_root() -> Path:
     raise SystemExit("ERROR: run this script from inside the bio_ui repository")
 
 
+def import_repo_script(module_name: str) -> Any:
+    scripts_dir = find_repo_root() / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    return __import__(module_name)
+
+
 def response_data(payload: dict[str, Any]) -> Any:
     data = payload["data"]
     if isinstance(data, dict) and set(data.keys()) == {"data"}:
@@ -21,12 +28,7 @@ def response_data(payload: dict[str, Any]) -> Any:
 
 
 def selected_server_id(api_base: str, *, timeout: float = 5.0) -> str:
-    repo_root = find_repo_root()
-    scripts_dir = repo_root / "scripts"
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
-    import remote_smoke
-
+    remote_smoke = import_repo_script("remote_smoke")
     ready, context = remote_smoke.check_local_api(api_base, timeout, bootstrap=False)
     if not ready or not context:
         raise RuntimeError("Local API did not return a ready server context.")
