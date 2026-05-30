@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
-from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.tools import ToolRegistryError, normalize_rule_template
+from tests.generated_workflow_test_helpers import (
+    prepare_unchecked_generated_tool_workflow as prepare_generated_tool_workflow,
+    upsert_ready_tool as upsert_tool,
+)
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:

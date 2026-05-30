@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
-from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
+from tests.generated_workflow_test_helpers import (
+    prepare_unchecked_generated_tool_workflow as prepare_generated_tool_workflow,
+    upsert_ready_tool as upsert_tool,
+)
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -30,7 +33,7 @@ def _input(tmp_path: Path) -> list[dict[str, str]]:
     return [{"path": str(reads), "role": "input", "filename": "reads.fastq"}]
 
 
-def test_generated_workflow_uses_rule_spec_draft_template(tmp_path: Path) -> None:
+def test_generated_workflow_uses_registered_rule_template_and_preserves_rule_spec_draft(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     upsert_tool(
@@ -41,6 +44,11 @@ def test_generated_workflow_uses_rule_spec_draft_template(tmp_path: Path) -> Non
             "source": "conda-forge",
             "packageSpec": "conda-forge::draft-rule=1.0",
             "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "wc -l {input.reads:q} > {output.report:q}",
+                "inputs": [{"name": "reads", "type": "file", "required": True}],
+                "outputs": [{"name": "report", "path": "draft-report.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
             "ruleSpecDraft": {
                 "source": "conda-package",
                 "ruleTemplate": {
@@ -149,13 +157,13 @@ def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> No
 def test_generated_workflow_renders_snakemake_module_use_rule(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
-    saved = add_registered_tool(
+    saved = upsert_tool(
         cfg,
         {
             "id": "conda-forge::module-count",
             "name": "module-count",
             "source": "conda-forge",
-            "packageSpec": "conda-forge::coreutils=9.5",
+            "packageSpec": "conda-forge::module-count=9.5",
             "targetPlatformSupported": True,
             "ruleTemplate": {
                 "module": {"name": "qc_module", "snakefile": "modules/qc/Snakefile", "rule": "count_reads"},
@@ -221,7 +229,7 @@ def test_tool_rule_template_rejects_module_without_locked_asset(tmp_path: Path) 
                 "id": "conda-forge::module-without-asset",
                 "name": "module-without-asset",
                 "source": "conda-forge",
-                "packageSpec": "conda-forge::coreutils=9.5",
+                "packageSpec": "conda-forge::module-without-asset=9.5",
                 "targetPlatformSupported": True,
                 "ruleTemplate": {
                     "module": {"snakefile": "modules/qc/Snakefile", "rule": "count_reads"},
@@ -247,6 +255,11 @@ def test_generated_workflow_preserves_rule_spec_provenance(tmp_path: Path) -> No
             "source": "bioconda",
             "packageSpec": "bioconda::fastqc=0.12.1",
             "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "wrapper": "v9.8.0/bio/fastqc",
+                "inputs": [{"name": "reads", "type": "file", "required": True}],
+                "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+            },
             "ruleSpecDraft": {
                 "source": "snakemake-wrapper",
                 "lock": {
@@ -355,6 +368,11 @@ def test_generated_workflow_wrapper_provenance_distinguishes_declared_dependency
             "source": "bioconda",
             "packageSpec": "bioconda::fastqc=0.12.1",
             "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "wrapper": "v9.8.0/bio/fastqc",
+                "inputs": [{"name": "reads", "type": "file", "required": True}],
+                "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+            },
             "ruleSpecDraft": {
                 "source": "snakemake-wrapper",
                 "lock": {
