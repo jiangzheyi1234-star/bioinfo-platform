@@ -46,28 +46,6 @@ class RemoteRunnerProxyMixin:
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 
-    def list_pipelines(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json("/api/v1/pipelines")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
-
-    def get_pipeline(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        try:
-            return client.get_json(f"/api/v1/pipelines/{kwargs['pipeline_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
-
     def list_tools(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

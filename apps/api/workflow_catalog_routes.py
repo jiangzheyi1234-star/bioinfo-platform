@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -19,40 +18,22 @@ router = APIRouter()
 
 
 @router.get("/api/v1/workflow-catalog")
-async def get_workflow_catalog(refresh: bool = False, remote: bool = False) -> dict[str, Any]:
+async def get_workflow_catalog(refresh: bool = False) -> dict[str, Any]:
     return await cached_response(
-        f"workflow_catalog:{'remote' if remote else 'bundled'}",
+        "workflow_catalog:bundled",
         30,
-        lambda: _load_workflow_catalog(include_remote=remote),
+        _load_workflow_catalog,
         force_refresh=refresh,
     )
 
 
-async def _load_workflow_catalog(*, include_remote: bool = False) -> dict[str, Any]:
-    runtime = get_runtime_service()
+async def _load_workflow_catalog() -> dict[str, Any]:
     catalog: list[dict[str, Any]] = []
 
-    if not include_remote:
-        manifests, errors = _list_bundled_pipeline_manifests()
-        catalog.extend(_catalog_item_from_pipeline(item) for item in manifests)
-        catalog.sort(key=lambda item: (not item["runnable"], item["name"].lower()))
-        return {"data": {"items": catalog, "serverReady": False, "pipelineError": "; ".join(errors)}}
-
-    try:
-        pipelines_payload = await asyncio.to_thread(runtime.list_pipelines)
-        pipelines = pipelines_payload.get("data", {}).get("items", [])
-    except RuntimeServiceError as exc:
-        return {
-            "data": {
-                "items": catalog,
-                "serverReady": False,
-                "pipelineError": str(exc) or "Remote pipeline registry is unavailable.",
-            }
-        }
-
-    catalog.extend(_catalog_item_from_pipeline(item) for item in pipelines)
+    manifests, errors = _list_bundled_pipeline_manifests()
+    catalog.extend(_catalog_item_from_pipeline(item) for item in manifests)
     catalog.sort(key=lambda item: (not item["runnable"], item["name"].lower()))
-    return {"data": {"items": catalog, "serverReady": True, "pipelineError": ""}}
+    return {"data": {"items": catalog, "serverReady": False, "pipelineError": "; ".join(errors)}}
 
 
 def _list_bundled_pipeline_manifests() -> tuple[list[dict[str, Any]], list[str]]:

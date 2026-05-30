@@ -138,9 +138,8 @@ function validateCommandRuntimeBindings({
 
 function commandInputBindingIsBound(binding: GeneratedWorkflowInputBinding | undefined): boolean {
   if (!binding) return false;
-  if (typeof binding === "string") return binding.trim().length > 0;
+  if (typeof binding === "string") return false;
   if ("fromUpload" in binding) return Number.isInteger(binding.fromUpload) && binding.fromUpload >= 0;
-  if ("fromInput" in binding) return binding.fromInput.trim().length > 0;
   return binding.fromStep.trim().length > 0 && binding.output.trim().length > 0;
 }
 

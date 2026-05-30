@@ -82,8 +82,8 @@ def _download_and_upload_moving_pictures() -> list[dict]:
         uploads.append(
             {
                 "uploadId": upload["uploadId"],
-                "filename": upload.get("filename") or upload.get("fileName") or item.filename,
-                "sizeBytes": upload.get("sizeBytes") or len(content),
+                "filename": upload["filename"],
+                "sizeBytes": upload["sizeBytes"],
                 "role": item.role,
                 "sourceUrl": item.url,
             }

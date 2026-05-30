@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
@@ -145,9 +144,7 @@ function PortBindingRow({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="fromUpload">上传文件</SelectItem>
-            <SelectItem value="fromInput">输入 role</SelectItem>
             <SelectItem value="fromStep">上游输出</SelectItem>
-            <SelectItem value="path">直接路径</SelectItem>
           </SelectContent>
         </Select>
         <PortBindingValueEditor
@@ -226,32 +223,6 @@ function PortBindingValueEditor({
       </Select>
     );
   }
-  if (type === "fromInput") {
-    const value = typeof binding === "object" && binding && "fromInput" in binding ? binding.fromInput : "input";
-    return (
-      <Select value={value} onValueChange={(role) => onChange({ fromInput: role })}>
-        <SelectTrigger className="h-8 bg-white text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {Array.from({ length: Math.max(inputCount, 1) }).map((_, index) => {
-            const role = index === 0 ? "input" : `input_${index + 1}`;
-            return <SelectItem key={role} value={role}>{role}</SelectItem>;
-          })}
-        </SelectContent>
-      </Select>
-    );
-  }
-  if (type === "path") {
-    return (
-      <Input
-        value={typeof binding === "string" ? binding : ""}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 bg-white font-mono text-xs"
-        placeholder="/path/to/file"
-      />
-    );
-  }
   const uploadIndex = typeof binding === "object" && binding && "fromUpload" in binding ? binding.fromUpload : 0;
   return (
     <Select value={String(uploadIndex)} onValueChange={(index) => onChange({ fromUpload: Number(index) })}>
@@ -276,9 +247,7 @@ function isRecommendedOutputCandidate(
 }
 
 function bindingKind(binding: GeneratedWorkflowInputBinding | undefined) {
-  if (typeof binding === "string") return "path";
   if (binding && "fromStep" in binding) return "fromStep";
-  if (binding && "fromInput" in binding) return "fromInput";
   return "fromUpload";
 }
 
@@ -287,8 +256,6 @@ function defaultBinding(type: string, recommendedCandidates: GeneratedWorkflowOu
     const first = recommendedCandidates[0];
     return first ? { fromStep: first.stepId, output: first.output } : "";
   }
-  if (type === "fromInput") return { fromInput: "input" };
-  if (type === "path") return "";
   return { fromUpload: 0 };
 }
 

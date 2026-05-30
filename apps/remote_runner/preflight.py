@@ -69,13 +69,16 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
     known_output_rule_specs: dict[str, dict[str, dict[str, Any]]] = {}
     known_output_specs: dict[str, dict[str, dict[str, str]]] = {}
     for index, step in enumerate(requested_steps):
-        step_id = _step_id(step, index)
+        step_id = _step_id(step)
         if not step_id:
             raise RunPreflightError("WORKFLOW_STEP_ID_REQUIRED")
         if step_id in seen_steps:
             raise RunPreflightError(f"WORKFLOW_STEP_DUPLICATE: {step_id}")
         seen_steps.add(step_id)
-        tool_request = _step_tool_request(step)
+        try:
+            tool_request = _step_tool_request(step)
+        except ValueError as exc:
+            raise RunPreflightError(str(exc)) from exc
         tool_id = str(tool_request.get("id") or tool_request.get("toolId") or "").strip()
         if not tool_id:
             raise RunPreflightError("TOOL_ID_REQUIRED")
@@ -117,13 +120,12 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             known_output_specs,
             list(run_spec.get("inputs") or []),
             rule_template,
-            tool,
         )
         _preflight_required_step_inputs(step, rule_template)
         rule_templates.append(rule_template)
         known_outputs[step_id] = {str(item.get("name") or "") for item in rule_template.get("outputs") or []}
         known_output_rule_specs[step_id] = rule_output_specs_by_name(rule_template)
-        known_output_specs[step_id] = build_output_port_specs(rule_template, tool)
+        known_output_specs[step_id] = build_output_port_specs(rule_template)
     _preflight_exposed_outputs(run_spec, known_outputs, known_output_rule_specs)
     try:
         resource_specs = collect_workflow_resource_specs(rule_templates)
@@ -143,7 +145,6 @@ def _preflight_step_inputs(
     known_output_specs: dict[str, dict[str, dict[str, str]]],
     run_inputs: list[dict[str, Any]],
     rule_template: dict[str, Any],
-    tool: dict[str, Any],
 ) -> None:
     raw_inputs = step.get("inputs")
     if raw_inputs is None:
@@ -155,16 +156,16 @@ def _preflight_step_inputs(
         normalized_input_name = _safe_snakemake_name(str(input_name or ""))
         if normalized_input_name not in declared_inputs:
             raise RunPreflightError(f"WORKFLOW_STEP_INPUT_PORT_UNKNOWN: {step_id}.{normalized_input_name}")
-        if isinstance(binding, str):
-            continue
         if not isinstance(binding, dict):
             raise RunPreflightError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
-        from_step = str(binding.get("fromStep") or binding.get("step") or "").strip()
+        from_step = str(binding.get("fromStep") or "").strip()
         if from_step:
             normalized_step = _safe_identifier(from_step)
             if normalized_step not in known_outputs:
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_STEP_UNKNOWN: {from_step}")
-            output_name = str(binding.get("output") or binding.get("fromOutput") or "tool_output").strip()
+            output_name = str(binding.get("output") or "").strip()
+            if not output_name:
+                raise RunPreflightError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
             if output_name not in known_outputs[normalized_step]:
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}")
             try:
@@ -172,7 +173,6 @@ def _preflight_step_inputs(
                     input_name=normalized_input_name,
                     binding=binding,
                     rule_template=rule_template,
-                    tool=tool,
                     upstream_output_specs=known_output_specs,
                 )
             except ValueError as exc:
@@ -186,11 +186,6 @@ def _preflight_step_inputs(
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: {raw_index}") from exc
             if index < 0 or index >= len(run_inputs):
                 raise RunPreflightError(f"WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: {index}")
-            continue
-        role = str(binding.get("fromInput") or binding.get("role") or "").strip()
-        if role:
-            if not any(str(item.get("role") or "").strip() == role for item in run_inputs):
-                raise RunPreflightError(f"WORKFLOW_STEP_INPUT_ROLE_UNKNOWN: {role}")
             continue
         raise RunPreflightError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
 
@@ -222,7 +217,7 @@ def _preflight_exposed_outputs(
     known_output_rule_specs: dict[str, dict[str, dict[str, Any]]],
 ) -> None:
     workflow = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
-    raw_outputs = workflow.get("outputs") or workflow.get("exposeOutputs")
+    raw_outputs = workflow.get("outputs")
     if raw_outputs in (None, {}, []):
         if not known_outputs:
             return
@@ -237,21 +232,15 @@ def _preflight_exposed_outputs(
             except ValueError as exc:
                 raise RunPreflightError(str(exc)) from exc
         return
-    if not isinstance(raw_outputs, (dict, list)):
+    if not isinstance(raw_outputs, list):
         raise RunPreflightError("WORKFLOW_OUTPUT_BINDING_INVALID")
-    items = raw_outputs.items() if isinstance(raw_outputs, dict) else enumerate(raw_outputs)
-    for fallback_key, binding in items:
-        if isinstance(binding, str):
-            if "." not in binding:
-                raise RunPreflightError("WORKFLOW_OUTPUT_BINDING_INVALID")
-            step_id, output_name = binding.rsplit(".", 1)
-        elif isinstance(binding, dict):
-            step_id = str(binding.get("fromStep") or binding.get("step") or "").strip()
-            output_name = str(binding.get("output") or binding.get("fromOutput") or "").strip()
-            alias = str(binding.get("as") or binding.get("name") or fallback_key).strip()
-            if not alias:
-                raise RunPreflightError("WORKFLOW_OUTPUT_BINDING_INVALID")
-        else:
+    for binding in raw_outputs:
+        if not isinstance(binding, dict):
+            raise RunPreflightError("WORKFLOW_OUTPUT_BINDING_INVALID")
+        step_id = str(binding.get("fromStep") or "").strip()
+        output_name = str(binding.get("output") or "").strip()
+        alias = str(binding.get("as") or "").strip()
+        if not step_id or not output_name or not alias:
             raise RunPreflightError("WORKFLOW_OUTPUT_BINDING_INVALID")
         normalized_step = _safe_identifier(step_id)
         if normalized_step not in known_outputs:

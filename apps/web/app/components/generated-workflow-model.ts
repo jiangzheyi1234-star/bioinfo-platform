@@ -25,9 +25,8 @@ export const GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1";
 
 export type GeneratedWorkflowInputBinding =
   | { fromUpload: number }
-  | { fromInput: string }
   | { fromStep: string; output: string; audit?: RulePortEdgeAudit }
-  | string;
+  | "";
 export type GeneratedWorkflowGraphInputBinding = Exclude<GeneratedWorkflowInputBinding, { fromStep: string; output: string }>;
 
 export type GeneratedWorkflowParamValue = string | number | boolean;
@@ -55,7 +54,7 @@ export type GeneratedWorkflowExposedOutput = {
 
 export type GeneratedWorkflowDraft = {
   steps: GeneratedWorkflowStepDraft[];
-  exposeOutputs: GeneratedWorkflowExposedOutput[];
+  outputs: GeneratedWorkflowExposedOutput[];
 };
 
 export type GeneratedWorkflowGraphPortRef = {
@@ -81,7 +80,7 @@ export type GeneratedWorkflowGraphEdge = {
 export type GeneratedWorkflowGraphDraft = {
   nodes: GeneratedWorkflowGraphNode[];
   edges: GeneratedWorkflowGraphEdge[];
-  exposeOutputs: GeneratedWorkflowExposedOutput[];
+  outputs: GeneratedWorkflowExposedOutput[];
 };
 
 export type GeneratedWorkflowValidationIssue = {
@@ -200,7 +199,7 @@ export function createStepParams(tool: AddedTool): GeneratedWorkflowStepParams {
 export function createGeneratedWorkflowDraft(_tools: AddedTool[]): GeneratedWorkflowDraft {
   return {
     steps: [],
-    exposeOutputs: [],
+    outputs: [],
   };
 }
 
@@ -215,7 +214,7 @@ export function createStepDraft(
   tools: AddedTool[] = []
 ): GeneratedWorkflowStepDraft {
   const stepId = uniqueStepId(tool.name || tool.id, existingIds);
-  const inputs = Object.fromEntries(
+  const inputs: Record<string, GeneratedWorkflowInputBinding> = Object.fromEntries(
     readRuleInputs(tool).map((input, index) => [
       input.name,
       findCompatibleOutputBinding(input, upstreamSteps, tools) || (index === 0 ? { fromUpload: 0 } : ""),
@@ -256,7 +255,7 @@ export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft
   return {
     nodes,
     edges,
-    exposeOutputs: draft.exposeOutputs.map((output) => ({ ...output })),
+    outputs: draft.outputs.map((output) => ({ ...output })),
   };
 }
 
@@ -276,7 +275,7 @@ export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflow
   }
   return {
     steps,
-    exposeOutputs: graphDraft.exposeOutputs.map((output) => ({ ...output })),
+    outputs: graphDraft.outputs.map((output) => ({ ...output })),
   };
 }
 
@@ -395,18 +394,15 @@ export function validateGeneratedWorkflowDraft(
       if (isUploadBinding(binding) && options.inputCount !== undefined && (binding.fromUpload < 0 || binding.fromUpload >= options.inputCount)) {
         errors.push({ code: "WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN", message: `步骤 ${step.id} 引用不存在的上传文件 ${binding.fromUpload + 1}`, stepId: step.id, inputName });
       }
-      if (isInputRoleBinding(binding) && options.inputCount !== undefined && !inputRoleExists(binding.fromInput, options.inputCount)) {
-        errors.push({ code: "WORKFLOW_STEP_INPUT_ROLE_UNKNOWN", message: `步骤 ${step.id} 引用不存在的输入 role ${binding.fromInput}`, stepId: step.id, inputName });
-      }
     }
   }
 
   const orderedStepIds = topologicalStepIds(stepDraft.steps.map((step) => step.id), incomingCount, outgoing);
   const exposedAliases = new Set<string>();
-  if (stepDraft.exposeOutputs.length === 0) {
+  if (stepDraft.outputs.length === 0) {
     validateDefaultExposedOutputs(stepDraft, outputSpecsByStep, orderedStepIds, errors);
   } else {
-    for (const exposed of stepDraft.exposeOutputs) {
+    for (const exposed of stepDraft.outputs) {
       const alias = exposed.as.trim();
       if (alias && exposedAliases.has(alias)) {
         errors.push({ code: "WORKFLOW_OUTPUT_ALIAS_DUPLICATE", message: `暴露输出名称重复: ${alias}` });
@@ -511,7 +507,6 @@ export function buildGeneratedWorkflowRunSpec({
         const tool = toolById.get(node.toolId);
         return {
           id: normalizedNodeIds.get(node.id) || normalizeStepId(node.id),
-          toolId: node.toolId,
           tool: {
             id: node.toolId,
             ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
@@ -532,7 +527,7 @@ export function buildGeneratedWorkflowRunSpec({
         },
         audit: edge.audit,
       })),
-      outputs: draft.exposeOutputs.map((output) => ({
+      outputs: draft.outputs.map((output) => ({
         from: {
           nodeId: normalizedNodeIds.get(output.fromStep) || normalizeStepId(output.fromStep),
           port: output.output,
@@ -558,7 +553,7 @@ export function buildGeneratedWorkflowRunSpec({
         runtime: normalizeStepRuntime(step.runtime),
       };
     }),
-    exposeOutputs: draft.exposeOutputs.map((output) => ({
+    outputs: draft.outputs.map((output) => ({
       fromStep: normalizedStepIds.get(output.fromStep) || normalizeStepId(output.fromStep),
       output: output.output,
       as: output.as,
@@ -696,18 +691,6 @@ function isStepBinding(binding: GeneratedWorkflowInputBinding | undefined): bind
 
 function isUploadBinding(binding: GeneratedWorkflowInputBinding | undefined): binding is { fromUpload: number } {
   return Boolean(binding && typeof binding === "object" && "fromUpload" in binding);
-}
-
-function isInputRoleBinding(binding: GeneratedWorkflowInputBinding | undefined): binding is { fromInput: string } {
-  return Boolean(binding && typeof binding === "object" && "fromInput" in binding);
-}
-
-function inputRoleExists(role: string, inputCount: number) {
-  if (role === "input") return inputCount > 0;
-  const match = /^input_(\d+)$/.exec(role);
-  if (!match) return false;
-  const index = Number(match[1]);
-  return index >= 2 && index <= inputCount;
 }
 
 function normalizeStepInputBindings(

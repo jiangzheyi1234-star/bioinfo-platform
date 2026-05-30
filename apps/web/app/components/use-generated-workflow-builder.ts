@@ -156,7 +156,7 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
               ])
             ),
           })),
-      exposeOutputs: draft.exposeOutputs.filter((output) => output.fromStep !== action.stepId),
+      outputs: draft.outputs.filter((output) => output.fromStep !== action.stepId),
     }));
   }
   if (action.type === "set_step_id") {
@@ -199,18 +199,18 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     };
   }
   if (action.type === "add_output") {
-    return updateStepDraft(state, (draft) => ({ ...draft, exposeOutputs: [...draft.exposeOutputs, action.output] }));
+    return updateStepDraft(state, (draft) => ({ ...draft, outputs: [...draft.outputs, action.output] }));
   }
   if (action.type === "remove_output") {
     return updateStepDraft(state, (draft) => ({
       ...draft,
-      exposeOutputs: draft.exposeOutputs.filter((_, index) => index !== action.index),
+      outputs: draft.outputs.filter((_, index) => index !== action.index),
     }));
   }
   if (action.type === "set_output") {
     return updateStepDraft(state, (draft) => ({
       ...draft,
-      exposeOutputs: draft.exposeOutputs.map((output, index) => index === action.index ? action.output : output),
+      outputs: draft.outputs.map((output, index) => index === action.index ? action.output : output),
     }));
   }
   if (action.type === "set_resource") {
@@ -238,7 +238,7 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
         );
         return step.id === stepId ? { ...step, id: trimmed, inputs } : { ...step, inputs };
       }),
-      exposeOutputs: draft.exposeOutputs.map((output) =>
+      outputs: draft.outputs.map((output) =>
         output.fromStep === stepId ? { ...output, fromStep: trimmed } : output
       ),
   }));
@@ -248,7 +248,7 @@ function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools
   const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);
   const stepIndex = draft.steps.findIndex((step) => step.id === stepId);
   const upstreamSteps = stepIndex >= 0 ? draft.steps.slice(0, stepIndex) : [];
-  const inputs = Object.fromEntries(
+  const inputs: Record<string, GeneratedWorkflowInputBinding> = Object.fromEntries(
     readRuleInputs(tool).map((input) => [
       input.name,
       findCompatibleOutputBinding(input, upstreamSteps, tools) || "",
@@ -258,7 +258,7 @@ function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools
   const params = createStepParams(tool);
   return updateStepDraft(state, (current) => ({
     steps: current.steps.map((step) => step.id === stepId ? { ...step, toolId: tool.id, inputs, params } : step),
-    exposeOutputs: current.exposeOutputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
+    outputs: current.outputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
   }));
 }
 

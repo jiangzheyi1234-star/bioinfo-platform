@@ -7,7 +7,7 @@ from typing import Any
 COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"]
 
 
-def build_output_port_specs(rule_template: dict[str, Any], tool: dict[str, Any]) -> dict[str, dict[str, str]]:
+def build_output_port_specs(rule_template: dict[str, Any]) -> dict[str, dict[str, str]]:
     return {
         name: _port_spec(item)
         for item in _rule_io_items(rule_template, "outputs")
@@ -20,23 +20,24 @@ def validate_input_binding_compatibility(
     input_name: str,
     binding: Any,
     rule_template: dict[str, Any],
-    tool: dict[str, Any],
     upstream_output_specs: dict[str, dict[str, dict[str, str]]],
 ) -> None:
     if not isinstance(binding, dict):
         return
-    from_step = str(binding.get("fromStep") or binding.get("step") or "").strip()
+    from_step = str(binding.get("fromStep") or "").strip()
     if not from_step:
         return
-    output_name = str(binding.get("output") or binding.get("fromOutput") or "tool_output").strip()
+    output_name = str(binding.get("output") or "").strip()
+    if not output_name:
+        raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
     source_specs = upstream_output_specs.get(_safe_identifier(from_step)) or {}
     output_spec = source_specs.get(output_name) or {}
-    input_spec = _input_port_spec(rule_template, tool, input_name)
+    input_spec = _input_port_spec(rule_template, input_name)
     if not _ports_compatible(input_spec, output_spec):
         raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: {from_step}.{output_name} -> {input_name}")
 
 
-def _input_port_spec(rule_template: dict[str, Any], tool: dict[str, Any], input_name: str) -> dict[str, str]:
+def _input_port_spec(rule_template: dict[str, Any], input_name: str) -> dict[str, str]:
     for item in _rule_io_items(rule_template, "inputs"):
         if str(item.get("name") or "").strip() == input_name:
             return _port_spec(item)

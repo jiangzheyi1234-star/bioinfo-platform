@@ -176,9 +176,7 @@ function inputPathForRulePort(
   const edge = draft.edges.find((item) => item.to.nodeId === node.id && item.to.port === input.name);
   if (edge) return outputPaths.get(portKey(edge.from.nodeId, edge.from.port)) || `results/${edge.from.nodeId}/${edge.from.port}`;
   const binding = node.inputs[input.name];
-  if (typeof binding === "string") return binding || `inputs/${input.name || index + 1}`;
   if (binding && "fromUpload" in binding) return `inputs/upload_${binding.fromUpload + 1}`;
-  if (binding && "fromInput" in binding) return `inputs/${binding.fromInput}`;
   return `inputs/${input.name || index + 1}`;
 }
 
@@ -205,8 +203,8 @@ function exposedTargetPaths(
   toolById: Map<string, AddedTool>,
   outputPaths: Map<string, string>
 ) {
-  if (draft.exposeOutputs.length > 0) {
-    return draft.exposeOutputs.map((output) => outputPaths.get(portKey(output.fromStep, output.output)) || output.output);
+  if (draft.outputs.length > 0) {
+    return draft.outputs.map((output) => outputPaths.get(portKey(output.fromStep, output.output)) || output.output);
   }
   const consumed = new Set(draft.edges.map((edge) => portKey(edge.from.nodeId, edge.from.port)));
   const leafTargets = draft.nodes.flatMap((node) =>
