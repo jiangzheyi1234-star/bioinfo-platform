@@ -1,7 +1,6 @@
 import {
   COMPATIBILITY_FIELDS,
   describePortCompatibility,
-  type RulePortCapabilityMetadata,
   type RulePortCompatibilityField,
   type RulePortCompatibilitySpec,
 } from "./generated-workflow-port-contract";
@@ -25,11 +24,10 @@ export type RulePortEdgeAudit = {
   reason: string;
 };
 
-type RulePortRecommendationPort = RulePortCompatibilitySpec &
-  RulePortCapabilityMetadata & {
-    name?: string;
-    required?: boolean;
-  };
+type RulePortRecommendationPort = RulePortCompatibilitySpec & {
+  name?: string;
+  required?: boolean;
+};
 
 export function explainPortRecommendation(
   input: RulePortRecommendationPort,
@@ -48,11 +46,9 @@ export function explainPortRecommendation(
   }
 
   const matched = matchedFields(input, output);
-  const capability = capabilityEvidence(input, output);
-  const hasStrongEvidence = matched.length > 0 || Boolean(capability);
+  const hasStrongEvidence = matched.length > 0;
   const evidence = [
     hasStrongEvidence ? compatibility : "类型证据不足，保留为手动连接",
-    capability,
     hasStrongEvidence ? portNameEvidence(input, output) : "",
     hasStrongEvidence ? (input.required !== false ? "目标 input 为必填端口" : "目标 input 为可选端口") : "",
   ].filter((value): value is string => Boolean(value));
@@ -62,7 +58,7 @@ export function explainPortRecommendation(
     hardChecks: ["端口方向 output -> input", "类型字段无冲突"],
     evidence,
     confidence: hasStrongEvidence
-      ? recommendationConfidence({ matchedFields: matched.length, hasCapabilityEvidence: Boolean(capability), required: input.required !== false })
+      ? recommendationConfidence({ matchedFields: matched.length, required: input.required !== false })
       : 0.2,
     reason: compatibility,
   };
@@ -102,13 +98,6 @@ function mismatchedField(
   });
 }
 
-function capabilityEvidence(input: RulePortRecommendationPort, output: RulePortRecommendationPort): string {
-  const inputCapability = input.capabilityLabel || input.capabilityId || input.capabilityOperation || "";
-  const outputCapability = output.capabilityLabel || output.capabilityId || output.capabilityOperation || "";
-  if (!inputCapability && !outputCapability) return "";
-  return `能力来源 ${outputCapability || "output"} -> ${inputCapability || "input"}`;
-}
-
 function portNameEvidence(input: RulePortRecommendationPort, output: RulePortRecommendationPort): string {
   const inputName = stringValue(input.name);
   const outputName = stringValue(output.name);
@@ -117,15 +106,13 @@ function portNameEvidence(input: RulePortRecommendationPort, output: RulePortRec
 }
 
 function recommendationConfidence({
-  hasCapabilityEvidence,
   matchedFields,
   required,
 }: {
-  hasCapabilityEvidence: boolean;
   matchedFields: number;
   required: boolean;
 }) {
-  const score = 0.35 + matchedFields * 0.1 + (hasCapabilityEvidence ? 0.1 : 0) + (required ? 0.05 : 0);
+  const score = 0.35 + matchedFields * 0.1 + (required ? 0.05 : 0);
   return Math.min(0.95, Number(score.toFixed(2)));
 }
 

@@ -1,5 +1,5 @@
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
-import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
+import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/lib/async-cache";
 
 import {
   REMOTE_BROWSER_PAGE_SIZE,
@@ -16,6 +16,8 @@ type FetchOptions = {
 
 const DATABASES_CACHE_KEY = "workflow:databases";
 const DATABASE_TEMPLATES_CACHE_KEY = "databases:templates";
+const DATABASES_CACHE_TTL_MS = 30_000;
+const DATABASE_TEMPLATES_CACHE_TTL_MS = 60_000;
 
 function refreshQuery(options: FetchOptions) {
   return options.forceRefresh ? "?refresh=true" : "";
@@ -59,7 +61,7 @@ export type UpdateDatabaseInput = {
 };
 
 export async function fetchDatabases(options: FetchOptions = {}): Promise<DatabaseItem[]> {
-  return cachedAsync(DATABASES_CACHE_KEY, 30_000, async () => {
+  return cachedAsync(DATABASES_CACHE_KEY, DATABASES_CACHE_TTL_MS, async () => {
     const response = await requestLocalApiJson<DatabasesResponse>("GET", `/api/v1/databases${refreshQuery(options)}`, { cache: "no-store" });
     return response.data.items;
   }, {
@@ -68,7 +70,7 @@ export async function fetchDatabases(options: FetchOptions = {}): Promise<Databa
 }
 
 export async function fetchDatabaseTemplates(options: FetchOptions = {}): Promise<DatabaseTemplate[]> {
-  return cachedAsync(DATABASE_TEMPLATES_CACHE_KEY, 60_000, async () => {
+  return cachedAsync(DATABASE_TEMPLATES_CACHE_KEY, DATABASE_TEMPLATES_CACHE_TTL_MS, async () => {
     const response = await requestLocalApiJson<DatabaseTemplatesResponse>(
       "GET",
       `/api/v1/database-templates${refreshQuery(options)}`,
@@ -78,6 +80,14 @@ export async function fetchDatabaseTemplates(options: FetchOptions = {}): Promis
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export function getCachedDatabases(): DatabaseItem[] | undefined {
+  return peekAsyncCache<DatabaseItem[]>(DATABASES_CACHE_KEY);
+}
+
+export function getCachedDatabaseTemplates(): DatabaseTemplate[] | undefined {
+  return peekAsyncCache<DatabaseTemplate[]>(DATABASE_TEMPLATES_CACHE_KEY);
 }
 
 export async function browseRemoteFiles({

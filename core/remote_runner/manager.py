@@ -1065,7 +1065,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             if marker != "busy":
                 raise RemoteRunnerManagerError(f"acquire remote install lock: unexpected response {marker!r}")
             bootstrap_metadata["install_lock"]["waited"] = True
-            reclaimed = self._reclaim_legacy_stale_install_lock(
+            reclaimed = self._reclaim_stale_install_lock(
                 ssh_service=ssh_service,
                 lock_dir=lock_dir,
             )
@@ -1077,7 +1077,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
         raise RemoteRunnerManagerError(f"remote runner install lock is busy: {lock_dir}")
 
     @staticmethod
-    def _reclaim_legacy_stale_install_lock(*, ssh_service, lock_dir: str, min_age_seconds: int = 120) -> bool:
+    def _reclaim_stale_install_lock(*, ssh_service, lock_dir: str, min_age_seconds: int = 120) -> bool:
         command = r"""
 set -u
 LOCK=$1
@@ -1170,7 +1170,8 @@ printf reclaimed
         try:
             return self._workflow_artifact_provider.resolve(version=version, platform=platform)
         except RemoteRunnerArtifactError as exc:
-            if not allow_remote_workflow_runtime_registration(): raise RemoteRunnerManagerError(workflow_runtime_artifact_required_message()) from exc
+            if not allow_remote_workflow_runtime_registration():
+                raise RemoteRunnerManagerError(workflow_runtime_artifact_required_message()) from exc
             return self._resolve_remote_workflow_artifact(
                 ssh_service=ssh_service,
                 version=version,

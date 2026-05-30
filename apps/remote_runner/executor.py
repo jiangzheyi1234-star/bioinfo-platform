@@ -13,7 +13,6 @@ from .tool_contract_validation import _validate_outputs
 from .workflow_resources import build_workflow_resource_config
 from .storage import (
     append_log_lines,
-    fetch_run,
     fetch_upload,
     persist_artifact,
     update_run_state,
@@ -131,7 +130,7 @@ def run_snakemake_execution(
                     resolved_inputs=resolved_inputs,
                     work_dir=work_dir,
                     result_dir=result_dir,
-                    require_workflow_ready=fetch_run(cfg, run_id) is not None,
+                    require_workflow_ready=True,
                 )
                 snakefile = generated.snakefile
                 config_path = generated.config_path

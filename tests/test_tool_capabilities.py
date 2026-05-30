@@ -157,7 +157,6 @@ def test_tool_search_attaches_matching_snakemake_wrappers(monkeypatch) -> None:
     assert item["snakemakeWrappers"][0]["toolName"] == "samtools"
     assert item["snakemakeWrappers"][0]["wrapperRef"] == "test-wrapper-ref"
     assert item["snakemakeWrappers"][0]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
-    assert item["snakemakeWrappers"][0]["ruleTemplateDraft"]["requiresUserCompletion"] is True
     assert item["snakemakeWrappers"][0]["ruleSpecDraft"]["lock"]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
     assert item["ruleSpecDraft"]["source"] == "snakemake-wrapper"
     assert item["ruleSpecDraft"]["lock"]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
@@ -245,11 +244,6 @@ def _samtools_sort_wrapper(name: str) -> dict[str, Any]:
         "wrapperIdentifier": "test-wrapper-ref/bio/samtools/sort",
         "wrapperUrl": root,
         "environmentUrl": f"{root}/environment.yaml",
-        "ruleTemplateDraft": {
-            "source": "snakemake-wrapper",
-            "wrapper": "test-wrapper-ref/bio/samtools/sort",
-            "requiresUserCompletion": True,
-        },
         "ruleSpecDraft": {
             "source": "snakemake-wrapper",
             "requiresUserCompletion": True,

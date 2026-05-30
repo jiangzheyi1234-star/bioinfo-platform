@@ -4,7 +4,6 @@ import base64
 import binascii
 import hashlib
 import json
-import os
 import sqlite3
 import time
 import uuid

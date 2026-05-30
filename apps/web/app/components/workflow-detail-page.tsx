@@ -71,7 +71,6 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
             submittedRun={state.submittedRun}
             submitting={state.submitting}
             runDetail={state.runDetail}
-            runDetailError={state.runDetailError}
             workflowResources={state.workflowResources}
             onWorkflowResourceBindingChange={state.setWorkflowResourceBinding}
             missingRequiredResourceKeys={state.missingRequiredResourceKeys}

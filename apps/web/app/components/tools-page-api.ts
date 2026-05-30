@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
-import { invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
+import { cachedAsync, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/lib/async-cache";
 
 import {
   type AddedTool,
@@ -12,20 +12,42 @@ import {
   uniqueDependencies,
 } from "./tools-page-model";
 
+const ADDED_TOOLS_CACHE_KEY = "tools:added";
+const ADDED_TOOLS_CACHE_TTL_MS = 30_000;
 const TOOL_SEARCH_REQUEST_TIMEOUT_MS = 90_000;
 
 function invalidateWorkflowToolCaches() {
   invalidateAsyncCachePrefix("workflow:");
+  invalidateAsyncCachePrefix("tools:");
 }
 
-export async function fetchAddedTools(): Promise<AddedTool[]> {
-  const response = await requestLocalApiJson<ToolsResponse>("GET", "/api/v1/tools", { cache: "no-store" });
+function refreshQuery(options: { forceRefresh?: boolean }) {
+  return options.forceRefresh ? "?refresh=true" : "";
+}
+
+function normalizeAddedTools(response: ToolsResponse): AddedTool[] {
   return uniqueDependencies(
     (response.data.items || []).map((item) => ({
       ...item,
       selectedVersion: item.version || "",
       selectedPackageSpec: item.packageSpec,
     }))
+  );
+}
+
+export function getCachedAddedTools(): AddedTool[] | undefined {
+  return peekAsyncCache<AddedTool[]>(ADDED_TOOLS_CACHE_KEY);
+}
+
+export async function fetchAddedTools(options: { forceRefresh?: boolean } = {}): Promise<AddedTool[]> {
+  return cachedAsync(
+    ADDED_TOOLS_CACHE_KEY,
+    ADDED_TOOLS_CACHE_TTL_MS,
+    async () => {
+      const response = await requestLocalApiJson<ToolsResponse>("GET", `/api/v1/tools${refreshQuery(options)}`, { cache: "no-store" });
+      return normalizeAddedTools(response);
+    },
+    { forceRefresh: options.forceRefresh }
   );
 }
 

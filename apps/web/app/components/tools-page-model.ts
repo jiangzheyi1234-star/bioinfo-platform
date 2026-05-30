@@ -132,7 +132,6 @@ export type SnakemakeWrapperMatch = {
   wrapperIdentifier?: string;
   wrapperUrl: string;
   environmentUrl?: string;
-  ruleTemplateDraft?: RuleSpecDraft;
   ruleSpecDraft?: RuleSpecDraft;
 };
 
@@ -387,7 +386,6 @@ export function applySelectedPackageLock<T extends ToolSearchItem>(
     snakemakeWrappers: tool.snakemakeWrappers?.map((wrapper) => ({
       ...wrapper,
       ruleSpecDraft: syncDraft(wrapper.ruleSpecDraft),
-      ruleTemplateDraft: syncDraft(wrapper.ruleTemplateDraft),
     })),
   };
 }

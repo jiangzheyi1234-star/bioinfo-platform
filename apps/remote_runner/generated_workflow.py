@@ -63,7 +63,7 @@ def prepare_generated_tool_workflow(
     resolved_inputs: list[dict[str, Any]],
     work_dir: Path,
     result_dir: Path,
-    require_workflow_ready: bool = False,
+    require_workflow_ready: bool = True,
 ) -> GeneratedWorkflow:
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")

@@ -180,9 +180,6 @@ def _first_wrapper_rule_spec_draft(wrappers: list[dict[str, Any]]) -> dict[str, 
         draft = wrapper.get("ruleSpecDraft")
         if isinstance(draft, dict):
             return draft
-        legacy = wrapper.get("ruleTemplateDraft")
-        if isinstance(legacy, dict):
-            return legacy
     return None
 
 

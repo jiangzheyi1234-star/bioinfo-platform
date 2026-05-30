@@ -16,7 +16,6 @@ from config import (
     store_runner_token,
     store_ssh_password,
 )
-from core.data.project_manager import ProjectInfo, ProjectManager
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
@@ -57,11 +56,9 @@ class ServiceLocator:
 class RuntimeService(RunnerOperationsMixin):
     def __init__(
         self,
-        project_manager: Optional[ProjectManager] = None,
         service_locator: Optional[ServiceLocator] = None,
     ) -> None:
         self._lock = threading.RLock()
-        self._project_manager = project_manager or ProjectManager()
         self._service_locator = service_locator or ServiceLocator()
         self._initialized = False
         self._terminal_sessions: dict[str, TerminalSession] = {}
@@ -90,91 +87,6 @@ class RuntimeService(RunnerOperationsMixin):
             self._close_all_terminal_sessions()
             self._service_locator.shutdown()
             self._initialized = False
-
-    def list_projects(
-        self, sort_by: str = "created_at", include_archived: bool = False
-    ) -> list[dict]:
-        with self._lock:
-            self._ensure_initialized()
-            projects = self._project_manager.list_projects()
-            if not include_archived:
-                projects = [p for p in projects if p.status != "archived"]
-            return [self._project_to_dict(p) for p in projects]
-
-    def get_current_project(self) -> Optional[dict]:
-        with self._lock:
-            self._ensure_initialized()
-            p = self._project_manager.current_project
-            return self._project_to_dict(p) if p else None
-
-    def get_project(self, project_id: str) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            project = next((p for p in self._project_manager.list_projects() if p.project_id == project_id), None)
-            if project is None:
-                raise RuntimeServiceError(f"Project not found: {project_id}")
-            return self._project_to_dict(project)
-
-    def create_project(
-        self, name: str, description: str = "", open_after_create: bool = True
-    ) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            project_id = self._project_manager.create_project(name, description)
-            if open_after_create:
-                p = self._project_manager.open_project(project_id)
-            else:
-                p = [
-                    p
-                    for p in self._project_manager.list_projects()
-                    if p.project_id == project_id
-                ][0]
-            return self._project_to_dict(p)
-
-    def open_project(self, project_id: str) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            p = self._project_manager.open_project(project_id)
-            return self._project_to_dict(p)
-
-    def update_project(self, project_id: str, patch: dict) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            name = patch.get("name")
-            desc = patch.get("description")
-            p = self._project_manager.update_project(
-                project_id, name=name, description=desc
-            )
-            return self._project_to_dict(p)
-
-    def archive_project(self, project_id: str) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            self._project_manager.archive_project(project_id)
-            return {"project_id": project_id, "status": "archived"}
-
-    def restore_project(self, project_id: str) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            p = self._project_manager.restore_project(project_id)
-            return self._project_to_dict(p)
-
-    def delete_project(self, project_id: str) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            self._project_manager.delete_project(project_id)
-            return {"project_id": project_id, "status": "deleted"}
-
-    def get_settings(self) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            current = get_config()
-            cfg = {**current}
-            ssh_current = current.get("ssh", {})
-            if isinstance(ssh_current, dict):
-                ssh = normalize_ssh_config(ssh_current)
-                cfg["ssh"] = ssh
-            return cfg
 
     def list_servers(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -372,17 +284,6 @@ class RuntimeService(RunnerOperationsMixin):
                 },
             )
         return {"data": {"serverId": server_id, "tokenRotated": True, "rotatedAt": rotated_at}}
-
-    def update_settings(self, patch: dict) -> dict:
-        with self._lock:
-            self._ensure_initialized()
-            current = get_config()
-            merged = self._merge_patch(current, patch)
-            if isinstance(merged.get("ssh"), dict):
-                normalized_ssh = normalize_ssh_config(merged["ssh"])
-                merged["ssh"] = normalized_ssh
-            save_config(merged)
-            return self.get_settings()
 
     def get_ssh_status(self) -> dict:
         with self._lock:
@@ -827,18 +728,6 @@ class RuntimeService(RunnerOperationsMixin):
         )
         thread.start()
 
-    @staticmethod
-    def _project_to_dict(p: ProjectInfo) -> dict:
-        return {
-            "project_id": p.project_id,
-            "name": p.name,
-            "description": p.description,
-            "status": p.status,
-            "created_at": p.created_at,
-            "last_opened_at": getattr(p, "last_opened_at", 0),
-            "remote_base": getattr(p, "remote_base", ""),
-        }
-
     def _get_server_registry(self) -> dict[str, dict[str, Any]]:
         current = get_config()
         raw = current.get("servers", {})
@@ -1174,19 +1063,3 @@ class RuntimeService(RunnerOperationsMixin):
             if isinstance(snapshot, dict):
                 status["runner"] = self._compose_runner_payload(registry_entry=registry_entry, health=snapshot)
         return status
-
-    @staticmethod
-    def _merge_patch(current: dict, patch: dict) -> dict:
-        merged = dict(current)
-        for section, value in patch.items():
-            if section == "version":
-                continue
-            if (
-                section in merged
-                and isinstance(merged[section], dict)
-                and isinstance(value, dict)
-            ):
-                merged[section] = {**merged[section], **value}
-            else:
-                merged[section] = value
-        return merged

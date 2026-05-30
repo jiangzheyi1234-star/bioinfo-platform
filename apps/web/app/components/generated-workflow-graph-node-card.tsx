@@ -117,14 +117,6 @@ function RulePortColumn({
                   >
                     {state.label}
                   </span>
-                  {port.capabilityLabel ? (
-                    <span
-                      className="block truncate text-[10px] text-violet-500"
-                      title={`能力来源: ${port.capabilityLabel}`}
-                    >
-                      能力来源 · {port.capabilityLabel}
-                    </span>
-                  ) : null}
                 </span>
               </span>
             );

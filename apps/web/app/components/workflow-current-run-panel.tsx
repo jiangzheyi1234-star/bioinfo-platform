@@ -52,8 +52,6 @@ export function WorkflowCurrentRunPanel({
 
   const artifacts = detail?.results?.artifacts || [];
   const failed = run.status === "failed" || run.status === "error";
-  const completed = run.status === "completed" || run.status === "success";
-  const running = run.status === "running";
 
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">

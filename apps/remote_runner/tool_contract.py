@@ -201,10 +201,6 @@ def _selected_rule_entry(tool: dict[str, Any]) -> dict[str, Any]:
     manifest = tool.get("ruleTemplate") if isinstance(tool.get("ruleTemplate"), dict) else {}
     if _has_rule_template_shape(manifest):
         return {"source": "manifest", "template": manifest}
-    draft = tool.get("ruleSpecDraft") if isinstance(tool.get("ruleSpecDraft"), dict) else {}
-    draft_template = draft.get("ruleTemplate") if isinstance(draft.get("ruleTemplate"), dict) else {}
-    if _has_rule_template_shape(draft_template):
-        return {"source": str(draft.get("source") or "draft"), "template": draft_template}
     return {"source": "", "template": {}}
 
 

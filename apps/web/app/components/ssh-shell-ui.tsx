@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, Settings, Square, Workflow, X } from "lucide-react";
+import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, Square, Workflow, X } from "lucide-react";
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -302,7 +302,6 @@ export function SshSidebar({
   onDisconnect,
   onEnsureRunner,
 }: SshSidebarProps) {
-  const settingsActive = pathname.startsWith("/settings");
   const workflowsActive = pathname.startsWith("/workflows");
   const resultsActive = pathname.startsWith("/workflows/results");
   const workflowCatalogActive = workflowsActive && !resultsActive;
@@ -441,26 +440,6 @@ export function SshSidebar({
           </Button>
         </div>
 
-        <div className="mt-auto px-0 pt-3 md:px-2">
-          <Button
-            asChild
-            variant="ghost"
-            className={cn(
-              "h-8 w-full justify-center px-0 md:justify-start",
-              settingsActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
-            )}
-          >
-            <Link href="/settings" aria-current={settingsActive ? "page" : undefined}>
-              <span className="flex w-8 justify-center md:w-6">
-                <Settings
-                  strokeWidth={1.5}
-                  className={cn("size-4", settingsActive ? "text-zinc-900" : "text-zinc-500")}
-                />
-              </span>
-              <span className="sr-only md:not-sr-only">设置</span>
-            </Link>
-          </Button>
-        </div>
       </div>
     </aside>
   );

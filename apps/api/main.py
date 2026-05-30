@@ -11,7 +11,6 @@ from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.models import (
-    CreateProjectRequest,
     DatabaseManifestRequest,
     DatabaseUpdateRequest,
     RunSubmitRequest,
@@ -20,9 +19,6 @@ from apps.api.models import (
     ToolManifestRequest,
     ToolRuleTemplateRequest,
     UploadSubmitRequest,
-    UpdateProjectRequest,
-    UpdateSettingsRequest,
-    WorkflowDraftRequest,
 )
 from apps.api.run_submission_status import classify_run_submission_status
 from apps.api.runtime import get_runtime_service
@@ -33,14 +29,6 @@ from apps.api.workflow_catalog_routes import router as workflow_catalog_router
 from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
 from apps.api.response_cache import cached_response, invalidate_response_cache
 from apps.api.problem_details import ensure_request_id, problem_http_exception
-from apps.api.workflow_templates import (
-    create_workflow_draft,
-    get_workflow_template,
-    list_workflow_drafts,
-    list_workflow_modules,
-    list_workflow_templates,
-    validate_workflow_draft,
-)
 from core.app_runtime.errors import RuntimeServiceError
 
 
@@ -175,26 +163,6 @@ async def get_version() -> dict[str, Any]:
             "backend_source": os.environ.get("H2OMETA_BACKEND_SOURCE", "unknown"),
         }
     }
-
-
-@app.get("/api/v1/settings")
-async def get_settings() -> dict[str, Any]:
-    return await _run_runtime_payload(
-        _runtime().get_settings,
-        status_code=400,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="item",
-    )
-
-
-@app.put("/api/v1/settings")
-async def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().update_settings(payload.patch),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
-        wrapper="item",
-    )
 
 
 @app.get("/api/v1/ssh/status")
@@ -402,20 +370,6 @@ async def test_ssh_connection(
     )
 
 
-@app.get("/api/v1/projects")
-async def list_projects(
-    sort_by: str = "created_at", include_archived: bool = False
-) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().list_projects(
-            sort_by=sort_by, include_archived=include_archived
-        ),
-        status_code=400,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="items",
-    )
-
-
 @app.get("/api/v1/runs")
 async def list_runs(refresh: bool = False) -> dict[str, Any]:
     return await _cached_runtime_payload(
@@ -467,46 +421,6 @@ async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str,
     response.headers["X-Request-Id"] = str(result.get("requestId") or request_id)
     await invalidate_response_cache("runs")
     return result
-
-
-@app.get("/api/v1/pipelines")
-async def list_pipelines(refresh: bool = False) -> dict[str, Any]:
-    return await _cached_runtime_payload(
-        "pipelines",
-        30,
-        _runtime().list_pipelines,
-        status_code=400,
-        handled_errors=(RuntimeServiceError,),
-        force_refresh=refresh,
-    )
-
-
-@app.get("/api/v1/pipelines/{pipeline_id}")
-async def get_pipeline(pipeline_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().get_pipeline(pipeline_id),
-        status_code=404,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="data",
-    )
-
-
-@app.get("/api/v1/workflow-templates")
-async def get_workflow_templates() -> dict[str, Any]:
-    return list_workflow_templates()
-
-
-@app.get("/api/v1/workflow-templates/{template_id}")
-async def get_workflow_template_api(template_id: str) -> dict[str, Any]:
-    try:
-        return get_workflow_template(template_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/workflow-modules")
-async def get_workflow_modules() -> dict[str, Any]:
-    return list_workflow_modules()
 
 
 @app.get("/api/v1/tools")
@@ -653,27 +567,6 @@ async def check_database_api(database_id: str) -> dict[str, Any]:
     return result
 
 
-@app.post("/api/v1/workflow-drafts/validate")
-async def validate_workflow_draft_api(payload: WorkflowDraftRequest) -> dict[str, Any]:
-    try:
-        return validate_workflow_draft(payload.model_dump(exclude_none=True))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@app.get("/api/v1/workflow-drafts")
-async def get_workflow_drafts() -> dict[str, Any]:
-    return list_workflow_drafts()
-
-
-@app.post("/api/v1/workflow-drafts", status_code=201)
-async def create_workflow_draft_api(payload: WorkflowDraftRequest) -> dict[str, Any]:
-    try:
-        return create_workflow_draft(payload.model_dump(exclude_none=True))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
 @app.get("/api/v1/runs/{run_id}")
 async def get_run(run_id: str) -> dict[str, Any]:
     return await _run_runtime_payload(
@@ -745,89 +638,3 @@ async def get_result_preview(result_id: str, artifact_id: str | None = None) -> 
         wrapper="data",
     )
 
-
-@app.get("/api/v1/projects/current")
-async def get_current_project() -> dict[str, Any]:
-    return await _run_runtime_payload(
-        _runtime().get_current_project,
-        status_code=400,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="item",
-    )
-
-
-@app.get("/api/v1/projects/{project_id}")
-async def get_project(project_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().get_project(project_id),
-        status_code=404,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="data",
-    )
-
-
-@app.post("/api/v1/projects")
-async def create_project(payload: CreateProjectRequest) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().create_project(
-            name=payload.name,
-            description=payload.description,
-            open_after_create=payload.open_after_create,
-        ),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, KeyError),
-        wrapper="item",
-    )
-
-
-@app.patch("/api/v1/projects/{project_id}")
-async def update_project(
-    project_id: str, payload: UpdateProjectRequest
-) -> dict[str, Any]:
-    patch = payload.model_dump(exclude_none=True)
-    return await _run_runtime_payload(
-        lambda: _runtime().update_project(project_id=project_id, patch=patch),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
-        wrapper="item",
-    )
-
-
-@app.post("/api/v1/projects/{project_id}/archive")
-async def archive_project(project_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().archive_project(project_id=project_id),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
-        wrapper="item",
-    )
-
-
-@app.post("/api/v1/projects/{project_id}/restore")
-async def restore_project(project_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().restore_project(project_id=project_id),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
-        wrapper="item",
-    )
-
-
-@app.delete("/api/v1/projects/{project_id}")
-async def delete_project(project_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().delete_project(project_id=project_id),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
-        wrapper="item",
-    )
-
-
-@app.post("/api/v1/projects/{project_id}/open")
-async def open_project(project_id: str) -> dict[str, Any]:
-    return await _run_runtime_payload(
-        lambda: _runtime().open_project(project_id),
-        status_code=400,
-        handled_errors=(RuntimeServiceError, ValueError, KeyError, FileNotFoundError),
-        wrapper="item",
-    )

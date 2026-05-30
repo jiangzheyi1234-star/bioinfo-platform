@@ -119,17 +119,6 @@ if (failures.length > 0) {{
 """
 
 
-def test_databases_page_does_not_ship_legacy_template_fallbacks() -> None:
-    source = _source()
-
-    _assert_not_contains(
-        source,
-        "FALLBACK_DATABASE_TEMPLATES",
-        "setTemplates(FALLBACK",
-        "ensureDatabaseAvailable",
-    )
-
-
 def test_template_model_keeps_path_kind_and_stable_template_contract() -> None:
     source = _source("model")
 

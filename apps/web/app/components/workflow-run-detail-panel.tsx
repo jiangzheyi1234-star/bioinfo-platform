@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   AlertCircle,
-  CheckCircle2,
   Clock,
   FileCode,
   FileText,
@@ -12,7 +11,6 @@ import {
   Package,
   Table,
   Terminal,
-  XCircle,
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -43,42 +41,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "stdout", label: "stdout" },
   { key: "stderr", label: "stderr" },
 ];
-
-/* ─── Status helpers ─── */
-
-function StatusBadge({ status }: { status: string }) {
-  const s = status.toLowerCase();
-  if (s === "completed" || s === "success") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
-        <CheckCircle2 strokeWidth={1.5} className="h-4 w-4" />
-        完成
-      </span>
-    );
-  }
-  if (s === "failed" || s === "error") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700">
-        <XCircle strokeWidth={1.5} className="h-4 w-4" />
-        失败
-      </span>
-    );
-  }
-  if (s === "running") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-        <Loader2 strokeWidth={1.5} className="h-4 w-4 animate-spin" />
-        运行中
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-600">
-      <Clock strokeWidth={1.5} className="h-4 w-4" />
-      {status}
-    </span>
-  );
-}
 
 /* ─── Timeline ─── */
 
