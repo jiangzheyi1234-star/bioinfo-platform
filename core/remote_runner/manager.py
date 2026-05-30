@@ -20,6 +20,17 @@ from core.remote_runner.artifact import (
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.catalog import RemoteRunnerCatalogMixin
 from core.remote_runner.client import RemoteRunnerHttpClient
+from core.remote_runner.metadata import (
+    build_fast_reuse_metadata,
+    build_remote_config_payload,
+    build_remote_workflow_profile_content,
+    build_workflow_runtime_metadata,
+    compact_preview_payload,
+    mark_reuse_bootstrap_phases_skipped,
+    platform_from_metadata,
+    reuse_failed,
+    summarize_artifact,
+)
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 from core.remote_runner.readiness import RemoteRunnerReadinessMixin
 from core.remote_runner.remote_io import RemoteRunnerRemoteIoMixin
@@ -33,6 +44,17 @@ class RemoteRunnerManagerError(RuntimeError):
 
 
 class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin, RemoteRunnerProxyMixin, RemoteRunnerCatalogMixin):
+    _build_fast_reuse_metadata = staticmethod(build_fast_reuse_metadata)
+    _build_remote_config_payload = staticmethod(build_remote_config_payload)
+    _build_remote_workflow_profile_content = staticmethod(build_remote_workflow_profile_content)
+    _build_workflow_runtime_metadata = staticmethod(build_workflow_runtime_metadata)
+    _compact_preview_payload = staticmethod(compact_preview_payload)
+    _mark_reuse_bootstrap_phases_skipped = staticmethod(mark_reuse_bootstrap_phases_skipped)
+    _platform_from_metadata = staticmethod(platform_from_metadata)
+    _reuse_failed = staticmethod(reuse_failed)
+    _summarize_artifact = staticmethod(summarize_artifact)
+
+
     def __init__(
         self,
         artifact_provider: RemoteRunnerArtifactProvider | None = None,
@@ -68,7 +90,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             remote_service_python = f"{remote_release}/runtime/bin/python"
             remote_platform = self._detect_remote_platform(ssh_service)
             previous_release = self._read_current_release_target(ssh_service, remote_current)
-            fast_platform = self._platform_from_metadata(server_record) or remote_platform
+            fast_platform = platform_from_metadata(server_record) or remote_platform
             workflow_runtime_dir = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{fast_platform}"
             remote_workflow_bundle = f"{remote_tools}/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-{fast_platform}.tar.gz"
             workflow_artifact = self._resolve_workflow_artifact_for_bootstrap(
@@ -81,7 +103,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             remote_workflow_artifact_sha = f"{workflow_runtime_dir}/artifact.sha256"
             artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
 
-            fast_reuse_metadata = self._build_fast_reuse_metadata(
+            fast_reuse_metadata = build_fast_reuse_metadata(
                 server_record=server_record,
                 version=version,
                 remote_service_python=remote_service_python,
@@ -126,7 +148,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                     remote_bundle=remote_workflow_bundle,
                 )
                 remote_workflow_artifact_sha = f"{workflow_runtime_dir}/artifact.sha256"
-            workflow_runtime = self._build_workflow_runtime_metadata(
+            workflow_runtime = build_workflow_runtime_metadata(
                 artifact=workflow_artifact,
                 remote_dir=workflow_runtime_dir,
             )
@@ -500,7 +522,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
         bootstrap_metadata: dict[str, Any],
     ) -> None:
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".yaml", encoding="utf-8") as handle:
-            handle.write(cls._build_remote_workflow_profile_content(conda_prefix=remote_conda_prefix))
+            handle.write(build_remote_workflow_profile_content(conda_prefix=remote_conda_prefix))
             local_profile_path = Path(handle.name)
         try:
             cls._upload_remote_file_atomic(
@@ -521,22 +543,6 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
         profile_metadata["conda_prefix"] = remote_conda_prefix
         profile_metadata["written"] = True
         bootstrap_metadata["workflow_profile"] = profile_metadata
-
-    @staticmethod
-    def _build_remote_workflow_profile_content(*, conda_prefix: str) -> str:
-        return "\n".join(
-            [
-                "executor: local",
-                "jobs: 1",
-                "latency-wait: 60",
-                "printshellcmds: true",
-                "rerun-incomplete: true",
-                "software-deployment-method: conda",
-                "conda-frontend: conda",
-                f"conda-prefix: {conda_prefix}",
-                "",
-            ]
-        )
 
     def _run_bootstrap_canary(
         self,
@@ -628,9 +634,9 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                 "resultId": result_id,
                 "resultDir": str(run_results.get("resultDir") or ""),
                 "artifactCount": len(artifacts),
-                "artifacts": [self._summarize_artifact(item) for item in artifacts[:3]],
+                "artifacts": [summarize_artifact(item) for item in artifacts[:3]],
             }
-            canary["preview"] = self._compact_preview_payload(preview_payload)
+            canary["preview"] = compact_preview_payload(preview_payload)
             canary["ok"] = True
             canary["status"] = "passed"
             canary["message"] = "Bootstrap canary completed successfully."
@@ -675,37 +681,6 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                 f"bootstrap canary run did not reach a terminal state: {str(last_run.get('status') or 'unknown')}"
             )
         raise RemoteRunnerManagerError("bootstrap canary run did not reach a terminal state")
-
-    @staticmethod
-    def _summarize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "artifactId": str(artifact.get("artifactId") or ""),
-            "kind": str(artifact.get("kind") or ""),
-            "mimeType": str(artifact.get("mimeType") or ""),
-            "sizeBytes": int(artifact.get("sizeBytes") or 0),
-            "path": str(artifact.get("path") or ""),
-        }
-
-    @staticmethod
-    def _compact_preview_payload(preview_payload: dict[str, Any]) -> dict[str, Any]:
-        data = preview_payload.get("data") if isinstance(preview_payload.get("data"), dict) else preview_payload
-        if isinstance(data, dict):
-            preview = data.get("preview") if isinstance(data.get("preview"), dict) else data
-            artifact = data.get("artifact") if isinstance(data.get("artifact"), dict) else {}
-            compact = {
-                "artifactId": str(data.get("artifactId") or artifact.get("artifactId") or ""),
-                "kind": str(preview.get("kind") or ""),
-                "truncated": bool(preview.get("truncated")),
-            }
-            if compact["kind"] == "table":
-                compact["columns"] = preview.get("columns") if isinstance(preview.get("columns"), list) else []
-                rows = preview.get("rows") if isinstance(preview.get("rows"), list) else []
-                compact["rows"] = rows[:5]
-            else:
-                content = str(preview.get("content") or "")
-                compact["content"] = content[:1024]
-            return compact
-        return {"kind": "", "truncated": False}
 
     @classmethod
     def _attempt_release_rollback(
@@ -811,47 +786,6 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             rollback["message"] = str(exc) or "rollback failed"
         bootstrap_metadata["rollback"] = rollback
 
-    @staticmethod
-    def _build_fast_reuse_metadata(
-        *,
-        server_record: dict[str, Any],
-        version: str,
-        remote_service_python: str,
-    ) -> dict[str, Any]:
-        metadata = dict(server_record.get("bootstrap_metadata") or {})
-        preflight = dict(metadata.get("preflight") or {})
-        tooling = dict(metadata.get("tooling") or {})
-        service_runtime = dict(tooling.get("service_runtime") or {})
-        workflow_runtime = dict(tooling.get("workflow_runtime") or {})
-        runner_mode = str(server_record.get("runner_mode") or "")
-        platform = str(preflight.get("platform") or service_runtime.get("platform") or "")
-        if runner_mode:
-            preflight["launcher"] = {"mode": runner_mode}
-        if platform:
-            preflight["platform"] = platform
-        service_runtime = {
-            **service_runtime,
-            "provider": "bundled",
-            "source": "artifact",
-            "python": str(service_runtime.get("python") or remote_service_python),
-        }
-        if platform:
-            service_runtime["platform"] = platform
-        tooling["service_runtime"] = service_runtime
-        if workflow_runtime:
-            tooling["workflow_runtime"] = workflow_runtime
-        metadata["preflight"] = preflight
-        metadata["tooling"] = tooling
-        return metadata
-
-    @staticmethod
-    def _platform_from_metadata(server_record: dict[str, Any]) -> str:
-        metadata = dict(server_record.get("bootstrap_metadata") or {})
-        preflight = dict(metadata.get("preflight") or {})
-        tooling = dict(metadata.get("tooling") or {})
-        service_runtime = dict(tooling.get("service_runtime") or {})
-        return str(preflight.get("platform") or service_runtime.get("platform") or "").strip()
-
     def _try_reuse_existing_runner_fast(
         self,
         *,
@@ -927,7 +861,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             self._verify_database_template_catalog_for_reuse(client)
             bootstrap_metadata["deployment_action"] = "reused"
             bootstrap_metadata["reuse_check"] = {"ok": True, "reason": ""}
-            self._mark_reuse_bootstrap_phases_skipped(bootstrap_metadata)
+            mark_reuse_bootstrap_phases_skipped(bootstrap_metadata)
             return {
                 "bootstrap_version": version,
                 "runner_mode": str(server_record.get("runner_mode") or "background_process"),
@@ -1007,7 +941,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             self._verify_database_template_catalog_for_reuse(client)
             bootstrap_metadata["deployment_action"] = "reused"
             bootstrap_metadata["reuse_check"] = {"ok": True, "reason": ""}
-            self._mark_reuse_bootstrap_phases_skipped(bootstrap_metadata)
+            mark_reuse_bootstrap_phases_skipped(bootstrap_metadata)
             return {
                 "bootstrap_version": version,
                 "runner_mode": mode,
@@ -1120,43 +1054,6 @@ printf reclaimed
             ssh_service.run(f"rm -rf {shlex.quote(lock_dir)}", timeout=10)
         except Exception:
             return
-
-    @staticmethod
-    def _mark_reuse_bootstrap_phases_skipped(bootstrap_metadata: dict[str, Any]) -> None:
-        bootstrap_metadata["canary"] = {
-            "status": "skipped",
-            "message": "Existing runner reused; bootstrap canary was not rerun.",
-        }
-        bootstrap_metadata["rollback"] = {
-            "attempted": False,
-            "restored": False,
-            "status": "skipped",
-            "message": "Existing runner reused; rollback was not needed.",
-        }
-
-    @staticmethod
-    def _reuse_failed(bootstrap_metadata: dict[str, Any], reason: str) -> None:
-        bootstrap_metadata["reuse_check"] = {"ok": False, "reason": reason}
-        return None
-
-    @staticmethod
-    def _build_workflow_runtime_metadata(*, artifact: WorkflowRuntimeArtifact, remote_dir: str) -> dict[str, Any]:
-        packages = artifact.manifest.get("packages") if isinstance(artifact.manifest.get("packages"), dict) else {}
-        snakemake_version = str(packages.get("snakemake") or "")
-        return {
-            "provider": "conda-pack",
-            "source": "artifact",
-            "version": artifact.version,
-            "platform": artifact.platform,
-            "artifact_sha": artifact.sha256,
-            "root": remote_dir,
-            "python": f"{remote_dir}/{artifact.python_entrypoint}",
-            "command": f"{remote_dir}/{artifact.conda_entrypoint}",
-            "root_prefix": f"{remote_dir}/micromamba-root",
-            "conda_unpack": f"{remote_dir}/{artifact.conda_unpack_entrypoint}",
-            "snakemake_command": f"{remote_dir}/{artifact.snakemake_entrypoint}",
-            "snakemake_version": snakemake_version,
-        }
 
     def _resolve_workflow_artifact_for_bootstrap(
         self,
@@ -1569,51 +1466,3 @@ printf reclaimed
         if exit_code != 0:
             return ""
         return stdout.strip()
-
-    @staticmethod
-    def _build_remote_config_payload(
-        *,
-        version: str,
-        mode: str,
-        remote_port: int,
-        token: str,
-        remote_shared: str,
-        remote_release: str,
-        remote_runtime_state: str,
-        runner_python: str,
-        managed_conda_command: str,
-        managed_conda_root_prefix: str,
-        workflow_runtime_provider: str,
-        workflow_runtime_source: str,
-        workflow_runtime_version: str,
-        snakemake_command: str,
-        snakemake_version: str,
-        workflow_profile_dir: str,
-        workflow_profile_name: str,
-    ) -> dict[str, Any]:
-        return {
-            "service_name": "h2ometa-remote",
-            "version": version,
-            "mode": mode,
-            "bind_host": "127.0.0.1",
-            "bind_port": remote_port,
-            "token": token,
-            "data_root": f"{remote_shared}",
-            "db_path": f"{remote_shared}/data/runner.db",
-            "runtime_state_path": remote_runtime_state,
-            "uploads_dir": f"{remote_shared}/uploads",
-            "results_dir": f"{remote_shared}/results",
-            "work_dir": f"{remote_shared}/work",
-            "logs_dir": f"{remote_shared}/logs",
-            "release_dir": f"{remote_release}/remote_runner",
-            "runner_python": runner_python,
-            "managed_conda_command": managed_conda_command,
-            "managed_conda_root_prefix": managed_conda_root_prefix,
-            "workflow_runtime_provider": workflow_runtime_provider,
-            "workflow_runtime_source": workflow_runtime_source,
-            "workflow_runtime_version": workflow_runtime_version,
-            "snakemake_command": snakemake_command,
-            "snakemake_version": snakemake_version,
-            "workflow_profile_dir": workflow_profile_dir,
-            "workflow_profile_name": workflow_profile_name,
-        }

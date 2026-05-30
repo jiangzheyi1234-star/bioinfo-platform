@@ -5,13 +5,11 @@ from __future__ import annotations
 
 import argparse
 import base64
-import json
 import sys
 import time
-import urllib.error
-import urllib.request
 from typing import Any
 
+import remote_pipeline_common
 import remote_smoke
 
 
@@ -40,14 +38,11 @@ def build_run_submit_payload(
 
 
 def response_data(payload: dict[str, Any]) -> Any:
-    data = payload["data"]
-    if isinstance(data, dict) and set(data.keys()) == {"data"}:
-        return data["data"]
-    return data
+    return remote_pipeline_common.response_data(payload)
 
 
 def print_json(label: str, payload: Any) -> None:
-    print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
+    remote_pipeline_common.print_json(label, payload)
 
 
 def http_json(
@@ -58,46 +53,15 @@ def http_json(
     payload: dict[str, Any] | None = None,
     timeout: float = 10,
 ) -> Any:
-    body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(
-        f"{api_base.rstrip('/')}{path}",
-        data=body,
-        method=method,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8", errors="replace")
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
-        try:
-            detail: Any = json.loads(raw)
-        except json.JSONDecodeError:
-            detail = raw
-        raise RuntimeError(f"HTTP {exc.code} {path}: {detail}") from exc
+    return remote_pipeline_common.http_json(method, api_base, path, payload=payload, timeout=timeout)
 
 
 def print_failure(summary: str, *, hints: list[str], detail: str | None = None) -> None:
-    print(f"ERROR: {summary}")
-    if detail:
-        print(f"DETAIL: {detail}")
-    print("NEXT:")
-    for hint in hints:
-        print(f"  - {hint}")
+    remote_pipeline_common.print_failure(summary, hints=hints, detail=detail)
 
 
 def pipeline_diagnostics(api_base: str, run_id: str | None = None) -> list[str]:
-    hints = [
-        "Rerun `python scripts/remote_smoke.py --bootstrap` to re-check control-plane readiness/canary/rollback phases before another pipeline attempt.",
-        "Run `python scripts/inspect_remote_runner_service.py` to inspect the remote service log.",
-        f"Inspect `{api_base.rstrip('/')}/api/v1/results` after the run if result registration may have failed.",
-    ]
-    if run_id:
-        hints.insert(1, f"Inspect `{api_base.rstrip('/')}/api/v1/runs/{run_id}` and `/api/v1/runs/{run_id}/logs?stream=stderr`.")
-    else:
-        hints.insert(1, f"Inspect `{api_base.rstrip('/')}/api/v1/runs` for submission failures.")
-    return hints
+    return remote_pipeline_common.pipeline_diagnostics(api_base, run_id)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -172,14 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         run_id = submitted["runId"]
         print_json("RUN_SUBMITTED", {"runId": run_id, "status": submitted["status"], "stage": submitted["stage"]})
 
-        deadline = time.time() + args.timeout
-        final = submitted
-        while time.time() < deadline:
-            final = response_data(http_json("GET", args.api_base, f"/api/v1/runs/{run_id}", timeout=10))
-            if final["status"] in {"completed", "failed"}:
-                break
-            time.sleep(1.5)
-        else:
+        final = remote_pipeline_common.wait_for_terminal_run(args.api_base, run_id, args.timeout)
+        if final.get("status") not in remote_pipeline_common.TERMINAL_RUN_STATUSES:
             print_json(
                 "RUN_FINAL",
                 {
@@ -225,21 +183,22 @@ def main(argv: list[str] | None = None) -> int:
 
         summary = next((item for item in artifacts if item.get("mimeType") == "text/tab-separated-values"), artifacts[0])
         listed = response_data(http_json("GET", args.api_base, "/api/v1/results", timeout=10))["items"]
-        result_id = next(item["resultId"] for item in listed if item["runId"] == run_id)
+        result_id = remote_pipeline_common.result_id_for_run(listed, run_id)
         preview = response_data(http_json(
             "GET",
             args.api_base,
             f"/api/v1/results/{result_id}/preview?artifact_id={summary['artifactId']}",
             timeout=10,
         ))
+        preview_table = remote_pipeline_common.preview_table(preview)
         print_json(
             "RESULT_PREVIEW",
             {
                 "artifactId": summary["artifactId"],
                 "artifactCount": len(artifacts),
-                "previewKind": (preview.get("preview") or {}).get("kind"),
-                "columns": (preview.get("preview") or {}).get("columns"),
-                "rows": (preview.get("preview") or {}).get("rows"),
+                "previewKind": preview_table.get("kind"),
+                "columns": preview_table.get("columns"),
+                "rows": preview_table.get("rows"),
             },
         )
         print("RESULT: ok")

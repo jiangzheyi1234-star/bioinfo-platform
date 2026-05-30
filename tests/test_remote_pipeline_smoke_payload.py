@@ -10,6 +10,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import remote_pipeline_smoke
+import remote_pipeline_common
 
 
 def test_run_submit_payload_includes_required_server_id() -> None:
@@ -43,3 +44,21 @@ def test_response_data_unwraps_nested_local_api_payload() -> None:
         "runId": "run_1",
         "status": "completed",
     }
+
+
+def test_result_id_for_run_selects_matching_run() -> None:
+    assert (
+        remote_pipeline_common.result_id_for_run(
+            [
+                {"runId": "run_other", "resultId": "res_other"},
+                {"runId": "run_target", "resultId": "res_target"},
+            ],
+            "run_target",
+        )
+        == "res_target"
+    )
+
+
+def test_preview_table_requires_mapping_preview() -> None:
+    assert remote_pipeline_common.preview_table({"preview": {"rows": [["a"]]}}) == {"rows": [["a"]]}
+    assert remote_pipeline_common.preview_table({"preview": []}) == {}
