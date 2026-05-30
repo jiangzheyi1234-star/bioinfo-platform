@@ -1,51 +1,31 @@
-"""Pydantic models for API contracts."""
+"""Pydantic request models for the remote runner API."""
 
 from __future__ import annotations
 
 from typing import Any
-from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class ApiRequest(BaseModel):
+class RemoteRunnerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class SSHConnectionRequest(ApiRequest):
-    auth_mode: Literal["password_ref", "key_file", "ssh_config", "agent"] | None = None
-    ssh_host_alias: str | None = None
-    identity_ref: str | None = None
-    remember_auth: bool | None = None
-    auto_connect_on_startup: bool | None = None
-    host: str | None = None
-    port: int | None = Field(default=None, ge=1, le=65535)
-    user: str | None = None
-    password: str | None = None
-    timeout_sec: int = Field(default=5, ge=1, le=60)
+class UploadCreateRequest(RemoteRunnerRequest):
+    filename: str = Field(min_length=1)
+    contentBase64: str = Field(min_length=1)
+    mimeType: str = "application/octet-stream"
 
 
-class SSHTerminalCreateRequest(ApiRequest):
-    cols: int = Field(default=120, ge=40, le=240)
-    rows: int = Field(default=28, ge=12, le=80)
-
-
-class RunSubmitRequest(ApiRequest):
+class RunCreateRequest(RemoteRunnerRequest):
     serverId: str = Field(min_length=1)
-    runId: str | None = None
     requestId: str | None = None
-    idempotencyKey: str | None = Field(default=None, min_length=1)
     runSpec: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
-    def reject_legacy_payload_shape(cls, data: Any) -> Any:
+    def reject_legacy_run_spec_server_id(cls, data: Any) -> Any:
         if isinstance(data, dict):
-            if "pipelineId" in data:
-                raise ValueError(
-                    "UNSUPPORTED_LEGACY_PAYLOAD: top-level pipelineId is not supported; use runSpec.pipelineId"
-                )
             run_spec = data.get("runSpec")
             if isinstance(run_spec, dict) and "serverId" in run_spec:
                 raise ValueError(
@@ -53,23 +33,8 @@ class RunSubmitRequest(ApiRequest):
                 )
         return data
 
-    @model_validator(mode="after")
-    def validate_pipeline_binding(self) -> "RunSubmitRequest":
-        run_spec_pipeline_id = str(self.runSpec.get("pipelineId") or "").strip()
-        if not run_spec_pipeline_id:
-            raise ValueError("pipelineId is required")
-        return self
 
-
-class UploadSubmitRequest(ApiRequest):
-    serverId: str | None = None
-    filename: str = Field(min_length=1)
-    contentBase64: str = Field(min_length=1)
-    mimeType: str = "application/octet-stream"
-
-
-class ToolManifestRequest(ApiRequest):
-    serverId: str | None = None
+class ToolManifestRequest(RemoteRunnerRequest):
     id: str | None = None
     name: str = Field(min_length=1)
     source: str = Field(min_length=1)
@@ -89,13 +54,11 @@ class ToolManifestRequest(ApiRequest):
     snakemakeWrapperCount: int = 0
 
 
-class ToolRuleTemplateRequest(ApiRequest):
-    serverId: str | None = None
+class ToolRuleTemplateRequest(RemoteRunnerRequest):
     ruleTemplate: dict[str, Any] = Field(default_factory=dict)
 
 
-class ToolProductionEvidenceRequest(ApiRequest):
-    serverId: str | None = None
+class ToolProductionEvidenceRequest(RemoteRunnerRequest):
     runId: str | None = None
     message: str | None = None
     logPath: str | None = None
@@ -106,15 +69,13 @@ class ToolProductionEvidenceRequest(ApiRequest):
     artifactName: str | None = None
 
 
-class DatabaseManifestRequest(ApiRequest):
-    serverId: str | None = None
+class DatabaseManifestRequest(RemoteRunnerRequest):
     id: str | None = None
     name: str = Field(min_length=1)
     templateId: str = Field(min_length=1)
     type: str | None = None
     version: str | None = None
     path: str = Field(min_length=1)
-    selectedEntryPath: str | None = None
     description: str | None = None
     source: str | None = None
     manifestPath: str | None = None
@@ -123,7 +84,7 @@ class DatabaseManifestRequest(ApiRequest):
     metadata: dict[str, Any] | None = None
 
 
-class DatabaseUpdateRequest(ApiRequest):
+class DatabaseUpdateRequest(RemoteRunnerRequest):
     name: str | None = Field(default=None, min_length=1)
     version: str | None = None
     description: str | None = None

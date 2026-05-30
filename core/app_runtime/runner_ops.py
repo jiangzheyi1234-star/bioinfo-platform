@@ -367,8 +367,10 @@ class RunnerOperationsMixin:
             if not idempotency_key:
                 raise RuntimeServiceError("idempotencyKey is required")
             run_spec = dict(body.get("runSpec") or {})
-            if body.get("pipelineId") and not run_spec.get("pipelineId"):
-                run_spec["pipelineId"] = body["pipelineId"]
+            if body.get("pipelineId"):
+                raise RuntimeServiceError(
+                    "UNSUPPORTED_LEGACY_PAYLOAD: top-level pipelineId is not supported; use runSpec.pipelineId"
+                )
             if body.get("runId") and not run_spec.get("runId"):
                 run_spec["runId"] = body["runId"]
             if not str(run_spec.get("pipelineId") or "").strip():

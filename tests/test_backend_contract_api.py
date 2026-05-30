@@ -668,8 +668,8 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
         submit_run(
             RunSubmitRequest(
                 serverId=server_id,
-                pipelineId="taxonomy-v1",
                 requestId="req_submit_001",
+                runSpec={"pipelineId": "taxonomy-v1"},
             ),
             response,
         )
@@ -696,8 +696,8 @@ def test_submit_run_readiness_failure_returns_503(monkeypatch, tmp_path: Path) -
             submit_run(
                 RunSubmitRequest(
                     serverId="srv_test",
-                    pipelineId="taxonomy-v1",
                     requestId="req_not_ready_001",
+                    runSpec={"pipelineId": "taxonomy-v1"},
                 ),
                 Response(),
             )
@@ -778,7 +778,6 @@ def test_submit_run_persists_run_spec_for_followup_detail(monkeypatch, tmp_path:
                 serverId=server_id,
                 runId="run_contract_submit",
                 requestId="req_submit_002",
-                pipelineId="assembly-v3",
                 runSpec={
                     "projectId": "proj_contract",
                     "pipelineId": "assembly-v3",

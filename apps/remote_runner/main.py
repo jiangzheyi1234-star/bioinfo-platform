@@ -6,19 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
 
-from .config import dump_public_config, inspect_runtime_layout, inspect_workflow_runtime, load_remote_runner_config
-from .databases import (
-    DatabaseRegistryError,
-    add_verified_reference_database,
-    check_reference_database,
-    list_database_templates,
-    list_reference_databases,
-    remove_reference_database,
-    update_reference_database,
+from .api_models import (
+    RunCreateRequest,
+    UploadCreateRequest,
 )
+from .config import dump_public_config, inspect_runtime_layout, inspect_workflow_runtime, load_remote_runner_config
+from .database_routes import router as database_router
 from .executor import start_run_execution
 from .pipeline import (
     PipelineRegistryError,
@@ -40,111 +34,16 @@ from .storage import (
     list_runs,
     persist_upload,
 )
-from .tools import (
-    ToolRegistryError,
-    add_registered_tool,
-    check_registered_tool,
-    list_registered_tools,
-    mark_registered_tool_production_enabled,
-    remove_registered_tool,
-    update_registered_tool_rule_template,
-)
+from .route_utils import require_auth as _require_auth
+from .tool_routes import router as tool_router
 
 
 app = FastAPI(title="H2OMeta Remote Runner", version="0.1.1-control-plane")
+app.include_router(database_router)
+app.include_router(tool_router)
 _STARTED_AT = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 MAX_PREVIEW_BYTES = 256 * 1024
 MAX_PREVIEW_TABLE_ROWS = 200
-
-
-class UploadCreateRequest(BaseModel):
-    filename: str = Field(min_length=1)
-    contentBase64: str = Field(min_length=1)
-    mimeType: str = "application/octet-stream"
-
-
-class RunCreateRequest(BaseModel):
-    serverId: str | None = None
-    requestId: str | None = None
-    runSpec: dict[str, Any] = Field(default_factory=dict)
-
-
-class ToolManifestRequest(BaseModel):
-    id: str | None = None
-    name: str = Field(min_length=1)
-    source: str = Field(min_length=1)
-    sourceLabel: str | None = None
-    version: str | None = None
-    packageSpec: str | None = None
-    summary: str | None = None
-    targetPlatform: str | None = None
-    targetPlatformSupported: bool = False
-    platforms: list[str] = Field(default_factory=list)
-    sourceUrl: str | None = None
-    testCommand: str | None = None
-    ruleTemplate: dict[str, Any] | None = None
-    ruleSpecDraft: dict[str, Any] | None = None
-    capabilities: list[dict[str, Any]] = Field(default_factory=list)
-    snakemakeWrappers: list[dict[str, Any]] = Field(default_factory=list)
-    snakemakeWrapperCount: int = 0
-
-
-class ToolRuleTemplateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ruleTemplate: dict[str, Any] = Field(default_factory=dict)
-
-
-class ToolProductionEvidenceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    runId: str | None = None
-    message: str | None = None
-    logPath: str | None = None
-    evidenceType: str | None = None
-    databaseId: str | None = None
-    templateId: str | None = None
-    role: str | None = None
-    artifactName: str | None = None
-
-
-class DatabaseManifestRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str | None = None
-    name: str = Field(min_length=1)
-    templateId: str = Field(min_length=1)
-    type: str | None = None
-    version: str | None = None
-    path: str = Field(min_length=1)
-    description: str | None = None
-    source: str | None = None
-    manifestPath: str | None = None
-    sizeBytes: int | None = Field(default=None, ge=0)
-    checksum: str | None = None
-    metadata: dict[str, Any] | None = None
-
-
-class DatabaseUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str | None = Field(default=None, min_length=1)
-    version: str | None = None
-    description: str | None = None
-
-
-def _require_auth(authorization: str | None, token: str) -> None:
-    expected = f"Bearer {token}"
-    if not token or authorization != expected:
-        raise HTTPException(status_code=401, detail="runner authentication failed")
-
-
-def _database_registry_status_code(detail: str) -> int:
-    if detail.startswith("DATABASE_CANDIDATES:"):
-        return 409
-    if detail == "DATABASE_NOT_FOUND":
-        return 404
-    return 400
 
 
 def _run_preflight_status_code(detail: str) -> int:
@@ -264,165 +163,6 @@ async def get_pipeline_api(pipeline_id: str, authorization: str | None = Header(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
-@app.get("/api/v1/tools")
-async def get_tools(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    return {"data": {"items": list_registered_tools(cfg)}}
-
-
-@app.post("/api/v1/tools", status_code=201)
-async def add_tool(payload: ToolManifestRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = add_registered_tool(cfg, payload.model_dump(exclude_none=True))
-    except ToolRegistryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"data": item}
-
-
-@app.patch("/api/v1/tools/{tool_id}/rule-template")
-async def update_tool_rule_template_api(
-    tool_id: str,
-    payload: ToolRuleTemplateRequest,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = update_registered_tool_rule_template(cfg, tool_id, payload.ruleTemplate)
-    except ToolRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
-    return {"data": item}
-
-
-@app.delete("/api/v1/tools/{tool_id}")
-async def delete_tool_api(tool_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        remove_registered_tool(cfg, tool_id)
-    except ToolRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
-    return {"data": {"id": tool_id, "deleted": True}}
-
-
-@app.post("/api/v1/tools/{tool_id}/check")
-async def check_tool_api(tool_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = await run_in_threadpool(check_registered_tool, cfg, tool_id)
-    except ToolRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
-    return {"data": item}
-
-
-@app.post("/api/v1/tools/{tool_id}/production")
-async def mark_tool_production_api(
-    tool_id: str,
-    payload: ToolProductionEvidenceRequest,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = await run_in_threadpool(
-            mark_registered_tool_production_enabled,
-            cfg,
-            tool_id,
-            payload.model_dump(exclude_none=True),
-        )
-    except ToolRegistryError as exc:
-        detail = str(exc)
-        if detail == "TOOL_NOT_FOUND":
-            status_code = 404
-        elif detail in {
-            "TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION",
-            "TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY",
-            "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND",
-            "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED",
-            "TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH",
-            "TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH",
-            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED",
-            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_NOT_FOUND",
-            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_EMPTY",
-            "TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH",
-            "TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE",
-        }:
-            status_code = 409
-        else:
-            status_code = 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
-    return {"data": item}
-
-
-@app.get("/api/v1/databases")
-async def get_databases(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    return {"data": {"items": list_reference_databases(cfg)}}
-
-
-@app.get("/api/v1/database-templates")
-async def get_database_templates(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    return {"data": {"items": list_database_templates()}}
-
-
-@app.post("/api/v1/databases", status_code=201)
-async def add_database(payload: DatabaseManifestRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = await run_in_threadpool(add_verified_reference_database, cfg, payload.model_dump(exclude_none=True))
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return {"data": item}
-
-
-@app.delete("/api/v1/databases/{database_id}")
-async def delete_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        remove_reference_database(cfg, database_id)
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return {"data": {"id": database_id, "deleted": True}}
-
-
-@app.patch("/api/v1/databases/{database_id}")
-async def update_database_api(database_id: str, payload: DatabaseUpdateRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = update_reference_database(cfg, database_id, payload.model_dump(exclude_none=True))
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return {"data": item}
-
-
-@app.post("/api/v1/databases/{database_id}/check")
-async def check_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = load_remote_runner_config()
-    _require_auth(authorization, cfg.token)
-    try:
-        item = await run_in_threadpool(check_reference_database, cfg, database_id)
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return {"data": item}
-
-
 @app.post("/api/v1/uploads")
 async def create_upload(
     payload: UploadCreateRequest,
@@ -456,7 +196,7 @@ async def create_run(
     _raise_submission_readiness_failure(cfg)
     run_spec = dict(payload.runSpec or {})
     request_id = str(payload.requestId or x_request_id or f"req_{int(time.time() * 1000)}")
-    server_id = str(payload.serverId or run_spec.get("serverId") or "srv_local_default")
+    server_id = str(payload.serverId)
     idem_key = str(idempotency_key or f"idem_{request_id}")
     try:
         pipeline = get_pipeline(cfg, str(run_spec.get("pipelineId") or ""))
