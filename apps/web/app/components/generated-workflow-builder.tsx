@@ -336,11 +336,11 @@ function OutputExposureEditor({
         </Button>
       </div>
       <div className="mt-3 grid gap-2">
-        {builder.draft.exposeOutputs.length === 0 ? (
+        {builder.draft.outputs.length === 0 ? (
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">默认暴露拓扑末端步骤输出。</div>
         ) : exposableCandidates.length === 0 ? (
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">没有可暴露输出。</div>
-        ) : builder.draft.exposeOutputs.map((output, index) => (
+        ) : builder.draft.outputs.map((output, index) => (
           <div key={`${output.fromStep}-${output.output}-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]">
             <Select
               value={`${output.fromStep}.${output.output}`}

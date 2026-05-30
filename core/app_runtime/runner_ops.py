@@ -153,37 +153,6 @@ class RunnerOperationsMixin:
             mime_type=str(body.get("mimeType") or "application/octet-stream"),
         )
 
-    def list_pipelines(self) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_runner_ready()
-            manager = self._service_locator.remote_runner_manager
-        return {
-            "data": {
-                "items": self._call_remote_runner(
-                    manager.list_pipelines,
-                    server_id=server_id,
-                    ssh_service=ssh,
-                    server_record=record,
-                )
-            }
-        }
-
-    def get_pipeline(self, pipeline_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_runner_ready()
-            manager = self._service_locator.remote_runner_manager
-        return {
-            "data": self._call_remote_runner(
-                manager.get_pipeline,
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                pipeline_id=pipeline_id,
-            )
-        }
-
     def list_tools(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
