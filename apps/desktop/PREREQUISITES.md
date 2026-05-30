@@ -1,6 +1,6 @@
 # Tauri Prerequisites
 
-## Ubuntu / WSL (build host)
+## Ubuntu Build Host
 ```bash
 sudo apt-get update
 sudo apt-get install -y \

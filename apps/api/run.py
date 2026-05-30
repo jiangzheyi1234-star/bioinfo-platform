@@ -8,7 +8,7 @@ import uvicorn
 
 
 def main() -> None:
-    os.environ.setdefault("WSL_UTF8", "1")
+    os.environ.setdefault("H2OMETA_UTF8", "1")
     os.environ.setdefault("PYTHONUTF8", "1")
     uvicorn.run(
         "apps.api.main:app",
@@ -22,4 +22,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
