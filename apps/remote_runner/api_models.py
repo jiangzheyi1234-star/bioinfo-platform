@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .workflow_design_contract import WorkflowDesignDraftV1
+
 
 class RemoteRunnerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -88,3 +90,28 @@ class DatabaseUpdateRequest(RemoteRunnerRequest):
     name: str | None = Field(default=None, min_length=1)
     version: str | None = None
     description: str | None = None
+
+
+class WorkflowDesignRequest(RemoteRunnerRequest):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class WorkflowDesignDraftCreateRequest(WorkflowDesignRequest):
+    draft: WorkflowDesignDraftV1
+
+
+class WorkflowDesignDraftUpdateRequest(WorkflowDesignRequest):
+    draft: WorkflowDesignDraftV1
+    expectedRevision: int | None = Field(default=None, ge=1)
+
+
+class WorkflowDesignDraftForkRequest(WorkflowDesignRequest):
+    name: str | None = Field(default=None, min_length=1)
+
+
+class WorkflowDesignDraftPlanRequest(WorkflowDesignRequest):
+    pass
+
+
+class WorkflowDesignDraftCompileRequest(WorkflowDesignRequest):
+    pass

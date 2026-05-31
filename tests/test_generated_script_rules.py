@@ -7,6 +7,8 @@ from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.tools import ToolRegistryError, normalize_rule_template
 from tests.generated_workflow_test_helpers import (
+    generated_workflow_node,
+    generated_workflow_run_spec,
     prepare_unchecked_generated_tool_workflow as prepare_generated_tool_workflow,
     upsert_ready_tool as upsert_tool,
 )
@@ -114,7 +116,7 @@ def test_generated_workflow_renders_snakemake_script_rule(tmp_path: Path) -> Non
         cfg,
         run_id="run_script_rule",
         request_id="req_script_rule",
-        run_spec={"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "bioconda::script-rule"}},
+        run_spec=generated_workflow_run_spec("bioconda::script-rule", input_name="reads"),
         resolved_inputs=_input(tmp_path),
         work_dir=tmp_path / "work",
         result_dir=tmp_path / "results",
@@ -164,10 +166,16 @@ def test_generated_workflow_rejects_conflicting_script_asset_paths(tmp_path: Pat
             run_spec={
                 "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
                 "workflow": {
-                    "steps": [
-                        {"id": "first", "tool": {"id": "bioconda::script-a"}},
-                        {"id": "second", "tool": {"id": "bioconda::script-b"}, "inputs": {"reads": {"fromStep": "first", "output": "report"}}},
-                    ]
+                    "contractVersion": "rule-contract-v1",
+                    "nodes": [
+                        generated_workflow_node(
+                            "bioconda::script-a",
+                            node_id="first",
+                            inputs={"reads": {"fromInput": "input"}},
+                        ),
+                        generated_workflow_node("bioconda::script-b", node_id="second"),
+                    ],
+                    "edges": [{"from": {"nodeId": "first", "port": "report"}, "to": {"nodeId": "second", "port": "reads"}}],
                 },
             },
             resolved_inputs=_input(tmp_path),

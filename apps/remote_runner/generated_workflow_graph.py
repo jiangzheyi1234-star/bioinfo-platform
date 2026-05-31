@@ -5,12 +5,19 @@ from typing import Any
 
 
 GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1"
+_ALLOWED_GRAPH_NODE_KEYS = {"id", "tool", "inputs", "params", "runtime"}
 
 
 def normalize_generated_workflow_run_spec(run_spec: dict[str, Any]) -> dict[str, Any]:
+    if "tool" in run_spec:
+        raise ValueError("WORKFLOW_RUN_SPEC_UNSUPPORTED_FIELD: tool")
     workflow = run_spec.get("workflow")
-    if not isinstance(workflow, dict) or "nodes" not in workflow:
-        return run_spec
+    if not isinstance(workflow, dict):
+        raise ValueError("WORKFLOW_GRAPH_REQUIRED")
+    if "steps" in workflow:
+        raise ValueError("WORKFLOW_GRAPH_STEPS_UNSUPPORTED")
+    if "nodes" not in workflow:
+        raise ValueError("WORKFLOW_GRAPH_NODES_REQUIRED")
     normalized = dict(run_spec)
     normalized["workflow"] = normalize_generated_workflow_graph(workflow)
     return normalized
@@ -32,7 +39,7 @@ def workflow_graph_config(workflow: Any) -> dict[str, Any] | None:
 
 def normalize_generated_workflow_graph(workflow: dict[str, Any]) -> dict[str, Any]:
     if "steps" in workflow:
-        raise ValueError("WORKFLOW_GRAPH_STEPS_CONFLICT")
+        raise ValueError("WORKFLOW_GRAPH_STEPS_UNSUPPORTED")
     _validate_graph_contract_version(workflow)
     nodes = workflow.get("nodes")
     if not isinstance(nodes, list) or not nodes:
@@ -80,14 +87,14 @@ def _step_from_node(node: Any) -> dict[str, Any]:
     node_id = str(node.get("id") or "").strip()
     if not node_id:
         raise ValueError("WORKFLOW_GRAPH_NODE_ID_REQUIRED")
+    extra_keys = sorted(set(node) - _ALLOWED_GRAPH_NODE_KEYS)
+    if extra_keys:
+        raise ValueError(f"WORKFLOW_GRAPH_NODE_UNSUPPORTED_FIELD: {node_id}.{extra_keys[0]}")
     tool = node.get("tool")
     if isinstance(tool, dict):
         tool_request = dict(tool)
     else:
-        tool_id = str(node.get("toolId") or "").strip()
-        if not tool_id:
-            raise ValueError(f"WORKFLOW_GRAPH_NODE_TOOL_REQUIRED: {node_id}")
-        tool_request = {"id": tool_id}
+        raise ValueError(f"WORKFLOW_GRAPH_NODE_TOOL_REQUIRED: {node_id}")
     inputs = node.get("inputs") or {}
     if not isinstance(inputs, dict):
         raise ValueError(f"WORKFLOW_GRAPH_NODE_INPUTS_INVALID: {node_id}")

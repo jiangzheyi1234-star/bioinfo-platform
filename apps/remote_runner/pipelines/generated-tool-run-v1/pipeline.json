@@ -2,7 +2,7 @@
   "pipelineId": "generated-tool-run-v1",
   "name": "Generated Tool Run",
   "version": "0.1.0",
-  "description": "Run one registered tool or an ordered tool workflow as generated Snakemake rules with per-rule conda environments.",
+  "description": "Run a saved WorkflowDesignDraft as generated Snakemake rules with per-rule conda environments.",
   "category": "Tool Workflows",
   "icon": "wrench",
   "tags": [
@@ -20,6 +20,7 @@
     "minItems": 1,
     "items": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "uploadId"
       ],
@@ -40,7 +41,7 @@
   },
   "paramsSchema": {
     "type": "object",
-    "additionalProperties": true
+    "additionalProperties": false
   },
   "outputSchema": {
     "type": "object",
@@ -59,11 +60,8 @@
       "accept": "*",
       "roleDefault": "input"
     },
-    "tool": {
-      "widget": "tool-picker"
-    },
-    "workflow": {
-      "widget": "linear-tool-workflow"
+    "workflowDesign": {
+      "widget": "workflow-design-draft"
     }
   },
   "execution": {

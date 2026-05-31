@@ -8,6 +8,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import model_validator
 
+from apps.remote_runner.workflow_design_contract import WorkflowDesignDraftV1
+
 
 class ApiRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -127,3 +129,31 @@ class DatabaseUpdateRequest(ApiRequest):
     name: str | None = Field(default=None, min_length=1)
     version: str | None = None
     description: str | None = None
+
+
+class WorkflowDesignRequest(ApiRequest):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class WorkflowDesignDraftCreateRequest(WorkflowDesignRequest):
+    serverId: str | None = None
+    draft: WorkflowDesignDraftV1
+
+
+class WorkflowDesignDraftUpdateRequest(WorkflowDesignRequest):
+    serverId: str | None = None
+    draft: WorkflowDesignDraftV1
+    expectedRevision: int | None = Field(default=None, ge=1)
+
+
+class WorkflowDesignDraftForkRequest(WorkflowDesignRequest):
+    serverId: str | None = None
+    name: str | None = Field(default=None, min_length=1)
+
+
+class WorkflowDesignDraftPlanRequest(WorkflowDesignRequest):
+    serverId: str | None = None
+
+
+class WorkflowDesignDraftCompileRequest(WorkflowDesignRequest):
+    serverId: str | None = None

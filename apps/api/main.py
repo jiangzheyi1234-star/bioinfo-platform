@@ -31,6 +31,7 @@ from apps.api.ssh_terminal_routes import stream_terminal_session_with_runtime
 from apps.api.tool_capability_routes import router as tool_capability_router
 from apps.api.tool_contract_routes import router as tool_contract_router
 from apps.api.workflow_catalog_routes import router as workflow_catalog_router
+from apps.api.workflow_design_routes import router as workflow_design_router
 from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
 from core.app_runtime.errors import RuntimeServiceError
 
@@ -73,6 +74,7 @@ app.add_middleware(
 app.include_router(tool_capability_router)
 app.include_router(tool_contract_router)
 app.include_router(workflow_catalog_router)
+app.include_router(workflow_design_router)
 app.include_router(workflow_sample_data_router)
 app.include_router(database_router)
 

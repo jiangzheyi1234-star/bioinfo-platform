@@ -68,20 +68,12 @@ def _run_tool_ids(run_spec: Any) -> set[str]:
     if not isinstance(run_spec, dict):
         return set()
     ids: set[str] = set()
-    _collect_tool_id(run_spec.get("tool"), ids, allow_id=True)
     workflow = run_spec.get("workflow")
-    steps = workflow.get("steps") if isinstance(workflow, dict) else []
-    if isinstance(steps, list):
-        for step in steps:
-            if isinstance(step, dict):
-                _collect_tool_id(step.get("tool"), ids, allow_id=True)
-                _collect_tool_id(step, ids, allow_id=False)
     nodes = workflow.get("nodes") if isinstance(workflow, dict) else []
     if isinstance(nodes, list):
         for node in nodes:
             if isinstance(node, dict):
-                _collect_tool_id(node.get("tool"), ids, allow_id=True)
-                _collect_tool_id(node, ids, allow_id=False)
+                _collect_tool_id(node.get("tool"), ids)
     return ids
 
 
@@ -116,10 +108,10 @@ def _run_database_bindings(run_spec: Any) -> dict[str, dict[str, Any]]:
     return {str(role): binding for role, binding in raw.items() if isinstance(binding, dict)}
 
 
-def _collect_tool_id(raw: Any, ids: set[str], *, allow_id: bool) -> None:
+def _collect_tool_id(raw: Any, ids: set[str]) -> None:
     if not isinstance(raw, dict):
         return
-    tool_id = str((raw.get("id") if allow_id else "") or raw.get("toolId") or "").strip()
+    tool_id = str(raw.get("id") or "").strip()
     if tool_id:
         ids.add(tool_id)
 

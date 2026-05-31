@@ -7,6 +7,8 @@ from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
 from apps.remote_runner.storage import upsert_tool as _upsert_tool
+from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
+from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 
 READY_CONTRACT_STATUS = {"dryRun": {"status": "passed"}, "smokeRun": {"status": "passed"}, "outputValidation": {"status": "passed"}}
 
@@ -69,6 +71,69 @@ def _register_tool(cfg: RemoteRunnerConfig, tool_id: str, output_name: str = "ou
     )
 
 
+def _draft_node(tool_id: str, *, node_id: str | None = None, inputs: dict | None = None, params: dict | None = None) -> dict:
+    return {
+        "id": node_id or tool_id.rsplit("::", 1)[-1],
+        "toolId": tool_id,
+        "inputs": inputs or {},
+        "params": params or {},
+        "runtime": {},
+        "resources": {},
+        "outputs": {},
+        "provenance": {"source": "test"},
+    }
+
+
+def _draft_run_spec(
+    cfg: RemoteRunnerConfig,
+    *,
+    nodes: list[dict],
+    edges: list[dict] | None = None,
+    outputs: list[dict] | None = None,
+    input_roles: tuple[str, ...] = ("reads",),
+) -> dict:
+    draft = {
+        "contractVersion": "workflow-design-draft-v1",
+        "engine": "snakemake",
+        "metadata": {"name": "preflight fixture", "description": "", "projectId": "proj_preflight", "tags": []},
+        "inputs": [
+            {
+                "id": role,
+                "role": role,
+                "path": f"inputs/{role}.txt",
+                "filename": f"{role}.txt",
+                "mimeType": "text/plain",
+            }
+            for role in input_roles
+        ],
+        "nodes": _nodes_without_node_to_node_inputs(nodes),
+        "edges": edges or [],
+        "resources": {"bindings": {}},
+        "outputs": outputs or [],
+        "provenance": {"createdBy": "test"},
+    }
+    saved = create_workflow_design_draft(cfg, draft)
+    run_spec = workflow_design_to_generated_run_spec(
+        saved["draft"],
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+    run_spec["inputs"] = [
+        {"role": role, "uploadId": f"upl_{role}", "filename": f"{role}.txt"}
+        for role in input_roles
+    ]
+    return run_spec
+
+
+def _nodes_without_node_to_node_inputs(nodes: list[dict]) -> list[dict]:
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        for input_name, binding in dict(node.get("inputs") or {}).items():
+            if isinstance(binding, dict) and binding.get("fromStep") and binding.get("output"):
+                raise ValueError(f"WORKFLOW_DESIGN_EDGE_REQUIRED: {node_id}.{input_name}")
+    return nodes
+
+
 def test_preflight_rejects_unknown_generated_step_output(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -80,19 +145,14 @@ def test_preflight_rejects_unknown_generated_step_output(tmp_path: Path) -> None
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "workflow": {
-                    "steps": [
-                        {"id": "source", "tool": {"id": "conda-forge::source"}},
-                        {
-                            "id": "copy",
-                            "tool": {"id": "conda-forge::copy"},
-                            "inputs": {"primary": {"fromStep": "source", "output": "missing"}},
-                        },
-                    ]
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                nodes=[
+                    _draft_node("conda-forge::source", node_id="source", inputs={"primary": {"fromInput": "reads"}}),
+                    _draft_node("conda-forge::copy", node_id="copy"),
+                ],
+                edges=[{"from": {"nodeId": "source", "port": "missing"}, "to": {"nodeId": "copy", "port": "primary"}}],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: source.missing"
@@ -110,20 +170,15 @@ def test_preflight_accepts_unordered_generated_step_references(tmp_path: Path) -
     preflight_run_spec(
         cfg,
         pipeline,
-        {
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "copy",
-                        "tool": {"id": "conda-forge::copy"},
-                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
-                    },
-                    {"id": "source", "tool": {"id": "conda-forge::source"}},
-                ],
-                "outputs": {"copied": {"step": "copy", "output": "copied"}},
-            },
-        },
+        _draft_run_spec(
+            cfg,
+            nodes=[
+                _draft_node("conda-forge::copy", node_id="copy"),
+                _draft_node("conda-forge::source", node_id="source", inputs={"primary": {"fromInput": "reads"}}),
+            ],
+            edges=[{"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "copy", "port": "primary"}}],
+            outputs=[{"from": {"nodeId": "copy", "port": "copied"}, "as": "copied"}],
+        ),
     )
 
 
@@ -137,31 +192,15 @@ def test_preflight_accepts_generated_graph_contract(tmp_path: Path) -> None:
     preflight_run_spec(
         cfg,
         pipeline,
-        {
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "inputs": [{"role": "reads"}],
-            "workflow": {
-                "contractVersion": "rule-contract-v1",
-                "nodes": [
-                    {
-                        "id": "copy",
-                        "toolId": "conda-forge::copy",
-                    },
-                    {
-                        "id": "source",
-                        "toolId": "conda-forge::source",
-                        "inputs": {"primary": {"fromInput": "reads"}},
-                    },
-                ],
-                "edges": [
-                    {
-                        "from": {"nodeId": "source", "port": "seed"},
-                        "to": {"nodeId": "copy", "port": "primary"},
-                    }
-                ],
-                "outputs": [{"from": {"nodeId": "copy", "port": "copied"}, "as": "copied"}],
-            },
-        },
+        _draft_run_spec(
+            cfg,
+            nodes=[
+                _draft_node("conda-forge::copy", node_id="copy"),
+                _draft_node("conda-forge::source", node_id="source", inputs={"primary": {"fromInput": "reads"}}),
+            ],
+            edges=[{"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "copy", "port": "primary"}}],
+            outputs=[{"from": {"nodeId": "copy", "port": "copied"}, "as": "copied"}],
+        ),
     )
 
 
@@ -195,31 +234,15 @@ def test_preflight_rejects_generated_graph_edge_to_unknown_input_port(tmp_path: 
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "inputs": [{"role": "reads"}],
-                "workflow": {
-                    "contractVersion": "rule-contract-v1",
-                    "nodes": [
-                        {
-                            "id": "source",
-                            "toolId": "conda-forge::source",
-                            "inputs": {"primary": {"fromInput": "reads"}},
-                        },
-                        {
-                            "id": "sink",
-                            "toolId": "conda-forge::sink",
-                        },
-                    ],
-                    "edges": [
-                        {
-                            "from": {"nodeId": "source", "port": "seed"},
-                            "to": {"nodeId": "sink", "port": "ghost"},
-                        }
-                    ],
-                    "outputs": [{"from": {"nodeId": "sink", "port": "copied"}, "as": "copied"}],
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                nodes=[
+                    _draft_node("conda-forge::source", node_id="source", inputs={"primary": {"fromInput": "reads"}}),
+                    _draft_node("conda-forge::sink", node_id="sink"),
+                ],
+                edges=[{"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "sink", "port": "ghost"}}],
+                outputs=[{"from": {"nodeId": "sink", "port": "copied"}, "as": "copied"}],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_STEP_INPUT_PORT_UNKNOWN: sink.ghost"
@@ -252,9 +275,9 @@ def test_preflight_rejects_generated_graph_without_contract_version(tmp_path: Pa
             },
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_GRAPH_CONTRACT_VERSION_REQUIRED"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("generated graph payloads should declare their rule contract version")
+        raise AssertionError("direct generated graph payloads should require a saved WorkflowDesignDraft")
 
 
 def test_preflight_accepts_generated_step_params(tmp_path: Path) -> None:
@@ -286,20 +309,17 @@ def test_preflight_accepts_generated_step_params(tmp_path: Path) -> None:
     preflight_run_spec(
         cfg,
         pipeline,
-        {
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "inputs": [{"role": "reads"}],
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "filter",
-                        "tool": {"id": "conda-forge::filter"},
-                        "inputs": {"primary": {"fromInput": "reads"}},
-                        "params": {"limit": 5},
-                    }
-                ]
-            },
-        },
+        _draft_run_spec(
+            cfg,
+            nodes=[
+                _draft_node(
+                    "conda-forge::filter",
+                    node_id="filter",
+                    inputs={"primary": {"fromInput": "reads"}},
+                    params={"limit": 5},
+                )
+            ],
+        ),
     )
 
 
@@ -327,9 +347,9 @@ def test_preflight_rejects_invalid_generated_step_params(tmp_path: Path) -> None
             },
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_STEP_PARAMS_INVALID"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("invalid generated step params should be rejected before run creation")
+        raise AssertionError("direct generated step params should require a saved WorkflowDesignDraft")
 
 
 def test_preflight_rejects_incompatible_generated_step_ports(tmp_path: Path) -> None:
@@ -378,20 +398,15 @@ def test_preflight_rejects_incompatible_generated_step_ports(tmp_path: Path) -> 
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "inputs": [{"role": "input"}],
-                "workflow": {
-                    "steps": [
-                        {"id": "source", "tool": {"id": "conda-forge::source"}, "inputs": {"primary": {"fromInput": "input"}}},
-                        {
-                            "id": "consumer",
-                            "tool": {"id": "conda-forge::consumer"},
-                            "inputs": {"reads": {"fromStep": "source", "output": "reads"}},
-                        },
-                    ]
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                input_roles=("input",),
+                nodes=[
+                    _draft_node("conda-forge::source", node_id="source", inputs={"primary": {"fromInput": "input"}}),
+                    _draft_node("conda-forge::consumer", node_id="consumer"),
+                ],
+                edges=[{"from": {"nodeId": "source", "port": "reads"}, "to": {"nodeId": "consumer", "port": "reads"}}],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: source.reads -> reads"
@@ -410,23 +425,17 @@ def test_preflight_rejects_generated_step_cycles(tmp_path: Path) -> None:
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "workflow": {
-                    "steps": [
-                        {
-                            "id": "left",
-                            "tool": {"id": "conda-forge::left"},
-                            "inputs": {"primary": {"fromStep": "right", "output": "right"}},
-                        },
-                        {
-                            "id": "right",
-                            "tool": {"id": "conda-forge::right"},
-                            "inputs": {"primary": {"fromStep": "left", "output": "left"}},
-                        },
-                    ]
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                nodes=[
+                    _draft_node("conda-forge::left", node_id="left"),
+                    _draft_node("conda-forge::right", node_id="right"),
+                ],
+                edges=[
+                    {"from": {"nodeId": "right", "port": "right"}, "to": {"nodeId": "left", "port": "primary"}},
+                    {"from": {"nodeId": "left", "port": "left"}, "to": {"nodeId": "right", "port": "primary"}},
+                ],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_STEP_CYCLE: left, right"
@@ -444,25 +453,15 @@ def test_preflight_normalizes_generated_step_refs_and_exposed_outputs(tmp_path: 
     preflight_run_spec(
         cfg,
         pipeline,
-        {
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "inputs": [{"role": "reads"}],
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "copy step",
-                        "tool": {"id": "conda-forge::copy"},
-                        "inputs": {"primary": {"fromStep": "source step", "output": "seed"}},
-                    },
-                    {
-                        "id": "source step",
-                        "tool": {"id": "conda-forge::source"},
-                        "inputs": {"primary": {"fromInput": "reads"}},
-                    },
-                ],
-                "outputs": {"copied": {"step": "copy step", "output": "copied"}},
-            },
-        },
+        _draft_run_spec(
+            cfg,
+            nodes=[
+                _draft_node("conda-forge::copy", node_id="copy step"),
+                _draft_node("conda-forge::source", node_id="source step", inputs={"primary": {"fromInput": "reads"}}),
+            ],
+            edges=[{"from": {"nodeId": "source step", "port": "seed"}, "to": {"nodeId": "copy step", "port": "primary"}}],
+            outputs=[{"from": {"nodeId": "copy step", "port": "copied"}, "as": "copied"}],
+        ),
     )
 
 
@@ -491,9 +490,9 @@ def test_preflight_rejects_invalid_generated_upload_binding(tmp_path: Path) -> N
             },
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: not-an-int"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("invalid generated fromUpload binding should be rejected before run creation")
+        raise AssertionError("direct generated fromUpload binding should require a saved WorkflowDesignDraft")
 
 
 def test_preflight_rejects_invalid_generated_output_alias(tmp_path: Path) -> None:
@@ -515,9 +514,9 @@ def test_preflight_rejects_invalid_generated_output_alias(tmp_path: Path) -> Non
             },
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_OUTPUT_BINDING_INVALID"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("invalid generated output alias should be rejected before run creation")
+        raise AssertionError("direct generated output alias should require a saved WorkflowDesignDraft")
 
 
 def test_preflight_rejects_exposed_temp_generated_output(tmp_path: Path) -> None:
@@ -549,13 +548,13 @@ def test_preflight_rejects_exposed_temp_generated_output(tmp_path: Path) -> None
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "workflow": {
-                    "steps": [{"id": "source", "tool": {"id": "conda-forge::temp-output"}}],
-                    "outputs": {"cache": {"step": "source", "output": "cache"}},
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                nodes=[
+                    _draft_node("conda-forge::temp-output", node_id="source", inputs={"primary": {"fromInput": "reads"}})
+                ],
+                outputs=[{"from": {"nodeId": "source", "port": "cache"}, "as": "cache"}],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_OUTPUT_TEMP_EXPOSED: source.cache"
@@ -592,12 +591,12 @@ def test_preflight_rejects_default_exposed_temp_generated_output(tmp_path: Path)
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "workflow": {
-                    "steps": [{"id": "source", "tool": {"id": "conda-forge::temp-output"}}],
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                nodes=[
+                    _draft_node("conda-forge::temp-output", node_id="source", inputs={"primary": {"fromInput": "reads"}})
+                ],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_OUTPUT_TEMP_EXPOSED: source.cache"
@@ -635,19 +634,14 @@ def test_preflight_rejects_missing_required_generated_step_input(tmp_path: Path)
         preflight_run_spec(
             cfg,
             pipeline,
-            {
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "workflow": {
-                    "steps": [
-                        {"id": "source", "tool": {"id": "conda-forge::source"}},
-                        {
-                            "id": "merge",
-                            "tool": {"id": "conda-forge::merge"},
-                            "inputs": {"left": {"fromStep": "source", "output": "seed"}},
-                        },
-                    ]
-                },
-            },
+            _draft_run_spec(
+                cfg,
+                nodes=[
+                    _draft_node("conda-forge::source", node_id="source", inputs={"primary": {"fromInput": "reads"}}),
+                    _draft_node("conda-forge::merge", node_id="merge"),
+                ],
+                edges=[{"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "merge", "port": "left"}}],
+            ),
         )
     except RunPreflightError as exc:
         assert str(exc) == "TOOL_INPUT_REQUIRED: right"

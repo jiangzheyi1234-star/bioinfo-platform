@@ -6,6 +6,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .generated_workflow_plan import plan_generated_workflow_steps, resolve_exposed_outputs
 from .pipeline import PipelineDefinition
+from .workflow_design_submission import validate_workflow_design_run_spec
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
 
 
@@ -44,12 +45,12 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
     if "database" in run_spec or "databases" in run_spec:
         raise RunPreflightError("RESOURCE_BINDINGS_REQUIRED")
     try:
+        validate_workflow_design_run_spec(cfg, run_spec)
         plan = plan_generated_workflow_steps(
             cfg,
             run_spec=run_spec,
             resolved_inputs=_preflight_resolved_inputs(run_spec),
             result_dir=Path("."),
-            resolve_implicit_inputs=False,
         )
         resolve_exposed_outputs(
             workflow_spec=plan.workflow_spec,

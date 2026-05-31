@@ -113,6 +113,103 @@ class RemoteRunnerProxyMixin:
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 
+    def list_workflow_design_drafts(self, **kwargs) -> list[dict[str, Any]]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.get_json("/api/v1/workflow-design-drafts")["data"]["items"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def create_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.post_json("/api/v1/workflow-design-drafts", kwargs["payload"])["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def get_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.get_json(f"/api/v1/workflow-design-drafts/{kwargs['draft_id']}")["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def update_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.patch_json(
+                f"/api/v1/workflow-design-drafts/{kwargs['draft_id']}",
+                kwargs["payload"],
+            )["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def fork_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.post_json(
+                f"/api/v1/workflow-design-drafts/{kwargs['draft_id']}/fork",
+                kwargs["payload"],
+            )["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def delete_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.delete_json(f"/api/v1/workflow-design-drafts/{kwargs['draft_id']}")["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def plan_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.post_json(
+                f"/api/v1/workflow-design-drafts/{kwargs['draft_id']}/plan",
+                kwargs["payload"],
+            )["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def compile_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.post_json(f"/api/v1/workflow-design-drafts/{kwargs['draft_id']}/compile", {})["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
     def submit_run(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

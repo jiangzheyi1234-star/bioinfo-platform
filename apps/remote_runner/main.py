@@ -14,6 +14,7 @@ from .api_models import (
 from .config import dump_public_config, inspect_runtime_layout, inspect_workflow_runtime, load_remote_runner_config
 from .database_routes import router as database_router
 from .executor import start_run_execution
+from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from .pipeline import (
     PipelineRegistryError,
     get_pipeline,
@@ -36,11 +37,13 @@ from .storage import (
 )
 from .route_utils import require_auth as _require_auth
 from .tool_routes import router as tool_router
+from .workflow_design_routes import router as workflow_design_router
 
 
 app = FastAPI(title="H2OMeta Remote Runner", version="0.1.1-control-plane")
 app.include_router(database_router)
 app.include_router(tool_router)
+app.include_router(workflow_design_router)
 _STARTED_AT = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 MAX_PREVIEW_BYTES = 256 * 1024
 MAX_PREVIEW_TABLE_ROWS = 200
@@ -210,7 +213,10 @@ async def create_run(
     except RunPreflightError as exc:
         detail = str(exc)
         raise HTTPException(status_code=_run_preflight_status_code(detail), detail=detail) from exc
-    if not str(run_spec.get("pipelineVersion") or "").strip():
+    if (
+        str(run_spec.get("pipelineId") or "") != GENERATED_TOOL_RUN_PIPELINE_ID
+        and not str(run_spec.get("pipelineVersion") or "").strip()
+    ):
         run_spec["pipelineVersion"] = pipeline.version
     payload_hash = canonical_payload_hash({"serverId": server_id, "runSpec": run_spec})
     try:

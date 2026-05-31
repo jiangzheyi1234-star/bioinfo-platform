@@ -96,4 +96,17 @@ CREATE TABLE IF NOT EXISTS tools (
     updated_at TEXT NOT NULL,
     last_checked_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS workflow_design_drafts (
+    draft_id TEXT PRIMARY KEY,
+    parent_draft_id TEXT,
+    contract_version TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    name TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    draft_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """

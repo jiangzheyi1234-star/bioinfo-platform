@@ -10,15 +10,26 @@ import {
   fetchRunsList,
   fetchWorkflowCatalog,
   fetchWorkflowDatabases,
+  fetchWorkflowDesignDrafts,
   fetchWorkflowRunDetail,
   fetchWorkflowServer,
   fetchWorkflowTools,
+  compileWorkflowDesignDraft,
   getCachedWorkflowCatalog,
   getCachedWorkflowServer,
-  submitGeneratedWorkflowRun,
+  planWorkflowDesignDraft,
+  saveWorkflowDesignDraft,
+  submitWorkflowDesignRun,
   submitPipelineWorkflowRun,
   uploadWorkflowSampleData,
 } from "./workflows-page-api";
+import {
+  buildWorkflowDesignDraft,
+  workflowDesignDraftToGraphDraft,
+  type WorkflowDesignCompileResult,
+  type WorkflowDesignDraftRecord,
+  type WorkflowDesignPlan,
+} from "./workflow-design-draft-model";
 import {
   buildWorkflowResourceBindings,
   databaseMatchesWorkflowResource,
@@ -51,6 +62,13 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [submittedRun, setSubmittedRun] = useState<WorkflowRun | null>(null);
   const [runDetail, setRunDetail] = useState<WorkflowRunDetail | null>(null);
   const [runHistory, setRunHistory] = useState<WorkflowRun[]>([]);
+  const [workflowDesignDrafts, setWorkflowDesignDrafts] = useState<WorkflowDesignDraftRecord[]>([]);
+  const [activeWorkflowDesignDraft, setActiveWorkflowDesignDraft] = useState<WorkflowDesignDraftRecord | null>(null);
+  const [workflowDesignPlan, setWorkflowDesignPlan] = useState<WorkflowDesignPlan | null>(null);
+  const [workflowDesignPlanSignature, setWorkflowDesignPlanSignature] = useState("");
+  const [workflowDesignCompileResult, setWorkflowDesignCompileResult] = useState<WorkflowDesignCompileResult | null>(null);
+  const [workflowDesignBusy, setWorkflowDesignBusy] = useState(false);
+  const [workflowDesignError, setWorkflowDesignError] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [activeRunId, setActiveRunId] = useState<string>("");
 
@@ -83,6 +101,27 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     }
     if (serverResult.status === "fulfilled") {
       setServer(serverResult.value);
+    }
+    if (serverResult.status === "rejected") {
+      const message = workflowErrorMessage(serverResult.reason, "读取工作流运行服务失败");
+      setWorkflowDesignError(message);
+      setError(message);
+      return;
+    }
+    const serverId = serverResult.value.serverId;
+    if (!serverId) {
+      const message = "serverId is required";
+      setWorkflowDesignError(message);
+      setError(message);
+      return;
+    }
+    try {
+      setWorkflowDesignDrafts(await fetchWorkflowDesignDrafts({ ...options, serverId }));
+      setWorkflowDesignError("");
+    } catch (err) {
+      const message = workflowErrorMessage(err, "读取 WorkflowDesignDraft 列表失败");
+      setWorkflowDesignError(message);
+      setError(message);
     }
   }, [initialWorkflowId]);
 
@@ -124,7 +163,45 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   const runnableTools = useMemo(() => selectableTools(tools), [tools]);
   const availableDatabases = useMemo(() => selectableDatabases(databases), [databases]);
-  const generatedBuilder = useGeneratedWorkflowBuilder(runnableTools, availableDatabases, files.length);
+  const generatedInputCount = activeWorkflowDesignDraft
+    ? Math.max(files.length, activeWorkflowDesignDraft.draft.inputs.length)
+    : files.length;
+  const generatedBuilder = useGeneratedWorkflowBuilder(runnableTools, availableDatabases, generatedInputCount);
+  const currentWorkflowDesignDraftResult = useMemo(() => {
+    if (!isGeneratedToolRun) return { draft: null, error: "" };
+    try {
+      return {
+        draft: buildWorkflowDesignDraft({
+          graphDraft: generatedBuilder.graphDraft,
+          files,
+          projectId: selectedWorkflow?.id || "proj_workflow_ui",
+          resourceBindings: generatedBuilder.resourceBindings,
+          name: activeWorkflowDesignDraft?.name || selectedWorkflow?.name || "Generated workflow design",
+          existingDraft: activeWorkflowDesignDraft?.draft,
+        }),
+        error: "",
+      };
+    } catch (err) {
+      return { draft: null, error: workflowErrorMessage(err, "WORKFLOW_DESIGN_DRAFT_INVALID") };
+    }
+  }, [
+    activeWorkflowDesignDraft,
+    files,
+    generatedBuilder.graphDraft,
+    generatedBuilder.resourceBindings,
+    isGeneratedToolRun,
+    selectedWorkflow?.id,
+    selectedWorkflow?.name,
+  ]);
+  const currentWorkflowDesignDraft = currentWorkflowDesignDraftResult.draft;
+  const currentWorkflowDesignDraftError = currentWorkflowDesignDraftResult.error;
+  const currentWorkflowDesignSignature = useMemo(
+    () => currentWorkflowDesignDraft ? workflowDesignDraftSignature(currentWorkflowDesignDraft) : "",
+    [currentWorkflowDesignDraft]
+  );
+  const currentWorkflowDesignPlan =
+    workflowDesignPlan && workflowDesignPlanSignature === currentWorkflowDesignSignature ? workflowDesignPlan : null;
+  const currentWorkflowDesignCompileResult = currentWorkflowDesignPlan ? workflowDesignCompileResult : null;
   const workflowResources = useMemo(() => workflowResourceEntries(selectedWorkflow), [selectedWorkflow]);
   const missingRequiredResourceKeys = workflowResources
     .filter(([key, spec]) => {
@@ -145,7 +222,9 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       selectedWorkflow?.runnable &&
       (isGeneratedToolRun || Boolean(selectedPipelineId)) &&
       (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
+      (!isGeneratedToolRun || currentWorkflowDesignPlan?.valid === true) &&
       (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
+      (!isGeneratedToolRun || !workflowDesignBusy) &&
       !submitting &&
       !sampleLoading
   );
@@ -167,6 +246,14 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       return next;
     });
   }, [availableDatabases, workflowResources]);
+
+  useEffect(() => {
+    if (workflowDesignPlanSignature && workflowDesignPlanSignature !== currentWorkflowDesignSignature) {
+      setWorkflowDesignPlan(null);
+      setWorkflowDesignPlanSignature("");
+      setWorkflowDesignCompileResult(null);
+    }
+  }, [currentWorkflowDesignSignature, workflowDesignPlanSignature]);
 
   useEffect(() => {
     const runId = activeRunId || submittedRun?.runId;
@@ -208,6 +295,101 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     });
   }
 
+  async function saveGeneratedWorkflowDesign() {
+    if (!server?.serverId) {
+      throw new Error("serverId is required");
+    }
+    if (currentWorkflowDesignDraftError) {
+      throw new Error(currentWorkflowDesignDraftError);
+    }
+    if (!currentWorkflowDesignDraft) {
+      throw new Error("WORKFLOW_DESIGN_DRAFT_INVALID");
+    }
+    const saved = await saveWorkflowDesignDraft({
+      draft: currentWorkflowDesignDraft,
+      record: activeWorkflowDesignDraft,
+      serverId: server.serverId,
+    });
+    setActiveWorkflowDesignDraft(saved);
+    setWorkflowDesignCompileResult(null);
+    setWorkflowDesignDrafts((current) => [saved, ...current.filter((item) => item.draftId !== saved.draftId)]);
+    return saved;
+  }
+
+  async function validateGeneratedWorkflowDesign(savedDraft?: WorkflowDesignDraftRecord) {
+    const target = savedDraft || activeWorkflowDesignDraft;
+    if (!target?.draftId || !server?.serverId) {
+      throw new Error("WORKFLOW_DESIGN_DRAFT_REQUIRED");
+    }
+    const plan = await planWorkflowDesignDraft({ draftId: target.draftId, serverId: server.serverId });
+    setWorkflowDesignPlan(plan);
+    setWorkflowDesignPlanSignature(workflowDesignDraftSignature(target.draft));
+    return plan;
+  }
+
+  async function saveAndValidateGeneratedWorkflowDesign() {
+    if (workflowDesignBusy) return null;
+    setWorkflowDesignBusy(true);
+    setWorkflowDesignError("");
+    try {
+      setWorkflowDesignPlan(null);
+      setWorkflowDesignPlanSignature("");
+      setWorkflowDesignCompileResult(null);
+      const saved = await saveGeneratedWorkflowDesign();
+      return await validateGeneratedWorkflowDesign(saved);
+    } catch (err) {
+      const message = workflowErrorMessage(err, "保存或验证 WorkflowDesignDraft 失败");
+      setWorkflowDesignError(message);
+      throw err;
+    } finally {
+      setWorkflowDesignBusy(false);
+    }
+  }
+
+  async function compileGeneratedWorkflowDesign() {
+    if (workflowDesignBusy) return null;
+    if (!server?.serverId) {
+      throw new Error("serverId is required");
+    }
+    setWorkflowDesignBusy(true);
+    setWorkflowDesignError("");
+    setWorkflowDesignPlan(null);
+    setWorkflowDesignPlanSignature("");
+    setWorkflowDesignCompileResult(null);
+    try {
+      const saved = await saveGeneratedWorkflowDesign();
+      const plan = await validateGeneratedWorkflowDesign(saved);
+      if (!plan.valid) {
+        const issue = plan.validationIssues[0];
+        throw new Error(issue ? `${issue.code}: ${issue.message}` : "WORKFLOW_DESIGN_PLAN_INVALID");
+      }
+      const compiled = await compileWorkflowDesignDraft({ draftId: saved.draftId, serverId: server.serverId });
+      setWorkflowDesignCompileResult(compiled);
+      return compiled;
+    } catch (err) {
+      const message = workflowErrorMessage(err, "编译 WorkflowDesignDraft 失败");
+      setWorkflowDesignError(message);
+      throw err;
+    } finally {
+      setWorkflowDesignBusy(false);
+    }
+  }
+
+  function openWorkflowDesignDraft(draftId: string) {
+    const record = workflowDesignDrafts.find((item) => item.draftId === draftId);
+    if (!record) {
+      const message = `WORKFLOW_DESIGN_DRAFT_NOT_FOUND: ${draftId}`;
+      setWorkflowDesignError(message);
+      throw new Error(message);
+    }
+    setActiveWorkflowDesignDraft(record);
+    setWorkflowDesignPlan(null);
+    setWorkflowDesignPlanSignature("");
+    setWorkflowDesignCompileResult(null);
+    generatedBuilder.loadGraphDraft(workflowDesignDraftToGraphDraft(record.draft));
+    generatedBuilder.loadResourceBindings(resourceIdsFromWorkflowDesignDraft(record));
+  }
+
   async function submitRun() {
     if (!server || !canSubmit) return;
     if (!isGeneratedToolRun && !selectedPipelineId) {
@@ -220,8 +402,9 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setRunDetail(null);
     setActiveRunId("");
     try {
-      const run = selectedPipelineId && !isGeneratedToolRun
-        ? await submitPipelineWorkflowRun({
+      let run: WorkflowRun;
+      if (selectedPipelineId && !isGeneratedToolRun) {
+        run = await submitPipelineWorkflowRun({
             server,
             projectId: selectedWorkflow?.id || "proj_workflow_ui",
             pipelineId: selectedPipelineId,
@@ -229,15 +412,14 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
             sampleUploads,
             params,
             resourceBindings: workflowResourceBindings,
-          })
-        : await submitGeneratedWorkflowRun({
-            server,
-            projectId: selectedWorkflow?.id || "proj_workflow_ui",
-            files,
-            draft: generatedBuilder.graphDraft,
-            tools: generatedBuilder.selectedTools,
-            resourceBindings: generatedBuilder.resourceBindings,
-          });
+        });
+      } else {
+        const plan = currentWorkflowDesignPlan;
+        if (!plan?.valid) {
+          throw new Error("WORKFLOW_DESIGN_PLAN_REQUIRED");
+        }
+        run = await submitWorkflowDesignRun({ server, files, plan });
+      }
       setSubmittedRun(run);
       setActiveRunId(run.runId);
       void loadRunHistory();
@@ -291,6 +473,12 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     params,
     runnableTools,
     generatedBuilder,
+    generatedInputCount,
+    workflowDesignBusy,
+    workflowDesignCompileResult: currentWorkflowDesignCompileResult,
+    workflowDesignDrafts,
+    workflowDesignError: currentWorkflowDesignDraftError || workflowDesignError,
+    workflowDesignPlan: currentWorkflowDesignPlan,
     isGeneratedToolRun,
     runDetail,
     runHistory,
@@ -301,12 +489,16 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     selectedWorkflowId,
     selectedToolIds: generatedBuilder.selectedToolIds,
     selectedTools: generatedBuilder.selectedTools,
+    activeWorkflowDesignDraft,
     server,
     selectRun,
     setFiles: updateFiles,
     setParams,
     setSelectedWorkflowId,
     setWorkflowResourceBinding,
+    openWorkflowDesignDraft,
+    compileGeneratedWorkflowDesign,
+    saveAndValidateGeneratedWorkflowDesign,
     submitError,
     submitRun,
     submittedRun,
@@ -314,4 +506,33 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     workflowResources,
     missingRequiredResourceKeys,
   };
+}
+
+function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record.draft.resources.bindings || {})
+      .map(([resourceKey, binding]) => [resourceKey, String(binding?.databaseId || "")])
+      .filter(([, databaseId]) => databaseId)
+  );
+}
+
+function workflowDesignDraftSignature(draft: unknown): string {
+  return stableWorkflowDesignStringify(draft);
+}
+
+function stableWorkflowDesignStringify(draft: unknown): string {
+  return JSON.stringify(sortWorkflowDesignValue(draft));
+}
+
+function sortWorkflowDesignValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortWorkflowDesignValue);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, sortWorkflowDesignValue(record[key])])
+  );
 }

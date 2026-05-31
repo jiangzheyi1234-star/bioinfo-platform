@@ -36,3 +36,130 @@ def selected_server_id(api_base: str, *, timeout: float = 5.0) -> str:
     if not server_id:
         raise RuntimeError("Local API server context did not include serverId.")
     return server_id
+
+
+def build_workflow_design_draft(
+    *,
+    project_id: str,
+    name: str,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]] | None = None,
+    outputs: list[dict[str, Any]] | None = None,
+    resource_bindings: dict[str, Any] | None = None,
+    input_role: str = "input",
+    input_filename: str = "input.txt",
+) -> dict[str, Any]:
+    return {
+        "contractVersion": "workflow-design-draft-v1",
+        "engine": "snakemake",
+        "metadata": {"name": name, "description": "", "projectId": project_id, "tags": ["smoke"]},
+        "inputs": [
+            {
+                "id": input_role,
+                "role": input_role,
+                "path": f"inputs/{input_filename}",
+                "filename": input_filename,
+                "mimeType": "text/plain",
+            }
+        ],
+        "nodes": _workflow_design_nodes(nodes),
+        "edges": edges or [],
+        "resources": {"bindings": resource_bindings or {}},
+        "outputs": outputs or [],
+        "provenance": {"createdBy": "remote-smoke"},
+    }
+
+
+def workflow_design_node(
+    *,
+    node_id: str,
+    tool_id: str,
+    inputs: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": node_id,
+        "toolId": tool_id,
+        "inputs": inputs or {},
+        "params": params or {},
+        "runtime": {},
+        "resources": {},
+        "outputs": {},
+        "provenance": {"source": "remote-smoke"},
+    }
+
+
+def build_workflow_design_run_submit_payload(
+    *,
+    request_id: str,
+    server_id: str,
+    upload: dict[str, Any],
+    plan: dict[str, Any],
+    input_role: str = "input",
+) -> dict[str, Any]:
+    run_spec = dict(plan["runSpec"])
+    run_spec["inputs"] = [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": input_role}]
+    return {"serverId": server_id, "requestId": request_id, "runSpec": run_spec}
+
+
+def build_upload_submit_payload(
+    *,
+    server_id: str,
+    filename: str,
+    content_base64: str,
+    mime_type: str,
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "filename": filename,
+        "contentBase64": content_base64,
+        "mimeType": mime_type,
+    }
+
+
+def create_and_plan_workflow_design(
+    *,
+    api_base: str,
+    http_json,
+    server_id: str,
+    draft: dict[str, Any],
+    timeout: float,
+) -> dict[str, Any]:
+    created = response_data(http_json(
+        "POST",
+        api_base,
+        "/api/v1/workflow-design-drafts",
+        payload={"serverId": server_id, "draft": draft},
+        timeout=30,
+    ))
+    return response_data(http_json(
+        "POST",
+        api_base,
+        f"/api/v1/workflow-design-drafts/{created['draftId']}/plan",
+        payload={"serverId": server_id},
+        timeout=timeout,
+    ))
+
+
+def workflow_design_edge(
+    *,
+    from_node: str,
+    from_port: str,
+    to_node: str,
+    to_port: str,
+) -> dict[str, Any]:
+    return {
+        "from": {"nodeId": from_node, "port": from_port},
+        "to": {"nodeId": to_node, "port": to_port},
+    }
+
+
+def _workflow_design_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        for input_name, binding in dict(node.get("inputs") or {}).items():
+            if isinstance(binding, dict) and binding.get("fromStep") and binding.get("output"):
+                raise ValueError(f"WORKFLOW_DESIGN_EDGE_REQUIRED: {node_id}.{input_name}")
+        normalized.append(dict(node))
+    return normalized
