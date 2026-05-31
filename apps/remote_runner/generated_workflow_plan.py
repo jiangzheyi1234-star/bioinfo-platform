@@ -47,6 +47,7 @@ def plan_generated_workflow_steps(
     resolved_inputs: list[dict[str, Any]],
     result_dir: Path,
     require_workflow_ready: bool = True,
+    tool_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> GeneratedWorkflowPlan:
     run_spec = normalize_generated_workflow_run_spec(run_spec)
     requested_steps = topologically_order_steps(resolve_requested_steps(run_spec))
@@ -60,7 +61,8 @@ def plan_generated_workflow_steps(
         tool_id = str(tool_request.get("id") or "").strip()
         if not tool_id:
             raise ValueError("TOOL_ID_REQUIRED")
-        tool = fetch_tool(cfg, tool_id)
+        tool = tool_overrides.get(tool_id) if tool_overrides else None
+        tool = tool or fetch_tool(cfg, tool_id)
         if tool is None:
             raise ValueError("TOOL_NOT_FOUND")
         if not bool(tool.get("targetPlatformSupported")):
