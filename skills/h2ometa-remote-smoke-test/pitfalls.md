@@ -10,6 +10,7 @@ Use this file when a task matches a failure mode that has already happened in `b
 - Duplicate runner startup
 - Dirty bootstrap retries
 - Browser screenshot capture timeouts
+- FastQC prepare reaches Snakemake but stalls or misses per-rule tools
 
 ## Windows Codex `pytest` Failures
 
@@ -91,3 +92,19 @@ What to do:
 
 Why this exists:
 - `Page.captureScreenshot` timeouts are a known CDP/Chromium failure mode in Playwright/Puppeteer-style automation, and increasing a timeout alone may not fix it.
+
+## FastQC Prepare Reaches Snakemake But Stalls Or Misses Per-Rule Tools
+
+Symptom:
+- `POST /api/v1/tools/prepare` no longer returns 405, but a real FastQC validation still fails below the route layer.
+- The UI wrapper path can sit in dry-run while Snakemake clones `https://github.com/snakemake/snakemake-wrappers`.
+- A non-wrapper command template can create the per-rule conda env and still fail with `fastqc: command not found`.
+
+What to do:
+- First confirm the runner route is present with the release artifact preflight before debugging Snakemake.
+- For the UI wrapper path, inspect the dry-run log and running processes before waiting for the full browser request timeout.
+- For command-template failures, check whether the per-rule env contains the expected binary and whether Snakemake activation actually puts that env's `bin` directory on `PATH`.
+- Remember that the conda-pack `workflow-env/bin/activate` script activates the packed workflow env itself; it is not equivalent to `conda shell.posix activate <per-rule-env>`.
+
+Why this exists:
+- A real FastQC prepare on 2026-05-31 reached Snakemake after the prepare route was released. The UI path stalled cloning `snakemake-wrappers`; the command-template path created `fastqc` successfully but Snakemake's shell did not see it because the packed runtime activate script did not activate the per-rule env.
