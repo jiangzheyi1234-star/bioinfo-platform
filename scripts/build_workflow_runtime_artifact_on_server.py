@@ -185,10 +185,44 @@ cd "$BUILD_ROOT"
 SNAKEMAKE_VERSION="$("$BUILD_ROOT/workflow-env-src/bin/snakemake" --version | head -n 1)"
 "$BUILD_ROOT/workflow-env-src/bin/conda-pack" -p "$BUILD_ROOT/workflow-env-src" -o "$BUILD_ROOT/workflow-env.tar.gz" --force
 tar -xzf "$BUILD_ROOT/workflow-env.tar.gz" -C "$BUILD_ROOT/bundle/workflow-env"
+mv "$BUILD_ROOT/bundle/workflow-env/bin/activate" "$BUILD_ROOT/bundle/workflow-env/bin/activate.conda-pack"
+cat > "$BUILD_ROOT/bundle/workflow-env/bin/activate" <<'H2OMETA_ACTIVATE'
+_h2ometa_workflow_runtime_activate() {{
+    local _h2ometa_activate_dir
+    if [ -n "${{BASH_VERSION:+x}}" ]; then
+        _h2ometa_activate_dir="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" >/dev/null 2>&1 && pwd)"
+    else
+        _h2ometa_activate_dir="$(cd "$(dirname "$_")" >/dev/null 2>&1 && pwd)"
+    fi
+
+    local _h2ometa_conda_pack_activate="$_h2ometa_activate_dir/activate.conda-pack"
+    if [ "$#" -gt 0 ]; then
+        local _h2ometa_conda="$_h2ometa_activate_dir/conda"
+        if [ ! -x "$_h2ometa_conda" ]; then
+            echo "H2OMeta workflow-runtime conda executable is missing: $_h2ometa_conda" >&2
+            return 1
+        fi
+        local _h2ometa_conda_shell
+        _h2ometa_conda_shell="$(PATH="$_h2ometa_activate_dir:$PATH" "$_h2ometa_conda" shell.posix activate "$@")" || return $?
+        eval "$_h2ometa_conda_shell"
+        hash -r 2>/dev/null || true
+        return 0
+    fi
+
+    . "$_h2ometa_conda_pack_activate"
+}}
+
+_h2ometa_workflow_runtime_activate "$@"
+_h2ometa_workflow_runtime_activate_status=$?
+unset -f _h2ometa_workflow_runtime_activate 2>/dev/null || true
+return "$_h2ometa_workflow_runtime_activate_status" 2>/dev/null || exit "$_h2ometa_workflow_runtime_activate_status"
+H2OMETA_ACTIVATE
+chmod +x "$BUILD_ROOT/bundle/workflow-env/bin/activate"
 test -x "$BUILD_ROOT/bundle/workflow-env/bin/python"
 test -x "$BUILD_ROOT/bundle/workflow-env/bin/conda"
 test -x "$BUILD_ROOT/bundle/workflow-env/bin/conda-unpack"
 test -x "$BUILD_ROOT/bundle/workflow-env/bin/snakemake"
+test -f "$BUILD_ROOT/bundle/workflow-env/bin/activate.conda-pack"
 find "$BUILD_ROOT/bundle/workflow-env/lib" -path '*/site-packages/snakemake/__init__.py' -type f | grep -q .
 printf "%s\\n" "$SNAKEMAKE_VERSION" > snakemake.version
 "$BUILD_ROOT/workflow-env-src/bin/python" - <<'PY'

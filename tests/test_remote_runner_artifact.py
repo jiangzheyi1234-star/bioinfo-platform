@@ -14,6 +14,7 @@ from core.remote_runner.artifact import (
     WorkflowRuntimeArtifactProvider,
 )
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.release_manifest import WORKFLOW_RUNTIME_VERSION
 
 
 def _write_artifact(
@@ -235,3 +236,49 @@ def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -
     assert required_members.issubset(names)
     assert "workflow_design_router" in main_text
     assert "app.include_router(workflow_design_router)" in main_text
+
+
+def test_checked_in_remote_runner_artifact_contains_tool_prepare_endpoint() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    bundle = (
+        repo_root
+        / "resources"
+        / "remote-runner"
+        / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
+    )
+
+    resolved = RemoteRunnerArtifactProvider(repo_root=repo_root).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
+
+    assert resolved.archive_path == bundle
+    with tarfile.open(bundle, "r:gz") as archive:
+        names = set(archive.getnames())
+        routes = archive.extractfile("./remote_runner/tool_routes.py")
+        assert routes is not None
+        routes_text = routes.read().decode("utf-8")
+
+    assert "./remote_runner/tool_preparation.py" in names
+    assert '@router.post("/api/v1/tools/prepare", status_code=201)' in routes_text
+    assert "prepare_registered_tool" in routes_text
+
+
+def test_checked_in_workflow_runtime_artifact_wraps_activate_for_per_rule_conda_envs() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    bundle = (
+        repo_root
+        / "resources"
+        / "remote-runner"
+        / f"h2ometa-workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64.tar.gz"
+    )
+
+    resolved = WorkflowRuntimeArtifactProvider(repo_root=repo_root).resolve(WORKFLOW_RUNTIME_VERSION, platform="linux-64")
+
+    assert resolved.archive_path == bundle
+    with tarfile.open(bundle, "r:gz") as archive:
+        normalized_names = {name.lstrip("./") for name in archive.getnames()}
+        activate = archive.extractfile("./workflow-env/bin/activate")
+        assert activate is not None
+        activate_text = activate.read().decode("utf-8")
+
+    assert "workflow-env/bin/activate.conda-pack" in normalized_names
+    assert 'PATH="$_h2ometa_activate_dir:$PATH" "$_h2ometa_conda" shell.posix activate "$@"' in activate_text
+    assert '. "$_h2ometa_conda_pack_activate"' in activate_text
