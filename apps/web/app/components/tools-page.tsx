@@ -106,15 +106,23 @@ export function ToolsPage() {
               />
 
               <ToolPreviewPanel
-                canAddSelected={state.canAddSelected}
+                addingSelectedTool={state.addingSelectedTool}
+                canSaveSelected={state.canSaveSelected}
+                canValidateSelected={state.canValidateSelected}
+                missingRuleSpecFields={state.missingSelectedRuleSpecFields}
                 selected={state.selected}
                 selectedAlreadyAdded={state.selectedAlreadyAdded}
+                selectedOutputPath={state.selectedOutputPath}
                 selectedPackageLocked={state.selectedPackageLocked}
                 selectedPackageSpec={state.selectedPackageSpec}
                 selectedVersion={state.selectedVersion}
+                selectedWrapperPath={state.selectedWrapperPath}
                 onAdd={state.addSelectedTool}
+                onAddAndCheck={state.addAndCheckSelectedTool}
                 onOpenSourceUrl={(url) => void state.openToolSourceUrl(url)}
+                onOutputPathChange={state.updateSelectedOutputPath}
                 onVersionChange={state.updateSelectedVersion}
+                onWrapperChange={state.updateSelectedWrapper}
               />
             </div>
           </>

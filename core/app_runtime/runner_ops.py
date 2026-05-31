@@ -188,6 +188,25 @@ class RunnerOperationsMixin:
             )
         }
 
+    def prepare_tool(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            body = dict(payload or {})
+            server_id, ssh, record = self._require_existing_runner_ready(
+                preferred_server_id=body.get("serverId")
+            )
+            manager = self._service_locator.remote_runner_manager
+        body.pop("serverId", None)
+        return {
+            "data": self._call_remote_runner(
+                manager.prepare_tool,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                payload=body,
+            )
+        }
+
     def update_tool_rule_template(self, tool_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()

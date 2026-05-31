@@ -9,9 +9,11 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     helper = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
+    tools_model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    completion = (COMPONENTS / "tools-page-rule-spec-completion.ts").read_text(encoding="utf-8")
     library = (COMPONENTS / "tools-page-library-section.tsx").read_text(encoding="utf-8")
     builder = (COMPONENTS / "generated-workflow-builder.tsx").read_text(encoding="utf-8")
-    model = (COMPONENTS / "generated-workflow-model.ts").read_text(encoding="utf-8")
+    workflow_model = (COMPONENTS / "generated-workflow-model.ts").read_text(encoding="utf-8")
     tools_state = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
     editor = (COMPONENTS / "tools-page-rule-spec-editor.tsx").read_text(encoding="utf-8")
 
@@ -46,6 +48,16 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     assert "tool.toolContract?.workflowReady" in helper
     assert "contractWorkflowReady === undefined ? localWorkflowReady" not in helper
     assert "Boolean(contractWorkflowReady && localWorkflowReady)" in helper
+    assert "missingRuleSpecFields" in tools_model
+    assert "isExecutableRuleSpec" in tools_model
+    assert "buildExecutableRuleSpecForSelectedTool" in tools_model
+    assert "applySelectedWrapperLock" in tools_model
+    assert "params:" in completion
+    assert "smokeTest" in completion
+    assert "environment" in completion
+    assert "RuleSpec 需要补全并确认" in completion
+    assert "canAutoConfirmRuleSpec" in completion
+    assert "outputPathSpecified" in completion
 
     assert "ruleSpecReadinessForTool" in library
     assert "state.label" in library
@@ -59,10 +71,14 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     assert "tools={workflowReadyTools}" in builder
     assert "没有可加入流程的工具" in builder
 
-    assert "executableRuleTemplateForTool" in model
-    assert "WORKFLOW_TOOL_NOT_READY" in model
+    assert "executableRuleTemplateForTool" in workflow_model
+    assert "WORKFLOW_TOOL_NOT_READY" in workflow_model
 
     assert "withCuratedRuleTemplate" in tools_state
+    assert "canSaveSelected" in tools_state
+    assert "canValidateSelected" in tools_state
+    assert "addToolDependency(nextTool)" in tools_state
+    assert "prepareToolDependency(nextTool)" in tools_state
     assert "starterRuleTemplateForKnownTool" in editor
     assert "mem_mb" in editor
     assert "log:" in editor
