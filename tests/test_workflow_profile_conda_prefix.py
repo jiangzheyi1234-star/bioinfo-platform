@@ -26,6 +26,7 @@ def test_runtime_layout_writes_managed_conda_prefix(tmp_path: Path) -> None:
     profile_path = get_workflow_profile_path(cfg)
     assert profile_path is not None
     profile = profile_path.read_text(encoding="utf-8")
+    assert "conda-frontend: mamba" in profile
     assert f"conda-prefix: {tmp_path / 'shared' / 'conda-envs'}" in profile
     assert (tmp_path / "shared" / "conda-envs").is_dir()
 
@@ -36,5 +37,5 @@ def test_remote_bootstrap_profile_uses_shared_conda_prefix() -> None:
     )
 
     assert "software-deployment-method: conda" in profile
-    assert "conda-frontend: conda" in profile
+    assert "conda-frontend: mamba" in profile
     assert "conda-prefix: /home/tester/.h2ometa/runner/shared/conda-envs" in profile

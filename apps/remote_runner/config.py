@@ -83,7 +83,7 @@ def _build_workflow_profile_content(*, conda_prefix: str | Path) -> str:
             "printshellcmds: true",
             "rerun-incomplete: true",
             "software-deployment-method: conda",
-            "conda-frontend: conda",
+            "conda-frontend: mamba",
             f"conda-prefix: {conda_prefix}",
             "",
         ]
