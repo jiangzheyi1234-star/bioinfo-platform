@@ -43,6 +43,7 @@ def prepare_generated_tool_workflow(
     work_dir: Path,
     result_dir: Path,
     require_workflow_ready: bool = True,
+    tool_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> GeneratedWorkflow:
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")
@@ -63,6 +64,7 @@ def prepare_generated_tool_workflow(
         resolved_inputs=resolved_inputs,
         result_dir=result_dir,
         require_workflow_ready=require_workflow_ready,
+        tool_overrides=tool_overrides,
     )
     run_spec = plan.run_spec
     generated_steps = plan.steps

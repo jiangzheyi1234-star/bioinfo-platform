@@ -69,6 +69,7 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
             work_dir=validation_root / "work",
             result_dir=result_dir,
             require_workflow_ready=False,
+            tool_overrides={str(tool.get("id") or ""): tool},
         )
     except Exception as exc:
         return _result(

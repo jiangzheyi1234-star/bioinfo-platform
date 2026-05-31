@@ -18,6 +18,7 @@ from .tools import (
     remove_registered_tool,
     update_registered_tool_rule_template,
 )
+from .tool_preparation import prepare_registered_tool
 
 
 router = APIRouter()
@@ -54,6 +55,16 @@ async def add_tool(payload: ToolManifestRequest, authorization: str | None = Hea
     cfg = authorized_config(authorization)
     try:
         item = add_registered_tool(cfg, payload.model_dump(exclude_none=True))
+    except ToolRegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return data_response(item)
+
+
+@router.post("/api/v1/tools/prepare", status_code=201)
+async def prepare_tool(payload: ToolManifestRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    try:
+        item = await run_in_threadpool(prepare_registered_tool, cfg, payload.model_dump(exclude_none=True))
     except ToolRegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return data_response(item)
