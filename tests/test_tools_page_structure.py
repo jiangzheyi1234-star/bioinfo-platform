@@ -12,15 +12,19 @@ def test_tools_page_has_focused_support_modules() -> None:
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
     library = (COMPONENTS / "tools-page-library-section.tsx").read_text(encoding="utf-8")
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    completion = (COMPONENTS / "tools-page-rule-spec-completion.ts").read_text(encoding="utf-8")
     editor = (COMPONENTS / "tools-page-rule-spec-editor.tsx").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    wrapper_selector = (COMPONENTS / "tools-page-wrapper-selector.tsx").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
 
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
+    assert "export async function prepareToolDependency" in api
     assert "export async function updateToolRuleTemplate" in api
     assert "export async function checkToolDependency" in api
+    assert "/api/v1/tools/prepare" in api
     assert "/api/v1/tools/${encodeURIComponent(id)}/rule-template" in api
     assert "/api/v1/tools/${encodeURIComponent(id)}/check" in api
     assert "invalidateWorkflowToolCaches" in api
@@ -71,6 +75,21 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "moduleAssets?: Array<{ path: string; content: string }>" in model
     assert "lock?: RuleSpecLock" in model
     assert "export function packageSpecLocked" in model
+    assert "applySelectedWrapperLock" in model
+    assert "buildExecutableRuleSpecForSelectedTool" in model
+    assert "isExecutableRuleSpec" in model
+    assert "missingRuleSpecFields" in model
+    assert "export function applySelectedWrapperLock" in completion
+    assert "export function buildExecutableRuleSpecForSelectedTool" in completion
+    assert "export function isExecutableRuleSpec" in completion
+    assert "export function missingRuleSpecFields" in completion
+    assert "缺少输出文件路径" in completion
+    assert "wrapper ref 不能使用 latest/master" in completion
+    assert "RuleSpec 需要补全并确认" in completion
+    assert "canAutoConfirmRuleSpec" in completion
+    assert "requiresUserCompletion" in completion
+    assert "outputPathSpecified" in completion
+    assert 'Object.prototype.hasOwnProperty.call(options, "outputPath")' in completion
     assert "export function uniqueDependencies" in model
     assert 'title="工具"' in page
     assert "添加工具" in page
@@ -80,6 +99,14 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "返回节点库" not in page
     assert "在线搜索 Bioconda / conda-forge 工具" in page
     assert "加入工具失败" in hook
+    assert "addAndCheckSelectedTool" in hook
+    assert "selectedWrapperPath" in hook
+    assert "updateSelectedWrapper" in hook
+    assert "missingSelectedRuleSpecFields" in hook
+    assert "加入并验证工具失败" in hook
+    assert "prepareToolDependency(nextTool)" in hook
+    assert hook.count("prepareToolDependency(nextTool)") >= 2
+    assert "await addToolDependency(nextTool)" not in hook
     assert "selectedPackageLocked" in hook
     assert "请选择一个明确版本" in hook
     assert "加入工具节点失败" not in hook
@@ -110,6 +137,9 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
     assert "RuleSpecContractPreview" in ui
+    assert "ToolWrapperSelector" in ui
+    assert "加入并验证" in ui
+    assert "还不能加入流程" in ui
     assert "ruleSpecEnvironmentItems" in ui
     assert "ruleSpecResourceItems" in ui
     assert "template.schedulerResources" in ui
@@ -121,29 +151,35 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert '["directory", "protected", "temp"]' in ui
     assert "...port.semantics" in ui
     assert ">工具</h2>" in library
-    assert "RuleSpecNodeCard" in library
+    assert "ToolContractRow" in library
     assert "RuleSpecNodeReadinessBadge" in library
-    assert "RuleSpecNodeStatusRow" in library
+    assert "ToolContractStatusRow" in library
     assert "RuleSpecNodeStatusChip" in library
     assert 'label="Runtime"' in library
     assert "state.runtimeLabel" in library
     assert 'label="Smoke"' in library
-    assert "state.smokeLabel" in library
+    assert "validation.smokeRun" in library
     assert "ruleSpecReadinessForTool" in library
     assert "可加入流程" in readiness
     assert "待验证" in readiness
     assert "待确认 RuleSpec" in readiness
     assert "仅依赖" in readiness
     assert "Action" in library
-    assert "Ports" in library
+    assert "Dry-run" in library
+    assert "Output" in library
     assert "Env" in library
     assert "RuleSpecNodeFact" not in library
-    assert "sm:grid-cols-3" not in library
+    assert "ToolContractStatusDot" in library
+    assert "ContractStageRail" in library
     assert "工具预览" in ui
     assert "加入工具" in ui
     assert "请选择版本" in ui
     assert "不锁版本" not in ui
     assert "module:" in ui
+    assert "export function ToolWrapperSelector" in wrapper_selector
+    assert "推荐 wrapper ref" in wrapper_selector
+    assert "wrapperPath" in wrapper_selector
+    assert "onWrapperChange" in wrapper_selector
     assert "规则节点库" not in library
     assert "规则节点库" not in ui
     assert "工具节点预览" not in ui

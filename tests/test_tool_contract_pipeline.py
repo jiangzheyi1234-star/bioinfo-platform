@@ -773,6 +773,7 @@ def test_tool_check_route_runs_validation_in_threadpool() -> None:
     assert "from starlette.concurrency import run_in_threadpool" in source
     assert "await run_in_threadpool(check_registered_tool" in source
 
+
 def test_tool_production_acceptance_is_exposed_through_api_layers() -> None:
     root = Path(__file__).resolve().parents[1]
     remote_main = (root / "apps" / "remote_runner" / "main.py").read_text(encoding="utf-8")

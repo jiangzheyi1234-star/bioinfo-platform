@@ -70,25 +70,15 @@ export async function searchToolCapabilities({
 
 export async function addToolDependency(tool: AddedTool): Promise<void> {
   await requestLocalApiJson("POST", "/api/v1/tools", {
-    body: {
-      id: tool.id,
-      name: tool.name,
-      source: tool.source,
-      sourceLabel: tool.sourceLabel,
-      version: tool.selectedVersion,
-      packageSpec: tool.selectedPackageSpec,
-      summary: tool.summary,
-      targetPlatform: tool.targetPlatform,
-      targetPlatformSupported: tool.targetPlatformSupported,
-      platforms: tool.platforms || [],
-      sourceUrl: tool.sourceUrl,
-      testCommand: tool.testCommand || "",
-      ruleTemplate: tool.ruleTemplate,
-      ruleSpecDraft: tool.ruleSpecDraft,
-      capabilities: tool.capabilities || [],
-      snakemakeWrappers: tool.snakemakeWrappers || [],
-      snakemakeWrapperCount: tool.snakemakeWrapperCount || 0,
-    },
+    body: toolManifestBody(tool),
+  });
+  invalidateWorkflowToolCaches();
+}
+
+export async function prepareToolDependency(tool: AddedTool): Promise<void> {
+  await requestLocalApiJson("POST", "/api/v1/tools/prepare", {
+    body: toolManifestBody(tool),
+    timeoutMs: 2_100_000,
   });
   invalidateWorkflowToolCaches();
 }
@@ -98,6 +88,28 @@ export async function updateToolRuleTemplate(id: string, ruleTemplate: RuleSpecT
     body: { ruleTemplate },
   });
   invalidateWorkflowToolCaches();
+}
+
+function toolManifestBody(tool: AddedTool) {
+  return {
+    id: tool.id,
+    name: tool.name,
+    source: tool.source,
+    sourceLabel: tool.sourceLabel,
+    version: tool.selectedVersion,
+    packageSpec: tool.selectedPackageSpec,
+    summary: tool.summary,
+    targetPlatform: tool.targetPlatform,
+    targetPlatformSupported: tool.targetPlatformSupported,
+    platforms: tool.platforms || [],
+    sourceUrl: tool.sourceUrl,
+    testCommand: tool.testCommand || "",
+    ruleTemplate: tool.ruleTemplate,
+    ruleSpecDraft: tool.ruleSpecDraft,
+    capabilities: tool.capabilities || [],
+    snakemakeWrappers: tool.snakemakeWrappers || [],
+    snakemakeWrapperCount: tool.snakemakeWrapperCount || 0,
+  };
 }
 
 export async function checkToolDependency(id: string): Promise<void> {

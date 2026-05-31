@@ -68,6 +68,18 @@ class RemoteRunnerProxyMixin:
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 
+    def prepare_tool(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=TOOL_VALIDATION_TIMEOUT_SECONDS,
+        )
+        try:
+            return client.post_json("/api/v1/tools/prepare", kwargs["payload"])["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
     def update_tool_rule_template(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

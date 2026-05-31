@@ -405,3 +405,11 @@ export function uniqueDependencies(items: AddedTool[]) {
   }
   return unique;
 }
+
+export {
+  applySelectedWrapperLock,
+  buildExecutableRuleSpecForSelectedTool,
+  defaultRuleSpecOutputPath,
+  isExecutableRuleSpec,
+  missingRuleSpecFields,
+} from "./tools-page-rule-spec-completion";

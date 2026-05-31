@@ -1,10 +1,12 @@
 import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Check, Loader2, PackagePlus, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import type { RuleSpecDraft, ToolSearchItem } from "./tools-page-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
+import { ToolWrapperSelector } from "./tools-page-wrapper-selector";
 
 export function SourceBadge({ source, label }: { source: string; label: string }) {
   return (
@@ -335,48 +337,6 @@ export function ToolSearchResults({
   );
 }
 
-function SnakemakeWrapperPreview({
-  selected,
-  onOpenSourceUrl,
-}: {
-  selected: ToolSearchItem;
-  onOpenSourceUrl: (url: string) => void;
-}) {
-  const wrappers = selected.snakemakeWrappers || [];
-  if (wrappers.length === 0) {
-    return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div className="text-[11px] uppercase text-slate-400">Snakemake wrapper</div>
-        <div className="mt-1 text-xs leading-5 text-slate-500">未命中同名官方 wrapper；可先加入工具库，补全 RuleSpec 后用于流程。</div>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-[11px] uppercase text-violet-500">Snakemake wrapper</div>
-        <span className="text-[11px] text-violet-600">{wrappers.length} 个命中</span>
-      </div>
-      <div className="mt-2 space-y-1.5">
-        {wrappers.slice(0, 4).map((wrapper) => (
-          <button
-            key={wrapper.wrapperPath}
-            type="button"
-            onClick={() => onOpenSourceUrl(wrapper.wrapperUrl)}
-            className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md bg-white/70 px-2 py-1.5 text-left text-xs text-violet-800 hover:bg-white"
-          >
-            <span className="truncate font-mono">{wrapper.wrapperPath}</span>
-            <ExternalLink strokeWidth={1.5} className="h-3 w-3 flex-shrink-0" />
-          </button>
-        ))}
-      </div>
-      <p className="mt-2 text-[11px] leading-4 text-violet-600">
-        当前 wrapper ref 已随 RuleSpec 草稿锁定。
-      </p>
-    </div>
-  );
-}
-
 function ruleSpecDraftTitle(draft: RuleSpecDraft | undefined) {
   if (!draft) return "RuleSpec 草稿";
   if (draft.source === "snakemake-wrapper") return "生成 wrapper RuleSpec";
@@ -538,6 +498,11 @@ function ruleSpecResourceItems(template: Record<string, unknown>) {
   ].filter(Boolean);
 }
 
+function selectedEnvironmentChannels(source: string) {
+  const secondary = source === "conda-forge" ? "bioconda" : source;
+  return Array.from(new Set(["conda-forge", secondary].filter(Boolean)));
+}
+
 function stringArray(raw: unknown) {
   return Array.isArray(raw) ? raw.map((item) => String(item || "").trim()).filter(Boolean) : [];
 }
@@ -551,26 +516,43 @@ function scalarValue(raw: unknown) {
 }
 
 export function ToolPreviewPanel({
-  canAddSelected,
+  addingSelectedTool,
+  canSaveSelected,
+  canValidateSelected,
   onAdd,
+  onAddAndCheck,
   onOpenSourceUrl,
+  onOutputPathChange,
   onVersionChange,
+  onWrapperChange,
+  missingRuleSpecFields,
   selected,
   selectedAlreadyAdded,
+  selectedOutputPath,
   selectedPackageLocked,
   selectedPackageSpec,
   selectedVersion,
+  selectedWrapperPath,
 }: {
-  canAddSelected: boolean;
+  addingSelectedTool: boolean;
+  canSaveSelected: boolean;
+  canValidateSelected: boolean;
+  missingRuleSpecFields: string[];
   onAdd: () => void;
+  onAddAndCheck: () => void;
   onOpenSourceUrl: (url: string) => void;
+  onOutputPathChange: (id: string, outputPath: string) => void;
   onVersionChange: (id: string, version: string) => void;
+  onWrapperChange: (id: string, wrapperPath: string) => void;
   selected: ToolSearchItem | undefined;
   selectedAlreadyAdded: boolean;
+  selectedOutputPath: string;
   selectedPackageLocked: boolean;
   selectedPackageSpec: string;
   selectedVersion: string;
+  selectedWrapperPath: string;
 }) {
+  const environmentChannels = selected ? selectedEnvironmentChannels(selected.source) : [];
   return (
     <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40 min-[820px]:sticky min-[820px]:top-4 min-[820px]:self-start">
       <h2 className="text-sm font-medium text-slate-900">工具预览</h2>
@@ -585,6 +567,26 @@ export function ToolPreviewPanel({
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">{selected.summary || "Conda package"}</p>
             <RuleNodeSummary item={selected} />
+          </div>
+
+          <ToolWrapperSelector
+            selected={selected}
+            selectedWrapperPath={selectedWrapperPath}
+            onOpenSourceUrl={onOpenSourceUrl}
+            onWrapperChange={(wrapperPath) => onWrapperChange(selected.id, wrapperPath)}
+          />
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] uppercase text-slate-400" htmlFor="tool-output-path">
+              输出文件
+            </label>
+            <Input
+              id="tool-output-path"
+              value={selectedOutputPath}
+              onChange={(event) => onOutputPathChange(selected.id, event.target.value)}
+              className="h-9 rounded-md border-slate-200 bg-white font-mono text-xs"
+              placeholder="results/tool.out"
+            />
           </div>
 
           <RulePortPreview item={selected} />
@@ -606,7 +608,6 @@ export function ToolPreviewPanel({
             <PlatformChips platforms={selected.platforms} />
           </div>
 
-          <SnakemakeWrapperPreview selected={selected} onOpenSourceUrl={onOpenSourceUrl} />
           <RuleSpecDraftPreview draft={selected.ruleSpecDraft} />
 
           <div className="space-y-1.5">
@@ -651,21 +652,40 @@ export function ToolPreviewPanel({
             ) : null}
           </div>
 
-          <pre className="overflow-hidden rounded-md bg-slate-950 px-3 py-2 text-xs leading-5 text-slate-100">
-{`channels:
-  - ${selected.source}
-  - ${selected.source === "bioconda" ? "conda-forge" : "bioconda"}
+          <pre className="overflow-hidden rounded-md bg-slate-950 px-3 py-2 text-xs leading-5 text-slate-100">{`channels:
+${environmentChannels.map((channel) => `  - ${channel}`).join("\n")}
 dependencies:
-  - ${selectedPackageSpec}`}
-          </pre>
+  - ${selectedPackageSpec}`}</pre>
 
-          <Button
-            className="h-10 w-full bg-slate-950 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500"
-            disabled={!canAddSelected}
-            onClick={onAdd}
-          >
-            {selectedAlreadyAdded ? "已加入" : !selectedPackageLocked ? "请选择版本" : "加入工具"}
-          </Button>
+          {missingRuleSpecFields.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+              <div className="font-medium">还不能加入流程：</div>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {missingRuleSpecFields.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button
+              variant="outline"
+              className="h-10 bg-white text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
+              disabled={!canSaveSelected || addingSelectedTool}
+              onClick={onAdd}
+            >
+              {selectedAlreadyAdded ? "已加入" : !selectedPackageLocked ? "请选择版本" : "加入工具库"}
+            </Button>
+            <Button
+              className="h-10 bg-slate-950 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500"
+              disabled={!canValidateSelected || addingSelectedTool}
+              onClick={onAddAndCheck}
+            >
+              {addingSelectedTool ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {selectedAlreadyAdded ? "已加入" : "验证并发布"}
+            </Button>
+          </div>
         </div>
       ) : (
         <p className="mt-4 text-sm text-slate-400">选择一个搜索结果</p>

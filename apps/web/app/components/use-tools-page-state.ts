@@ -8,6 +8,7 @@ import {
   fetchAddedTools,
   getCachedAddedTools,
   openToolSourceUrl,
+  prepareToolDependency,
   removeToolDependency,
   searchToolCapabilities,
   updateToolRuleTemplate,
@@ -17,7 +18,11 @@ import {
   type RuleSpecTemplate,
   type ToolSearchItem,
   applySelectedPackageLock,
+  applySelectedWrapperLock,
+  buildExecutableRuleSpecForSelectedTool,
+  defaultRuleSpecOutputPath,
   dependencyKey,
+  missingRuleSpecFields,
   packageSpecLocked,
   searchErrorMessage,
   toolErrorMessage,
@@ -36,6 +41,8 @@ export function useToolsPageState() {
   const [items, setItems] = useState<ToolSearchItem[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [versionOverrides, setVersionOverrides] = useState<Record<string, string>>({});
+  const [wrapperOverrides, setWrapperOverrides] = useState<Record<string, string>>({});
+  const [outputPathOverrides, setOutputPathOverrides] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searchPage, setSearchPage] = useState(1);
@@ -46,6 +53,7 @@ export function useToolsPageState() {
   const [ruleSpecSavingId, setRuleSpecSavingId] = useState("");
   const [ruleSpecEditError, setRuleSpecEditError] = useState("");
   const [checkingToolId, setCheckingToolId] = useState("");
+  const [addingSelectedTool, setAddingSelectedTool] = useState(false);
 
   const loadAddedTools = useCallback(async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
     const currentTools = addedToolsRef.current;
@@ -139,12 +147,32 @@ export function useToolsPageState() {
       ? `${baseSelected.source}::${baseSelected.name}=${selectedVersion.trim()}`
       : `${baseSelected.source}::${baseSelected.name}`
     : "";
-  const selected = baseSelected ? applySelectedPackageLock(baseSelected, selectedVersion, selectedPackageSpec) : undefined;
+  const selectedWrapperPath = baseSelected
+    ? wrapperOverrides[baseSelected.id] ?? baseSelected.snakemakeWrappers?.[0]?.wrapperPath ?? ""
+    : "";
+  const selectedOutputPath = baseSelected
+    ? outputPathOverrides[baseSelected.id] ?? defaultRuleSpecOutputPath(baseSelected, selectedWrapperPath)
+    : "";
+  const selected = baseSelected
+    ? buildExecutableRuleSpecForSelectedTool(
+        applySelectedWrapperLock(applySelectedPackageLock(baseSelected, selectedVersion, selectedPackageSpec), selectedWrapperPath),
+        { outputPath: selectedOutputPath, selectedPackageSpec, selectedVersion }
+      )
+    : undefined;
   const selectedAlreadyAdded = Boolean(
     selectedPackageSpec && addedTools.some((tool) => dependencyKey(tool.selectedPackageSpec || tool.packageSpec) === dependencyKey(selectedPackageSpec))
   );
   const selectedPackageLocked = packageSpecLocked(selectedPackageSpec);
-  const canAddSelected = Boolean(selected?.targetPlatformSupported === true && selectedPackageLocked && !selectedAlreadyAdded);
+  const missingSelectedRuleSpecFields = selected ? missingRuleSpecFields(selected) : [];
+  const canSaveSelected = Boolean(
+    selected?.targetPlatformSupported === true &&
+      selectedPackageLocked &&
+      !selectedAlreadyAdded
+  );
+  const canValidateSelected = Boolean(
+    canSaveSelected &&
+      missingSelectedRuleSpecFields.length === 0
+  );
 
   function updateQuery(value: string) {
     setQuery(value);
@@ -158,13 +186,30 @@ export function useToolsPageState() {
     }));
   }
 
+  function updateSelectedWrapper(id: string, wrapperPath: string) {
+    setWrapperOverrides((current) => ({
+      ...current,
+      [id]: wrapperPath,
+    }));
+  }
+
+  function updateSelectedOutputPath(id: string, outputPath: string) {
+    setOutputPathOverrides((current) => ({
+      ...current,
+      [id]: outputPath,
+    }));
+  }
+
   function editToolRuleTemplate(id: string) {
     setRuleSpecEditError("");
     setEditingRuleSpecToolId(id);
   }
 
-  function addSelectedTool() {
-    if (!selected || !canAddSelected) {
+  function selectedToolForSave(): AddedTool | null {
+    if (!selected || !canSaveSelected) {
+      if (selected?.targetPlatformSupported === false) {
+        setToolsError("该工具当前目标平台不可用，不能加入工具库。");
+      }
       if (selected && !selectedPackageLocked) {
         setToolsError("请选择一个明确版本后再加入工具。");
       }
@@ -172,7 +217,7 @@ export function useToolsPageState() {
         setToolsError("该依赖版本已经加入项目。");
         setView("library");
       }
-      return;
+      return null;
     }
     const nextTool = withCuratedRuleTemplate<AddedTool>({
       ...selected,
@@ -180,7 +225,53 @@ export function useToolsPageState() {
       selectedPackageSpec,
       packageSpec: selectedPackageSpec,
     });
+    const executableTool = buildExecutableRuleSpecForSelectedTool(nextTool, {
+      outputPath: selectedOutputPath,
+      selectedPackageSpec,
+      selectedVersion,
+    });
+    return draftOnlyWhenActionMissing(executableTool);
+  }
+
+  function selectedToolForValidation(): AddedTool | null {
+    if (!selected || !canValidateSelected) {
+      if (selected && !selectedPackageLocked) {
+        setToolsError("请选择一个明确版本后再加入工具。");
+      }
+      if (selectedAlreadyAdded) {
+        setToolsError("该依赖版本已经加入项目。");
+        setView("library");
+      }
+      if (selected && missingSelectedRuleSpecFields.length > 0) {
+        setToolsError(formatMissingRuleSpecFields(missingSelectedRuleSpecFields));
+      }
+      return null;
+    }
+    const nextTool = withCuratedRuleTemplate<AddedTool>({
+      ...selected,
+      selectedVersion,
+      selectedPackageSpec,
+      packageSpec: selectedPackageSpec,
+    });
+    const executableTool = buildExecutableRuleSpecForSelectedTool(nextTool, {
+      outputPath: selectedOutputPath,
+      selectedPackageSpec,
+      selectedVersion,
+    });
+    const missing = missingRuleSpecFields(executableTool);
+    if (missing.length > 0) {
+      setToolsError(formatMissingRuleSpecFields(missing));
+      return null;
+    }
+    return executableTool;
+  }
+
+  function addSelectedTool() {
+    const nextTool = selectedToolForSave();
+    if (!nextTool) return;
     void (async () => {
+      setAddingSelectedTool(true);
+      setCheckingToolId(nextTool.id);
       setToolsError("");
       try {
         await addToolDependency(nextTool);
@@ -188,6 +279,30 @@ export function useToolsPageState() {
         setView("library");
       } catch (err) {
         setToolsError(toolErrorMessage(err, "加入工具失败"));
+      } finally {
+        setAddingSelectedTool(false);
+        setCheckingToolId("");
+      }
+    })();
+  }
+
+  function addAndCheckSelectedTool() {
+    const nextTool = selectedToolForValidation();
+    if (!nextTool) return;
+    void (async () => {
+      setAddingSelectedTool(true);
+      setCheckingToolId(nextTool.id);
+      setToolsError("");
+      try {
+        await prepareToolDependency(nextTool);
+        await loadAddedTools({ forceRefresh: true, silent: true });
+        setView("library");
+      } catch (err) {
+        setToolsError(toolErrorMessage(err, "加入并验证工具失败"));
+        await loadAddedTools({ forceRefresh: true, silent: true });
+      } finally {
+        setAddingSelectedTool(false);
+        setCheckingToolId("");
       }
     })();
   }
@@ -237,12 +352,15 @@ export function useToolsPageState() {
 
   return {
     addedTools,
-    canAddSelected,
+    addingSelectedTool,
+    canSaveSelected,
+    canValidateSelected,
     checkingToolId,
     editingRuleSpecToolId,
     error,
     filtered,
     loading,
+    missingSelectedRuleSpecFields,
     query,
     searchComplete,
     searchHasMore,
@@ -251,9 +369,11 @@ export function useToolsPageState() {
     selected,
     selectedAlreadyAdded,
     selectedId,
+    selectedOutputPath,
     selectedPackageSpec,
     selectedPackageLocked,
     selectedVersion,
+    selectedWrapperPath,
     setSearchPage,
     setSelectedId,
     setSource,
@@ -264,8 +384,11 @@ export function useToolsPageState() {
     ruleSpecEditError,
     ruleSpecSavingId,
     updateQuery,
+    updateSelectedOutputPath,
     updateSelectedVersion,
+    updateSelectedWrapper,
     view,
+    addAndCheckSelectedTool,
     addSelectedTool,
     loadAddedTools: () => loadAddedTools({ forceRefresh: true, silent: addedTools.length > 0 }),
     openToolSourceUrl,
@@ -274,5 +397,37 @@ export function useToolsPageState() {
     editToolRuleTemplate,
     saveToolRuleTemplate,
     setEditingRuleSpecToolId,
+  };
+}
+
+function formatMissingRuleSpecFields(fields: string[]) {
+  return `还不能加入流程：\n- ${fields.join("\n- ")}`;
+}
+
+function draftOnlyWhenActionMissing(tool: AddedTool): AddedTool {
+  const missing = missingRuleSpecFields(tool);
+  if (!missing.includes("缺少执行动作") && !missing.includes("执行动作冲突")) {
+    return tool;
+  }
+  const packageSpec = tool.selectedPackageSpec || tool.packageSpec;
+  const draft = tool.ruleSpecDraft || {
+    source: "conda-package",
+    notes: ["补全 RuleSpec 后再验证发布。"],
+  };
+  return {
+    ...tool,
+    ruleTemplate: {},
+    ruleSpecDraft: {
+      ...draft,
+      status: draft.status || "needs-user-completion",
+      requiresUserCompletion: true,
+      lock: {
+        ...(draft.lock || {}),
+        packageSpec,
+        version: tool.selectedVersion || tool.version || "",
+        source: tool.source,
+      },
+      ruleTemplate: tool.ruleTemplate,
+    },
   };
 }
