@@ -10,8 +10,11 @@ from apps.remote_runner.pipeline import list_pipelines
 from apps.remote_runner.storage import persist_upload
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 from tests.generated_workflow_test_helpers import (
+    generated_workflow_graph,
+    generated_workflow_node,
     prepare_unchecked_generated_tool_workflow as prepare_generated_tool_workflow,
     upsert_ready_tool as upsert_tool,
+    workflow_design_run_spec_from_graph,
 )
 
 
@@ -88,14 +91,21 @@ def test_generated_tool_run_writes_snakefile_and_per_rule_conda_env(tmp_path: Pa
         cfg,
         run_id="run_generated_tool",
         request_id="req_generated_tool",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "tool": {
-                "id": "conda-forge::coreutils",
-            },
-        },
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::coreutils",
+                        node_id="coreutils",
+                        inputs={"primary": {"fromInput": "input"}},
+                    )
+                ],
+                outputs=[{"from": {"nodeId": "coreutils", "port": "count"}, "as": "count"}],
+            ),
+            upload_id=upload["uploadId"],
+            draft_name="Coreutils workflow",
+        ),
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_tool"
@@ -263,15 +273,15 @@ def test_generated_workflow_rejects_unbound_command_input_token(tmp_path: Path) 
             request_id="req_unbound_command_input",
             run_spec={
                 "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "workflow": {
-                    "steps": [
-                        {
-                            "id": "count",
-                            "tool": {"id": "conda-forge::optional-input"},
-                            "inputs": {"primary": {"fromInput": "input"}},
-                        }
-                    ]
-                },
+                "workflow": generated_workflow_graph(
+                    [
+                        generated_workflow_node(
+                            "conda-forge::optional-input",
+                            node_id="count",
+                            inputs={"primary": {"fromInput": "input"}},
+                        )
+                    ],
+                ),
             },
             resolved_inputs=[{"path": str(reads), "role": "input", "filename": "reads.txt"}],
             work_dir=tmp_path / "work",
@@ -391,17 +401,21 @@ def test_generated_linear_workflow_writes_multiple_rules_and_step_dependencies(t
         cfg,
         run_id="run_generated_linear",
         request_id="req_generated_linear",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "workflow": {
-                "steps": [
-                    {"id": "count_bytes", "tool": {"id": "conda-forge::coreutils-count"}},
-                    {"id": "copy_summary", "tool": {"id": "conda-forge::coreutils-copy"}},
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::coreutils-count",
+                        node_id="count_bytes",
+                        inputs={"primary": {"fromInput": "input"}},
+                    ),
+                    generated_workflow_node("conda-forge::coreutils-copy", node_id="copy_summary"),
                 ],
-            },
-        },
+                edges=[{"from": {"nodeId": "count_bytes", "port": "count"}, "to": {"nodeId": "copy_summary", "port": "primary"}}],
+            ),
+            upload_id=upload["uploadId"],
+        ),
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_linear"
@@ -471,25 +485,27 @@ def test_generated_graph_workflow_writes_rules_and_edges(tmp_path: Path, monkeyp
         cfg,
         run_id="run_generated_graph_contract",
         request_id="req_generated_graph_contract",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "workflow": {
-                "contractVersion": "rule-contract-v1",
-                "nodes": [
-                    {"id": "copy_summary", "toolId": "conda-forge::coreutils-copy"},
-                    {"id": "count_bytes", "toolId": "conda-forge::coreutils-count", "inputs": {"primary": {"fromUpload": 0}}},
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node("conda-forge::coreutils-copy", node_id="copy_summary"),
+                    generated_workflow_node(
+                        "conda-forge::coreutils-count",
+                        node_id="count_bytes",
+                        inputs={"primary": {"fromInput": "input"}},
+                    ),
                 ],
-                "edges": [
+                edges=[
                     {
                         "from": {"nodeId": "count_bytes", "port": "count"},
                         "to": {"nodeId": "copy_summary", "port": "primary"},
                     }
                 ],
-                "outputs": [{"from": {"nodeId": "copy_summary", "port": "final"}, "as": "final"}],
-            },
-        },
+                outputs=[{"from": {"nodeId": "copy_summary", "port": "final"}, "as": "final"}],
+            ),
+            upload_id=upload["uploadId"],
+        ),
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_graph_contract"
@@ -540,30 +556,31 @@ def test_generated_graph_run_config_preserves_graph_contract(tmp_path: Path) -> 
         request_id="req_generated_graph_config",
         run_spec={
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "workflow": {
-                "contractVersion": "rule-contract-v1",
-                "nodes": [
-                    {"id": "source", "toolId": "conda-forge::graph-source", "inputs": {"primary": {"fromInput": "reads"}}},
-                    {"id": "copy", "toolId": "conda-forge::graph-copy"},
+            "workflow": generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::graph-source",
+                        node_id="source",
+                        inputs={"primary": {"fromInput": "reads"}},
+                    ),
+                    generated_workflow_node("conda-forge::graph-copy", node_id="copy"),
                 ],
-                "edges": [
+                edges=[
                     {
                         "from": {"nodeId": "source", "port": "seed"},
                         "to": {"nodeId": "copy", "port": "primary"},
                         "audit": {"source": "auto", "decision": "recommended", "reason": "匹配 type"},
                     }
                 ],
-                "outputs": [{"from": {"nodeId": "copy", "port": "final"}, "as": "final"}],
-            },
+                outputs=[{"from": {"nodeId": "copy", "port": "final"}, "as": "final"}],
+            ),
         },
         resolved_inputs=[{"path": str(reads), "role": "reads", "filename": "reads.txt"}],
         work_dir=tmp_path / "work",
         result_dir=tmp_path / "results",
     )
-
     run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
     graph = run_config["workflow"]["graph"]
-
     assert graph["contractVersion"] == "rule-contract-v1"
     assert [node["id"] for node in graph["nodes"]] == ["source", "copy"]
     assert graph["edges"] == [
@@ -574,7 +591,6 @@ def test_generated_graph_run_config_preserves_graph_contract(tmp_path: Path) -> 
         }
     ]
     assert graph["outputs"] == [{"from": {"nodeId": "copy", "port": "final"}, "as": "final"}]
-
 
 def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
@@ -607,50 +623,43 @@ def test_generated_workflow_renders_step_params_tokens(tmp_path: Path, monkeypat
         mime_type="text/plain",
     )
     calls: list[list[str]] = []
-
     class Result:
         returncode = 0
         stdout = "ok"
         stderr = ""
-
     def fake_run(cmd, **_kwargs):
         calls.append(cmd)
         return Result()
-
     monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
     monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
-
     run_snakemake_execution(
         cfg,
         run_id="run_generated_params",
         request_id="req_generated_params",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "filter_reads",
-                        "tool": {"id": "conda-forge::awk-filter"},
-                        "params": {"limit": 5},
-                    }
-                ]
-            },
-        },
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::awk-filter",
+                        node_id="filter_reads",
+                        inputs={"primary": {"fromInput": "input"}},
+                        params={"limit": 5},
+                    )
+                ],
+            ),
+            upload_id=upload["uploadId"],
+        ),
     )
-
     work_dir = Path(cfg.work_dir) / "run_generated_params"
     snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-
     assert len(calls) == 2
     assert "head -n 5" in snakefile
     assert "{params.limit}" not in snakefile
     assert run_config["workflow"]["steps"][0]["params"]["limit"] == 5
-
 
 def test_generated_workflow_renders_step_params_directive(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
@@ -678,33 +687,29 @@ def test_generated_workflow_renders_step_params_directive(tmp_path: Path) -> Non
     )
     reads = tmp_path / "reads.txt"
     reads.write_text("ACGT\n", encoding="utf-8")
-
     generated = prepare_generated_tool_workflow(
         cfg,
         run_id="run_generated_params_directive",
         request_id="req_generated_params_directive",
         run_spec={
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "filter_reads",
-                        "tool": {"id": "conda-forge::params-directive"},
-                        "inputs": {"primary": {"fromInput": "reads"}},
-                        "params": {"limit": 5},
-                    }
-                ]
-            },
+            "workflow": generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::params-directive",
+                        node_id="filter_reads",
+                        inputs={"primary": {"fromInput": "reads"}},
+                        params={"limit": 5},
+                    )
+                ],
+            ),
         },
         resolved_inputs=[{"path": str(reads), "role": "reads", "filename": "reads.txt"}],
         work_dir=tmp_path / "work",
         result_dir=tmp_path / "results",
     )
-
     snakefile = generated.snakefile.read_text(encoding="utf-8")
-
     assert "    params:\n        limit=5,\n" in snakefile
-
 
 def test_generated_workflow_renders_runtime_directives(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
@@ -738,34 +743,35 @@ def test_generated_workflow_renders_runtime_directives(tmp_path: Path, monkeypat
         content_base64="QUJDREVGCg==",
         mime_type="text/plain",
     )
-
     class Result:
         returncode = 0
         stdout = "ok"
         stderr = ""
-
     monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *_args, **_kwargs: Result())
     monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
-
     run_snakemake_execution(
         cfg,
         run_id="run_generated_runtime",
         request_id="req_generated_runtime",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "tool": {"id": "conda-forge::runtime-demo"},
-        },
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::runtime-demo",
+                        inputs={"primary": {"fromInput": "input"}},
+                    )
+                ],
+            ),
+            upload_id=upload["uploadId"],
+        ),
     )
-
     work_dir = Path(cfg.work_dir) / "run_generated_runtime"
     snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
     step_config = run_config["workflow"]["steps"][0]
-
     assert "    threads: 4\n" in snakefile
     assert "    resources:\n        mem_mb=8000,\n        runtime=30,\n" in snakefile
     assert "    log:\n        stderr=" in snakefile
@@ -780,7 +786,6 @@ def test_generated_workflow_renders_runtime_directives(tmp_path: Path, monkeypat
     stderr_log = Path(step_config["log"]["stderr"])
     assert stderr_log.name == "runtime-demo.stderr.log"
     assert stderr_log.parent.name == "logs"
-
 
 def test_generated_workflow_topologically_orders_explicit_dag_bindings_and_exposed_outputs(
     tmp_path: Path,
@@ -845,67 +850,51 @@ def test_generated_workflow_topologically_orders_explicit_dag_bindings_and_expos
         mime_type="text/plain",
     )
     calls: list[list[str]] = []
-
     class Result:
         returncode = 0
         stdout = "ok"
         stderr = ""
-
     def fake_run(cmd, **_kwargs):
         calls.append(cmd)
         return Result()
-
     monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
     monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
-
     run_snakemake_execution(
         cfg,
         run_id="run_generated_dag",
         request_id="req_generated_dag",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "merge",
-                        "tool": {"id": "conda-forge::merge"},
-                        "inputs": {
-                            "left": {"fromStep": "branch_a", "output": "left"},
-                            "right": {"fromStep": "branch_b", "output": "right"},
-                        },
-                    },
-                    {
-                        "id": "branch_b",
-                        "tool": {"id": "conda-forge::branch-b"},
-                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
-                    },
-                    {
-                        "id": "source",
-                        "tool": {"id": "conda-forge::source"},
-                        "inputs": {"primary": {"fromUpload": 0}},
-                    },
-                    {
-                        "id": "branch_a",
-                        "tool": {"id": "conda-forge::branch-a"},
-                        "inputs": {"primary": {"fromStep": "source", "output": "seed"}},
-                    },
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node("conda-forge::merge", node_id="merge"),
+                    generated_workflow_node("conda-forge::branch-b", node_id="branch_b"),
+                    generated_workflow_node(
+                        "conda-forge::source",
+                        node_id="source",
+                        inputs={"primary": {"fromInput": "input"}},
+                    ),
+                    generated_workflow_node("conda-forge::branch-a", node_id="branch_a"),
                 ],
-                "outputs": {
-                    "merged": {"step": "merge", "output": "final"},
-                    "left_qc": {"step": "branch_a", "output": "left"},
-                },
-            },
-        },
+                edges=[
+                    {"from": {"nodeId": "branch_a", "port": "left"}, "to": {"nodeId": "merge", "port": "left"}},
+                    {"from": {"nodeId": "branch_b", "port": "right"}, "to": {"nodeId": "merge", "port": "right"}},
+                    {"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "branch_b", "port": "primary"}},
+                    {"from": {"nodeId": "source", "port": "seed"}, "to": {"nodeId": "branch_a", "port": "primary"}},
+                ],
+                outputs=[
+                    {"from": {"nodeId": "merge", "port": "final"}, "as": "merged"},
+                    {"from": {"nodeId": "branch_a", "port": "left"}, "as": "left_qc"},
+                ],
+            ),
+            upload_id=upload["uploadId"],
+        ),
     )
-
     work_dir = Path(cfg.work_dir) / "run_generated_dag"
     snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
     run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
-
     assert len(calls) == 2
     assert "rule step_01_source:" in snakefile
     assert "rule step_04_merge:" in snakefile

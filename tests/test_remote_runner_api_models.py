@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from apps.remote_runner.api_models import RunCreateRequest, ToolManifestRequest, UploadCreateRequest
+from apps.remote_runner.api_models import (
+    RunCreateRequest,
+    ToolManifestRequest,
+    UploadCreateRequest,
+    WorkflowDesignDraftCompileRequest,
+)
 
 
 def test_remote_runner_upload_request_rejects_extra_fields() -> None:
@@ -56,3 +61,14 @@ def test_remote_runner_run_request_rejects_legacy_run_spec_server_id() -> None:
         )
 
     assert "UNSUPPORTED_LEGACY_PAYLOAD" in str(exc_info.value)
+
+
+def test_remote_runner_workflow_design_compile_request_rejects_server_id() -> None:
+    request = WorkflowDesignDraftCompileRequest.model_validate({})
+
+    assert request.model_dump() == {}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowDesignDraftCompileRequest.model_validate({"serverId": "srv_demo"})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"

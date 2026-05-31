@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Superseded by `docs/superpowers/plans/2026-05-30-workflow-design-draft-mvp.md`.
+
 **Goal:** Build a generated workflow builder that submits explicit Phase 6 DAG contracts instead of implicit selected-tool order.
 
-**Architecture:** Add a generated-workflow model for draft state, validation, and runSpec construction; add a small hook to manage draft edits; add a focused builder UI and connect it to the existing workflow run page. Keep backend validation authoritative while surfacing clear frontend errors before submit.
+**Architecture:** Add a generated-workflow model for draft state and validation; add a small hook to manage draft edits; add a focused builder UI and connect it to the existing workflow run page. Keep backend validation authoritative while surfacing clear frontend errors before submit. Direct frontend runSpec construction is no longer valid; the builder saves a WorkflowDesignDraft, validates through the plan endpoint, and submits only the planned draft-derived runSpec.
 
 **Tech Stack:** Next.js 15, React 19, TypeScript, Tailwind, shadcn/ui, lucide-react.
 
@@ -19,7 +21,7 @@
 
 - [ ] Write a failing structure test that requires a generated workflow model, explicit input bindings, exposed outputs, and no legacy generated database field.
 - [ ] Run the focused structure test from a WSL Codex CLI only; in this Windows session do not run pytest.
-- [ ] Implement `GeneratedWorkflowDraft`, `GeneratedWorkflowStepDraft`, `GeneratedWorkflowInputBinding`, validation helpers, and `buildGeneratedWorkflowRunSpec`.
+- [x] Implement `GeneratedWorkflowDraft`, `GeneratedWorkflowStepDraft`, `GeneratedWorkflowInputBinding`, and validation helpers. RunSpec creation moved to saved WorkflowDesignDraft planning; do not reintroduce the old direct runSpec builder.
 - [ ] Keep existing normal pipeline runSpec behavior unchanged.
 
 ### Task 2: Builder State Hook
@@ -30,7 +32,7 @@
 
 - [ ] Add reducer actions for adding/removing steps, selecting tools, setting input bindings, exposing outputs, and clearing invalid references.
 - [ ] Derive validation, selected tools, resource bindings, and `canSubmit`.
-- [ ] Connect generated run submission to the explicit draft runSpec.
+- [x] Connect generated run submission to the saved WorkflowDesignDraft plan runSpec.
 
 ### Task 3: Builder UI
 

@@ -30,6 +30,8 @@ import { manualEdgeAudit } from "./generated-workflow-recommendation-contract";
 
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
+  | { type: "load_graph_draft"; draft: GeneratedWorkflowGraphDraft }
+  | { type: "load_resource_bindings"; selectedResourceIds: Record<string, string> }
   | { type: "add_step"; tool: AddedTool; tools: AddedTool[] }
   | { type: "remove_step"; stepId: string }
   | { type: "set_step_id"; stepId: string; nextId: string }
@@ -105,6 +107,9 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     selectedTools,
     selectedResources,
     resourceBindings,
+    loadGraphDraft: (draft: GeneratedWorkflowGraphDraft) => dispatch({ type: "load_graph_draft", draft }),
+    loadResourceBindings: (selectedResourceIds: Record<string, string>) =>
+      dispatch({ type: "load_resource_bindings", selectedResourceIds }),
     addStep: (toolId: string) => {
       const tool = toolById.get(toolId);
       if (tool) dispatch({ type: "add_step", tool, tools });
@@ -137,6 +142,12 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
       return state;
     }
     return { ...state, graphDraft: createGeneratedWorkflowGraphDraft(action.tools) };
+  }
+  if (action.type === "load_graph_draft") {
+    return { ...state, graphDraft: action.draft };
+  }
+  if (action.type === "load_resource_bindings") {
+    return { ...state, selectedResourceIds: action.selectedResourceIds };
   }
   if (action.type === "add_step") {
     const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);

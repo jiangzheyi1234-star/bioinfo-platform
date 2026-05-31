@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from pathlib import Path
 from typing import Any
 
 
-def render_rule_output_lines(outputs: dict[str, Path], rule_template: dict[str, Any]) -> str:
+@dataclass(frozen=True)
+class SnakemakeExpression:
+    expression: str
+
+    def __str__(self) -> str:
+        return self.expression
+
+
+def render_rule_output_lines(outputs: dict[str, Path | SnakemakeExpression], rule_template: dict[str, Any]) -> str:
     specs = rule_output_specs_by_name(rule_template)
     return "".join(
         f"        {_safe_snakemake_name(name)}={_render_output_value(path, specs.get(name, {}))},\n"
@@ -55,8 +64,8 @@ def rule_output_specs_by_name(rule_template: dict[str, Any]) -> dict[str, dict[s
     return specs
 
 
-def _render_output_value(path: Path, spec: dict[str, Any]) -> str:
-    rendered = repr(str(path))
+def _render_output_value(path: Path | SnakemakeExpression, spec: dict[str, Any]) -> str:
+    rendered = str(path) if isinstance(path, SnakemakeExpression) else repr(str(path))
     if bool(spec.get("directory")):
         rendered = f"directory({rendered})"
     if bool(spec.get("protected")):

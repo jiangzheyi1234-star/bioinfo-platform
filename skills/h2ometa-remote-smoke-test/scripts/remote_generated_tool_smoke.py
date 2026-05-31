@@ -13,7 +13,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from local_api_smoke_helpers import response_data, selected_server_id
+from local_api_smoke_helpers import (
+    build_upload_submit_payload,
+    build_workflow_design_draft,
+    build_workflow_design_run_submit_payload,
+    create_and_plan_workflow_design,
+    response_data,
+    selected_server_id,
+    workflow_design_node,
+)
 
 
 def find_repo_root() -> Path:
@@ -99,22 +107,15 @@ def build_run_submit_payload(
     *,
     request_id: str,
     server_id: str,
-    project_id: str,
     upload: dict[str, Any],
-    tool: dict[str, Any],
+    plan: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
-        "serverId": server_id,
-        "requestId": request_id,
-        "runSpec": {
-            "projectId": project_id,
-            "pipelineId": "generated-tool-run-v1",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "input"}],
-            "tool": {
-                "id": tool["id"],
-            },
-        },
-    }
+    return build_workflow_design_run_submit_payload(
+        request_id=request_id,
+        server_id=server_id,
+        upload=upload,
+        plan=plan,
+    )
 
 
 def main() -> int:
@@ -139,17 +140,41 @@ def main() -> int:
         print_json("TOOL_VALIDATED", {"id": tool["id"], "contract": tool.get("toolContract"), "status": tool["status"]})
         if not bool((tool.get("toolContract") or {}).get("workflowReady")):
             return 1
+        draft = build_workflow_design_draft(
+            project_id="proj_smoke",
+            name="Generated tool smoke",
+            input_filename="letters.txt",
+            nodes=[
+                workflow_design_node(
+                    node_id="count_bytes",
+                    tool_id=tool["id"],
+                    inputs={"primary": {"fromInput": "input"}},
+                )
+            ],
+            outputs=[{"from": {"nodeId": "count_bytes", "port": "count"}, "as": "count"}],
+        )
+        plan = create_and_plan_workflow_design(
+            api_base=args.api_base,
+            http_json=http_json,
+            server_id=server_id,
+            draft=draft,
+            timeout=args.timeout,
+        )
+        if not plan.get("valid"):
+            print_json("WORKFLOW_DESIGN_PLAN_INVALID", plan)
+            return 1
 
         sample = b"ABCDEF\n"
         upload = response_data(http_json(
             "POST",
             args.api_base,
             "/api/v1/uploads",
-            payload={
-                "filename": "letters.txt",
-                "contentBase64": base64.b64encode(sample).decode("ascii"),
-                "mimeType": "text/plain",
-            },
+            payload=build_upload_submit_payload(
+                server_id=server_id,
+                filename="letters.txt",
+                content_base64=base64.b64encode(sample).decode("ascii"),
+                mime_type="text/plain",
+            ),
         ))
         print_json("UPLOAD", {"uploadId": upload["uploadId"], "filename": upload["filename"], "sizeBytes": upload["sizeBytes"]})
 
@@ -161,9 +186,8 @@ def main() -> int:
             payload=build_run_submit_payload(
                 request_id=request_id,
                 server_id=server_id,
-                project_id="proj_smoke",
                 upload=upload,
-                tool=tool,
+                plan=plan,
             ),
             timeout=30,
         ))

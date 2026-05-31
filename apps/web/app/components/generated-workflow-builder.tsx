@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Database, Plus, Trash2, Workflow } from "lucide-react";
+import { AlertCircle, Archive, CheckCircle2, Database, FileText, Loader2, Plus, Save, Trash2, Workflow } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import {
 } from "./generated-workflow-snakefile-preview";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
+import type { WorkflowDesignCompileResult, WorkflowDesignDraftRecord, WorkflowDesignPlan } from "./workflow-design-draft-model";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
 import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
@@ -38,6 +39,15 @@ type GeneratedWorkflowBuilderProps = {
   tools: AddedTool[];
   availableDatabases: DatabaseItem[];
   inputCount: number;
+  activeDesignDraft?: WorkflowDesignDraftRecord | null;
+  compileResult?: WorkflowDesignCompileResult | null;
+  designBusy?: boolean;
+  designDrafts?: WorkflowDesignDraftRecord[];
+  designError?: string;
+  designPlan?: WorkflowDesignPlan | null;
+  onCompile?: () => void;
+  onOpenDesignDraft?: (draftId: string) => void;
+  onSaveAndValidate?: () => void;
 };
 
 export function GeneratedWorkflowBuilder({
@@ -45,6 +55,15 @@ export function GeneratedWorkflowBuilder({
   tools,
   availableDatabases,
   inputCount,
+  activeDesignDraft,
+  compileResult,
+  designBusy = false,
+  designDrafts = [],
+  designError = "",
+  designPlan,
+  onCompile,
+  onOpenDesignDraft,
+  onSaveAndValidate,
 }: GeneratedWorkflowBuilderProps) {
   const workflowReadyTools = tools.filter((tool) => ruleSpecReadinessForTool(tool).workflowReady);
   const firstTool = workflowReadyTools[0];
@@ -60,23 +79,94 @@ export function GeneratedWorkflowBuilder({
           </div>
           <div className="mt-1 text-xs text-slate-500">显式绑定每个步骤的输入、上游输出和暴露产物。</div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-8 bg-white px-2.5 text-xs"
-          disabled={!firstTool}
-          onClick={() => firstTool && builder.addStep(firstTool.id)}
-        >
-          <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
-          添加步骤
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {designDrafts.length > 0 && onOpenDesignDraft ? (
+            <Select value={activeDesignDraft?.draftId || ""} onValueChange={onOpenDesignDraft}>
+              <SelectTrigger className="h-8 w-[190px] bg-white text-xs">
+                <SelectValue placeholder="打开设计草稿" />
+              </SelectTrigger>
+              <SelectContent>
+                {designDrafts.map((draft) => (
+                  <SelectItem key={draft.draftId} value={draft.draftId}>{draft.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 bg-white px-2.5 text-xs"
+            disabled={designBusy || builder.validation.errors.length > 0 || !onSaveAndValidate}
+            onClick={onSaveAndValidate}
+          >
+            {designBusy ? (
+              <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            保存并验证
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 bg-white px-2.5 text-xs"
+            disabled={designBusy || builder.validation.errors.length > 0 || !onCompile}
+            onClick={onCompile}
+          >
+            {designBusy ? (
+              <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Archive strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            编译导出
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 bg-white px-2.5 text-xs"
+            disabled={!firstTool}
+            onClick={() => firstTool && builder.addStep(firstTool.id)}
+          >
+            <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+            添加步骤
+          </Button>
+        </div>
       </div>
+
+      {activeDesignDraft ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span className="font-mono">{activeDesignDraft.draftId}</span>
+          <span>rev {activeDesignDraft.revision}</span>
+          {designPlan?.valid ? (
+            <span className="inline-flex items-center gap-1 text-emerald-700">
+              <CheckCircle2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+              plan valid
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {builder.validation.errors.length > 0 ? (
         <Alert variant="destructive" className="py-2 text-xs">
           <AlertCircle strokeWidth={1.5} className="h-3.5 w-3.5" />
           <AlertDescription>
             {builder.validation.errors.slice(0, 3).map((error) => error.message).join("；")}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {designError ? (
+        <Alert variant="destructive" className="py-2 text-xs">
+          <AlertCircle strokeWidth={1.5} className="h-3.5 w-3.5" />
+          <AlertDescription>{designError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {designPlan && designPlan.validationIssues.length > 0 ? (
+        <Alert variant="destructive" className="py-2 text-xs">
+          <AlertCircle strokeWidth={1.5} className="h-3.5 w-3.5" />
+          <AlertDescription>
+            {designPlan.validationIssues.slice(0, 3).map((issue) => `${issue.code}: ${issue.message}`).join("；")}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -92,6 +182,51 @@ export function GeneratedWorkflowBuilder({
 
       <OutputExposureEditor builder={builder} outputCandidates={outputCandidates} />
       <GeneratedResourceBindings builder={builder} availableDatabases={availableDatabases} />
+      <WorkflowDesignPlanPreview plan={designPlan || null} />
+      <WorkflowDesignCompileSummary result={compileResult || null} />
+    </div>
+  );
+}
+
+function WorkflowDesignPlanPreview({ plan }: { plan: WorkflowDesignPlan | null }) {
+  if (!plan?.valid) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-3">
+      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-900">
+        <FileText strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
+        Plan preview
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <pre className="max-h-72 overflow-auto rounded-md bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
+          {plan.previews.snakefile}
+        </pre>
+        <pre className="max-h-72 overflow-auto rounded-md bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
+          {plan.previews.config}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowDesignCompileSummary({ result }: { result: WorkflowDesignCompileResult | null }) {
+  if (!result) return null;
+  const entries = Object.entries(result.layout || {});
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-3">
+      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-900">
+        <Archive strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
+        编译产物
+      </div>
+      <div className="grid gap-1.5">
+        {entries.map(([key, value]) => (
+          <div key={key} className="grid gap-1 rounded-md bg-slate-50 px-3 py-2 text-xs md:grid-cols-[120px_minmax(0,1fr)]">
+            <div className="font-medium text-slate-600">{key}</div>
+            <div className="min-w-0 font-mono text-slate-700">
+              {Array.isArray(value) ? value.join(", ") : value}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -3,12 +3,12 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { AddedTool, ToolsResponse } from "./tools-page-model";
-import {
-  buildGeneratedWorkflowRunSpec,
-  validateGeneratedWorkflowDraft,
-  type GeneratedWorkflowDraft,
-  type GeneratedWorkflowGraphDraft,
-} from "./generated-workflow-model";
+import type {
+  WorkflowDesignCompileResult,
+  WorkflowDesignDraft,
+  WorkflowDesignDraftRecord,
+  WorkflowDesignPlan,
+} from "./workflow-design-draft-model";
 import {
   buildPipelineRunSpec,
   type WorkflowArtifactPreview,
@@ -26,17 +26,27 @@ import {
 
 type FetchOptions = {
   forceRefresh?: boolean;
+  serverId?: string;
 };
 
 const WORKFLOW_CATALOG_CACHE_KEY = "workflow:catalog";
 const WORKFLOW_TOOLS_CACHE_KEY = "workflow:tools";
 const WORKFLOW_DATABASES_CACHE_KEY = "workflow:databases";
+const WORKFLOW_DESIGN_DRAFTS_CACHE_KEY = "workflow:design-drafts";
 const WORKFLOW_SERVER_CACHE_KEY = "workflow:server";
 const WORKFLOW_RUNS_CACHE_KEY = "workflow:runs";
 const WORKFLOW_SAMPLE_DATA_TIMEOUT_MS = 180_000;
 
 function refreshQuery(options: FetchOptions) {
-  return options.forceRefresh ? "?refresh=true" : "";
+  const params = new URLSearchParams();
+  if (options.forceRefresh) params.set("refresh", "true");
+  if (options.serverId) params.set("serverId", options.serverId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function workflowDesignDraftsCacheKey(serverId?: string) {
+  return `${WORKFLOW_DESIGN_DRAFTS_CACHE_KEY}:${serverId || "default"}`;
 }
 
 export async function fetchWorkflowCatalog(options: FetchOptions = {}): Promise<WorkflowCatalogItem[]> {
@@ -72,6 +82,74 @@ export async function fetchWorkflowDatabases(options: FetchOptions = {}): Promis
   });
 }
 
+export async function fetchWorkflowDesignDrafts(options: FetchOptions = {}): Promise<WorkflowDesignDraftRecord[]> {
+  return cachedAsync(workflowDesignDraftsCacheKey(options.serverId), 10_000, async () => {
+    const response = await requestLocalApiJson<{ data: { items: WorkflowDesignDraftRecord[] } }>(
+      "GET",
+      `/api/v1/workflow-design-drafts${refreshQuery(options)}`,
+      { cache: "no-store" }
+    );
+    return response.data.items || [];
+  }, {
+    forceRefresh: options.forceRefresh,
+  });
+}
+
+export async function saveWorkflowDesignDraft({
+  draft,
+  record,
+  serverId,
+}: {
+  draft: WorkflowDesignDraft;
+  record?: WorkflowDesignDraftRecord | null;
+  serverId?: string;
+}): Promise<WorkflowDesignDraftRecord> {
+  const body = { ...(serverId ? { serverId } : {}), draft };
+  const response = record?.draftId
+    ? await requestLocalApiJson<{ data: WorkflowDesignDraftRecord }>(
+        "PATCH",
+        `/api/v1/workflow-design-drafts/${encodeURIComponent(record.draftId)}`,
+        { body: { ...body, expectedRevision: record.revision } }
+      )
+    : await requestLocalApiJson<{ data: WorkflowDesignDraftRecord }>(
+        "POST",
+        "/api/v1/workflow-design-drafts",
+        { body }
+      );
+  invalidateAsyncCachePrefix(WORKFLOW_DESIGN_DRAFTS_CACHE_KEY);
+  return response.data;
+}
+
+export async function planWorkflowDesignDraft({
+  draftId,
+  serverId,
+}: {
+  draftId: string;
+  serverId?: string;
+}): Promise<WorkflowDesignPlan> {
+  const response = await requestLocalApiJson<{ data: WorkflowDesignPlan }>(
+    "POST",
+    `/api/v1/workflow-design-drafts/${encodeURIComponent(draftId)}/plan`,
+    { body: { ...(serverId ? { serverId } : {}) }, cache: "no-store" }
+  );
+  return response.data;
+}
+
+export async function compileWorkflowDesignDraft({
+  draftId,
+  serverId,
+}: {
+  draftId: string;
+  serverId?: string;
+}): Promise<WorkflowDesignCompileResult> {
+  const response = await requestLocalApiJson<{ data: WorkflowDesignCompileResult }>(
+    "POST",
+    `/api/v1/workflow-design-drafts/${encodeURIComponent(draftId)}/compile`,
+    { body: { ...(serverId ? { serverId } : {}) }, cache: "no-store" }
+  );
+  return response.data;
+}
+
 export async function fetchWorkflowServer(options: FetchOptions = {}): Promise<WorkflowServer> {
   return cachedAsync(WORKFLOW_SERVER_CACHE_KEY, 15_000, async () => {
     const response = await requestLocalApiJson<WorkflowServersResponse>("GET", `/api/v1/servers${refreshQuery(options)}`, { cache: "no-store" });
@@ -100,9 +178,10 @@ export async function fileToBase64(file: File): Promise<string> {
   return window.btoa(binary);
 }
 
-export async function uploadWorkflowFile(file: File): Promise<WorkflowUpload> {
+export async function uploadWorkflowFile(file: File, serverId?: string): Promise<WorkflowUpload> {
   const response = await requestLocalApiJson<{ data: WorkflowUpload }>("POST", "/api/v1/uploads", {
     body: {
+      ...(serverId ? { serverId } : {}),
       filename: file.name,
       contentBase64: await fileToBase64(file),
       mimeType: file.type || "application/octet-stream",
@@ -111,35 +190,34 @@ export async function uploadWorkflowFile(file: File): Promise<WorkflowUpload> {
   return response.data;
 }
 
-export async function submitGeneratedWorkflowRun({
+export async function submitWorkflowDesignRun({
   server,
-  projectId,
   files,
-  draft,
-  tools,
-  resourceBindings,
+  plan,
 }: {
   server: WorkflowServer;
-  projectId: string;
   files: File[];
-  draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft;
-  tools: AddedTool[];
-  resourceBindings?: WorkflowResourceBindings;
+  plan: WorkflowDesignPlan;
 }): Promise<WorkflowRun> {
-  const validation = validateGeneratedWorkflowDraft(draft, tools, { inputCount: files.length });
-  if (validation.errors.length > 0) {
-    const firstError = validation.errors[0];
-    throw new Error(`${firstError.code}: ${firstError.message}`);
+  if (!plan.valid) {
+    const issue = plan.validationIssues[0];
+    throw new Error(issue ? `${issue.code}: ${issue.message}` : "WORKFLOW_DESIGN_PLAN_INVALID");
   }
-  const uploads = await Promise.all(files.map((file) => uploadWorkflowFile(file)));
-  const runSpec = buildGeneratedWorkflowRunSpec({
-    projectId,
-    uploads,
-    draft,
-    tools,
-    resourceBindings,
-  });
-  const requestId = `req_workflow_ui_${Date.now()}`;
+  const plannedRunSpec = requireWorkflowDesignPlanRunSpec(plan);
+  const plannedInputs = requireWorkflowDesignPlannedInputs(plannedRunSpec);
+  if (plannedInputs.length !== files.length) {
+    throw new Error("WORKFLOW_DESIGN_RUN_INPUTS_MISMATCH");
+  }
+  const uploads = await Promise.all(files.map((file) => uploadWorkflowFile(file, server.serverId)));
+  const runSpec = {
+    ...plannedRunSpec,
+    inputs: uploads.map((upload, index) => ({
+      uploadId: upload.uploadId,
+      filename: plannedInputs[index].filename,
+      role: plannedInputs[index].role,
+    })),
+  };
+  const requestId = `req_workflow_design_${Date.now()}`;
   const response = await requestLocalApiJson<WorkflowRunResponse>("POST", "/api/v1/runs", {
     body: {
       serverId: server.serverId,
@@ -150,6 +228,46 @@ export async function submitGeneratedWorkflowRun({
   });
   invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
   return response.data;
+}
+
+function requireWorkflowDesignPlanRunSpec(plan: WorkflowDesignPlan): Record<string, unknown> {
+  const runSpec = plan.runSpec;
+  const workflowDesign = runSpec.workflowDesign;
+  if (!workflowDesign || typeof workflowDesign !== "object" || Array.isArray(workflowDesign)) {
+    throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: workflowDesign");
+  }
+  const metadata = workflowDesign as Record<string, unknown>;
+  if (typeof metadata.draftId !== "string" || metadata.draftId.trim().length === 0) {
+    throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: workflowDesign.draftId");
+  }
+  if (!Number.isInteger(metadata.revision) || Number(metadata.revision) < 1) {
+    throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: workflowDesign.revision");
+  }
+  return runSpec;
+}
+
+function requireWorkflowDesignPlannedInputs(runSpec: Record<string, unknown>): Array<{ role: string; filename: string }> {
+  const inputs = runSpec.inputs;
+  if (!Array.isArray(inputs)) {
+    throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: inputs");
+  }
+  return inputs.map((input, index) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error(`WORKFLOW_DESIGN_PLAN_RUN_INPUT_INVALID: ${index}`);
+    }
+    const record = input as { role?: unknown; filename?: unknown };
+    const roleValue = record.role;
+    if (typeof roleValue !== "string" || roleValue.trim().length === 0) {
+      throw new Error(`WORKFLOW_DESIGN_PLAN_RUN_INPUT_ROLE_REQUIRED: ${index}`);
+    }
+    const filenameValue = record.filename;
+    if (typeof filenameValue !== "string" || filenameValue.trim().length === 0) {
+      throw new Error(`WORKFLOW_DESIGN_PLAN_RUN_INPUT_FILENAME_REQUIRED: ${index}`);
+    }
+    const role = roleValue.trim();
+    const filename = filenameValue.trim();
+    return { role, filename };
+  });
 }
 
 export async function submitPipelineWorkflowRun({
@@ -171,7 +289,7 @@ export async function submitPipelineWorkflowRun({
 }): Promise<WorkflowRun> {
   const uploads = sampleUploads && sampleUploads.length > 0
     ? sampleUploads
-    : await Promise.all(files.map((file) => uploadWorkflowFile(file)));
+    : await Promise.all(files.map((file) => uploadWorkflowFile(file, server.serverId)));
   const runSpec = buildPipelineRunSpec({
     projectId,
     pipelineId,

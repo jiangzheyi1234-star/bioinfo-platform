@@ -16,6 +16,7 @@ from .config import (
     inspect_workflow_runtime,
 )
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
+from .generated_workflow_graph import GENERATED_WORKFLOW_RULE_CONTRACT_VERSION
 from .tool_contract import default_contract_status, normalize_contract_status
 
 
@@ -42,9 +43,21 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
         resolved_inputs = _materialize_smoke_inputs(tool, validation_root / "inputs")
         smoke_test = _smoke_test(tool)
         tool_request: dict[str, Any] = {"id": str(tool.get("id") or "")}
+        node: dict[str, Any] = {
+            "id": "run_tool",
+            "tool": tool_request,
+            "inputs": _smoke_workflow_inputs(tool, resolved_inputs),
+        }
         if isinstance(smoke_test.get("params"), dict) and smoke_test["params"]:
-            tool_request["params"] = dict(smoke_test["params"])
-        run_spec: dict[str, Any] = {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": tool_request}
+            node["params"] = dict(smoke_test["params"])
+        run_spec: dict[str, Any] = {
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "workflow": {
+                "contractVersion": GENERATED_WORKFLOW_RULE_CONTRACT_VERSION,
+                "nodes": [node],
+                "edges": [],
+            },
+        }
         if isinstance(smoke_test.get("resourceBindings"), dict) and smoke_test["resourceBindings"]:
             run_spec["resourceBindings"] = dict(smoke_test["resourceBindings"])
         generated = prepare_generated_tool_workflow(
@@ -246,6 +259,20 @@ def _materialize_smoke_inputs(tool: dict[str, Any], input_dir: Path) -> list[dic
             }
         )
     return resolved
+
+
+def _smoke_workflow_inputs(tool: dict[str, Any], resolved_inputs: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    template = tool.get("ruleTemplate") if isinstance(tool.get("ruleTemplate"), dict) else {}
+    specs = [item for item in (template.get("inputs") or []) if isinstance(item, dict)]
+    inputs: dict[str, dict[str, str]] = {}
+    for index, spec in enumerate(specs):
+        name = str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")).strip()
+        if not name or index >= len(resolved_inputs):
+            continue
+        role = str(resolved_inputs[index].get("role") or "").strip()
+        if role:
+            inputs[name] = {"fromInput": role}
+    return inputs
 
 
 def _smoke_fixture_error(tool: dict[str, Any]) -> dict[str, str] | None:

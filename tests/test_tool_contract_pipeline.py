@@ -142,9 +142,9 @@ def test_rulespec_update_promotes_contract_to_snakemake_renderable(tmp_path: Pat
             {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "bioconda::fastqc"}},
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_TOOL_NOT_READY: SnakemakeRenderable"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("SnakemakeRenderable tools must pass full contract validation before workflow submission")
+        raise AssertionError("direct generated-tool runs must come from a saved WorkflowDesignDraft")
 
 
 def test_rulespec_requires_params_runtime_resources_and_log(tmp_path: Path) -> None:
@@ -252,9 +252,9 @@ def test_dry_run_passed_contract_is_not_workflow_ready(tmp_path: Path) -> None:
             {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "conda-forge::dry-run-only"}},
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_TOOL_NOT_READY: DryRunPassed"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("DryRunPassed tools must pass smoke and output validation before workflow submission")
+        raise AssertionError("direct generated-tool runs must come from a saved WorkflowDesignDraft")
 
 
 def test_rulespec_without_explicit_environment_is_not_renderable(tmp_path: Path) -> None:
@@ -447,7 +447,6 @@ def test_tool_check_promotes_contract_through_dry_run_smoke_and_output_validatio
             },
         },
     )
-
     def fake_run(cmd, **_kwargs):
         if "--version" in cmd:
             return SimpleNamespace(returncode=0, stdout="9.19.0\n", stderr="")
@@ -472,11 +471,6 @@ def test_tool_check_promotes_contract_through_dry_run_smoke_and_output_validatio
     assert smoke_run_log.read_text(encoding="utf-8")
     assert checked["toolContract"]["state"] == "WorkflowReady"
     assert checked["toolContract"]["workflowReady"] is True
-    preflight_run_spec(
-        cfg,
-        get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID),
-        {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "conda-forge::coreutils"}},
-    )
 
 
 def test_tool_check_records_stable_dry_run_failure(monkeypatch, tmp_path: Path) -> None:
@@ -574,9 +568,9 @@ def test_tool_check_records_stable_output_validation_failure(monkeypatch, tmp_pa
             {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "conda-forge::coreutils"}},
         )
     except RunPreflightError as exc:
-        assert str(exc) == "WORKFLOW_TOOL_NOT_READY: SmokeRunPassed"
+        assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
     else:
-        raise AssertionError("SmokeRunPassed tools must pass output validation before workflow submission")
+        raise AssertionError("direct generated-tool runs must come from a saved WorkflowDesignDraft")
 
 
 def test_output_validation_rejects_blank_text_artifacts(tmp_path: Path) -> None:
@@ -653,17 +647,13 @@ def test_tool_check_uses_smoke_resource_bindings_for_database_rules(monkeypatch,
             Path(run_config["outputs"]["report"]).parent.mkdir(parents=True, exist_ok=True)
             Path(run_config["outputs"]["report"]).write_text(str(database_dir), encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
-
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
-
     checked = check_registered_tool(cfg, "conda-forge::coreutils-db")
-
     assert checked["contractStatus"]["dryRun"]["status"] == "passed"
     assert checked["contractStatus"]["smokeRun"]["status"] == "passed"
     assert checked["contractStatus"]["outputValidation"]["status"] == "passed"
     assert checked["toolContract"]["state"] == "WorkflowReady"
     assert checked["toolContract"]["workflowReady"] is True
-
 
 def test_production_acceptance_requires_output_validation_and_records_evidence(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
@@ -691,7 +681,6 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
             },
         },
     )
-
     try:
         mark_registered_tool_production_enabled(
             cfg,
@@ -702,7 +691,6 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
         assert str(exc) == "TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION"
     else:
         raise AssertionError("Production acceptance must require output validation first")
-
     checked = check_registered_tool(cfg, "conda-forge::coreutils")
     checked["contractStatus"]["dryRun"] = {"status": "passed", "message": "Snakemake dry-run passed."}
     checked["contractStatus"]["smokeRun"] = {"status": "passed", "message": "Snakemake smoke run passed."}
@@ -710,7 +698,7 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
     upsert_tool(cfg, checked)
     result_dir = tmp_path / "production-result"; result_dir.mkdir()
     artifact = result_dir / "report.txt"; artifact.write_text("accepted\n", encoding="utf-8")
-    create_run_record(cfg, server_id="srv", request_id="req", run_spec={"runId": "run_real_data", "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "conda-forge::coreutils"}}, idempotency_key="idem", payload_hash="hash")
+    create_run_record(cfg, server_id="srv", request_id="req", run_spec={"runId": "run_real_data", "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "workflow": {"contractVersion": "rule-contract-v1", "nodes": [{"id": "run_tool", "tool": {"id": "conda-forge::coreutils"}}], "edges": []}}, idempotency_key="idem", payload_hash="hash")
     update_run_state(cfg, run_id="run_real_data", status="completed", stage="completed", message="completed", request_id="req", result_dir=str(result_dir))
     persist_artifact(cfg, run_id="run_real_data", kind="report", path=artifact, mime_type="text/plain")
 
@@ -731,7 +719,6 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
     assert accepted["toolContract"]["state"] == "ProductionEnabled"
     assert accepted["toolContract"]["requirements"]["productionEnabled"] is True
 
-
 def test_generated_workflow_cannot_bypass_registered_contract_with_request_rulespec(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -746,7 +733,6 @@ def test_generated_workflow_cannot_bypass_registered_contract_with_request_rules
             "targetPlatformSupported": True,
         },
     )
-
     try:
         prepare_generated_tool_workflow(
             cfg,
@@ -754,13 +740,23 @@ def test_generated_workflow_cannot_bypass_registered_contract_with_request_rules
             request_id="req_request_only",
             run_spec={
                 "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "tool": {
-                    "id": "conda-forge::request-only",
-                    "ruleTemplate": {
-                        "commandTemplate": "wc -c {input.reads:q} > {output.report:q}",
-                        "inputs": [{"name": "reads", "type": "file", "required": True}],
-                        "outputs": [{"name": "report", "path": "report.txt", "kind": "log", "mimeType": "text/plain"}],
-                    },
+                "workflow": {
+                    "contractVersion": "rule-contract-v1",
+                    "nodes": [
+                        {
+                            "id": "run_tool",
+                            "tool": {
+                                "id": "conda-forge::request-only",
+                                "ruleTemplate": {
+                                    "commandTemplate": "wc -c {input.reads:q} > {output.report:q}",
+                                    "inputs": [{"name": "reads", "type": "file", "required": True}],
+                                    "outputs": [{"name": "report", "path": "report.txt", "kind": "log", "mimeType": "text/plain"}],
+                                },
+                            },
+                            "inputs": {"reads": {"fromInput": "input"}},
+                        }
+                    ],
+                    "edges": [],
                 },
             },
             resolved_inputs=_reads(tmp_path),
@@ -768,28 +764,26 @@ def test_generated_workflow_cannot_bypass_registered_contract_with_request_rules
             result_dir=tmp_path / "results",
         )
     except ValueError as exc:
-        assert str(exc) == "TOOL_RULE_TEMPLATE_REQUIRED"
+        assert str(exc) == "WORKFLOW_STEP_TOOL_UNSUPPORTED_FIELD: ruleTemplate"
     else:
         raise AssertionError("runSpec RuleSpec must not bypass the registered tool contract")
 
-
 def test_tool_check_route_runs_validation_in_threadpool() -> None:
-    source = (Path(__file__).resolve().parents[1] / "apps" / "remote_runner" / "main.py").read_text(encoding="utf-8")
-
+    source = (Path(__file__).resolve().parents[1] / "apps" / "remote_runner" / "tool_routes.py").read_text(encoding="utf-8")
     assert "from starlette.concurrency import run_in_threadpool" in source
     assert "await run_in_threadpool(check_registered_tool" in source
-
 
 def test_tool_production_acceptance_is_exposed_through_api_layers() -> None:
     root = Path(__file__).resolve().parents[1]
     remote_main = (root / "apps" / "remote_runner" / "main.py").read_text(encoding="utf-8")
+    remote_route = (root / "apps" / "remote_runner" / "tool_routes.py").read_text(encoding="utf-8")
     local_main = (root / "apps" / "api" / "main.py").read_text(encoding="utf-8")
     local_route = (root / "apps" / "api" / "tool_contract_routes.py").read_text(encoding="utf-8")
     proxy = (root / "core" / "remote_runner" / "proxy.py").read_text(encoding="utf-8")
     runner_ops = (root / "core" / "app_runtime" / "runner_ops.py").read_text(encoding="utf-8")
-
-    assert '@app.post("/api/v1/tools/{tool_id}/production")' in remote_main
-    assert "mark_registered_tool_production_enabled" in remote_main
+    assert "tool_router" in remote_main
+    assert '@router.post("/api/v1/tools/{tool_id}/production")' in remote_route
+    assert "mark_registered_tool_production_enabled" in remote_route
     assert "tool_contract_router" in local_main
     assert '@router.post("/api/v1/tools/{tool_id}/production")' in local_route
     assert 'await invalidate_response_cache("tools", "workflow_catalog")' in local_route

@@ -67,12 +67,18 @@ class RemoteRunnerArtifactProvider:
             raise RemoteRunnerArtifactError(
                 f"remote runner artifact sha256 mismatch: {archive_path}"
             )
-        self._verify_declared_artifact_metadata(
+        if self._is_declared_release_artifact(
             REMOTE_RUNNER_ARTIFACT,
+            version=version,
             platform=platform,
             archive_path=archive_path,
-            sha256=actual,
-        )
+        ):
+            self._verify_declared_artifact_metadata(
+                REMOTE_RUNNER_ARTIFACT,
+                platform=platform,
+                archive_path=archive_path,
+                sha256=actual,
+            )
         manifest = self._read_manifest(archive_path)
         if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unexpected service: {archive_path}")
@@ -159,6 +165,22 @@ class RemoteRunnerArtifactProvider:
         if declared_size and declared_size != archive_path.stat().st_size:
             raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} manifest size mismatch: {archive_path}")
 
+    def _is_declared_release_artifact(
+        self,
+        spec: ReleaseArtifactSpec,
+        *,
+        version: str,
+        platform: str,
+        archive_path: Path,
+    ) -> bool:
+        if version != spec.version or archive_path.name != spec.archive_filename(platform):
+            return False
+        resolved_path = archive_path.resolve()
+        for root in RELEASE_MANIFEST.repo_search_roots(self._repo_root):
+            if resolved_path == (root / spec.archive_filename(platform)).resolve():
+                return True
+        return False
+
     @staticmethod
     def _read_manifest(path: Path) -> dict[str, Any]:
         try:
@@ -222,12 +244,18 @@ class WorkflowRuntimeArtifactProvider:
         actual = RemoteRunnerArtifactProvider._sha256_file(archive_path)
         if actual != expected:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact sha256 mismatch: {archive_path}")
-        RemoteRunnerArtifactProvider._verify_declared_artifact_metadata(
+        if RemoteRunnerArtifactProvider(repo_root=self._repo_root)._is_declared_release_artifact(
             WORKFLOW_RUNTIME_ARTIFACT,
+            version=version,
             platform=platform,
             archive_path=archive_path,
-            sha256=actual,
-        )
+        ):
+            RemoteRunnerArtifactProvider._verify_declared_artifact_metadata(
+                WORKFLOW_RUNTIME_ARTIFACT,
+                platform=platform,
+                archive_path=archive_path,
+                sha256=actual,
+            )
         manifest = RemoteRunnerArtifactProvider._read_manifest(archive_path)
         if str(manifest.get("service") or "") != WORKFLOW_RUNTIME_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact manifest has unexpected service: {archive_path}")

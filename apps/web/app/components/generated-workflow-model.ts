@@ -13,8 +13,7 @@ import {
   type RulePortEdgeAudit,
 } from "./generated-workflow-recommendation-contract";
 import { validateRuleActionContract } from "./generated-workflow-rule-action-contract";
-import { normalizeStepRuntime, validateStepRuntime } from "./generated-workflow-runtime-contract";
-import type { WorkflowResourceBindings, WorkflowUpload } from "./workflows-page-model";
+import { validateStepRuntime } from "./generated-workflow-runtime-contract";
 import {
   executableRuleTemplateForTool,
   ruleSpecReadinessForTool,
@@ -94,14 +93,6 @@ export type GeneratedWorkflowValidation = {
   errors: GeneratedWorkflowValidationIssue[];
   warnings: GeneratedWorkflowValidationIssue[];
   orderedStepIds: string[];
-};
-
-export type BuildGeneratedWorkflowRunSpecInput = {
-  projectId: string;
-  uploads: WorkflowUpload[];
-  draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft;
-  tools: AddedTool[];
-  resourceBindings?: WorkflowResourceBindings;
 };
 
 export type ValidateGeneratedWorkflowDraftOptions = {
@@ -479,89 +470,6 @@ export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {
   return parts.length > 0 ? parts.join(" · ") : "any file";
 }
 
-export function buildGeneratedWorkflowRunSpec({
-  projectId,
-  uploads,
-  draft,
-  tools,
-  resourceBindings,
-}: BuildGeneratedWorkflowRunSpecInput) {
-  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
-  const runSpec: Record<string, unknown> = {
-    projectId,
-    pipelineId: GENERATED_TOOL_RUN_PIPELINE_ID,
-    inputs: uploads.map((upload, index) => ({
-      uploadId: upload.uploadId,
-      filename: upload.filename,
-      role: index === 0 ? "input" : `input_${index + 1}`,
-    })),
-  };
-  if (resourceBindings && Object.keys(resourceBindings).length > 0) {
-    runSpec.resourceBindings = resourceBindings;
-  }
-  if (isGeneratedWorkflowGraphDraft(draft)) {
-    const normalizedNodeIds = new Map(draft.nodes.map((node) => [node.id, normalizeStepId(node.id)]));
-    runSpec.workflow = {
-      contractVersion: GENERATED_WORKFLOW_RULE_CONTRACT_VERSION,
-      nodes: draft.nodes.map((node) => {
-        const tool = toolById.get(node.toolId);
-        return {
-          id: normalizedNodeIds.get(node.id) || normalizeStepId(node.id),
-          tool: {
-            id: node.toolId,
-            ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
-          },
-          inputs: normalizeStepInputBindings(node.inputs, normalizedNodeIds),
-          params: tool ? normalizeStepParams(node.params, readRuleParams(tool)) : {},
-          runtime: normalizeStepRuntime(node.runtime),
-        };
-      }),
-      edges: draft.edges.map((edge) => ({
-        from: {
-          nodeId: normalizedNodeIds.get(edge.from.nodeId) || normalizeStepId(edge.from.nodeId),
-          port: edge.from.port,
-        },
-        to: {
-          nodeId: normalizedNodeIds.get(edge.to.nodeId) || normalizeStepId(edge.to.nodeId),
-          port: edge.to.port,
-        },
-        audit: edge.audit,
-      })),
-      outputs: draft.outputs.map((output) => ({
-        from: {
-          nodeId: normalizedNodeIds.get(output.fromStep) || normalizeStepId(output.fromStep),
-          port: output.output,
-        },
-        as: output.as,
-      })),
-    };
-    return runSpec;
-  }
-  const stepDraft = draft;
-  const normalizedStepIds = new Map(stepDraft.steps.map((step) => [step.id, normalizeStepId(step.id)]));
-  runSpec.workflow = {
-    steps: stepDraft.steps.map((step) => {
-      const tool = toolById.get(step.toolId);
-      return {
-        id: normalizeStepId(step.id),
-        tool: {
-          id: step.toolId,
-          ...(tool ? { ruleTemplate: readToolRuleTemplate(tool) } : {}),
-        },
-        inputs: normalizeStepInputBindings(step.inputs, normalizedStepIds),
-        params: tool ? normalizeStepParams(step.params, readRuleParams(tool)) : {},
-        runtime: normalizeStepRuntime(step.runtime),
-      };
-    }),
-    outputs: draft.outputs.map((output) => ({
-      fromStep: normalizedStepIds.get(output.fromStep) || normalizeStepId(output.fromStep),
-      output: output.output,
-      as: output.as,
-    })),
-  };
-  return runSpec;
-}
-
 export function isGeneratedWorkflowGraphDraft(
   draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft
 ): draft is GeneratedWorkflowGraphDraft {
@@ -691,20 +599,6 @@ function isStepBinding(binding: GeneratedWorkflowInputBinding | undefined): bind
 
 function isUploadBinding(binding: GeneratedWorkflowInputBinding | undefined): binding is { fromUpload: number } {
   return Boolean(binding && typeof binding === "object" && "fromUpload" in binding);
-}
-
-function normalizeStepInputBindings(
-  inputs: Record<string, GeneratedWorkflowInputBinding>,
-  normalizedStepIds: Map<string, string>
-) {
-  return Object.fromEntries(
-    Object.entries(inputs).map(([name, binding]) => {
-      if (isStepBinding(binding)) {
-        return [name, { ...binding, fromStep: normalizedStepIds.get(binding.fromStep) || normalizeStepId(binding.fromStep) }];
-      }
-      return [name, binding];
-    })
-  );
 }
 
 function graphEdgeId(from: GeneratedWorkflowGraphPortRef, to: GeneratedWorkflowGraphPortRef, index: number) {

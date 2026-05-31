@@ -204,3 +204,34 @@ def test_checked_in_remote_runner_artifact_contains_current_runtime_contract() -
     assert "def inspect_workflow_runtime" in config_text
     assert 'checks["workflow_runtime"]' in main_text
     assert "build_workflow_runtime_environment" in executor_text
+
+
+def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    bundle = (
+        repo_root
+        / "resources"
+        / "remote-runner"
+        / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
+    )
+
+    resolved = RemoteRunnerArtifactProvider(repo_root=repo_root).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
+
+    assert resolved.archive_path == bundle
+    required_members = {
+        "./remote_runner/workflow_design_compiler.py",
+        "./remote_runner/workflow_design_contract.py",
+        "./remote_runner/workflow_design_planner.py",
+        "./remote_runner/workflow_design_routes.py",
+        "./remote_runner/workflow_design_storage.py",
+        "./remote_runner/workflow_design_submission.py",
+    }
+    with tarfile.open(bundle, "r:gz") as archive:
+        names = set(archive.getnames())
+        main = archive.extractfile("./remote_runner/main.py")
+        assert main is not None
+        main_text = main.read().decode("utf-8")
+
+    assert required_members.issubset(names)
+    assert "workflow_design_router" in main_text
+    assert "app.include_router(workflow_design_router)" in main_text

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .rule_action import render_rule_action_lines, rule_action_kind
-from .rule_outputs import render_rule_output_lines
+from .rule_outputs import SnakemakeExpression, render_rule_output_lines
 from .rule_params import render_rule_param_lines
 from .rule_runtime import RuleRuntimeDirectives, render_runtime_directives, runtime_command_replacements
 
@@ -128,7 +128,7 @@ def _render_command(
     command_template: str,
     *,
     inputs: dict[str, str],
-    outputs: dict[str, Path],
+    outputs: dict[str, Path | SnakemakeExpression],
     params: dict[str, Any],
     runtime: RuleRuntimeDirectives,
     output_dir: str,
@@ -139,12 +139,12 @@ def _render_command(
     if "{resource." in command_template:
         raise ValueError("WORKFLOW_RESOURCE_DIRECT_TOKEN_UNSUPPORTED")
     primary_input = inputs.get("primary") or next(iter(inputs.values()))
-    primary_output = outputs.get("tool_output") or next(iter(outputs.values()))
+    primary_output_name, primary_output = _primary_output(outputs)
     replacements = {
         "{input}": shlex.quote(primary_input),
         "{input:q}": shlex.quote(primary_input),
-        "{output}": shlex.quote(str(primary_output)),
-        "{output:q}": shlex.quote(str(primary_output)),
+        "{output}": _output_command_replacement(primary_output, f"{{output.{primary_output_name}}}"),
+        "{output:q}": _output_command_replacement(primary_output, f"{{output.{primary_output_name}:q}}"),
         "{output_dir}": shlex.quote(output_dir),
         "{output_dir:q}": shlex.quote(output_dir),
     }
@@ -152,8 +152,8 @@ def _render_command(
         replacements[f"{{input.{name}}}"] = shlex.quote(path)
         replacements[f"{{input.{name}:q}}"] = shlex.quote(path)
     for name, path in outputs.items():
-        replacements[f"{{output.{name}}}"] = shlex.quote(str(path))
-        replacements[f"{{output.{name}:q}}"] = shlex.quote(str(path))
+        replacements[f"{{output.{name}}}"] = _output_command_replacement(path, f"{{output.{name}}}")
+        replacements[f"{{output.{name}:q}}"] = _output_command_replacement(path, f"{{output.{name}:q}}")
     for name, value in params.items():
         rendered = shlex.quote(str(value))
         replacements[f"{{params.{name}}}"] = rendered
@@ -185,6 +185,18 @@ def _render_command(
     for token, value in replacements.items():
         command = command.replace(token, value)
     return command
+
+
+def _primary_output(outputs: dict[str, Path | SnakemakeExpression]) -> tuple[str, Path | SnakemakeExpression]:
+    if "tool_output" in outputs:
+        return "tool_output", outputs["tool_output"]
+    return next(iter(outputs.items()))
+
+
+def _output_command_replacement(path: Path | SnakemakeExpression, token: str) -> str:
+    if isinstance(path, SnakemakeExpression):
+        return token
+    return shlex.quote(str(path))
 
 
 def _safe_identifier(value: str) -> str:

@@ -7,6 +7,40 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 
+def _function_body(source: str, name: str) -> str:
+    start = source.index(f"function {name}")
+    parameters_start = source.index("(", start)
+    parameters_end = _matching_delimiter_end(source, parameters_start, "(", ")")
+    brace = source.index("{", parameters_end)
+    return _balanced_block(source, brace)
+
+
+def _matching_delimiter_end(source: str, start: int, open_char: str, close_char: str) -> int:
+    depth = 0
+    for index in range(start, len(source)):
+        char = source[index]
+        if char == open_char:
+            depth += 1
+        elif char == close_char:
+            depth -= 1
+            if depth == 0:
+                return index
+    raise AssertionError(f"matching {close_char} not found")
+
+
+def _balanced_block(source: str, brace: int) -> str:
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace : index + 1]
+    raise AssertionError("balanced block not found")
+
+
 def test_workflows_page_uses_live_builder_modules() -> None:
     page = (COMPONENTS / "workflows-page.tsx").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
@@ -34,10 +68,10 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "wrapperRefLocked" in readiness
     assert "targetPlatformSupported === true" in readiness
     assert "ruleSpecReadinessForTool(entry.tool).workflowReady" in model
-    assert "buildGeneratedWorkflowRunSpec" in api
+    assert "submitWorkflowDesignRun" in api
     check_tool_route = local_api[
         local_api.index('@app.post("/api/v1/tools/{tool_id}/check")') :
-        local_api.index('@app.get("/api/v1/databases")')
+        local_api.index('@app.get("/api/v1/runs/{run_id}")')
     ]
     assert 'await invalidate_response_cache("tools", "workflow_catalog")' in check_tool_route
     assert "export function useWorkflowsPageState" in hook
@@ -47,6 +81,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
 
 def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     model_path = COMPONENTS / "generated-workflow-model.ts"
+    design_model_path = COMPONENTS / "workflow-design-draft-model.ts"
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
@@ -70,6 +105,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
 
     assert model_path.exists()
+    assert design_model_path.exists()
     assert hook_path.exists()
     assert ui_path.exists()
     assert graph_node_path.exists()
@@ -88,6 +124,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert port_bindings_editor_path.exists()
 
     model = model_path.read_text(encoding="utf-8")
+    design_model = design_model_path.read_text(encoding="utf-8")
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
@@ -125,10 +162,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateGeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowInputBinding" in model
     assert "fromUpload" in model
-    assert "fromInput" in model
+    assert "fromUpload" not in design_model.split("export function buildWorkflowDesignDraft", 1)[0]
+    assert "fromInput" in design_model
     assert "fromStep" in model
-    assert "exposeOutputs" in model
-    assert "buildGeneratedWorkflowRunSpec" in model
+    assert "GeneratedWorkflowExposedOutput" in model
+    assert "buildWorkflowDesignDraft" in design_model
     assert "readToolRuleTemplate" in model
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     assert "tool.ruleSpecDraft" in readiness
@@ -190,17 +228,46 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "WORKFLOW_RULE_ACTION_REQUIRED" in rule_action_contract
     assert "WORKFLOW_RULE_ACTION_CONFLICT" in rule_action_contract
     assert '["commandTemplate", "wrapper", "script", "module"]' in rule_action_contract
-    assert "runSpec.workflow = {" in model
+    assert "workflowDesignDraftToGraphDraft" in design_model
     assert "audit?: RulePortEdgeAudit" in model
     assert "audit: edge.audit" in model
     assert "audit: binding.audit" in model
-    assert "contractVersion:" in model
-    assert "nodes: draft.nodes.map" in model
-    assert "edges: draft.edges.map" in model
-    assert "outputs: draft.exposeOutputs.map" in model
-    assert "runtime: normalizeStepRuntime" in model
+    assert "contractVersion:" in design_model
+    assert "nodes: graphDraft.nodes.map" in design_model
+    assert "edges: graphDraft.edges.map" in design_model
+    assert "audit: workflowDesignEdgeAuditForDraft(edge.audit)" in design_model
+    assert "function workflowDesignEdgeAuditForDraft" in design_model
+    assert "hardChecks: JSON.stringify(audit.hardChecks)" in design_model
+    assert "evidence: JSON.stringify(audit.evidence)" in design_model
+    assert "WORKFLOW_DESIGN_EDGE_AUDIT_KEYS" in design_model
+    assert "workflowDesignValidateScalarRecord" in design_model
+    assert "Object.entries(audit).find" in design_model
+    assert "!WORKFLOW_DESIGN_EDGE_AUDIT_KEYS.has(key)" in design_model
+    assert "function workflowDesignAuditStringArray" in design_model
+    assert "JSON.parse(value)" in design_model
+    assert "if (audit === undefined) return undefined" in design_model
+    assert 'typeof audit !== "object" || Array.isArray(audit)' in design_model
+    assert "outputs: graphDraft.outputs.map" in design_model
+    assert "runtime: workflowDesignRuntimeForDraft(node.runtime)" in design_model
+    assert "function workflowDesignRuntimeForDraft" in design_model
+    assert "resources: { ...(runtime.resources || {}) }" in design_model
+    assert "schedulerResources: { ...(runtime.schedulerResources || {}) }" in design_model
+    assert "WORKFLOW_DESIGN_NODE_INPUT_EDGE_UNSUPPORTED" in design_model
+    assert "WORKFLOW_DESIGN_INPUT_ROLE_UNKNOWN" in design_model
+    assert '"fromInput" in binding' not in design_model
+    assert "existingDraft?: WorkflowDesignDraft" in design_model
+    assert "description: existingDraft?.metadata.description" in design_model
+    assert "tags: existingDraft?.metadata.tags" in design_model
+    assert "item.id === node.id && item.toolId === node.toolId" in design_model
+    assert "existingNodeOutputEntries" in design_model
+    assert "exposedOutputNames.has(outputName)" in design_model
+    assert "metadata: existingNode?.metadata || {}" in design_model
+    assert "provenance: existingNode?.provenance || { source: \"workflow-builder\" }" in design_model
+    assert "metadata: existingOutput?.metadata || {}" in design_model
+    assert "provenance: existingDraft?.provenance || { createdBy: \"workflow-builder\" }" in design_model
+    assert "return binding as WorkflowDesignInputBinding" not in design_model
     assert "ruleSpecDraft: readToolRuleSpecDraft(tool)" not in model
-    assert "resourceBindings" in model
+    assert "resourceBindings" in design_model
     assert "databases" not in model
     assert "WORKFLOW_STEP_PARAM_REQUIRED" in param_contract
     assert "commandParamNames" in param_contract
@@ -350,8 +417,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "Step {index + 1}" not in builder_ui
     assert "inputCount={inputCount}" in builder_ui
     assert "上传文件" in port_bindings_editor_ui
-    assert "输入 role" in port_bindings_editor_ui
-    assert "直接路径" in port_bindings_editor_ui
+    assert "inputCount={state.generatedInputCount}" in detail_page
     assert "removeGraphEdge" in builder_ui
     assert "builder.removeStep(selectedNode.id)" in builder_ui
     assert "删除节点" in builder_ui
@@ -381,16 +447,69 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "fromStep" in builder_ui
     assert "portsCompatible" in port_bindings_editor_ui
     assert "不兼容" in port_bindings_editor_ui
-    assert "exposeOutputs" in builder_ui
+    assert "OutputExposureEditor" in builder_ui
     assert "script:" in builder_ui
     assert "module:" in builder_ui
 
     assert "buildGeneratedRunSpec" not in page_model
-    assert "buildGeneratedWorkflowRunSpec" in api
-    assert "type GeneratedWorkflowGraphDraft" in api
+    assert "submitWorkflowDesignRun" in api
+    assert "compileWorkflowDesignDraft" in api
+    assert "/compile" in api
+    assert "WorkflowDesignCompileResult" in api
+    assert "workflowDesignDraftsCacheKey(options.serverId)" in api
+    assert "requireWorkflowDesignPlannedInputs" in api
+    assert "role: plannedInputs[index].role" in api
+    assert "filename: plannedInputs[index].filename" in api
+    upload_file_body = _function_body(api, "uploadWorkflowFile")
+    workflow_submit_body = _function_body(api, "submitWorkflowDesignRun")
+    pipeline_submit_body = _function_body(api, "submitPipelineWorkflowRun")
+    assert workflow_submit_body.index("const plannedInputs = requireWorkflowDesignPlannedInputs(plannedRunSpec)") < workflow_submit_body.index("uploadWorkflowFile(file, server.serverId)")
+    assert workflow_submit_body.index("plannedInputs.length !== files.length") < workflow_submit_body.index("uploadWorkflowFile(file, server.serverId)")
+    assert "plannedInputs.length !== uploads.length" not in workflow_submit_body
+    assert "filename: upload.filename" not in workflow_submit_body
+    assert 'typeof roleValue !== "string"' in api
+    assert 'typeof filenameValue !== "string"' in api
+    assert "serverId?: string" in api
+    assert "serverId ? { serverId } : {}" in upload_file_body
+    assert "uploadWorkflowFile(file, server.serverId)" in workflow_submit_body
+    assert "uploadWorkflowFile(file, server.serverId)" in pipeline_submit_body
+    assert "WORKFLOW_DESIGN_RUN_INPUTS_MISMATCH" in api
+    assert "WorkflowDesignPlan" in api
+    assert "WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED" in api
+    assert "workflowDesign.draftId" in api
+    assert "workflowDesign.revision" in api
     assert "useGeneratedWorkflowBuilder" in page_hook
-    assert "draft: generatedBuilder.graphDraft" in page_hook
+    assert "buildWorkflowDesignDraft" in page_hook
+    assert "existingDraft: activeWorkflowDesignDraft?.draft" in page_hook
+    assert "saveAndValidateGeneratedWorkflowDesign" in page_hook
+    assert "currentWorkflowDesignPlan?.valid === true" in page_hook
+    assert "currentWorkflowDesignPlan ? workflowDesignCompileResult : null" in page_hook
+    assert "workflowDesignCompileResult: currentWorkflowDesignCompileResult" in page_hook
+    assert "currentWorkflowDesignDraftError" in page_hook
+    assert "workflowErrorMessage(err, \"WORKFLOW_DESIGN_DRAFT_INVALID\")" in page_hook
+    assert "workflowDesignError: currentWorkflowDesignDraftError || workflowDesignError" in page_hook
+    assert "catch {\n      return null;" not in page_hook
+    assert "workflowDesignPlanSignature !== currentWorkflowDesignSignature" in page_hook
+    assert "stableWorkflowDesignStringify(draft)" in page_hook
+    assert "function stableWorkflowDesignStringify" in page_hook
+    assert "Object.keys(value).sort()" in page_hook
+    assert "return JSON.stringify(draft)" not in page_hook
+    assert "setWorkflowDesignPlanSignature(\"\")" in page_hook
+    assert "const plan = currentWorkflowDesignPlan" in page_hook
+    assert "const plan = await saveAndValidateGeneratedWorkflowDesign()" not in page_hook
+    assert "compileGeneratedWorkflowDesign" in page_hook
+    assert "workflowDesignCompileResult" in page_hook
+    assert "fetchWorkflowDesignDrafts({ ...options, serverId })" in page_hook
+    assert 'serverResult.status === "rejected"' in page_hook
+    assert "读取工作流运行服务失败" in page_hook
+    assert 'serverResult.status === "fulfilled" ? serverResult.value.serverId : ""' not in page_hook
+    assert "catch {\n        setWorkflowDesignDrafts([])" not in page_hook
+    assert "WORKFLOW_DESIGN_DRAFT_NOT_FOUND: ${draftId}" in page_hook
+    assert "throw new Error(message)" in page_hook
+    assert "编译导出" in builder_ui
+    assert "WorkflowDesignCompileSummary" in builder_ui
     assert "GeneratedWorkflowBuilder" in detail_page
+    assert "onCompile" in detail_page
     assert "generatedBuilder" in page_ui
     assert "!isGeneratedToolRun ? dagPreview : null" in page_ui
 

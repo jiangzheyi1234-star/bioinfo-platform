@@ -6,6 +6,7 @@ from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.storage import create_run_record, persist_artifact, update_run_state, upsert_tool
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool, mark_registered_tool_production_enabled
+from tests.generated_workflow_test_helpers import generated_workflow_node, generated_workflow_run_spec
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -62,11 +63,13 @@ def _completed_run_with_artifact(
     result_dir.mkdir(parents=True, exist_ok=True)
     artifact = result_dir / "report.txt"
     artifact.write_text(artifact_content, encoding="utf-8")
+    stored_run_spec = dict(run_spec or generated_workflow_run_spec("conda-forge::production-ready"))
+    stored_run_spec["runId"] = run_id
     create_run_record(
         cfg,
         server_id="srv_production",
         request_id=f"req_{run_id}",
-        run_spec=run_spec or {"runId": run_id, "pipelineId": "generated-tool-run-v1", "tool": {"id": "conda-forge::production-ready"}},
+        run_spec=stored_run_spec,
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
@@ -80,6 +83,10 @@ def _completed_run_with_artifact(
         result_dir=str(result_dir),
     )
     persist_artifact(cfg, run_id=run_id, kind="report", path=artifact, mime_type="text/plain")
+
+
+def _production_run_spec(*, resource_bindings: dict[str, object] | None = None) -> dict[str, object]:
+    return generated_workflow_run_spec("conda-forge::production-ready", resource_bindings=resource_bindings)
 
 
 def _registered_database(cfg: RemoteRunnerConfig, tmp_path: Path, *, template_id: str, status: str = "available") -> None:
@@ -234,7 +241,7 @@ def test_production_acceptance_evidence_must_match_generated_tool_run(tmp_path: 
         cfg,
         tmp_path,
         run_id="run_wrong_tool",
-        run_spec={"runId": "run_wrong_tool", "pipelineId": "generated-tool-run-v1", "tool": {"id": "conda-forge::other-tool"}},
+        run_spec=generated_workflow_run_spec("conda-forge::other-tool"),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -287,12 +294,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_wrong_template",
-        run_spec={
-            "runId": "run_database_wrong_template",
-            "pipelineId": "generated-tool-run-v1",
-            "tool": {"id": "conda-forge::production-ready"},
-            "resourceBindings": {"taxonomy": {"databaseId": "db_real", "templateId": "kraken2"}},
-        },
+        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "kraken2"}}),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -317,12 +319,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_self_reported_template",
-        run_spec={
-            "runId": "run_database_self_reported_template",
-            "pipelineId": "generated-tool-run-v1",
-            "tool": {"id": "conda-forge::production-ready"},
-            "resourceBindings": {"taxonomy": {"databaseId": "db_real", "templateId": "custom"}},
-        },
+        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -347,12 +344,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_unavailable",
-        run_spec={
-            "runId": "run_database_unavailable",
-            "pipelineId": "generated-tool-run-v1",
-            "tool": {"id": "conda-forge::production-ready"},
-            "resourceBindings": {"taxonomy": {"databaseId": "db_real", "templateId": "custom"}},
-        },
+        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -377,12 +369,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_matched",
-        run_spec={
-            "runId": "run_database_matched",
-            "pipelineId": "generated-tool-run-v1",
-            "tool": {"id": "conda-forge::production-ready"},
-            "resourceBindings": {"taxonomy": {"databaseId": "db_real", "templateId": "custom"}},
-        },
+        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
     )
     accepted = mark_registered_tool_production_enabled(
         cfg,
@@ -430,14 +417,8 @@ def test_production_acceptance_evidence_accepts_graph_workflow_nodes(tmp_path: P
             "runId": "run_graph_tool",
             "pipelineId": "generated-tool-run-v1",
             "workflow": {
-                "contractVersion": "generated-workflow-rule-contract/v1",
-                "nodes": [
-                    {
-                        "id": "copy_report",
-                        "toolId": "conda-forge::production-ready",
-                        "tool": {"id": "conda-forge::production-ready"},
-                    }
-                ],
+                "contractVersion": "rule-contract-v1",
+                "nodes": [generated_workflow_node("conda-forge::production-ready", node_id="copy_report")],
                 "edges": [],
                 "outputs": [],
             },

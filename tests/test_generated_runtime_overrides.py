@@ -5,8 +5,13 @@ from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.storage import persist_upload, upsert_tool
+from apps.remote_runner.storage import persist_upload
+from tests.generated_workflow_test_helpers import (
+    generated_workflow_graph,
+    generated_workflow_node,
+    upsert_ready_tool,
+    workflow_design_run_spec_from_graph,
+)
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -27,7 +32,7 @@ def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
 def test_generated_workflow_renders_step_runtime_overrides(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
-    upsert_tool(
+    upsert_ready_tool(
         cfg,
         {
             "id": "conda-forge::runtime-override-demo",
@@ -65,20 +70,22 @@ def test_generated_workflow_renders_step_runtime_overrides(tmp_path: Path, monke
         cfg,
         run_id="run_generated_runtime_override",
         request_id="req_generated_runtime_override",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "workflow": {
-                "steps": [
-                    {
-                        "id": "runtime_override",
-                        "tool": {"id": "conda-forge::runtime-override-demo"},
-                        "runtime": {"threads": 2, "resources": {"mem_mb": 4096}},
-                    }
-                ]
-            },
-        },
+        run_spec=workflow_design_run_spec_from_graph(
+            cfg,
+            generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::runtime-override-demo",
+                        node_id="runtime_override",
+                        inputs={"primary": {"fromInput": "input"}},
+                        runtime={"threads": 2, "resources": {"mem_mb": 4096}},
+                    )
+                ],
+                outputs=[{"from": {"nodeId": "runtime_override", "port": "report"}, "as": "report"}],
+            ),
+            upload_id=upload["uploadId"],
+            draft_name="Runtime override workflow",
+        ),
     )
 
     work_dir = Path(cfg.work_dir) / "run_generated_runtime_override"

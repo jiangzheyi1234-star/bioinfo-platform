@@ -9,6 +9,8 @@ from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.storage import persist_upload
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 from tests.generated_workflow_test_helpers import (
+    generated_workflow_node,
+    generated_workflow_run_spec,
     prepare_unchecked_generated_tool_workflow as prepare_generated_tool_workflow,
     upsert_ready_tool as upsert_tool,
 )
@@ -172,8 +174,15 @@ def test_generated_workflow_renders_output_semantics(tmp_path: Path, monkeypatch
             "projectId": "proj_demo",
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
             "workflow": {
-                "steps": [{"id": "run_tool", "tool": {"id": "conda-forge::output-semantics"}}],
-                "outputs": {"report": {"step": "run_tool", "output": "report"}},
+                "contractVersion": "rule-contract-v1",
+                "nodes": [
+                    generated_workflow_node(
+                        "conda-forge::output-semantics",
+                        inputs={"primary": {"fromInput": "input"}},
+                    )
+                ],
+                "edges": [],
+                "outputs": [{"from": {"nodeId": "run_tool", "port": "report"}, "as": "report"}],
             },
         },
     )
@@ -227,10 +236,7 @@ def test_generated_workflow_rejects_exposed_temp_outputs(tmp_path: Path) -> None
             cfg,
             run_id="run_temp_output",
             request_id="req_temp_output",
-            run_spec={
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "tool": {"id": "conda-forge::temp-output"},
-            },
+            run_spec=generated_workflow_run_spec("conda-forge::temp-output"),
             resolved_inputs=[{"path": str(input_path), "role": "input"}],
             work_dir=tmp_path / "work",
             result_dir=tmp_path / "results",

@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from apps.api.models import RunSubmitRequest, ToolManifestRequest, UploadSubmitRequest
+from apps.api.models import (
+    RunSubmitRequest,
+    ToolManifestRequest,
+    UploadSubmitRequest,
+    WorkflowDesignDraftCompileRequest,
+)
 
 
 def test_upload_submit_request_rejects_extra_fields() -> None:
@@ -70,3 +75,14 @@ def test_run_submit_request_accepts_pipeline_id_inside_run_spec() -> None:
 
     assert request.serverId == "srv_demo"
     assert request.runSpec["pipelineId"] == "file-summary-v1"
+
+
+def test_workflow_design_compile_request_is_strict() -> None:
+    request = WorkflowDesignDraftCompileRequest.model_validate({"serverId": "srv_demo"})
+
+    assert request.serverId == "srv_demo"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowDesignDraftCompileRequest.model_validate({"serverId": "srv_demo", "legacyRunSpec": {}})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"

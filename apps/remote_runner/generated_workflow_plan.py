@@ -47,7 +47,6 @@ def plan_generated_workflow_steps(
     resolved_inputs: list[dict[str, Any]],
     result_dir: Path,
     require_workflow_ready: bool = True,
-    resolve_implicit_inputs: bool = True,
 ) -> GeneratedWorkflowPlan:
     run_spec = normalize_generated_workflow_run_spec(run_spec)
     requested_steps = topologically_order_steps(resolve_requested_steps(run_spec))
@@ -58,7 +57,7 @@ def plan_generated_workflow_steps(
 
     for index, requested_step in enumerate(requested_steps):
         tool_request = step_tool_request(requested_step)
-        tool_id = str(tool_request.get("id") or tool_request.get("toolId") or "").strip()
+        tool_id = str(tool_request.get("id") or "").strip()
         if not tool_id:
             raise ValueError("TOOL_ID_REQUIRED")
         tool = fetch_tool(cfg, tool_id)
@@ -81,9 +80,6 @@ def plan_generated_workflow_steps(
         params = resolve_step_params(
             rule_template=rule_template,
             requested_step=requested_step,
-            tool_request=tool_request,
-            run_spec=run_spec,
-            single_step=single_step,
         )
         output_prefix = safe_step_id if not single_step else ""
         inputs = resolve_step_inputs(
@@ -93,8 +89,6 @@ def plan_generated_workflow_steps(
             resolved_inputs=resolved_inputs,
             outputs_by_step_id=outputs_by_step_id,
             output_port_specs_by_step_id=output_port_specs_by_step_id,
-            previous_outputs=generated_steps[-1].outputs if generated_steps else None,
-            resolve_implicit_inputs=resolve_implicit_inputs,
         )
         outputs = resolve_outputs(
             rule_template=rule_template,
@@ -145,19 +139,13 @@ def validate_tool_workflow_ready(tool: dict[str, Any]) -> None:
 
 
 def resolve_requested_steps(run_spec: dict[str, Any]) -> list[dict[str, Any]]:
-    run_spec = normalize_generated_workflow_run_spec(run_spec)
     workflow = run_spec.get("workflow")
-    if isinstance(workflow, dict):
-        steps = workflow.get("steps")
-        if not isinstance(steps, list) or not steps:
-            raise ValueError("WORKFLOW_STEPS_REQUIRED")
-        if any(not isinstance(step, dict) for step in steps):
-            raise ValueError("WORKFLOW_STEP_INVALID")
-        return steps
-    tool_request = run_spec.get("tool")
-    if not isinstance(tool_request, dict):
-        raise ValueError("TOOL_REQUIRED")
-    return [{"id": "run_tool", "tool": tool_request}]
+    steps = workflow.get("steps") if isinstance(workflow, dict) else None
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("WORKFLOW_GRAPH_NODES_REQUIRED")
+    if any(not isinstance(step, dict) for step in steps):
+        raise ValueError("WORKFLOW_STEP_INVALID")
+    return steps
 
 
 def topologically_order_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -215,6 +203,9 @@ def step_input_dependencies(step: dict[str, Any]) -> list[tuple[str, str]]:
 def step_tool_request(step: dict[str, Any]) -> dict[str, Any]:
     tool_request = step.get("tool")
     if isinstance(tool_request, dict):
+        extra_keys = sorted(set(tool_request) - {"id"})
+        if extra_keys:
+            raise ValueError(f"WORKFLOW_STEP_TOOL_UNSUPPORTED_FIELD: {extra_keys[0]}")
         return tool_request
     raise ValueError("TOOL_REQUIRED")
 
@@ -249,16 +240,9 @@ def resolve_step_params(
     *,
     rule_template: dict[str, Any],
     requested_step: dict[str, Any],
-    tool_request: dict[str, Any],
-    run_spec: dict[str, Any],
-    single_step: bool,
 ) -> dict[str, Any]:
     declared = declared_rule_params(rule_template)
     resolved = {name: value for name, value in declared.items() if value is not _MISSING}
-    if single_step and "params" in run_spec:
-        resolved.update(validate_step_params(run_spec.get("params"), declared))
-    if "params" in tool_request:
-        resolved.update(validate_step_params(tool_request.get("params"), declared))
     if "params" in requested_step:
         resolved.update(validate_step_params(requested_step.get("params"), declared))
     for name in command_param_names(str(rule_template.get("commandTemplate") or "")):
@@ -307,49 +291,16 @@ def resolve_step_inputs(
     resolved_inputs: list[dict[str, Any]],
     outputs_by_step_id: dict[str, dict[str, Path]],
     output_port_specs_by_step_id: dict[str, dict[str, dict[str, str]]],
-    previous_outputs: dict[str, Path] | None,
-    resolve_implicit_inputs: bool,
 ) -> dict[str, str]:
     explicit_inputs = requested_step.get("inputs")
-    if explicit_inputs is not None:
-        mapped = resolve_explicit_step_inputs(
-            explicit_inputs,
-            step_id=step_id,
-            rule_template=rule_template,
-            resolved_inputs=resolved_inputs,
-            outputs_by_step_id=outputs_by_step_id,
-            output_port_specs_by_step_id=output_port_specs_by_step_id,
-        )
-        validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
-        validate_command_input_tokens_bound(rule_template=rule_template, inputs=mapped)
-        return mapped
-    if not resolve_implicit_inputs:
-        return {}
-    if previous_outputs is None:
-        return resolve_inputs(rule_template=rule_template, resolved_inputs=resolved_inputs)
-    specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
-    if not specs:
-        specs = [{"name": "primary"}]
-    primary_upstream = previous_outputs.get("tool_output") or next(iter(previous_outputs.values()))
-    mapped: dict[str, str] = {}
-    for index, spec in enumerate(specs):
-        name = str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")).strip()
-        source_output = str(spec.get("sourceOutput") or "").strip()
-        if source_output and source_output in previous_outputs:
-            mapped[name] = str(previous_outputs[source_output])
-            continue
-        if name in previous_outputs:
-            mapped[name] = str(previous_outputs[name])
-            continue
-        if index == 0 or name == "primary":
-            mapped[name] = str(primary_upstream)
-            continue
-        if bool(spec.get("required", True)):
-            raise ValueError("TOOL_INPUT_REQUIRED")
-    if "primary" not in mapped and primary_upstream:
-        mapped["primary"] = str(primary_upstream)
-    if not mapped:
-        raise ValueError("TOOL_INPUT_REQUIRED")
+    mapped = resolve_explicit_step_inputs(
+        explicit_inputs if explicit_inputs is not None else {},
+        step_id=step_id,
+        rule_template=rule_template,
+        resolved_inputs=resolved_inputs,
+        outputs_by_step_id=outputs_by_step_id,
+        output_port_specs_by_step_id=output_port_specs_by_step_id,
+    )
     validate_required_step_inputs(rule_template=rule_template, inputs=mapped)
     validate_command_input_tokens_bound(rule_template=rule_template, inputs=mapped)
     return mapped
@@ -374,7 +325,7 @@ def resolve_explicit_step_inputs(
     outputs_by_step_id: dict[str, dict[str, Path]],
     output_port_specs_by_step_id: dict[str, dict[str, dict[str, str]]],
 ) -> dict[str, str]:
-    if not isinstance(raw, dict) or not raw:
+    if not isinstance(raw, dict):
         raise ValueError("WORKFLOW_STEP_INPUTS_INVALID")
     mapped: dict[str, str] = {}
     declared_inputs = declared_rule_input_names(rule_template)
@@ -430,14 +381,7 @@ def resolve_input_binding(
             raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN: {from_step}.{output_name}")
         return str(step_outputs[output_name])
     if "fromUpload" in binding:
-        raw_index = binding.get("fromUpload")
-        try:
-            index = int(raw_index or 0)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: {raw_index}") from exc
-        if index < 0 or index >= len(resolved_inputs):
-            raise ValueError(f"WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: {index}")
-        return str(resolved_inputs[index].get("path") or f"input_{index + 1}")
+        raise ValueError("WORKFLOW_STEP_INPUT_BINDING_UNSUPPORTED: fromUpload")
     if "fromInput" in binding:
         role = str(binding.get("fromInput") or "").strip()
         if not role:
@@ -446,28 +390,8 @@ def resolve_input_binding(
             item_role = str(item.get("role") or ("input" if index == 0 else f"input_{index + 1}")).strip()
             if item_role == role:
                 return str(item.get("path") or f"input_{index + 1}")
-        raise ValueError(f"WORKFLOW_STEP_INPUT_UPLOAD_UNKNOWN: {role}")
+        raise ValueError(f"WORKFLOW_STEP_INPUT_ROLE_UNKNOWN: {role}")
     raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
-
-
-def resolve_inputs(*, rule_template: dict[str, Any], resolved_inputs: list[dict[str, Any]]) -> dict[str, str]:
-    specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
-    if not specs:
-        specs = [{"name": "primary"}]
-    mapped: dict[str, str] = {}
-    for index, spec in enumerate(specs):
-        if index >= len(resolved_inputs):
-            if bool(spec.get("required", True)):
-                raise ValueError("TOOL_INPUT_REQUIRED")
-            continue
-        name = str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")).strip()
-        mapped[name] = str(resolved_inputs[index]["path"])
-    if "primary" not in mapped and resolved_inputs:
-        mapped["primary"] = str(resolved_inputs[0]["path"])
-    if not mapped:
-        raise ValueError("TOOL_INPUT_REQUIRED")
-    validate_command_input_tokens_bound(rule_template=rule_template, inputs=mapped)
-    return mapped
 
 
 def resolve_outputs(*, rule_template: dict[str, Any], result_dir: Path, output_prefix: str = "") -> dict[str, Path]:
@@ -511,7 +435,7 @@ def resolve_exposed_outputs(
     output_bindings = normalize_exposed_output_bindings(raw)
     exposed: dict[str, dict[str, Any]] = {}
     for binding in output_bindings:
-        step_id = str(binding.get("fromStep") or binding.get("step") or "").strip()
+        step_id = str(binding.get("fromStep") or "").strip()
         output_name = str(binding.get("output") or "").strip()
         alias = str(binding.get("as") or "").strip()
         if not step_id or not output_name or not alias:
@@ -539,20 +463,14 @@ def normalize_exposed_output_bindings(raw: Any) -> list[dict[str, Any]]:
     if isinstance(raw, list):
         if any(not isinstance(binding, dict) for binding in raw):
             raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
-        return [dict(binding) for binding in raw]
-    if isinstance(raw, dict):
-        bindings: list[dict[str, Any]] = []
-        for alias, binding in raw.items():
-            if not isinstance(binding, dict):
-                raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
-            bindings.append(
-                {
-                    "fromStep": str(binding.get("fromStep") or binding.get("step") or "").strip(),
-                    "output": str(binding.get("output") or "").strip(),
-                    "as": str(binding.get("as") or alias or "").strip(),
-                }
-            )
-        return bindings
+        return [
+            {
+                "fromStep": str(binding.get("fromStep") or "").strip(),
+                "output": str(binding.get("output") or "").strip(),
+                "as": str(binding.get("as") or "").strip(),
+            }
+            for binding in raw
+        ]
     raise ValueError("WORKFLOW_OUTPUT_BINDING_INVALID")
 
 

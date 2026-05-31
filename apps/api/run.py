@@ -17,6 +17,10 @@ def main() -> None:
         reload=False,
         workers=1,
         log_level="info",
+        access_log=(
+            os.environ.get("H2OMETA_API_ACCESS_LOG", "").lower()
+            in {"1", "true", "yes", "on"}
+        ),
     )
 
 

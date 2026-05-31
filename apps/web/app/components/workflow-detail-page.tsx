@@ -79,9 +79,22 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
             onParamsChange={state.setParams}
             generatedBuilder={
               <GeneratedWorkflowBuilder
+                activeDesignDraft={state.activeWorkflowDesignDraft}
                 availableDatabases={state.availableDatabases}
                 builder={state.generatedBuilder}
-                inputCount={state.files.length}
+                designBusy={state.workflowDesignBusy}
+                compileResult={state.workflowDesignCompileResult}
+                designDrafts={state.workflowDesignDrafts}
+                designError={state.workflowDesignError}
+                designPlan={state.workflowDesignPlan}
+                inputCount={state.generatedInputCount}
+                onOpenDesignDraft={state.openWorkflowDesignDraft}
+                onCompile={() => {
+                  void state.compileGeneratedWorkflowDesign().catch(() => undefined);
+                }}
+                onSaveAndValidate={() => {
+                  void state.saveAndValidateGeneratedWorkflowDesign().catch(() => undefined);
+                }}
                 tools={state.runnableTools}
               />
             }

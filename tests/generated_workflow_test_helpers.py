@@ -6,8 +6,11 @@ from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.generated_workflow import GeneratedWorkflow, prepare_generated_tool_workflow
+from apps.remote_runner.generated_workflow_graph import GENERATED_WORKFLOW_RULE_CONTRACT_VERSION
 from apps.remote_runner.storage import upsert_tool
 from apps.remote_runner.tools import normalize_rule_template
+from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
+from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 
 
 READY_CONTRACT_STATUS = {
@@ -28,6 +31,120 @@ READY_CONTRACT_STATUS = {
     },
     "production": {"status": "not_run", "message": ""},
 }
+
+
+def generated_workflow_node(
+    tool_id: str,
+    *,
+    node_id: str = "run_tool",
+    inputs: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+    runtime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    node: dict[str, Any] = {"id": node_id, "tool": {"id": tool_id}}
+    if inputs is not None:
+        node["inputs"] = inputs
+    if params is not None:
+        node["params"] = params
+    if runtime is not None:
+        node["runtime"] = runtime
+    return node
+
+
+def generated_workflow_graph(
+    nodes: list[dict[str, Any]],
+    *,
+    edges: list[dict[str, Any]] | None = None,
+    outputs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    graph: dict[str, Any] = {
+        "contractVersion": GENERATED_WORKFLOW_RULE_CONTRACT_VERSION,
+        "nodes": nodes,
+        "edges": edges or [],
+    }
+    if outputs is not None:
+        graph["outputs"] = outputs
+    return graph
+
+
+def generated_workflow_run_spec(
+    tool_id: str,
+    *,
+    input_name: str = "primary",
+    input_role: str = "input",
+    node_id: str = "run_tool",
+    project_id: str | None = None,
+    resource_bindings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    run_spec: dict[str, Any] = {
+        "pipelineId": "generated-tool-run-v1",
+        "workflow": generated_workflow_graph(
+            [
+                generated_workflow_node(
+                    tool_id,
+                    node_id=node_id,
+                    inputs={input_name: {"fromInput": input_role}},
+                )
+            ],
+        ),
+    }
+    if project_id is not None:
+        run_spec["projectId"] = project_id
+    if resource_bindings is not None:
+        run_spec["resourceBindings"] = resource_bindings
+    return run_spec
+
+
+def workflow_design_run_spec_from_graph(
+    cfg: RemoteRunnerConfig,
+    graph: dict[str, Any],
+    *,
+    upload_id: str,
+    project_id: str = "proj_demo",
+    input_role: str = "input",
+    input_filename: str = "reads.txt",
+    draft_name: str = "Generated workflow",
+) -> dict[str, Any]:
+    saved = create_workflow_design_draft(
+        cfg,
+        {
+            "contractVersion": "workflow-design-draft-v1",
+            "engine": "snakemake",
+            "metadata": {"name": draft_name, "description": "", "projectId": project_id, "tags": []},
+            "inputs": [
+                {
+                    "id": input_role,
+                    "role": input_role,
+                    "path": f"inputs/{input_filename}",
+                    "filename": input_filename,
+                    "mimeType": "text/plain",
+                }
+            ],
+            "nodes": [_workflow_design_node_from_graph_node(node) for node in graph.get("nodes", [])],
+            "edges": list(graph.get("edges") or []),
+            "resources": {"bindings": {}, "metadata": {}},
+            "outputs": list(graph.get("outputs") or []),
+            "provenance": {},
+        },
+    )
+    run_spec = workflow_design_to_generated_run_spec(saved["draft"], draft_id=saved["draftId"], revision=saved["revision"])
+    run_spec["inputs"] = [{"uploadId": upload_id, "filename": input_filename, "role": input_role}]
+    return run_spec
+
+
+def _workflow_design_node_from_graph_node(node: dict[str, Any]) -> dict[str, Any]:
+    tool = node.get("tool") if isinstance(node.get("tool"), dict) else {}
+    return {
+        "id": str(node.get("id") or "run_tool"),
+        "toolId": str(tool.get("id") or ""),
+        "inputs": dict(node.get("inputs") or {}),
+        "params": dict(node.get("params") or {}),
+        "runtime": dict(node.get("runtime") or {}),
+        "resources": {},
+        "outputs": {},
+        "metadata": {},
+        "provenance": {},
+    }
 
 
 def prepare_unchecked_generated_tool_workflow(
