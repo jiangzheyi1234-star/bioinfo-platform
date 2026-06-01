@@ -22,10 +22,42 @@ def validate_registered_tool_for_publish(
     payload: dict[str, Any],
     event_callback: PrepareEventCallback | None = None,
 ) -> dict[str, Any]:
-    item = _normalized_executable_tool(payload)
+    try:
+        item = _normalized_executable_tool(payload)
+    except ToolRegistryError as exc:
+        _emit_prepare_event(
+            event_callback,
+            "profile_schema_validation",
+            str(exc),
+            level="error",
+            details={"code": str(exc)},
+        )
+        raise
+    _emit_prepare_event(
+        event_callback,
+        "profile_schema_validation",
+        "Profile schema validation passed.",
+        level="success",
+    )
+
     contract = build_tool_contract(item)
     if not bool(contract["requirements"]["snakemakeRenderable"]):
-        raise ToolRegistryError(str((contract.get("reasons") or ["TOOL_CONTRACT_INCOMPLETE"])[0]))
+        code = str((contract.get("reasons") or ["TOOL_CONTRACT_INCOMPLETE"])[0])
+        _emit_prepare_event(
+            event_callback,
+            "static_rulespec_validation",
+            code,
+            level="error",
+            details={"code": code},
+        )
+        raise ToolRegistryError(code)
+    _emit_prepare_event(
+        event_callback,
+        "static_rulespec_validation",
+        "Static RuleSpec validation passed.",
+        level="success",
+    )
+    _emit_prepare_event(event_callback, "environment_resolution", "Resolving tool execution environment.")
 
     result = (
         run_tool_contract_validation(cfg, item, event_callback=event_callback)
@@ -58,3 +90,23 @@ def _validation_failure_code(item: dict[str, Any]) -> str:
         if value.get("status") == "failed":
             return str(value.get("code") or value.get("message") or "TOOL_CONTRACT_VALIDATION_FAILED")
     return str(item.get("message") or "TOOL_CONTRACT_VALIDATION_FAILED")
+
+
+def _emit_prepare_event(
+    callback: PrepareEventCallback | None,
+    stage: str,
+    message: str,
+    *,
+    level: str = "info",
+    details: dict[str, Any] | None = None,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        {
+            "stage": stage,
+            "message": message,
+            "level": level,
+            "details": details or {},
+        }
+    )

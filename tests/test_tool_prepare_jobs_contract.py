@@ -50,3 +50,35 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "cancelToolPrepareJob(jobId)" in task_context
     assert "ToolPrepareTaskBar" in task_bar
     assert "暂无日志" in task_bar
+
+
+def test_prepare_task_status_lives_in_bottom_status_bar() -> None:
+    shell = (ROOT / "apps" / "web" / "app" / "components" / "ssh-shell.tsx").read_text(encoding="utf-8")
+    shell_ui = (ROOT / "apps" / "web" / "app" / "components" / "ssh-shell-ui.tsx").read_text(encoding="utf-8")
+    task_bar = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
+
+    assert 'import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";' in shell_ui
+    assert "<ToolPrepareTaskBar />" in shell_ui
+    assert 'import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";' not in shell
+    assert "<ToolPrepareTaskBar />" not in shell
+    assert "absolute bottom-3 right-3" not in task_bar
+    assert "if (tasks.length === 0 || !latest) return null;" not in task_bar
+    assert "w-56" in task_bar
+    assert "w-[520px]" in task_bar
+    assert "没有工具任务" in task_bar
+    assert "aria-label=\"关闭任务面板\"" in task_bar
+    assert "aria-label=\"取消工具验证任务\"" in task_bar
+    assert "aria-label=\"移除工具验证任务\"" in task_bar
+
+
+def test_terminal_prepare_job_refreshes_tool_cache_for_workflow_builder() -> None:
+    frontend_state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    task_context = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
+    frontend_api = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-api.ts").read_text(encoding="utf-8")
+
+    assert "invalidateWorkflowToolCaches" in frontend_api
+    assert "if (isTerminalJob(job))" in task_context
+    assert "invalidateWorkflowToolCaches();" in task_context
+    assert "lastPrepareRefreshRef" in frontend_state
+    assert 'task.status === "succeeded" || task.status === "failed" || task.status === "cancelled"' in frontend_state
+    assert "loadAddedTools({ forceRefresh: true, silent: true })" in frontend_state

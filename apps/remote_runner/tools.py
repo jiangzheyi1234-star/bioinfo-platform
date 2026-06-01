@@ -36,6 +36,9 @@ def add_registered_tool(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dic
         raise ToolRegistryError("TOOL_RULE_DRAFT_CANNOT_HAVE_CONFIRMED_TEMPLATE")
     item["capabilities"] = normalize_tool_capabilities(item.get("capabilities"))
     item["contractStatus"] = default_contract_status()
+    item["status"] = "declared"
+    item["message"] = "Tool declared."
+    _classify_added_tool(item)
     return upsert_tool(cfg, item)
 
 
@@ -168,6 +171,19 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _rule_spec_draft_requires_completion(raw: Any) -> bool:
     return isinstance(raw, dict) and raw.get("requiresUserCompletion") is True
+
+
+def _classify_added_tool(item: dict[str, Any]) -> None:
+    draft = item.get("ruleSpecDraft") if isinstance(item.get("ruleSpecDraft"), dict) else {}
+    if not _rule_spec_draft_requires_completion(draft):
+        return
+    source = str(draft.get("source") or "").strip()
+    if source == "snakemake-wrapper":
+        item["status"] = "wrapper_draft"
+        item["message"] = "Wrapper draft saved. Complete RuleSpec before validation."
+    elif source == "conda-package":
+        item["status"] = "dependency_only"
+        item["message"] = "Dependency saved without runnable RuleSpec."
 
 
 def normalize_tool_capabilities(raw: Any) -> list[dict[str, Any]]:

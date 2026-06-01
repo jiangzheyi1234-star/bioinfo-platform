@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from apps.api.tool_contract_resolver import ToolContractResolver
+from apps.api.tool_profiles import known_tool_profile_ids
 
 
 def test_unresolved_wrapper_contract_requires_editable_confirmation() -> None:
@@ -41,3 +42,130 @@ def test_wrapper_import_never_auto_confirms_rule_contracts() -> None:
         "source": "snakemake-wrapper",
         "wrapper": "v9.8.0/bio/example/report",
     }
+
+
+def test_bracken_profile_overlay_returns_workflow_rule_spec() -> None:
+    resolver = ToolContractResolver()
+
+    draft = resolver.resolve_dependency(
+        {
+            "name": "bracken",
+            "source": "bioconda",
+            "packageSpec": "bioconda::bracken=2.9",
+            "latestVersion": "2.9",
+        }
+    )
+
+    template = draft["ruleTemplate"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["contractSource"] == "h2ometa-tool-profile-registry"
+    assert draft["status"] == "ready-for-validation"
+    assert draft["requiresUserCompletion"] is False
+    assert draft["lock"]["profileId"] == "bracken"
+    assert draft["lock"]["packageSpec"] == "bioconda::bracken=2.9"
+    assert template["resources"]["bracken_db"] == {
+        "type": "database",
+        "required": True,
+        "acceptedTemplates": ["bracken"],
+        "configKey": "bracken_db",
+    }
+    assert "{config.bracken_db:q}" in template["commandTemplate"]
+    assert template["environment"]["conda"]["dependencies"] == ["bioconda::bracken=2.9"]
+    assert template["smokeTest"]["inputs"]["kraken_report"]["filename"] == "kraken.report"
+    assert template["smokeTest"]["params"] == {"read_length": 100, "level": "S"}
+
+
+def test_profile_registry_exposes_p0_h2ometa_profiles() -> None:
+    assert known_tool_profile_ids() == ["bracken", "fastp", "fastqc", "kraken2", "multiqc"]
+
+
+def test_fastp_profile_overlay_has_no_database_resource() -> None:
+    resolver = ToolContractResolver()
+
+    draft = resolver.resolve_dependency(
+        {
+            "name": "fastp",
+            "source": "bioconda",
+            "packageSpec": "bioconda::fastp=0.24.1",
+        }
+    )
+
+    template = draft["ruleTemplate"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["lock"]["profileId"] == "fastp"
+    assert template["commandTemplate"].startswith("fastp ")
+    assert set(template["outputs"][index]["name"] for index in range(len(template["outputs"]))) == {
+        "cleaned_reads",
+        "html",
+        "json",
+    }
+    assert "bracken_db" not in template["resources"]
+    assert "kraken2_db" not in template["resources"]
+
+
+def test_kraken2_profile_overlay_declares_database_resource() -> None:
+    resolver = ToolContractResolver()
+
+    draft = resolver.resolve_dependency(
+        {
+            "name": "kraken2",
+            "source": "bioconda",
+            "packageSpec": "bioconda::kraken2=2.1.3",
+        }
+    )
+
+    template = draft["ruleTemplate"]
+    assert draft["lock"]["profileId"] == "kraken2"
+    assert template["resources"]["kraken2_db"] == {
+        "type": "database",
+        "required": True,
+        "acceptedTemplates": ["kraken2"],
+        "configKey": "kraken2_db",
+    }
+    assert "{config.kraken2_db:q}" in template["commandTemplate"]
+
+
+def test_fastqc_profile_overlay_declares_report_outputs() -> None:
+    resolver = ToolContractResolver()
+
+    draft = resolver.resolve_dependency(
+        {
+            "name": "fastqc",
+            "source": "bioconda",
+            "packageSpec": "bioconda::fastqc=0.12.1",
+        }
+    )
+
+    template = draft["ruleTemplate"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["lock"]["profileId"] == "fastqc"
+    assert "fastqc" in template["commandTemplate"]
+    assert {output["name"] for output in template["outputs"]} == {"html", "zip"}
+    assert template["outputs"][0]["path"] == "results/reads_fastqc.html"
+    assert template["smokeTest"]["inputs"]["reads"]["filename"] == "reads.fastq"
+
+
+def test_multiqc_profile_overlay_declares_report_output() -> None:
+    resolver = ToolContractResolver()
+
+    draft = resolver.resolve_dependency(
+        {
+            "name": "multiqc",
+            "source": "bioconda",
+            "packageSpec": "bioconda::multiqc=1.25",
+        }
+    )
+
+    template = draft["ruleTemplate"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["lock"]["profileId"] == "multiqc"
+    assert "multiqc" in template["commandTemplate"]
+    assert template["outputs"] == [
+        {
+            "name": "report",
+            "path": "results/multiqc.html",
+            "kind": "report",
+            "mimeType": "text/html",
+        }
+    ]
+    assert template["smokeTest"]["inputs"]["fastqc_data"]["filename"] == "fastqc_data.txt"
