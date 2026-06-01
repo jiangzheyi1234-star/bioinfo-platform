@@ -9,6 +9,7 @@ from typing import Any
 
 
 PROFILE_CONTRACT_SOURCE = "h2ometa-tool-profile-registry"
+PROFILE_WRAPPER_REPOSITORY = "snakemake/snakemake-wrappers"
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,9 @@ def resolve_tool_profile(tool: dict[str, Any], *, wrappers: list[dict[str, Any]]
         "version": _package_version(package_spec) or _clean(tool.get("latestVersion") or tool.get("version")),
         "source": _clean(tool.get("source")) or "bioconda",
     }
+    profile_wrapper = _profile_wrapper_lock(profile)
+    if profile_wrapper:
+        lock.update(profile_wrapper)
     if matched_wrapper:
         lock["matchedWrapper"] = {
             "wrapperRepository": _clean(matched_wrapper.get("wrapperRepository")),
@@ -160,25 +164,20 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
         tool_names=("fastp",),
         preferred_wrapper_paths=("bio/fastp",),
         rule_template={
-            "commandTemplate": (
-                "fastp -i {input.reads:q} "
-                "-o {output.cleaned_reads:q} "
-                "--html {output.html:q} "
-                "--json {output.json:q} "
-                "--thread {threads}"
-            ),
+            "wrapper": "v9.8.0/bio/fastp",
             "inputs": [
                 {
-                    "name": "reads",
+                    "name": "sample",
                     "type": "file",
                     "kind": "sequence_reads",
                     "mimeType": "text/plain",
                     "required": True,
+                    "multiple": True,
                 }
             ],
             "outputs": [
                 {
-                    "name": "cleaned_reads",
+                    "name": "trimmed",
                     "path": "results/fastp-cleaned.fastq",
                     "kind": "sequence_reads",
                     "mimeType": "text/plain",
@@ -196,7 +195,10 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
                     "mimeType": "application/json",
                 },
             ],
-            "params": {},
+            "params": {
+                "extra": {"type": "string", "title": "Extra fastp arguments", "default": ""},
+                "adapters": {"type": "string", "title": "Adapter arguments", "default": ""},
+            },
             "resources": {"threads": {"default": 2}, "mem_mb": {"default": 2048}},
             "environment": {
                 "conda": {
@@ -207,7 +209,7 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
             "log": "logs/fastp.log",
             "smokeTest": {
                 "inputs": {
-                    "reads": {
+                    "sample": {
                         "filename": "reads.fastq",
                         "content": "@smoke\nACGTACGT\n+\nFFFFFFFF\n",
                         "mimeType": "text/plain",
@@ -223,12 +225,7 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
         tool_names=("fastqc",),
         preferred_wrapper_paths=("bio/fastqc",),
         rule_template={
-            "commandTemplate": (
-                "mkdir -p {output_dir:q}/results && "
-                "fastqc --threads {threads} "
-                "--outdir {output_dir:q}/results "
-                "{input.reads:q}"
-            ),
+            "wrapper": "v9.8.0/bio/fastqc",
             "inputs": [
                 {
                     "name": "reads",
@@ -355,13 +352,7 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
         tool_names=("multiqc",),
         preferred_wrapper_paths=("bio/multiqc",),
         rule_template={
-            "commandTemplate": (
-                "mkdir -p {output_dir:q}/results && "
-                "multiqc {input.fastqc_data:q} "
-                "--outdir {output_dir:q}/results "
-                "--filename multiqc.html "
-                "--force"
-            ),
+            "wrapper": "v9.8.0/bio/multiqc",
             "inputs": [
                 {
                     "name": "fastqc_data",
@@ -422,6 +413,28 @@ def _matched_wrapper(profile: ToolProfile, wrappers: list[dict[str, Any]]) -> di
         if _clean(wrapper.get("wrapperPath")) in preferred:
             return wrapper
     return wrappers[0]
+
+
+def _profile_wrapper_lock(profile: ToolProfile) -> dict[str, str]:
+    wrapper = _clean(profile.rule_template.get("wrapper"))
+    if not wrapper:
+        return {}
+    wrapper_ref, wrapper_path = _split_wrapper_identifier(wrapper)
+    if not wrapper_ref or not wrapper_path:
+        return {}
+    return {
+        "wrapperRepository": PROFILE_WRAPPER_REPOSITORY,
+        "wrapperRef": wrapper_ref,
+        "wrapperPath": wrapper_path,
+        "wrapperIdentifier": wrapper,
+    }
+
+
+def _split_wrapper_identifier(wrapper: str) -> tuple[str, str]:
+    parts = [part for part in _clean(wrapper).split("/") if part]
+    if len(parts) < 2:
+        return "", ""
+    return parts[0], "/".join(parts[1:])
 
 
 def _package_spec_from_identity(tool: dict[str, Any]) -> str:

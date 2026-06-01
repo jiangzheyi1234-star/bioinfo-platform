@@ -107,7 +107,7 @@ function rulePreviewLines({
     : [`rule ${ruleName}:`];
   lines.push("    input:");
   lines.push(
-    ...inputs.map((input, index) => `        ${safeSnakemakeName(input.name)}=${JSON.stringify(inputPath?.(input, index) || input.name)},`)
+    ...inputs.map((input, index) => renderInputLine(input, index, inputPath?.(input, index) || input.name))
   );
   lines.push("    output:");
   lines.push(
@@ -158,6 +158,11 @@ function rulePreviewLines({
   lines.push(`        ${commandTemplate || "# commandTemplate required"}`);
   lines.push("        \"\"\"");
   return lines;
+}
+
+function renderInputLine(input: RuleInputSpec, index: number, path: string) {
+  const renderedPath = JSON.stringify(path || input.name || `input_${index + 1}`);
+  return `        ${safeSnakemakeName(input.name)}=${input.multiple ? `[${renderedPath}]` : renderedPath},`;
 }
 
 function renderOutputValue(output: RuleOutputSpec, index: number, pathOverride = "") {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from apps.api.tool_profiles import resolve_tool_profile
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 from tests.generated_workflow_test_helpers import (
@@ -152,6 +153,54 @@ def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> No
     assert "shell:" not in snakefile
     assert "conda:" not in snakefile
     assert run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/demoqc"
+
+
+def test_fastp_profile_generates_locked_wrapper_rule_with_list_sample_input(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    draft = resolve_tool_profile(
+        {
+            "id": "bioconda::fastp",
+            "name": "fastp",
+            "source": "bioconda",
+            "packageSpec": "bioconda::fastp=0.24.1",
+            "latestVersion": "0.24.1",
+        }
+    )
+    assert draft is not None
+    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastp"
+
+    upsert_tool(
+        cfg,
+        {
+            "id": "bioconda::fastp",
+            "name": "fastp",
+            "source": "bioconda",
+            "packageSpec": "bioconda::fastp=0.24.1",
+            "targetPlatformSupported": True,
+            "ruleTemplate": draft["ruleTemplate"],
+            "ruleSpecDraft": draft,
+        },
+    )
+
+    prepare_generated_tool_workflow(
+        cfg,
+        run_id="run_fastp_profile_wrapper",
+        request_id="req_fastp_profile_wrapper",
+        run_spec=generated_workflow_run_spec("bioconda::fastp", input_name="sample"),
+        resolved_inputs=_input(tmp_path),
+        work_dir=tmp_path / "work",
+        result_dir=tmp_path / "results",
+    )
+
+    snakefile = (tmp_path / "work" / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
+    assert "wrapper:" in snakefile
+    assert "'v9.8.0/bio/fastp'" in snakefile
+    assert "sample=[" in snakefile
+    assert "shell:" not in snakefile
+    assert run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastp"
+    assert run_config["tool"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
 
 
 def test_generated_workflow_renders_snakemake_module_use_rule(tmp_path: Path) -> None:

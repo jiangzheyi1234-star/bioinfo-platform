@@ -93,9 +93,21 @@ def test_fastp_profile_overlay_has_no_database_resource() -> None:
     template = draft["ruleTemplate"]
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["lock"]["profileId"] == "fastp"
-    assert template["commandTemplate"].startswith("fastp ")
+    assert draft["lock"]["wrapperIdentifier"] == "v9.8.0/bio/fastp"
+    assert template["wrapper"] == "v9.8.0/bio/fastp"
+    assert "commandTemplate" not in template
+    assert template["inputs"] == [
+        {
+            "name": "sample",
+            "type": "file",
+            "kind": "sequence_reads",
+            "mimeType": "text/plain",
+            "required": True,
+            "multiple": True,
+        }
+    ]
     assert set(template["outputs"][index]["name"] for index in range(len(template["outputs"]))) == {
-        "cleaned_reads",
+        "trimmed",
         "html",
         "json",
     }
@@ -139,7 +151,9 @@ def test_fastqc_profile_overlay_declares_report_outputs() -> None:
     template = draft["ruleTemplate"]
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["lock"]["profileId"] == "fastqc"
-    assert "fastqc" in template["commandTemplate"]
+    assert draft["lock"]["wrapperIdentifier"] == "v9.8.0/bio/fastqc"
+    assert template["wrapper"] == "v9.8.0/bio/fastqc"
+    assert "commandTemplate" not in template
     assert {output["name"] for output in template["outputs"]} == {"html", "zip"}
     assert template["outputs"][0]["path"] == "results/reads_fastqc.html"
     assert template["smokeTest"]["inputs"]["reads"]["filename"] == "reads.fastq"
@@ -159,7 +173,9 @@ def test_multiqc_profile_overlay_declares_report_output() -> None:
     template = draft["ruleTemplate"]
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["lock"]["profileId"] == "multiqc"
-    assert "multiqc" in template["commandTemplate"]
+    assert draft["lock"]["wrapperIdentifier"] == "v9.8.0/bio/multiqc"
+    assert template["wrapper"] == "v9.8.0/bio/multiqc"
+    assert "commandTemplate" not in template
     assert template["outputs"] == [
         {
             "name": "report",

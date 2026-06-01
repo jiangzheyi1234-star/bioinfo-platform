@@ -50,6 +50,13 @@ def run_tool_contract_validation(
             ok=False,
             message=str(runtime.get("message") or "Workflow runtime is not ready."),
         )
+    _emit_event(
+        event_callback,
+        "runtime_check",
+        "Workflow runtime check passed.",
+        level="success",
+        details={"provider": str(runtime.get("provider") or ""), "version": str(runtime.get("version") or "")},
+    )
 
     run_id = f"toolcheck_{_safe_identifier(str(tool.get('id') or tool.get('name') or 'tool'))}_{int(time.time())}"
     validation_root = Path(cfg.work_dir) / "_tool_contract_checks" / run_id

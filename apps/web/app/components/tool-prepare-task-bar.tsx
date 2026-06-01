@@ -12,6 +12,9 @@ import type { ToolPrepareJob, ToolPrepareJobEvent } from "./tools-page-model";
 const STAGE_LABELS: Record<string, string> = {
   queued: "排队中",
   validating_spec: "验证规格",
+  profile_schema_validation: "Profile schema",
+  static_rulespec_validation: "静态 RuleSpec",
+  environment_resolution: "解析环境",
   runtime_check: "检查运行时",
   preparing_workflow: "生成验证流程",
   dry_run: "Snakemake dry-run",
@@ -25,7 +28,17 @@ const STAGE_LABELS: Record<string, string> = {
   spec_valid: "验证规格",
 };
 
-const PREPARE_STAGES = ["validating_spec", "runtime_check", "preparing_workflow", "dry_run", "smoke_run", "output_validation", "publishing"];
+const PREPARE_STAGES = [
+  "profile_schema_validation",
+  "static_rulespec_validation",
+  "environment_resolution",
+  "runtime_check",
+  "preparing_workflow",
+  "dry_run",
+  "smoke_run",
+  "output_validation",
+  "publishing",
+];
 
 export function ToolPrepareTaskBar() {
   const { activeTasks, cancelToolPrepareTask, dismissToolPrepareTask, tasks } = useToolPrepareTasks();

@@ -107,6 +107,7 @@ export type RuleInputSpec = {
   mimeType?: string;
   data?: string;
   format?: string;
+  multiple?: boolean;
 };
 
 export type RuleOutputSpec = {
@@ -495,6 +496,7 @@ function normalizeRuleInputSpec(item: Record<string, unknown>): RuleInputSpec {
   return {
     name,
     required: item.required !== false,
+    ...(item.multiple === true || item.asList === true || item.list === true ? { multiple: true } : {}),
     ...readPortCompatibility(item),
   };
 }
