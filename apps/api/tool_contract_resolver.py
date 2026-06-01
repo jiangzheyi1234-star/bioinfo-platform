@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from apps.api.tool_profiles import resolve_tool_profile
+
 
 class ToolContractResolver:
     def resolve_snakemake_wrapper(
@@ -39,7 +41,10 @@ class ToolContractResolver:
             ],
         }
 
-    def resolve_dependency(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def resolve_dependency(self, tool: dict[str, Any], *, wrappers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        profile = resolve_tool_profile(tool, wrappers=wrappers)
+        if profile is not None:
+            return profile
         name = _clean_name(tool.get("name")) or "tool"
         source = _clean_name(tool.get("source")) or "conda"
         package_spec = _clean_name(tool.get("packageSpec")) or f"{source}::{name}"

@@ -209,6 +209,158 @@ def test_tool_search_builds_dependency_rule_spec_draft_without_wrapper(monkeypat
     assert "fastq" in draft["ruleTemplate"]["commandTemplate"]
 
 
+def test_tool_search_applies_profile_overlay_ahead_of_wrapper_draft(monkeypatch) -> None:
+    tool_capabilities._CACHE.clear()
+
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [
+                {
+                    "id": "bioconda::bracken",
+                    "name": "bracken",
+                    "summary": "Bracken abundance estimation",
+                    "source": "bioconda",
+                    "sourceLabel": "Bioconda",
+                    "packageSpec": "bioconda::bracken=2.9",
+                    "latestVersion": "2.9",
+                    "versions": ["2.9"],
+                    "sourceUrl": "https://anaconda.org/bioconda/bracken",
+                    "platforms": ["linux-64"],
+                    "targetPlatform": target_platform,
+                    "targetPlatformSupported": True,
+                }
+            ],
+            "total": 1,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+        },
+    )
+    monkeypatch.setattr(
+        tool_capabilities,
+        "find_snakemake_wrappers_for_tool",
+        lambda name: [
+            {
+                **_samtools_sort_wrapper(name),
+                "name": "bracken",
+                "toolName": "bracken",
+                "wrapperPath": "bio/bracken/bracken",
+                "wrapperIdentifier": "test-wrapper-ref/bio/bracken/bracken",
+            }
+        ],
+    )
+
+    response = tool_capabilities.search_tool_capabilities("bracken", target_platform="linux-64")
+
+    item = response["data"]["items"][0]
+    draft = item["ruleSpecDraft"]
+    assert item["snakemakeWrapperCount"] == 1
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["requiresUserCompletion"] is False
+    assert draft["lock"]["matchedWrapper"]["wrapperPath"] == "bio/bracken/bracken"
+    assert draft["ruleTemplate"]["resources"]["bracken_db"]["acceptedTemplates"] == ["bracken"]
+
+
+def test_tool_search_applies_non_database_profile_overlay(monkeypatch) -> None:
+    tool_capabilities._CACHE.clear()
+
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [
+                {
+                    "id": "bioconda::fastp",
+                    "name": "fastp",
+                    "summary": "FASTQ preprocessing",
+                    "source": "bioconda",
+                    "sourceLabel": "Bioconda",
+                    "packageSpec": "bioconda::fastp=0.24.1",
+                    "latestVersion": "0.24.1",
+                    "versions": ["0.24.1"],
+                    "sourceUrl": "https://anaconda.org/bioconda/fastp",
+                    "platforms": ["linux-64"],
+                    "targetPlatform": target_platform,
+                    "targetPlatformSupported": True,
+                }
+            ],
+            "total": 1,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+        },
+    )
+    monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
+
+    response = tool_capabilities.search_tool_capabilities("fastp", target_platform="linux-64")
+
+    draft = response["data"]["items"][0]["ruleSpecDraft"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["lock"]["profileId"] == "fastp"
+    assert draft["ruleTemplate"]["resources"] == {"threads": {"default": 2}, "mem_mb": {"default": 2048}}
+
+
+@pytest.mark.parametrize(
+    ("name", "version", "resource_key", "accepted_templates"),
+    [
+        ("bracken", "2.9", "bracken_db", ["bracken"]),
+        ("fastp", "0.24.1", "", []),
+        ("fastqc", "0.12.1", "", []),
+        ("kraken2", "2.1.3", "kraken2_db", ["kraken2"]),
+        ("multiqc", "1.25", "", []),
+    ],
+)
+def test_tool_search_returns_h2ometa_profile_for_p0_tools(
+    monkeypatch,
+    name: str,
+    version: str,
+    resource_key: str,
+    accepted_templates: list[str],
+) -> None:
+    tool_capabilities._CACHE.clear()
+
+    monkeypatch.setattr(
+        tool_capabilities,
+        "_search_bioconda_index_items",
+        lambda _query, *, target_platform, page, page_size: {
+            "items": [
+                {
+                    "id": f"bioconda::{name}",
+                    "name": name,
+                    "summary": f"{name} summary",
+                    "source": "bioconda",
+                    "sourceLabel": "Bioconda",
+                    "packageSpec": f"bioconda::{name}={version}",
+                    "latestVersion": version,
+                    "versions": [version],
+                    "sourceUrl": f"https://anaconda.org/bioconda/{name}",
+                    "platforms": ["linux-64"],
+                    "targetPlatform": target_platform,
+                    "targetPlatformSupported": True,
+                }
+            ],
+            "total": 1,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+        },
+    )
+    monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
+
+    response = tool_capabilities.search_tool_capabilities(name, target_platform="linux-64")
+
+    item = response["data"]["items"][0]
+    draft = item["ruleSpecDraft"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["requiresUserCompletion"] is False
+    assert draft["lock"]["profileId"] == name
+    assert draft["lock"]["packageSpec"] == f"bioconda::{name}={version}"
+    if resource_key:
+        assert draft["ruleTemplate"]["resources"][resource_key]["acceptedTemplates"] == accepted_templates
+
+
 def test_snakemake_wrapper_lookup_uses_disk_cache_before_network(monkeypatch) -> None:
     snakemake_wrappers._WRAPPER_CACHE = None
     cached_index = {"samtools": [_samtools_sort_wrapper("samtools")]}

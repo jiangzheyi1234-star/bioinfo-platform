@@ -133,11 +133,22 @@ def search_tool_capabilities(
             }
         }
 
-    hits = _search_anaconda(
-        normalized,
-        target_platform=normalized_target_platform,
-        limit=ONLINE_SEARCH_RESULT_LIMIT,
-    )
+    try:
+        hits = _search_anaconda(
+            normalized,
+            target_platform=normalized_target_platform,
+            limit=ONLINE_SEARCH_RESULT_LIMIT,
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            raise
+        return _online_search_unavailable_response(
+            query=normalized,
+            page=bounded_page,
+            page_size=bounded_page_size,
+            index_available=bool(index_page.get("indexAvailable")),
+            reason="ANACONDA_RATE_LIMITED",
+        )
     all_items = [hit.to_dict() for hit in hits[:ONLINE_SEARCH_RESULT_LIMIT]]
     all_items = _attach_snakemake_wrappers(all_items)
     _CACHE[cache_key] = (now, all_items)
@@ -164,15 +175,41 @@ def _attach_snakemake_wrappers(items: list[dict[str, Any]]) -> list[dict[str, An
         tool_name = str(item.get("name") or "").strip()
         wrappers = find_snakemake_wrappers_for_tool(tool_name)
         first_wrapper_draft = _first_wrapper_rule_spec_draft(wrappers)
+        dependency_draft = DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_dependency(item, wrappers=wrappers)
         enriched.append(
             {
                 **item,
                 "snakemakeWrappers": wrappers,
                 "snakemakeWrapperCount": len(wrappers),
-                "ruleSpecDraft": first_wrapper_draft or DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_dependency(item),
+                "ruleSpecDraft": _preferred_rule_spec_draft(dependency_draft, first_wrapper_draft),
             }
         )
     return enriched
+
+
+def _online_search_unavailable_response(
+    *,
+    query: str,
+    page: int,
+    page_size: int,
+    index_available: bool,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "data": {
+            "items": [],
+            "query": query,
+            "online": False,
+            "cached": False,
+            "complete": False,
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "localIndexAvailable": index_available,
+            "onlineUnavailableReason": reason,
+        }
+    }
 
 
 def _first_wrapper_rule_spec_draft(wrappers: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -181,6 +218,12 @@ def _first_wrapper_rule_spec_draft(wrappers: list[dict[str, Any]]) -> dict[str, 
         if isinstance(draft, dict):
             return draft
     return None
+
+
+def _preferred_rule_spec_draft(dependency_draft: dict[str, Any], wrapper_draft: dict[str, Any] | None) -> dict[str, Any]:
+    if dependency_draft.get("requiresUserCompletion") is False:
+        return dependency_draft
+    return wrapper_draft or dependency_draft
 
 
 def _normalize_query(query: str) -> str:

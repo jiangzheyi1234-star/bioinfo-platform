@@ -220,7 +220,7 @@ def _validate_resource_schema(raw: Any) -> None:
         resource_type = str(value.get("type") or "database").strip()
         if resource_type != "database":
             raise PipelineRegistryError("RESOURCE_TYPE_UNSUPPORTED")
-        config_key = str(value.get("configKey") or resource_key).strip()
+        config_key = str(value.get("configKey", resource_key)).strip()
         if not config_key:
             raise PipelineRegistryError("RESOURCE_CONFIG_KEY_REQUIRED")
         if "required" in value and not isinstance(value.get("required"), bool):

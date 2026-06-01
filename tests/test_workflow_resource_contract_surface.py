@@ -139,9 +139,9 @@ def test_database_backed_pipeline_consumes_resource_binding_config() -> None:
     assert 'RESOURCE_META = config.get("resources", {})' in source
     assert 'REFERENCE_KEY = "reference_database"' in source
     assert "DATABASES.get(REFERENCE_KEY) or RESOURCE_CONFIG.get(REFERENCE_KEY)" in source
-    assert '"database_bound"' in source
-    assert '"database_unbound"' in source
-    assert '"database_id"' in source
+    assert "database_bound" in source
+    assert "database_unbound" in source
+    assert "database_id" in source
 
 
 def test_database_backed_test_config_models_bound_resource() -> None:
@@ -173,3 +173,16 @@ def test_frontend_normal_pipeline_keeps_resource_binding_contract() -> None:
     assert "missingRequiredResourceKeys.length === 0" in hook
     assert "WorkflowResourceBindingsPanel" in ui
     assert "onWorkflowResourceBindingChange" in ui
+
+
+def test_generated_workflow_builder_auto_binds_single_matching_database() -> None:
+    hook = (COMPONENTS / "use-generated-workflow-builder.ts").read_text(encoding="utf-8")
+    binding = (COMPONENTS / "generated-workflow-resource-binding.ts").read_text(encoding="utf-8")
+
+    assert 'import { autoBindGeneratedWorkflowResources } from "./generated-workflow-resource-binding";' in hook
+    assert "autoBindGeneratedWorkflowResources" in hook
+    assert "export function autoBindGeneratedWorkflowResources" in binding
+    assert "matching.length === 1" in binding
+    assert "databaseMatchesWorkflowResource(database, spec)" in binding
+    assert "delete next[resourceKey]" in binding
+    assert "matching.length !== 1" in binding

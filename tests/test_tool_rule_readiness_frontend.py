@@ -74,7 +74,7 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     assert "WORKFLOW_TOOL_NOT_READY" in workflow_model
 
     assert "canSaveSelected" in tools_state
-    assert "canValidateSelected" in tools_state
+    assert "canValidateSelected" not in tools_state
     assert "addToolDependency(nextTool)" in tools_state
     assert "createToolPrepareJob(nextTool)" in tools_state
     assert "mem_mb" in editor

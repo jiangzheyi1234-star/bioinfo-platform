@@ -29,6 +29,7 @@ import {
   type WorkflowResourceBindings,
 } from "./workflows-page-model";
 import { manualEdgeAudit } from "./generated-workflow-recommendation-contract";
+import { autoBindGeneratedWorkflowResources } from "./generated-workflow-resource-binding";
 
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
@@ -71,6 +72,12 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     () => generatedToolResourceEntries(selectedTools),
     [selectedTools]
   );
+  useEffect(() => {
+    const selectedResourceIds = autoBindGeneratedWorkflowResources(resourceEntries, availableResources, state.selectedResourceIds);
+    if (selectedResourceIds !== state.selectedResourceIds) {
+      dispatch({ type: "load_resource_bindings", selectedResourceIds });
+    }
+  }, [availableResources, resourceEntries, state.selectedResourceIds]);
   const selectedResources = useMemo(
     () => availableResources.filter((resource) => Object.values(state.selectedResourceIds).includes(resource.id)),
     [availableResources, state.selectedResourceIds]

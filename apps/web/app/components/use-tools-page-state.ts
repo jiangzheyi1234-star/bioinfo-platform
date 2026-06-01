@@ -24,6 +24,7 @@ import {
   missingRuleSpecFields,
   packageSpecLocked,
   searchErrorMessage,
+  searchNoticeMessage,
   toolErrorMessage,
 } from "./tools-page-model";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
@@ -45,6 +46,7 @@ export function useToolsPageState() {
   const [outputPathOverrides, setOutputPathOverrides] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [searchNotice, setSearchNotice] = useState("");
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -106,6 +108,7 @@ export function useToolsPageState() {
       setItems([]);
       setSelectedId("");
       setError("");
+      setSearchNotice("");
       setLoading(false);
       setSearchTotal(0);
       setSearchHasMore(false);
@@ -116,6 +119,7 @@ export function useToolsPageState() {
     const timer = window.setTimeout(async () => {
       setLoading(true);
       setError("");
+      setSearchNotice("");
       try {
         const response = await searchToolCapabilities({
           query: normalized,
@@ -127,6 +131,7 @@ export function useToolsPageState() {
         setSearchTotal(response.total ?? nextItems.length);
         setSearchHasMore(Boolean(response.hasMore));
         setSearchComplete(response.complete !== false);
+        setSearchNotice(searchNoticeMessage(response.onlineUnavailableReason));
         setError("");
         setSelectedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id || ""));
       } catch (err) {
@@ -139,6 +144,7 @@ export function useToolsPageState() {
         setSearchHasMore(false);
         setSearchComplete(true);
         setError(searchErrorMessage(err));
+        setSearchNotice("");
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
@@ -204,10 +210,6 @@ export function useToolsPageState() {
       selectedPackageLocked &&
       !selectedAlreadyAdded
   );
-  const canValidateSelected = Boolean(
-    canSaveSelected &&
-      missingSelectedRuleSpecFields.length === 0
-  );
 
   function updateQuery(value: string) {
     setQuery(value);
@@ -268,43 +270,6 @@ export function useToolsPageState() {
     return draftOnlyWhenActionMissing(executableTool);
   }
 
-  function selectedToolForValidation(): AddedTool | null {
-    if (selectedPrepareRunning) {
-      setToolsError("该工具已有验证任务正在运行，可以在底部任务栏查看进度。");
-      return null;
-    }
-    if (!selected || !canValidateSelected) {
-      if (selected && !selectedPackageLocked) {
-        setToolsError("请选择一个明确版本后再加入工具。");
-      }
-      if (selectedAlreadyAdded) {
-        setToolsError("该依赖版本已经加入项目。");
-        setView("library");
-      }
-      if (selected && missingSelectedRuleSpecFields.length > 0) {
-        setToolsError(formatMissingRuleSpecFields(missingSelectedRuleSpecFields));
-      }
-      return null;
-    }
-    const nextTool: AddedTool = {
-      ...selected,
-      selectedVersion,
-      selectedPackageSpec,
-      packageSpec: selectedPackageSpec,
-    };
-    const executableTool = buildExecutableRuleSpecForSelectedTool(nextTool, {
-      outputPath: selectedOutputPath,
-      selectedPackageSpec,
-      selectedVersion,
-    });
-    const missing = missingRuleSpecFields(executableTool);
-    if (missing.length > 0) {
-      setToolsError(formatMissingRuleSpecFields(missing));
-      return null;
-    }
-    return executableTool;
-  }
-
   function addSelectedTool() {
     const nextTool = selectedToolForSave();
     if (!nextTool) return;
@@ -312,33 +277,24 @@ export function useToolsPageState() {
       setAddingSelectedTool(true);
       setCheckingToolId(nextTool.id);
       setToolsError("");
+      let saved = false;
       try {
         await addToolDependency(nextTool);
+        saved = true;
+        if (missingRuleSpecFields(nextTool).length === 0) {
+          const job = await createToolPrepareJob(nextTool);
+          trackToolPrepareJob(job);
+        }
         await loadAddedTools({ forceRefresh: true, silent: true });
         setView("library");
       } catch (err) {
-        setToolsError(toolErrorMessage(err, "加入工具失败"));
-      } finally {
-        setAddingSelectedTool(false);
-        setCheckingToolId("");
-      }
-    })();
-  }
-
-  function addAndCheckSelectedTool() {
-    const nextTool = selectedToolForValidation();
-    if (!nextTool) return;
-    void (async () => {
-      setAddingSelectedTool(true);
-      setCheckingToolId(nextTool.id);
-        setToolsError("");
-      try {
-        const job = await createToolPrepareJob(nextTool);
-        trackToolPrepareJob(job);
-        setView("library");
-      } catch (err) {
-        setToolsError(toolErrorMessage(err, "启动工具验证失败"));
-        await loadAddedTools({ forceRefresh: true, silent: true });
+        if (saved) {
+          await loadAddedTools({ forceRefresh: true, silent: true });
+          setView("library");
+          setToolsError(toolErrorMessage(err, "工具已加入，但启动验证失败"));
+        } else {
+          setToolsError(toolErrorMessage(err, "加入工具失败"));
+        }
       } finally {
         setAddingSelectedTool(false);
         setCheckingToolId("");
@@ -402,7 +358,6 @@ export function useToolsPageState() {
     addedTools,
     addingSelectedTool: addingSelectedTool || selectedPrepareRunning,
     canSaveSelected,
-    canValidateSelected,
     checkingToolId,
     preparingToolIds: Array.from(activePrepareToolIds),
     editingRuleSpecToolId,
@@ -413,6 +368,7 @@ export function useToolsPageState() {
     query,
     searchComplete,
     searchHasMore,
+    searchNotice,
     searchPage,
     searchTotal,
     selected,
@@ -437,7 +393,6 @@ export function useToolsPageState() {
     updateSelectedVersion,
     updateSelectedWrapper,
     view,
-    addAndCheckSelectedTool,
     addSelectedTool,
     loadAddedTools: () => loadAddedTools({ forceRefresh: true, silent: addedTools.length > 0 }),
     openToolSourceUrl,
@@ -449,13 +404,13 @@ export function useToolsPageState() {
   };
 }
 
-function formatMissingRuleSpecFields(fields: string[]) {
-  return `还不能加入流程：\n- ${fields.join("\n- ")}`;
-}
-
 function draftOnlyWhenActionMissing(tool: AddedTool): AddedTool {
   const missing = missingRuleSpecFields(tool);
-  if (!missing.includes("缺少执行动作") && !missing.includes("执行动作冲突")) {
+  if (
+    !missing.includes("RuleSpec 需要补全并确认") &&
+    !missing.includes("缺少执行动作") &&
+    !missing.includes("执行动作冲突")
+  ) {
     return tool;
   }
   const packageSpec = tool.selectedPackageSpec || tool.packageSpec;
