@@ -65,7 +65,7 @@ class WorkflowDesignNodeOutput(WorkflowDesignModel):
 
 class WorkflowDesignNode(WorkflowDesignModel):
     id: str = Field(min_length=1)
-    toolId: str = Field(min_length=1)
+    toolRevisionId: str = Field(min_length=1)
     inputs: dict[str, WorkflowDesignInputBinding] = Field(default_factory=dict)
     params: dict[str, WorkflowDesignParamValue] = Field(default_factory=dict)
     runtime: WorkflowDesignRuntime = Field(default_factory=WorkflowDesignRuntime)
@@ -174,7 +174,7 @@ def workflow_design_to_generated_run_spec(
         "nodes": [
             {
                 "id": normalized_node_ids[node.id],
-                "tool": {"id": node.toolId},
+                "toolRevisionId": node.toolRevisionId,
                 "inputs": _normalized_node_inputs(node, normalized_node_ids),
                 "params": dict(node.params),
                 "runtime": node.runtime.model_dump(exclude_none=True, mode="json"),

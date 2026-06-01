@@ -208,6 +208,7 @@ def _step_summary(step: Any) -> dict[str, Any]:
         "id": step.step_id,
         "rule": step.rule_name,
         "toolId": step.tool_id,
+        "toolRevisionId": step.tool_revision_id,
         "toolName": str(step.tool.get("name") or ""),
         "params": dict(step.params),
         "runtime": runtime_config(step.runtime),

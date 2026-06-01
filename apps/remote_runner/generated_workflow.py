@@ -166,6 +166,8 @@ def _config_tool(step: GeneratedWorkflowStepPlan) -> dict[str, Any]:
     package_spec = str(step.tool.get("packageSpec") or "")
     config = {
         "id": step.tool_id,
+        "toolRevisionId": step.tool_revision_id,
+        "revision": int(step.tool.get("revision") or 0),
         "name": str(step.tool.get("name") or ""),
         "source": str(step.tool.get("source") or ""),
         "version": str(step.tool.get("version") or ""),
@@ -213,8 +215,8 @@ def _final_output_artifacts(outputs: dict[str, dict[str, Any]]) -> list[dict[str
             {
                 "key": key,
                 "name": name,
-                "kind": str(spec.get("kind") or ""),
-                "mimeType": str(spec.get("mimeType") or ""),
+                "kind": str(spec.get("kind") or "file"),
+                "mimeType": str(spec.get("mimeType") or "application/octet-stream"),
                 **output_artifact_flags(spec),
             }
         )

@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS idempotency (
 
 CREATE TABLE IF NOT EXISTS tools (
     tool_id TEXT PRIMARY KEY,
+    tool_revision_id TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
     source TEXT NOT NULL,
     source_label TEXT NOT NULL,
@@ -94,7 +96,43 @@ CREATE TABLE IF NOT EXISTS tools (
     message TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    published_at TEXT,
     last_checked_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tool_revisions (
+    tool_revision_id TEXT PRIMARY KEY,
+    tool_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    tool_json TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    UNIQUE(tool_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS tool_prepare_jobs (
+    job_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    message TEXT NOT NULL,
+    tool_id TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    result_json TEXT,
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    cancelled_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tool_prepare_job_events (
+    event_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS workflow_design_drafts (
