@@ -14,6 +14,8 @@ import {
   readRuleInputs,
   readRuleOutputs,
   validateGeneratedWorkflowDraft,
+  workflowToolRevisionEntries,
+  workflowToolRevisionId,
   type GeneratedWorkflowDraft,
   type GeneratedWorkflowExposedOutput,
   type GeneratedWorkflowGraphDraft,
@@ -59,11 +61,11 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     dispatch({ type: "reset_tools", tools });
   }, [tools]);
 
-  const toolById = useMemo(() => new Map(tools.map((tool) => [tool.id, tool])), [tools]);
+  const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
   const draft = useMemo(() => graphDraftToGeneratedWorkflowDraft(state.graphDraft), [state.graphDraft]);
   const selectedTools = useMemo(
-    () => draft.steps.map((step) => toolById.get(step.toolId)).filter((tool): tool is AddedTool => Boolean(tool)),
-    [draft.steps, toolById]
+    () => draft.steps.map((step) => toolByRevisionId.get(step.toolRevisionId)).filter((tool): tool is AddedTool => Boolean(tool)),
+    [draft.steps, toolByRevisionId]
   );
   const resourceEntries = useMemo(
     () => generatedToolResourceEntries(selectedTools),
@@ -103,21 +105,21 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     resourceEntries,
     selectedResourceIds: Object.values(state.selectedResourceIds).filter(Boolean),
     selectedResourceDatabaseIds: state.selectedResourceIds,
-    selectedToolIds: draft.steps.map((step) => step.toolId),
+    selectedToolIds: draft.steps.map((step) => step.toolRevisionId),
     selectedTools,
     selectedResources,
     resourceBindings,
     loadGraphDraft: (draft: GeneratedWorkflowGraphDraft) => dispatch({ type: "load_graph_draft", draft }),
     loadResourceBindings: (selectedResourceIds: Record<string, string>) =>
       dispatch({ type: "load_resource_bindings", selectedResourceIds }),
-    addStep: (toolId: string) => {
-      const tool = toolById.get(toolId);
+    addStep: (toolRevisionId: string) => {
+      const tool = toolByRevisionId.get(toolRevisionId);
       if (tool) dispatch({ type: "add_step", tool, tools });
     },
     removeStep: (stepId: string) => dispatch({ type: "remove_step", stepId }),
     setStepId: (stepId: string, nextId: string) => dispatch({ type: "set_step_id", stepId, nextId }),
-    setStepTool: (stepId: string, toolId: string) => {
-      const tool = toolById.get(toolId);
+    setStepTool: (stepId: string, toolRevisionId: string) => {
+      const tool = toolByRevisionId.get(toolRevisionId);
       if (tool) dispatch({ type: "set_step_tool", stepId, tool, tools });
     },
     setInputBinding: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) =>
@@ -137,8 +139,8 @@ export type GeneratedWorkflowBuilderController = ReturnType<typeof useGeneratedW
 
 function builderReducer(state: BuilderState, action: BuilderAction): BuilderState {
   if (action.type === "reset_tools") {
-    const availableIds = new Set(action.tools.map((tool) => tool.id));
-    if (state.graphDraft.nodes.length > 0 && state.graphDraft.nodes.every((node) => availableIds.has(node.toolId))) {
+    const availableIds = new Set(action.tools.map((tool) => workflowToolRevisionId(tool)).filter(Boolean));
+    if (state.graphDraft.nodes.length > 0 && state.graphDraft.nodes.every((node) => availableIds.has(node.toolRevisionId))) {
       return state;
     }
     return { ...state, graphDraft: createGeneratedWorkflowGraphDraft(action.tools) };
@@ -268,7 +270,7 @@ function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools
   const outputNames = new Set(readRuleOutputs(tool).map((output) => output.name));
   const params = createStepParams(tool);
   return updateStepDraft(state, (current) => ({
-    steps: current.steps.map((step) => step.id === stepId ? { ...step, toolId: tool.id, inputs, params } : step),
+    steps: current.steps.map((step) => step.id === stepId ? { ...step, toolRevisionId: workflowToolRevisionId(tool), inputs, params } : step),
     outputs: current.outputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
   }));
 }

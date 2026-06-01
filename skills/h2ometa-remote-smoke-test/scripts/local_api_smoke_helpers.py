@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -139,6 +140,28 @@ def create_and_plan_workflow_design(
         payload={"serverId": server_id},
         timeout=timeout,
     ))
+
+
+def prepare_tool_with_job(
+    *,
+    api_base: str,
+    http_json,
+    payload: dict[str, Any],
+    timeout: float,
+) -> dict[str, Any]:
+    job = response_data(http_json("POST", api_base, "/api/v1/tools/prepare-jobs", payload=payload, timeout=30))
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if job.get("status") == "succeeded":
+            result = job.get("result")
+            if not isinstance(result, dict):
+                raise RuntimeError("tool prepare job succeeded without a result payload")
+            return result
+        if job.get("status") in {"failed", "cancelled"}:
+            raise RuntimeError(str(job.get("errorCode") or job.get("message") or "TOOL_PREPARE_JOB_FAILED"))
+        time.sleep(1.5)
+        job = response_data(http_json("GET", api_base, f"/api/v1/tools/prepare-jobs/{job['jobId']}", timeout=10))
+    raise TimeoutError(f"tool prepare job timed out: {job.get('jobId')}")
 
 
 def workflow_design_edge(

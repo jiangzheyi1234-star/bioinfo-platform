@@ -6,6 +6,8 @@ import { cachedAsync, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/l
 import {
   type AddedTool,
   type RuleSpecTemplate,
+  type ToolPrepareJob,
+  type ToolPrepareJobResponse,
   type ToolSearchResponse,
   TOOL_SEARCH_PAGE_SIZE,
   type ToolsResponse,
@@ -16,7 +18,7 @@ const ADDED_TOOLS_CACHE_KEY = "tools:added";
 const ADDED_TOOLS_CACHE_TTL_MS = 30_000;
 const TOOL_SEARCH_REQUEST_TIMEOUT_MS = 90_000;
 
-function invalidateWorkflowToolCaches() {
+export function invalidateWorkflowToolCaches() {
   invalidateAsyncCachePrefix("workflow:");
   invalidateAsyncCachePrefix("tools:");
 }
@@ -75,12 +77,38 @@ export async function addToolDependency(tool: AddedTool): Promise<void> {
   invalidateWorkflowToolCaches();
 }
 
-export async function prepareToolDependency(tool: AddedTool): Promise<void> {
-  await requestLocalApiJson("POST", "/api/v1/tools/prepare", {
+export async function createToolPrepareJob(tool: AddedTool): Promise<ToolPrepareJob> {
+  const response = await requestLocalApiJson<ToolPrepareJobResponse>("POST", "/api/v1/tools/prepare-jobs", {
     body: toolManifestBody(tool),
-    timeoutMs: 2_100_000,
   });
+  return response.data;
+}
+
+export async function fetchToolPrepareJob(jobId: string): Promise<ToolPrepareJob> {
+  const response = await requestLocalApiJson<ToolPrepareJobResponse>("GET", `/api/v1/tools/prepare-jobs/${encodeURIComponent(jobId)}`, {
+    cache: "no-store",
+  });
+  return response.data;
+}
+
+export async function cancelToolPrepareJob(jobId: string): Promise<ToolPrepareJob> {
+  const response = await requestLocalApiJson<ToolPrepareJobResponse>("POST", `/api/v1/tools/prepare-jobs/${encodeURIComponent(jobId)}/cancel`, {
+    body: {},
+  });
+  return response.data;
+}
+
+export async function waitForToolPrepareJob(jobId: string): Promise<ToolPrepareJob> {
+  let lastJob = await fetchToolPrepareJob(jobId);
+  while (lastJob.status === "queued" || lastJob.status === "running") {
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    lastJob = await fetchToolPrepareJob(jobId);
+  }
+  if (lastJob.status !== "succeeded") {
+    throw new Error(lastJob.errorCode || lastJob.message || "TOOL_PREPARE_JOB_FAILED");
+  }
   invalidateWorkflowToolCaches();
+  return lastJob;
 }
 
 export async function updateToolRuleTemplate(id: string, ruleTemplate: RuleSpecTemplate): Promise<void> {
@@ -110,14 +138,6 @@ function toolManifestBody(tool: AddedTool) {
     snakemakeWrappers: tool.snakemakeWrappers || [],
     snakemakeWrapperCount: tool.snakemakeWrapperCount || 0,
   };
-}
-
-export async function checkToolDependency(id: string): Promise<void> {
-  await requestLocalApiJson("POST", `/api/v1/tools/${encodeURIComponent(id)}/check`, {
-    body: {},
-    timeoutMs: 2_100_000,
-  });
-  invalidateWorkflowToolCaches();
 }
 
 export async function removeToolDependency(id: string): Promise<void> {

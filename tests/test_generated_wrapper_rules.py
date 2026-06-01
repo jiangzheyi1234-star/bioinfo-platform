@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 from tests.generated_workflow_test_helpers import (
     generated_workflow_run_spec,
@@ -123,15 +122,15 @@ def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> No
     upsert_tool(
         cfg,
         {
-            "id": "bioconda::fastqc-wrapper",
-            "name": "fastqc-wrapper",
+            "id": "bioconda::demoqc-wrapper",
+            "name": "demoqc-wrapper",
             "source": "bioconda",
-            "packageSpec": "bioconda::fastqc=0.12.1",
+            "packageSpec": "bioconda::demoqc=0.12.1",
             "targetPlatformSupported": True,
             "ruleTemplate": {
-                "wrapper": "v9.8.0/bio/fastqc",
+                "wrapper": "v9.8.0/bio/demoqc",
                 "inputs": [{"name": "reads", "type": "file", "required": True}],
-                "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+                "outputs": [{"name": "html", "path": "demoqc.html", "kind": "html", "mimeType": "text/html"}],
             },
         },
     )
@@ -140,7 +139,7 @@ def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> No
         cfg,
         run_id="run_wrapper_rule",
         request_id="req_wrapper_rule",
-        run_spec=generated_workflow_run_spec("bioconda::fastqc-wrapper", input_name="reads"),
+        run_spec=generated_workflow_run_spec("bioconda::demoqc-wrapper", input_name="reads"),
         resolved_inputs=_input(tmp_path),
         work_dir=tmp_path / "work",
         result_dir=tmp_path / "results",
@@ -149,10 +148,10 @@ def test_generated_workflow_renders_snakemake_wrapper_rule(tmp_path: Path) -> No
     snakefile = (tmp_path / "work" / "workflow" / "Snakefile").read_text(encoding="utf-8")
     run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
     assert "wrapper:" in snakefile
-    assert "'v9.8.0/bio/fastqc'" in snakefile
+    assert "'v9.8.0/bio/demoqc'" in snakefile
     assert "shell:" not in snakefile
     assert "conda:" not in snakefile
-    assert run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastqc"
+    assert run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/demoqc"
 
 
 def test_generated_workflow_renders_snakemake_module_use_rule(tmp_path: Path) -> None:
@@ -251,15 +250,15 @@ def test_generated_workflow_preserves_rule_spec_provenance(tmp_path: Path) -> No
     upsert_tool(
         cfg,
         {
-            "id": "bioconda::fastqc-wrapper",
-            "name": "fastqc-wrapper",
+            "id": "bioconda::demoqc-wrapper",
+            "name": "demoqc-wrapper",
             "source": "bioconda",
-            "packageSpec": "bioconda::fastqc=0.12.1",
+            "packageSpec": "bioconda::demoqc=0.12.1",
             "targetPlatformSupported": True,
             "ruleTemplate": {
-                "wrapper": "v9.8.0/bio/fastqc",
+                "wrapper": "v9.8.0/bio/demoqc",
                 "inputs": [{"name": "reads", "type": "file", "required": True}],
-                "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+                "outputs": [{"name": "html", "path": "demoqc.html", "kind": "html", "mimeType": "text/html"}],
             },
             "ruleSpecDraft": {
                 "source": "snakemake-wrapper",
@@ -267,15 +266,15 @@ def test_generated_workflow_preserves_rule_spec_provenance(tmp_path: Path) -> No
                     "type": "snakemake-wrapper",
                     "wrapperRepository": "snakemake/snakemake-wrappers",
                     "wrapperRef": "v9.8.0",
-                    "wrapperPath": "bio/fastqc",
-                    "wrapperIdentifier": "v9.8.0/bio/fastqc",
-                    "packageSpec": "bioconda::fastqc=0.12.1",
+                    "wrapperPath": "bio/demoqc",
+                    "wrapperIdentifier": "v9.8.0/bio/demoqc",
+                    "packageSpec": "bioconda::demoqc=0.12.1",
                     "version": "0.12.1",
                 },
                 "ruleTemplate": {
-                    "wrapper": "v9.8.0/bio/fastqc",
+                    "wrapper": "v9.8.0/bio/demoqc",
                     "inputs": [{"name": "reads", "type": "file", "required": True}],
-                    "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+                    "outputs": [{"name": "html", "path": "demoqc.html", "kind": "html", "mimeType": "text/html"}],
                 },
             },
         },
@@ -285,7 +284,7 @@ def test_generated_workflow_preserves_rule_spec_provenance(tmp_path: Path) -> No
         cfg,
         run_id="run_wrapper_provenance",
         request_id="req_wrapper_provenance",
-        run_spec=generated_workflow_run_spec("bioconda::fastqc-wrapper", input_name="reads"),
+        run_spec=generated_workflow_run_spec("bioconda::demoqc-wrapper", input_name="reads"),
         resolved_inputs=_input(tmp_path),
         work_dir=tmp_path / "work",
         result_dir=tmp_path / "results",
@@ -293,15 +292,15 @@ def test_generated_workflow_preserves_rule_spec_provenance(tmp_path: Path) -> No
 
     run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
     tool_config = run_config["tool"]
-    assert tool_config["ruleSpecDraft"]["lock"]["wrapperIdentifier"] == "v9.8.0/bio/fastqc"
-    assert tool_config["ruleSpecDraft"]["lock"]["packageSpec"] == "bioconda::fastqc=0.12.1"
+    assert tool_config["ruleSpecDraft"]["lock"]["wrapperIdentifier"] == "v9.8.0/bio/demoqc"
+    assert tool_config["ruleSpecDraft"]["lock"]["packageSpec"] == "bioconda::demoqc=0.12.1"
     assert tool_config["ruleProvenance"] == {
         "source": "snakemake-wrapper",
         "lockType": "snakemake-wrapper",
         "wrapperRef": "v9.8.0",
-        "wrapperPath": "bio/fastqc",
-        "wrapperIdentifier": "v9.8.0/bio/fastqc",
-        "packageSpec": "bioconda::fastqc=0.12.1",
+        "wrapperPath": "bio/demoqc",
+        "wrapperIdentifier": "v9.8.0/bio/demoqc",
+        "packageSpec": "bioconda::demoqc=0.12.1",
         "version": "0.12.1",
     }
 
@@ -353,25 +352,25 @@ def test_generated_workflow_wrapper_provenance_distinguishes_declared_dependency
             "id": "bioconda::wrapper-without-package-lock",
             "name": "wrapper-without-package-lock",
             "source": "bioconda",
-            "packageSpec": "bioconda::fastqc=0.12.1",
+            "packageSpec": "bioconda::demoqc=0.12.1",
             "targetPlatformSupported": True,
             "ruleTemplate": {
-                "wrapper": "v9.8.0/bio/fastqc",
+                "wrapper": "v9.8.0/bio/demoqc",
                 "inputs": [{"name": "reads", "type": "file", "required": True}],
-                "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+                "outputs": [{"name": "html", "path": "demoqc.html", "kind": "html", "mimeType": "text/html"}],
             },
             "ruleSpecDraft": {
                 "source": "snakemake-wrapper",
                 "lock": {
                     "type": "snakemake-wrapper",
                     "wrapperRef": "v9.8.0",
-                    "wrapperPath": "bio/fastqc",
-                    "wrapperIdentifier": "v9.8.0/bio/fastqc",
+                    "wrapperPath": "bio/demoqc",
+                    "wrapperIdentifier": "v9.8.0/bio/demoqc",
                 },
                 "ruleTemplate": {
-                    "wrapper": "v9.8.0/bio/fastqc",
+                    "wrapper": "v9.8.0/bio/demoqc",
                     "inputs": [{"name": "reads", "type": "file", "required": True}],
-                    "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+                    "outputs": [{"name": "html", "path": "demoqc.html", "kind": "html", "mimeType": "text/html"}],
                 },
             },
         },
@@ -389,6 +388,6 @@ def test_generated_workflow_wrapper_provenance_distinguishes_declared_dependency
 
     run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
     provenance = run_config["tool"]["ruleProvenance"]
-    assert provenance["wrapperIdentifier"] == "v9.8.0/bio/fastqc"
+    assert provenance["wrapperIdentifier"] == "v9.8.0/bio/demoqc"
     assert "packageSpec" not in provenance
-    assert provenance["declaredPackageSpec"] == "bioconda::fastqc=0.12.1"
+    assert provenance["declaredPackageSpec"] == "bioconda::demoqc=0.12.1"

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import type { AddedTool } from "./tools-page-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
-import { readRuleInputs, readRuleOutputs, type GeneratedWorkflowValidationIssue } from "./generated-workflow-model";
+import { readRuleInputs, readRuleOutputs, workflowToolRevisionEntries, type GeneratedWorkflowValidationIssue } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 
 type GraphNode = GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
@@ -25,13 +25,13 @@ export function GeneratedWorkflowGraphCanvas({
   tools: AddedTool[];
   validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
-  const toolById = useMemo(() => new Map(tools.map((tool) => [tool.id, tool])), [tools]);
+  const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
   if (nodes.length === 0) {
     return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。从工具库添加 RuleSpec 节点。</div>;
   }
   return (
     <div className="relative min-h-[190px] overflow-hidden rounded-md">
-      <WorkflowGraphEdgeLayer edges={edges} nodes={nodes} toolById={toolById} />
+      <WorkflowGraphEdgeLayer edges={edges} nodes={nodes} toolByRevisionId={toolByRevisionId} />
       <div className="relative z-10 grid gap-2 md:grid-cols-2">
         {nodes.map((node) => {
           const selected = selectedNodeId === node.id;
@@ -42,7 +42,7 @@ export function GeneratedWorkflowGraphCanvas({
               node={node}
               onSelect={() => onSelectNode(node.id)}
               selected={selected}
-              tool={toolById.get(node.toolId)}
+              tool={toolByRevisionId.get(node.toolRevisionId)}
               validationIssues={validationIssues.filter((issue) => issue.stepId === node.id)}
             />
           );
@@ -55,11 +55,11 @@ export function GeneratedWorkflowGraphCanvas({
 function WorkflowGraphEdgeLayer({
   edges,
   nodes,
-  toolById,
+  toolByRevisionId,
 }: {
   edges: GraphEdge[];
   nodes: GraphNode[];
-  toolById: Map<string, AddedTool>;
+  toolByRevisionId: Map<string, AddedTool>;
 }) {
   const positions = nodePositions(nodes);
   const visibleEdges = edges
@@ -71,8 +71,8 @@ function WorkflowGraphEdgeLayer({
       if (!fromNode || !toNode || !fromPosition || !toPosition) return null;
       return {
         edge,
-        from: portAnchorForEdge({ edge, node: fromNode, position: fromPosition, tool: toolById.get(fromNode.toolId), direction: "output" }),
-        to: portAnchorForEdge({ edge, node: toNode, position: toPosition, tool: toolById.get(toNode.toolId), direction: "input" }),
+        from: portAnchorForEdge({ edge, node: fromNode, position: fromPosition, tool: toolByRevisionId.get(fromNode.toolRevisionId), direction: "output" }),
+        to: portAnchorForEdge({ edge, node: toNode, position: toPosition, tool: toolByRevisionId.get(toNode.toolRevisionId), direction: "input" }),
       };
     })
     .filter((item): item is { edge: GraphEdge; from: GraphPoint; to: GraphPoint } => Boolean(item));

@@ -7,10 +7,12 @@ from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
 from apps.remote_runner.storage import upsert_tool as _upsert_tool
+from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 
 READY_CONTRACT_STATUS = {"dryRun": {"status": "passed"}, "smokeRun": {"status": "passed"}, "outputValidation": {"status": "passed"}}
+_TOOL_REVISIONS: dict[str, str] = {}
 
 
 def test_preflight_uses_shared_generated_workflow_planner_boundary() -> None:
@@ -45,7 +47,11 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict) -> dict:
             {"conda": {"channels": ["conda-forge", "bioconda"], "dependencies": [tool["packageSpec"]]}},
         )
     tool.setdefault("contractStatus", {key: dict(value) for key, value in READY_CONTRACT_STATUS.items()})
-    return _upsert_tool(cfg, tool)
+    published = publish_tool_revision(cfg, tool)
+    published["status"] = "published"
+    saved = _upsert_tool(cfg, published)
+    _TOOL_REVISIONS[str(saved.get("id") or "")] = str(saved.get("toolRevisionId") or "")
+    return saved
 
 
 def _register_tool(cfg: RemoteRunnerConfig, tool_id: str, output_name: str = "out") -> None:
@@ -74,7 +80,7 @@ def _register_tool(cfg: RemoteRunnerConfig, tool_id: str, output_name: str = "ou
 def _draft_node(tool_id: str, *, node_id: str | None = None, inputs: dict | None = None, params: dict | None = None) -> dict:
     return {
         "id": node_id or tool_id.rsplit("::", 1)[-1],
-        "toolId": tool_id,
+        "toolRevisionId": _TOOL_REVISIONS.get(tool_id, tool_id),
         "inputs": inputs or {},
         "params": params or {},
         "runtime": {},

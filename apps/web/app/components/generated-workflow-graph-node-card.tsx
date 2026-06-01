@@ -47,7 +47,7 @@ export function RuleGraphNodeCard({
     >
       <span className="min-w-0">
         <span className="block truncate font-mono text-xs text-slate-800">{node.id}</span>
-        <span className="block truncate text-[11px] text-slate-500">{tool?.name || node.toolId}</span>
+        <span className="block truncate text-[11px] text-slate-500">{tool?.name || node.toolRevisionId}</span>
         {hasIssues ? <span className="block truncate text-[10px] text-red-500">contract error · {validationIssues.length}</span> : null}
       </span>
       <span className="grid gap-2 sm:grid-cols-2">

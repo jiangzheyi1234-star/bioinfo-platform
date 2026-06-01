@@ -44,7 +44,6 @@ def _balanced_block(source: str, brace: int) -> str:
 def test_workflows_page_uses_live_builder_modules() -> None:
     page = (COMPONENTS / "workflows-page.tsx").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
-    local_api = (ROOT / "apps" / "api" / "main.py").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -69,11 +68,6 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "targetPlatformSupported === true" in readiness
     assert "ruleSpecReadinessForTool(entry.tool).workflowReady" in model
     assert "submitWorkflowDesignRun" in api
-    check_tool_route = local_api[
-        local_api.index('@app.post("/api/v1/tools/{tool_id}/check")') :
-        local_api.index('@app.get("/api/v1/runs/{run_id}")')
-    ]
-    assert 'await invalidate_response_cache("tools", "workflow_catalog")' in check_tool_route
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
     assert "export function WorkflowRunBuilder" in ui
@@ -258,7 +252,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "existingDraft?: WorkflowDesignDraft" in design_model
     assert "description: existingDraft?.metadata.description" in design_model
     assert "tags: existingDraft?.metadata.tags" in design_model
-    assert "item.id === node.id && item.toolId === node.toolId" in design_model
+    assert "item.id === node.id && item.toolRevisionId === node.toolRevisionId" in design_model
     assert "existingNodeOutputEntries" in design_model
     assert "exposedOutputNames.has(outputName)" in design_model
     assert "metadata: existingNode?.metadata || {}" in design_model

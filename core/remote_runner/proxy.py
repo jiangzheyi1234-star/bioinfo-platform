@@ -9,9 +9,6 @@ from typing import Any
 from config import resolve_runner_token, store_runner_token
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 
-TOOL_VALIDATION_TIMEOUT_SECONDS = 2100
-
-
 def _is_manager_error(exc: Exception) -> bool:
     return exc.__class__.__name__ == "RemoteRunnerManagerError"
 
@@ -68,15 +65,36 @@ class RemoteRunnerProxyMixin:
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 
-    def prepare_tool(self, **kwargs) -> dict[str, Any]:
+    def create_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
-            timeout=TOOL_VALIDATION_TIMEOUT_SECONDS,
         )
         try:
-            return client.post_json("/api/v1/tools/prepare", kwargs["payload"])["data"]
+            return client.post_json("/api/v1/tools/prepare-jobs", kwargs["payload"])["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def get_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.get_json(f"/api/v1/tools/prepare-jobs/{kwargs['job_id']}")["data"]
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(str(exc)) from exc
+
+    def cancel_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        try:
+            return client.post_json(f"/api/v1/tools/prepare-jobs/{kwargs['job_id']}/cancel", {})["data"]
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 
@@ -99,18 +117,6 @@ class RemoteRunnerProxyMixin:
         )
         try:
             return client.delete_json(f"/api/v1/tools/{kwargs['tool_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
-
-    def check_tool(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=TOOL_VALIDATION_TIMEOUT_SECONDS,
-        )
-        try:
-            return client.post_json(f"/api/v1/tools/{kwargs['tool_id']}/check", {})["data"]
         except RemoteRunnerClientError as exc:
             raise self._manager_error(str(exc)) from exc
 

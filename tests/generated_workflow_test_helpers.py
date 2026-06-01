@@ -8,6 +8,7 @@ from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.generated_workflow import GeneratedWorkflow, prepare_generated_tool_workflow
 from apps.remote_runner.generated_workflow_graph import GENERATED_WORKFLOW_RULE_CONTRACT_VERSION
 from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import normalize_rule_template
 from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
@@ -32,6 +33,12 @@ READY_CONTRACT_STATUS = {
     "production": {"status": "not_run", "message": ""},
 }
 
+_TEST_TOOL_REVISIONS: dict[str, str] = {}
+
+
+def test_tool_revision_id(tool_id: str) -> str:
+    return _TEST_TOOL_REVISIONS.get(tool_id, tool_id)
+
 
 def generated_workflow_node(
     tool_id: str,
@@ -41,7 +48,7 @@ def generated_workflow_node(
     params: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    node: dict[str, Any] = {"id": node_id, "tool": {"id": tool_id}}
+    node: dict[str, Any] = {"id": node_id, "toolRevisionId": _TEST_TOOL_REVISIONS.get(tool_id, tool_id)}
     if inputs is not None:
         node["inputs"] = inputs
     if params is not None:
@@ -133,10 +140,9 @@ def workflow_design_run_spec_from_graph(
 
 
 def _workflow_design_node_from_graph_node(node: dict[str, Any]) -> dict[str, Any]:
-    tool = node.get("tool") if isinstance(node.get("tool"), dict) else {}
     return {
         "id": str(node.get("id") or "run_tool"),
-        "toolId": str(tool.get("id") or ""),
+        "toolRevisionId": str(node.get("toolRevisionId") or ""),
         "inputs": dict(node.get("inputs") or {}),
         "params": dict(node.get("params") or {}),
         "runtime": dict(node.get("runtime") or {}),
@@ -182,7 +188,11 @@ def upsert_ready_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str
         manifest["ruleTemplate"] = normalize_rule_template(completed_template, required=True)
 
     manifest["contractStatus"] = deepcopy(READY_CONTRACT_STATUS)
-    return upsert_tool(cfg, manifest)
+    published = publish_tool_revision(cfg, manifest)
+    published["status"] = "published"
+    saved = upsert_tool(cfg, published)
+    _TEST_TOOL_REVISIONS[str(saved.get("id") or "")] = str(saved.get("toolRevisionId") or "")
+    return saved
 
 
 def _complete_rule_template_for_ready_contract(

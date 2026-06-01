@@ -190,30 +190,27 @@ def test_tool_rule_spec_draft_is_persisted(tmp_path: Path) -> None:
     assert saved["ruleSpecDraft"]["lock"]["packageSpec"] == "bioconda::fastq=2.0.4"
 
 
-def test_tool_rule_template_rejects_incomplete_outputs(tmp_path: Path) -> None:
+def test_tool_rule_template_accepts_outputs_without_semantic_metadata(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
 
-    try:
-        add_registered_tool(
-            cfg,
-            {
-                "id": "conda-forge::coreutils",
-                "name": "coreutils",
-                "source": "conda-forge",
-                "packageSpec": "conda-forge::coreutils=9.5",
-                "targetPlatformSupported": True,
-                "ruleTemplate": {
-                    "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
-                    "inputs": [{"name": "primary"}],
-                    "outputs": [{"name": "count", "path": "wc-count.txt"}],
-                },
+    saved = add_registered_tool(
+        cfg,
+        {
+            "id": "conda-forge::coreutils",
+            "name": "coreutils",
+            "source": "conda-forge",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
+                "inputs": [{"name": "primary"}],
+                "outputs": [{"name": "count", "path": "wc-count.txt"}],
             },
-        )
-    except ToolRegistryError as exc:
-        assert str(exc) == "TOOL_RULE_OUTPUT_SPEC_INVALID"
-    else:
-        raise AssertionError("incomplete output metadata should be rejected")
+        },
+    )
+
+    assert saved["ruleTemplate"]["outputs"] == [{"name": "count", "path": "wc-count.txt"}]
 
 
 def test_tool_rule_template_rejects_unknown_command_tokens(tmp_path: Path) -> None:

@@ -3,19 +3,21 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from pathlib import Path
+from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
-from apps.remote_runner.storage import create_run_record, persist_artifact, update_run_state, upsert_tool
-from apps.remote_runner.tool_contract_validation import _validate_outputs
+from apps.remote_runner.storage import create_run_record, fetch_tool, now_iso, persist_artifact, update_run_state, upsert_tool
+from apps.remote_runner.tool_contract import build_tool_contract, default_contract_status
+from apps.remote_runner.tool_contract_validation import _validate_outputs, run_tool_contract_validation
 from apps.remote_runner.tools import (
     ToolRegistryError,
     add_registered_tool,
-    check_registered_tool,
     mark_registered_tool_production_enabled,
+    normalize_rule_template,
     update_registered_tool_rule_template,
 )
 
@@ -59,6 +61,37 @@ def _rule_contract_fields() -> dict[str, object]:
     return {"params": {}, "resources": _rule_resources(), "log": "logs/tool.log"}
 
 
+def _validate_registered_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, Any]:
+    item = fetch_tool(cfg, tool_id)
+    if item is None:
+        raise AssertionError(f"missing tool fixture: {tool_id}")
+    try:
+        item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=True)
+    except ToolRegistryError as exc:
+        item["contractStatus"] = _contract_failure_status("dryRun", str(exc), str(exc))
+        item["status"] = "failed"
+        item["message"] = str(exc)
+        return upsert_tool(cfg, item)
+    contract = build_tool_contract(item)
+    if not bool(contract["requirements"]["snakemakeRenderable"]):
+        code = str((contract.get("reasons") or ["TOOL_CONTRACT_INCOMPLETE"])[0])
+        item["contractStatus"] = _contract_failure_status("dryRun", code, code)
+        item["status"] = "failed"
+        item["message"] = code
+        return upsert_tool(cfg, item)
+    result = run_tool_contract_validation(cfg, item)
+    item["contractStatus"] = result["contractStatus"]
+    item["status"] = "declared" if result["ok"] else "failed"
+    item["message"] = str(result["message"] or "")
+    return upsert_tool(cfg, item)
+
+
+def _contract_failure_status(key: str, code: str, message: str) -> dict[str, dict[str, str]]:
+    status = default_contract_status()
+    status[key] = {"status": "failed", "code": code, "message": message, "checkedAt": now_iso()}
+    return status
+
+
 def test_added_dependency_contract_is_not_workflow_ready(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -87,16 +120,16 @@ def test_rulespec_update_promotes_contract_to_snakemake_renderable(tmp_path: Pat
     saved = add_registered_tool(
         cfg,
         {
-            "id": "bioconda::fastqc",
-            "name": "fastqc",
+            "id": "bioconda::demoqc",
+            "name": "demoqc",
             "source": "bioconda",
-            "packageSpec": "bioconda::fastqc=0.12.1",
+            "packageSpec": "bioconda::demoqc=0.12.1",
             "targetPlatform": "linux-64",
             "targetPlatformSupported": True,
             "ruleSpecDraft": {
                 "source": "conda-package",
                 "requiresUserCompletion": True,
-                "ruleTemplate": {"commandTemplate": "fastqc {input.reads:q} --outdir {output.qc_dir:q}"},
+                "ruleTemplate": {"commandTemplate": "demoqc {input.reads:q} --outdir {output.qc_dir:q}"},
             },
         },
     )
@@ -105,14 +138,14 @@ def test_rulespec_update_promotes_contract_to_snakemake_renderable(tmp_path: Pat
 
     saved = update_registered_tool_rule_template(
         cfg,
-        "bioconda::fastqc",
+        "bioconda::demoqc",
         {
-            "commandTemplate": "mkdir -p {output.qc_dir:q} && fastqc {input.reads:q} --outdir {output.qc_dir:q}",
+            "commandTemplate": "mkdir -p {output.qc_dir:q} && demoqc {input.reads:q} --outdir {output.qc_dir:q}",
             "inputs": [{"name": "reads", "type": "file", "kind": "sequence", "required": True}],
             "outputs": [
                 {
                     "name": "qc_dir",
-                    "path": "results/fastqc",
+                    "path": "results/demoqc",
                     "kind": "report",
                     "mimeType": "inode/directory",
                     "directory": True,
@@ -122,7 +155,7 @@ def test_rulespec_update_promotes_contract_to_snakemake_renderable(tmp_path: Pat
             "environment": {
                 "conda": {
                     "channels": ["conda-forge", "bioconda"],
-                    "dependencies": ["bioconda::fastqc=0.12.1"],
+                    "dependencies": ["bioconda::demoqc=0.12.1"],
                 }
             },
         },
@@ -139,7 +172,7 @@ def test_rulespec_update_promotes_contract_to_snakemake_renderable(tmp_path: Pat
         preflight_run_spec(
             cfg,
             get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID),
-            {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "bioconda::fastqc"}},
+            {"pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "tool": {"id": "bioconda::demoqc"}},
         )
     except RunPreflightError as exc:
         assert str(exc) == "WORKFLOW_DESIGN_RUN_SPEC_REQUIRED"
@@ -282,7 +315,7 @@ def test_rulespec_without_explicit_environment_is_not_renderable(tmp_path: Path)
     assert saved["toolContract"]["state"] == "RuleSpecConfirmed"
     assert saved["toolContract"]["requirements"]["environmentSpecified"] is False
 
-    checked = check_registered_tool(cfg, "conda-forge::coreutils")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils")
 
     assert checked["contractStatus"]["dryRun"]["status"] == "failed"
     assert checked["contractStatus"]["dryRun"]["code"] == "TOOL_RULE_ENVIRONMENT_REQUIRED"
@@ -334,21 +367,21 @@ def test_wrapper_rulespec_requires_locked_wrapper_ref(tmp_path: Path) -> None:
     saved = add_registered_tool(
         cfg,
         {
-            "id": "bioconda::unlocked-fastqc-wrapper",
-            "name": "fastqc",
+            "id": "bioconda::unlocked-demoqc-wrapper",
+            "name": "demoqc",
             "source": "bioconda",
-            "packageSpec": "bioconda::fastqc=0.12.1",
+            "packageSpec": "bioconda::demoqc=0.12.1",
             "targetPlatform": "linux-64",
             "targetPlatformSupported": True,
             "ruleTemplate": {
-                "wrapper": "bio/fastqc",
+                "wrapper": "bio/demoqc",
                 "inputs": [{"name": "reads", "type": "file", "required": True}],
-                "outputs": [{"name": "html", "path": "fastqc.html", "kind": "html", "mimeType": "text/html"}],
+                "outputs": [{"name": "html", "path": "demoqc.html", "kind": "html", "mimeType": "text/html"}],
                 **_rule_contract_fields(),
                 "environment": {
                     "conda": {
                         "channels": ["conda-forge", "bioconda"],
-                        "dependencies": ["bioconda::fastqc=0.12.1"],
+                        "dependencies": ["bioconda::demoqc=0.12.1"],
                     }
                 },
             },
@@ -361,7 +394,7 @@ def test_wrapper_rulespec_requires_locked_wrapper_ref(tmp_path: Path) -> None:
     assert contract["ruleSpec"]["wrapperLocked"] is False
     assert "TOOL_RULE_WRAPPER_LOCK_REQUIRED" in contract["reasons"]
 
-    checked = check_registered_tool(cfg, "bioconda::unlocked-fastqc-wrapper")
+    checked = _validate_registered_tool(cfg, "bioconda::unlocked-demoqc-wrapper")
     assert checked["contractStatus"]["dryRun"]["status"] == "failed"
     assert checked["contractStatus"]["dryRun"]["code"] == "TOOL_RULE_WRAPPER_LOCK_REQUIRED"
 
@@ -387,7 +420,7 @@ def test_rulespec_update_resets_previous_contract_validation(tmp_path: Path) -> 
         },
     )
 
-    checked = check_registered_tool(cfg, "conda-forge::coreutils")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils")
     assert checked["lastCheckedAt"]
 
     saved = update_registered_tool_rule_template(
@@ -411,7 +444,7 @@ def test_rulespec_update_resets_previous_contract_validation(tmp_path: Path) -> 
     assert saved["contractStatus"]["dryRun"]["status"] == "not_run"
 
 
-def test_tool_check_promotes_contract_through_dry_run_smoke_and_output_validation(monkeypatch, tmp_path: Path) -> None:
+def test_tool_validation_promotes_contract_through_dry_run_smoke_and_output_validation(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -459,7 +492,7 @@ def test_tool_check_promotes_contract_through_dry_run_smoke_and_output_validatio
 
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
 
-    checked = check_registered_tool(cfg, "conda-forge::coreutils")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils")
 
     assert checked["contractStatus"]["dryRun"]["status"] == "passed"
     assert checked["contractStatus"]["smokeRun"]["status"] == "passed"
@@ -473,7 +506,7 @@ def test_tool_check_promotes_contract_through_dry_run_smoke_and_output_validatio
     assert checked["toolContract"]["workflowReady"] is True
 
 
-def test_tool_check_records_stable_dry_run_failure(monkeypatch, tmp_path: Path) -> None:
+def test_tool_validation_records_stable_dry_run_failure(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -510,7 +543,7 @@ def test_tool_check_records_stable_dry_run_failure(monkeypatch, tmp_path: Path) 
 
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
 
-    checked = check_registered_tool(cfg, "conda-forge::coreutils")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils")
 
     assert checked["contractStatus"]["dryRun"]["status"] == "failed"
     assert checked["contractStatus"]["dryRun"]["code"] == "SNAKEMAKE_DRY_RUN_FAILED"
@@ -519,7 +552,7 @@ def test_tool_check_records_stable_dry_run_failure(monkeypatch, tmp_path: Path) 
     assert checked["toolContract"]["workflowReady"] is False
 
 
-def test_tool_check_records_stable_output_validation_failure(monkeypatch, tmp_path: Path) -> None:
+def test_tool_validation_records_stable_output_validation_failure(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -553,7 +586,7 @@ def test_tool_check_records_stable_output_validation_failure(monkeypatch, tmp_pa
 
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
 
-    checked = check_registered_tool(cfg, "conda-forge::coreutils")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils")
 
     assert checked["contractStatus"]["dryRun"]["status"] == "passed"
     assert checked["contractStatus"]["smokeRun"]["status"] == "passed"
@@ -589,7 +622,7 @@ def test_output_validation_rejects_blank_text_artifacts(tmp_path: Path) -> None:
     assert error == {"code": "OUTPUT_ARTIFACT_EMPTY", "message": "Output file is blank: report"}
 
 
-def test_tool_check_uses_smoke_resource_bindings_for_database_rules(monkeypatch, tmp_path: Path) -> None:
+def test_tool_validation_uses_smoke_resource_bindings_for_database_rules(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -648,7 +681,7 @@ def test_tool_check_uses_smoke_resource_bindings_for_database_rules(monkeypatch,
             Path(run_config["outputs"]["report"]).write_text(str(database_dir), encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
-    checked = check_registered_tool(cfg, "conda-forge::coreutils-db")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils-db")
     assert checked["contractStatus"]["dryRun"]["status"] == "passed"
     assert checked["contractStatus"]["smokeRun"]["status"] == "passed"
     assert checked["contractStatus"]["outputValidation"]["status"] == "passed"
@@ -691,13 +724,15 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
         assert str(exc) == "TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION"
     else:
         raise AssertionError("Production acceptance must require output validation first")
-    checked = check_registered_tool(cfg, "conda-forge::coreutils")
+    checked = _validate_registered_tool(cfg, "conda-forge::coreutils")
     checked["contractStatus"]["dryRun"] = {"status": "passed", "message": "Snakemake dry-run passed."}
     checked["contractStatus"]["smokeRun"] = {"status": "passed", "message": "Snakemake smoke run passed."}
     checked["contractStatus"]["outputValidation"] = {"status": "passed", "message": "Output validation passed."}
     upsert_tool(cfg, checked)
-    result_dir = tmp_path / "production-result"; result_dir.mkdir()
-    artifact = result_dir / "report.txt"; artifact.write_text("accepted\n", encoding="utf-8")
+    result_dir = tmp_path / "production-result"
+    result_dir.mkdir()
+    artifact = result_dir / "report.txt"
+    artifact.write_text("accepted\n", encoding="utf-8")
     create_run_record(cfg, server_id="srv", request_id="req", run_spec={"runId": "run_real_data", "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID, "workflow": {"contractVersion": "rule-contract-v1", "nodes": [{"id": "run_tool", "tool": {"id": "conda-forge::coreutils"}}], "edges": []}}, idempotency_key="idem", payload_hash="hash")
     update_run_state(cfg, run_id="run_real_data", status="completed", stage="completed", message="completed", request_id="req", result_dir=str(result_dir))
     persist_artifact(cfg, run_id="run_real_data", kind="report", path=artifact, mime_type="text/plain")
@@ -767,12 +802,6 @@ def test_generated_workflow_cannot_bypass_registered_contract_with_request_rules
         assert str(exc) == "WORKFLOW_STEP_TOOL_UNSUPPORTED_FIELD: ruleTemplate"
     else:
         raise AssertionError("runSpec RuleSpec must not bypass the registered tool contract")
-
-def test_tool_check_route_runs_validation_in_threadpool() -> None:
-    source = (Path(__file__).resolve().parents[1] / "apps" / "remote_runner" / "tool_routes.py").read_text(encoding="utf-8")
-    assert "from starlette.concurrency import run_in_threadpool" in source
-    assert "await run_in_threadpool(check_registered_tool" in source
-
 
 def test_tool_production_acceptance_is_exposed_through_api_layers() -> None:
     root = Path(__file__).resolve().parents[1]

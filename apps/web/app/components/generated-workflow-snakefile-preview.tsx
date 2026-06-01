@@ -4,6 +4,8 @@ import {
   readRuleOutputs,
   readRuleParams,
   readToolRuleTemplate,
+  workflowToolRevisionEntries,
+  workflowToolRevisionId,
   type GeneratedWorkflowGraphDraft,
   type GeneratedWorkflowGraphNode,
   type GeneratedWorkflowStepRuntime,
@@ -51,13 +53,13 @@ export function GeneratedWorkflowGraphSnakefilePreview({
 
 function graphPreviewLines({ draft, tools }: { draft: GeneratedWorkflowGraphDraft; tools: AddedTool[] }): string[] {
   if (draft.nodes.length === 0) return ["# Add RuleSpec nodes to preview a Snakefile."];
-  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
-  const outputPaths = outputPathMap(draft, toolById);
-  const targets = exposedTargetPaths(draft, toolById, outputPaths);
+  const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
+  const outputPaths = outputPathMap(draft, toolByRevisionId);
+  const targets = exposedTargetPaths(draft, toolByRevisionId, outputPaths);
   const lines = ['configfile: "run-config.json"', "", "rule all:", "    input:"];
   lines.push(...targets.map((target) => `        ${JSON.stringify(target)},`));
   for (const node of draft.nodes) {
-    const tool = toolById.get(node.toolId);
+    const tool = toolByRevisionId.get(node.toolRevisionId);
     lines.push(
       "",
       ...rulePreviewLines({
@@ -180,10 +182,10 @@ function inputPathForRulePort(
   return `inputs/${input.name || index + 1}`;
 }
 
-function outputPathMap(draft: GeneratedWorkflowGraphDraft, toolById: Map<string, AddedTool>) {
+function outputPathMap(draft: GeneratedWorkflowGraphDraft, toolByRevisionId: Map<string, AddedTool>) {
   const outputPaths = new Map<string, string>();
   for (const node of draft.nodes) {
-    for (const [index, output] of readRuleOutputs(toolById.get(node.toolId)).entries()) {
+    for (const [index, output] of readRuleOutputs(toolByRevisionId.get(node.toolRevisionId)).entries()) {
       outputPaths.set(portKey(node.id, output.name), outputPathForRulePort(draft, node, output, index));
     }
   }
@@ -200,7 +202,7 @@ function outputPathForRulePort(draft: GeneratedWorkflowGraphDraft, node: Generat
 
 function exposedTargetPaths(
   draft: GeneratedWorkflowGraphDraft,
-  toolById: Map<string, AddedTool>,
+  toolByRevisionId: Map<string, AddedTool>,
   outputPaths: Map<string, string>
 ) {
   if (draft.outputs.length > 0) {
@@ -208,7 +210,7 @@ function exposedTargetPaths(
   }
   const consumed = new Set(draft.edges.map((edge) => portKey(edge.from.nodeId, edge.from.port)));
   const leafTargets = draft.nodes.flatMap((node) =>
-    readRuleOutputs(toolById.get(node.toolId))
+    readRuleOutputs(toolByRevisionId.get(node.toolRevisionId))
       .map((output) => ({ output, path: outputPaths.get(portKey(node.id, output.name)) || output.name }))
       .filter(({ output }) => !consumed.has(portKey(node.id, output.name)))
       .map(({ path }) => path)

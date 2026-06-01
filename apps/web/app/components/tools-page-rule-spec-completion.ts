@@ -67,7 +67,7 @@ export function buildExecutableRuleSpecForSelectedTool<T extends ToolSearchItem>
     ...tool,
     version: selectedVersion || tool.version,
     packageSpec: packageSpec || tool.packageSpec,
-    ruleTemplate: template,
+    ruleTemplate: requiresUserCompletion ? tool.ruleTemplate : template,
     ruleSpecDraft: draft,
   };
 }
@@ -99,8 +99,6 @@ export function missingRuleSpecFields(tool: ToolSearchItem | RuleSpecTemplate | 
   if (outputs.length === 0) missing.push("缺少输出端口");
   if (outputs.some((output) => !stringValue(output.name))) missing.push("output 缺少 name");
   if (outputs.some((output) => !stringValue(output.path))) missing.push("缺少输出文件路径");
-  if (outputs.some((output) => !stringValue(output.mimeType))) missing.push("output 缺少 mime");
-  if (outputs.some((output) => !stringValue(output.kind))) missing.push("output 缺少 kind");
 
   if (!isRecord(template.params)) missing.push("params 必须至少是空对象 {}");
   if (!ruleRuntimeReady(template)) missing.push("runtime/log 未配置");
@@ -177,17 +175,14 @@ function normalizeRuleOutputs(
       ...output,
       name: stringValue(output.name) || (index === 0 ? fallback.name : `output_${index + 1}`),
       path: index === 0 ? firstOutputPath : stringValue(output.path) || fallback.path,
-      kind: stringValue(output.kind) || fallback.kind,
-      mimeType: stringValue(output.mimeType) || fallback.mimeType,
+      ...(stringValue(output.kind) || stringValue(fallback.kind) ? { kind: stringValue(output.kind) || fallback.kind } : {}),
+      ...(stringValue(output.mimeType) || stringValue(fallback.mimeType) ? { mimeType: stringValue(output.mimeType) || fallback.mimeType } : {}),
     };
   });
 }
 
-function canAutoConfirmRuleSpec(draft: ToolSearchItem["ruleSpecDraft"], template: RuleSpecTemplate) {
-  if (!draft?.requiresUserCompletion) return true;
-  const source = stringValue(draft.source);
-  const actions = ruleActionEntries(template);
-  return source === "snakemake-wrapper" && actions.length === 1 && actions[0] === "wrapper";
+function canAutoConfirmRuleSpec(draft: ToolSearchItem["ruleSpecDraft"], _template: RuleSpecTemplate) {
+  return !draft?.requiresUserCompletion;
 }
 
 function executableEnvironment(template: RuleSpecTemplate, tool: ToolSearchItem, packageSpec: string): RuleSpecEnvironment {
@@ -215,24 +210,17 @@ function executableSmokeTest(template: RuleSpecTemplate, inputs: RuleSpecPort[])
 }
 
 function defaultInputForTool(tool: ToolSearchItem): RuleSpecPort {
-  const name = safeSlug(tool.name || "tool");
-  if (name.includes("fastqc")) return { name: "reads", type: "file", kind: "sequence", mimeType: "text/x-fastq", required: true };
-  if (name.includes("samtools")) return { name: "input", type: "file", kind: "alignment", mimeType: "application/x-bam", required: true };
   return { name: "primary", type: "file", required: true };
 }
 
 function defaultOutputForTool(tool: ToolSearchItem): RuleSpecPort {
-  const name = safeSlug(tool.name || "tool");
-  if (name.includes("samtools")) {
-    return { name: "bam", path: defaultOutputPathForTool(tool), kind: "alignment", mimeType: "application/x-bam" };
-  }
-  return { name: "output", path: defaultOutputPathForTool(tool), kind: "file", mimeType: "application/octet-stream" };
+  return { name: "output", path: defaultOutputPathForTool(tool), type: "file" };
 }
 
 function defaultOutputPathForTool(tool: ToolSearchItem, selectedWrapperPath = "") {
   const wrapperPath = selectedWrapperPath || selectedSnakemakeWrapper(tool, selectedWrapperPath)?.wrapperPath || "";
   const slug = safeSlug([tool.name, wrapperPath.split("/").at(-1)].filter(Boolean).join("-"));
-  return `results/${slug}${outputExtensionForTool(tool, wrapperPath)}`;
+  return `results/${slug}.out`;
 }
 
 function defaultSmokeFixture(input: RuleSpecPort) {
@@ -357,13 +345,6 @@ function channelPriorityStrict(channels: string[]) {
 
 function uniqueChannels(source: string) {
   return Array.from(new Set(["conda-forge", source === "conda-forge" ? "bioconda" : source].filter(Boolean)));
-}
-
-function outputExtensionForTool(tool: ToolSearchItem, wrapperPath: string) {
-  const value = `${tool.name} ${wrapperPath}`.toLowerCase();
-  if (value.includes("samtools") || value.includes("bam")) return ".bam";
-  if (value.includes("fastqc")) return ".html";
-  return ".out";
 }
 
 function safeSlug(value: string) {

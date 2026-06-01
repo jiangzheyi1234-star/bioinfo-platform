@@ -6,12 +6,14 @@ from types import SimpleNamespace
 
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.storage import fetch_tool
-from apps.remote_runner.tool_preparation import prepare_registered_tool
+from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.tool_preparation import validate_registered_tool_for_publish
+from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import ToolRegistryError
 from tests.test_tool_contract_pipeline import _cfg, _rule_contract_fields, _runtime_commands
 
 
-def test_prepare_registered_tool_validates_unsaved_candidate_before_persisting(monkeypatch, tmp_path: Path) -> None:
+def test_prepare_job_publish_validates_unsaved_candidate_before_persisting(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -32,7 +34,7 @@ def test_prepare_registered_tool_validates_unsaved_candidate_before_persisting(m
 
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
 
-    saved = prepare_registered_tool(cfg, _prepare_tool_payload("conda-forge::prepare-unsaved", "prepare-unsaved"))
+    saved = _publish_tool_candidate(cfg, _prepare_tool_payload("conda-forge::prepare-unsaved", "prepare-unsaved"))
 
     assert saved["toolContract"]["state"] == "WorkflowReady"
     assert saved["toolContract"]["workflowReady"] is True
@@ -41,7 +43,7 @@ def test_prepare_registered_tool_validates_unsaved_candidate_before_persisting(m
     assert any("-n" not in cmd for cmd in snakemake_commands)
 
 
-def test_prepare_registered_tool_does_not_persist_failed_validation(monkeypatch, tmp_path: Path) -> None:
+def test_prepare_job_publish_does_not_persist_failed_validation(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -65,7 +67,7 @@ def test_prepare_registered_tool_does_not_persist_failed_validation(monkeypatch,
     monkeypatch.setattr("apps.remote_runner.tool_preparation.run_tool_contract_validation", fake_validation)
 
     try:
-        prepare_registered_tool(cfg, _prepare_tool_payload("conda-forge::prepare-fails", "prepare-fails"))
+        _publish_tool_candidate(cfg, _prepare_tool_payload("conda-forge::prepare-fails", "prepare-fails"))
     except ToolRegistryError as exc:
         assert str(exc) == "TOOL_RULE_SMOKE_TEST_REQUIRED"
     else:
@@ -74,7 +76,7 @@ def test_prepare_registered_tool_does_not_persist_failed_validation(monkeypatch,
     assert fetch_tool(cfg, "conda-forge::prepare-fails") is None
 
 
-def test_prepare_registered_tool_persists_only_after_workflow_ready(monkeypatch, tmp_path: Path) -> None:
+def test_prepare_job_publish_persists_only_after_workflow_ready(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -93,7 +95,7 @@ def test_prepare_registered_tool_persists_only_after_workflow_ready(monkeypatch,
 
     monkeypatch.setattr("apps.remote_runner.tool_preparation.run_tool_contract_validation", fake_validation)
 
-    saved = prepare_registered_tool(cfg, _prepare_tool_payload("conda-forge::prepare-ready", "prepare-ready"))
+    saved = _publish_tool_candidate(cfg, _prepare_tool_payload("conda-forge::prepare-ready", "prepare-ready"))
 
     assert saved["toolContract"]["state"] == "WorkflowReady"
     assert saved["toolContract"]["workflowReady"] is True
@@ -108,16 +110,23 @@ def test_tool_prepare_is_exposed_through_api_layers() -> None:
     runner_ops = (root / "core" / "app_runtime" / "runner_ops.py").read_text(encoding="utf-8")
     frontend_api = (root / "apps" / "web" / "app" / "components" / "tools-page-api.ts").read_text(encoding="utf-8")
     frontend_state = (root / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
-    assert '@router.post("/api/v1/tools/prepare", status_code=201)' in remote_route
-    assert "await run_in_threadpool(prepare_registered_tool" in remote_route
-    assert '@app.post("/api/v1/tools/prepare", status_code=201)' in local_main
-    assert "def prepare_tool" in proxy
-    assert 'client.post_json("/api/v1/tools/prepare"' in proxy
-    assert "def prepare_tool" in runner_ops
-    assert '"/api/v1/tools/prepare"' in frontend_api
+    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in remote_route
+    assert '@app.post("/api/v1/tools/prepare-jobs", status_code=202)' in local_main
+    assert "def create_tool_prepare_job" in proxy
+    assert 'client.post_json("/api/v1/tools/prepare-jobs"' in proxy
+    assert "def create_tool_prepare_job" in runner_ops
+    assert '"/api/v1/tools/prepare-jobs"' in frontend_api
     assert '"/api/v1/tools"' in frontend_api
     assert "addToolDependency(nextTool)" in frontend_state
-    assert "prepareToolDependency(nextTool)" in frontend_state
+    assert "createToolPrepareJob(nextTool)" in frontend_state
+
+
+def _publish_tool_candidate(cfg, payload: dict[str, object]) -> dict[str, object]:
+    item = validate_registered_tool_for_publish(cfg, payload)
+    published = publish_tool_revision(cfg, item)
+    published["status"] = "published"
+    published["message"] = str(item.get("message") or "Tool revision published.")
+    return upsert_tool(cfg, published)
 
 
 def _prepare_tool_payload(tool_id: str, name: str) -> dict[str, object]:

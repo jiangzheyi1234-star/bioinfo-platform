@@ -52,7 +52,9 @@ export function ruleSpecReadinessForTool(tool: ToolSearchItem): ToolRuleReadines
   const inputsReady = inputs.length > 0 && inputs.every((input) => stringValue(input.name));
   const outputsReady = outputs.length > 0 && outputs.every(outputSpecReady);
   const platformReady = tool.targetPlatformSupported === true;
-  const localWorkflowReady = platformReady && hasAction && inputsReady && outputsReady && paramsReady && hasRuntime && hasEnv && hasSmoke && !requiresUserCompletion;
+  const published = stringValue(tool.toolRevisionId).length > 0;
+  const validationReady = platformReady && hasAction && inputsReady && outputsReady && paramsReady && hasRuntime && hasEnv && hasSmoke && !requiresUserCompletion;
+  const localWorkflowReady = published && validationReady;
   const contractWorkflowReady = tool.toolContract?.workflowReady;
   const workflowReady = Boolean(contractWorkflowReady && localWorkflowReady);
   const base = {
@@ -79,7 +81,7 @@ export function ruleSpecReadinessForTool(tool: ToolSearchItem): ToolRuleReadines
   if (tool.targetPlatformSupported === false) {
     return { ...base, kind: "platform-unsupported", label: "平台不支持" };
   }
-  if (localWorkflowReady && contractWorkflowReady !== true) {
+  if (validationReady && (!published || contractWorkflowReady !== true)) {
     return { ...base, kind: "validation-pending", label: "待验证" };
   }
   if (hasRuleTemplateShape(template) || draft) {
@@ -97,53 +99,6 @@ export function executableRuleTemplateForTool(tool: ToolSearchItem | undefined):
 export function displayRuleTemplateForTool(tool: ToolSearchItem | undefined): Record<string, unknown> {
   if (!tool) return {};
   return displayRuleTemplateEntryForTool(tool).template as Record<string, unknown>;
-}
-
-export function withCuratedRuleTemplate<T extends ToolSearchItem>(tool: T): T {
-  const manifest = objectValue(tool.ruleTemplate);
-  if (hasRuleAction(manifest)) return tool;
-  const known = starterRuleTemplateForKnownTool(tool);
-  return known ? { ...tool, ruleTemplate: known } : tool;
-}
-
-export function starterRuleTemplateForKnownTool(tool: ToolSearchItem): RuleSpecTemplate | null {
-  const name = safeName(tool.name || "");
-  const packageSpec = packageSpecForTool(tool);
-  if (name !== "fastqc") return null;
-  const template: RuleSpecTemplate = {
-    commandTemplate: "mkdir -p {output.qc_dir:q} && fastqc {input.reads:q} --outdir {output.qc_dir:q}",
-    inputs: [{ name: "reads", type: "file", kind: "sequence", required: true }],
-    outputs: [
-      {
-        name: "qc_dir",
-        path: "results/fastqc",
-        kind: "report",
-        mimeType: "application/vnd.h2ometa.directory",
-        directory: true,
-      },
-    ],
-    params: {},
-    resources: { threads: { default: 1 }, mem_mb: { default: 512 } },
-    log: "logs/fastqc.log",
-    smokeTest: {
-      inputs: {
-        reads: {
-          filename: "reads.fastq",
-          content: "@smoke\nACGT\n+\nFFFF\n",
-          mimeType: "text/plain",
-        },
-      },
-    },
-  };
-  if (packageSpec) {
-    template.environment = {
-      conda: {
-        channels: uniqueChannels(tool.source),
-        dependencies: [packageSpec],
-      },
-    };
-  }
-  return template;
 }
 
 export function hasRuleAction(template: Record<string, unknown>) {
@@ -189,6 +144,7 @@ function displayRuleTemplateEntryForTool(tool: ToolSearchItem): { draft?: RuleSp
   const manifest = objectValue(tool.ruleTemplate) as RuleSpecTemplate;
   const draft = tool.ruleSpecDraft;
   const draftTemplate = objectValue(draft?.ruleTemplate) as RuleSpecTemplate;
+  if (draft?.requiresUserCompletion === true && hasRuleTemplateShape(draftTemplate)) return { draft, template: draftTemplate };
   if (hasRuleTemplateShape(manifest)) return { template: manifest };
   if (hasRuleTemplateShape(draftTemplate)) return { draft, template: draftTemplate };
   return { draft, template: Object.keys(manifest).length > 0 ? manifest : draftTemplate };
@@ -273,9 +229,7 @@ function outputSpecReady(raw: unknown) {
   const output = objectValue(raw);
   return Boolean(
     stringValue(output.name) &&
-    stringValue(output.path) &&
-    stringValue(output.kind) &&
-    stringValue(output.mimeType)
+    stringValue(output.path)
   );
 }
 
@@ -286,15 +240,6 @@ function environmentLabel(dependencies: string[], channels: string[]) {
   if (dependencies.length > 1) return `${dependencies.length} deps`;
   if (dependencies.length === 1) return dependencies[0];
   return "待补 env";
-}
-
-function packageSpecForTool(tool: ToolSearchItem) {
-  const selected = "selectedPackageSpec" in tool ? stringValue(tool.selectedPackageSpec) : "";
-  return selected || stringValue(tool.packageSpec);
-}
-
-function uniqueChannels(source: string) {
-  return Array.from(new Set(["conda-forge", source === "conda-forge" ? "bioconda" : source].filter(Boolean)));
 }
 
 function dependencyLocked(value: string) {
@@ -324,8 +269,4 @@ function isRecord(raw: unknown): raw is Record<string, unknown> {
 
 function stringValue(raw: unknown): string {
   return typeof raw === "string" ? raw.trim() : "";
-}
-
-function safeName(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "") || "tool";
 }

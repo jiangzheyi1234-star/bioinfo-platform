@@ -20,7 +20,7 @@ def test_build_bioconda_index_extracts_lightweight_search_records(tmp_path: Path
                 "kraken2": {
                     "summary": "Kraken2 taxonomic classification",
                 },
-                "fastqc": {
+                "demoqc": {
                     "summary": "Quality control reports",
                 },
             }
@@ -42,8 +42,8 @@ def test_build_bioconda_index_extracts_lightweight_search_records(tmp_path: Path
         source_dir / "noarch-repodata.json",
         {
             "packages": {
-                "fastqc-0.12.1-0.tar.bz2": {
-                    "name": "fastqc",
+                "demoqc-0.12.1-0.tar.bz2": {
+                    "name": "demoqc",
                     "version": "0.12.1",
                     "subdir": "noarch",
                 }
@@ -53,7 +53,7 @@ def test_build_bioconda_index_extracts_lightweight_search_records(tmp_path: Path
 
     index = bioconda_tool_index.build_bioconda_index(source_dir)
 
-    assert [item["name"] for item in index["packages"]] == ["fastqc", "kraken2"]
+    assert [item["name"] for item in index["packages"]] == ["demoqc", "kraken2"]
     kraken = next(item for item in index["packages"] if item["name"] == "kraken2")
     assert kraken["summary"] == "Kraken2 taxonomic classification"
     assert kraken["latestVersion"] == "2.1.3"
@@ -77,7 +77,7 @@ def test_search_bioconda_index_supports_single_character_queries(tmp_path: Path)
                     "platforms": ["linux-64"],
                 },
                 {
-                    "name": "fastqc",
+                    "name": "demoqc",
                     "channel": "bioconda",
                     "summary": "Quality control",
                     "latestVersion": "0.12.1",

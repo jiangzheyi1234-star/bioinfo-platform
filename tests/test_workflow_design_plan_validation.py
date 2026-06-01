@@ -5,7 +5,7 @@ from typing import Any
 
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
-from tests.generated_workflow_test_helpers import upsert_ready_tool
+from tests.generated_workflow_test_helpers import test_tool_revision_id, upsert_ready_tool
 from tests.test_workflow_design_drafts import _cfg, _draft, _tool_manifest
 
 
@@ -19,11 +19,11 @@ def _source_tool() -> dict[str, Any]:
 def _two_step_draft(*, edge_output: str = "report", exposed_output: str = "report") -> dict[str, Any]:
     draft = _draft("bioconda::source=1.0")
     draft["nodes"][0]["id"] = "source"
-    draft["nodes"][0]["toolId"] = "bioconda::source=1.0"
+    draft["nodes"][0]["toolRevisionId"] = test_tool_revision_id("bioconda::source=1.0")
     draft["nodes"].append(
         {
             "id": "copy",
-            "toolId": "bioconda::copy=1.0",
+            "toolRevisionId": test_tool_revision_id("bioconda::copy=1.0"),
             "inputs": {},
             "params": {},
             "runtime": {"threads": 1, "schedulerResources": {"mem_mb": 128}},

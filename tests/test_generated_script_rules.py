@@ -74,7 +74,7 @@ def test_rule_template_rejects_script_action_conflicts() -> None:
             {
                 "script": "scripts/count_reads.py",
                 "scriptAssets": [{"path": "scripts/count_reads.py", "content": "print('ok')\n"}],
-                "wrapper": "v9.8.0/bio/fastqc",
+                "wrapper": "v9.8.0/bio/demoqc",
                 "inputs": [{"name": "reads", "type": "file", "required": True}],
                 "outputs": [{"name": "report", "path": "report.txt", "kind": "log", "mimeType": "text/plain"}],
             },

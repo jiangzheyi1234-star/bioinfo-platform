@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 import type { AddedTool, RuleSpecParam, RuleSpecScalar, RuleSpecTemplate } from "./tools-page-model";
-import { starterRuleTemplateForKnownTool } from "./tool-rule-readiness";
 
 type ActionKind = "commandTemplate" | "wrapper" | "script" | "module";
 
@@ -183,8 +182,6 @@ function ruleTemplateForEditor(tool: AddedTool): RuleSpecTemplate {
 }
 
 function starterRuleTemplate(tool: AddedTool): RuleSpecTemplate {
-  const known = starterRuleTemplateForKnownTool(tool);
-  if (known) return known;
   const packageSpec = (tool.selectedPackageSpec || tool.packageSpec || "").trim();
   const name = safeName(tool.name || "tool");
   const template: RuleSpecTemplate = {

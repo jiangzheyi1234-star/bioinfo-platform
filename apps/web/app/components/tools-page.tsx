@@ -42,6 +42,7 @@ export function ToolsPage() {
             addedTools={state.addedTools}
             checkingToolId={state.checkingToolId}
             editingRuleSpecToolId={state.editingRuleSpecToolId}
+            preparingToolIds={state.preparingToolIds}
             ruleSpecEditError={state.ruleSpecEditError}
             ruleSpecSavingId={state.ruleSpecSavingId}
             toolsError={state.toolsError}

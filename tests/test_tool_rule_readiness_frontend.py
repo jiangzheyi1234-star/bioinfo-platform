@@ -38,9 +38,8 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     assert "dependencyLocked" in helper
     assert "channelPriorityStrict" in helper
     assert "待锁 env" in helper
-    assert "mimeType" in helper
-    assert "starterRuleTemplateForKnownTool" in helper
-    assert "fastqc" in helper
+    assert "mimeType" not in helper
+    assert "demoqc" not in helper
     assert "可加入流程" in helper
     assert "待验证" in helper
     assert "待确认 RuleSpec" in helper
@@ -74,11 +73,9 @@ def test_frontend_uses_shared_rule_readiness_for_tools_and_workflow() -> None:
     assert "executableRuleTemplateForTool" in workflow_model
     assert "WORKFLOW_TOOL_NOT_READY" in workflow_model
 
-    assert "withCuratedRuleTemplate" in tools_state
     assert "canSaveSelected" in tools_state
     assert "canValidateSelected" in tools_state
     assert "addToolDependency(nextTool)" in tools_state
-    assert "prepareToolDependency(nextTool)" in tools_state
-    assert "starterRuleTemplateForKnownTool" in editor
+    assert "createToolPrepareJob(nextTool)" in tools_state
     assert "mem_mb" in editor
     assert "log:" in editor

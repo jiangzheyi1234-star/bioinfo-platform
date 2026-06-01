@@ -18,6 +18,7 @@ from local_api_smoke_helpers import (
     build_workflow_design_draft,
     build_workflow_design_run_submit_payload,
     create_and_plan_workflow_design,
+    prepare_tool_with_job,
     response_data,
     selected_server_id,
     workflow_design_node,
@@ -129,14 +130,7 @@ def main() -> int:
     tool_payload = build_coreutils_tool_payload(tool_id)
     try:
         server_id = selected_server_id(args.api_base)
-        tool = response_data(http_json("POST", args.api_base, "/api/v1/tools", payload=tool_payload, timeout=30))
-        print_json("TOOL_REGISTERED", {"id": tool["id"], "status": tool["status"], "packageSpec": tool["packageSpec"]})
-        tool = response_data(http_json(
-            "POST",
-            args.api_base,
-            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
-            timeout=args.timeout,
-        ))
+        tool = prepare_tool_with_job(api_base=args.api_base, http_json=http_json, payload=tool_payload, timeout=args.timeout)
         print_json("TOOL_VALIDATED", {"id": tool["id"], "contract": tool.get("toolContract"), "status": tool["status"]})
         if not bool((tool.get("toolContract") or {}).get("workflowReady")):
             return 1

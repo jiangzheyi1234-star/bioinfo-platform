@@ -380,11 +380,33 @@ async def add_tool_api(payload: ToolManifestRequest) -> dict[str, Any]:
     return result
 
 
-@app.post("/api/v1/tools/prepare", status_code=201)
-async def prepare_tool_api(payload: ToolManifestRequest) -> dict[str, Any]:
+@app.post("/api/v1/tools/prepare-jobs", status_code=202)
+async def create_tool_prepare_job_api(payload: ToolManifestRequest) -> dict[str, Any]:
     result = await _run_runtime_payload(
-        lambda: _runtime().prepare_tool(payload.model_dump(exclude_none=True)),
+        lambda: _runtime().create_tool_prepare_job(payload.model_dump(exclude_none=True)),
         status_code=400,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+        wrapper="data",
+    )
+    await invalidate_response_cache("tools", "workflow_catalog")
+    return result
+
+
+@app.get("/api/v1/tools/prepare-jobs/{job_id}")
+async def get_tool_prepare_job_api(job_id: str) -> dict[str, Any]:
+    return await _run_runtime_payload(
+        lambda: _runtime().get_tool_prepare_job(job_id),
+        status_code=404,
+        handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
+        wrapper="data",
+    )
+
+
+@app.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")
+async def cancel_tool_prepare_job_api(job_id: str) -> dict[str, Any]:
+    result = await _run_runtime_payload(
+        lambda: _runtime().cancel_tool_prepare_job(job_id),
+        status_code=404,
         handled_errors=(RuntimeServiceError, ValueError, TypeError, KeyError),
         wrapper="data",
     )
@@ -409,18 +431,6 @@ async def delete_tool_api(tool_id: str) -> dict[str, Any]:
     result = await _run_runtime_payload(
         lambda: _runtime().delete_tool(tool_id),
         status_code=404,
-        handled_errors=(RuntimeServiceError,),
-        wrapper="data",
-    )
-    await invalidate_response_cache("tools", "workflow_catalog")
-    return result
-
-
-@app.post("/api/v1/tools/{tool_id}/check")
-async def check_tool_api(tool_id: str) -> dict[str, Any]:
-    result = await _run_runtime_payload(
-        lambda: _runtime().check_tool(tool_id),
-        status_code=400,
         handled_errors=(RuntimeServiceError,),
         wrapper="data",
     )
