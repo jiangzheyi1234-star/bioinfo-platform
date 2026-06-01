@@ -5,7 +5,7 @@ from typing import Any
 
 from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
-from tests.generated_workflow_test_helpers import upsert_ready_tool
+from tests.generated_workflow_test_helpers import test_tool_revision_id, upsert_ready_tool
 from tests.test_workflow_design_drafts import _cfg, _draft, _tool_manifest
 
 
@@ -114,13 +114,13 @@ def _script_tool(tool_id: str, script_content: str) -> dict[str, Any]:
 def _script_conflict_draft() -> dict[str, Any]:
     draft = _draft("bioconda::script-a=1.0")
     draft["nodes"][0]["id"] = "first"
-    draft["nodes"][0]["toolId"] = "bioconda::script-a=1.0"
+    draft["nodes"][0]["toolRevisionId"] = test_tool_revision_id("bioconda::script-a=1.0")
     draft["nodes"][0]["inputs"] = {"reads": {"fromInput": "input"}}
     draft["nodes"][0]["params"] = {}
     draft["nodes"].append(
         {
             "id": "second",
-            "toolId": "bioconda::script-b=1.0",
+            "toolRevisionId": test_tool_revision_id("bioconda::script-b=1.0"),
             "inputs": {},
             "params": {},
             "runtime": {"threads": 1, "schedulerResources": {"mem_mb": 128}},

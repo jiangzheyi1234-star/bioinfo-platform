@@ -36,7 +36,6 @@ These scripts under this skill are the official entrypoints:
 
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap`
-- `python skills/h2ometa-remote-smoke-test/scripts/remote_tool_prepare_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py --rerun-check`
@@ -59,7 +58,7 @@ Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen
 
 - SSH, Local API, runner readiness: use `scripts/remote_smoke.py`
 - Mutating bootstrap validation: use `scripts/remote_smoke.py --bootstrap`
-- Real FastQC tools/prepare validation: use `scripts/remote_tool_prepare_smoke.py`
+- Real tool validation starts from the tool search/add flow, then use the generated-tool smoke helpers once the searched tool has a saved contract.
 - Minimal end-to-end pipeline path: use `scripts/remote_pipeline_smoke.py`
 - Normal Snakemake pipeline database binding: use `scripts/remote_pipeline_database_binding_smoke.py`
 - Real production database acceptance: use `scripts/remote_real_database_acceptance.py`

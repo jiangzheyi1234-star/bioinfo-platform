@@ -12,13 +12,11 @@ from .route_utils import authorized_config, data_response
 from .tools import (
     ToolRegistryError,
     add_registered_tool,
-    check_registered_tool,
     list_registered_tools,
     mark_registered_tool_production_enabled,
     remove_registered_tool,
     update_registered_tool_rule_template,
 )
-from .tool_preparation import prepare_registered_tool
 from .tool_prepare_job_storage import cancel_tool_prepare_job, create_tool_prepare_job, fetch_tool_prepare_job
 from .tool_prepare_jobs import run_tool_prepare_job
 
@@ -57,16 +55,6 @@ async def add_tool(payload: ToolManifestRequest, authorization: str | None = Hea
     cfg = authorized_config(authorization)
     try:
         item = add_registered_tool(cfg, payload.model_dump(exclude_none=True))
-    except ToolRegistryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return data_response(item)
-
-
-@router.post("/api/v1/tools/prepare", status_code=201)
-async def prepare_tool(payload: ToolManifestRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    try:
-        item = await run_in_threadpool(prepare_registered_tool, cfg, payload.model_dump(exclude_none=True))
     except ToolRegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return data_response(item)
@@ -127,17 +115,6 @@ async def delete_tool_api(tool_id: str, authorization: str | None = Header(defau
         detail = str(exc)
         raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
     return data_response({"id": tool_id, "deleted": True})
-
-
-@router.post("/api/v1/tools/{tool_id}/check")
-async def check_tool_api(tool_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    try:
-        item = await run_in_threadpool(check_registered_tool, cfg, tool_id)
-    except ToolRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "TOOL_NOT_FOUND" else 400, detail=detail) from exc
-    return data_response(item)
 
 
 @router.post("/api/v1/tools/{tool_id}/production")

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from apps.api import tool_capabilities
 from apps.api import snakemake_wrappers
-from apps.api.rule_spec_drafts import build_wrapper_rule_spec_draft
 
 
 def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
@@ -200,28 +200,13 @@ def test_tool_search_builds_dependency_rule_spec_draft_without_wrapper(monkeypat
     draft = item["ruleSpecDraft"]
     assert item["snakemakeWrapperCount"] == 0
     assert draft["source"] == "conda-package"
+    assert draft["contractSource"] == "command-template-builder"
     assert draft["requiresUserCompletion"] is True
+    assert draft["reason"] == "NO_TOOL_CONTRACT_SOURCE"
     assert draft["lock"]["packageSpec"] == "bioconda::fastq=2.0.4"
     assert draft["ruleTemplate"]["inputs"][0]["name"] == "primary"
     assert draft["ruleTemplate"]["outputs"][0]["name"] == "primary"
     assert "fastq" in draft["ruleTemplate"]["commandTemplate"]
-
-
-def test_fastqc_wrapper_draft_declares_wrapper_required_named_outputs() -> None:
-    draft = build_wrapper_rule_spec_draft(
-        wrapper_repository="snakemake/snakemake-wrappers",
-        wrapper_ref="v9.8.0",
-        wrapper_path="bio/fastqc",
-        wrapper_identifier="v9.8.0/bio/fastqc",
-    )
-
-    outputs = {item["name"]: item for item in draft["ruleTemplate"]["outputs"]}
-    assert draft["requiresUserCompletion"] is False
-    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastqc"
-    assert sorted(outputs) == ["html", "zip"]
-    assert outputs["html"]["mimeType"] == "text/html"
-    assert outputs["zip"]["mimeType"] == "application/zip"
-    assert draft["ruleTemplate"]["smokeTest"]["inputs"]["reads"]["content"].startswith("@smoke")
 
 
 def test_snakemake_wrapper_lookup_uses_disk_cache_before_network(monkeypatch) -> None:
@@ -249,6 +234,61 @@ def test_snakemake_wrapper_lookup_propagates_network_error_without_cache(monkeyp
 
     with pytest.raises(TimeoutError, match="wrapper index timed out"):
         snakemake_wrappers.find_snakemake_wrappers_for_tool("samtools")
+
+
+def test_snakemake_wrapper_cache_rehydrates_rule_spec_draft_metadata(tmp_path: Path, monkeypatch) -> None:
+    cache_path = tmp_path / "wrapper-index.json"
+    cache_path.write_text(
+        """
+        {
+          "version": 1,
+          "index": {
+            "example": [
+              {
+                "name": "example report",
+                "toolName": "example",
+                "wrapperRepository": "snakemake/snakemake-wrappers",
+                "wrapperRef": "v9.8.0",
+                "wrapperPath": "bio/example/report",
+                "wrapperIdentifier": "v9.8.0/bio/example/report",
+                "wrapperUrl": "https://example.test/report",
+                "ruleSpecDraft": {
+                  "source": "legacy",
+                  "ruleTemplate": {"wrapper": "legacy/bio/example/report"}
+                }
+              }
+            ]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(snakemake_wrappers, "_wrapper_index_cache_path", lambda: cache_path)
+
+    index = snakemake_wrappers._load_cached_wrapper_index()
+
+    assert index is not None
+    draft = index["example"][0]["ruleSpecDraft"]
+    assert draft["contractSource"] == "snakemake-wrapper-importer"
+    assert draft["requiresUserCompletion"] is True
+    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/example/report"
+
+
+def test_snakemake_wrapper_index_attaches_unresolved_wrapper_draft_without_contract() -> None:
+    index = snakemake_wrappers._build_wrapper_index(
+        {
+            "tree": [
+                {"type": "blob", "path": "bio/example/report/wrapper.py"},
+                {"type": "blob", "path": "bio/example/report/environment.yaml"},
+            ]
+        }
+    )
+
+    draft = index["example"][0]["ruleSpecDraft"]
+    assert draft["contractSource"] == "snakemake-wrapper-importer"
+    assert draft["reason"] == "WRAPPER_CONTRACT_UNRESOLVED"
+    assert draft["requiresUserCompletion"] is True
+    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/example/report"
 
 
 def _samtools_sort_wrapper(name: str) -> dict[str, Any]:

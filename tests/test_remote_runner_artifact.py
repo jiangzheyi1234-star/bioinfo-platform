@@ -262,7 +262,6 @@ def test_checked_in_remote_runner_artifact_contains_tool_prepare_endpoint() -> N
         "./remote_runner/tool_prepare_jobs.py",
         "./remote_runner/tool_revisions.py",
     }.issubset(names)
-    assert '@router.post("/api/v1/tools/prepare", status_code=201)' in routes_text
     assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in routes_text
     assert "run_tool_prepare_job" in routes_text
 

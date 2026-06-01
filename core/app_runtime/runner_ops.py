@@ -188,7 +188,7 @@ class RunnerOperationsMixin:
             )
         }
 
-    def prepare_tool(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    def create_tool_prepare_job(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             body = dict(payload or {})
@@ -199,11 +199,41 @@ class RunnerOperationsMixin:
         body.pop("serverId", None)
         return {
             "data": self._call_remote_runner(
-                manager.prepare_tool,
+                manager.create_tool_prepare_job,
                 server_id=server_id,
                 ssh_service=ssh,
                 server_record=record,
                 payload=body,
+            )
+        }
+
+    def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": self._call_remote_runner(
+                manager.get_tool_prepare_job,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                job_id=job_id,
+            )
+        }
+
+    def cancel_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            server_id, ssh, record = self._require_existing_runner_ready()
+            manager = self._service_locator.remote_runner_manager
+        return {
+            "data": self._call_remote_runner(
+                manager.cancel_tool_prepare_job,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                job_id=job_id,
             )
         }
 
@@ -235,21 +265,6 @@ class RunnerOperationsMixin:
         return {
             "data": self._call_remote_runner(
                 manager.delete_tool,
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                tool_id=tool_id,
-            )
-        }
-
-    def check_tool(self, tool_id: str) -> dict[str, Any]:
-        with self._lock:
-            self._ensure_initialized()
-            server_id, ssh, record = self._require_existing_runner_ready()
-            manager = self._service_locator.remote_runner_manager
-        return {
-            "data": self._call_remote_runner(
-                manager.check_tool,
                 server_id=server_id,
                 ssh_service=ssh,
                 server_record=record,

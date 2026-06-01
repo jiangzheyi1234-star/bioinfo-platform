@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.tools import add_registered_tool, check_registered_tool
+from apps.remote_runner.tools import add_registered_tool
+from tests.test_tool_contract_pipeline import _validate_registered_tool
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -68,7 +69,7 @@ def test_output_validation_records_validated_artifact_summary(tmp_path: Path) ->
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
 
     with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
-        checked = check_registered_tool(cfg, "conda-forge::observable")
+        checked = _validate_registered_tool(cfg, "conda-forge::observable")
 
     output_status = checked["contractStatus"]["outputValidation"]
     assert output_status["status"] == "passed"
@@ -114,7 +115,7 @@ def test_output_validation_failure_records_smoke_log_path(tmp_path: Path) -> Non
         return SimpleNamespace(returncode=0, stdout="smoke ok\n", stderr="")
 
     with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
-        checked = check_registered_tool(cfg, "conda-forge::missing-output")
+        checked = _validate_registered_tool(cfg, "conda-forge::missing-output")
 
     output_status = checked["contractStatus"]["outputValidation"]
     assert output_status["status"] == "failed"

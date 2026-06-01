@@ -15,6 +15,7 @@ export function ToolsLibrarySection({
   addedTools,
   checkingToolId,
   editingRuleSpecToolId,
+  preparingToolIds,
   ruleSpecEditError,
   ruleSpecSavingId,
   toolsError,
@@ -29,6 +30,7 @@ export function ToolsLibrarySection({
   addedTools: AddedTool[];
   checkingToolId: string;
   editingRuleSpecToolId: string;
+  preparingToolIds: string[];
   ruleSpecEditError: string;
   ruleSpecSavingId: string;
   toolsError: string;
@@ -79,7 +81,7 @@ export function ToolsLibrarySection({
                 editing={editing}
                 ruleSpecEditError={ruleSpecEditError}
                 ruleSpecSaving={ruleSpecSavingId === tool.id}
-                checking={checkingToolId === tool.id}
+                checking={checkingToolId === tool.id || preparingToolIds.includes(tool.id)}
                 tool={tool}
                 onCancelRuleSpecEdit={onCancelRuleSpecEdit}
                 onCheck={() => onCheck(tool.id)}

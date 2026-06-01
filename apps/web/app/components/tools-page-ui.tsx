@@ -683,7 +683,7 @@ dependencies:
               onClick={onAddAndCheck}
             >
               {addingSelectedTool ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {selectedAlreadyAdded ? "已加入" : "验证并发布"}
+              {addingSelectedTool ? "验证任务运行中" : selectedAlreadyAdded ? "已加入" : "验证并发布"}
             </Button>
           </div>
         </div>

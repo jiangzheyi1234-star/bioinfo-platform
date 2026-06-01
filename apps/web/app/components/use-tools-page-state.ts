@@ -4,11 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   addToolDependency,
-  checkToolDependency,
+  createToolPrepareJob,
   fetchAddedTools,
   getCachedAddedTools,
   openToolSourceUrl,
-  prepareToolDependency,
   removeToolDependency,
   searchToolCapabilities,
   updateToolRuleTemplate,
@@ -27,9 +26,10 @@ import {
   searchErrorMessage,
   toolErrorMessage,
 } from "./tools-page-model";
-import { withCuratedRuleTemplate } from "./tool-rule-readiness";
+import { useToolPrepareTasks } from "./tool-prepare-task-context";
 
 export function useToolsPageState() {
+  const { tasks: prepareTasks, trackToolPrepareJob } = useToolPrepareTasks();
   const [initialCachedAddedTools] = useState(() => getCachedAddedTools());
   const [view, setView] = useState<"library" | "search">("library");
   const [addedTools, setAddedTools] = useState<AddedTool[]>(() => initialCachedAddedTools || []);
@@ -54,6 +54,7 @@ export function useToolsPageState() {
   const [ruleSpecEditError, setRuleSpecEditError] = useState("");
   const [checkingToolId, setCheckingToolId] = useState("");
   const [addingSelectedTool, setAddingSelectedTool] = useState(false);
+  const lastPrepareRefreshRef = useRef<Record<string, string>>({});
 
   const loadAddedTools = useCallback(async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
     const currentTools = addedToolsRef.current;
@@ -81,6 +82,23 @@ export function useToolsPageState() {
   useEffect(() => {
     void loadAddedTools({ silent: Boolean(initialCachedAddedTools) });
   }, [initialCachedAddedTools, loadAddedTools]);
+
+  useEffect(() => {
+    let shouldRefresh = false;
+    prepareTasks.forEach((task) => {
+      const fingerprint = `${task.status}:${task.updatedAt || task.finishedAt || ""}`;
+      if (
+        (task.status === "succeeded" || task.status === "failed" || task.status === "cancelled") &&
+        lastPrepareRefreshRef.current[task.jobId] !== fingerprint
+      ) {
+        lastPrepareRefreshRef.current[task.jobId] = fingerprint;
+        shouldRefresh = true;
+      }
+    });
+    if (shouldRefresh) {
+      void loadAddedTools({ forceRefresh: true, silent: true });
+    }
+  }, [loadAddedTools, prepareTasks]);
 
   useEffect(() => {
     const normalized = query.trim();
@@ -162,6 +180,23 @@ export function useToolsPageState() {
   const selectedAlreadyAdded = Boolean(
     selectedPackageSpec && addedTools.some((tool) => dependencyKey(tool.selectedPackageSpec || tool.packageSpec) === dependencyKey(selectedPackageSpec))
   );
+  const selectedPrepareRunning = Boolean(
+    selected &&
+      prepareTasks.some(
+        (task) =>
+          (task.status === "queued" || task.status === "running") &&
+          (task.toolId === selected.id || task.request?.id === selected.id || task.request?.packageSpec === selectedPackageSpec)
+      )
+  );
+  const activePrepareToolIds = useMemo(
+    () =>
+      new Set(
+        prepareTasks
+          .filter((task) => task.status === "queued" || task.status === "running")
+          .flatMap((task) => [task.toolId, task.request?.id].filter((id): id is string => typeof id === "string" && id.length > 0))
+      ),
+    [prepareTasks]
+  );
   const selectedPackageLocked = packageSpecLocked(selectedPackageSpec);
   const missingSelectedRuleSpecFields = selected ? missingRuleSpecFields(selected) : [];
   const canSaveSelected = Boolean(
@@ -219,12 +254,12 @@ export function useToolsPageState() {
       }
       return null;
     }
-    const nextTool = withCuratedRuleTemplate<AddedTool>({
+    const nextTool: AddedTool = {
       ...selected,
       selectedVersion,
       selectedPackageSpec,
       packageSpec: selectedPackageSpec,
-    });
+    };
     const executableTool = buildExecutableRuleSpecForSelectedTool(nextTool, {
       outputPath: selectedOutputPath,
       selectedPackageSpec,
@@ -234,6 +269,10 @@ export function useToolsPageState() {
   }
 
   function selectedToolForValidation(): AddedTool | null {
+    if (selectedPrepareRunning) {
+      setToolsError("该工具已有验证任务正在运行，可以在底部任务栏查看进度。");
+      return null;
+    }
     if (!selected || !canValidateSelected) {
       if (selected && !selectedPackageLocked) {
         setToolsError("请选择一个明确版本后再加入工具。");
@@ -247,12 +286,12 @@ export function useToolsPageState() {
       }
       return null;
     }
-    const nextTool = withCuratedRuleTemplate<AddedTool>({
+    const nextTool: AddedTool = {
       ...selected,
       selectedVersion,
       selectedPackageSpec,
       packageSpec: selectedPackageSpec,
-    });
+    };
     const executableTool = buildExecutableRuleSpecForSelectedTool(nextTool, {
       outputPath: selectedOutputPath,
       selectedPackageSpec,
@@ -292,13 +331,13 @@ export function useToolsPageState() {
     void (async () => {
       setAddingSelectedTool(true);
       setCheckingToolId(nextTool.id);
-      setToolsError("");
+        setToolsError("");
       try {
-        await prepareToolDependency(nextTool);
-        await loadAddedTools({ forceRefresh: true, silent: true });
+        const job = await createToolPrepareJob(nextTool);
+        trackToolPrepareJob(job);
         setView("library");
       } catch (err) {
-        setToolsError(toolErrorMessage(err, "加入并验证工具失败"));
+        setToolsError(toolErrorMessage(err, "启动工具验证失败"));
         await loadAddedTools({ forceRefresh: true, silent: true });
       } finally {
         setAddingSelectedTool(false);
@@ -337,13 +376,22 @@ export function useToolsPageState() {
 
   function checkTool(id: string) {
     void (async () => {
+      if (activePrepareToolIds.has(id)) {
+        setToolsError("该工具已有验证任务正在运行，可以在底部任务栏查看进度。");
+        return;
+      }
+      const tool = addedToolsRef.current.find((item) => item.id === id);
+      if (!tool) {
+        setToolsError("没有找到要验证的工具。");
+        return;
+      }
       setCheckingToolId(id);
       setToolsError("");
       try {
-        await checkToolDependency(id);
-        await loadAddedTools({ forceRefresh: true, silent: true });
+        const job = await createToolPrepareJob(tool);
+        trackToolPrepareJob(job);
       } catch (err) {
-        setToolsError(toolErrorMessage(err, "验证工具失败"));
+        setToolsError(toolErrorMessage(err, "启动工具验证失败"));
       } finally {
         setCheckingToolId("");
       }
@@ -352,10 +400,11 @@ export function useToolsPageState() {
 
   return {
     addedTools,
-    addingSelectedTool,
+    addingSelectedTool: addingSelectedTool || selectedPrepareRunning,
     canSaveSelected,
     canValidateSelected,
     checkingToolId,
+    preparingToolIds: Array.from(activePrepareToolIds),
     editingRuleSpecToolId,
     error,
     filtered,

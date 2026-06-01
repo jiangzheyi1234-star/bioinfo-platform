@@ -122,7 +122,7 @@ def _workflow_design_draft() -> dict[str, Any]:
         "nodes": [
             {
                 "id": "qc",
-                "toolId": "bioconda::qc=1.0",
+                "toolRevisionId": "bioconda::qc=1.0#fixture",
                 "inputs": {"reads": {"fromInput": "input"}},
                 "params": {},
                 "runtime": {},

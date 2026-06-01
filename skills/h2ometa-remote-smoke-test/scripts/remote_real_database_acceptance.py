@@ -25,6 +25,7 @@ from local_api_smoke_helpers import (
     build_workflow_design_draft,
     build_workflow_design_run_submit_payload,
     create_and_plan_workflow_design,
+    prepare_tool_with_job,
     selected_server_id,
     workflow_design_node,
 )
@@ -322,19 +323,12 @@ def run_snakemake_injection_smoke(
     output_name = f"real-database-{role}-path.txt"
     keep_tool = False
     try:
-        tool = api_data(http_json(
-            "POST",
-            api_base,
-            "/api/v1/tools",
+        tool = prepare_tool_with_job(
+            api_base=api_base,
+            http_json=http_json,
             payload=build_database_tool_payload(tool_id=tool_id, role=role, database=database, output_name=output_name),
-            timeout=30,
-        ))
-        tool = api_data(http_json(
-            "POST",
-            api_base,
-            f"/api/v1/tools/{urllib.parse.quote(tool_id, safe='')}/check",
             timeout=timeout,
-        ))
+        )
         if not bool((tool.get("toolContract") or {}).get("workflowReady")):
             return {
                 "id": database.get("id"),

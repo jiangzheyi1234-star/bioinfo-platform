@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
-from apps.api.rule_spec_drafts import build_dependency_rule_spec_draft
 from apps.api.snakemake_wrappers import find_snakemake_wrappers_for_tool
+from apps.api.tool_contract_resolver import DEFAULT_TOOL_CONTRACT_RESOLVER
 
 
 ANACONDA_SEARCH_URL = "https://api.anaconda.org/search"
@@ -169,7 +169,7 @@ def _attach_snakemake_wrappers(items: list[dict[str, Any]]) -> list[dict[str, An
                 **item,
                 "snakemakeWrappers": wrappers,
                 "snakemakeWrapperCount": len(wrappers),
-                "ruleSpecDraft": first_wrapper_draft or build_dependency_rule_spec_draft(item),
+                "ruleSpecDraft": first_wrapper_draft or DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_dependency(item),
             }
         )
     return enriched

@@ -30,7 +30,7 @@ export type WorkflowDesignDraft = {
   }>;
   nodes: Array<{
     id: string;
-    toolId: string;
+    toolRevisionId: string;
     inputs: Record<string, WorkflowDesignInputBinding>;
     params: WorkflowDesignScalarRecord;
     runtime: Record<string, unknown>;
@@ -128,7 +128,7 @@ export function buildWorkflowDesignDraft({
     },
     inputs,
     nodes: graphDraft.nodes.map((node) => {
-      const existingNode = existingDraft?.nodes.find((item) => item.id === node.id && item.toolId === node.toolId);
+      const existingNode = existingDraft?.nodes.find((item) => item.id === node.id && item.toolRevisionId === node.toolRevisionId);
       const exposedOutputs = graphDraft.outputs.filter((output) => output.fromStep === node.id);
       const exposedOutputNames = new Set(exposedOutputs.map((output) => output.output));
       const existingNodeOutputEntries = Object.entries(existingNode?.outputs || {})
@@ -143,7 +143,7 @@ export function buildWorkflowDesignDraft({
         ]);
       return {
         id: node.id,
-        toolId: node.toolId,
+        toolRevisionId: node.toolRevisionId,
         inputs: Object.fromEntries(
           Object.entries(node.inputs)
             .filter(([, binding]) => binding !== "")
@@ -208,7 +208,7 @@ export function workflowDesignDraftToGraphDraft(draft: WorkflowDesignDraft): Gen
   return {
     nodes: draft.nodes.map((node) => ({
       id: node.id,
-      toolId: node.toolId,
+      toolRevisionId: node.toolRevisionId,
       inputs: Object.fromEntries(
         Object.entries(node.inputs).map(([inputName, binding]) => [
           inputName,

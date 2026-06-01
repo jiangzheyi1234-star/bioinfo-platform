@@ -3,25 +3,26 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import type { AddedTool } from "./tools-page-model";
+import { workflowToolRevisionId } from "./generated-workflow-model";
 
 type GeneratedWorkflowNodeSettingsProps =
   | {
-      node: { id: string; toolId: string };
+      node: { id: string; toolRevisionId: string };
       onStepIdChange: (stepId: string, nextId: string) => void;
-      onStepToolChange: (stepId: string, toolId: string) => void;
+      onStepToolChange: (stepId: string, toolRevisionId: string) => void;
       tools: AddedTool[];
     }
   | {
       nodeId: string;
       onStepIdChange: (value: string) => void;
-      onStepToolChange: (toolId: string) => void;
-      toolId: string;
+      onStepToolChange: (toolRevisionId: string) => void;
+      toolRevisionId: string;
       tools: AddedTool[];
     };
 
 export function GeneratedWorkflowNodeSettings(props: GeneratedWorkflowNodeSettingsProps) {
   const nodeId = "node" in props ? props.node.id : props.nodeId;
-  const toolId = "node" in props ? props.node.toolId : props.toolId;
+  const toolRevisionId = "node" in props ? props.node.toolRevisionId : props.toolRevisionId;
   const tools = props.tools;
   const onNodeIdChange = (value: string) => {
     if ("node" in props) {
@@ -54,13 +55,13 @@ export function GeneratedWorkflowNodeSettings(props: GeneratedWorkflowNodeSettin
         </div>
         <div>
           <Label className="text-[11px] text-slate-500">工具</Label>
-          <Select value={toolId} onValueChange={onToolChange}>
+          <Select value={toolRevisionId} onValueChange={onToolChange}>
             <SelectTrigger className="mt-1 h-8 bg-white text-xs">
               <SelectValue placeholder="选择工具" />
             </SelectTrigger>
             <SelectContent>
               {tools.map((tool) => (
-                <SelectItem key={tool.id} value={tool.id}>
+                <SelectItem key={workflowToolRevisionId(tool)} value={workflowToolRevisionId(tool)}>
                   {tool.name}
                 </SelectItem>
               ))}

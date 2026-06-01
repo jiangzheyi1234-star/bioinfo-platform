@@ -15,6 +15,8 @@ import {
   readRuleInputs,
   readRuleOutputs,
   readRuleParams,
+  workflowToolRevisionEntries,
+  workflowToolRevisionId,
 } from "./generated-workflow-model";
 import { GeneratedWorkflowGraphCanvas } from "./generated-workflow-graph-canvas";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
@@ -125,7 +127,7 @@ export function GeneratedWorkflowBuilder({
             variant="outline"
             className="h-8 bg-white px-2.5 text-xs"
             disabled={!firstTool}
-            onClick={() => firstTool && builder.addStep(firstTool.id)}
+            onClick={() => firstTool && builder.addStep(workflowToolRevisionId(firstTool))}
           >
             <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
             添加步骤
@@ -246,13 +248,13 @@ function WorkflowGraphWorkbench({
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   tools: AddedTool[];
 }) {
-  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || nodes[0],
     [nodes, selectedNodeId]
   );
-  const selectedTool = selectedNode ? toolById.get(selectedNode.toolId) : undefined;
+  const selectedTool = selectedNode ? toolByRevisionId.get(selectedNode.toolRevisionId) : undefined;
   const removeGraphEdge = (edge: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]) => {
     builder.setInputBinding(edge.to.nodeId, edge.to.port, "");
   };
@@ -276,9 +278,9 @@ function WorkflowGraphWorkbench({
               <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">没有可加入流程的工具。</div>
             ) : tools.map((tool) => (
               <RulePaletteCard
-                key={tool.id}
+                key={workflowToolRevisionId(tool)}
                 tool={tool}
-                onClick={() => builder.addStep(tool.id)}
+                onClick={() => builder.addStep(workflowToolRevisionId(tool))}
               />
             ))}
           </div>
@@ -332,7 +334,7 @@ function WorkflowGraphWorkbench({
                 <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate font-mono text-xs text-slate-800">{selectedNode.id}</div>
-                    <div className="truncate text-[11px] text-slate-500">{selectedTool?.name || selectedNode.toolId}</div>
+                    <div className="truncate text-[11px] text-slate-500">{selectedTool?.name || selectedNode.toolRevisionId}</div>
                   </div>
                   <Button
                     type="button"
@@ -366,10 +368,10 @@ function WorkflowGraphWorkbench({
               </div>
               <GeneratedWorkflowNodeSettings
                 nodeId={selectedNode.id}
-                toolId={selectedNode.toolId}
+                toolRevisionId={selectedNode.toolRevisionId}
                 tools={tools}
                 onStepIdChange={(nextId: string) => builder.setStepId(selectedNode.id, nextId)}
-                onStepToolChange={(toolId: string) => builder.setStepTool(selectedNode.id, toolId)}
+                onStepToolChange={(toolRevisionId: string) => builder.setStepTool(selectedNode.id, toolRevisionId)}
               />
               <GeneratedWorkflowRuleSpecPanel tool={selectedTool} />
               <StepParamsEditor
@@ -557,7 +559,7 @@ function buildOutputCandidates(
   tools: AddedTool[]
 ): GeneratedWorkflowOutputCandidate[] {
   return steps.flatMap((step) => {
-    const tool = tools.find((item) => item.id === step.toolId);
+    const tool = tools.find((item) => workflowToolRevisionId(item) === step.toolRevisionId);
     return readRuleOutputs(tool).map((output) => ({
       value: `${step.id}.${output.name}`,
       label: `${step.id}.${output.name} · ${describePortSpec(output)}`,

@@ -121,8 +121,8 @@ def test_added_dependency_rejects_name_that_conflicts_with_package_spec_name(tmp
         add_registered_tool(
             cfg,
             {
-                "id": "conda-forge::fastqc",
-                "name": "fastqc",
+                "id": "conda-forge::demoqc",
+                "name": "demoqc",
                 "source": "conda-forge",
                 "packageSpec": "conda-forge::coreutils=9.5",
                 "targetPlatform": "linux-64",

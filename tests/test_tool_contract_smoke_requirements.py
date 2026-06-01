@@ -6,11 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.remote_runner.config import ensure_runtime_layout
-from apps.remote_runner.tools import add_registered_tool, check_registered_tool
-from tests.test_tool_contract_pipeline import _cfg, _rule_contract_fields, _runtime_commands
+from apps.remote_runner.tools import add_registered_tool
+from tests.test_tool_contract_pipeline import _cfg, _rule_contract_fields, _runtime_commands, _validate_registered_tool
 
 
-def test_tool_check_requires_explicit_smoke_input_fixtures(monkeypatch, tmp_path: Path) -> None:
+def test_tool_validation_requires_explicit_smoke_input_fixtures(monkeypatch, tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -46,7 +46,7 @@ def test_tool_check_requires_explicit_smoke_input_fixtures(monkeypatch, tmp_path
 
     monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
 
-    checked = check_registered_tool(cfg, "conda-forge::no-smoke-fixture")
+    checked = _validate_registered_tool(cfg, "conda-forge::no-smoke-fixture")
 
     assert checked["contractStatus"]["dryRun"]["status"] == "passed"
     assert checked["contractStatus"]["smokeRun"]["status"] == "failed"
@@ -57,7 +57,7 @@ def test_tool_check_requires_explicit_smoke_input_fixtures(monkeypatch, tmp_path
     assert all("-n" in cmd for cmd in snakemake_commands)
 
 
-def test_tool_check_smoke_fixture_only_requires_required_inputs(tmp_path: Path) -> None:
+def test_tool_validation_smoke_fixture_only_requires_required_inputs(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _runtime_commands(tmp_path)
@@ -103,7 +103,7 @@ def test_tool_check_smoke_fixture_only_requires_required_inputs(tmp_path: Path) 
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
 
     with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
-        checked = check_registered_tool(cfg, "conda-forge::optional-input-smoke")
+        checked = _validate_registered_tool(cfg, "conda-forge::optional-input-smoke")
 
     assert checked["contractStatus"]["smokeRun"]["status"] == "passed"
     assert checked["contractStatus"]["outputValidation"]["status"] == "passed"

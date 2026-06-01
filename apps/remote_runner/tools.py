@@ -32,6 +32,8 @@ def list_registered_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
 def add_registered_tool(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
     item = _normalize_tool_manifest(payload)
     item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=False)
+    if _rule_spec_draft_requires_completion(item.get("ruleSpecDraft")) and item["ruleTemplate"]:
+        raise ToolRegistryError("TOOL_RULE_DRAFT_CANNOT_HAVE_CONFIRMED_TEMPLATE")
     item["capabilities"] = normalize_tool_capabilities(item.get("capabilities"))
     item["contractStatus"] = default_contract_status()
     return upsert_tool(cfg, item)
@@ -67,46 +69,6 @@ def remove_registered_tool(cfg: RemoteRunnerConfig, tool_id: str) -> None:
         delete_tool(cfg, normalized)
     except KeyError as exc:
         raise ToolRegistryError("TOOL_NOT_FOUND") from exc
-
-
-def check_registered_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, Any]:
-    normalized = str(tool_id or "").strip()
-    if not normalized:
-        raise ToolRegistryError("TOOL_ID_REQUIRED")
-    item = fetch_tool(cfg, normalized)
-    if item is None:
-        raise ToolRegistryError("TOOL_NOT_FOUND")
-
-    if not bool(item.get("targetPlatformSupported")):
-        message = f"{item.get('targetPlatform') or 'linux-64'} is not supported by this package."
-        item["contractStatus"] = _contract_failure_status("dryRun", "TOOL_PLATFORM_UNSUPPORTED", message)
-        item["status"] = "failed"
-        item["message"] = message
-        return upsert_tool(cfg, item)
-
-    try:
-        item["ruleTemplate"] = normalize_rule_template(item.get("ruleTemplate"), required=True)
-    except ToolRegistryError as exc:
-        item["contractStatus"] = _contract_failure_status("dryRun", str(exc), str(exc))
-        item["status"] = "failed"
-        item["message"] = str(exc)
-        return upsert_tool(cfg, item)
-
-    contract = build_tool_contract(item)
-    if not bool(contract["requirements"]["snakemakeRenderable"]):
-        code = str((contract.get("reasons") or ["TOOL_CONTRACT_INCOMPLETE"])[0])
-        item["contractStatus"] = _contract_failure_status("dryRun", code, code)
-        item["status"] = "failed"
-        item["message"] = code
-        return upsert_tool(cfg, item)
-
-    from .tool_contract_validation import run_tool_contract_validation
-
-    result = run_tool_contract_validation(cfg, item)
-    item["contractStatus"] = result["contractStatus"]
-    item["status"] = "declared" if result["ok"] else "failed"
-    item["message"] = str(result["message"] or "")
-    return upsert_tool(cfg, item)
 
 
 def mark_registered_tool_production_enabled(
@@ -166,18 +128,6 @@ def mark_registered_tool_production_enabled(
     return upsert_tool(cfg, item)
 
 
-def _contract_failure_status(key: str, code: str, message: str) -> dict[str, dict[str, str]]:
-    return {
-        **default_contract_status(),
-        key: {
-            "status": "failed",
-            "code": code,
-            "message": message,
-            "checkedAt": now_iso(),
-        },
-    }
-
-
 def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     source = str(payload.get("source") or "").strip()
     name = str(payload.get("name") or "").strip()
@@ -214,6 +164,10 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
         "status": str(payload.get("status") or "declared"),
         "message": str(payload.get("message") or "Tool declared."),
     }
+
+
+def _rule_spec_draft_requires_completion(raw: Any) -> bool:
+    return isinstance(raw, dict) and raw.get("requiresUserCompletion") is True
 
 
 def normalize_tool_capabilities(raw: Any) -> list[dict[str, Any]]:

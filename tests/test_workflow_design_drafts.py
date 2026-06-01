@@ -27,7 +27,7 @@ from apps.remote_runner.workflow_design_storage import (
     list_workflow_design_drafts,
     update_workflow_design_draft,
 )
-from tests.generated_workflow_test_helpers import upsert_ready_tool
+from tests.generated_workflow_test_helpers import test_tool_revision_id, upsert_ready_tool
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -81,7 +81,7 @@ def _draft(tool_id: str = "bioconda::qc=1.0") -> dict[str, Any]:
         "nodes": [
             {
                 "id": "qc",
-                "toolId": tool_id,
+                "toolRevisionId": test_tool_revision_id(tool_id),
                 "inputs": {"reads": {"fromInput": "input"}},
                 "params": {"min_len": 80},
                 "runtime": {"threads": 2, "schedulerResources": {"mem_mb": 256}},
@@ -475,7 +475,7 @@ def test_workflow_design_plan_blocks_unready_tools(tmp_path: Path) -> None:
     plan = plan_workflow_design_draft(cfg, saved["draft"], preview_root=tmp_path / "preview")
 
     assert plan["valid"] is False
-    assert plan["validationIssues"][0]["code"] == "TOOL_NOT_FOUND"
+    assert plan["validationIssues"][0]["code"] == "TOOL_REVISION_NOT_FOUND"
     assert plan["previews"]["snakefile"] == ""
     assert plan["runSpec"] == {}
 
@@ -544,6 +544,7 @@ def test_generated_tool_run_preflight_requires_saved_workflow_design_draft(tmp_p
 def test_generated_workflow_planner_rejects_legacy_direct_shapes(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     upsert_ready_tool(cfg, _tool_manifest())
+    tool_revision_id = test_tool_revision_id("bioconda::qc=1.0")
     resolved_inputs = [{"role": "input", "path": "inputs/reads.fastq", "filename": "reads.fastq"}]
 
     with pytest.raises(ValueError, match="WORKFLOW_RUN_SPEC_UNSUPPORTED_FIELD: tool"):
@@ -575,7 +576,7 @@ def test_generated_workflow_planner_rejects_legacy_direct_shapes(tmp_path: Path)
                     "nodes": [
                         {
                             "id": "qc",
-                            "tool": {"id": "bioconda::qc=1.0"},
+                            "toolRevisionId": tool_revision_id,
                             "inputs": {"reads": {"fromUpload": 0}},
                         }
                     ],
@@ -629,7 +630,7 @@ def test_generated_workflow_planner_rejects_legacy_direct_shapes(tmp_path: Path)
             result_dir=tmp_path / "results",
         )
 
-    with pytest.raises(ValueError, match="WORKFLOW_GRAPH_NODE_UNSUPPORTED_FIELD: qc.toolId"):
+    with pytest.raises(ValueError, match="WORKFLOW_GRAPH_NODE_UNSUPPORTED_FIELD: qc.tool"):
         plan_generated_workflow_steps(
             cfg,
             run_spec={

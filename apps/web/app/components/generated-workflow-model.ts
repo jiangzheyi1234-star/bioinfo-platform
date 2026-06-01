@@ -39,7 +39,7 @@ export type GeneratedWorkflowStepRuntime = {
 
 export type GeneratedWorkflowStepDraft = {
   id: string;
-  toolId: string;
+  toolRevisionId: string;
   inputs: Record<string, GeneratedWorkflowInputBinding>;
   params: GeneratedWorkflowStepParams;
   runtime: GeneratedWorkflowStepRuntime;
@@ -63,7 +63,7 @@ export type GeneratedWorkflowGraphPortRef = {
 
 export type GeneratedWorkflowGraphNode = {
   id: string;
-  toolId: string;
+  toolRevisionId: string;
   inputs: Record<string, GeneratedWorkflowGraphInputBinding>;
   params: GeneratedWorkflowStepParams;
   runtime: GeneratedWorkflowStepRuntime;
@@ -153,6 +153,16 @@ export function uniqueStepId(base: string, existingIds: string[]) {
   return `${normalized}_${Date.now()}`;
 }
 
+export function workflowToolRevisionId(tool: AddedTool | undefined): string {
+  return String(tool?.toolRevisionId || "").trim();
+}
+
+export function workflowToolRevisionEntries(tools: AddedTool[]): [string, AddedTool][] {
+  return tools
+    .map((tool): [string, AddedTool] => [workflowToolRevisionId(tool), tool])
+    .filter(([id]) => id.length > 0);
+}
+
 export function readRuleInputs(tool: AddedTool | undefined): RuleInputSpec[] {
   const inputs = (readToolRuleTemplate(tool) as { inputs?: unknown }).inputs;
   const ports = !Array.isArray(inputs) ? [] : inputs
@@ -213,7 +223,7 @@ export function createStepDraft(
   );
   return {
     id: stepId,
-    toolId: tool.id,
+    toolRevisionId: workflowToolRevisionId(tool),
     inputs,
     params: createStepParams(tool),
     runtime: {},
@@ -237,7 +247,7 @@ export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft
     }
     return {
       id: step.id,
-      toolId: step.toolId,
+      toolRevisionId: step.toolRevisionId,
       inputs,
       params: { ...step.params },
       runtime: { ...step.runtime },
@@ -253,7 +263,7 @@ export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft
 export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflowGraphDraft): GeneratedWorkflowDraft {
   const steps = graphDraft.nodes.map((node) => ({
     id: node.id,
-    toolId: node.toolId,
+    toolRevisionId: node.toolRevisionId,
     inputs: { ...node.inputs } as Record<string, GeneratedWorkflowInputBinding>,
     params: { ...node.params },
     runtime: { ...node.runtime },
@@ -285,7 +295,7 @@ export function validateGeneratedWorkflowDraft(
 ): GeneratedWorkflowValidation {
   const stepDraft = isGeneratedWorkflowGraphDraft(draft) ? graphDraftToGeneratedWorkflowDraft(draft) : draft;
   const errors: GeneratedWorkflowValidationIssue[] = [];
-  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
   const normalizedIds = new Map<string, string>();
   const outputsByStep = new Map<string, Set<string>>();
   const outputSpecsByStep = new Map<string, Map<string, RuleOutputSpec>>();
@@ -300,9 +310,9 @@ export function validateGeneratedWorkflowDraft(
     normalizedIds.set(normalized, step.id);
     incomingCount.set(step.id, 0);
     outgoing.set(step.id, []);
-    const tool = toolById.get(step.toolId);
+    const tool = toolByRevisionId.get(step.toolRevisionId);
     if (!tool) {
-      errors.push({ code: "TOOL_UNKNOWN", message: `步骤 ${step.id} 未选择可用工具`, stepId: step.id });
+      errors.push({ code: "TOOL_REVISION_UNKNOWN", message: `步骤 ${step.id} 未选择已发布工具 revision`, stepId: step.id });
       continue;
     }
     const readiness = ruleSpecReadinessForTool(tool);
@@ -370,7 +380,7 @@ export function validateGeneratedWorkflowDraft(
         errors.push({ code: "WORKFLOW_STEP_INPUT_OUTPUT_UNKNOWN", message: `未知输出 ${binding.fromStep}.${binding.output}`, stepId: step.id, inputName });
         continue;
       }
-      if (!stepInputBindingIsCompatible(inputName, binding, step.toolId, sourceStep.toolId, toolById)) {
+      if (!stepInputBindingIsCompatible(inputName, binding, step.toolRevisionId, sourceStep.toolRevisionId, toolByRevisionId)) {
         errors.push({
           code: "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE",
           message: `输出 ${binding.fromStep}.${binding.output} 与输入 ${step.id}.${inputName} 类型不兼容`,
@@ -425,12 +435,12 @@ export function findCompatibleOutputBinding(
   tools: AddedTool[],
   excludeStepId?: string
 ): { fromStep: string; output: string; audit?: RulePortEdgeAudit } | undefined {
-  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
   let best: { fromStep: string; output: string; score: number; audit?: RulePortEdgeAudit } | undefined;
   for (let index = upstreamSteps.length - 1; index >= 0; index -= 1) {
     const step = upstreamSteps[index];
     if (!step || step.id === excludeStepId) continue;
-    const tool = toolById.get(step.toolId);
+    const tool = toolByRevisionId.get(step.toolRevisionId);
     for (const output of readRuleOutputs(tool)) {
       const score = portCompatibilityScore(input, output);
       const recommendation = explainPortRecommendation(input, output);
@@ -542,12 +552,12 @@ function validateDefaultExposedOutputs(
 function stepInputBindingIsCompatible(
   inputName: string,
   binding: { fromStep: string; output: string },
-  stepToolId: string,
-  sourceToolId: string,
-  toolById: Map<string, AddedTool>
+  stepToolRevisionId: string,
+  sourceToolRevisionId: string,
+  toolByRevisionId: Map<string, AddedTool>
 ): boolean {
-  const input = readRuleInputs(toolById.get(stepToolId)).find((candidate) => candidate.name === inputName);
-  const output = readRuleOutputs(toolById.get(sourceToolId)).find((candidate) => candidate.name === binding.output);
+  const input = readRuleInputs(toolByRevisionId.get(stepToolRevisionId)).find((candidate) => candidate.name === inputName);
+  const output = readRuleOutputs(toolByRevisionId.get(sourceToolRevisionId)).find((candidate) => candidate.name === binding.output);
   return !input || !output || portsCompatible(input, output);
 }
 

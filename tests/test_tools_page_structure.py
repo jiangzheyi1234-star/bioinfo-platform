@@ -17,16 +17,17 @@ def test_tools_page_has_focused_support_modules() -> None:
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
     wrapper_selector = (COMPONENTS / "tools-page-wrapper-selector.tsx").read_text(encoding="utf-8")
+    task_context = (COMPONENTS / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
+    task_bar = (COMPONENTS / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
 
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
-    assert "export async function prepareToolDependency" in api
+    assert "export async function createToolPrepareJob" in api
+    assert "export async function fetchToolPrepareJob" in api
     assert "export async function updateToolRuleTemplate" in api
-    assert "export async function checkToolDependency" in api
-    assert "/api/v1/tools/prepare" in api
+    assert "/api/v1/tools/prepare-jobs" in api
     assert "/api/v1/tools/${encodeURIComponent(id)}/rule-template" in api
-    assert "/api/v1/tools/${encodeURIComponent(id)}/check" in api
     assert "invalidateWorkflowToolCaches" in api
     assert "invalidateAsyncCachePrefix(\"workflow:\")" in api
     assert api.count("invalidateWorkflowToolCaches();") >= 3
@@ -36,6 +37,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "editingRuleSpecToolId" in hook
     assert "ruleSpecSavingId" in hook
     assert "checkingToolId" in hook
+    assert "preparingToolIds" in hook
     assert "checkTool" in hook
     assert "saveToolRuleTemplate" in hook
     assert "export type ToolSearchItem" in model
@@ -103,9 +105,12 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "selectedWrapperPath" in hook
     assert "updateSelectedWrapper" in hook
     assert "missingSelectedRuleSpecFields" in hook
-    assert "加入并验证工具失败" in hook
-    assert "prepareToolDependency(nextTool)" in hook
-    assert hook.count("prepareToolDependency(nextTool)") >= 2
+    assert "启动工具验证失败" in hook
+    assert "createToolPrepareJob(nextTool)" in hook
+    assert "trackToolPrepareJob(job)" in hook
+    assert "waitForToolPrepareJob(job.jobId)" not in hook
+    assert "useToolPrepareTasks" in hook
+    assert "createToolPrepareJob(tool)" in hook
     assert "await addToolDependency(nextTool)" not in hook
     assert "selectedPackageLocked" in hook
     assert "请选择一个明确版本" in hook
@@ -128,15 +133,19 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "Environment" in editor
     assert "Smoke" in editor
     assert "preserveAdditionalPorts" in editor
-    assert "starterRuleTemplateForKnownTool" in editor
-    assert "fastqc" in readiness
-    assert "--outdir {output.qc_dir:q}" in readiness
-    assert "directory: true" in readiness
-    assert "qc_dir" in readiness
+    assert "demoqc" not in readiness
+    assert "--outdir {output.qc_dir:q}" not in readiness
+    assert "directory: true" not in readiness
+    assert "qc_dir" not in readiness
     assert "export function ToolSearchResults" in ui
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
     assert "RuleSpecContractPreview" in ui
+    assert "export function ToolPrepareTaskProvider" in task_context
+    assert "export function ToolPrepareTaskBar" in task_bar
+    assert "Snakemake dry-run" in task_bar
+    assert "Smoke run" in task_bar
+    assert "暂无日志" in task_bar
     assert "ToolWrapperSelector" in ui
     assert "加入并验证" in ui
     assert "还不能加入流程" in ui

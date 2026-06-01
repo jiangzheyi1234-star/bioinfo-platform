@@ -1,5 +1,7 @@
 export type ToolSearchItem = {
   id: string;
+  toolRevisionId?: string;
+  revision?: number;
   name: string;
   summary: string;
   source: "bioconda" | "conda-forge" | string;
@@ -137,6 +139,7 @@ export type SnakemakeWrapperMatch = {
 
 export type RuleSpecDraft = {
   source: "snakemake-wrapper" | "conda-package" | string;
+  contractSource?: string;
   status?: string;
   reason?: string;
   requiresUserCompletion?: boolean;
@@ -254,7 +257,40 @@ export type AddedTool = ToolSearchItem & {
   message?: string;
   createdAt?: string;
   updatedAt?: string;
+  publishedAt?: string | null;
   lastCheckedAt?: string | null;
+};
+
+export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | string;
+
+export type ToolPrepareJobEvent = {
+  eventId: string;
+  stage: string;
+  level: "info" | "success" | "warning" | "error" | string;
+  message: string;
+  details?: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ToolPrepareJob = {
+  jobId: string;
+  status: ToolPrepareJobStatus;
+  stage: string;
+  message: string;
+  toolId: string;
+  request?: { id?: string; name?: string; packageSpec?: string } & Record<string, unknown>;
+  result?: AddedTool | null;
+  errorCode?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  cancelledAt?: string | null;
+  events?: ToolPrepareJobEvent[];
+};
+
+export type ToolPrepareJobResponse = {
+  data: ToolPrepareJob;
 };
 
 export type ToolsResponse = {

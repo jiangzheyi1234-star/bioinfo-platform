@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from apps.api.rule_spec_drafts import build_wrapper_rule_spec_draft
+from apps.api.tool_contract_resolver import DEFAULT_TOOL_CONTRACT_RESOLVER
 from config import get_app_cache_dir
 
 
@@ -18,7 +18,7 @@ SNAKEMAKE_WRAPPERS_WEB_ROOT = f"https://github.com/{SNAKEMAKE_WRAPPERS_REPOSITOR
 WRAPPER_CACHE_TTL_SECONDS = 3600
 WRAPPER_LOOKUP_TIMEOUT_SECONDS = 30.0
 MAX_WRAPPER_MATCHES_PER_TOOL = 8
-WRAPPER_INDEX_CACHE_FILENAME = f"wrapper-index-v1-{SNAKEMAKE_WRAPPERS_REF}.json"
+WRAPPER_INDEX_CACHE_FILENAME = f"wrapper-index-v2-{SNAKEMAKE_WRAPPERS_REF}.json"
 
 _WRAPPER_CACHE: tuple[float, dict[str, list[dict[str, Any]]]] | None = None
 
@@ -90,7 +90,7 @@ def _build_wrapper_index(payload: dict[str, Any]) -> dict[str, list[dict[str, An
             continue
         seen.add(key)
         wrapper_identifier = f"{SNAKEMAKE_WRAPPERS_REF}/{wrapper_dir}"
-        rule_spec_draft = build_wrapper_rule_spec_draft(
+        rule_spec_draft = DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_snakemake_wrapper(
             wrapper_repository=SNAKEMAKE_WRAPPERS_REPOSITORY,
             wrapper_ref=SNAKEMAKE_WRAPPERS_REF,
             wrapper_path=wrapper_dir,
@@ -147,7 +147,7 @@ def _load_cached_wrapper_index() -> dict[str, list[dict[str, Any]]] | None:
     for key, entries in index.items():
         if not isinstance(key, str) or not isinstance(entries, list):
             raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {path}")
-        normalized[key] = [dict(item) for item in entries if isinstance(item, dict)]
+        normalized[key] = [_normalize_cached_wrapper_entry(item, cache_path=path) for item in entries if isinstance(item, dict)]
         if len(normalized[key]) != len(entries):
             raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {path}")
     return normalized
@@ -159,9 +159,30 @@ def _save_cached_wrapper_index(index: dict[str, list[dict[str, Any]]]) -> None:
     import json
 
     path.write_text(
-        json.dumps({"version": 1, "fetchedAt": time.time(), "index": index}, ensure_ascii=False),
+        json.dumps({"version": 2, "fetchedAt": time.time(), "index": index}, ensure_ascii=False),
         encoding="utf-8",
     )
+
+
+def _normalize_cached_wrapper_entry(raw: dict[str, Any], *, cache_path: Path) -> dict[str, Any]:
+    entry = dict(raw)
+    wrapper_repository = str(entry.get("wrapperRepository") or "").strip()
+    wrapper_ref = str(entry.get("wrapperRef") or "").strip()
+    wrapper_path = str(entry.get("wrapperPath") or "").strip()
+    wrapper_identifier = str(entry.get("wrapperIdentifier") or "").strip()
+    if not wrapper_repository or not wrapper_ref or not wrapper_path or not wrapper_identifier:
+        raise ValueError(f"SNAKEMAKE_WRAPPER_CACHE_INVALID: {cache_path}")
+    entry["wrapperRepository"] = wrapper_repository
+    entry["wrapperRef"] = wrapper_ref
+    entry["wrapperPath"] = wrapper_path
+    entry["wrapperIdentifier"] = wrapper_identifier
+    entry["ruleSpecDraft"] = DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_snakemake_wrapper(
+        wrapper_repository=wrapper_repository,
+        wrapper_ref=wrapper_ref,
+        wrapper_path=wrapper_path,
+        wrapper_identifier=wrapper_identifier,
+    )
+    return entry
 
 
 def _tool_name_from_wrapper_dir(wrapper_dir: str) -> str:
