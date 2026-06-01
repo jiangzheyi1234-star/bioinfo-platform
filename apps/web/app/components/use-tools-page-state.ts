@@ -281,7 +281,7 @@ export function useToolsPageState() {
       try {
         await addToolDependency(nextTool);
         saved = true;
-        if (missingRuleSpecFields(nextTool).length === 0) {
+        if (shouldAutoPrepareOnAdd(nextTool)) {
           const job = await createToolPrepareJob(nextTool);
           trackToolPrepareJob(job);
         }
@@ -434,4 +434,12 @@ function draftOnlyWhenActionMissing(tool: AddedTool): AddedTool {
       ruleTemplate: tool.ruleTemplate,
     },
   };
+}
+
+function shouldAutoPrepareOnAdd(tool: AddedTool) {
+  return (
+    tool.ruleSpecDraft?.source === "h2ometa-tool-profile" &&
+    tool.ruleSpecDraft?.requiresUserCompletion === false &&
+    missingRuleSpecFields(tool).length === 0
+  );
 }

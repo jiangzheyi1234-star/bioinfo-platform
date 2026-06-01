@@ -299,6 +299,8 @@ def test_tool_search_applies_non_database_profile_overlay(monkeypatch) -> None:
     draft = response["data"]["items"][0]["ruleSpecDraft"]
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["lock"]["profileId"] == "fastp"
+    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastp"
+    assert "commandTemplate" not in draft["ruleTemplate"]
     assert draft["ruleTemplate"]["resources"] == {"threads": {"default": 2}, "mem_mb": {"default": 2048}}
 
 

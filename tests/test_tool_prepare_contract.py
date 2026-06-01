@@ -123,8 +123,8 @@ def test_h2ometa_profile_prepare_payload_publishes_workflow_ready(monkeypatch, t
     def fake_validation(_cfg, tool):
         assert tool["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
         assert tool["ruleSpecDraft"]["requiresUserCompletion"] is False
-        assert tool["ruleTemplate"]["commandTemplate"].startswith("fastp ")
-        assert tool["ruleTemplate"]["environment"]["conda"]["dependencies"] == ["bioconda::fastp=0.24.1"]
+        assert tool["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastp"
+        assert tool["ruleTemplate"]["outputs"][0]["name"] == "trimmed"
         return {
             "ok": True,
             "message": "Tool contract validation passed.",
@@ -179,6 +179,7 @@ def test_h2ometa_profile_prepare_job_result_is_workflow_ready(monkeypatch, tmp_p
         assert tool["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
         assert tool["ruleSpecDraft"]["requiresUserCompletion"] is False
         if event_callback is not None:
+            event_callback({"stage": "runtime_check", "message": "Workflow runtime check passed.", "level": "success"})
             event_callback({"stage": "dry_run", "message": "Snakemake dry-run passed.", "level": "success"})
             event_callback({"stage": "smoke_run", "message": "Snakemake smoke run passed.", "level": "success"})
             event_callback({"stage": "output_validation", "message": "Output validation passed.", "level": "success"})
@@ -225,6 +226,7 @@ def test_h2ometa_profile_prepare_job_result_is_workflow_ready(monkeypatch, tmp_p
         "profile_schema_validation",
         "static_rulespec_validation",
         "environment_resolution",
+        "runtime_check",
         "dry_run",
         "smoke_run",
         "output_validation",

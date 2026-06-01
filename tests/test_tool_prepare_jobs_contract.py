@@ -41,6 +41,11 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "cancelToolPrepareJob" in frontend_api
     assert '"/api/v1/tools/prepare-jobs"' in frontend_api
     assert "prepareToolDependency(nextTool)" not in frontend_state
+    assert "if (shouldAutoPrepareOnAdd(nextTool))" in frontend_state
+    assert "function shouldAutoPrepareOnAdd(tool: AddedTool)" in frontend_state
+    assert 'tool.ruleSpecDraft?.source === "h2ometa-tool-profile"' in frontend_state
+    assert "tool.ruleSpecDraft?.requiresUserCompletion === false" in frontend_state
+    assert "missingRuleSpecFields(tool).length === 0" in frontend_state
     assert "createToolPrepareJob(nextTool)" in frontend_state
     assert "waitForToolPrepareJob(job.jobId)" not in frontend_state
     assert "trackToolPrepareJob(job)" in frontend_state
@@ -50,6 +55,13 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "cancelToolPrepareJob(jobId)" in task_context
     assert "ToolPrepareTaskBar" in task_bar
     assert "暂无日志" in task_bar
+    assert "profile_schema_validation" in task_bar
+    assert "static_rulespec_validation" in task_bar
+    assert "environment_resolution" in task_bar
+    assert "runtime_check" in task_bar
+    assert "dry_run" in task_bar
+    assert "smoke_run" in task_bar
+    assert "output_validation" in task_bar
 
 
 def test_prepare_task_status_lives_in_bottom_status_bar() -> None:

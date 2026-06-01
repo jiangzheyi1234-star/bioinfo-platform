@@ -48,7 +48,10 @@ def _render_step_rule_block(
     resources: dict[str, dict[str, Any]],
     resource_config: dict[str, str],
 ) -> str:
-    input_lines = "".join(f"        {_safe_snakemake_name(name)}={path!r},\n" for name, path in step.inputs.items())
+    input_lines = "".join(
+        _render_rule_input_line(name, path, step.rule_template)
+        for name, path in step.inputs.items()
+    )
     output_lines = render_rule_output_lines(step.outputs, step.rule_template)
     param_lines = render_rule_param_lines(step.params)
     runtime_lines = render_runtime_directives(step.runtime)
@@ -122,6 +125,23 @@ def _render_module_use_rule_block(
         f"{param_lines}"
         f"{runtime_lines}"
     )
+
+
+def _render_rule_input_line(name: str, path: str, rule_template: dict[str, Any]) -> str:
+    safe_name = _safe_snakemake_name(name)
+    if _rule_input_as_list(safe_name, rule_template):
+        return f"        {safe_name}=[{path!r}],\n"
+    return f"        {safe_name}={path!r},\n"
+
+
+def _rule_input_as_list(name: str, rule_template: dict[str, Any]) -> bool:
+    specs = [item for item in (rule_template.get("inputs") or []) if isinstance(item, dict)]
+    for index, spec in enumerate(specs):
+        spec_name = _safe_snakemake_name(str(spec.get("name") or ("primary" if index == 0 else f"input_{index + 1}")))
+        if spec_name != name:
+            continue
+        return bool(spec.get("multiple") or spec.get("asList") or spec.get("list"))
+    return False
 
 
 def _render_command(
