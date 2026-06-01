@@ -6,6 +6,7 @@ import pytest
 
 from apps.api import tool_capabilities
 from apps.api import snakemake_wrappers
+from apps.api.rule_spec_drafts import build_wrapper_rule_spec_draft
 
 
 def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
@@ -204,6 +205,23 @@ def test_tool_search_builds_dependency_rule_spec_draft_without_wrapper(monkeypat
     assert draft["ruleTemplate"]["inputs"][0]["name"] == "primary"
     assert draft["ruleTemplate"]["outputs"][0]["name"] == "primary"
     assert "fastq" in draft["ruleTemplate"]["commandTemplate"]
+
+
+def test_fastqc_wrapper_draft_declares_wrapper_required_named_outputs() -> None:
+    draft = build_wrapper_rule_spec_draft(
+        wrapper_repository="snakemake/snakemake-wrappers",
+        wrapper_ref="v9.8.0",
+        wrapper_path="bio/fastqc",
+        wrapper_identifier="v9.8.0/bio/fastqc",
+    )
+
+    outputs = {item["name"]: item for item in draft["ruleTemplate"]["outputs"]}
+    assert draft["requiresUserCompletion"] is False
+    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/fastqc"
+    assert sorted(outputs) == ["html", "zip"]
+    assert outputs["html"]["mimeType"] == "text/html"
+    assert outputs["zip"]["mimeType"] == "application/zip"
+    assert draft["ruleTemplate"]["smokeTest"]["inputs"]["reads"]["content"].startswith("@smoke")
 
 
 def test_snakemake_wrapper_lookup_uses_disk_cache_before_network(monkeypatch) -> None:
