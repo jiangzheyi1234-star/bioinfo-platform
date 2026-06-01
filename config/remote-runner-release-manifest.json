@@ -18,10 +18,10 @@
         "linux-64": "config/remote-runner-conda-specs/h2ometa-remote-runner/0.1.1-control-plane/linux-64.explicit.txt"
       },
       "sha256": {
-        "linux-64": "778327d8d82dc4701c8a826a93ded0d63c7115f0add932e7bce97c98506f0392"
+        "linux-64": "c0da501e0462c60cb4f06b6a3bfed12c1f75fbe19eb20bf5ab9cd69d3c2b6348"
       },
       "size_bytes": {
-        "linux-64": 105859852
+        "linux-64": 105856690
       },
       "lock_sha256": {
         "linux-64": "2a5c0c27f7ec75cbb525c7289e1f21f17312aa5b3d015df7996c84fd78325c38"
