@@ -7,7 +7,7 @@ import subprocess
 import time
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .config import (
     RemoteRunnerConfig,
@@ -20,10 +20,25 @@ from .generated_workflow_graph import GENERATED_WORKFLOW_RULE_CONTRACT_VERSION
 from .tool_contract import default_contract_status, normalize_contract_status
 
 
-def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]:
+ValidationEventCallback = Callable[[dict[str, Any]], None]
+
+
+def run_tool_contract_validation(
+    cfg: RemoteRunnerConfig,
+    tool: dict[str, Any],
+    event_callback: ValidationEventCallback | None = None,
+) -> dict[str, Any]:
     status = default_contract_status()
+    _emit_event(event_callback, "runtime_check", "Checking workflow runtime.")
     runtime = inspect_workflow_runtime(cfg)
     if not bool(runtime.get("ok")):
+        _emit_event(
+            event_callback,
+            "runtime_check",
+            str(runtime.get("message") or "Workflow runtime is not ready."),
+            level="error",
+            details={"reasonCode": str(runtime.get("reasonCode") or "")},
+        )
         return _result(
             status=_set_status(
                 status,
@@ -40,12 +55,13 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
     validation_root = Path(cfg.work_dir) / "_tool_contract_checks" / run_id
     result_dir = Path(cfg.results_dir) / "_tool_contract_checks" / run_id
     try:
+        _emit_event(event_callback, "preparing_workflow", "Preparing smoke-test workflow.")
         resolved_inputs = _materialize_smoke_inputs(tool, validation_root / "inputs")
         smoke_test = _smoke_test(tool)
-        tool_request: dict[str, Any] = {"id": str(tool.get("id") or "")}
+        tool_revision_id = str(tool.get("toolRevisionId") or "") or f"{str(tool.get('id') or '')}#candidate"
         node: dict[str, Any] = {
             "id": "run_tool",
-            "tool": tool_request,
+            "toolRevisionId": tool_revision_id,
             "inputs": _smoke_workflow_inputs(tool, resolved_inputs),
         }
         if isinstance(smoke_test.get("params"), dict) and smoke_test["params"]:
@@ -69,15 +85,27 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
             work_dir=validation_root / "work",
             result_dir=result_dir,
             require_workflow_ready=False,
-            tool_overrides={str(tool.get("id") or ""): tool},
+            tool_overrides={tool_revision_id: {**tool, "toolRevisionId": tool_revision_id}},
         )
     except Exception as exc:
+        _emit_event(
+            event_callback,
+            "preparing_workflow",
+            str(exc) or "Tool validation preparation failed.",
+            level="error",
+        )
         return _result(
             status=_set_status(status, "dryRun", "failed", "TOOL_VALIDATION_PREPARE_FAILED", str(exc)),
             ok=False,
             message=str(exc) or "Tool validation preparation failed.",
         )
 
+    _emit_event(
+        event_callback,
+        "dry_run",
+        "Running Snakemake dry-run.",
+        details={"runId": run_id, "snakefile": str(generated.snakefile)},
+    )
     dry_run = _run_snakemake(
         cfg,
         snakefile=generated.snakefile,
@@ -87,6 +115,13 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
         timeout=_smoke_timeout(tool),
     )
     if dry_run["returncode"] != 0:
+        _emit_event(
+            event_callback,
+            "dry_run",
+            "Snakemake dry-run failed.",
+            level="error",
+            details=_snakemake_event_details(dry_run),
+        )
         return _result(
             status=_set_status(
                 status,
@@ -109,15 +144,31 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
         run_id=run_id,
         log_path=str(dry_run.get("logPath") or ""),
     )
+    _emit_event(
+        event_callback,
+        "dry_run",
+        "Snakemake dry-run passed.",
+        level="success",
+        details=_snakemake_event_details(dry_run),
+    )
 
+    _emit_event(event_callback, "smoke_fixture", "Checking smoke-test fixtures.")
     smoke_error = _smoke_fixture_error(tool)
     if smoke_error:
+        _emit_event(
+            event_callback,
+            "smoke_fixture",
+            smoke_error["message"],
+            level="error",
+            details={"code": smoke_error["code"]},
+        )
         return _result(
             status=_set_status(status, "smokeRun", "failed", smoke_error["code"], smoke_error["message"], run_id=run_id),
             ok=False,
             message=smoke_error["message"],
         )
 
+    _emit_event(event_callback, "smoke_run", "Running Snakemake smoke run.", details={"runId": run_id})
     smoke_run = _run_snakemake(
         cfg,
         snakefile=generated.snakefile,
@@ -127,6 +178,13 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
         timeout=_smoke_timeout(tool),
     )
     if smoke_run["returncode"] != 0:
+        _emit_event(
+            event_callback,
+            "smoke_run",
+            "Snakemake smoke run failed.",
+            level="error",
+            details=_snakemake_event_details(smoke_run),
+        )
         return _result(
             status=_set_status(
                 status,
@@ -149,9 +207,24 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
         run_id=run_id,
         log_path=str(smoke_run.get("logPath") or ""),
     )
+    _emit_event(
+        event_callback,
+        "smoke_run",
+        "Snakemake smoke run passed.",
+        level="success",
+        details=_snakemake_event_details(smoke_run),
+    )
 
+    _emit_event(event_callback, "output_validation", "Validating declared outputs.")
     output_error = _validate_outputs(output_schema=generated.output_schema, outputs=generated.outputs)
     if output_error:
+        _emit_event(
+            event_callback,
+            "output_validation",
+            output_error["message"],
+            level="error",
+            details={"code": output_error["code"], "logPath": str(smoke_run.get("logPath") or "")},
+        )
         return _result(
             status=_set_status(
                 status,
@@ -174,6 +247,13 @@ def run_tool_contract_validation(cfg: RemoteRunnerConfig, tool: dict[str, Any]) 
         run_id=run_id,
         log_path=str(smoke_run.get("logPath") or ""),
         details=_validated_output_summary(generated.output_schema),
+    )
+    _emit_event(
+        event_callback,
+        "output_validation",
+        "Output validation passed.",
+        level="success",
+        details={"logPath": str(smoke_run.get("logPath") or ""), **_validated_output_summary(generated.output_schema)},
     )
     return _result(status=status, ok=True, message="Tool contract validation passed.")
 
@@ -206,6 +286,34 @@ def _run_snakemake(
         "returncode": int(result.returncode),
         "message": _tail(result.stderr or result.stdout or ""),
         "logPath": str(log_path),
+    }
+
+
+def _emit_event(
+    callback: ValidationEventCallback | None,
+    stage: str,
+    message: str,
+    *,
+    level: str = "info",
+    details: dict[str, Any] | None = None,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        {
+            "stage": stage,
+            "message": message,
+            "level": level,
+            "details": details or {},
+        }
+    )
+
+
+def _snakemake_event_details(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "returncode": str(result.get("returncode", "")),
+        "logPath": str(result.get("logPath") or ""),
+        "tail": str(result.get("message") or ""),
     }
 
 

@@ -33,6 +33,10 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
 
 def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(tools)").fetchall()}
+    if "tool_revision_id" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN tool_revision_id TEXT NOT NULL DEFAULT ''")
+    if "revision" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
     if "rule_template_json" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN rule_template_json TEXT NOT NULL DEFAULT '{}'")
     if "rule_spec_draft_json" not in columns:
@@ -43,6 +47,8 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE tools ADD COLUMN snakemake_wrappers_json TEXT NOT NULL DEFAULT '[]'")
     if "contract_status_json" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN contract_status_json TEXT NOT NULL DEFAULT '{}'")
+    if "published_at" not in columns:
+        connection.execute("ALTER TABLE tools ADD COLUMN published_at TEXT")
 
 
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
@@ -136,6 +142,8 @@ def fetch_upload(cfg: RemoteRunnerConfig, upload_id: str) -> dict[str, Any] | No
 def _tool_row_to_dict(row) -> dict[str, Any]:
     item = {
         "id": row["tool_id"],
+        "toolRevisionId": row["tool_revision_id"],
+        "revision": int(row["revision"] or 0),
         "name": row["name"],
         "source": row["source"],
         "sourceLabel": row["source_label"],
@@ -157,6 +165,7 @@ def _tool_row_to_dict(row) -> dict[str, Any]:
         "message": row["message"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+        "publishedAt": row["published_at"],
         "lastCheckedAt": row["last_checked_at"],
     }
     item["toolContract"] = build_tool_contract(item)
@@ -200,12 +209,14 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
         connection.execute(
             """
             INSERT INTO tools (
-                tool_id, name, source, source_label, version, package_spec, summary,
+                tool_id, tool_revision_id, revision, name, source, source_label, version, package_spec, summary,
                 target_platform, target_platform_supported, platforms_json, source_url,
                 test_command, rule_template_json, rule_spec_draft_json, capabilities_json, snakemake_wrappers_json,
-                contract_status_json, status, message, created_at, updated_at, last_checked_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                contract_status_json, status, message, created_at, updated_at, published_at, last_checked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tool_id) DO UPDATE SET
+                tool_revision_id = excluded.tool_revision_id,
+                revision = excluded.revision,
                 name = excluded.name,
                 source = excluded.source,
                 source_label = excluded.source_label,
@@ -225,10 +236,13 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 status = excluded.status,
                 message = excluded.message,
                 updated_at = excluded.updated_at,
+                published_at = excluded.published_at,
                 last_checked_at = excluded.last_checked_at
             """,
             (
                 tool_id,
+                str(tool.get("toolRevisionId") or ""),
+                int(tool.get("revision") or 0),
                 name,
                 source,
                 str(tool.get("sourceLabel") or source),
@@ -249,6 +263,7 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
                 message,
                 (existing or {}).get("createdAt") or now,
                 now,
+                str(tool.get("publishedAt") or "") or None,
                 last_checked_at,
             ),
         )

@@ -353,8 +353,6 @@ def _output_ready(item: dict[str, Any]) -> bool:
     return bool(
         _string(item.get("name"))
         and _string(item.get("path"))
-        and _string(item.get("kind"))
-        and _string(item.get("mimeType"))
     )
 
 

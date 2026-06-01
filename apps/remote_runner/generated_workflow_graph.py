@@ -5,7 +5,7 @@ from typing import Any
 
 
 GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1"
-_ALLOWED_GRAPH_NODE_KEYS = {"id", "tool", "inputs", "params", "runtime"}
+_ALLOWED_GRAPH_NODE_KEYS = {"id", "toolRevisionId", "inputs", "params", "runtime"}
 
 
 def normalize_generated_workflow_run_spec(run_spec: dict[str, Any]) -> dict[str, Any]:
@@ -90,17 +90,15 @@ def _step_from_node(node: Any) -> dict[str, Any]:
     extra_keys = sorted(set(node) - _ALLOWED_GRAPH_NODE_KEYS)
     if extra_keys:
         raise ValueError(f"WORKFLOW_GRAPH_NODE_UNSUPPORTED_FIELD: {node_id}.{extra_keys[0]}")
-    tool = node.get("tool")
-    if isinstance(tool, dict):
-        tool_request = dict(tool)
-    else:
-        raise ValueError(f"WORKFLOW_GRAPH_NODE_TOOL_REQUIRED: {node_id}")
+    tool_revision_id = str(node.get("toolRevisionId") or "").strip()
+    if not tool_revision_id:
+        raise ValueError(f"WORKFLOW_GRAPH_NODE_TOOL_REVISION_REQUIRED: {node_id}")
     inputs = node.get("inputs") or {}
     if not isinstance(inputs, dict):
         raise ValueError(f"WORKFLOW_GRAPH_NODE_INPUTS_INVALID: {node_id}")
     step = {
         "id": node_id,
-        "tool": tool_request,
+        "toolRevisionId": tool_revision_id,
         "inputs": dict(inputs),
     }
     if isinstance(node.get("params"), dict):

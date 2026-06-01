@@ -53,6 +53,9 @@ def update_registered_tool_rule_template(
     item["contractStatus"] = default_contract_status()
     item["status"] = "declared"
     item["message"] = "RuleSpec saved."
+    item["toolRevisionId"] = ""
+    item["revision"] = 0
+    item["publishedAt"] = None
     return upsert_tool(cfg, item)
 
 
@@ -519,7 +522,7 @@ def _normalize_rule_outputs(raw: Any) -> list[dict[str, Any]]:
         path = str(item.get("path") or "").strip()
         kind = str(item.get("kind") or "").strip()
         mime_type = str(item.get("mimeType") or "").strip()
-        if not path or not kind or not mime_type:
+        if not path:
             raise ToolRegistryError("TOOL_RULE_OUTPUT_SPEC_INVALID")
         _validate_relative_output_path(path)
         temp = _normalize_rule_output_flag(item, name=name, field="temp")
@@ -527,7 +530,15 @@ def _normalize_rule_outputs(raw: Any) -> list[dict[str, Any]]:
         directory = _normalize_rule_output_flag(item, name=name, field="directory")
         if temp and protected:
             raise ToolRegistryError(f"TOOL_RULE_OUTPUT_FLAGS_INVALID: {name}")
-        normalized = {**item, "name": name, "path": path, "kind": kind, "mimeType": mime_type}
+        normalized = {**item, "name": name, "path": path}
+        if kind:
+            normalized["kind"] = kind
+        elif "kind" in normalized:
+            del normalized["kind"]
+        if mime_type:
+            normalized["mimeType"] = mime_type
+        elif "mimeType" in normalized:
+            del normalized["mimeType"]
         for flag_name, enabled in [("temp", temp), ("protected", protected), ("directory", directory)]:
             if enabled:
                 normalized[flag_name] = True

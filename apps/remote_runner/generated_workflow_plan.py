@@ -12,7 +12,7 @@ from .rule_ports import build_output_port_specs, validate_input_binding_compatib
 from .rule_outputs import validate_exposed_output_spec
 from .rule_runtime import RuleRuntimeDirectives, resolve_rule_runtime_directives
 from .rule_templates import rule_template_candidate_entries
-from .storage import fetch_tool
+from .tool_revisions import fetch_tool_revision
 from .tools import normalize_rule_template
 
 
@@ -21,6 +21,7 @@ class GeneratedWorkflowStepPlan:
     step_id: str
     rule_name: str
     tool_id: str
+    tool_revision_id: str
     tool: dict[str, Any]
     rule_template: dict[str, Any]
     rule_spec_draft: dict[str, Any]
@@ -57,14 +58,14 @@ def plan_generated_workflow_steps(
     output_port_specs_by_step_id: dict[str, dict[str, dict[str, str]]] = {}
 
     for index, requested_step in enumerate(requested_steps):
-        tool_request = step_tool_request(requested_step)
-        tool_id = str(tool_request.get("id") or "").strip()
+        tool_revision_id = step_tool_revision_id(requested_step)
+        tool = tool_overrides.get(tool_revision_id) if tool_overrides else None
+        tool = tool or fetch_tool_revision(cfg, tool_revision_id)
+        if tool is None:
+            raise ValueError("TOOL_REVISION_NOT_FOUND")
+        tool_id = str(tool.get("id") or tool.get("toolId") or "").strip()
         if not tool_id:
             raise ValueError("TOOL_ID_REQUIRED")
-        tool = tool_overrides.get(tool_id) if tool_overrides else None
-        tool = tool or fetch_tool(cfg, tool_id)
-        if tool is None:
-            raise ValueError("TOOL_NOT_FOUND")
         if not bool(tool.get("targetPlatformSupported")):
             raise ValueError("TOOL_PLATFORM_UNSUPPORTED")
         package_spec = str(tool.get("packageSpec") or "").strip()
@@ -72,6 +73,7 @@ def plan_generated_workflow_steps(
             raise ValueError("TOOL_PACKAGE_SPEC_REQUIRED")
         if require_workflow_ready:
             validate_tool_workflow_ready(tool)
+        tool_request = {"toolRevisionId": tool_revision_id}
 
         step_id = step_id_from_request(requested_step)
         safe_tool_id = safe_identifier(tool_id)
@@ -108,6 +110,7 @@ def plan_generated_workflow_steps(
                 step_id=step_id,
                 rule_name="run_tool" if single_step else safe_snakemake_name(f"step_{index + 1:02d}_{safe_step_id}"),
                 tool_id=tool_id,
+                tool_revision_id=tool_revision_id,
                 tool=tool,
                 rule_template=rule_template,
                 rule_spec_draft=rule_spec_draft,
@@ -202,14 +205,11 @@ def step_input_dependencies(step: dict[str, Any]) -> list[tuple[str, str]]:
     return dependencies
 
 
-def step_tool_request(step: dict[str, Any]) -> dict[str, Any]:
-    tool_request = step.get("tool")
-    if isinstance(tool_request, dict):
-        extra_keys = sorted(set(tool_request) - {"id"})
-        if extra_keys:
-            raise ValueError(f"WORKFLOW_STEP_TOOL_UNSUPPORTED_FIELD: {extra_keys[0]}")
-        return tool_request
-    raise ValueError("TOOL_REQUIRED")
+def step_tool_revision_id(step: dict[str, Any]) -> str:
+    tool_revision_id = str(step.get("toolRevisionId") or "").strip()
+    if not tool_revision_id:
+        raise ValueError("TOOL_REVISION_ID_REQUIRED")
+    return tool_revision_id
 
 
 def step_id_from_request(step: dict[str, Any]) -> str:

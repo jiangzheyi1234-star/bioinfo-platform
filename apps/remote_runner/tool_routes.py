@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from .api_models import ToolManifestRequest, ToolProductionEvidenceRequest, ToolRuleTemplateRequest
@@ -19,6 +19,8 @@ from .tools import (
     update_registered_tool_rule_template,
 )
 from .tool_preparation import prepare_registered_tool
+from .tool_prepare_job_storage import cancel_tool_prepare_job, create_tool_prepare_job, fetch_tool_prepare_job
+from .tool_prepare_jobs import run_tool_prepare_job
 
 
 router = APIRouter()
@@ -68,6 +70,37 @@ async def prepare_tool(payload: ToolManifestRequest, authorization: str | None =
     except ToolRegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return data_response(item)
+
+
+@router.post("/api/v1/tools/prepare-jobs", status_code=202)
+async def create_prepare_job(
+    payload: ToolManifestRequest,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    job = create_tool_prepare_job(cfg, payload.model_dump(exclude_none=True))
+    background_tasks.add_task(run_tool_prepare_job, cfg, job["jobId"])
+    return data_response(job)
+
+
+@router.get("/api/v1/tools/prepare-jobs/{job_id}")
+async def get_prepare_job(job_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    job = fetch_tool_prepare_job(cfg, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="TOOL_PREPARE_JOB_NOT_FOUND")
+    return data_response(job)
+
+
+@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")
+async def cancel_prepare_job(job_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    try:
+        job = cancel_tool_prepare_job(cfg, job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="TOOL_PREPARE_JOB_NOT_FOUND") from exc
+    return data_response(job)
 
 
 @router.patch("/api/v1/tools/{tool_id}/rule-template")
