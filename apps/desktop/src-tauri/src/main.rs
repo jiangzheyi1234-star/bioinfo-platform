@@ -9,6 +9,7 @@ use std::{env, net::TcpStream, thread};
 use tauri::Manager;
 
 const TERMINAL_RUNTIME_BUILD_ID: &str = "terminal-websocket-v1";
+const DEFAULT_WINDOWS_UV_ENV_DIR: &str = ".venv-win";
 
 struct BackendState(Mutex<Option<Child>>);
 
@@ -264,6 +265,21 @@ fn repo_uv_cache_dir(workdir: &Path) -> PathBuf {
     workdir.join(".uv-cache")
 }
 
+fn repo_uv_project_environment(workdir: &Path) -> PathBuf {
+    if let Ok(explicit) = env::var("H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    if cfg!(windows) {
+        return workdir.join(DEFAULT_WINDOWS_UV_ENV_DIR);
+    }
+
+    workdir.join(".venv")
+}
+
 fn spawn_explicit_backend(cmd_spec: BackendCommand) -> Result<SpawnedBackend, String> {
     let log_path = backend_log_path(cmd_spec.workdir.as_deref())?;
     let log_file = std::fs::OpenOptions::new()
@@ -309,6 +325,7 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
 
         let mut cmd = Command::new(&cmd_spec.program);
         let uv_cache_dir = repo_uv_cache_dir(&workdir);
+        let uv_project_environment = repo_uv_project_environment(&workdir);
         let _ = std::fs::create_dir_all(&uv_cache_dir);
         cmd.args(cmd_spec.args.iter())
             .arg("-m")
@@ -317,7 +334,7 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
             .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
             .env("H2OMETA_BACKEND_SOURCE", "repo")
             .env("UV_CACHE_DIR", uv_cache_dir)
-            .env("UV_PROJECT_ENVIRONMENT", workdir.join(".venv"))
+            .env("UV_PROJECT_ENVIRONMENT", uv_project_environment)
             .env("UV_PYTHON_INSTALL_DIR", workdir.join(".codex-uv-python"))
             .env_remove("UV_PYTHON")
             .env("WSL_UTF8", "1")
