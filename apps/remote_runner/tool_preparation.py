@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 from .config import RemoteRunnerConfig
 from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
-from .tool_contract_validation import WAITING_RESOURCE_CODES, run_tool_contract_validation
+from .tool_contract_validation import WAITING_RESOURCE_CODES, build_resource_wait_details, run_tool_contract_validation
 from .tools_errors import ToolPrepareWaitingResourceError
 from .tools import (
     ToolRegistryError,
@@ -70,7 +70,7 @@ def validate_registered_tool_for_publish(
     item["message"] = str(result["message"] or "")
     contract = build_tool_contract(item)
     if not bool(result["ok"]) or not bool(contract.get("workflowReady")):
-        waiting_resource = _waiting_resource_error(item)
+        waiting_resource = _waiting_resource_error(cfg, item)
         if waiting_resource is not None:
             raise waiting_resource
         raise ToolRegistryError(_validation_failure_code(item))
@@ -96,7 +96,7 @@ def _validation_failure_code(item: dict[str, Any]) -> str:
     return str(item.get("message") or "TOOL_CONTRACT_VALIDATION_FAILED")
 
 
-def _waiting_resource_error(item: dict[str, Any]) -> ToolPrepareWaitingResourceError | None:
+def _waiting_resource_error(cfg: RemoteRunnerConfig, item: dict[str, Any]) -> ToolPrepareWaitingResourceError | None:
     status = normalize_contract_status(item.get("contractStatus"))
     dry_run = status.get("dryRun", {})
     code = str(dry_run.get("code") or "").strip()
@@ -106,32 +106,13 @@ def _waiting_resource_error(item: dict[str, Any]) -> ToolPrepareWaitingResourceE
     return ToolPrepareWaitingResourceError(
         code=code,
         message=str(dry_run.get("message") or code),
-        details=_waiting_resource_details(item, resource_key),
+        details=build_resource_wait_details(cfg, item, resource_key),
     )
 
 
 def _resource_key_from_message(message: str) -> str:
     _prefix, separator, remainder = str(message or "").rpartition(":")
     return remainder.strip() if separator else ""
-
-
-def _waiting_resource_details(item: dict[str, Any], resource_key: str) -> dict[str, Any]:
-    template = item.get("ruleTemplate") if isinstance(item.get("ruleTemplate"), dict) else {}
-    resources = template.get("resources") if isinstance(template.get("resources"), dict) else {}
-    spec = resources.get(resource_key) if isinstance(resources.get(resource_key), dict) else {}
-    details: dict[str, Any] = {"resourceType": "database"}
-    if resource_key:
-        details["resourceKey"] = resource_key
-    config_key = str(spec.get("configKey") or resource_key or "").strip()
-    if config_key:
-        details["configKey"] = config_key
-    accepted_templates = [str(value).strip() for value in spec.get("acceptedTemplates") or [] if str(value).strip()]
-    if accepted_templates:
-        details["acceptedTemplates"] = accepted_templates
-    accepted_capabilities = [str(value).strip() for value in spec.get("acceptedCapabilities") or [] if str(value).strip()]
-    if accepted_capabilities:
-        details["acceptedCapabilities"] = accepted_capabilities
-    return details
 
 
 def _emit_prepare_event(

@@ -413,7 +413,7 @@ def test_h2ometa_database_profile_prepare_job_waits_for_missing_database_resourc
     assert finished is not None
     assert finished["status"] == "waiting_resource"
     assert finished["stage"] == "waiting_resource"
-    assert finished["errorCode"] == "WORKFLOW_RESOURCE_BINDING_REQUIRED"
+    assert finished["errorCode"] == "RESOURCE_BINDING_MISSING"
     assert "kraken2_db" in finished["message"]
     assert finished["result"] is None
     waiting_events = [event for event in finished["events"] if event["stage"] == "waiting_resource"]
@@ -421,7 +421,125 @@ def test_h2ometa_database_profile_prepare_job_waits_for_missing_database_resourc
     assert waiting_events[-1]["level"] == "warning"
     assert waiting_events[-1]["details"]["resourceKey"] == "kraken2_db"
     assert waiting_events[-1]["details"]["acceptedTemplates"] == ["kraken2"]
+    assert finished["missingResources"] == [
+        {
+            "key": "kraken2_db",
+            "resourceType": "database",
+            "configKey": "kraken2_db",
+            "acceptedTemplates": ["kraken2"],
+            "candidates": [],
+        }
+    ]
     assert fetch_tool(cfg, "bioconda::kraken2") is None
+
+
+def test_h2ometa_bracken_profile_prepare_job_waits_for_missing_database_resource(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _runtime_commands(tmp_path)
+    draft = resolve_tool_profile(
+        {
+            "id": "bioconda::bracken",
+            "name": "bracken",
+            "source": "bioconda",
+            "packageSpec": "bioconda::bracken=2.9",
+            "latestVersion": "2.9",
+        }
+    )
+    assert draft is not None
+
+    job = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "bioconda::bracken",
+            "name": "bracken",
+            "source": "bioconda",
+            "sourceLabel": "Bioconda",
+            "version": "2.9",
+            "packageSpec": "bioconda::bracken=2.9",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": draft["ruleTemplate"],
+            "ruleSpecDraft": draft,
+        },
+    )
+
+    run_tool_prepare_job(cfg, job["jobId"])
+
+    finished = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert finished is not None
+    assert finished["status"] == "waiting_resource"
+    assert finished["errorCode"] == "RESOURCE_BINDING_MISSING"
+    assert finished["missingResources"] == [
+        {
+            "key": "bracken_db",
+            "resourceType": "database",
+            "configKey": "bracken_db",
+            "acceptedTemplates": ["bracken"],
+            "candidates": [],
+        }
+    ]
+
+
+def test_database_profile_prepare_job_reports_ambiguous_resource_candidates(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _runtime_commands(tmp_path)
+    for index in range(2):
+        database_dir = tmp_path / f"kraken2-db-{index}"
+        database_dir.mkdir()
+        for filename in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+            (database_dir / filename).write_text("db\n", encoding="utf-8")
+        add_reference_database(
+            cfg,
+            {
+                "id": f"db_kraken2_{index}",
+                "name": f"Kraken2 DB {index}",
+                "templateId": "kraken2",
+                "path": str(database_dir),
+            },
+        )
+        checked_database = check_reference_database(cfg, f"db_kraken2_{index}")
+        assert checked_database["status"] == "available"
+    draft = resolve_tool_profile(
+        {
+            "id": "bioconda::kraken2",
+            "name": "kraken2",
+            "source": "bioconda",
+            "packageSpec": "bioconda::kraken2=2.1.3",
+            "latestVersion": "2.1.3",
+        }
+    )
+    assert draft is not None
+
+    job = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "bioconda::kraken2",
+            "name": "kraken2",
+            "source": "bioconda",
+            "sourceLabel": "Bioconda",
+            "version": "2.1.3",
+            "packageSpec": "bioconda::kraken2=2.1.3",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": draft["ruleTemplate"],
+            "ruleSpecDraft": draft,
+        },
+    )
+
+    run_tool_prepare_job(cfg, job["jobId"])
+
+    finished = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert finished is not None
+    assert finished["status"] == "waiting_resource"
+    assert finished["errorCode"] == "RESOURCE_BINDING_AMBIGUOUS"
+    assert finished["missingResources"][0]["key"] == "kraken2_db"
+    assert finished["missingResources"][0]["acceptedTemplates"] == ["kraken2"]
+    assert sorted(candidate["id"] for candidate in finished["missingResources"][0]["candidates"]) == [
+        "db_kraken2_0",
+        "db_kraken2_1",
+    ]
 
 
 def test_waiting_resource_prepare_job_is_terminal(tmp_path: Path) -> None:

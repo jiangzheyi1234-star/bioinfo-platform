@@ -25,6 +25,8 @@ from .tool_contract import default_contract_status, normalize_contract_status
 
 ValidationEventCallback = Callable[[dict[str, Any]], None]
 WAITING_RESOURCE_CODES = {
+    "RESOURCE_BINDING_MISSING",
+    "RESOURCE_BINDING_AMBIGUOUS",
     "WORKFLOW_RESOURCE_BINDING_REQUIRED",
     "WORKFLOW_RESOURCE_UNAVAILABLE",
 }
@@ -103,7 +105,7 @@ def run_tool_contract_validation(
             tool_overrides={tool_revision_id: {**tool, "toolRevisionId": tool_revision_id}},
         )
     except Exception as exc:
-        resource_failure = _workflow_resource_failure(tool, exc)
+        resource_failure = _workflow_resource_failure(cfg, tool, exc)
         failure_code = resource_failure["code"] if resource_failure else "TOOL_VALIDATION_PREPARE_FAILED"
         failure_message = resource_failure["message"] if resource_failure else str(exc)
         failure_details = resource_failure["details"] if resource_failure else {}
@@ -539,11 +541,12 @@ def _validated_output_summary(output_schema: dict[str, Any]) -> dict[str, str]:
     return {"artifactCount": str(len(names)), "artifactNames": ",".join(names)}
 
 
-def _workflow_resource_failure(tool: dict[str, Any], exc: Exception) -> dict[str, Any] | None:
+def _workflow_resource_failure(cfg: RemoteRunnerConfig, tool: dict[str, Any], exc: Exception) -> dict[str, Any] | None:
     code, resource_key = _split_resource_error(str(exc))
     if code not in WAITING_RESOURCE_CODES:
         return None
-    details = _resource_wait_details(tool, resource_key)
+    details = build_resource_wait_details(cfg, tool, resource_key)
+    code = _normalized_resource_wait_code(code, details)
     return {
         "code": code,
         "message": _resource_wait_message(code, resource_key),
@@ -558,14 +561,25 @@ def _split_resource_error(raw: str) -> tuple[str, str]:
 
 def _resource_wait_message(code: str, resource_key: str) -> str:
     label = resource_key or "required database resource"
-    if code == "WORKFLOW_RESOURCE_BINDING_REQUIRED":
+    if code in {"RESOURCE_BINDING_MISSING", "WORKFLOW_RESOURCE_BINDING_REQUIRED"}:
         return f"Required database resource binding is missing: {label}"
+    if code == "RESOURCE_BINDING_AMBIGUOUS":
+        return f"Required database resource binding is ambiguous: {label}"
     if code == "WORKFLOW_RESOURCE_UNAVAILABLE":
         return f"Required database resource is unavailable: {label}"
     return f"Required database resource is waiting: {label}"
 
 
-def _resource_wait_details(tool: dict[str, Any], resource_key: str) -> dict[str, Any]:
+def _normalized_resource_wait_code(code: str, details: dict[str, Any]) -> str:
+    if code != "WORKFLOW_RESOURCE_BINDING_REQUIRED":
+        return code
+    candidates = details.get("candidates")
+    if isinstance(candidates, list) and len(candidates) > 1:
+        return "RESOURCE_BINDING_AMBIGUOUS"
+    return "RESOURCE_BINDING_MISSING"
+
+
+def build_resource_wait_details(cfg: RemoteRunnerConfig, tool: dict[str, Any], resource_key: str) -> dict[str, Any]:
     spec = _database_resource_specs(tool).get(resource_key, {}) if resource_key else {}
     details: dict[str, Any] = {"resourceType": "database"}
     if resource_key:
@@ -579,7 +593,29 @@ def _resource_wait_details(tool: dict[str, Any], resource_key: str) -> dict[str,
     accepted_capabilities = [str(item).strip() for item in spec.get("acceptedCapabilities") or [] if str(item).strip()]
     if accepted_capabilities:
         details["acceptedCapabilities"] = accepted_capabilities
+    details["candidates"] = _resource_wait_candidates(cfg, spec)
     return details
+
+
+def _resource_wait_candidates(cfg: RemoteRunnerConfig, spec: dict[str, Any]) -> list[dict[str, str]]:
+    if not spec:
+        return []
+    return [
+        _resource_wait_candidate(database)
+        for database in list_reference_databases(cfg)
+        if _database_matches_resource_spec(database, spec)
+    ]
+
+
+def _resource_wait_candidate(database: dict[str, Any]) -> dict[str, str]:
+    metadata = database.get("metadata") if isinstance(database.get("metadata"), dict) else {}
+    return {
+        "id": str(database.get("id") or ""),
+        "name": str(database.get("name") or ""),
+        "templateId": str(metadata.get("templateId") or ""),
+        "version": str(database.get("version") or ""),
+        "status": str(database.get("status") or ""),
+    }
 
 
 def _status_detail_value(value: Any) -> str:
