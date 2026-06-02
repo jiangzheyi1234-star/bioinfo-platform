@@ -101,7 +101,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "返回节点库" not in page
     assert "在线搜索 Bioconda / conda-forge 工具" in page
     assert "加入工具失败" in hook
-    assert "addAndCheckSelectedTool" in hook
+    assert "addAndCheckSelectedTool" not in hook
     assert "selectedWrapperPath" in hook
     assert "updateSelectedWrapper" in hook
     assert "missingSelectedRuleSpecFields" in hook
@@ -111,7 +111,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "waitForToolPrepareJob(job.jobId)" not in hook
     assert "useToolPrepareTasks" in hook
     assert "createToolPrepareJob(tool)" in hook
-    assert "await addToolDependency(nextTool)" not in hook
+    assert "await addToolDependency(nextTool)" in hook
     assert "selectedPackageLocked" in hook
     assert "请选择一个明确版本" in hook
     assert "加入工具节点失败" not in hook
@@ -138,6 +138,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "directory: true" not in readiness
     assert "qc_dir" not in readiness
     assert "export function ToolSearchResults" in ui
+    assert "searchNotice" in hook
+    assert "searchNotice" in ui
+    assert "searchNoticeMessage" in hook
+    assert "onlineUnavailableReason" in model
+    assert "在线工具源暂时限流" in model
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
     assert "RuleSpecContractPreview" in ui
@@ -147,8 +152,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "Smoke run" in task_bar
     assert "暂无日志" in task_bar
     assert "ToolWrapperSelector" in ui
-    assert "加入并验证" in ui
-    assert "还不能加入流程" in ui
+    assert "加入并验证" not in ui
+    assert "添加工具" in ui
+    assert "仅依赖，缺 RuleSpec" in ui
+    assert "还不能加入流程" not in ui
     assert "ruleSpecEnvironmentItems" in ui
     assert "ruleSpecResourceItems" in ui
     assert "template.schedulerResources" in ui

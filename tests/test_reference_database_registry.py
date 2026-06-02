@@ -21,12 +21,10 @@ from tests.helpers.reference_database import (
     make_configured_remote_runner as _cfg,
     make_kraken2_database as _make_kraken2_database,
     materialize_template_path as _materialize_template_path,
-    patch_tool_probe_success as _patch_tool_probe_success,
 )
 
 
 def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-mini", complete=False)
 
@@ -51,7 +49,6 @@ def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypa
 
 
 def test_verified_reference_database_add_rejects_invalid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-incomplete", complete=False)
 
@@ -74,7 +71,6 @@ def test_verified_reference_database_add_rejects_invalid_kraken2_database(tmp_pa
 
 
 def test_verified_reference_database_update_keeps_previous_state_on_failure(tmp_path: Path, monkeypatch) -> None:
-    probe_calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     valid_dir = _make_kraken2_database(tmp_path / "kraken2-valid")
 
@@ -113,11 +109,9 @@ def test_verified_reference_database_update_keeps_previous_state_on_failure(tmp_
     assert current[0]["status"] == "available"
     assert current[0]["path"] == str(valid_dir)
     assert current[0]["message"] == original_message
-    assert len(probe_calls) >= 1
 
 
 def test_verified_reference_database_add_requires_template(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "generic-nonempty"
     database_dir.mkdir()
@@ -142,7 +136,6 @@ def test_verified_reference_database_add_requires_template(tmp_path: Path, monke
 
 
 def test_verified_reference_database_add_accepts_valid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
-    probe_calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-complete")
 
@@ -159,44 +152,10 @@ def test_verified_reference_database_add_accepts_valid_kraken2_database(tmp_path
     assert saved["status"] == "available"
     assert saved["id"] == "kraken2-complete"
     assert list_reference_databases(cfg)[0]["id"] == "kraken2-complete"
-    assert len(probe_calls) == 1
-    assert "kraken2-inspect --db" in probe_calls[0]
-    assert str(database_dir) in probe_calls[0]
 
-
-def test_verified_reference_database_add_rejects_tool_probe_failure(tmp_path: Path, monkeypatch) -> None:
-    from apps.remote_runner import database_validation
-
-    cfg = _cfg(tmp_path)
-    database_dir = _make_kraken2_database(tmp_path / "kraken2-probe-fails")
-
-    def failing_probe(command: str, *, timeout: int) -> database_validation.ToolProbeResult:
-        return database_validation.ToolProbeResult(ok=False, command=command, stdout="", stderr="bad database", returncode=2)
-
-    monkeypatch.setattr(database_validation, "prepare_tool_probe_command", lambda cfg_arg, template_id, template, command: command)
-    monkeypatch.setattr(database_validation, "run_tool_probe", failing_probe)
-
-    try:
-        add_verified_reference_database(
-            cfg,
-            {
-                "id": "kraken2-probe-fails",
-                "name": "Kraken2 Probe Fails",
-                "templateId": "kraken2",
-                "path": str(database_dir),
-            },
-        )
-    except DatabaseRegistryError as exc:
-        assert "Tool probe failed" in str(exc)
-        assert "bad database" in str(exc)
-    else:
-        raise AssertionError("tool probe failure should reject verified add")
-
-    assert list_reference_databases(cfg) == []
 
 
 def test_remote_runner_database_post_returns_only_available_after_validation(tmp_path: Path, monkeypatch) -> None:
-    probe_calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-api")
@@ -214,12 +173,9 @@ def test_remote_runner_database_post_returns_only_available_after_validation(tmp
     item = result["data"]
     assert item["status"] == "available"
     assert item["message"] != "Database declared."
-    assert item["metadata"]["validation"]["toolProbe"]["returncode"] == 0
-    assert probe_calls and "kraken2-inspect" in probe_calls[0]
 
 
 def test_remote_runner_database_post_rejects_invalid_database_without_registering(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-api-invalid", complete=False)
@@ -246,7 +202,6 @@ def test_remote_runner_database_post_rejects_invalid_database_without_registerin
 
 
 def test_verified_reference_database_add_restores_existing_record_when_replacement_is_invalid(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     valid_dir = _make_kraken2_database(tmp_path / "kraken2-valid")
     invalid_dir = _make_kraken2_database(tmp_path / "kraken2-invalid", complete=False)
@@ -285,7 +240,6 @@ def test_verified_reference_database_add_restores_existing_record_when_replaceme
 
 
 def test_reference_database_registry_updates_display_fields(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-mini", complete=False)
 
@@ -320,7 +274,6 @@ def test_reference_database_registry_updates_display_fields(tmp_path: Path, monk
 
 
 def test_reference_database_template_validation_requires_expected_files(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-template", complete=False)
 
@@ -434,12 +387,9 @@ def test_all_database_templates_publish_consistent_selection_contract() -> None:
             assert template.get("primaryExtensions"), f"{template_id} should explain primary file extensions"
             assert template.get("sidecars"), f"{template_id} should explain sidecar index files"
         assert has_validation_rule, f"{template_id} should declare at least one validation rule"
-        assert api_item["toolProbe"]["commandTemplate"], f"{template_id} should declare a real tool probe"
-        assert api_item["toolProbe"]["packageSpec"], f"{template_id} should declare the package needed for real validation"
 
 
 def test_builtin_templates_accept_directory_selection_and_resolve_tool_target(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
 
     for template_id, template in DATABASE_TEMPLATES.items():
@@ -483,7 +433,6 @@ def test_builtin_templates_accept_directory_selection_and_resolve_tool_target(tm
 
 
 def test_bwa_template_uses_fasta_main_file_as_entry_path(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     fasta = _make_bwa_reference(tmp_path / "bwa")
 
@@ -519,7 +468,6 @@ def test_bwa_template_uses_fasta_main_file_as_entry_path(tmp_path: Path, monkeyp
 
 
 def test_bwa_template_rejects_selecting_index_file_instead_of_fasta(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     fasta = _make_bwa_reference(tmp_path / "bwa")
 
@@ -539,7 +487,6 @@ def test_bwa_template_rejects_selecting_index_file_instead_of_fasta(tmp_path: Pa
 
 
 def test_ncbi_taxonomy_template_requires_taxdump_files(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "taxdump"
     database_dir.mkdir()

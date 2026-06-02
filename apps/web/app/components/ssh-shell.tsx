@@ -10,7 +10,6 @@ import { type SshShellContextValue, toForm } from "./ssh-shell-model";
 import { useSshConnection } from "./ssh-shell-connection";
 import { useSshTerminal } from "./ssh-shell-terminal";
 import { RemoteStatusBar, SshConnectDialog, SshSidebar, SshTerminalPanel } from "./ssh-shell-ui";
-import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";
 
 const SshShellContext = createContext<SshShellContextValue | null>(null);
 
@@ -79,7 +78,6 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                   ) : null}
                   <div className="flex-1 min-h-0 w-full h-full relative">
                     {children}
-                    <ToolPrepareTaskBar />
                   </div>
                 </div>
 

@@ -23,6 +23,7 @@ def _write_artifact(
     version: str = "0.1.0-control-plane",
     platform: str = "linux-64",
     content: bytes = b"artifact",
+    include_wrapper_assets: bool = True,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -39,6 +40,12 @@ def _write_artifact(
         content_info = tarfile.TarInfo("payload.txt")
         content_info.size = len(content)
         archive.addfile(content_info, io.BytesIO(content))
+        if include_wrapper_assets:
+            for name in RemoteRunnerArtifactProvider.REQUIRED_WRAPPER_ASSET_MEMBERS:
+                payload = b"placeholder\n"
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
     payload = path.read_bytes()
     path.with_suffix(path.suffix + ".sha256").write_text(
         f"{hashlib.sha256(payload).hexdigest()}  {path.name}\n",
@@ -140,6 +147,17 @@ def test_artifact_provider_rejects_platform_mismatch(tmp_path: Path, monkeypatch
     monkeypatch.setenv("H2OMETA_REMOTE_RUNNER_BUNDLE", str(bundle))
 
     with pytest.raises(RemoteRunnerArtifactError, match="platform mismatch"):
+        RemoteRunnerArtifactProvider(search_roots=[]).resolve("dev", platform="linux-64")
+
+
+def test_artifact_provider_rejects_missing_p0_wrapper_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "custom-runner.tar.gz"
+    _write_artifact(bundle, version="dev", include_wrapper_assets=False)
+    monkeypatch.setenv("H2OMETA_REMOTE_RUNNER_BUNDLE", str(bundle))
+
+    with pytest.raises(RemoteRunnerArtifactError, match="missing bundled Snakemake wrapper assets"):
         RemoteRunnerArtifactProvider(search_roots=[]).resolve("dev", platform="linux-64")
 
 

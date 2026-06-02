@@ -38,7 +38,7 @@ def test_acceptance_scope_reports_missing_required_templates() -> None:
     assert report["selectedTemplateIds"] == ["kraken2"]
 
 
-def test_single_path_database_requires_resolved_metadata_and_successful_probe() -> None:
+def test_single_path_database_requires_resolved_metadata() -> None:
     module = _load_acceptance_module()
 
     result = module.validate_database_contract(
@@ -51,7 +51,6 @@ def test_single_path_database_requires_resolved_metadata_and_successful_probe() 
                 "input": {"kind": "single", "path": "/db/blast"},
                 "resolved": {"default": "/db/blast/core_nt"},
                 "resolvedPath": {"kind": "prefix", "prefix": "/db/blast/core_nt"},
-                "validation": {"toolProbe": {"ok": True, "command": "blastdbcmd -db /db/blast/core_nt -info"}},
             },
         },
         {"id": "blast", "pathKind": "prefix"},
@@ -92,7 +91,6 @@ def test_composite_database_requires_field_object_resolution() -> None:
                         "utility_mapping": "/db/humann/utility_mapping",
                     },
                 },
-                "validation": {"toolProbe": {"ok": True, "command": "humann_config --print"}},
             },
         },
         {
@@ -114,7 +112,7 @@ def test_composite_database_requires_field_object_resolution() -> None:
     }
 
 
-def test_contract_rejects_declared_database_without_probe_metadata() -> None:
+def test_contract_rejects_declared_database() -> None:
     module = _load_acceptance_module()
 
     result = module.validate_database_contract(
@@ -134,4 +132,3 @@ def test_contract_rejects_declared_database_without_probe_metadata() -> None:
 
     assert result["status"] == "rejected"
     assert "status is declared" in result["issues"]
-    assert "metadata.validation.toolProbe missing" in result["issues"]

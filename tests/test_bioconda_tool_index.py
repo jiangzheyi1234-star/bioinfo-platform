@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 from pathlib import Path
 
-from apps.api import bioconda_tool_index, tool_capabilities
+from apps.api import bioconda_tool_index, snakemake_wrappers, tool_capabilities
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -173,3 +174,69 @@ def test_tool_search_uses_bioconda_index_before_online_search(tmp_path: Path, mo
     second = tool_capabilities.search_tool_capabilities("k", limit=5)
     assert second["data"]["source"] == "bioconda-index"
     assert second["data"]["online"] is False
+
+
+def test_tool_search_handles_online_rate_limit_as_empty_degraded_result(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tool_capabilities, "get_bioconda_index_cache_dir", lambda: tmp_path / "cache")
+
+    def rate_limited(_query: str, *, target_platform: str, limit: int):
+        raise urllib.error.HTTPError(
+            url="https://api.anaconda.org/search",
+            code=403,
+            msg="rate limit exceeded",
+            hdrs={},
+            fp=None,
+        )
+
+    monkeypatch.setattr(tool_capabilities, "_search_anaconda", rate_limited)
+    monkeypatch.setattr(tool_capabilities, "find_snakemake_wrappers_for_tool", lambda _name: [])
+
+    response = tool_capabilities.search_tool_capabilities("kraken", limit=5)
+
+    assert response["data"]["items"] == []
+    assert response["data"]["online"] is False
+    assert response["data"]["cached"] is False
+    assert response["data"]["complete"] is False
+    assert response["data"]["onlineUnavailableReason"] == "ANACONDA_RATE_LIMITED"
+    assert response["data"]["total"] == 0
+
+
+def test_tool_search_keeps_index_results_when_wrapper_lookup_is_rate_limited(tmp_path: Path, monkeypatch) -> None:
+    cache_dir = tmp_path / "cache"
+    _write_json(
+        cache_dir / "search-index-v1.json",
+        {
+            "version": 1,
+            "updatedAt": "2026-04-29T00:00:00Z",
+            "packages": [
+                {
+                    "name": "kraken2",
+                    "channel": "bioconda",
+                    "summary": "Taxonomic classification",
+                    "latestVersion": "2.1.3",
+                    "versions": ["2.1.3"],
+                    "platforms": ["linux-64"],
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(tool_capabilities, "get_bioconda_index_cache_dir", lambda: cache_dir)
+    monkeypatch.setattr(snakemake_wrappers, "_WRAPPER_CACHE", None)
+    monkeypatch.setattr(snakemake_wrappers, "_wrapper_index_cache_path", lambda: tmp_path / "missing-wrapper-cache.json")
+
+    def rate_limited_tree():
+        raise urllib.error.HTTPError(
+            url="https://api.github.com/repos/snakemake/snakemake-wrappers/git/trees/v9.8.0?recursive=1",
+            code=403,
+            msg="rate limit exceeded",
+            hdrs={},
+            fp=None,
+        )
+
+    monkeypatch.setattr(snakemake_wrappers, "_request_wrapper_tree", rate_limited_tree)
+
+    response = tool_capabilities.search_tool_capabilities("kraken", limit=5)
+
+    assert response["data"]["items"][0]["id"] == "bioconda::kraken2"
+    assert response["data"]["items"][0]["snakemakeWrapperCount"] == 0
+    assert response["data"]["source"] == "bioconda-index"

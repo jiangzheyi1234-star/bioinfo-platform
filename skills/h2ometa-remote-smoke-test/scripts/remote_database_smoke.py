@@ -221,7 +221,6 @@ def main() -> int:
                 "id": invalid_checked["id"],
                 "status": invalid_checked["status"],
                 "message": invalid_checked["message"],
-                "toolProbe": ((invalid_checked.get("metadata") or {}).get("validation") or {}).get("toolProbe"),
             },
         )
         if invalid_checked["status"] not in {"failed", "missing"}:

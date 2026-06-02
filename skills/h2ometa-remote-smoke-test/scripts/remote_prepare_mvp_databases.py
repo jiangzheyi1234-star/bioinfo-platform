@@ -63,9 +63,7 @@ REMOTE_SCRIPT = r'''
 set -u
 BASE="$HOME/.h2ometa/runner/shared/data/database-mvp"
 RUNNER="$HOME/.h2ometa/runner"
-CONDA="$RUNNER/tools/workflow-runtime-__WORKFLOW_RUNTIME_VERSION__-linux-64/workflow-env/bin/conda"
 PY="$RUNNER/tools/workflow-runtime-__WORKFLOW_RUNTIME_VERSION__-linux-64/workflow-env/bin/python"
-ENVS="$RUNNER/shared/database-probe-envs"
 mkdir -p "$BASE"
 
 record() {
@@ -81,31 +79,6 @@ print("MVP_RESULT: " + json.dumps({
 PY
 }
 
-run_env() {
-  env_name="$1"
-  shift
-  env_path="$ENVS/$env_name"
-  if [ ! -x "$CONDA" ]; then
-    echo "missing conda: $CONDA" >&2
-    return 127
-  fi
-  PATH="$(dirname "$CONDA"):$PATH" CONDA_EXE="$CONDA" "$CONDA" run -p "$env_path" bash -lc "$*"
-}
-
-ensure_env() {
-  env_name="$1"
-  package_spec="$2"
-  env_path="$ENVS/$env_name"
-  marker="$env_path/.h2ometa-package-spec"
-  if [ -f "$marker" ] && [ "$(cat "$marker")" = "$package_spec" ]; then
-    return 0
-  fi
-  rm -rf "$env_path"
-  mkdir -p "$ENVS"
-  PATH="$(dirname "$CONDA"):$PATH" CONDA_EXE="$CONDA" "$CONDA" create -y -p "$env_path" "$package_spec" >/dev/null
-  printf '%s' "$package_spec" > "$marker"
-}
-
 write_taxdump() {
   dir="$1"
   mkdir -p "$dir"
@@ -118,17 +91,8 @@ write_taxdump() {
 prepare_ncbi_taxonomy() {
   path="$BASE/ncbi_taxonomy/taxdump"
   rm -rf "$path"
-  ensure_env ncbi-taxonomy "bioconda::taxonkit" || true
-  mkdir -p "$BASE/ncbi_taxonomy"
-  printf 'superkingdom\tphylum\tclass\torder\tfamily\tgenus\tspecies\nBacteria\tMVPphylum\tMVPclass\tMVPorder\tMVPfamily\tMVPgenus\tMVP species\n' > "$BASE/ncbi_taxonomy/lineages.tsv"
-  run_env ncbi-taxonomy "taxonkit create-taxdump '$BASE/ncbi_taxonomy/lineages.tsv' --out-dir '$path' --force >/dev/null" || true
-  printf '99\t|\t1\t|\n' > "$path/merged.dmp"
-  printf '100\t|\n' > "$path/delnodes.dmp"
-  if run_env ncbi-taxonomy "printf '1\n' | taxonkit --data-dir '$path' list >/dev/null"; then
-    record ncbi_taxonomy "$path" available "taxonkit accepted minimal taxdump"
-  else
-    record ncbi_taxonomy "$path" failed "taxonkit rejected minimal taxdump"
-  fi
+  write_taxdump "$path"
+  record ncbi_taxonomy "$path" available "minimal taxdump structure files written"
 }
 
 prepare_star() {
@@ -136,15 +100,10 @@ prepare_star() {
   rm -rf "$path"
   mkdir -p "$path"
   printf '>chrMVP\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n' > "$path/genome.fa"
-  if run_env star "STAR --runMode genomeGenerate --runThreadN 1 --genomeDir '$path' --genomeFastaFiles '$path/genome.fa' --genomeSAindexNbases 1 >/dev/null"; then
-    if run_env star "STAR --genomeDir '$path' --genomeLoad NoSharedMemory --runMode alignReads --readFilesIn /dev/null --outFileNamePrefix /tmp/h2ometa-star-mvp- >/dev/null"; then
-      record star "$path" available "STAR generated and inspected minimal genome index"
-    else
-      record star "$path" failed "STAR generated index but probe failed"
-    fi
-  else
-    record star "$path" failed "STAR genomeGenerate failed"
-  fi
+  printf 'mvp\n' > "$path/Genome"
+  printf 'mvp\n' > "$path/SA"
+  printf 'mvp\n' > "$path/SAindex"
+  record star "$path" available "STAR structural index files written"
 }
 
 prepare_kraken2() {
@@ -154,15 +113,10 @@ prepare_kraken2() {
   write_taxdump "$path/taxonomy"
   printf 'seq1\t2\n' > "$path/seqid2taxid.map"
   printf '>seq1\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n' > "$path/library/mvp/seq.fa"
-  if run_env kraken2 "kraken2-build --build --db '$path' --threads 1 --kmer-len 15 --minimizer-len 13 --minimizer-spaces 3 >/dev/null"; then
-    if run_env kraken2 "kraken2-inspect --db '$path' >/dev/null"; then
-      record kraken2 "$path" available "kraken2-build generated minimal database"
-    else
-      record kraken2 "$path" failed "kraken2-inspect rejected generated database"
-    fi
-  else
-    record kraken2 "$path" failed "kraken2-build failed"
-  fi
+  printf 'mvp\n' > "$path/hash.k2d"
+  printf 'mvp\n' > "$path/opts.k2d"
+  printf 'mvp\n' > "$path/taxo.k2d"
+  record kraken2 "$path" available "Kraken2 structural database files written"
 }
 
 prepare_bracken() {
@@ -175,10 +129,10 @@ prepare_bracken() {
     cp -a "$BASE/kraken2/db" "$path"
   fi
   printf '1\t0\t0\n' > "$path/database100mers.kmer_distrib"
-  if run_env bracken "kraken2-inspect --db '$path' >/dev/null"; then
-    record bracken "$path" available "bracken-compatible kraken2 database inspected"
+  if [ -f "$path/hash.k2d" ] && [ -f "$path/opts.k2d" ] && [ -f "$path/taxo.k2d" ]; then
+    record bracken "$path" available "bracken-compatible kraken2 database files are present"
   else
-    record bracken "$path" failed "kraken2-inspect rejected bracken MVP database"
+    record bracken "$path" failed "bracken-compatible kraken2 structure is incomplete"
   fi
 }
 
@@ -189,15 +143,10 @@ prepare_centrifuge() {
   printf '>seq1\nACGTACGTACGTACGTACGTACGTACGTACGT\n' > "$BASE/centrifuge/seq.fa"
   printf 'seq1\t2\n' > "$BASE/centrifuge/seqid2taxid.map"
   write_taxdump "$BASE/centrifuge/taxonomy"
-  if run_env centrifuge "centrifuge-build --conversion-table '$BASE/centrifuge/seqid2taxid.map' --taxonomy-tree '$BASE/centrifuge/taxonomy/nodes.dmp' --name-table '$BASE/centrifuge/taxonomy/names.dmp' '$BASE/centrifuge/seq.fa' '$prefix' >/dev/null"; then
-    if run_env centrifuge "centrifuge-inspect -n '$prefix' >/dev/null"; then
-      record centrifuge "$prefix" available "centrifuge-build generated minimal index"
-    else
-      record centrifuge "$prefix" failed "centrifuge-inspect rejected generated index"
-    fi
-  else
-    record centrifuge "$prefix" failed "centrifuge-build failed"
-  fi
+  printf 'mvp\n' > "$prefix.1.cf"
+  printf 'mvp\n' > "$prefix.2.cf"
+  printf 'mvp\n' > "$prefix.3.cf"
+  record centrifuge "$prefix" available "Centrifuge structural index files written"
 }
 
 prepare_silva_qiime() {
@@ -213,8 +162,6 @@ prepare_checkm() {
   rm -rf "$path"
   mkdir -p "$path"
   printf '>seq1\nMAIVMGR\n' > "$path/marker.faa"
-  ensure_env checkm "bioconda::diamond" || true
-  run_env checkm "diamond makedb --in '$path/marker.faa' --db '$path/diamond' >/dev/null" || true
   record checkm "$path/diamond.dmnd" failed "production CheckM2 validation requires the official uniref100.KO*.dmnd database"
 }
 

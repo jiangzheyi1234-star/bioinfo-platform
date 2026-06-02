@@ -18,6 +18,7 @@ const DATABASES_CACHE_KEY = "workflow:databases";
 const DATABASE_TEMPLATES_CACHE_KEY = "databases:templates";
 const DATABASES_CACHE_TTL_MS = 30_000;
 const DATABASE_TEMPLATES_CACHE_TTL_MS = 60_000;
+const DATABASE_VALIDATION_REQUEST_TIMEOUT_MS = 35 * 60 * 1000;
 
 function refreshQuery(options: FetchOptions) {
   return options.forceRefresh ? "?refresh=true" : "";
@@ -107,6 +108,7 @@ export async function browseRemoteFiles({
 export async function createDatabase(input: CreateDatabaseInput): Promise<DatabaseItem> {
   const response = await requestLocalApiJson<{ data: DatabaseItem }>("POST", "/api/v1/databases", {
     body: input,
+    timeoutMs: DATABASE_VALIDATION_REQUEST_TIMEOUT_MS,
   });
   invalidateDatabaseCaches();
   return response.data;
@@ -115,7 +117,8 @@ export async function createDatabase(input: CreateDatabaseInput): Promise<Databa
 export async function checkDatabaseAvailability(id: string): Promise<DatabaseItem> {
   const response = await requestLocalApiJson<{ data: DatabaseItem }>(
     "POST",
-    `/api/v1/databases/${encodeURIComponent(id)}/check`
+    `/api/v1/databases/${encodeURIComponent(id)}/check`,
+    { cache: "no-store", timeoutMs: DATABASE_VALIDATION_REQUEST_TIMEOUT_MS }
   );
   invalidateAsyncCache(DATABASES_CACHE_KEY);
   return response.data;

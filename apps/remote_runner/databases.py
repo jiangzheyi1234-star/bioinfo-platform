@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 import threading
 from pathlib import Path
 from typing import Any
@@ -188,38 +187,6 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
         metadata["runtimeShape"] = database_template_runtime_shape(template or {})
         metadata["capabilities"] = database_template_capabilities(template or {})
         metadata["resolvedPath"] = {"kind": path_kind, "path": str(item.get("path") or ""), "entries": composite_resolved}
-        if template is not None:
-            command = _render_composite_tool_probe_command(template, composite_resolved)
-            if command:
-                try:
-                    command = database_validation.prepare_tool_probe_command(cfg, template_id, template, command)
-                except RuntimeError as exc:
-                    metadata.setdefault("validation", {})["toolProbe"] = {
-                        "ok": False,
-                        "command": command,
-                        "returncode": 127,
-                        "stdout": "",
-                        "stderr": str(exc),
-                    }
-                    return _update_status(
-                        cfg,
-                        normalized,
-                        "failed",
-                        f"Tool probe failed for database template {template_id}: {exc}",
-                        metadata=metadata,
-                    )
-                probe = dict(template.get("toolProbe") or {})
-                result = database_validation.run_tool_probe(command, timeout=int(probe.get("timeoutSeconds") or 60))
-                metadata.setdefault("validation", {})["toolProbe"] = database_validation.probe_metadata(result)
-                if not result.ok:
-                    detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
-                    return _update_status(
-                        cfg,
-                        normalized,
-                        "failed",
-                        f"Tool probe failed for database template {template_id}: {detail}",
-                        metadata=metadata,
-                    )
         return _update_status(
             cfg,
             normalized,
@@ -255,37 +222,6 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
             metadata["availableReadLengths"] = database_validation.bracken_read_lengths(data_path)
             resolved.pop("firstMatch", None)
         metadata["resolvedPath"] = resolved
-        probe = dict(template.get("toolProbe") or {})
-        command = database_validation.render_tool_probe_command(template, data_path, resolved)
-        if command:
-            try:
-                command = database_validation.prepare_tool_probe_command(cfg, template_id, template, command)
-            except RuntimeError as exc:
-                metadata.setdefault("validation", {})["toolProbe"] = {
-                    "ok": False,
-                    "command": command,
-                    "returncode": 127,
-                    "stdout": "",
-                    "stderr": str(exc),
-                }
-                return _update_status(
-                    cfg,
-                    normalized,
-                    "failed",
-                    f"Tool probe failed for database template {template_id}: {exc}",
-                    metadata=metadata,
-                )
-            result = database_validation.run_tool_probe(command, timeout=int(probe.get("timeoutSeconds") or 60))
-            metadata.setdefault("validation", {})["toolProbe"] = database_validation.probe_metadata(result)
-            if not result.ok:
-                detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
-                return _update_status(
-                    cfg,
-                    normalized,
-                    "failed",
-                    f"Tool probe failed for database template {template_id}: {detail}",
-                    metadata=metadata,
-                )
     metadata["inputPath"] = str(metadata.get("inputPath") or data_path)
     metadata["entryPath"] = compute_database_entry_path(
         {
@@ -304,7 +240,7 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
         cfg,
         normalized,
         "available",
-        "Database path and tool probe are available on the remote runner.",
+        "Database path is available on the remote runner.",
         metadata=metadata,
     )
 
@@ -506,17 +442,6 @@ def _resolve_composite_field_value(path: Path, spec: dict[str, Any]) -> str:
         if filename:
             return str(path / filename)
     return str(path)
-
-
-def _render_composite_tool_probe_command(template: dict[str, Any], resolved: dict[str, str]) -> str:
-    probe = dict(template.get("toolProbe") or {})
-    command = str(probe.get("commandTemplate") or "").strip()
-    if not command:
-        return ""
-    for key, value in resolved.items():
-        command = command.replace(f"{{{key}}}", value)
-        command = command.replace(f"{{{key}:q}}", shlex.quote(value))
-    return command
 
 
 def _ensure_schema(connection) -> None:

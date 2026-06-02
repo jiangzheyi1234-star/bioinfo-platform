@@ -5,7 +5,6 @@ from pathlib import Path
 from apps.remote_runner.databases import add_reference_database, check_reference_database, list_database_templates
 from tests.helpers.reference_database import (
     make_configured_remote_runner,
-    patch_tool_probe_success as _patch_tool_probe_success,
 )
 
 
@@ -13,40 +12,11 @@ def _cfg(tmp_path: Path):
     return make_configured_remote_runner(tmp_path, token="database-production-template-token")
 
 
-def test_database_tool_probes_follow_official_smoke_test_patterns() -> None:
+def test_database_templates_publish_structure_validation_only() -> None:
     templates = {item["id"]: item for item in list_database_templates()}
 
-    bwa_probe = templates["bwa"]["toolProbe"]["commandTemplate"]
-    assert "probe.fq" in bwa_probe
-    assert "bwa mem" in bwa_probe
-    assert " /dev/null" not in bwa_probe
-
-    minimap2_probe = templates["minimap2"]["toolProbe"]["commandTemplate"]
-    assert "probe.fa" in minimap2_probe
-    assert "minimap2" in minimap2_probe
-    assert " /dev/null" not in minimap2_probe
-
-    checkm_probe = templates["checkm"]["toolProbe"]["commandTemplate"]
-    assert "--database_path {path:q}" in checkm_probe
-    assert "checkm2 testrun" in checkm_probe
-    assert "--help" not in checkm_probe
-    assert templates["checkm"]["toolProbe"]["timeoutSeconds"] >= 600
-
-    gtdbtk_probe = templates["gtdbtk"]["toolProbe"]["commandTemplate"]
-    assert "gtdbtk check_install" in gtdbtk_probe
-    assert templates["gtdbtk"]["toolProbe"]["timeoutSeconds"] >= 600
-
-    interproscan_probe = templates["interproscan"]["toolProbe"]["commandTemplate"]
-    assert "--datadir" not in interproscan_probe
-    assert "interproscan.sh -version" in interproscan_probe
-
-    silva_probe = templates["silva_qiime"]["toolProbe"]
-    assert silva_probe["packageSpec"] == "qiime2::q2cli=2024.10.0"
-    assert silva_probe["packageSpecs"] == [
-        "qiime2::q2cli=2024.10.0",
-        "qiime2::q2-types=2024.10.0",
-        "conda-forge::setuptools=75.8.0",
-    ]
+    for template in templates.values():
+        assert set(template["validation"]) == {"structureCheck"}
 
 
 def test_all_production_templates_publish_stable_runtime_contract() -> None:
@@ -69,7 +39,6 @@ def test_all_production_templates_publish_stable_runtime_contract() -> None:
 
 
 def test_humann_template_requires_chocophlan_uniref_and_utility_mapping(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "humann"
     chocophlan = database_dir / "chocophlan"
@@ -118,7 +87,6 @@ def test_humann_template_requires_chocophlan_uniref_and_utility_mapping(tmp_path
 
 
 def test_card_rgi_template_resolves_card_json_from_selected_directory(tmp_path: Path, monkeypatch) -> None:
-    calls = _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "card"
     database_dir.mkdir()
@@ -133,12 +101,9 @@ def test_card_rgi_template_resolves_card_json_from_selected_directory(tmp_path: 
     assert checked["inputPath"] == str(database_dir)
     assert checked["entryPath"] == ""
     assert checked["resolved"] == {"card_json": str(card_json)}
-    assert calls and "rgi card_annotation -i" in calls[-1]
-    assert str(card_json) in calls[-1]
 
 
 def test_silva_qiime_template_requires_qiime_artifact(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     fasta = tmp_path / "silva.fasta"
     fasta.write_text(">seq\nACGT\n", encoding="utf-8")
@@ -156,8 +121,7 @@ def test_silva_qiime_template_requires_qiime_artifact(tmp_path: Path, monkeypatc
     assert checked["status"] == "available"
 
 
-def test_gtdbtk_template_requires_reference_bundle_and_check_install(tmp_path: Path, monkeypatch) -> None:
-    calls = _patch_tool_probe_success(monkeypatch)
+def test_gtdbtk_template_requires_reference_bundle(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "gtdbtk"
     database_dir.mkdir()
@@ -174,11 +138,9 @@ def test_gtdbtk_template_requires_reference_bundle_and_check_install(tmp_path: P
 
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
-    assert calls and "gtdbtk check_install" in calls[-1]
 
 
 def test_checkm_template_requires_checkm2_database_file(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     wrong = tmp_path / "checkm" / "diamond.dmnd"
     wrong.parent.mkdir()
@@ -199,7 +161,6 @@ def test_checkm_template_requires_checkm2_database_file(tmp_path: Path, monkeypa
 
 
 def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "eggnog"
     database_dir.mkdir()
@@ -227,8 +188,7 @@ def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_pat
     assert checked["resolved"] == {"data_dir": str(database_dir)}
 
 
-def test_interproscan_template_probe_verifies_installed_cli_after_data_structure_check(tmp_path: Path, monkeypatch) -> None:
-    calls = _patch_tool_probe_success(monkeypatch)
+def test_interproscan_template_requires_data_structure(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "interproscan-data"
     database_dir.mkdir()
@@ -239,6 +199,3 @@ def test_interproscan_template_probe_verifies_installed_cli_after_data_structure
 
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
-    assert calls
-    assert "interproscan.sh -version" in calls[-1]
-    assert "--datadir" not in calls[-1]

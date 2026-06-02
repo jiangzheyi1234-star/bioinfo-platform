@@ -18,12 +18,10 @@ from tests.helpers.reference_database import (
     expected_template_entry_path as _expected_template_entry_path,
     make_configured_remote_runner as _cfg,
     materialize_template_selection as _materialize_template_selection,
-    patch_tool_probe_success as _patch_tool_probe_success,
 )
 
 
 def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "pfam"
     database_dir.mkdir()
@@ -52,7 +50,6 @@ def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch)
 
 
 def test_directory_templates_accept_required_files_with_matching_pattern(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "kaiju"
     database_dir.mkdir()
@@ -75,7 +72,6 @@ def test_directory_templates_accept_required_files_with_matching_pattern(tmp_pat
 
 
 def test_single_file_database_templates_validate_file_suffix(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     wrong_file = tmp_path / "random.txt"
     wrong_file.write_text("not a diamond database", encoding="utf-8")
@@ -109,7 +105,6 @@ def test_single_file_database_templates_validate_file_suffix(tmp_path: Path, mon
 
 
 def test_directory_database_templates_reject_file_paths(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     file_path = tmp_path / "hash.k2d"
     file_path.write_text("kraken", encoding="utf-8")
@@ -176,7 +171,6 @@ def test_available_database_without_template_cannot_be_resolved_for_generated_wo
 
 
 def test_custom_database_template_uses_declared_expected_files(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "custom-db"
     database_dir.mkdir()
@@ -290,7 +284,6 @@ def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path
 
 
 def test_every_database_template_can_be_checked_and_injected_into_generated_workflow(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     upload = persist_upload(
         cfg,

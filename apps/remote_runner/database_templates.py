@@ -49,10 +49,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "宏基因组物种分类库",
         "pathHint": "~/.h2ometa/databases/kraken2/standard",
         "requiredFiles": ["hash.k2d", "opts.k2d", "taxo.k2d"],
-        "toolProbe": {
-            "packageSpec": "bioconda::kraken2",
-            "commandTemplate": "kraken2-inspect --db {path:q} >/dev/null",
-        },
     },
     "bracken": {
         "type": "taxonomy",
@@ -66,10 +62,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/bracken/standard",
         "requiredFiles": ["hash.k2d", "opts.k2d", "taxo.k2d"],
         "anyPatterns": ["database*.kmer_distrib"],
-        "toolProbe": {
-            "packageSpec": "bioconda::bracken",
-            "commandTemplate": "kraken2-inspect --db {path:q} >/dev/null",
-        },
     },
     "metaphlan": {
         "type": "taxonomy",
@@ -83,10 +75,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/metaphlan/mpa",
         "anyPatterns": ["*.pkl"],
         "anyIndexPatterns": ["*.bt2", "*.bt2l"],
-        "toolProbe": {
-            "packageSpec": "bioconda::metaphlan",
-            "commandTemplate": "bowtie2-inspect -n {firstIndexPrefix:q} >/dev/null",
-        },
     },
     "centrifuge": {
         "type": "taxonomy",
@@ -100,10 +88,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/centrifuge/nt",
         "prefixPatternSets": [[".1.cf", ".2.cf", ".3.cf"]],
         "requiredSuffixes": [".1.cf", ".2.cf", ".3.cf"],
-        "toolProbe": {
-            "packageSpec": "bioconda::centrifuge",
-            "commandTemplate": "centrifuge-inspect -n {prefix:q} >/dev/null",
-        },
     },
     "kaiju": {
         "type": "taxonomy",
@@ -117,10 +101,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/kaiju/nr",
         "requiredFiles": ["nodes.dmp", "names.dmp"],
         "anyPatterns": ["*.fmi"],
-        "toolProbe": {
-            "packageSpec": "bioconda::kaiju",
-            "commandTemplate": "kaiju -t {path:q}/nodes.dmp -f {firstMatch:q} -i /dev/null >/dev/null",
-        },
     },
     "card_rgi": {
         "type": "amr",
@@ -143,10 +123,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
                 "validation": {"requiredFileName": "card.json", "minSizeBytes": 1},
             },
         },
-        "toolProbe": {
-            "packageSpec": "bioconda::rgi",
-            "commandTemplate": "rgi card_annotation -i {card_json:q} >/dev/null",
-        },
     },
     "blast": {
         "type": "sequence_index",
@@ -161,10 +137,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "prefixPatternSets": [[".nhr", ".nin", ".nsq"], [".phr", ".pin", ".psq"]],
         "requiredSuffixes": [".nhr", ".nin", ".nsq"],
         "prefixAliasPatterns": ["*.nal", "*.pal"],
-        "toolProbe": {
-            "packageSpec": "bioconda::blast",
-            "commandTemplate": "blastdbcmd -db {prefix:q} -info >/dev/null",
-        },
     },
     "diamond": {
         "type": "sequence_index",
@@ -178,10 +150,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/diamond/nr.dmnd",
         "anyPatterns": ["*.dmnd"],
         "requiredSuffixes": [".dmnd"],
-        "toolProbe": {
-            "packageSpec": "bioconda::diamond",
-            "commandTemplate": "diamond dbinfo --db {path:q} >/dev/null",
-        },
     },
     "bowtie2": {
         "type": "sequence_index",
@@ -198,10 +166,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
             [".1.bt2l", ".2.bt2l", ".3.bt2l", ".4.bt2l", ".rev.1.bt2l", ".rev.2.bt2l"],
         ],
         "requiredSuffixes": [".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2"],
-        "toolProbe": {
-            "packageSpec": "bioconda::bowtie2",
-            "commandTemplate": "bowtie2-inspect -n {prefix:q} >/dev/null",
-        },
     },
     "bwa": {
         "type": "sequence_index",
@@ -217,10 +181,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "primaryExtensions": [".fa", ".fasta"],
         "sidecars": [".amb", ".ann", ".bwt", ".pac", ".sa"],
         "indexSuffixes": [".amb", ".ann", ".bwt", ".pac", ".sa"],
-        "toolProbe": {
-            "packageSpec": "bioconda::bwa",
-            "commandTemplate": "tmp=$(mktemp -d) && trap 'rm -rf \"$tmp\"' EXIT && printf '@probe\\nACGTACGTACGTACGTACGTACGTACGTACGT\\n+\\nFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF\\n' > \"$tmp/probe.fq\" && bwa mem {path:q} \"$tmp/probe.fq\" >/dev/null",
-        },
     },
     "humann": {
         "type": "functional_profile",
@@ -255,10 +215,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
                 "validation": {"requiredGlobs": ["map_*"]},
             },
         },
-        "toolProbe": {
-            "packageSpec": "bioconda::humann",
-            "commandTemplate": "humann --help >/dev/null && humann_config --print >/dev/null",
-        },
     },
     "gtdbtk": {
         "type": "taxonomy",
@@ -272,11 +228,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/gtdbtk/release",
         "requiredFiles": ["markers", "masks", "metadata", "mrca_red", "msa", "pplacer", "radii", "skani", "split", "taxonomy"],
         "anyFiles": ["metadata.txt", "VERSION"],
-        "toolProbe": {
-            "packageSpec": "bioconda::gtdbtk",
-            "commandTemplate": "GTDBTK_DATA_PATH={path:q} gtdbtk check_install >/dev/null",
-            "timeoutSeconds": 600,
-        },
     },
     "sourmash": {
         "type": "sequence_index",
@@ -290,10 +241,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/sourmash/reference.sig",
         "anyPatterns": ["*.sig", "*.sbt.zip", "*.zip"],
         "requiredSuffixes": [".sig", ".sbt.zip", ".zip"],
-        "toolProbe": {
-            "packageSpec": "bioconda::sourmash",
-            "commandTemplate": "sourmash sig describe {path:q} >/dev/null",
-        },
     },
     "mmseqs2": {
         "type": "sequence_index",
@@ -307,10 +254,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/mmseqs2/uniref",
         "prefixPatternSets": [[".dbtype", "_h", "_h.dbtype"]],
         "requiredSuffixes": [".dbtype", "_h", "_h.dbtype"],
-        "toolProbe": {
-            "packageSpec": "bioconda::mmseqs2",
-            "commandTemplate": "tmp=$(mktemp) && mmseqs convert2fasta {prefix:q} \"$tmp\" >/dev/null && rm -f \"$tmp\"",
-        },
     },
     "hmmer_pfam": {
         "type": "profile_hmm",
@@ -325,10 +268,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "anyPatterns": ["*.hmm"],
         "requiredSuffixes": [".hmm"],
         "companionSuffixes": [".h3f", ".h3i", ".h3m", ".h3p"],
-        "toolProbe": {
-            "packageSpec": "bioconda::hmmer",
-            "commandTemplate": "hmmstat {path:q} >/dev/null",
-        },
     },
     "eggnog_mapper": {
         "type": "annotation",
@@ -349,10 +288,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
                 "validation": {"requiredGlobs": ["*.db", "eggnog_proteins.dmnd"]},
             },
         },
-        "toolProbe": {
-            "packageSpec": "bioconda::eggnog-mapper",
-            "commandTemplate": "tmp=$(mktemp -d) && printf '>probe\\nMAIVMGR\\n' > \"$tmp/probe.faa\" && emapper.py --data_dir {data_dir:q} -i \"$tmp/probe.faa\" -o h2ometa-eggnog-probe --output_dir \"$tmp\" --cpu 1 >/dev/null",
-        },
     },
     "interproscan": {
         "type": "annotation",
@@ -365,10 +300,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "InterProScan data directory",
         "pathHint": "~/.h2ometa/databases/interproscan/data",
         "anyFiles": ["interpro.xml", "match_complete.xml"],
-        "toolProbe": {
-            "packageSpec": "bioconda::interproscan",
-            "commandTemplate": "interproscan.sh -version >/dev/null",
-        },
     },
     "minimap2": {
         "type": "sequence_index",
@@ -382,10 +313,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/minimap2/reference.mmi",
         "anyPatterns": ["*.mmi", "*.fa", "*.fasta", "*.fna"],
         "requiredSuffixes": [".mmi", ".fa", ".fasta", ".fna"],
-        "toolProbe": {
-            "packageSpec": "bioconda::minimap2",
-            "commandTemplate": "tmp=$(mktemp -d) && trap 'rm -rf \"$tmp\"' EXIT && printf '>probe\\nACGTACGTACGTACGTACGTACGTACGTACGT\\n' > \"$tmp/probe.fa\" && minimap2 {path:q} \"$tmp/probe.fa\" >/dev/null",
-        },
     },
     "star": {
         "type": "sequence_index",
@@ -398,10 +325,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "STAR genome index",
         "pathHint": "~/.h2ometa/databases/star/hg38",
         "requiredFiles": ["Genome", "SA", "SAindex"],
-        "toolProbe": {
-            "packageSpec": "bioconda::star",
-            "commandTemplate": "STAR --genomeDir {path:q} --genomeLoad NoSharedMemory --runMode alignReads --readFilesIn /dev/null --outFileNamePrefix /tmp/h2ometa-star-probe- >/dev/null",
-        },
     },
     "hisat2": {
         "type": "sequence_index",
@@ -418,10 +341,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
             [".1.ht2l", ".2.ht2l", ".3.ht2l", ".4.ht2l", ".5.ht2l", ".6.ht2l", ".7.ht2l", ".8.ht2l"],
         ],
         "requiredSuffixes": [".1.ht2", ".2.ht2", ".3.ht2", ".4.ht2", ".5.ht2", ".6.ht2", ".7.ht2", ".8.ht2"],
-        "toolProbe": {
-            "packageSpec": "bioconda::hisat2",
-            "commandTemplate": "hisat2-inspect -s {prefix:q} >/dev/null",
-        },
     },
     "salmon": {
         "type": "sequence_index",
@@ -434,10 +353,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "Salmon transcriptome index",
         "pathHint": "~/.h2ometa/databases/salmon/transcriptome",
         "anyFiles": ["versionInfo.json", "info.json"],
-        "toolProbe": {
-            "packageSpec": "bioconda::salmon",
-            "commandTemplate": "salmon inspect -i {path:q} >/dev/null",
-        },
     },
     "kallisto": {
         "type": "sequence_index",
@@ -451,10 +366,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/kallisto/transcriptome.idx",
         "anyPatterns": ["*.idx"],
         "requiredSuffixes": [".idx"],
-        "toolProbe": {
-            "packageSpec": "bioconda::kallisto",
-            "commandTemplate": "kallisto inspect {path:q} >/dev/null",
-        },
     },
     "silva_qiime": {
         "type": "taxonomy",
@@ -468,15 +379,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/silva/classifier.qza",
         "anyPatterns": ["*.qza"],
         "requiredSuffixes": [".qza"],
-        "toolProbe": {
-            "packageSpec": "qiime2::q2cli=2024.10.0",
-            "packageSpecs": [
-                "qiime2::q2cli=2024.10.0",
-                "qiime2::q2-types=2024.10.0",
-                "conda-forge::setuptools=75.8.0",
-            ],
-            "commandTemplate": "qiime tools validate {path:q} >/dev/null",
-        },
     },
     "checkm": {
         "type": "taxonomy",
@@ -490,11 +392,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "pathHint": "~/.h2ometa/databases/checkm2/CheckM2_database/uniref100.KO.1.dmnd",
         "anyPatterns": ["uniref100.KO*.dmnd"],
         "requiredSuffixes": [".dmnd"],
-        "toolProbe": {
-            "packageSpec": "bioconda::checkm2",
-                "timeoutSeconds": 600,
-            "commandTemplate": "diamond dbinfo --db {path:q} >/dev/null && checkm2 testrun --database_path {path:q} --threads 1 >/dev/null",
-        },
     },
     "ncbi_taxonomy": {
         "type": "taxonomy",
@@ -507,10 +404,6 @@ DATABASE_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "NCBI taxdump taxonomy files",
         "pathHint": "~/.h2ometa/databases/ncbi_taxonomy/taxdump",
         "requiredFiles": ["nodes.dmp", "names.dmp"],
-        "toolProbe": {
-            "packageSpec": "bioconda::taxonkit",
-            "commandTemplate": "printf '1\\n' | taxonkit --data-dir {path:q} list >/dev/null",
-        },
     },
     "custom": {
         "type": "reference",
@@ -561,7 +454,6 @@ def list_database_templates() -> list[dict[str, Any]]:
             "validation": _template_validation(template),
             "output": _template_output(template),
             "runtime": _template_runtime(template),
-            "toolProbe": dict(template.get("toolProbe") or {}),
         }
         for template_id, template in DATABASE_TEMPLATES.items()
     ]
@@ -632,7 +524,6 @@ def _template_validation(template: dict[str, Any]) -> dict[str, str]:
             "primary_with_sidecars": "primary_file_and_sidecars",
             "composite": "field_paths_and_field_rules",
         }.get(path_kind, "path_exists"),
-        "probeCommand": str((template.get("toolProbe") or {}).get("commandTemplate") or ""),
     }
 
 

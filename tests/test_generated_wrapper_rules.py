@@ -203,6 +203,55 @@ def test_fastp_profile_generates_locked_wrapper_rule_with_list_sample_input(tmp_
     assert run_config["tool"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
 
 
+def test_seqkit_stats_profile_generates_locked_generic_wrapper_rule(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    draft = resolve_tool_profile(
+        {
+            "id": "bioconda::seqkit",
+            "name": "seqkit",
+            "source": "bioconda",
+            "packageSpec": "bioconda::seqkit=2.13.0",
+            "latestVersion": "2.13.0",
+        }
+    )
+    assert draft is not None
+    assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/seqkit"
+
+    upsert_tool(
+        cfg,
+        {
+            "id": "bioconda::seqkit",
+            "name": "seqkit",
+            "source": "bioconda",
+            "packageSpec": "bioconda::seqkit=2.13.0",
+            "targetPlatformSupported": True,
+            "ruleTemplate": draft["ruleTemplate"],
+            "ruleSpecDraft": draft,
+        },
+    )
+
+    prepare_generated_tool_workflow(
+        cfg,
+        run_id="run_seqkit_stats_profile_wrapper",
+        request_id="req_seqkit_stats_profile_wrapper",
+        run_spec=generated_workflow_run_spec("bioconda::seqkit", input_name="fastx"),
+        resolved_inputs=_input(tmp_path),
+        work_dir=tmp_path / "work",
+        result_dir=tmp_path / "results",
+    )
+
+    snakefile = (tmp_path / "work" / "workflow" / "Snakefile").read_text(encoding="utf-8")
+    run_config = json.loads((tmp_path / "work" / "run-config.json").read_text(encoding="utf-8"))
+    assert "wrapper:" in snakefile
+    assert "'v9.8.0/bio/seqkit'" in snakefile
+    assert "fastx=" in snakefile
+    assert "shell:" not in snakefile
+    assert run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/seqkit"
+    assert run_config["workflow"]["steps"][0]["params"] == {"command": "stats", "extra": "--all --tabular"}
+    assert run_config["tool"]["ruleSpecDraft"]["lock"]["profileId"] == "seqkit-stats"
+
+
 def test_generated_workflow_renders_snakemake_module_use_rule(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

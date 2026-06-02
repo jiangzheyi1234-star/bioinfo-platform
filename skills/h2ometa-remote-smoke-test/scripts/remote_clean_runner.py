@@ -89,7 +89,6 @@ def build_cleanup_plan(
         test_data = [
             "$HOME/.h2ometa/runner/shared/data/database-mvp",
             "$HOME/.h2ometa/runner/shared/data/database-real-smoke",
-            "$HOME/.h2ometa/runner/shared/database-probe-envs",
             "$HOME/.h2ometa/smoke-databases",
         ]
         targets.extend(test_data)

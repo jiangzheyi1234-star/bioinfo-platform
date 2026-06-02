@@ -76,7 +76,7 @@ def test_bracken_profile_overlay_returns_workflow_rule_spec() -> None:
 
 
 def test_profile_registry_exposes_p0_h2ometa_profiles() -> None:
-    assert known_tool_profile_ids() == ["bracken", "fastp", "fastqc", "kraken2", "multiqc"]
+    assert known_tool_profile_ids() == ["bracken", "fastp", "fastqc", "kraken2", "multiqc", "seqkit-stats"]
 
 
 def test_fastp_profile_overlay_has_no_database_resource() -> None:
@@ -185,3 +185,45 @@ def test_multiqc_profile_overlay_declares_report_output() -> None:
         }
     ]
     assert template["smokeTest"]["inputs"]["fastqc_data"]["filename"] == "fastqc_data.txt"
+
+
+def test_seqkit_stats_profile_overlay_declares_locked_generic_wrapper() -> None:
+    resolver = ToolContractResolver()
+
+    draft = resolver.resolve_dependency(
+        {
+            "name": "seqkit",
+            "source": "bioconda",
+            "packageSpec": "bioconda::seqkit=2.13.0",
+        }
+    )
+
+    template = draft["ruleTemplate"]
+    assert draft["source"] == "h2ometa-tool-profile"
+    assert draft["lock"]["profileId"] == "seqkit-stats"
+    assert draft["lock"]["wrapperIdentifier"] == "v9.8.0/bio/seqkit"
+    assert template["wrapper"] == "v9.8.0/bio/seqkit"
+    assert template["inputs"] == [
+        {
+            "name": "fastx",
+            "type": "file",
+            "kind": "sequence_reads",
+            "mimeType": "text/plain",
+            "required": True,
+        }
+    ]
+    assert template["outputs"] == [
+        {
+            "name": "stats",
+            "path": "results/seqkit-stats.tsv",
+            "kind": "sequence_stats",
+            "mimeType": "text/tab-separated-values",
+        }
+    ]
+    assert template["params"] == {
+        "command": {"type": "string", "title": "SeqKit command", "default": "stats", "const": "stats"},
+        "extra": {"type": "string", "title": "Extra seqkit stats arguments", "default": "--all --tabular"},
+    }
+    assert template["environment"]["conda"]["dependencies"] == ["bioconda::seqkit=2.13.0"]
+    assert template["smokeTest"]["inputs"]["fastx"]["filename"] == "reads.fastq"
+    assert template["smokeTest"]["params"] == {"command": "stats", "extra": "--all --tabular"}

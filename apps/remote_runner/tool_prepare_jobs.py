@@ -6,13 +6,14 @@ from .tool_prepare_job_storage import (
     complete_tool_prepare_job,
     fail_tool_prepare_job,
     fetch_tool_prepare_job,
+    mark_tool_prepare_job_waiting_resource,
     record_tool_prepare_job_event,
     tool_prepare_job_cancelled,
     tool_prepare_job_payload,
 )
 from .tool_preparation import validate_registered_tool_for_publish
 from .tool_revisions import publish_tool_revision
-from .tools import ToolRegistryError
+from .tools_errors import ToolPrepareWaitingResourceError, ToolRegistryError
 
 
 def run_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> None:
@@ -34,6 +35,8 @@ def run_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> None:
         published["message"] = str(item.get("message") or "Tool revision published.")
         saved = upsert_tool(cfg, published)
         complete_tool_prepare_job(cfg, job_id, saved)
+    except ToolPrepareWaitingResourceError as exc:
+        mark_tool_prepare_job_waiting_resource(cfg, job_id, code=exc.code, message=exc.message, details=exc.details)
     except ToolRegistryError as exc:
         fail_tool_prepare_job(cfg, job_id, code=str(exc), message=str(exc))
     except Exception as exc:

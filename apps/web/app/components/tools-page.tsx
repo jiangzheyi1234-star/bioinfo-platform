@@ -99,6 +99,7 @@ export function ToolsPage() {
                 query={state.query}
                 searchComplete={state.searchComplete}
                 searchHasMore={state.searchHasMore}
+                searchNotice={state.searchNotice}
                 searchPage={state.searchPage}
                 searchTotal={state.searchTotal}
                 selectedId={state.selectedId}
@@ -109,7 +110,6 @@ export function ToolsPage() {
               <ToolPreviewPanel
                 addingSelectedTool={state.addingSelectedTool}
                 canSaveSelected={state.canSaveSelected}
-                canValidateSelected={state.canValidateSelected}
                 missingRuleSpecFields={state.missingSelectedRuleSpecFields}
                 selected={state.selected}
                 selectedAlreadyAdded={state.selectedAlreadyAdded}
@@ -119,7 +119,6 @@ export function ToolsPage() {
                 selectedVersion={state.selectedVersion}
                 selectedWrapperPath={state.selectedWrapperPath}
                 onAdd={state.addSelectedTool}
-                onAddAndCheck={state.addAndCheckSelectedTool}
                 onOpenSourceUrl={(url) => void state.openToolSourceUrl(url)}
                 onOutputPathChange={state.updateSelectedOutputPath}
                 onVersionChange={state.updateSelectedVersion}

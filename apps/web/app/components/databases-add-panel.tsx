@@ -114,7 +114,7 @@ export function DatabasesAddPanel({ state }: DatabasesAddPanelProps) {
                   <span>自动校验</span>
                 </div>
                 <p className="mt-1 text-sm leading-6 text-slate-950">
-                  工具验证：{selectedTemplate.toolProbe?.packageSpec || "自定义规则"}
+                  结构校验：路径存在、模板必需文件和索引形态
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {templateCheckItemList(selectedTemplate).map((item, index) => (

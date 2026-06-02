@@ -70,6 +70,5 @@ def test_test_data_cleanup_is_explicit_and_does_not_stop_runner() -> None:
 
     assert "systemctl --user stop" not in plan.command
     assert "$HOME/.h2ometa/runner/shared/data/database-mvp" in plan.command
-    assert "$HOME/.h2ometa/runner/shared/database-probe-envs" in plan.command
     assert "$HOME/.h2ometa/runner/releases/0.1.1-control-plane" not in plan.command
     assert plan.metadata["removed_test_data"]

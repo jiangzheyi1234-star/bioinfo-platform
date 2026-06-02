@@ -251,6 +251,7 @@ export function ToolSearchResults({
   query,
   searchComplete,
   searchHasMore,
+  searchNotice,
   searchPage,
   searchTotal,
   selectedId,
@@ -263,6 +264,7 @@ export function ToolSearchResults({
   query: string;
   searchComplete: boolean;
   searchHasMore: boolean;
+  searchNotice: string;
   searchPage: number;
   searchTotal: number;
   selectedId: string;
@@ -281,6 +283,11 @@ export function ToolSearchResults({
       </div>
 
       <div className="min-h-[320px] space-y-2">
+        {!loading && !error && searchNotice ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            {searchNotice}
+          </div>
+        ) : null}
         {loading ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
             <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" />
@@ -518,9 +525,7 @@ function scalarValue(raw: unknown) {
 export function ToolPreviewPanel({
   addingSelectedTool,
   canSaveSelected,
-  canValidateSelected,
   onAdd,
-  onAddAndCheck,
   onOpenSourceUrl,
   onOutputPathChange,
   onVersionChange,
@@ -536,10 +541,8 @@ export function ToolPreviewPanel({
 }: {
   addingSelectedTool: boolean;
   canSaveSelected: boolean;
-  canValidateSelected: boolean;
   missingRuleSpecFields: string[];
   onAdd: () => void;
-  onAddAndCheck: () => void;
   onOpenSourceUrl: (url: string) => void;
   onOutputPathChange: (id: string, outputPath: string) => void;
   onVersionChange: (id: string, version: string) => void;
@@ -659,7 +662,7 @@ dependencies:
 
           {missingRuleSpecFields.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-              <div className="font-medium">还不能加入流程：</div>
+              <div className="font-medium">仅依赖，缺 RuleSpec：</div>
               <ul className="mt-1 list-disc space-y-0.5 pl-4">
                 {missingRuleSpecFields.map((field) => (
                   <li key={field}>{field}</li>
@@ -668,24 +671,14 @@ dependencies:
             </div>
           ) : null}
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Button
-              variant="outline"
-              className="h-10 bg-white text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
-              disabled={!canSaveSelected || addingSelectedTool}
-              onClick={onAdd}
-            >
-              {selectedAlreadyAdded ? "已加入" : !selectedPackageLocked ? "请选择版本" : "加入工具库"}
-            </Button>
-            <Button
-              className="h-10 bg-slate-950 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500"
-              disabled={!canValidateSelected || addingSelectedTool}
-              onClick={onAddAndCheck}
-            >
-              {addingSelectedTool ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {addingSelectedTool ? "验证任务运行中" : selectedAlreadyAdded ? "已加入" : "验证并发布"}
-            </Button>
-          </div>
+          <Button
+            className="h-10 w-full bg-slate-950 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500"
+            disabled={!canSaveSelected || addingSelectedTool}
+            onClick={onAdd}
+          >
+            {addingSelectedTool ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {addingSelectedTool ? "正在准备" : selectedAlreadyAdded ? "已加入" : !selectedPackageLocked ? "请选择版本" : "添加工具"}
+          </Button>
         </div>
       ) : (
         <p className="mt-4 text-sm text-slate-400">选择一个搜索结果</p>

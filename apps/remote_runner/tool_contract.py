@@ -51,6 +51,11 @@ def normalize_contract_status(raw: Any) -> dict[str, dict[str, str]]:
         for evidence_key in (
             "runId",
             "logPath",
+            "resourceKey",
+            "resourceType",
+            "configKey",
+            "acceptedTemplates",
+            "acceptedCapabilities",
             "evidenceType",
             "databaseId",
             "templateId",
@@ -106,7 +111,6 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
     production_enabled = workflow_ready and _passed(validation["production"])
     state = _state_for_contract(
         package_specified=bool(package_spec),
-        has_draft=has_draft,
         rule_confirmed=rule_confirmed,
         environment_ready=environment_ready,
         renderable=renderable,
@@ -162,7 +166,6 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
 def _state_for_contract(
     *,
     package_specified: bool,
-    has_draft: bool,
     rule_confirmed: bool,
     environment_ready: bool,
     renderable: bool,
@@ -179,9 +182,6 @@ def _state_for_contract(
         return "WorkflowReady"
     dry_run_passed = _passed(validation["dryRun"])
     smoke_run_passed = dry_run_passed and smoke_test_specified and _passed(validation["smokeRun"])
-    output_validated = smoke_run_passed and _passed(validation["outputValidation"])
-    if renderable and output_validated:
-        return "OutputValidated"
     if renderable and smoke_run_passed:
         return "SmokeRunPassed"
     if renderable and dry_run_passed:
@@ -192,8 +192,6 @@ def _state_for_contract(
         return "EnvSpecified"
     if rule_confirmed:
         return "RuleSpecConfirmed"
-    if has_draft:
-        return "RuleSpecDrafted"
     return "AddedDependency"
 
 

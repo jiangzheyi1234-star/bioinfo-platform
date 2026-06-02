@@ -45,6 +45,17 @@ class WorkflowRuntimeArtifact:
 
 
 class RemoteRunnerArtifactProvider:
+    REQUIRED_WRAPPER_ASSET_MEMBERS = frozenset(
+        {
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastp/wrapper.py",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastp/environment.yaml",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastqc/wrapper.py",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastqc/environment.yaml",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/multiqc/wrapper.py",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/multiqc/environment.yaml",
+        }
+    )
+
     def __init__(
         self,
         *,
@@ -89,6 +100,7 @@ class RemoteRunnerArtifactProvider:
         runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
         if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
             raise RemoteRunnerArtifactError(f"remote runner artifact does not declare bundled runtime: {archive_path}")
+        self._verify_required_wrapper_assets(archive_path)
         return RemoteRunnerArtifact(
             version=version,
             platform=platform,
@@ -117,6 +129,21 @@ class RemoteRunnerArtifactProvider:
         raise RemoteRunnerArtifactError(
             f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
         )
+
+    @classmethod
+    def _verify_required_wrapper_assets(cls, archive_path: Path) -> None:
+        try:
+            with tarfile.open(archive_path, "r:gz") as archive:
+                names = cls._validated_member_names(archive, archive_path)
+        except RemoteRunnerArtifactError:
+            raise
+        except Exception as exc:
+            raise RemoteRunnerArtifactError(f"remote runner artifact wrapper assets are unreadable: {archive_path}") from exc
+        missing = sorted(cls.REQUIRED_WRAPPER_ASSET_MEMBERS - names)
+        if missing:
+            raise RemoteRunnerArtifactError(
+                f"remote runner artifact missing bundled Snakemake wrapper assets: {', '.join(missing)}"
+            )
 
     def _candidate_roots(self, spec: ReleaseArtifactSpec) -> list[Path]:
         if self._search_roots is not None:

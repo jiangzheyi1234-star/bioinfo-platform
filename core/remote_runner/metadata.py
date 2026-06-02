@@ -5,7 +5,15 @@ from typing import Any
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 
 
-def build_remote_workflow_profile_content(*, conda_prefix: str) -> str:
+DEFAULT_SNAKEMAKE_WRAPPER_PREFIX = "https://raw.githubusercontent.com/snakemake/snakemake-wrappers/"
+
+
+def build_remote_workflow_profile_content(
+    *,
+    conda_prefix: str,
+    wrapper_prefix: str = DEFAULT_SNAKEMAKE_WRAPPER_PREFIX,
+) -> str:
+    normalized_wrapper_prefix = _normalize_wrapper_prefix(wrapper_prefix)
     return "\n".join(
         [
             "executor: local",
@@ -15,10 +23,16 @@ def build_remote_workflow_profile_content(*, conda_prefix: str) -> str:
             "rerun-incomplete: true",
             "software-deployment-method: conda",
             "conda-frontend: mamba",
+            f"wrapper-prefix: {normalized_wrapper_prefix}",
             f"conda-prefix: {conda_prefix}",
             "",
         ]
     )
+
+
+def _normalize_wrapper_prefix(value: str) -> str:
+    prefix = str(value or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX).strip() or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX
+    return prefix if prefix.endswith("/") else f"{prefix}/"
 
 
 def summarize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:

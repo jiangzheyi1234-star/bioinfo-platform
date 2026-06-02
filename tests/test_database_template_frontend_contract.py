@@ -250,7 +250,6 @@ def test_resolved_tool_path_is_explained_when_it_differs_from_selected_path() ->
     _assert_contains(
         details_source,
         'import type { DatabaseItem } from "./database-page-model";',
-        'type ToolProbe = NonNullable<NonNullable<DatabaseItem["metadata"]>["validation"]>["toolProbe"];',
         'item: DatabaseItem | null;',
         'const actualToolPath = toolPath || (item ? databaseToolPath(item) : "");',
         'const pathMode = item?.pathMode || item?.resolvedPath?.kind;',

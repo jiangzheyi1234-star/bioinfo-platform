@@ -174,13 +174,11 @@ export type ToolContractStatus = {
 export type ToolContractState =
   | "Discovered"
   | "AddedDependency"
-  | "RuleSpecDrafted"
   | "RuleSpecConfirmed"
   | "EnvSpecified"
   | "SnakemakeRenderable"
   | "DryRunPassed"
   | "SmokeRunPassed"
-  | "OutputValidated"
   | "WorkflowReady"
   | "ProductionEnabled";
 
@@ -247,6 +245,7 @@ export type ToolSearchResponse = {
     hasMore?: boolean;
     complete?: boolean;
     localIndexAvailable?: boolean;
+    onlineUnavailableReason?: string;
   };
 };
 
@@ -261,7 +260,7 @@ export type AddedTool = ToolSearchItem & {
   lastCheckedAt?: string | null;
 };
 
-export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | string;
+export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting_resource" | string;
 
 export type ToolPrepareJobEvent = {
   eventId: string;
@@ -354,6 +353,16 @@ export function searchErrorMessage(err: unknown) {
     return "在线搜索暂不可用，请检查本机网络后重试。";
   }
   return message || "在线搜索失败";
+}
+
+export function searchNoticeMessage(reason: string | undefined) {
+  if (reason === "ANACONDA_RATE_LIMITED") {
+    return "在线工具源暂时限流，本地索引没有命中。请稍后重试，或换一个更具体的工具名。";
+  }
+  if (reason) {
+    return "在线工具源暂不可用，本地索引没有命中。请稍后重试。";
+  }
+  return "";
 }
 
 export function dependencyKey(packageSpec: string) {

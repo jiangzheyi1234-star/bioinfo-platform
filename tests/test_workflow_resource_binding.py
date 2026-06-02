@@ -17,7 +17,6 @@ from tests.helpers.reference_database import (
     make_blast_prefix_database as _make_blast_prefix_database,
     make_configured_remote_runner,
     make_kraken2_database as _make_kraken2_database,
-    patch_tool_probe_success as _patch_tool_probe_success,
 )
 
 
@@ -41,7 +40,6 @@ def _cfg(tmp_path: Path):
     ],
 )
 def test_workflow_resource_binding_matches_shared_contract_matrix(tmp_path: Path, monkeypatch, case_id: str) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     case_root = tmp_path / case_id
     cases = {case.case_id: case for case in iter_workflow_resource_contract_cases(case_root)}
@@ -89,7 +87,6 @@ def test_workflow_resource_binding_matches_shared_contract_matrix(tmp_path: Path
 
 
 def test_workflow_resource_binding_preserves_composite_metadata_and_custom_template(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     nucleotide = tmp_path / "humann" / "chocophlan"
     protein = tmp_path / "humann" / "uniref"
@@ -178,7 +175,6 @@ def test_workflow_resource_binding_preserves_composite_metadata_and_custom_templ
 
 
 def test_workflow_resource_binding_rejects_wrong_template(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     db_dir = _make_kraken2_database(tmp_path / "kraken2")
     add_reference_database(
@@ -210,7 +206,6 @@ def test_workflow_resource_binding_rejects_wrong_template(tmp_path: Path, monkey
 
 
 def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     cfg = _cfg(tmp_path)
     blast_dir = _make_blast_prefix_database(tmp_path / "blast")
     add_reference_database(
@@ -299,7 +294,6 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
 
 
 def test_static_pipeline_writes_resource_config_from_manifest(tmp_path: Path, monkeypatch) -> None:
-    _patch_tool_probe_success(monkeypatch)
     release_dir = tmp_path / "release"
     pipeline_dir = release_dir / "pipelines" / "static-resource-v1"
     workflow_dir = pipeline_dir / "workflow"
