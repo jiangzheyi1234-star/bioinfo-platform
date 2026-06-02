@@ -4,8 +4,16 @@
 - For local app startup, use `run.bat --web` for the browser UI or `run.bat --desktop` for desktop dev from a real Windows shell. See `docs/local-startup.md`; do not start API/Web manually unless debugging the launcher.
 - When frontend changes appear missing, CSS/chunks under `/_next/static/...` return 404, the UI loses Tailwind/shadcn styling, or a hydrated page stays stuck on loading, assume the local Next/Web process is stale first. Restart the full launcher with `run.bat --web`, then refresh and re-check before treating it as an application bug.
 - At the end of each task, check whether logs, debug outputs, run artifacts, screenshots, temp files, or other local-only files were created under the repository. Delete local-only leftovers that are not intended project files before reporting completion, and leave user-created or committed artifacts untouched unless explicitly asked.
-- For Python commands, use the repo-local uv project environment: set `$env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'`, remove `$env:UV_PYTHON` if it is set, set `$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv'`, and set `$env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'` before `uv run ...`. Python dependencies have one source of truth: `pyproject.toml` plus `uv.lock`.
-- Do not run `pytest` from this Windows Codex environment, and do not invoke it via WSL from here. Ask the user to run any needed `pytest` command manually from the WSL Codex CLI instead.
+- Keep Windows and WSL uv environments separate. `pyproject.toml` plus `uv.lock` are the only dependency source of truth, but virtual environments are OS-specific and must not be shared across Windows and WSL.
+- Windows-owned work:
+  - Use Windows for `run.bat --web`, `run.bat --desktop`, UI smoke tests, frontend dependency installs, `npm run build`, desktop builds, remote bootstrap/smoke/database acceptance, and launcher debugging.
+  - Windows launchers use `E:\code\bio_ui\.venv-win` by default for `UV_PROJECT_ENVIRONMENT`; override with `H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT` only when debugging launcher environment issues.
+  - For Windows Python commands, use PowerShell/cmd with `$env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'`, remove `$env:UV_PYTHON` if it is set, set `$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv-win'`, and set `$env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'` before `uv run ...`.
+  - Treat `E:\code\bio_ui\.venv-win` as Windows-owned. If any repo-local virtual environment was created by WSL/Linux, do not silently reuse it from Windows; report the mismatch and ask before deleting or recreating it.
+- WSL-owned work:
+  - Use WSL Codex CLI for `pytest` and Python test/quality commands such as focused `uv run pytest ...` and `uv run ruff check ...`.
+  - In WSL, never point `UV_PROJECT_ENVIRONMENT` at `/mnt/e/code/bio_ui/.venv`, `/mnt/e/code/bio_ui/.venv-win`, or any Windows-owned venv. Use a WSL-only environment, for example `export UV_PROJECT_ENVIRONMENT=/tmp/bio_ui_codex_uv_venv_pytest`, `export UV_CACHE_DIR=/tmp/bio_ui_codex_uv_cache`, `unset UV_PYTHON`, and `export UV_PYTHON_INSTALL_DIR=/tmp/bio_ui_codex_uv_python` before `uv run ...`.
+  - From this Windows Codex environment, do not run `pytest`, and do not invoke WSL just to run it. Ask the user to run needed pytest commands manually from the WSL Codex CLI.
 - Keep hand-written source files under 800 lines. Ignore lockfiles and generated files. If a source file is already over 800 lines, avoid making it larger; extract new logic into a new module when possible.
 - Frontend work must reuse the existing Tailwind + shadcn/ui system.
 - Reuse `apps/web/components/ui` and `apps/web/app/components` before adding new components.

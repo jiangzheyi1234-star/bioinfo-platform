@@ -20,7 +20,7 @@ Build the control-plane artifact:
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
 Remove-Item Env:UV_PYTHON -ErrorAction SilentlyContinue
-$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv'
+$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv-win'
 $env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'
 uv run --frozen python scripts\build_remote_runner_artifact_on_server.py
 ```
@@ -30,7 +30,7 @@ Build the workflow runtime artifact:
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
 Remove-Item Env:UV_PYTHON -ErrorAction SilentlyContinue
-$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv'
+$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv-win'
 $env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'
 uv run --frozen python scripts\build_workflow_runtime_artifact_on_server.py
 ```

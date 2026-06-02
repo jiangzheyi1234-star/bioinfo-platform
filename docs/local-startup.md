@@ -17,7 +17,8 @@ This starts:
 - Web UI: `http://127.0.0.1:3765`
 
 `run.bat --web` resolves the manifest-declared prebuilt remote-runner artifacts, stops any stale listener on `127.0.0.1:8765`, then starts the API and Next.js dev server in separate terminal windows.
-The local API process uses the repo uv project environment (`pyproject.toml`/`uv.lock`) with `uv run --frozen`; Python dependencies have a single source of truth in the uv project files.
+The local API process uses the repo uv project files (`pyproject.toml`/`uv.lock`) with `uv run --frozen`; Python dependencies have a single source of truth in the uv project files.
+On Windows, the launcher defaults `UV_PROJECT_ENVIRONMENT` to `E:\code\bio_ui\.venv-win` so it never shares a WSL-created repo venv. Set `H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT` only when debugging or intentionally using a different Windows-owned uv environment.
 
 ## Desktop Dev
 
@@ -27,6 +28,8 @@ run.bat --desktop
 ```
 
 `run.bat` with no arguments defaults to `--desktop`.
+
+Desktop dev uses the same Windows-owned uv environment rule for the repo backend: explicit `H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT` first, otherwise `.venv-win` under the repo root.
 
 ## Port Conflict Rule
 
