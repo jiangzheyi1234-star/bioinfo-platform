@@ -201,12 +201,10 @@ def test_validation_status_messages_and_details_dialog_remain_visible() -> None:
         "item.message",
         "查看校验详情",
         "DatabaseValidationDetailsDialog",
-        "工具探测：",
-        "stdout",
-        "stderr",
-        "实际执行命令",
-        "返回码",
-        "toolPath ? (",
+        "路径如何传给工具",
+        "校验范围",
+        "实际工具路径",
+        'const actualToolPath = toolPath || (item ? databaseToolPath(item) : "");',
         "copyDatabasePath(toolPath)",
     )
     _assert_not_contains(source, "copyDatabasePath(toolPath || item.path)")

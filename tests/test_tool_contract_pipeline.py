@@ -799,7 +799,7 @@ def test_generated_workflow_cannot_bypass_registered_contract_with_request_rules
             result_dir=tmp_path / "results",
         )
     except ValueError as exc:
-        assert str(exc) == "WORKFLOW_STEP_TOOL_UNSUPPORTED_FIELD: ruleTemplate"
+        assert str(exc) == "WORKFLOW_GRAPH_NODE_UNSUPPORTED_FIELD: run_tool.tool"
     else:
         raise AssertionError("runSpec RuleSpec must not bypass the registered tool contract")
 

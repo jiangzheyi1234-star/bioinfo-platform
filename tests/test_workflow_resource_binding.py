@@ -8,9 +8,9 @@ import pytest
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import DATABASE_TEMPLATES, add_reference_database
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.storage import persist_upload, upsert_tool
+from apps.remote_runner.storage import persist_upload
 from apps.remote_runner.workflow_resources import build_workflow_resource_config
+from tests.generated_workflow_test_helpers import generated_workflow_run_spec, upsert_ready_tool
 from tests.helpers.reference_database import (
     assert_resolution_contract,
     iter_workflow_resource_contract_cases,
@@ -217,7 +217,7 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
             "path": str(blast_dir),
         },
     )
-    upsert_tool(
+    upsert_ready_tool(
         cfg,
         {
             "id": "bioconda::blastn-demo",
@@ -255,17 +255,18 @@ def test_generated_workflow_uses_resource_binding_config_and_tokens(tmp_path: Pa
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
 
+    run_spec = generated_workflow_run_spec(
+        "bioconda::blastn-demo",
+        project_id="proj_demo",
+        resource_bindings={"blast_nt_db": "db_ncbi_nt"},
+    )
+    run_spec["inputs"] = [{"uploadId": upload["uploadId"], "filename": "query.fa", "role": "input"}]
+
     run_snakemake_execution(
         cfg,
         run_id="run_resource_binding",
         request_id="req_resource_binding",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "query.fa", "role": "input"}],
-            "resourceBindings": {"blast_nt_db": "db_ncbi_nt"},
-            "tool": {"id": "bioconda::blastn-demo"},
-        },
+        run_spec=run_spec,
     )
 
     work_dir = Path(cfg.work_dir) / "run_resource_binding"
@@ -298,6 +299,7 @@ def test_static_pipeline_writes_resource_config_from_manifest(tmp_path: Path, mo
     pipeline_dir = release_dir / "pipelines" / "static-resource-v1"
     workflow_dir = pipeline_dir / "workflow"
     workflow_dir.mkdir(parents=True)
+    (release_dir / "snakemake_wrappers").mkdir(parents=True)
     (workflow_dir / "Snakefile").write_text('configfile: "run-config.json"\n', encoding="utf-8")
     (pipeline_dir / ".test").mkdir(parents=True)
     (pipeline_dir / ".test" / "run-config.json").write_text("{}", encoding="utf-8")

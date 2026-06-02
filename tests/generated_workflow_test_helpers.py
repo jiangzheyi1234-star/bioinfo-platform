@@ -249,4 +249,13 @@ def _has_scheduler_resources(rule_template: dict[str, Any]) -> bool:
     resources = rule_template.get("resources")
     if not isinstance(resources, dict):
         return False
-    return any(key != "threads" for key in resources)
+    return any(key != "threads" and not _workflow_resource_value(value) for key, value in resources.items())
+
+
+def _workflow_resource_value(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return (
+        any(key in value for key in ("acceptedTemplates", "acceptedCapabilities", "configKey"))
+        or str(value.get("type") or "") == "database"
+    )

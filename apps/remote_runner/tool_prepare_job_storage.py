@@ -66,7 +66,7 @@ def fetch_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, An
                 """
                 SELECT * FROM tool_prepare_job_events
                 WHERE job_id = ?
-                ORDER BY created_at ASC, event_id ASC
+                ORDER BY rowid ASC
                 """,
                 (normalized,),
             ).fetchall()

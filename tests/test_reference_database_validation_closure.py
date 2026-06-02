@@ -364,7 +364,7 @@ def test_file_template_directory_selection_injects_resolved_file_path(tmp_path: 
 
 
 def test_mmseqs2_template_matches_createdb_prefix_outputs() -> None:
-    from apps.remote_runner.databases import list_database_templates
+    from apps.remote_runner.database_templates import list_database_templates
 
     templates = {item["id"]: item for item in list_database_templates()}
 
