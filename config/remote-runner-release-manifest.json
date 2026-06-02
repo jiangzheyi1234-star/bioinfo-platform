@@ -25,6 +25,9 @@
       },
       "lock_sha256": {
         "linux-64": "2a5c0c27f7ec75cbb525c7289e1f21f17312aa5b3d015df7996c84fd78325c38"
+      },
+      "download_urls": {
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/436499787"
       }
     },
     "workflow_runtime": {
@@ -47,6 +50,9 @@
       },
       "lock_sha256": {
         "linux-64": "89e18e81b81d3045b0e68175b3a0810efc8f5ef11c41ff7837432c91bf2e9458"
+      },
+      "download_urls": {
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/436499788"
       }
     }
   }

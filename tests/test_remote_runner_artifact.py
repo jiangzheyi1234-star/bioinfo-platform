@@ -14,7 +14,7 @@ from core.remote_runner.artifact import (
     WorkflowRuntimeArtifactProvider,
 )
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
-from core.remote_runner.release_manifest import WORKFLOW_RUNTIME_VERSION
+from core.remote_runner.release_manifest import ReleaseArtifactSpec, WORKFLOW_RUNTIME_VERSION
 
 
 def _write_artifact(
@@ -116,6 +116,44 @@ def _extract_normalized(archive: tarfile.TarFile, name: str) -> tarfile.ExFileOb
     raise KeyError(name)
 
 
+def _local_release_artifact_or_skip(repo_root: Path, filename: str) -> Path:
+    bundle = repo_root / "resources" / "remote-runner" / filename
+    if not bundle.exists():
+        pytest.skip(
+            "release artifact tarballs are external; run scripts/check_remote_runner_release_artifacts.py "
+            "with release download credentials to verify artifact contents"
+        )
+    return bundle
+
+
+def _spec_with_download_url(
+    *,
+    key: str,
+    name: str,
+    service: str,
+    version: str,
+    bundle_env_var: str,
+    search_root_env_var: str,
+    url: str,
+    sha256: str,
+    size_bytes: int,
+) -> ReleaseArtifactSpec:
+    return ReleaseArtifactSpec(
+        key=key,
+        name=name,
+        service=service,
+        version=version,
+        default_platform="linux-64",
+        bundle_env_var=bundle_env_var,
+        search_root_env_vars=(search_root_env_var,),
+        conda_explicit_specs={},
+        sha256={"linux-64": sha256},
+        size_bytes={"linux-64": size_bytes},
+        lock_sha256={},
+        download_urls={"linux-64": url},
+    )
+
+
 def test_artifact_provider_resolves_explicit_bundle_and_verifies_sha256(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -173,6 +211,42 @@ def test_artifact_provider_rejects_missing_profile_wrapper_assets(
         RemoteRunnerArtifactProvider(search_roots=[]).resolve("dev", platform="linux-64")
 
 
+def test_artifact_provider_downloads_declared_artifact_to_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    version = "downloaded-control-plane"
+    filename = f"h2ometa-remote-runner-{version}-linux-64.tar.gz"
+    source = tmp_path / "release" / filename
+    _write_artifact(source, version=version, platform="linux-64", content=b"downloaded")
+    sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    cache_root = tmp_path / "artifact-cache"
+    monkeypatch.setenv("H2OMETA_ARTIFACT_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(
+        "core.remote_runner.artifact.REMOTE_RUNNER_ARTIFACT",
+        _spec_with_download_url(
+            key="remote_runner",
+            name="h2ometa-remote-runner",
+            service="h2ometa-remote",
+            version=version,
+            bundle_env_var="H2OMETA_REMOTE_RUNNER_BUNDLE",
+            search_root_env_var="H2OMETA_REMOTE_RUNNER_DIR",
+            url=source.as_uri(),
+            sha256=sha256,
+            size_bytes=source.stat().st_size,
+        ),
+    )
+
+    resolved = RemoteRunnerArtifactProvider(search_roots=[]).resolve(version, platform="linux-64")
+
+    expected_path = cache_root / "remote_runner" / version / "linux-64" / filename
+    assert resolved.archive_path == expected_path
+    assert resolved.sha256 == sha256
+    assert expected_path.read_bytes() == source.read_bytes()
+    assert expected_path.with_suffix(expected_path.suffix + ".sha256").read_text(encoding="utf-8") == (
+        f"{sha256}  {filename}\n"
+    )
+
+
 def test_workflow_runtime_provider_resolves_conda_pack_artifact(tmp_path: Path) -> None:
     bundle = tmp_path / "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
     _write_workflow_artifact(bundle)
@@ -208,13 +282,44 @@ def test_workflow_runtime_provider_rejects_missing_snakemake_package_version(tmp
         WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
 
 
+def test_workflow_runtime_provider_downloads_declared_artifact_to_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    version = "downloaded-workflow"
+    filename = f"h2ometa-workflow-runtime-{version}-linux-64.tar.gz"
+    source = tmp_path / "release" / filename
+    _write_workflow_artifact(source, version=version, platform="linux-64")
+    sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    cache_root = tmp_path / "artifact-cache"
+    monkeypatch.setenv("H2OMETA_ARTIFACT_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(
+        "core.remote_runner.artifact.WORKFLOW_RUNTIME_ARTIFACT",
+        _spec_with_download_url(
+            key="workflow_runtime",
+            name="h2ometa-workflow-runtime",
+            service="h2ometa-workflow-runtime",
+            version=version,
+            bundle_env_var="H2OMETA_WORKFLOW_RUNTIME_BUNDLE",
+            search_root_env_var="H2OMETA_WORKFLOW_RUNTIME_DIR",
+            url=source.as_uri(),
+            sha256=sha256,
+            size_bytes=source.stat().st_size,
+        ),
+    )
+
+    resolved = WorkflowRuntimeArtifactProvider(search_roots=[]).resolve(version, platform="linux-64")
+
+    expected_path = cache_root / "workflow_runtime" / version / "linux-64" / filename
+    assert resolved.archive_path == expected_path
+    assert resolved.sha256 == sha256
+    assert resolved.snakemake_entrypoint == "workflow-env/bin/snakemake"
+
+
 def test_checked_in_remote_runner_artifact_contains_current_runtime_contract() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    bundle = (
-        repo_root
-        / "resources"
-        / "remote-runner"
-        / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
+    bundle = _local_release_artifact_or_skip(
+        repo_root,
+        f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz",
     )
 
     resolved = RemoteRunnerArtifactProvider(repo_root=repo_root).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
@@ -239,11 +344,9 @@ def test_checked_in_remote_runner_artifact_contains_current_runtime_contract() -
 
 def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    bundle = (
-        repo_root
-        / "resources"
-        / "remote-runner"
-        / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
+    bundle = _local_release_artifact_or_skip(
+        repo_root,
+        f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz",
     )
 
     resolved = RemoteRunnerArtifactProvider(repo_root=repo_root).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
@@ -270,11 +373,9 @@ def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -
 
 def test_checked_in_remote_runner_artifact_contains_tool_prepare_endpoint() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    bundle = (
-        repo_root
-        / "resources"
-        / "remote-runner"
-        / f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz"
+    bundle = _local_release_artifact_or_skip(
+        repo_root,
+        f"h2ometa-remote-runner-{REMOTE_RUNNER_VERSION}-linux-64.tar.gz",
     )
 
     resolved = RemoteRunnerArtifactProvider(repo_root=repo_root).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
@@ -298,11 +399,9 @@ def test_checked_in_remote_runner_artifact_contains_tool_prepare_endpoint() -> N
 
 def test_checked_in_workflow_runtime_artifact_wraps_activate_for_per_rule_conda_envs() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    bundle = (
-        repo_root
-        / "resources"
-        / "remote-runner"
-        / f"h2ometa-workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64.tar.gz"
+    bundle = _local_release_artifact_or_skip(
+        repo_root,
+        f"h2ometa-workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64.tar.gz",
     )
 
     resolved = WorkflowRuntimeArtifactProvider(repo_root=repo_root).resolve(WORKFLOW_RUNTIME_VERSION, platform="linux-64")

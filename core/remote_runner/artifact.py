@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from core.remote_runner.release_manifest import (
     RELEASE_MANIFEST,
@@ -127,9 +130,107 @@ class RemoteRunnerArtifactProvider:
             path = root / filename
             if path.exists():
                 return path
+        downloaded = self._download_declared_archive(spec, version=version, platform=platform, filename=filename)
+        if downloaded is not None:
+            return downloaded
         roots_display = ", ".join(str(root) for root in roots)
         raise RemoteRunnerArtifactError(
             f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
+        )
+
+    @classmethod
+    def _download_declared_archive(
+        cls,
+        spec: ReleaseArtifactSpec,
+        *,
+        version: str,
+        platform: str,
+        filename: str,
+    ) -> Path | None:
+        if version != spec.version:
+            return None
+        url = str(spec.download_urls.get(platform) or "").strip()
+        if not url:
+            return None
+        expected_sha = str(spec.sha256.get(platform) or "").strip().lower()
+        if len(expected_sha) != 64:
+            raise RemoteRunnerArtifactError(
+                f"{spec.key.replace('_', ' ')} artifact download is missing manifest sha256 for {platform}"
+            )
+        expected_size = int(spec.size_bytes.get(platform) or 0)
+        cache_dir = cls._artifact_cache_root() / spec.key / version / platform
+        archive_path = cache_dir / filename
+        if archive_path.exists():
+            actual_sha = cls._sha256_file(archive_path)
+            actual_size = archive_path.stat().st_size
+            if actual_sha == expected_sha and (not expected_size or actual_size == expected_size):
+                cls._write_checksum_file(archive_path, expected_sha)
+                return archive_path
+            archive_path.unlink()
+
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = archive_path.with_name(f"{archive_path.name}.tmp")
+        if tmp_path.exists():
+            tmp_path.unlink()
+        label = spec.key.replace("_", " ")
+        try:
+            request = Request(url, headers=cls._download_headers())
+            with urlopen(request, timeout=120) as response, tmp_path.open("wb") as handle:
+                shutil.copyfileobj(response, handle)
+            actual_size = tmp_path.stat().st_size
+            if expected_size and actual_size != expected_size:
+                raise RemoteRunnerArtifactError(
+                    f"{label} artifact size mismatch after download: expected {expected_size}, got {actual_size}"
+                )
+            actual_sha = cls._sha256_file(tmp_path)
+            if actual_sha != expected_sha:
+                raise RemoteRunnerArtifactError(f"{label} artifact sha256 mismatch after download: {url}")
+            os.replace(tmp_path, archive_path)
+            cls._write_checksum_file(archive_path, expected_sha)
+            return archive_path
+        except RemoteRunnerArtifactError:
+            raise
+        except (OSError, URLError) as exc:
+            raise RemoteRunnerArtifactError(
+                f"{label} artifact download failed from {url}; "
+                "for private GitHub releases set H2OMETA_RELEASE_DOWNLOAD_TOKEN, GH_TOKEN, or GITHUB_TOKEN"
+            ) from exc
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    @staticmethod
+    def _artifact_cache_root() -> Path:
+        explicit = str(os.environ.get("H2OMETA_ARTIFACT_CACHE_DIR", "") or "").strip()
+        if explicit:
+            return Path(explicit)
+        if os.name == "nt":
+            local_app_data = str(os.environ.get("LOCALAPPDATA", "") or "").strip()
+            if local_app_data:
+                return Path(local_app_data) / "H2OMeta" / "artifacts"
+        xdg_cache_home = str(os.environ.get("XDG_CACHE_HOME", "") or "").strip()
+        return (Path(xdg_cache_home) if xdg_cache_home else Path.home() / ".cache") / "h2ometa" / "artifacts"
+
+    @staticmethod
+    def _download_headers() -> dict[str, str]:
+        headers = {
+            "Accept": "application/octet-stream",
+            "User-Agent": "h2ometa-artifact-provider",
+        }
+        token = (
+            str(os.environ.get("H2OMETA_RELEASE_DOWNLOAD_TOKEN", "") or "").strip()
+            or str(os.environ.get("GH_TOKEN", "") or "").strip()
+            or str(os.environ.get("GITHUB_TOKEN", "") or "").strip()
+        )
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    @staticmethod
+    def _write_checksum_file(path: Path, sha256: str) -> None:
+        path.with_suffix(path.suffix + ".sha256").write_text(
+            f"{sha256}  {path.name}\n",
+            encoding="utf-8",
         )
 
     @classmethod
@@ -378,6 +479,14 @@ class WorkflowRuntimeArtifactProvider:
             path = root / filename
             if path.exists():
                 return path
+        downloaded = RemoteRunnerArtifactProvider._download_declared_archive(
+            spec,
+            version=version,
+            platform=platform,
+            filename=filename,
+        )
+        if downloaded is not None:
+            return downloaded
         roots_display = ", ".join(str(root) for root in roots)
         raise RemoteRunnerArtifactError(
             f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
