@@ -92,5 +92,20 @@ def test_terminal_prepare_job_refreshes_tool_cache_for_workflow_builder() -> Non
     assert "if (isTerminalJob(job))" in task_context
     assert "invalidateWorkflowToolCaches();" in task_context
     assert "lastPrepareRefreshRef" in frontend_state
-    assert 'task.status === "succeeded" || task.status === "failed" || task.status === "cancelled"' in frontend_state
+    assert "isTerminalJob(task)" in frontend_state
     assert "loadAddedTools({ forceRefresh: true, silent: true })" in frontend_state
+
+
+def test_waiting_resource_prepare_job_is_terminal_and_visible() -> None:
+    job_storage = (ROOT / "apps" / "remote_runner" / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
+    task_context = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
+    task_bar = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
+    frontend_state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    model = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-model.ts").read_text(encoding="utf-8")
+
+    assert '"waiting_resource"' in job_storage
+    assert 'job.status === "waiting_resource"' in task_context
+    assert 'status === "waiting_resource"' in task_bar
+    assert "isTerminalJob(task)" in frontend_state
+    assert "isActiveJob(task)" in frontend_state
+    assert '"waiting_resource"' in model

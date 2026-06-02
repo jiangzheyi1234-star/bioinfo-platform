@@ -17,9 +17,7 @@ from .storage import (
     persist_artifact,
     update_run_state,
 )
-
-
-_EXECUTION_LOCK = threading.Lock()
+from .snakemake_execution_lock import SNAKEMAKE_EXECUTION_LOCK
 
 
 def _snakemake_command(cfg: RemoteRunnerConfig) -> list[str]:
@@ -95,7 +93,7 @@ def run_snakemake_execution(
     request_id: str,
     run_spec: dict,
 ) -> None:
-    with _EXECUTION_LOCK:
+    with SNAKEMAKE_EXECUTION_LOCK:
         result_dir = Path(cfg.results_dir) / run_id
         work_dir = Path(cfg.work_dir) / run_id
         logs_dir = Path(cfg.logs_dir)

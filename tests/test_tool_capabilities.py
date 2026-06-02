@@ -261,6 +261,9 @@ def test_tool_search_applies_profile_overlay_ahead_of_wrapper_draft(monkeypatch)
     assert draft["requiresUserCompletion"] is False
     assert draft["lock"]["matchedWrapper"]["wrapperPath"] == "bio/bracken/bracken"
     assert draft["ruleTemplate"]["resources"]["bracken_db"]["acceptedTemplates"] == ["bracken"]
+    smoke_content = draft["ruleTemplate"]["smokeTest"]["inputs"]["kraken_report"]["content"]
+    smoke_rows = [line.split("\t") for line in smoke_content.strip().splitlines()]
+    assert any(len(row) >= 6 and row[3] == "S" and int(row[1]) >= 10 and int(row[2]) > 0 for row in smoke_rows)
 
 
 def test_tool_search_applies_non_database_profile_overlay(monkeypatch) -> None:
@@ -305,19 +308,21 @@ def test_tool_search_applies_non_database_profile_overlay(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "version", "resource_key", "accepted_templates"),
+    ("name", "version", "profile_id", "resource_key", "accepted_templates"),
     [
-        ("bracken", "2.9", "bracken_db", ["bracken"]),
-        ("fastp", "0.24.1", "", []),
-        ("fastqc", "0.12.1", "", []),
-        ("kraken2", "2.1.3", "kraken2_db", ["kraken2"]),
-        ("multiqc", "1.25", "", []),
+        ("bracken", "2.9", "bracken", "bracken_db", ["bracken"]),
+        ("fastp", "0.24.1", "fastp", "", []),
+        ("fastqc", "0.12.1", "fastqc", "", []),
+        ("kraken2", "2.1.3", "kraken2", "kraken2_db", ["kraken2"]),
+        ("multiqc", "1.25", "multiqc", "", []),
+        ("seqkit", "2.13.0", "seqkit-stats", "", []),
     ],
 )
 def test_tool_search_returns_h2ometa_profile_for_p0_tools(
     monkeypatch,
     name: str,
     version: str,
+    profile_id: str,
     resource_key: str,
     accepted_templates: list[str],
 ) -> None:
@@ -357,7 +362,7 @@ def test_tool_search_returns_h2ometa_profile_for_p0_tools(
     draft = item["ruleSpecDraft"]
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["requiresUserCompletion"] is False
-    assert draft["lock"]["profileId"] == name
+    assert draft["lock"]["profileId"] == profile_id
     assert draft["lock"]["packageSpec"] == f"bioconda::{name}={version}"
     if resource_key:
         assert draft["ruleTemplate"]["resources"][resource_key]["acceptedTemplates"] == accepted_templates

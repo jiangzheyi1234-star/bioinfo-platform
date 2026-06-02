@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -40,7 +41,13 @@ def _wrapper_index() -> dict[str, list[dict[str, Any]]]:
     if cached_index is not None:
         _WRAPPER_CACHE = (now, cached_index)
         return cached_index
-    payload = _request_wrapper_tree()
+    try:
+        payload = _request_wrapper_tree()
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            raise
+        _WRAPPER_CACHE = (now, {})
+        return {}
     index = _build_wrapper_index(payload)
     _save_cached_wrapper_index(index)
     _WRAPPER_CACHE = (now, index)

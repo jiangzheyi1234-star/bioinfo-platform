@@ -8,7 +8,8 @@ from .config import RemoteRunnerConfig
 from .storage import get_connection, now_iso
 
 
-TERMINAL_PREPARE_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
+TERMINAL_PREPARE_JOB_STATUSES = {"succeeded", "failed", "cancelled", "waiting_resource"}
+TERMINAL_PREPARE_JOB_STATUS_SQL = "(" + ", ".join(f"'{status}'" for status in sorted(TERMINAL_PREPARE_JOB_STATUSES)) + ")"
 
 
 def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
@@ -158,10 +159,10 @@ def complete_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, result: dict
     now = now_iso()
     with get_connection(cfg) as connection:
         cursor = connection.execute(
-            """
+            f"""
             UPDATE tool_prepare_jobs
             SET status = 'succeeded', stage = 'published', message = ?, result_json = ?, updated_at = ?, finished_at = ?
-            WHERE job_id = ? AND status NOT IN ('cancelled', 'failed', 'succeeded')
+            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
             """,
             (
                 str(result.get("message") or "Tool revision published."),
@@ -191,10 +192,10 @@ def fail_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, *, code: str, me
     now = now_iso()
     with get_connection(cfg) as connection:
         cursor = connection.execute(
-            """
+            f"""
             UPDATE tool_prepare_jobs
             SET status = 'failed', stage = 'failed', message = ?, error_code = ?, updated_at = ?, finished_at = ?
-            WHERE job_id = ? AND status NOT IN ('cancelled', 'failed', 'succeeded')
+            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
             """,
             (message, code, now, now, job_id),
         )
@@ -214,15 +215,53 @@ def fail_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, *, code: str, me
     return job
 
 
+def mark_tool_prepare_job_waiting_resource(
+    cfg: RemoteRunnerConfig,
+    job_id: str,
+    *,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    now = now_iso()
+    normalized_code = str(code or "WORKFLOW_RESOURCE_BINDING_REQUIRED").strip() or "WORKFLOW_RESOURCE_BINDING_REQUIRED"
+    normalized_message = str(message or normalized_code).strip() or normalized_code
+    event_details = {"code": normalized_code, **(details or {})}
+    with get_connection(cfg) as connection:
+        cursor = connection.execute(
+            f"""
+            UPDATE tool_prepare_jobs
+            SET status = 'waiting_resource', stage = 'waiting_resource', message = ?, error_code = ?,
+                updated_at = ?, finished_at = ?
+            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
+            """,
+            (normalized_message, normalized_code, now, now, job_id),
+        )
+        if cursor.rowcount:
+            _insert_prepare_job_event(
+                connection,
+                job_id=job_id,
+                stage="waiting_resource",
+                level="warning",
+                message=normalized_message,
+                details=event_details,
+            )
+        connection.commit()
+    job = fetch_tool_prepare_job(cfg, job_id)
+    if job is None:
+        raise KeyError(job_id)
+    return job
+
+
 def cancel_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, Any]:
     now = now_iso()
     with get_connection(cfg) as connection:
         cursor = connection.execute(
-            """
+            f"""
             UPDATE tool_prepare_jobs
             SET status = 'cancelled', stage = 'cancelled', message = 'Prepare job cancelled.',
                 updated_at = ?, finished_at = COALESCE(finished_at, ?), cancelled_at = ?
-            WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled')
+            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
             """,
             (now, now, now, job_id),
         )

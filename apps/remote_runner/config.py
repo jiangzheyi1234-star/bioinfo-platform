@@ -17,6 +17,8 @@ DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "data" / "runner.db"
 DEFAULT_RUNTIME_STATE_PATH = DEFAULT_DATA_ROOT / "runtime" / "runner-state.json"
 DEFAULT_WORKFLOW_PROFILE_NAME = "profile.v9+.yaml"
 DEFAULT_CONDA_PREFIX_DIRNAME = "conda-envs"
+DEFAULT_SNAKEMAKE_WRAPPER_PREFIX = "https://raw.githubusercontent.com/snakemake/snakemake-wrappers/"
+LOCAL_SNAKEMAKE_WRAPPER_DIRNAME = "snakemake_wrappers"
 
 
 @dataclass
@@ -73,7 +75,12 @@ def _resolve_default_conda_prefix(cfg: RemoteRunnerConfig) -> Path:
     return Path(cfg.data_root) / DEFAULT_CONDA_PREFIX_DIRNAME
 
 
-def _build_workflow_profile_content(*, conda_prefix: str | Path) -> str:
+def _build_workflow_profile_content(
+    *,
+    conda_prefix: str | Path,
+    wrapper_prefix: str = DEFAULT_SNAKEMAKE_WRAPPER_PREFIX,
+) -> str:
+    normalized_wrapper_prefix = _normalize_wrapper_prefix(wrapper_prefix)
     return "\n".join(
         [
             "# Managed workflow profile for H2OMeta remote runner.",
@@ -84,10 +91,26 @@ def _build_workflow_profile_content(*, conda_prefix: str | Path) -> str:
             "rerun-incomplete: true",
             "software-deployment-method: conda",
             "conda-frontend: mamba",
+            f"wrapper-prefix: {normalized_wrapper_prefix}",
             f"conda-prefix: {conda_prefix}",
             "",
         ]
     )
+
+
+def _normalize_wrapper_prefix(value: str) -> str:
+    prefix = str(value or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX).strip() or DEFAULT_SNAKEMAKE_WRAPPER_PREFIX
+    return prefix if prefix.endswith("/") else f"{prefix}/"
+
+
+def _resolve_default_wrapper_prefix(cfg: RemoteRunnerConfig) -> str:
+    release_dir = str(cfg.release_dir or "").strip()
+    if release_dir:
+        wrapper_dir = Path(release_dir) / LOCAL_SNAKEMAKE_WRAPPER_DIRNAME
+        if wrapper_dir.is_dir():
+            return _normalize_wrapper_prefix(wrapper_dir.resolve().as_uri())
+        raise RuntimeError(f"SNAKEMAKE_WRAPPER_MIRROR_MISSING: {wrapper_dir}")
+    return DEFAULT_SNAKEMAKE_WRAPPER_PREFIX
 
 
 def write_runtime_state(
@@ -165,9 +188,10 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
         connection.commit()
 
     profile_content = workflow_profile_path.read_text(encoding="utf-8") if workflow_profile_path.exists() else ""
-    if "conda-prefix:" not in profile_content:
+    wrapper_prefix = _resolve_default_wrapper_prefix(cfg)
+    if "conda-prefix:" not in profile_content or f"wrapper-prefix: {wrapper_prefix}" not in profile_content:
         workflow_profile_path.write_text(
-            _build_workflow_profile_content(conda_prefix=conda_prefix_dir),
+            _build_workflow_profile_content(conda_prefix=conda_prefix_dir, wrapper_prefix=wrapper_prefix),
             encoding="utf-8",
             newline="\n",
         )

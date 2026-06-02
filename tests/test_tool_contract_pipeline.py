@@ -133,7 +133,7 @@ def test_rulespec_update_promotes_contract_to_snakemake_renderable(tmp_path: Pat
             },
         },
     )
-    assert saved["toolContract"]["state"] == "RuleSpecDrafted"
+    assert saved["toolContract"]["state"] == "AddedDependency"
     assert saved["toolContract"]["workflowReady"] is False
 
     saved = update_registered_tool_rule_template(
@@ -209,7 +209,7 @@ def test_rulespec_requires_params_runtime_resources_and_log(tmp_path: Path) -> N
     )
 
     contract = saved["toolContract"]
-    assert contract["state"] == "RuleSpecDrafted"
+    assert contract["state"] == "AddedDependency"
     assert contract["workflowReady"] is False
     assert contract["requirements"]["ruleSpecConfirmed"] is False
     assert "TOOL_RULE_THREADS_REQUIRED" in contract["reasons"]
@@ -241,7 +241,7 @@ def test_rulespec_requires_explicit_params_schema(tmp_path: Path) -> None:
         },
     )
 
-    assert saved["toolContract"]["state"] == "RuleSpecDrafted"
+    assert saved["toolContract"]["state"] == "AddedDependency"
     assert saved["toolContract"]["requirements"]["ruleSpecConfirmed"] is False
     assert "TOOL_RULE_PARAMS_REQUIRED" in saved["toolContract"]["reasons"]
 
@@ -389,7 +389,7 @@ def test_wrapper_rulespec_requires_locked_wrapper_ref(tmp_path: Path) -> None:
     )
 
     contract = saved["toolContract"]
-    assert contract["state"] == "RuleSpecDrafted"
+    assert contract["state"] == "AddedDependency"
     assert contract["requirements"]["ruleSpecConfirmed"] is False
     assert contract["ruleSpec"]["wrapperLocked"] is False
     assert "TOOL_RULE_WRAPPER_LOCK_REQUIRED" in contract["reasons"]

@@ -7,8 +7,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { DatabaseItem } from "./database-page-model";
 import { databaseToolPath } from "./database-path-utils";
 
-type ToolProbe = NonNullable<NonNullable<DatabaseItem["metadata"]>["validation"]>["toolProbe"];
-
 type DatabaseValidationDetailsDialogProps = {
   open: boolean;
   item: DatabaseItem | null;
@@ -57,11 +55,6 @@ function databaseStatusText(status: string) {
   return status || "未校验";
 }
 
-function toolProbeStatusText(probe?: ToolProbe) {
-  if (!probe) return "未配置";
-  return probe.ok ? "通过" : "失败";
-}
-
 function pathResolutionExplanation(pathMode?: string) {
   if (pathMode === "prefix") {
     return "选择路径可以是索引目录或某个索引文件；保存后会解析为去掉索引后缀的 prefix，并把这个 prefix 传给工具。";
@@ -85,23 +78,19 @@ function compositeFieldSummary(fields?: Record<string, string>) {
 }
 
 export function DatabaseValidationDetailsDialog({ open, item, toolPath, onOpenChange }: DatabaseValidationDetailsDialogProps) {
-  const probe = item?.metadata?.validation?.toolProbe;
   const actualToolPath = toolPath || (item ? databaseToolPath(item) : "");
   const pathMode = item?.pathMode || item?.resolvedPath?.kind;
   const selectedPath = item?.inputPath || item?.path || "";
   const compositeInputText = compositeFieldSummary(item?.input?.fields);
   const compositeResolvedText = compositeFieldSummary(item?.resolved);
   const readLengths = item?.metadata?.availableReadLengths || [];
-  const commandEmptyText = probe ? "工具探测已执行，但未记录实际执行命令。" : "该模板未配置工具探测，暂无实际执行命令。";
-  const stdoutEmptyText = probe ? "未捕获 stdout；许多成功探测会把 stdout 重定向到 /dev/null。" : "该模板未配置工具探测，暂无 stdout。";
-  const stderrEmptyText = probe ? "未捕获 stderr。" : "该模板未配置工具探测，暂无 stderr。";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>校验详情</DialogTitle>
-          <DialogDescription>查看该数据库最近一次路径解析和工具探测的真实执行结果。</DialogDescription>
+          <DialogDescription>查看该数据库最近一次路径解析和结构校验结果。</DialogDescription>
         </DialogHeader>
         {item ? (
           <div className="mt-5 flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
@@ -133,18 +122,11 @@ export function DatabaseValidationDetailsDialog({ open, item, toolPath, onOpenCh
             <Section title="校验结果">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <DetailRow label="状态" value={databaseStatusText(item.status)} />
-                <DetailRow label="工具探测：" value={toolProbeStatusText(probe)} />
+                <DetailRow label="校验范围" value="路径存在、模板必需文件和索引形态" />
                 <DetailRow label="最后校验时间" value={item.lastCheckedAt || item.updatedAt || ""} />
-                <DetailRow label="返回码" value={probe?.returncode === undefined ? (probe ? "未记录" : "未配置") : String(probe.returncode)} />
               </div>
               {readLengths.length > 0 ? <DetailRow label="可用 read lengths" value={readLengths.join(", ")} /> : null}
               {item.message ? <DetailRow label="状态信息" value={item.message} /> : null}
-            </Section>
-
-            <Section title="工具探测输出">
-              <TerminalBlock label="实际执行命令" value={probe?.command} emptyText={commandEmptyText} />
-              <TerminalBlock label="stdout" value={probe?.stdout} emptyText={stdoutEmptyText} />
-              <TerminalBlock label="stderr" value={probe?.stderr} emptyText={stderrEmptyText} />
             </Section>
           </div>
         ) : null}

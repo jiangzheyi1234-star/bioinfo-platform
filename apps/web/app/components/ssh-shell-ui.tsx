@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { cn } from "@/lib/utils";
 
 import { normalizeFetchError, type SSHFormState, type SSHStatus } from "./ssh-shell-model";
+import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";
 
 function resolveRemoteStatus(status: SSHStatus | null) {
   if (status?.connecting || status?.auto_connect_in_progress) {
@@ -262,7 +263,7 @@ export function RemoteStatusBar({
           </div>
         </div>
       ) : null}
-      <div className="flex h-6 items-center justify-between gap-3 px-1 text-sm leading-none">
+      <div className="flex h-6 items-center gap-0 px-1 text-sm leading-none">
         <Button
           type="button"
           variant="ghost"
@@ -275,7 +276,7 @@ export function RemoteStatusBar({
         >
           <span className="truncate font-medium">{connectedHost || "未连接"}</span>
         </Button>
-        <div />
+        <ToolPrepareTaskBar />
       </div>
     </div>
   );

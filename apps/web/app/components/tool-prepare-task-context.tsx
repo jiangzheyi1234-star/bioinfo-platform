@@ -88,7 +88,7 @@ export function isActiveJob(job: ToolPrepareJob) {
 }
 
 export function isTerminalJob(job: ToolPrepareJob) {
-  return job.status === "succeeded" || job.status === "failed" || job.status === "cancelled";
+  return job.status === "succeeded" || job.status === "failed" || job.status === "cancelled" || job.status === "waiting_resource";
 }
 
 function trimTasks(tasks: ToolPrepareJob[]) {

@@ -26,31 +26,6 @@ class DatabaseContractCase:
     expected_config_value: object
 
 
-def patch_tool_probe_success(monkeypatch) -> list[str]:
-    from apps.remote_runner import database_validation
-
-    calls: list[str] = []
-
-    monkeypatch.setattr(
-        database_validation,
-        "prepare_tool_probe_command",
-        lambda cfg, template_id, template, command: command,
-    )
-
-    def fake_probe(command: str, *, timeout: int) -> database_validation.ToolProbeResult:
-        calls.append(command)
-        return database_validation.ToolProbeResult(
-            ok=True,
-            command=command,
-            stdout="probe ok",
-            stderr="",
-            returncode=0,
-        )
-
-    monkeypatch.setattr(database_validation, "run_tool_probe", fake_probe)
-    return calls
-
-
 def make_remote_runner_config(
     tmp_path: Path,
     *,

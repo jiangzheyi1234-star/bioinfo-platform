@@ -27,7 +27,7 @@ import {
   searchNoticeMessage,
   toolErrorMessage,
 } from "./tools-page-model";
-import { useToolPrepareTasks } from "./tool-prepare-task-context";
+import { isActiveJob, isTerminalJob, useToolPrepareTasks } from "./tool-prepare-task-context";
 
 export function useToolsPageState() {
   const { tasks: prepareTasks, trackToolPrepareJob } = useToolPrepareTasks();
@@ -89,10 +89,7 @@ export function useToolsPageState() {
     let shouldRefresh = false;
     prepareTasks.forEach((task) => {
       const fingerprint = `${task.status}:${task.updatedAt || task.finishedAt || ""}`;
-      if (
-        (task.status === "succeeded" || task.status === "failed" || task.status === "cancelled") &&
-        lastPrepareRefreshRef.current[task.jobId] !== fingerprint
-      ) {
+      if (isTerminalJob(task) && lastPrepareRefreshRef.current[task.jobId] !== fingerprint) {
         lastPrepareRefreshRef.current[task.jobId] = fingerprint;
         shouldRefresh = true;
       }
@@ -190,7 +187,7 @@ export function useToolsPageState() {
     selected &&
       prepareTasks.some(
         (task) =>
-          (task.status === "queued" || task.status === "running") &&
+          isActiveJob(task) &&
           (task.toolId === selected.id || task.request?.id === selected.id || task.request?.packageSpec === selectedPackageSpec)
       )
   );
@@ -198,7 +195,7 @@ export function useToolsPageState() {
     () =>
       new Set(
         prepareTasks
-          .filter((task) => task.status === "queued" || task.status === "running")
+          .filter(isActiveJob)
           .flatMap((task) => [task.toolId, task.request?.id].filter((id): id is string => typeof id === "string" && id.length > 0))
       ),
     [prepareTasks]

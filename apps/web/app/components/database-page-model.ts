@@ -30,15 +30,6 @@ export type DatabaseItem = {
     dbParams?: string;
     expectedFiles?: string[];
     availableReadLengths?: number[];
-    validation?: {
-      toolProbe?: {
-        ok?: boolean;
-        command?: string;
-        returncode?: number;
-        stdout?: string;
-        stderr?: string;
-      };
-    };
   };
   status: string; message: string; updatedAt: string;
   lastCheckedAt: string | null;
@@ -120,10 +111,6 @@ export type DatabaseTemplate = {
   prefixPatternSets?: string[][];
   prefixAliasPatterns?: string[];
   fields?: Record<string, DatabaseTemplateField>;
-  toolProbe?: {
-    packageSpec?: string;
-    commandTemplate?: string;
-  };
 };
 
 export type DatabaseForm = {

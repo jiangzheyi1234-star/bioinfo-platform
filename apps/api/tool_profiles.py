@@ -149,7 +149,16 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
                 "inputs": {
                     "kraken_report": {
                         "filename": "kraken.report",
-                        "content": "100.00\t1\t1\tR\t1\troot\n",
+                        "content": (
+                            "100.00\t10\t0\tR\t1\troot\n"
+                            "100.00\t10\t0\tD\t2\t  Bacteria\n"
+                            "100.00\t10\t0\tP\t1224\t    Pseudomonadota\n"
+                            "100.00\t10\t0\tC\t1236\t      Gammaproteobacteria\n"
+                            "100.00\t10\t0\tO\t91347\t        Enterobacterales\n"
+                            "100.00\t10\t0\tF\t543\t          Enterobacteriaceae\n"
+                            "100.00\t10\t0\tG\t561\t            Escherichia\n"
+                            "100.00\t10\t10\tS\t562\t              Escherichia coli\n"
+                        ),
                         "mimeType": "text/plain",
                     }
                 },
@@ -211,7 +220,7 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
                 "inputs": {
                     "sample": {
                         "filename": "reads.fastq",
-                        "content": "@smoke\nACGTACGT\n+\nFFFFFFFF\n",
+                        "content": "@smoke\nACGTACGTACGTACGTACGT\n+\nFFFFFFFFFFFFFFFFFFFF\n",
                         "mimeType": "text/plain",
                     }
                 },
@@ -399,6 +408,64 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
                         "mimeType": "text/plain",
                     }
                 },
+                "timeoutSeconds": 300,
+            },
+        },
+    ),
+    ToolProfile(
+        profile_id="seqkit-stats",
+        version=1,
+        tool_names=("seqkit", "seqkit stats", "seqkit-stats"),
+        preferred_wrapper_paths=("bio/seqkit",),
+        rule_template={
+            "wrapper": "v9.8.0/bio/seqkit",
+            "inputs": [
+                {
+                    "name": "fastx",
+                    "type": "file",
+                    "kind": "sequence_reads",
+                    "mimeType": "text/plain",
+                    "required": True,
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "stats",
+                    "path": "results/seqkit-stats.tsv",
+                    "kind": "sequence_stats",
+                    "mimeType": "text/tab-separated-values",
+                }
+            ],
+            "params": {
+                "command": {
+                    "type": "string",
+                    "title": "SeqKit command",
+                    "default": "stats",
+                    "const": "stats",
+                },
+                "extra": {
+                    "type": "string",
+                    "title": "Extra seqkit stats arguments",
+                    "default": "--all --tabular",
+                },
+            },
+            "resources": {"threads": {"default": 2}, "mem_mb": {"default": 1024}},
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["{packageSpec}"],
+                }
+            },
+            "log": "logs/seqkit-stats.log",
+            "smokeTest": {
+                "inputs": {
+                    "fastx": {
+                        "filename": "reads.fastq",
+                        "content": "@smoke\nACGTACGT\n+\nFFFFFFFF\n",
+                        "mimeType": "text/plain",
+                    }
+                },
+                "params": {"command": "stats", "extra": "--all --tabular"},
                 "timeoutSeconds": 300,
             },
         },

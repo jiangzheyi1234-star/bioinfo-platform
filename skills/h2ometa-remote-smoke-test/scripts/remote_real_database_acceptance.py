@@ -152,15 +152,6 @@ def validate_database_contract(database: dict[str, Any], template: dict[str, Any
     elif not resolved_value:
         issues.append("metadata.resolved default path missing")
 
-    validation = metadata.get("validation") if isinstance(metadata.get("validation"), dict) else {}
-    tool_probe = validation.get("toolProbe") if isinstance(validation.get("toolProbe"), dict) else {}
-    if not tool_probe:
-        issues.append("metadata.validation.toolProbe missing")
-    elif tool_probe.get("ok") is not True:
-        issues.append("metadata.validation.toolProbe not ok")
-    elif not str(tool_probe.get("command") or "").strip():
-        issues.append("metadata.validation.toolProbe.command missing")
-
     return {
         "id": database.get("id"),
         "templateId": template_id,

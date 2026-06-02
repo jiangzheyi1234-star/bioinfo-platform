@@ -1,6 +1,9 @@
 import type { RuleSpecEnvironment, RuleSpecPort, RuleSpecTemplate, SnakemakeWrapperMatch, ToolSearchItem } from "./tools-page-model";
 
 export function applySelectedWrapperLock<T extends ToolSearchItem>(tool: T, selectedWrapperPath: string): T {
+  if (tool.ruleSpecDraft?.source === "h2ometa-tool-profile" && tool.ruleSpecDraft.requiresUserCompletion === false) {
+    return tool;
+  }
   const wrapper = selectedSnakemakeWrapper(tool, selectedWrapperPath);
   if (!wrapper) {
     return tool;
@@ -188,13 +191,28 @@ function canAutoConfirmRuleSpec(draft: ToolSearchItem["ruleSpecDraft"], _templat
 function executableEnvironment(template: RuleSpecTemplate, tool: ToolSearchItem, packageSpec: string): RuleSpecEnvironment {
   const current = template.environment || {};
   const conda = current.conda || {};
+  const dependencies = replaceSelectedToolDependency(conda.dependencies || [], tool, packageSpec);
   return {
     ...current,
     conda: {
       channels: conda.channels && conda.channels.length > 0 ? conda.channels : uniqueChannels(tool.source),
-      dependencies: conda.dependencies && conda.dependencies.length > 0 ? conda.dependencies : packageSpec ? [packageSpec] : [],
+      dependencies,
     },
   };
+}
+
+function replaceSelectedToolDependency(dependencies: string[], tool: ToolSearchItem, packageSpec: string) {
+  const selected = stringValue(packageSpec);
+  if (!selected) return dependencies;
+  if (dependencies.length === 0) return [selected];
+  const selectedName = packageName(selected) || stringValue(tool.name);
+  let replaced = false;
+  const next = dependencies.map((dependency) => {
+    if (packageName(dependency) !== selectedName) return dependency;
+    replaced = true;
+    return selected;
+  });
+  return replaced ? next : [...next, selected];
 }
 
 function executableSmokeTest(template: RuleSpecTemplate, inputs: RuleSpecPort[]): RuleSpecTemplate["smokeTest"] {
@@ -320,6 +338,12 @@ function packageSpecLocked(value: string) {
   if (!separator) return false;
   const [name, version] = packageName.split(separator);
   return Boolean(name.trim() && version.trim());
+}
+
+function packageName(value: string) {
+  const spec = stringValue(value).split("::").at(-1) || "";
+  const separator = spec.includes("==") ? "==" : spec.includes("=") ? "=" : "";
+  return (separator ? spec.split(separator)[0] : spec).trim();
 }
 
 function resourceDefault(raw: unknown) {

@@ -80,6 +80,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             remote_profile_dir = f"{remote_shared}/config/snakemake/default"
             remote_profile_name = "profile.v9+.yaml"
             remote_profile_path = f"{remote_profile_dir}/{remote_profile_name}"
+            remote_wrapper_prefix = f"file://{remote_release}/remote_runner/snakemake_wrappers/"
             remote_runtime_state = f"{remote_shared}/runtime/runner-state.json"
             remote_log = f"{remote_shared}/logs/runner.log"
             remote_current = f"{remote_root}/current"
@@ -356,6 +357,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
                     remote_profile_path=remote_profile_path,
                     remote_profile_dir=remote_profile_dir,
                     remote_conda_prefix=remote_conda_prefix,
+                    remote_wrapper_prefix=remote_wrapper_prefix,
                     bootstrap_metadata=bootstrap_metadata,
                 )
                 self._run_checked(
@@ -519,10 +521,16 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
         remote_profile_path: str,
         remote_profile_dir: str,
         remote_conda_prefix: str,
+        remote_wrapper_prefix: str,
         bootstrap_metadata: dict[str, Any],
     ) -> None:
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".yaml", encoding="utf-8") as handle:
-            handle.write(build_remote_workflow_profile_content(conda_prefix=remote_conda_prefix))
+            handle.write(
+                build_remote_workflow_profile_content(
+                    conda_prefix=remote_conda_prefix,
+                    wrapper_prefix=remote_wrapper_prefix,
+                )
+            )
             local_profile_path = Path(handle.name)
         try:
             cls._upload_remote_file_atomic(
@@ -541,6 +549,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
         profile_metadata["path"] = remote_profile_dir
         profile_metadata["config"] = remote_profile_path
         profile_metadata["conda_prefix"] = remote_conda_prefix
+        profile_metadata["wrapper_prefix"] = remote_wrapper_prefix
         profile_metadata["written"] = True
         bootstrap_metadata["workflow_profile"] = profile_metadata
 

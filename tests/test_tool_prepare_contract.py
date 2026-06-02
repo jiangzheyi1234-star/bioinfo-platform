@@ -9,7 +9,15 @@ from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database, check_reference_database
 from apps.remote_runner.storage import fetch_tool
 from apps.remote_runner.storage import upsert_tool
-from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job, fetch_tool_prepare_job
+from apps.remote_runner.tool_prepare_job_storage import (
+    cancel_tool_prepare_job,
+    complete_tool_prepare_job,
+    create_tool_prepare_job,
+    fail_tool_prepare_job,
+    fetch_tool_prepare_job,
+    mark_tool_prepare_job_waiting_resource,
+    record_tool_prepare_job_event,
+)
 from apps.remote_runner.tool_prepare_jobs import run_tool_prepare_job
 from apps.remote_runner.tool_preparation import validate_registered_tool_for_publish
 from apps.remote_runner.tool_revisions import publish_tool_revision
@@ -304,6 +312,143 @@ def test_h2ometa_database_profile_prepare_auto_binds_single_matching_database(mo
     assert all(run_config["databases"]["kraken2_db"] == str(database_dir) for run_config in run_configs)
     assert all(run_config["resourceConfig"]["kraken2_db"] == str(database_dir) for run_config in run_configs)
     assert all(run_config["resources"]["kraken2_db"]["databaseId"] == "db_kraken2" for run_config in run_configs)
+
+
+def test_h2ometa_seqkit_stats_profile_prepare_job_result_is_workflow_ready(monkeypatch, tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _runtime_commands(tmp_path)
+    draft = resolve_tool_profile(
+        {
+            "id": "bioconda::seqkit",
+            "name": "seqkit",
+            "source": "bioconda",
+            "packageSpec": "bioconda::seqkit=2.13.0",
+            "latestVersion": "2.13.0",
+        }
+    )
+    assert draft is not None
+
+    run_configs: list[dict[str, object]] = []
+
+    def fake_run(cmd, **_kwargs):
+        if "--version" in cmd:
+            return SimpleNamespace(returncode=0, stdout="9.19.0\n", stderr="")
+        config_path = Path(cmd[cmd.index("--configfile") + 1])
+        run_config = json.loads(config_path.read_text(encoding="utf-8"))
+        run_configs.append(run_config)
+        if "-n" not in cmd:
+            output = Path(run_config["outputs"]["stats"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text("file\tformat\ttype\tnum_seqs\tsum_len\nreads.fastq\tFASTQ\tDNA\t1\t8\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
+
+    job = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "bioconda::seqkit",
+            "name": "seqkit",
+            "source": "bioconda",
+            "sourceLabel": "Bioconda",
+            "version": "2.13.0",
+            "packageSpec": "bioconda::seqkit=2.13.0",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": draft["ruleTemplate"],
+            "ruleSpecDraft": draft,
+        },
+    )
+
+    run_tool_prepare_job(cfg, job["jobId"])
+
+    finished = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert finished is not None
+    assert finished["status"] == "succeeded"
+    assert finished["stage"] == "published"
+    assert finished["result"]["toolContract"]["state"] == "WorkflowReady"
+    assert finished["result"]["toolContract"]["workflowReady"] is True
+    assert finished["result"]["ruleSpecDraft"]["lock"]["profileId"] == "seqkit-stats"
+    assert run_configs
+    assert all(run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/seqkit" for run_config in run_configs)
+    assert all(run_config["workflow"]["steps"][0]["params"] == {"command": "stats", "extra": "--all --tabular"} for run_config in run_configs)
+    assert fetch_tool(cfg, "bioconda::seqkit")["toolContract"]["workflowReady"] is True
+
+
+def test_h2ometa_database_profile_prepare_job_waits_for_missing_database_resource(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _runtime_commands(tmp_path)
+    draft = resolve_tool_profile(
+        {
+            "id": "bioconda::kraken2",
+            "name": "kraken2",
+            "source": "bioconda",
+            "packageSpec": "bioconda::kraken2=2.1.3",
+            "latestVersion": "2.1.3",
+        }
+    )
+    assert draft is not None
+
+    job = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "bioconda::kraken2",
+            "name": "kraken2",
+            "source": "bioconda",
+            "sourceLabel": "Bioconda",
+            "version": "2.1.3",
+            "packageSpec": "bioconda::kraken2=2.1.3",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": draft["ruleTemplate"],
+            "ruleSpecDraft": draft,
+        },
+    )
+
+    run_tool_prepare_job(cfg, job["jobId"])
+
+    finished = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert finished is not None
+    assert finished["status"] == "waiting_resource"
+    assert finished["stage"] == "waiting_resource"
+    assert finished["errorCode"] == "WORKFLOW_RESOURCE_BINDING_REQUIRED"
+    assert "kraken2_db" in finished["message"]
+    assert finished["result"] is None
+    waiting_events = [event for event in finished["events"] if event["stage"] == "waiting_resource"]
+    assert waiting_events
+    assert waiting_events[-1]["level"] == "warning"
+    assert waiting_events[-1]["details"]["resourceKey"] == "kraken2_db"
+    assert waiting_events[-1]["details"]["acceptedTemplates"] == ["kraken2"]
+    assert fetch_tool(cfg, "bioconda::kraken2") is None
+
+
+def test_waiting_resource_prepare_job_is_terminal(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    job = create_tool_prepare_job(cfg, {"id": "bioconda::kraken2", "name": "kraken2"})
+
+    mark_tool_prepare_job_waiting_resource(
+        cfg,
+        job["jobId"],
+        code="WORKFLOW_RESOURCE_BINDING_REQUIRED",
+        message="Required database resource binding is missing: kraken2_db",
+        details={"resourceKey": "kraken2_db", "acceptedTemplates": ["kraken2"]},
+    )
+
+    record_tool_prepare_job_event(cfg, job["jobId"], stage="dry_run", message="This event should not advance a terminal job.")
+    fail_tool_prepare_job(cfg, job["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="This should not overwrite waiting_resource.")
+    cancel_tool_prepare_job(cfg, job["jobId"])
+    complete_tool_prepare_job(cfg, job["jobId"], {"message": "This should not publish."})
+
+    finished = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert finished is not None
+    assert finished["status"] == "waiting_resource"
+    assert finished["stage"] == "waiting_resource"
+    assert finished["errorCode"] == "WORKFLOW_RESOURCE_BINDING_REQUIRED"
+    assert finished["result"] is None
+    assert [event["stage"] for event in finished["events"]] == ["queued", "waiting_resource"]
 
 
 def test_tool_prepare_is_exposed_through_api_layers() -> None:
