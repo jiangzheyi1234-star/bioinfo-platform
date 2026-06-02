@@ -9,12 +9,12 @@ from apps.remote_runner.databases import (
     add_reference_database,
     add_verified_reference_database,
     check_reference_database,
-    list_database_templates,
     list_reference_databases,
     remove_reference_database,
     resolve_run_databases,
     update_reference_database,
 )
+from apps.remote_runner.database_templates import list_database_templates
 from tests.helpers.reference_database import (
     assert_resolution_contract as _assert_resolution_contract,
     make_bwa_reference as _make_bwa_reference,
@@ -157,10 +157,11 @@ def test_verified_reference_database_add_accepts_valid_kraken2_database(tmp_path
 
 def test_remote_runner_database_post_returns_only_available_after_validation(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
-    monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
+    monkeypatch.setattr("apps.remote_runner.route_utils.load_remote_runner_config", lambda: cfg)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-api")
 
-    from apps.remote_runner.main import DatabaseManifestRequest, add_database
+    from apps.remote_runner.api_models import DatabaseManifestRequest
+    from apps.remote_runner.database_routes import add_database
 
     payload = DatabaseManifestRequest(
         id="kraken2-api",
@@ -177,12 +178,13 @@ def test_remote_runner_database_post_returns_only_available_after_validation(tmp
 
 def test_remote_runner_database_post_rejects_invalid_database_without_registering(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
-    monkeypatch.setattr("apps.remote_runner.main.load_remote_runner_config", lambda: cfg)
+    monkeypatch.setattr("apps.remote_runner.route_utils.load_remote_runner_config", lambda: cfg)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-api-invalid", complete=False)
 
     from fastapi import HTTPException
 
-    from apps.remote_runner.main import DatabaseManifestRequest, add_database
+    from apps.remote_runner.api_models import DatabaseManifestRequest
+    from apps.remote_runner.database_routes import add_database
 
     payload = DatabaseManifestRequest(
         id="kraken2-api-invalid",

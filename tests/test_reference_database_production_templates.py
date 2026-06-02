@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.remote_runner.databases import add_reference_database, check_reference_database, list_database_templates
+from apps.remote_runner.database_templates import list_database_templates
+from apps.remote_runner.databases import add_reference_database, check_reference_database
 from tests.helpers.reference_database import (
     make_configured_remote_runner,
 )

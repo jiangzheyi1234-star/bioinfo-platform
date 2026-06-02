@@ -11,9 +11,9 @@ from apps.remote_runner.databases import (
     resolve_run_databases,
 )
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.storage import persist_upload, upsert_tool
+from apps.remote_runner.storage import persist_upload
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from tests.generated_workflow_test_helpers import generated_workflow_run_spec, upsert_ready_tool
 from tests.helpers.reference_database import (
     expected_template_entry_path as _expected_template_entry_path,
     make_configured_remote_runner as _cfg,
@@ -212,7 +212,7 @@ def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path
             "status": "available",
         },
     )
-    upsert_tool(
+    upsert_ready_tool(
         cfg,
         {
             "id": "conda-forge::coreutils-db",
@@ -254,17 +254,18 @@ def test_generated_workflow_writes_database_config_and_path_token(tmp_path: Path
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
 
+    run_spec = generated_workflow_run_spec(
+        "conda-forge::coreutils-db",
+        project_id="proj_demo",
+        resource_bindings={"taxonomy": {"databaseId": "taxonomy-db"}},
+    )
+    run_spec["inputs"] = [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}]
+
     run_snakemake_execution(
         cfg,
         run_id="run_database_config",
         request_id="req_database_config",
-        run_spec={
-            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-            "projectId": "proj_demo",
-            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-            "resourceBindings": {"taxonomy": {"databaseId": "taxonomy-db"}},
-            "tool": {"id": "conda-forge::coreutils-db"},
-        },
+        run_spec=run_spec,
     )
 
     work_dir = Path(cfg.work_dir) / "run_database_config"
@@ -323,7 +324,7 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
         expected_path = _expected_template_entry_path(template, resolved_path, selected_path)
 
         tool_id = f"conda-forge::coreutils-{template_id}"
-        upsert_tool(
+        upsert_ready_tool(
             cfg,
             {
                 "id": tool_id,
@@ -354,17 +355,18 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
         )
 
         run_id = f"run_{template_id}_database_path"
+        run_spec = generated_workflow_run_spec(
+            tool_id,
+            project_id="proj_template_matrix",
+            resource_bindings={role: {"databaseId": database_id}},
+        )
+        run_spec["inputs"] = [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}]
+
         run_snakemake_execution(
             cfg,
             run_id=run_id,
             request_id=f"req_{template_id}",
-            run_spec={
-                "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
-                "projectId": "proj_template_matrix",
-                "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.txt", "role": "input"}],
-                "resourceBindings": {role: {"databaseId": database_id}},
-                "tool": {"id": tool_id},
-            },
+            run_spec=run_spec,
         )
 
         work_dir = Path(cfg.work_dir) / run_id
@@ -488,7 +490,7 @@ def test_remote_runner_reuse_rejects_prefix_template_without_pattern_sets() -> N
 
 
 def test_remote_runner_database_validation_routes_run_in_threadpool() -> None:
-    source = Path("apps/remote_runner/main.py").read_text(encoding="utf-8")
+    source = Path("apps/remote_runner/database_routes.py").read_text(encoding="utf-8")
 
     assert "from starlette.concurrency import run_in_threadpool" in source
     assert "await run_in_threadpool(add_verified_reference_database" in source
