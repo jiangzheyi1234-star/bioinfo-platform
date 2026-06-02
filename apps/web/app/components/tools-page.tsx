@@ -47,6 +47,7 @@ export function ToolsPage() {
             ruleSpecSavingId={state.ruleSpecSavingId}
             toolsError={state.toolsError}
             toolsLoading={state.toolsLoading}
+            waitingResourceJobsByToolId={state.waitingResourceJobsByToolId}
             onCancelRuleSpecEdit={() => state.setEditingRuleSpecToolId("")}
             onCheck={state.checkTool}
             onEditRuleSpec={state.editToolRuleTemplate}

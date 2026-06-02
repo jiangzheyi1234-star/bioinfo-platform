@@ -172,7 +172,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "ToolContractStatusRow" in library
     assert "RuleSpecNodeStatusChip" in library
     assert 'label="Runtime"' in library
-    assert "state.runtimeLabel" in library
+    assert "rowState.runtimeLabel" in library
     assert 'label="Smoke"' in library
     assert "validation.smokeRun" in library
     assert "ruleSpecReadinessForTool" in library

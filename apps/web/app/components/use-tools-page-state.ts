@@ -200,6 +200,15 @@ export function useToolsPageState() {
       ),
     [prepareTasks]
   );
+  const waitingResourceJobsByToolId = useMemo(
+    () =>
+      Object.fromEntries(
+        prepareTasks
+          .filter((task) => task.status === "waiting_resource")
+          .flatMap((task) => [task.toolId, task.request?.id].filter((id): id is string => typeof id === "string" && id.length > 0).map((id) => [id, task]))
+      ),
+    [prepareTasks]
+  );
   const selectedPackageLocked = packageSpecLocked(selectedPackageSpec);
   const missingSelectedRuleSpecFields = selected ? missingRuleSpecFields(selected) : [];
   const canSaveSelected = Boolean(
@@ -357,6 +366,7 @@ export function useToolsPageState() {
     canSaveSelected,
     checkingToolId,
     preparingToolIds: Array.from(activePrepareToolIds),
+    waitingResourceJobsByToolId,
     editingRuleSpecToolId,
     error,
     filtered,

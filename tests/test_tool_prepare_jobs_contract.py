@@ -109,3 +109,30 @@ def test_waiting_resource_prepare_job_is_terminal_and_visible() -> None:
     assert "isTerminalJob(task)" in frontend_state
     assert "isActiveJob(task)" in frontend_state
     assert '"waiting_resource"' in model
+
+
+def test_waiting_resource_database_details_are_visible_in_tools_ui() -> None:
+    model = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-model.ts").read_text(encoding="utf-8")
+    state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    page = (ROOT / "apps" / "web" / "app" / "components" / "tools-page.tsx").read_text(encoding="utf-8")
+    library = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-library-section.tsx").read_text(encoding="utf-8")
+    task_bar = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
+    readiness = (ROOT / "apps" / "web" / "app" / "components" / "tool-rule-readiness.ts").read_text(encoding="utf-8")
+
+    assert "export type MissingToolResource" in model
+    assert "missingResources?: MissingToolResource[]" in model
+    assert '"waiting_resource"' in model
+    assert '"waiting-resource"' in readiness
+    assert '"等待数据库"' in readiness
+
+    assert "waitingResourceJobsByToolId" in state
+    assert "waitingResourceJobsByToolId={state.waitingResourceJobsByToolId}" in page
+    assert "waitingResourceJob?: ToolPrepareJob" in library
+    assert "WaitingResourcePanel" in library
+    assert "等待数据库" in library
+    assert "绑定后可重试 prepare" in library
+    assert "candidateCountLabel" in library
+
+    assert "job.missingResources" in task_bar
+    assert "WaitingResourceDetails" in task_bar
+    assert "候选" in task_bar

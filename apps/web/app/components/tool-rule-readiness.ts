@@ -1,4 +1,4 @@
-import type { RuleSpecDraft, RuleSpecTemplate, ToolSearchItem } from "./tools-page-model";
+import type { MissingToolResource, RuleSpecDraft, RuleSpecTemplate, ToolSearchItem } from "./tools-page-model";
 
 const RULE_ACTION_FIELDS = ["commandTemplate", "wrapper", "script", "module"] as const;
 
@@ -6,6 +6,7 @@ type RuleActionField = (typeof RULE_ACTION_FIELDS)[number];
 
 export type ToolRuleReadinessKind =
   | "workflow-ready"
+  | "waiting-resource"
   | "validation-pending"
   | "rule-draft"
   | "dependency-only"
@@ -20,7 +21,7 @@ export type ToolRuleReadiness = {
   hasSmoke: boolean;
   inputs: number;
   kind: ToolRuleReadinessKind;
-  label: "可加入流程" | "待验证" | "待确认 RuleSpec" | "仅依赖" | "平台不支持";
+  label: "可加入流程" | "等待数据库" | "待验证" | "待确认 RuleSpec" | "仅依赖" | "平台不支持";
   outputs: number;
   outputsReady: boolean;
   params: number;
@@ -29,6 +30,7 @@ export type ToolRuleReadiness = {
   runtimeLabel: string;
   smokeLabel: string;
   template: RuleSpecTemplate;
+  waitingResources: MissingToolResource[];
   workflowReady: boolean;
 };
 
@@ -56,6 +58,8 @@ export function ruleSpecReadinessForTool(tool: ToolSearchItem): ToolRuleReadines
   const validationReady = platformReady && hasAction && inputsReady && outputsReady && paramsReady && hasRuntime && hasEnv && hasSmoke && !requiresUserCompletion;
   const localWorkflowReady = published && validationReady;
   const contractWorkflowReady = tool.toolContract?.workflowReady;
+  const contractState = tool.toolContract?.state;
+  const waitingResources = tool.toolContract?.missingResources || tool.missingResources || [];
   const workflowReady = Boolean(contractWorkflowReady && localWorkflowReady);
   const base = {
     actionLabel: hasAction ? actions[0] : rawActions.length > 1 ? "action 冲突" : wrapperNeedsLock ? "待锁 wrapper" : "待补 action",
@@ -73,10 +77,14 @@ export function ruleSpecReadinessForTool(tool: ToolSearchItem): ToolRuleReadines
     runtimeLabel: hasRuntime ? "threads/resources/log" : "待补 runtime/log",
     smokeLabel: hasSmoke ? "fixtures ready" : "待补 smoke",
     template,
+    waitingResources,
     workflowReady,
   };
   if (workflowReady) {
     return { ...base, kind: "workflow-ready", label: "可加入流程" };
+  }
+  if (contractState === "waiting_resource") {
+    return { ...base, kind: "waiting-resource", label: "等待数据库" };
   }
   if (tool.targetPlatformSupported === false) {
     return { ...base, kind: "platform-unsupported", label: "平台不支持" };
