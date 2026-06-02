@@ -14,6 +14,12 @@ BUILDER_ELIGIBLE_STATES = {
     "WorkflowReady",
     "ProductionEnabled",
 }
+WAITING_RESOURCE_CODES = {
+    "RESOURCE_BINDING_MISSING",
+    "RESOURCE_BINDING_AMBIGUOUS",
+    "WORKFLOW_RESOURCE_BINDING_REQUIRED",
+    "WORKFLOW_RESOURCE_UNAVAILABLE",
+}
 
 
 def package_version_from_spec(spec: str) -> str:
@@ -105,6 +111,7 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
         "production": status["production"],
     }
     dry_run_passed = renderable and _passed(validation["dryRun"])
+    waiting_resource = renderable and _waiting_resource_validation(validation["dryRun"])
     smoke_run_passed = dry_run_passed and bool(smoke_test["specified"]) and _passed(validation["smokeRun"])
     output_validated = smoke_run_passed and _passed(validation["outputValidation"])
     workflow_ready = output_validated
@@ -114,6 +121,7 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
         rule_confirmed=rule_confirmed,
         environment_ready=environment_ready,
         renderable=renderable,
+        waiting_resource=waiting_resource,
         smoke_test_specified=bool(smoke_test["specified"]),
         workflow_ready=workflow_ready,
         production_enabled=production_enabled,
@@ -169,6 +177,7 @@ def _state_for_contract(
     rule_confirmed: bool,
     environment_ready: bool,
     renderable: bool,
+    waiting_resource: bool,
     smoke_test_specified: bool,
     workflow_ready: bool,
     production_enabled: bool,
@@ -180,6 +189,8 @@ def _state_for_contract(
         return "ProductionEnabled"
     if workflow_ready:
         return "WorkflowReady"
+    if waiting_resource:
+        return "waiting_resource"
     dry_run_passed = _passed(validation["dryRun"])
     smoke_run_passed = dry_run_passed and smoke_test_specified and _passed(validation["smokeRun"])
     if renderable and smoke_run_passed:
@@ -449,3 +460,9 @@ def _string(raw: Any) -> str:
 
 def _passed(status: dict[str, str]) -> bool:
     return str(status.get("status") or "") == VALIDATION_PASSED
+
+
+def _waiting_resource_validation(status: dict[str, str]) -> bool:
+    if str(status.get("status") or "") != "failed":
+        return False
+    return str(status.get("code") or "").strip() in WAITING_RESOURCE_CODES
