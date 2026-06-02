@@ -53,6 +53,8 @@ class RemoteRunnerArtifactProvider:
             "remote_runner/snakemake_wrappers/v9.8.0/bio/fastqc/environment.yaml",
             "remote_runner/snakemake_wrappers/v9.8.0/bio/multiqc/wrapper.py",
             "remote_runner/snakemake_wrappers/v9.8.0/bio/multiqc/environment.yaml",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/seqkit/wrapper.py",
+            "remote_runner/snakemake_wrappers/v9.8.0/bio/seqkit/environment.yaml",
         }
     )
 
