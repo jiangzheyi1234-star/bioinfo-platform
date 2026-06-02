@@ -104,6 +104,18 @@ def _write_workflow_artifact(
     )
 
 
+def _normalized_tar_names(archive: tarfile.TarFile) -> set[str]:
+    return {member.name.lstrip("./") for member in archive.getmembers()}
+
+
+def _extract_normalized(archive: tarfile.TarFile, name: str) -> tarfile.ExFileObject | None:
+    normalized = name.lstrip("./")
+    for member in archive.getmembers():
+        if member.name.lstrip("./") == normalized:
+            return archive.extractfile(member)
+    raise KeyError(name)
+
+
 def test_artifact_provider_resolves_explicit_bundle_and_verifies_sha256(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -150,7 +162,7 @@ def test_artifact_provider_rejects_platform_mismatch(tmp_path: Path, monkeypatch
         RemoteRunnerArtifactProvider(search_roots=[]).resolve("dev", platform="linux-64")
 
 
-def test_artifact_provider_rejects_missing_p0_wrapper_assets(
+def test_artifact_provider_rejects_missing_profile_wrapper_assets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bundle = tmp_path / "custom-runner.tar.gz"
@@ -209,9 +221,9 @@ def test_checked_in_remote_runner_artifact_contains_current_runtime_contract() -
 
     assert resolved.archive_path == bundle
     with tarfile.open(bundle, "r:gz") as archive:
-        config = archive.extractfile("./remote_runner/config.py")
-        main = archive.extractfile("./remote_runner/main.py")
-        executor = archive.extractfile("./remote_runner/executor.py")
+        config = _extract_normalized(archive, "remote_runner/config.py")
+        main = _extract_normalized(archive, "remote_runner/main.py")
+        executor = _extract_normalized(archive, "remote_runner/executor.py")
         assert config is not None
         assert main is not None
         assert executor is not None
@@ -238,16 +250,16 @@ def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -
 
     assert resolved.archive_path == bundle
     required_members = {
-        "./remote_runner/workflow_design_compiler.py",
-        "./remote_runner/workflow_design_contract.py",
-        "./remote_runner/workflow_design_planner.py",
-        "./remote_runner/workflow_design_routes.py",
-        "./remote_runner/workflow_design_storage.py",
-        "./remote_runner/workflow_design_submission.py",
+        "remote_runner/workflow_design_compiler.py",
+        "remote_runner/workflow_design_contract.py",
+        "remote_runner/workflow_design_planner.py",
+        "remote_runner/workflow_design_routes.py",
+        "remote_runner/workflow_design_storage.py",
+        "remote_runner/workflow_design_submission.py",
     }
     with tarfile.open(bundle, "r:gz") as archive:
-        names = set(archive.getnames())
-        main = archive.extractfile("./remote_runner/main.py")
+        names = _normalized_tar_names(archive)
+        main = _extract_normalized(archive, "remote_runner/main.py")
         assert main is not None
         main_text = main.read().decode("utf-8")
 
@@ -269,16 +281,16 @@ def test_checked_in_remote_runner_artifact_contains_tool_prepare_endpoint() -> N
 
     assert resolved.archive_path == bundle
     with tarfile.open(bundle, "r:gz") as archive:
-        names = set(archive.getnames())
-        routes = archive.extractfile("./remote_runner/tool_routes.py")
+        names = _normalized_tar_names(archive)
+        routes = _extract_normalized(archive, "remote_runner/tool_routes.py")
         assert routes is not None
         routes_text = routes.read().decode("utf-8")
 
     assert {
-        "./remote_runner/tool_preparation.py",
-        "./remote_runner/tool_prepare_job_storage.py",
-        "./remote_runner/tool_prepare_jobs.py",
-        "./remote_runner/tool_revisions.py",
+        "remote_runner/tool_preparation.py",
+        "remote_runner/tool_prepare_job_storage.py",
+        "remote_runner/tool_prepare_jobs.py",
+        "remote_runner/tool_revisions.py",
     }.issubset(names)
     assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in routes_text
     assert "run_tool_prepare_job" in routes_text
@@ -297,8 +309,8 @@ def test_checked_in_workflow_runtime_artifact_wraps_activate_for_per_rule_conda_
 
     assert resolved.archive_path == bundle
     with tarfile.open(bundle, "r:gz") as archive:
-        normalized_names = {name.lstrip("./") for name in archive.getnames()}
-        activate = archive.extractfile("./workflow-env/bin/activate")
+        normalized_names = _normalized_tar_names(archive)
+        activate = _extract_normalized(archive, "workflow-env/bin/activate")
         assert activate is not None
         activate_text = activate.read().decode("utf-8")
 

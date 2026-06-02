@@ -13,6 +13,32 @@ $resolvedRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $apiLauncherPath = (Resolve-Path -LiteralPath $ApiLauncher).Path
 $webLauncherPath = (Resolve-Path -LiteralPath $WebLauncher).Path
 
+function Repair-ProcessPathEnvironment {
+    $variables = [Environment]::GetEnvironmentVariables("Process")
+    $pathKeys = @()
+    $pathValue = ""
+
+    foreach ($key in $variables.Keys) {
+        $name = [string]$key
+        if (-not [string]::Equals($name, "Path", [StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        $pathKeys += $name
+        if (-not $pathValue) {
+            $pathValue = [string]$variables[$key]
+        }
+    }
+
+    foreach ($key in $pathKeys) {
+        [Environment]::SetEnvironmentVariable($key, $null, "Process")
+    }
+    if ($pathValue) {
+        [Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
+    }
+}
+
+Repair-ProcessPathEnvironment
+
 $env:H2OMETA_WORKDIR = $resolvedRoot
 
 $apiOut = Join-Path $resolvedRoot ".h2ometa-api.out.log"
