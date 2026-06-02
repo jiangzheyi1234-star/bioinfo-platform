@@ -17,7 +17,7 @@ const STAGE_LABELS: Record<string, string> = {
   environment_resolution: "解析环境",
   runtime_check: "检查运行时",
   preparing_workflow: "生成验证流程",
-  waiting_resource: "等待资源",
+  waiting_resource: "等待数据库",
   dry_run: "Snakemake dry-run",
   smoke_fixture: "检查 smoke 输入",
   smoke_run: "Smoke run",
@@ -213,12 +213,33 @@ function TaskDetails({ job, onCancel, onDismiss }: { job: ToolPrepareJob; onCanc
 
       <StageRail job={job} />
 
+      {job.missingResources && job.missingResources.length > 0 ? <WaitingResourceDetails job={job} /> : null}
+
       <div className="mt-3 max-h-[270px] overflow-y-auto rounded-md border border-slate-200 bg-white">
         {events.length > 0 ? (
           events.map((event) => <TaskEventRow key={event.eventId} event={event} />)
         ) : (
           <div className="px-3 py-6 text-center text-xs text-slate-400">暂无日志</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function WaitingResourceDetails({ job }: { job: ToolPrepareJob }) {
+  const resources = job.missingResources || [];
+  return (
+    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <div className="font-medium">等待数据库</div>
+      <div className="mt-1 text-[11px] text-amber-700">绑定后可重试 prepare。</div>
+      <div className="mt-2 grid gap-1.5">
+        {resources.map((resource) => (
+          <div key={resource.key} className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="rounded border border-amber-200 bg-white px-1.5 py-0.5 font-mono text-[11px]">{resource.key}</span>
+            <span className="text-[11px] text-amber-700">{(resource.acceptedTemplates || []).join(", ") || "模板未限定"}</span>
+            <span className="text-[11px] text-amber-700">候选 {resource.candidates?.length || 0}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -307,7 +328,7 @@ function statusLabel(status: string) {
   if (status === "succeeded") return "已发布";
   if (status === "failed") return "失败";
   if (status === "cancelled") return "已取消";
-  if (status === "waiting_resource") return "等待资源";
+  if (status === "waiting_resource") return "等待数据库";
   return status;
 }
 

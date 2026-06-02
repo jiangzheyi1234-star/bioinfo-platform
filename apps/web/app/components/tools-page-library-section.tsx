@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2, PlayCircle, RefreshCw, Trash2, Workflow } from "lucide-react";
+import { CheckCircle2, Clock3, Database, Loader2, PlayCircle, RefreshCw, Trash2, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { AddedTool, RuleSpecTemplate, ToolContractValidationItem } from "./tools-page-model";
+import type { AddedTool, MissingToolResource, RuleSpecTemplate, ToolContractValidationItem, ToolPrepareJob } from "./tools-page-model";
 import { ruleSpecReadinessForTool, type ToolRuleReadiness } from "./tool-rule-readiness";
 import { PlatformBadge, WrapperBadge } from "./tools-page-ui";
 import { ToolRuleSpecEditor } from "./tools-page-rule-spec-editor";
@@ -20,6 +20,7 @@ export function ToolsLibrarySection({
   ruleSpecSavingId,
   toolsError,
   toolsLoading,
+  waitingResourceJobsByToolId,
   onCancelRuleSpecEdit,
   onCheck,
   onEditRuleSpec,
@@ -35,6 +36,7 @@ export function ToolsLibrarySection({
   ruleSpecSavingId: string;
   toolsError: string;
   toolsLoading: boolean;
+  waitingResourceJobsByToolId: Record<string, ToolPrepareJob>;
   onCancelRuleSpecEdit: () => void;
   onCheck: (id: string) => void;
   onEditRuleSpec: (id: string) => void;
@@ -83,6 +85,7 @@ export function ToolsLibrarySection({
                 ruleSpecSaving={ruleSpecSavingId === tool.id}
                 checking={checkingToolId === tool.id || preparingToolIds.includes(tool.id)}
                 tool={tool}
+                waitingResourceJob={waitingResourceJobsByToolId[tool.id]}
                 onCancelRuleSpecEdit={onCancelRuleSpecEdit}
                 onCheck={() => onCheck(tool.id)}
                 onEditRuleSpec={() => onEditRuleSpec(tool.id)}
@@ -105,6 +108,7 @@ function ToolContractRow({
   ruleSpecEditError,
   ruleSpecSaving,
   tool,
+  waitingResourceJob,
   onCancelRuleSpecEdit,
   onCheck,
   onEditRuleSpec,
@@ -118,6 +122,7 @@ function ToolContractRow({
   ruleSpecEditError: string;
   ruleSpecSaving: boolean;
   tool: AddedTool;
+  waitingResourceJob?: ToolPrepareJob;
   onCancelRuleSpecEdit: () => void;
   onCheck: () => void;
   onEditRuleSpec: () => void;
@@ -126,16 +131,20 @@ function ToolContractRow({
   onSaveRuleSpec: (ruleTemplate: RuleSpecTemplate) => void;
 }) {
   const state = ruleSpecReadinessForTool(tool);
-  const canCheck = state.kind === "validation-pending" || state.kind === "workflow-ready";
+  const waitingResources = waitingResourceJob?.missingResources || state.waitingResources;
+  const waitingResource = waitingResourceJob?.status === "waiting_resource" || state.kind === "waiting-resource";
+  const rowState = waitingResource ? { ...state, kind: "waiting-resource" as const, label: "等待数据库" as const, waitingResources } : state;
+  const canCheck = waitingResource || state.kind === "validation-pending" || state.kind === "workflow-ready";
+  const checkTitle = waitingResource ? "补齐数据库后重试 prepare" : canCheck ? "验证工具" : "先补全 RuleSpec 和 env";
   return (
     <article
-      data-node-state={state.kind}
+      data-node-state={rowState.kind}
       className="group border-b border-slate-100 last:border-b-0"
     >
       <div className="grid min-h-13 grid-cols-[minmax(0,1fr)_8rem_5.5rem_auto] items-center gap-4 px-3 py-2 transition-colors hover:bg-slate-50/70">
         <button type="button" className="min-w-0 text-left" onClick={onExpand}>
           <div className="flex min-w-0 items-center gap-2">
-            <span className={cn("h-2 w-2 shrink-0 rounded-full", state.workflowReady ? "bg-emerald-500" : state.kind === "platform-unsupported" ? "bg-red-500" : "bg-amber-500")} />
+            <span className={cn("h-2 w-2 shrink-0 rounded-full", rowState.workflowReady ? "bg-emerald-500" : rowState.kind === "platform-unsupported" ? "bg-red-500" : "bg-amber-500")} />
             <h3 className="min-w-0 truncate text-sm font-medium text-slate-900">{tool.name}</h3>
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
@@ -145,7 +154,7 @@ function ToolContractRow({
         </button>
 
         <button type="button" className="min-w-0 text-left" onClick={onExpand}>
-          <RuleSpecNodeReadinessBadge state={state} />
+          <RuleSpecNodeReadinessBadge state={rowState} />
         </button>
 
         <ToolContractStatusRow tool={tool} />
@@ -157,14 +166,16 @@ function ToolContractRow({
             className="h-7 w-7 text-slate-400 hover:bg-white hover:text-emerald-600"
             disabled={checking || !canCheck}
             onClick={onCheck}
-            title={canCheck ? "验证工具" : "先补全 RuleSpec 和 env"}
+            title={checkTitle}
           >
             {checking ? (
               <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" />
+            ) : waitingResource ? (
+              <RefreshCw strokeWidth={1.5} className="h-3.5 w-3.5" />
             ) : (
               <PlayCircle strokeWidth={1.5} className="h-3.5 w-3.5" />
             )}
-            <span className="sr-only">验证工具</span>
+            <span className="sr-only">{waitingResource ? "重试 prepare" : "验证工具"}</span>
           </Button>
           <Button
             variant="ghost"
@@ -192,16 +203,17 @@ function ToolContractRow({
       {expanded ? (
         <div className="border-t border-slate-100 bg-slate-50/30 px-3 py-3">
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <ContractStageRail state={state} tool={tool} />
+            <ContractStageRail state={rowState} tool={tool} />
             <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:justify-end">
               <PlatformBadge item={tool} />
               <WrapperBadge item={tool} />
             </div>
           </div>
+          {waitingResources.length > 0 ? <WaitingResourcePanel resources={waitingResources} /> : null}
           <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-3">
-            <RuleSpecNodeStatusChip label="Action" value={state.actionLabel} warning={!state.hasAction} />
-            <RuleSpecNodeStatusChip label="Runtime" value={state.runtimeLabel} warning={!state.hasRuntime} />
-            <RuleSpecNodeStatusChip label="Env" value={state.envLabel} warning={!state.hasEnv} />
+            <RuleSpecNodeStatusChip label="Action" value={rowState.actionLabel} warning={!rowState.hasAction} />
+            <RuleSpecNodeStatusChip label="Runtime" value={rowState.runtimeLabel} warning={!rowState.hasRuntime} />
+            <RuleSpecNodeStatusChip label="Env" value={rowState.envLabel} warning={!rowState.hasEnv} />
           </div>
         </div>
       ) : null}
@@ -216,6 +228,27 @@ function ToolContractRow({
         />
       ) : null}
     </article>
+  );
+}
+
+function WaitingResourcePanel({ resources }: { resources: MissingToolResource[] }) {
+  return (
+    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <div className="flex min-w-0 items-center gap-2 font-medium">
+        <Database strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0" />
+        <span>等待数据库</span>
+        <span className="font-normal text-amber-700">绑定后可重试 prepare</span>
+      </div>
+      <div className="mt-2 grid gap-1.5">
+        {resources.map((resource) => (
+          <div key={resource.key} className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="rounded border border-amber-200 bg-white px-1.5 py-0.5 font-mono text-[11px]">{resource.key}</span>
+            <span className="text-[11px] text-amber-700">{templatesLabel(resource)}</span>
+            <span className="text-[11px] text-amber-700">{candidateCountLabel(resource)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -307,15 +340,28 @@ function RuleSpecNodeReadinessBadge({ state }: { state: RuleSpecNodeState }) {
         "inline-flex h-5 shrink-0 items-center text-xs leading-none",
         state.kind === "workflow-ready"
             ? "text-emerald-700"
+            : state.kind === "waiting-resource"
+              ? "text-amber-700"
             : state.kind === "dependency-only"
               ? "text-slate-500"
               : "text-amber-700"
       )}
     >
       {state.kind === "workflow-ready" ? <CheckCircle2 strokeWidth={1.5} className="mr-1 h-3 w-3" /> : null}
+      {state.kind === "waiting-resource" ? <Clock3 strokeWidth={1.5} className="mr-1 h-3 w-3" /> : null}
       {state.label}
     </span>
   );
+}
+
+function templatesLabel(resource: MissingToolResource) {
+  const templates = resource.acceptedTemplates || [];
+  return templates.length > 0 ? `模板 ${templates.join(", ")}` : "模板未限定";
+}
+
+function candidateCountLabel(resource: MissingToolResource) {
+  const count = resource.candidates?.length || 0;
+  return `候选 ${count}`;
 }
 
 function RuleSpecNodeStatusChip({

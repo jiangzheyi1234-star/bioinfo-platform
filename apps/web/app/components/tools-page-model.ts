@@ -22,6 +22,7 @@ export type ToolSearchItem = {
   snakemakeWrapperCount?: number;
   contractStatus?: ToolContractStatus;
   toolContract?: ToolContract;
+  missingResources?: MissingToolResource[];
 };
 
 export type ToolCapabilitySlot = {
@@ -164,6 +165,23 @@ export type ToolContractValidationItem = {
   artifactName?: string;
 };
 
+export type MissingToolResourceCandidate = {
+  id: string;
+  name?: string;
+  templateId?: string;
+  version?: string;
+  status?: string;
+};
+
+export type MissingToolResource = {
+  key: string;
+  resourceType?: string;
+  configKey?: string;
+  acceptedTemplates?: string[];
+  acceptedCapabilities?: string[];
+  candidates?: MissingToolResourceCandidate[];
+};
+
 export type ToolContractStatus = {
   dryRun: ToolContractValidationItem;
   smokeRun: ToolContractValidationItem;
@@ -180,7 +198,8 @@ export type ToolContractState =
   | "DryRunPassed"
   | "SmokeRunPassed"
   | "WorkflowReady"
-  | "ProductionEnabled";
+  | "ProductionEnabled"
+  | "waiting_resource";
 
 export type ToolContractPackage = {
   name?: string;
@@ -230,6 +249,7 @@ export type ToolContract = {
   smokeTest?: ToolContractSmokeTest;
   requirements?: Record<string, boolean>;
   validation?: ToolContractStatus;
+  missingResources?: MissingToolResource[];
   reasons?: string[];
 };
 
@@ -280,6 +300,7 @@ export type ToolPrepareJob = {
   request?: { id?: string; name?: string; packageSpec?: string } & Record<string, unknown>;
   result?: AddedTool | null;
   errorCode?: string | null;
+  missingResources?: MissingToolResource[];
   createdAt: string;
   updatedAt: string;
   startedAt?: string | null;
