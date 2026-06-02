@@ -180,6 +180,15 @@ def test_resource_binding_failure_enters_waiting_resource_state() -> None:
     assert contract["state"] == "waiting_resource"
     assert contract["workflowReady"] is False
     assert contract["validation"]["dryRun"]["code"] == "RESOURCE_BINDING_MISSING"
+    assert contract["missingResources"] == [
+        {
+            "key": "kraken2_db",
+            "resourceType": "database",
+            "configKey": "kraken2_db",
+            "acceptedTemplates": ["kraken2"],
+            "candidates": [],
+        }
+    ]
 
 
 def test_plain_snakemake_dry_run_failure_stays_renderable() -> None:

@@ -112,6 +112,7 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
     }
     dry_run_passed = renderable and _passed(validation["dryRun"])
     waiting_resource = renderable and _waiting_resource_validation(validation["dryRun"])
+    missing_resources = _missing_resources(template, validation["dryRun"]) if waiting_resource else []
     smoke_run_passed = dry_run_passed and bool(smoke_test["specified"]) and _passed(validation["smokeRun"])
     output_validated = smoke_run_passed and _passed(validation["outputValidation"])
     workflow_ready = output_validated
@@ -140,7 +141,7 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
         "outputValidated": output_validated,
         "productionEnabled": production_enabled,
     }
-    return {
+    contract = {
         "state": state,
         "workflowReady": state in BUILDER_ELIGIBLE_STATES,
         "package": {
@@ -169,6 +170,9 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
         "validation": validation,
         "reasons": _contract_reasons(requirements, template_summary, smoke_test, environment),
     }
+    if missing_resources:
+        contract["missingResources"] = missing_resources
+    return contract
 
 
 def _state_for_contract(
@@ -466,3 +470,31 @@ def _waiting_resource_validation(status: dict[str, str]) -> bool:
     if str(status.get("status") or "") != "failed":
         return False
     return str(status.get("code") or "").strip() in WAITING_RESOURCE_CODES
+
+
+def _missing_resources(template: dict[str, Any], dry_run: dict[str, str]) -> list[dict[str, Any]]:
+    resource_key = str(dry_run.get("resourceKey") or "").strip() or _resource_key_from_message(
+        str(dry_run.get("message") or "")
+    )
+    if not resource_key:
+        return []
+    resources = template.get("resources") if isinstance(template.get("resources"), dict) else {}
+    spec = resources.get(resource_key) if isinstance(resources.get(resource_key), dict) else {}
+    resource: dict[str, Any] = {
+        "key": resource_key,
+        "resourceType": str(spec.get("type") or dry_run.get("resourceType") or "database"),
+        "configKey": str(spec.get("configKey") or dry_run.get("configKey") or resource_key),
+        "candidates": [],
+    }
+    accepted_templates = [str(item).strip() for item in spec.get("acceptedTemplates") or [] if str(item).strip()]
+    if accepted_templates:
+        resource["acceptedTemplates"] = accepted_templates
+    accepted_capabilities = [str(item).strip() for item in spec.get("acceptedCapabilities") or [] if str(item).strip()]
+    if accepted_capabilities:
+        resource["acceptedCapabilities"] = accepted_capabilities
+    return [resource]
+
+
+def _resource_key_from_message(message: str) -> str:
+    _prefix, separator, remainder = str(message or "").rpartition(":")
+    return remainder.strip() if separator else ""
