@@ -16,7 +16,7 @@ The release path follows these baseline practices:
 - Build release environments from the manifest-declared linux-64 explicit conda specs under `config/remote-runner-conda-specs`.
 - Pin release-critical workflow packages explicitly. For this release, the locked workflow runtime contains Snakemake `9.19.0`.
 - Download artifacts through a temporary staging file, then atomically replace the release artifact and checksum together.
-- Keep local scratch output out of the repo root. Release artifacts belong in `resources/remote-runner`; runtime logs and temporary build files are not release inputs.
+- Keep local scratch output out of the repo root. Release artifacts are published as GitHub Release assets and declared in `config/remote-runner-release-manifest.json`; local files under `resources/remote-runner` are staging or override copies only.
 - Build the remote runner source from git-tracked release files and exclude pipeline `.test` fixtures.
 - Treat `--runtime-source explicit-from-current` as a recovery tool only. Normal releases should be built from declared release inputs, not from a deployed environment.
 
@@ -24,17 +24,17 @@ The next release hardening step is to generate SBOM/provenance/signature metadat
 
 ## Release Artifacts
 
-The release is incomplete unless these files exist in `resources/remote-runner`.
-`resources/remote-runner` is the Git-tracked release artifact directory. `dist/remote-runner` is still searched as a local scratch override, but it is ignored and must not be used for release handoff.
+The release is incomplete unless these assets exist on the manifest-declared GitHub Release.
+`resources/remote-runner` and `dist/remote-runner` are searched as local overrides, but both are local-only staging locations and must not be used as the release handoff.
 
-The release manifest also declares the expected artifact SHA-256, artifact size, explicit conda spec path, and explicit conda spec SHA-256 for each platform.
+The release manifest declares the artifact download URL, expected artifact SHA-256, artifact size, explicit conda spec path, and explicit conda spec SHA-256 for each platform. When no local artifact is present, the provider downloads the release asset into the local artifact cache and verifies SHA-256 and size before use. Private GitHub releases require `H2OMETA_RELEASE_DOWNLOAD_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in the local environment.
 
 - `h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz`
 - `h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz.sha256`
 - `h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz`
 - `h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz.sha256`
 
-Run the local preflight after building or copying artifacts:
+Run the local preflight after building or uploading artifacts:
 
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
@@ -86,14 +86,14 @@ cd /d E:\code\bio_ui
 uv run python scripts\build_workflow_runtime_artifact_on_server.py --print-remote-script
 ```
 
-Then run the build into the Git-tracked release artifact directory. By default it uses the manifest-declared explicit conda spec:
+Then run the build into the local staging directory. By default it uses the manifest-declared explicit conda spec:
 
 ```bat
 cd /d E:\code\bio_ui
 uv run python scripts\build_workflow_runtime_artifact_on_server.py
 ```
 
-The script downloads `h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz` into `resources\remote-runner` and writes its `.sha256`. The `.tar.gz` is tracked with Git LFS; the `.sha256` is tracked as text.
+The script downloads `h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz` into `resources\remote-runner` and writes its `.sha256`. Upload both files to the manifest-declared GitHub Release, then update the manifest SHA-256, size, and download URL values.
 
 Use clean solve only when intentionally refreshing the workflow runtime lock:
 
@@ -104,7 +104,7 @@ uv run python scripts\build_workflow_runtime_artifact_on_server.py --runtime-sou
 
 ## Bootstrap Contract
 
-Default bootstrap requires the local manifest-declared workflow runtime artifact. It must fail loudly when the artifact is missing.
+Default bootstrap requires the manifest-declared workflow runtime artifact. It may come from an explicit local override, a local staging directory, or the manifest download URL; it must fail loudly when the artifact cannot be resolved or verified.
 
 Only use this environment variable for an explicit repair-only reuse path:
 

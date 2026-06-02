@@ -19,6 +19,7 @@ class ReleaseArtifactSpec:
     sha256: dict[str, str]
     size_bytes: dict[str, int]
     lock_sha256: dict[str, str]
+    download_urls: dict[str, str]
 
     def archive_filename(self, platform: str | None = None) -> str:
         return f"{self.name}-{self.version}-{platform or self.default_platform}.tar.gz"
@@ -95,6 +96,11 @@ def _load_manifest_from_path(path_str: str) -> RemoteRunnerReleaseManifest:
             lock_sha256={
                 str(platform).strip(): str(value).strip().lower()
                 for platform, value in (raw_spec.get("lock_sha256") or {}).items()
+                if str(platform).strip() and str(value).strip()
+            },
+            download_urls={
+                str(platform).strip(): str(value).strip()
+                for platform, value in (raw_spec.get("download_urls") or {}).items()
                 if str(platform).strip() and str(value).strip()
             },
         )

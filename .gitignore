@@ -58,6 +58,10 @@ core/data/sample_service.py
 # Runtime outputs
 logs/
 
+# Release artifacts are published outside Git and resolved from the manifest.
+resources/remote-runner/*.tar.gz
+resources/remote-runner/*.tar.gz.sha256
+
 # Temporary test/debug files
 .tmp_*
 *.tmp
