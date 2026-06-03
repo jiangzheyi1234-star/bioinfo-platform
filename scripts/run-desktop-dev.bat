@@ -7,16 +7,6 @@ if "%H2OMETA_WORKDIR%"=="" (
     endlocal & exit /b 1
 )
 
-if "%H2OMETA_CONDA_EXE%"=="" (
-    echo [ERROR] H2OMETA_CONDA_EXE is not set.
-    endlocal & exit /b 1
-)
-
-if "%H2OMETA_CONDA_ENV%"=="" (
-    echo [ERROR] H2OMETA_CONDA_ENV is not set.
-    endlocal & exit /b 1
-)
-
 if "%H2OMETA_CARGO_TARGET_DIR%"=="" (
     set "H2OMETA_CARGO_TARGET_DIR=%LOCALAPPDATA%\H2OMeta\dev-cache\cargo-target\bio_ui"
 )

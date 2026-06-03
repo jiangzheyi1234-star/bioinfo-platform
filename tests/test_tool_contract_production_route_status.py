@@ -20,11 +20,12 @@ PRODUCTION_CONFLICT_ERRORS = (
 
 def test_production_route_maps_workflow_ready_gate_to_conflict_status() -> None:
     root = Path(__file__).resolve().parents[1]
-    remote_main = (root / "apps" / "remote_runner" / "main.py").read_text(encoding="utf-8")
+    status_module = (root / "apps" / "remote_runner" / "tool_route_status.py").read_text(encoding="utf-8")
+    remote_route = (root / "apps" / "remote_runner" / "tool_routes.py").read_text(encoding="utf-8")
     local_route = (root / "apps" / "api" / "tool_contract_routes.py").read_text(encoding="utf-8")
 
     for error_code in PRODUCTION_CONFLICT_ERRORS:
-        assert f'"{error_code}"' in remote_main
-        assert f'"{error_code}"' in local_route
-    assert "status_code = 409" in remote_main
-    assert "status_code = 409" in local_route
+        assert f'"{error_code}"' in status_module
+    assert "return 409" in status_module
+    assert "tool_production_status_code(detail)" in remote_route
+    assert "tool_production_status_code(detail)" in local_route

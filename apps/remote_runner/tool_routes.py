@@ -19,29 +19,10 @@ from .tools import (
 )
 from .tool_prepare_job_storage import cancel_tool_prepare_job, create_tool_prepare_job, fetch_tool_prepare_job
 from .tool_prepare_jobs import run_tool_prepare_job
+from .tool_route_status import tool_production_status_code
 
 
 router = APIRouter()
-
-
-def _tool_production_status_code(detail: str) -> int:
-    if detail == "TOOL_NOT_FOUND":
-        return 404
-    if detail in {
-        "TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION",
-        "TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY",
-        "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND",
-        "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED",
-        "TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH",
-        "TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH",
-        "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED",
-        "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_NOT_FOUND",
-        "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_EMPTY",
-        "TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH",
-        "TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE",
-    }:
-        return 409
-    return 400
 
 
 @router.get("/api/v1/tools")
@@ -133,5 +114,5 @@ async def mark_tool_production_api(
         )
     except ToolRegistryError as exc:
         detail = str(exc)
-        raise HTTPException(status_code=_tool_production_status_code(detail), detail=detail) from exc
+        raise HTTPException(status_code=tool_production_status_code(detail), detail=detail) from exc
     return data_response(item)

@@ -231,11 +231,6 @@ def prefix_alias_prefixes_in_directory(data_path: Path, template: dict[str, Any]
     return unique_paths([path.with_suffix("") for path in _prefix_alias_paths(data_path, template)])
 
 
-def first_template_file_match(data_path: Path, template: dict[str, Any]) -> Path | None:
-    matches = template_file_matches(data_path, template)
-    return matches[0] if matches else None
-
-
 def template_file_matches(data_path: Path, template: dict[str, Any]) -> list[Path]:
     patterns: list[str] = []
     patterns.extend(str(pattern) for pattern in template.get("anyPatterns", []) if str(pattern).strip())

@@ -291,32 +291,6 @@ def delete_tool(cfg: RemoteRunnerConfig, tool_id: str) -> None:
         raise KeyError(tool_id)
 
 
-def update_tool_status(
-    cfg: RemoteRunnerConfig,
-    *,
-    tool_id: str,
-    status: str,
-    message: str,
-) -> dict[str, Any]:
-    checked_at = now_iso()
-    with get_connection(cfg) as connection:
-        cursor = connection.execute(
-            """
-            UPDATE tools
-            SET status = ?, message = ?, updated_at = ?, last_checked_at = ?
-            WHERE tool_id = ?
-            """,
-            (status, message, checked_at, checked_at, tool_id),
-        )
-        connection.commit()
-    if cursor.rowcount == 0:
-        raise KeyError(tool_id)
-    item = fetch_tool(cfg, tool_id)
-    if item is None:
-        raise KeyError(tool_id)
-    return item
-
-
 def _estimate_base64_size(content_base64: str) -> int:
     raw = "".join(str(content_base64 or "").split())
     if not raw:

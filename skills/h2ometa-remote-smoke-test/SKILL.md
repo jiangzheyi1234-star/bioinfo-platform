@@ -26,7 +26,7 @@ Use this skill to do two things:
 Use this decision path before taking action:
 
 1. If the task is a real remote smoke, start with non-mutating checks: config read, SSH connect, Local API health, `/api/v1/ssh/status`, and `/api/v1/servers`.
-2. If the task is a real bootstrap or pipeline smoke, run the canonical skill scripts from `scripts/`.
+2. If the task is a real bootstrap or pipeline smoke, run the canonical repo-local skill entrypoints under `skills/h2ometa-remote-smoke-test/scripts/`.
 3. If the task is code-testing or verification work, read [test-safety.md](test-safety.md) first and decide whether the work needs syntax-only verification, isolated unit tests, or user-run `pytest`.
 4. If the task looks familiar because it matches a prior failure mode, read [pitfalls.md](pitfalls.md) before improvising.
 
@@ -56,13 +56,13 @@ Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen
 
 ## Workflow Map
 
-- SSH, Local API, runner readiness: use `scripts/remote_smoke.py`
-- Mutating bootstrap validation: use `scripts/remote_smoke.py --bootstrap`
+- SSH, Local API, runner readiness: use `skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py`
+- Mutating bootstrap validation: use `skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap`
 - Real tool validation starts from the tool search/add flow, then use the generated-tool smoke helpers once the searched tool has a saved contract.
-- Minimal end-to-end pipeline path: use `scripts/remote_pipeline_smoke.py`
-- Normal Snakemake pipeline database binding: use `scripts/remote_pipeline_database_binding_smoke.py`
-- Real production database acceptance: use `scripts/remote_real_database_acceptance.py`
-- Additional generated-tool, linear-workflow, or database smoke helpers: use the matching script in `scripts/` only after the control-plane smoke is green
+- Minimal end-to-end pipeline path: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
+- Normal Snakemake pipeline database binding: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
+- Real production database acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py`
+- Additional generated-tool, linear-workflow, or database smoke helpers: use the matching script in `skills/h2ometa-remote-smoke-test/scripts/` only after the control-plane smoke is green
 
 ## Experience Library
 

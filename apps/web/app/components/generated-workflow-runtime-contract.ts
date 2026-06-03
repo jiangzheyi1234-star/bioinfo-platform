@@ -5,22 +5,6 @@ import type {
 
 const RUNTIME_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function normalizeStepRuntime(runtime: GeneratedWorkflowStepRuntime | undefined) {
-  const normalized: GeneratedWorkflowStepRuntime = {};
-  if (runtime?.threads && Number.isInteger(runtime.threads) && runtime.threads > 0) {
-    normalized.threads = runtime.threads;
-  }
-  const resources = normalizeRuntimeResources(runtime?.resources || runtime?.schedulerResources);
-  if (Object.keys(resources).length > 0) {
-    normalized.resources = resources;
-  }
-  const log = normalizeRuntimeLog(runtime?.log);
-  if (log) {
-    normalized.log = log;
-  }
-  return normalized;
-}
-
 export function validateStepRuntime(
   stepId: string,
   runtime: GeneratedWorkflowStepRuntime | undefined
@@ -50,24 +34,6 @@ export function validateStepRuntime(
     issues.push({ code: "WORKFLOW_STEP_LOG_INVALID", message: `步骤 ${stepId} 的日志配置无效`, stepId });
   }
   return issues;
-}
-
-function normalizeRuntimeResources(resources: GeneratedWorkflowStepRuntime["resources"] | undefined) {
-  if (!resources) return {};
-  return Object.fromEntries(
-    Object.entries(resources)
-      .map(([name, value]) => [name.trim(), value] as const)
-      .filter(([name, value]) => Boolean(name) && validRuntimeScalar(value))
-  );
-}
-
-function normalizeRuntimeLog(log: GeneratedWorkflowStepRuntime["log"] | undefined) {
-  if (typeof log === "string") return log.trim();
-  if (!log) return "";
-  const entries = Object.entries(log)
-    .map(([name, path]) => [name.trim(), path.trim()] as const)
-    .filter(([name, path]) => Boolean(name) && Boolean(path));
-  return entries.length > 0 ? Object.fromEntries(entries) : "";
 }
 
 function validRuntimeScalar(value: unknown): value is string | number {

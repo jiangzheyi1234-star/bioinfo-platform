@@ -76,10 +76,6 @@ def fetch_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, An
     return _job_row_to_dict(row, [_event_row_to_dict(event_row) for event_row in event_rows]) if row is not None else None
 
 
-def mark_tool_prepare_job_running(cfg: RemoteRunnerConfig, job_id: str, *, stage: str, message: str) -> dict[str, Any]:
-    return record_tool_prepare_job_event(cfg, job_id, stage=stage, message=message)
-
-
 def record_tool_prepare_job_event(
     cfg: RemoteRunnerConfig,
     job_id: str,

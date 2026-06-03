@@ -128,7 +128,7 @@ function executableRuleTemplateForTool(
   options: { outputPath?: string; outputPathSpecified?: boolean; packageSpec: string }
 ): RuleSpecTemplate {
   const template = { ...ruleTemplateFromToolOrTemplate(tool) };
-  const inputSpecs = normalizeRuleInputs(template.inputs, tool);
+  const inputSpecs = normalizeRuleInputs(template.inputs);
   const outputSpecs = normalizeRuleOutputs(template.outputs, tool, {
     outputPath: options.outputPath,
     outputPathSpecified: options.outputPathSpecified === true,
@@ -155,8 +155,8 @@ function selectedSnakemakeWrapper(tool: ToolSearchItem, selectedWrapperPath: str
   return wrappers.find((wrapper) => wrapper.wrapperPath === selectedWrapperPath) || wrappers[0];
 }
 
-function normalizeRuleInputs(raw: RuleSpecTemplate["inputs"], tool: ToolSearchItem): RuleSpecPort[] {
-  const inputs = Array.isArray(raw) && raw.length > 0 ? raw : [defaultInputForTool(tool)];
+function normalizeRuleInputs(raw: RuleSpecTemplate["inputs"]): RuleSpecPort[] {
+  const inputs = Array.isArray(raw) && raw.length > 0 ? raw : [defaultInputForTool()];
   return inputs.map((input, index) => ({
     ...input,
     name: stringValue(input.name) || (index === 0 ? "primary" : `input_${index + 1}`),
@@ -227,7 +227,7 @@ function executableSmokeTest(template: RuleSpecTemplate, inputs: RuleSpecPort[])
   return { ...current, inputs: nextInputs };
 }
 
-function defaultInputForTool(tool: ToolSearchItem): RuleSpecPort {
+function defaultInputForTool(): RuleSpecPort {
   return { name: "primary", type: "file", required: true };
 }
 

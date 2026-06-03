@@ -4,13 +4,11 @@ from pathlib import Path
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .generated_workflow_plan import plan_generated_workflow_steps, resolve_exposed_outputs
 from .pipeline import PipelineDefinition
 from .workflow_design_submission import validate_workflow_design_run_spec
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
-
-
-GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1"
 
 
 class RunPreflightError(ValueError):

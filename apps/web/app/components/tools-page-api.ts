@@ -98,19 +98,6 @@ export async function cancelToolPrepareJob(jobId: string): Promise<ToolPrepareJo
   return response.data;
 }
 
-export async function waitForToolPrepareJob(jobId: string): Promise<ToolPrepareJob> {
-  let lastJob = await fetchToolPrepareJob(jobId);
-  while (lastJob.status === "queued" || lastJob.status === "running") {
-    await new Promise((resolve) => window.setTimeout(resolve, 1500));
-    lastJob = await fetchToolPrepareJob(jobId);
-  }
-  if (lastJob.status !== "succeeded") {
-    throw new Error(lastJob.errorCode || lastJob.message || "TOOL_PREPARE_JOB_FAILED");
-  }
-  invalidateWorkflowToolCaches();
-  return lastJob;
-}
-
 export async function updateToolRuleTemplate(id: string, ruleTemplate: RuleSpecTemplate): Promise<void> {
   await requestLocalApiJson("PATCH", `/api/v1/tools/${encodeURIComponent(id)}/rule-template`, {
     body: { ruleTemplate },

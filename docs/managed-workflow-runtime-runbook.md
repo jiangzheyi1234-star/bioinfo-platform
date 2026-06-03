@@ -153,8 +153,8 @@ uv run python skills\h2ometa-remote-smoke-test\scripts\remote_clean_runner.py --
 After artifact preflight is green, validate the real path from Windows:
 
 ```bat
-uv run python scripts\remote_smoke.py --bootstrap
-uv run python scripts\remote_pipeline_smoke.py
+uv run python skills\h2ometa-remote-smoke-test\scripts\remote_smoke.py --bootstrap
+uv run python skills\h2ometa-remote-smoke-test\scripts\remote_pipeline_smoke.py
 ```
 
 Run focused pytest only from the WSL Codex CLI:

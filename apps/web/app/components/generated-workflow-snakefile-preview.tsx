@@ -5,7 +5,6 @@ import {
   readRuleParams,
   readToolRuleTemplate,
   workflowToolRevisionEntries,
-  workflowToolRevisionId,
   type GeneratedWorkflowGraphDraft,
   type GeneratedWorkflowGraphNode,
   type GeneratedWorkflowStepRuntime,
