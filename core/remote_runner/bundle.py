@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
 
 
@@ -145,9 +146,9 @@ class RemoteRunnerBundleBuilder:
             "After=default.target\n\n"
             "[Service]\n"
             "Type=simple\n"
-            "WorkingDirectory=%h/.h2ometa/runner/current\n"
-            "Environment=H2OMETA_REMOTE_CONFIG=%h/.h2ometa/runner/shared/config/runner.json\n"
-            "ExecStart=%h/.h2ometa/runner/current/launch_remote_runner.sh\n"
+            f"WorkingDirectory=%h/{REMOTE_RUNNER_RELATIVE_ROOT}/current\n"
+            f"Environment=H2OMETA_REMOTE_CONFIG=%h/{REMOTE_RUNNER_RELATIVE_ROOT}/shared/config/runner.json\n"
+            f"ExecStart=%h/{REMOTE_RUNNER_RELATIVE_ROOT}/current/launch_remote_runner.sh\n"
             "Restart=on-failure\n"
             "RestartSec=2\n\n"
             "[Install]\n"

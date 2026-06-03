@@ -137,7 +137,6 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     port_bindings_editor_ui = port_bindings_editor_path.read_text(encoding="utf-8")
 
     assert "export type GeneratedWorkflowDraft" in model
-    assert "GENERATED_WORKFLOW_RULE_CONTRACT_VERSION" in model
     assert "export type GeneratedWorkflowStepRuntime" in model
     assert "export type GeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowGraphNode" in model
@@ -153,7 +152,6 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "createGeneratedWorkflowGraphDraft" in model
     assert "generatedWorkflowDraftToGraphDraft" in model
     assert "graphDraftToGeneratedWorkflowDraft" in model
-    assert "validateGeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowInputBinding" in model
     assert "fromUpload" in model
     assert "fromUpload" not in design_model.split("export function buildWorkflowDesignDraft", 1)[0]
@@ -265,7 +263,6 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "databases" not in model
     assert "WORKFLOW_STEP_PARAM_REQUIRED" in param_contract
     assert "commandParamNames" in param_contract
-    assert "export function normalizeStepRuntime" in runtime_contract
     assert "export function validateStepRuntime" in runtime_contract
     assert "WORKFLOW_STEP_THREADS_INVALID" in runtime_contract
     assert "WORKFLOW_STEP_RESOURCES_INVALID" in runtime_contract

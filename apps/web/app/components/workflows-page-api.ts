@@ -345,7 +345,3 @@ export async function fetchArtifactPreview(resultId: string, artifactId: string)
   );
   return response.data;
 }
-
-export function invalidateWorkflowWorkspaceCache() {
-  invalidateAsyncCachePrefix("workflow:");
-}

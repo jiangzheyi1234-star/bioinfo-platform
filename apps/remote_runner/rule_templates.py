@@ -3,10 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def rule_template_candidates(tool: dict[str, Any], tool_request: dict[str, Any]) -> list[dict[str, Any]]:
-    return [entry["template"] for entry in rule_template_candidate_entries(tool, tool_request)]
-
-
 def rule_template_candidate_entries(tool: dict[str, Any], tool_request: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     # The request may carry a UI snapshot of the RuleSpec for audit/debug display,

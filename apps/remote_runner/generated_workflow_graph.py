@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .generated_workflow_constants import GENERATED_WORKFLOW_RULE_CONTRACT_VERSION
 
-GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1"
 _ALLOWED_GRAPH_NODE_KEYS = {"id", "toolRevisionId", "inputs", "params", "runtime"}
 
 

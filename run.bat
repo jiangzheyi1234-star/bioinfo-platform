@@ -15,8 +15,6 @@ set "RUN_DESKTOP_DEV=%REPO_ROOT%\scripts\run-desktop-dev.bat"
 set "RUN_WEB_DEV=%REPO_ROOT%\scripts\run-web-dev.bat"
 set "STOP_EXISTING_LOCAL_API=%REPO_ROOT%\scripts\stop-existing-local-api.ps1"
 set "RELEASE_MANIFEST_PATH=%REPO_ROOT%\config\remote-runner-release-manifest.json"
-set "LOCAL_CONDA_ENV=bio_ui"
-set "LOCAL_CONDA_EXE=C:\Users\Administrator\miniconda3\Scripts\conda.exe"
 set "DEFAULT_DEV_CACHE_ROOT=%LOCALAPPDATA%\H2OMeta\dev-cache"
 
 set "MODE=%~1"
@@ -86,8 +84,6 @@ set "H2OMETA_ALLOW_REPO_BACKEND=1"
 set "WSL_UTF8=1"
 set "PYTHONUTF8=1"
 set "NEXT_PUBLIC_API_BASE=%API_URL%"
-set "H2OMETA_CONDA_ENV=%LOCAL_CONDA_ENV%"
-set "H2OMETA_CONDA_EXE=%LOCAL_CONDA_EXE%"
 
 echo [INFO] Repo root: %REPO_ROOT%
 echo [INFO] Tauri dev URL: %WEB_URL%
@@ -96,12 +92,6 @@ echo [INFO] H2OMETA_WORKDIR=%H2OMETA_WORKDIR%
 echo [INFO] H2OMETA_UV_CACHE_DIR=%H2OMETA_UV_CACHE_DIR%
 echo [INFO] H2OMETA_CARGO_TARGET_DIR=%H2OMETA_CARGO_TARGET_DIR%
 echo.
-
-if not exist "%LOCAL_CONDA_EXE%" (
-    echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
-    pause
-    endlocal & exit /b 1
-)
 
 call :build_remote_runner_artifact
 if errorlevel 1 (
@@ -198,15 +188,6 @@ set "H2OMETA_ALLOW_REPO_BACKEND=1"
 set "WSL_UTF8=1"
 set "PYTHONUTF8=1"
 set "NEXT_PUBLIC_API_BASE=%API_URL%"
-set "H2OMETA_CONDA_ENV=%LOCAL_CONDA_ENV%"
-set "H2OMETA_CONDA_EXE=%LOCAL_CONDA_EXE%"
-
-if not exist "%LOCAL_CONDA_EXE%" (
-    echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
-    pause
-    endlocal & exit /b 1
-)
-
 call :build_remote_runner_artifact
 if errorlevel 1 (
     pause
@@ -248,15 +229,6 @@ set "PYTHONUTF8=1"
 set "NEXT_PUBLIC_API_BASE=%API_URL%"
 set "H2OMETA_RUNTIME_BUILD_ID=terminal-websocket-v1"
 set "H2OMETA_BACKEND_SOURCE=run.bat:web"
-set "H2OMETA_CONDA_ENV=%LOCAL_CONDA_ENV%"
-set "H2OMETA_CONDA_EXE=%LOCAL_CONDA_EXE%"
-
-if not exist "%LOCAL_CONDA_EXE%" (
-    echo [ERROR] Local conda executable not found: %LOCAL_CONDA_EXE%
-    pause
-    endlocal & exit /b 1
-)
-
 call :build_remote_runner_artifact
 if errorlevel 1 (
     pause

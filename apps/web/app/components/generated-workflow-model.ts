@@ -20,7 +20,6 @@ import {
 } from "./tool-rule-readiness";
 
 export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
-export const GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1";
 
 export type GeneratedWorkflowInputBinding =
   | { fromUpload: number }
@@ -279,14 +278,6 @@ export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflow
     steps,
     outputs: graphDraft.outputs.map((output) => ({ ...output })),
   };
-}
-
-export function validateGeneratedWorkflowGraphDraft(
-  graphDraft: GeneratedWorkflowGraphDraft,
-  tools: AddedTool[],
-  options: ValidateGeneratedWorkflowDraftOptions = {}
-): GeneratedWorkflowValidation {
-  return validateGeneratedWorkflowDraft(graphDraft, tools, options);
 }
 
 export function validateGeneratedWorkflowDraft(
@@ -585,15 +576,6 @@ function normalizeRuleParam(name: string, raw: unknown): RuleParamSpec | null {
   }
   const value = normalizeParamValue(raw);
   return value === undefined ? { name: normalizedName } : { name: normalizedName, default: value };
-}
-
-function normalizeStepParams(params: GeneratedWorkflowStepParams, specs: RuleParamSpec[]) {
-  const specNames = new Set(specs.map((spec) => spec.name));
-  return Object.fromEntries(
-    Object.entries(params)
-      .filter(([name, value]) => specNames.has(name) && value !== "")
-      .map(([name, value]) => [name, value])
-  );
 }
 
 function normalizeParamValue(value: unknown): GeneratedWorkflowParamValue | undefined {

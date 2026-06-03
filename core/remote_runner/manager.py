@@ -20,6 +20,7 @@ from core.remote_runner.artifact import (
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.catalog import RemoteRunnerCatalogMixin
 from core.remote_runner.client import RemoteRunnerHttpClient
+from core.remote_runner.layout import remote_runner_root
 from core.remote_runner.metadata import (
     build_fast_reuse_metadata,
     build_remote_config_payload,
@@ -71,7 +72,7 @@ class RemoteRunnerManager(RemoteRunnerRemoteIoMixin, RemoteRunnerReadinessMixin,
             server_record = kwargs.get("server_record") or {}
             version = REMOTE_RUNNER_VERSION
             home_dir = self._resolve_remote_home(ssh_service)
-            remote_root = f"{home_dir}/.h2ometa/runner"
+            remote_root = remote_runner_root(home_dir)
             remote_release = f"{remote_root}/releases/{version}"
             remote_shared = f"{remote_root}/shared"
             remote_bundle = f"{remote_root}/bundle-{version}.tar.gz"

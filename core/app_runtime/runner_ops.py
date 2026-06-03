@@ -5,16 +5,23 @@ import time
 import uuid
 from typing import Any, Optional
 
+from core.remote_runner.layout import (
+    REMOTE_RUNNER_RUNTIME_STATE_SHELL_PATH,
+    REMOTE_RUNNER_STOP_SCRIPT_SHELL_PATH,
+    REMOTE_STOP_PROCESS_OUTPUT,
+    REMOTE_STOP_SCRIPT_OUTPUT,
+    REMOTE_STOP_SYSTEMD_OUTPUT,
+)
 from core.remote_runner.manager import RemoteRunnerManagerError
 
 from .errors import RuntimeServiceError
 
 
-_STOP_REMOTE_RUNNER_COMMAND = r"""
+_STOP_REMOTE_RUNNER_COMMAND = rf"""
 set -u
-RUNNER_MODE="${H2OMETA_RUNNER_MODE:-}"
-STATE_PATH="$HOME/.h2ometa/runner/shared/runtime/runner-state.json"
-STOP_SCRIPT="$HOME/.h2ometa/runner/current/stop_service.sh"
+RUNNER_MODE="${{H2OMETA_RUNNER_MODE:-}}"
+STATE_PATH="{REMOTE_RUNNER_RUNTIME_STATE_SHELL_PATH}"
+STOP_SCRIPT="{REMOTE_RUNNER_STOP_SCRIPT_SHELL_PATH}"
 FAILED=0
 SYSTEMD_STOPPED=0
 STOP_SCRIPT_RAN=0
@@ -23,7 +30,7 @@ PROCESS_CHECKED=0
 if [ "$RUNNER_MODE" = "background_process" ]; then
   printf 'systemd_user=skipped\n'
 elif command -v systemctl >/dev/null 2>&1; then
-  if systemctl --user stop h2ometa-remote.service >/tmp/h2ometa-stop-systemd.out 2>&1; then
+  if systemctl --user stop h2ometa-remote.service >{REMOTE_STOP_SYSTEMD_OUTPUT} 2>&1; then
     SYSTEMD_STOPPED=1
     printf 'systemd_user=stopped\n'
   else
@@ -33,7 +40,7 @@ elif command -v systemctl >/dev/null 2>&1; then
     else
       printf 'systemd_user=not-stopped: '
     fi
-    cat /tmp/h2ometa-stop-systemd.out
+    cat {REMOTE_STOP_SYSTEMD_OUTPUT}
     printf '\n'
   fi
 else
@@ -44,13 +51,13 @@ else
 fi
 
 if [ -f "$STOP_SCRIPT" ]; then
-  if bash "$STOP_SCRIPT" >/tmp/h2ometa-stop-script.out 2>&1; then
+  if bash "$STOP_SCRIPT" >{REMOTE_STOP_SCRIPT_OUTPUT} 2>&1; then
     STOP_SCRIPT_RAN=1
     printf 'stop_script=stopped\n'
   else
     FAILED=1
     printf 'stop_script=failed: '
-    cat /tmp/h2ometa-stop-script.out
+    cat {REMOTE_STOP_SCRIPT_OUTPUT}
     printf '\n'
   fi
 else
@@ -59,7 +66,7 @@ fi
 
 if command -v pkill >/dev/null 2>&1; then
   PROCESS_CHECKED=1
-  pkill -f '[r]emote_runner.run' >/tmp/h2ometa-stop-pkill.out 2>&1
+  pkill -f '[r]emote_runner.run' >{REMOTE_STOP_PROCESS_OUTPUT} 2>&1
   PKILL_CODE=$?
   if [ "$PKILL_CODE" -eq 0 ]; then
     printf 'process=stopped\n'
@@ -68,7 +75,7 @@ if command -v pkill >/dev/null 2>&1; then
   else
     FAILED=1
     printf 'process=failed: '
-    cat /tmp/h2ometa-stop-pkill.out
+    cat {REMOTE_STOP_PROCESS_OUTPUT}
     printf '\n'
   fi
 else

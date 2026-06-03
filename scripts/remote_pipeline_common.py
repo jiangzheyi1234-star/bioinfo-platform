@@ -60,7 +60,7 @@ def print_failure(summary: str, *, hints: list[str], detail: str | None = None) 
 
 def pipeline_diagnostics(api_base: str, run_id: str | None = None) -> list[str]:
     hints = [
-        "Rerun `python scripts/remote_smoke.py --bootstrap` to re-check control-plane readiness/canary/rollback phases before another pipeline attempt.",
+        "Rerun `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap` to re-check control-plane readiness/canary/rollback phases before another pipeline attempt.",
         "Run `python scripts/inspect_remote_runner_service.py` to inspect the remote service log.",
         f"Inspect `{api_base.rstrip('/')}/api/v1/results` after the run if result registration may have failed.",
     ]

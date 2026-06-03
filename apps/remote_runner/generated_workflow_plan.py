@@ -219,10 +219,6 @@ def step_id_from_request(step: dict[str, Any]) -> str:
     return safe_identifier(raw_id)
 
 
-def resolve_rule_template(*, tool: dict[str, Any], tool_request: dict[str, Any]) -> dict[str, Any]:
-    return resolve_rule_contract(tool=tool, tool_request=tool_request)[0]
-
-
 def resolve_rule_contract(
     *,
     tool: dict[str, Any],

@@ -23,8 +23,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
+import { fetchArtifactPreview } from "./workflows-page-api";
 import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
@@ -196,14 +196,10 @@ function RunArtifacts({
     if (!resultId) return;
     setLoading(true);
     try {
-      const data = await requestLocalApiJson<{ data: WorkflowArtifactPreview }>(
-        "GET",
-        `/api/v1/results/${resultId}/preview?artifact_id=${encodeURIComponent(artifact.artifactId)}`,
-        { cache: "no-store" }
-      );
+      const data = await fetchArtifactPreview(resultId, artifact.artifactId);
       setPreviewTitle(artifactName(artifact));
-      setPreviewContent(data.data.preview?.content || "（无预览内容）");
-      setPreviewKind(data.data.preview?.kind || "text");
+      setPreviewContent(data.preview?.content || "（无预览内容）");
+      setPreviewKind(data.preview?.kind || "text");
       setOpen(true);
     } catch {
       setPreviewTitle(artifactName(artifact));

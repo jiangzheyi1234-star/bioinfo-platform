@@ -8,6 +8,13 @@ from typing import Any
 
 from config import resolve_runner_token, store_runner_token
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.layout import (
+    remote_runner_config,
+    remote_runner_release,
+    remote_runner_runtime_state,
+    remote_runner_shared,
+    remote_runner_start_command,
+)
 
 def _is_manager_error(exc: Exception) -> bool:
     return exc.__class__.__name__ == "RemoteRunnerManagerError"
@@ -354,7 +361,7 @@ class RemoteRunnerProxyMixin:
             remote_port = self._require_service_port(record)
             token = secrets.token_urlsafe(24)
             home_dir = self._resolve_remote_home(ssh_service)
-            remote_config = f"{home_dir}/.h2ometa/runner/shared/config/runner.json"
+            remote_config = remote_runner_config(home_dir)
             tooling = (record.get("bootstrap_metadata") or {}).get("tooling") or {}
             service_runtime = tooling.get("service_runtime") or {}
             workflow_runtime = tooling.get("workflow_runtime") or {}
@@ -373,9 +380,9 @@ class RemoteRunnerProxyMixin:
                         mode=str(record.get("runner_mode") or "background_process"),
                         remote_port=remote_port,
                         token=token,
-                        remote_shared=f"{home_dir}/.h2ometa/runner/shared",
-                        remote_release=f"{home_dir}/.h2ometa/runner/releases/{version}",
-                        remote_runtime_state=f"{home_dir}/.h2ometa/runner/shared/runtime/runner-state.json",
+                        remote_shared=remote_runner_shared(home_dir),
+                        remote_release=remote_runner_release(home_dir, version),
+                        remote_runtime_state=remote_runner_runtime_state(home_dir),
                         runner_python=str(service_runtime.get("python") or ""),
                         managed_conda_command=str(workflow_runtime.get("command") or ""),
                         managed_conda_root_prefix=str(workflow_runtime.get("root_prefix") or ""),
@@ -409,7 +416,7 @@ class RemoteRunnerProxyMixin:
                 else:
                     ssh_service.run("pkill -f '[r]emote_runner.run' || true", timeout=10)
                     ssh_service.run(
-                        f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
+                        remote_runner_start_command(home_dir, remote_config),
                         timeout=30,
                     )
                 tunnel = ssh_service.ensure_local_tunnel(
@@ -437,11 +444,14 @@ class RemoteRunnerProxyMixin:
                             ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
                         else:
                             ssh_service.run(
-                                f"bash {home_dir}/.h2ometa/runner/current/start_service.sh {remote_config} {home_dir}/.h2ometa/runner/shared/logs/runner.log",
+                                remote_runner_start_command(home_dir, remote_config),
                                 timeout=30,
                             )
-                    except Exception:
-                        pass
+                    except Exception as restore_exc:
+                        restore_detail = str(restore_exc) or restore_exc.__class__.__name__
+                        raise self._manager_error(
+                            f"runner token rotation failed; previous config restore also failed: {restore_detail}"
+                        ) from restore_exc
                 raise
             token_ref = store_runner_token(server_id=server_id, token=token)
             return {"token_ref": token_ref}

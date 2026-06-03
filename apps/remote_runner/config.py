@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_REMOTE_ROOT = Path.home() / ".h2ometa" / "runner"
+DEFAULT_REMOTE_ROOT_RELATIVE = Path(".h2ometa") / "runner"
+DEFAULT_REMOTE_ROOT = Path.home() / DEFAULT_REMOTE_ROOT_RELATIVE
 DEFAULT_CONFIG_PATH = DEFAULT_REMOTE_ROOT / "shared" / "config" / "runner.json"
 DEFAULT_DATA_ROOT = DEFAULT_REMOTE_ROOT / "shared"
 DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "data" / "runner.db"

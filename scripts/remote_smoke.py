@@ -132,7 +132,7 @@ def ssh_diagnostics() -> list[str]:
     return [
         "Run `python scripts/print_ssh_config_public.py` to confirm the resolved SSH target.",
         "If the host is reachable but auth fails, verify the configured password ref, key file, or SSH agent state.",
-        "After SSH is fixed, rerun `python scripts/remote_smoke.py --bootstrap` before the pipeline smoke.",
+        "After SSH is fixed, rerun `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap` before the pipeline smoke.",
     ]
 
 

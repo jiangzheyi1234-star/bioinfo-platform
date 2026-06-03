@@ -4,11 +4,10 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .databases import fetch_reference_database
+from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .storage import fetch_run, fetch_run_results
 from .tools_errors import ToolRegistryError
 
-
-GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1"
 PRODUCTION_EVIDENCE_TYPES = {
     "real-data-acceptance",
     "real-database-acceptance",

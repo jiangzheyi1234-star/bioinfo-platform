@@ -251,28 +251,3 @@ export function getTerminalGridSize(terminal: XTermLike | null | undefined): { c
 export function isTerminalHandleActive(handle: TerminalHandle | null | undefined): handle is TerminalHandle {
   return Boolean(handle && !handle.disposed);
 }
-
-export function reorderItemsById<T extends { id: string }>(
-  items: readonly T[],
-  draggedId: string,
-  targetId: string,
-  placement: "before" | "after"
-): T[] {
-  if (draggedId === targetId) {
-    return [...items];
-  }
-
-  const draggedItem = items.find((item) => item.id === draggedId);
-  if (!draggedItem) {
-    return [...items];
-  }
-
-  const remaining = items.filter((item) => item.id !== draggedId);
-  const targetIndex = remaining.findIndex((item) => item.id === targetId);
-  if (targetIndex < 0) {
-    return [...items];
-  }
-
-  const insertIndex = placement === "before" ? targetIndex : targetIndex + 1;
-  return [...remaining.slice(0, insertIndex), draggedItem, ...remaining.slice(insertIndex)];
-}

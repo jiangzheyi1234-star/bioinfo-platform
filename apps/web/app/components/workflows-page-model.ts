@@ -2,8 +2,6 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
-export const GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1";
-
 export type WorkflowCatalogItem = {
   id: string;
   kind: "template" | "pipeline" | string;

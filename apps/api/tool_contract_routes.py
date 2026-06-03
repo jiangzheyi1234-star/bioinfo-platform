@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from apps.api.models import ToolProductionEvidenceRequest
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.runtime import get_runtime_service
+from apps.remote_runner.tool_route_status import tool_production_status_code
 from core.app_runtime.errors import RuntimeServiceError
 
 
@@ -23,24 +24,6 @@ async def mark_tool_production_api(tool_id: str, payload: ToolProductionEvidence
         value = await asyncio.to_thread(get_runtime_service().mark_tool_production_enabled, tool_id, body)
     except RuntimeServiceError as exc:
         detail = str(exc)
-        if detail == "TOOL_NOT_FOUND":
-            status_code = 404
-        elif detail in {
-            "TOOL_PRODUCTION_REQUIRES_OUTPUT_VALIDATION",
-            "TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY",
-            "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND",
-            "TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED",
-            "TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH",
-            "TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH",
-            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED",
-            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_NOT_FOUND",
-            "TOOL_PRODUCTION_EVIDENCE_ARTIFACT_EMPTY",
-            "TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH",
-            "TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE",
-        }:
-            status_code = 409
-        else:
-            status_code = 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise HTTPException(status_code=tool_production_status_code(detail), detail=detail) from exc
     await invalidate_response_cache("tools", "workflow_catalog")
     return value if isinstance(value, dict) and "data" in value else {"data": value}

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .generated_workflow_graph import workflow_graph_config
 from .generated_workflow_plan import (
     GeneratedWorkflowStepPlan,
@@ -19,7 +20,6 @@ from .rule_rendering import render_generated_workflow_snakefile
 from .rule_runtime import runtime_config
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs
 
-GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1"
 GENERATED_TOOL_RUN_VERSION = "0.1.0"
 
 
