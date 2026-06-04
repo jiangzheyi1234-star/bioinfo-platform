@@ -8,9 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     remote_route = (ROOT / "apps" / "remote_runner" / "tool_routes.py").read_text(encoding="utf-8")
-    local_main = (ROOT / "apps" / "api" / "main.py").read_text(encoding="utf-8")
+    local_route = (ROOT / "apps" / "api" / "tool_routes.py").read_text(encoding="utf-8")
     proxy = (ROOT / "core" / "remote_runner" / "proxy.py").read_text(encoding="utf-8")
     runner_ops = (ROOT / "core" / "app_runtime" / "runner_ops.py").read_text(encoding="utf-8")
+    runner_tool_ops = (ROOT / "core" / "app_runtime" / "runner_tool_ops.py").read_text(encoding="utf-8")
     frontend_api = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-api.ts").read_text(encoding="utf-8")
     frontend_state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
     task_context = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
@@ -22,9 +23,9 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert '@router.get("/api/v1/tools/prepare-jobs/{job_id}")' in remote_route
     assert '@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")' in remote_route
 
-    assert '@app.post("/api/v1/tools/prepare-jobs", status_code=202)' in local_main
-    assert '@app.get("/api/v1/tools/prepare-jobs/{job_id}")' in local_main
-    assert '@app.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")' in local_main
+    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in local_route
+    assert '@router.get("/api/v1/tools/prepare-jobs/{job_id}")' in local_route
+    assert '@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")' in local_route
 
     assert "def create_tool_prepare_job" in proxy
     assert 'client.post_json("/api/v1/tools/prepare-jobs"' in proxy
@@ -32,9 +33,10 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert 'client.get_json(f"/api/v1/tools/prepare-jobs/{kwargs' in proxy
     assert "def cancel_tool_prepare_job" in proxy
 
-    assert "def create_tool_prepare_job" in runner_ops
-    assert "def get_tool_prepare_job" in runner_ops
-    assert "def cancel_tool_prepare_job" in runner_ops
+    assert "RunnerToolOperationsMixin" in runner_ops
+    assert "def create_tool_prepare_job" in runner_tool_ops
+    assert "def get_tool_prepare_job" in runner_tool_ops
+    assert "def cancel_tool_prepare_job" in runner_tool_ops
 
     assert "createToolPrepareJob" in frontend_api
     assert "fetchToolPrepareJob" in frontend_api

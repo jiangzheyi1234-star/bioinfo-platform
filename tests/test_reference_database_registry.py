@@ -181,8 +181,6 @@ def test_remote_runner_database_post_rejects_invalid_database_without_registerin
     monkeypatch.setattr("apps.remote_runner.route_utils.load_remote_runner_config", lambda: cfg)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-api-invalid", complete=False)
 
-    from fastapi import HTTPException
-
     from apps.remote_runner.api_models import DatabaseManifestRequest
     from apps.remote_runner.database_routes import add_database
 
@@ -195,9 +193,8 @@ def test_remote_runner_database_post_rejects_invalid_database_without_registerin
 
     try:
         asyncio.run(add_database(payload, authorization=f"Bearer {cfg.token}"))
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "opts.k2d" in str(exc.detail)
+    except DatabaseRegistryError as exc:
+        assert "opts.k2d" in str(exc)
     else:
         raise AssertionError("invalid database should fail the add endpoint")
     assert list_reference_databases(cfg) == []

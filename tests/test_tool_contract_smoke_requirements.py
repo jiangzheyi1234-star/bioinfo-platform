@@ -45,7 +45,7 @@ def test_tool_validation_requires_explicit_smoke_input_fixtures(monkeypatch, tmp
             snakemake_commands.append(list(cmd))
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
 
-    monkeypatch.setattr("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.tool_contract_snakemake.subprocess.run", fake_run)
 
     checked = _validate_registered_tool(cfg, "conda-forge::no-smoke-fixture")
 
@@ -103,7 +103,7 @@ def test_tool_validation_smoke_fixture_only_requires_required_inputs(tmp_path: P
             output.write_text("ok\n", encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
 
-    with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
+    with patch("apps.remote_runner.tool_contract_snakemake.subprocess.run", fake_run):
         checked = _validate_registered_tool(cfg, "conda-forge::optional-input-smoke")
 
     assert checked["contractStatus"]["smokeRun"]["status"] == "passed"
@@ -182,7 +182,7 @@ def test_tool_validation_auto_binds_single_matching_smoke_database(tmp_path: Pat
             output.write_text("ok\n", encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
 
-    with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
+    with patch("apps.remote_runner.tool_contract_snakemake.subprocess.run", fake_run):
         checked = _validate_registered_tool(cfg, "bioconda::db-smoke")
 
     assert checked["toolContract"]["state"] == "WorkflowReady"

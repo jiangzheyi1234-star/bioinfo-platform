@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from apps.api.main import stop_ssh_remote_service
+from apps.api.ssh_routes import stop_ssh_remote_service
 from core.app_runtime.service import RuntimeService, ServiceLocator
 
 
@@ -46,9 +46,9 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
         cfg.clear()
         cfg.update(snapshot)
 
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
+    monkeypatch.setattr("apps.api.ssh_control_service.runtime_service", lambda: service)
 
     result = asyncio.run(stop_ssh_remote_service())
 

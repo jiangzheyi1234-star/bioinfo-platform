@@ -4,6 +4,8 @@ import json
 import urllib.error
 from pathlib import Path
 
+import pytest
+
 from apps.api import bioconda_tool_index, snakemake_wrappers, tool_capabilities
 
 
@@ -132,6 +134,34 @@ def test_search_bioconda_index_page_reports_missing_index(tmp_path: Path) -> Non
     assert page["items"] == []
     assert page["total"] == 0
     assert page["indexAvailable"] is False
+
+
+def test_load_bioconda_index_raises_for_corrupt_cache(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "search-index-v1.json").write_text("{", encoding="utf-8")
+
+    with pytest.raises(json.JSONDecodeError):
+        bioconda_tool_index.load_bioconda_index(cache_dir=cache_dir)
+
+
+def test_load_bioconda_index_only_treats_missing_cache_as_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True)
+    index_path = cache_dir / "search-index-v1.json"
+    original_stat = Path.stat
+
+    def fake_stat(path: Path, *args, **kwargs):
+        if path == index_path:
+            raise OSError("cache metadata unreadable")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+
+    with pytest.raises(OSError, match="cache metadata unreadable"):
+        bioconda_tool_index.load_bioconda_index(cache_dir=cache_dir)
 
 
 def test_tool_search_uses_bioconda_index_before_online_search(tmp_path: Path, monkeypatch) -> None:

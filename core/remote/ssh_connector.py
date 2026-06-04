@@ -59,7 +59,7 @@ def ssh_connect(
     sock = None
     try:
         sock = socket.create_connection((ip, port), timeout=timeout)
-    except Exception as e:
+    except OSError as e:
         code, message = _tcp_failure_message(e)
         return ConnectResult(False, message, code=code, phase="tcp_connect")
 
@@ -84,17 +84,14 @@ def ssh_connect(
         elif not use_agent:
             kwargs["password"] = password
         client.connect(**kwargs)
-    except Exception as e:
+    except (paramiko.SSHException, OSError) as e:
         client.close()
         phase, code, message = _ssh_failure_message(e)
         return ConnectResult(False, message, code=code, phase=phase)
 
-    try:
-        t = client.get_transport()
-        if t:
-            t.set_keepalive(30)
-    except Exception:
-        pass
+    t = client.get_transport()
+    if t:
+        t.set_keepalive(30)
 
     return ConnectResult(True, "Connected", client)
 
@@ -109,7 +106,7 @@ def run_diagnostics(
     try:
         socket.getaddrinfo(ip, port)
         steps.append({"name": "DNS/IP", "status": "ok", "message": f"{ip} resolved"})
-    except Exception as e:
+    except OSError as e:
         steps.append({"name": "DNS/IP", "status": "fail", "message": str(e)})
         return steps
 
@@ -117,7 +114,7 @@ def run_diagnostics(
     try:
         socket.create_connection((ip, port), timeout=5).close()
         steps.append({"name": "TCP", "status": "ok", "message": "connected"})
-    except Exception as e:
+    except OSError as e:
         steps.append({"name": "TCP", "status": "fail", "message": str(e)})
         return steps
 
@@ -132,7 +129,7 @@ def run_diagnostics(
             {"name": "SSH", "status": "ok", "message": t.remote_version or "connected"}
         )
         t.close()
-    except Exception as e:
+    except (paramiko.SSHException, OSError) as e:
         steps.append({"name": "SSH", "status": "fail", "message": str(e)})
         return steps
 
@@ -158,7 +155,7 @@ def run_diagnostics(
         c.connect(**kwargs)
         c.close()
         steps.append({"name": "Auth", "status": "ok", "message": "authenticated"})
-    except Exception as e:
+    except (paramiko.SSHException, OSError) as e:
         steps.append({"name": "Auth", "status": "fail", "message": str(e)})
 
     return steps

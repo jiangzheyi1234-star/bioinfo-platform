@@ -4,7 +4,6 @@ import asyncio
 import threading
 from typing import Any
 
-from apps.api.main import upload_file
 from apps.api.models import (
     UploadSubmitRequest,
     WorkflowDesignDraftCompileRequest,
@@ -12,6 +11,7 @@ from apps.api.models import (
     WorkflowDesignDraftForkRequest,
     WorkflowDesignDraftUpdateRequest,
 )
+from apps.api.submission_routes import upload_file
 from apps.api.workflow_design_routes import (
     compile_workflow_design_draft_api,
     create_workflow_design_draft_api,
@@ -141,7 +141,7 @@ def _workflow_design_draft() -> dict[str, Any]:
 
 def test_local_compile_route_passes_selected_server_id(monkeypatch) -> None:
     runtime = FakeRuntime()
-    monkeypatch.setattr("apps.api.workflow_design_routes.runtime_service", lambda: runtime)
+    monkeypatch.setattr("apps.api.workflow_design_service.runtime_service", lambda: runtime)
 
     result = asyncio.run(
         compile_workflow_design_draft_api(
@@ -156,7 +156,7 @@ def test_local_compile_route_passes_selected_server_id(monkeypatch) -> None:
 
 def test_local_write_routes_pass_selected_server_id(monkeypatch) -> None:
     runtime = FakeRuntime()
-    monkeypatch.setattr("apps.api.workflow_design_routes.runtime_service", lambda: runtime)
+    monkeypatch.setattr("apps.api.workflow_design_service.runtime_service", lambda: runtime)
 
     draft = _workflow_design_draft()
     created = asyncio.run(
@@ -277,7 +277,7 @@ def test_runtime_compile_rejects_unsupported_local_body_fields() -> None:
 
 def test_local_upload_route_passes_selected_server_id(monkeypatch) -> None:
     runtime = FakeRuntime()
-    monkeypatch.setattr("apps.api.main._runtime", lambda: runtime)
+    monkeypatch.setattr("apps.api.submission_service.runtime_service", lambda: runtime)
 
     result = asyncio.run(
         upload_file(
@@ -306,7 +306,7 @@ def test_local_upload_route_passes_selected_server_id(monkeypatch) -> None:
 
 def test_local_read_routes_pass_selected_server_id(monkeypatch) -> None:
     runtime = FakeRuntime()
-    monkeypatch.setattr("apps.api.workflow_design_routes.runtime_service", lambda: runtime)
+    monkeypatch.setattr("apps.api.workflow_design_service.runtime_service", lambda: runtime)
 
     listed = asyncio.run(list_workflow_design_drafts_api(refresh=True, serverId="srv_demo"))
     fetched = asyncio.run(get_workflow_design_draft_api("wfd_demo", serverId="srv_demo"))

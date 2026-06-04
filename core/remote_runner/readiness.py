@@ -5,7 +5,7 @@ import shlex
 import time
 from typing import Any
 
-from core.remote_runner.client import RemoteRunnerHttpClient
+from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 
 
 class RemoteRunnerReadinessMixin:
@@ -82,25 +82,33 @@ class RemoteRunnerReadinessMixin:
         attempts: int = 8,
         delay_seconds: float = 1.0,
     ) -> dict[str, Any]:
-        last_error: Exception | None = None
+        last_error = "remote runner health check failed"
         for attempt in range(attempts):
             try:
                 health = client.get_health()
-                cls._require_ready_health(health)
-                return health
-            except Exception as exc:
-                last_error = exc
-                if attempt == attempts - 1:
-                    break
+            except RemoteRunnerClientError as exc:
+                last_error = str(exc) or last_error
+            else:
+                ready_error = cls._ready_health_error(health)
+                if not ready_error:
+                    return health
+                last_error = ready_error
+            if attempt != attempts - 1:
                 time.sleep(delay_seconds)
-        raise cls._manager_error(str(last_error) or "remote runner health check failed")
+        raise cls._manager_error(last_error)
 
     @classmethod
     def _require_ready_health(cls, health: dict[str, Any]) -> None:
+        ready_error = cls._ready_health_error(health)
+        if ready_error:
+            raise cls._manager_error(ready_error)
+
+    @classmethod
+    def _ready_health_error(cls, health: dict[str, Any]) -> str:
         ready = health.get("ready") if isinstance(health, dict) else None
         if not isinstance(ready, dict) or bool(ready.get("ok")):
-            return
-        raise cls._manager_error(cls._describe_not_ready_health(health))
+            return ""
+        return cls._describe_not_ready_health(health)
 
     @staticmethod
     def _describe_not_ready_health(health: dict[str, Any]) -> str:

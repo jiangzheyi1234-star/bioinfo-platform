@@ -1,6 +1,9 @@
+from pathlib import Path
 from types import SimpleNamespace
 import uuid
 from unittest.mock import patch
+
+import pytest
 
 from config import get_ssh_key_dir, make_ssh_password_ref, resolve_ssh_password
 from core.app_runtime.service import RuntimeService, ServiceLocator
@@ -109,10 +112,10 @@ def test_startup_auto_connect_uses_saved_password_ref_when_flag_set() -> None:
     }
     service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.resolve_ssh_password", return_value="secret"
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.ssh_connection.resolve_ssh_password", return_value="secret"
     ), patch(
-        "core.app_runtime.service.ssh_connect"
+        "core.app_runtime.ssh_connection.ssh_connect"
     ) as connect_mock:
         service.initialize()
 
@@ -125,6 +128,35 @@ def test_startup_auto_connect_uses_saved_password_ref_when_flag_set() -> None:
         use_agent=False,
         timeout=5,
     )
+
+
+def test_startup_auto_connect_does_not_mask_unexpected_runner_state_errors() -> None:
+    cfg = {
+        "ssh": {
+            "auth_mode": "password_ref",
+            "host": "192.0.2.10",
+            "port": 22,
+            "user": "tester",
+            "password_ref": "ssh://tester@192.0.2.10:22",
+            "identity_ref": "",
+            "timeout_sec": 5,
+            "auto_connect_on_startup": True,
+        }
+    }
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    result = SimpleNamespace(ok=True, client=DummyClient(), message="")
+
+    def fail_snapshot(*args, **kwargs):
+        raise ValueError("unexpected runner state write")
+
+    service._save_runner_preparing_snapshot = fail_snapshot
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.ssh_connection.resolve_ssh_password", return_value="secret"
+    ), patch(
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
+    ), pytest.raises(ValueError, match="unexpected runner state write"):
+        service._attempt_startup_auto_connect()
 
 
 def test_status_refresh_recovers_runner_when_ssh_stays_connected() -> None:
@@ -171,8 +203,8 @@ def test_status_refresh_recovers_runner_when_ssh_stays_connected() -> None:
     def ensure_now(next_server_id: str) -> None:
         service.ensure_remote_runner_ready(next_server_id)
 
-    with patch("core.app_runtime.service.get_config", lambda: cfg), patch(
-        "core.app_runtime.service.save_config", save_capture
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", save_capture
     ), patch.object(service, "_ensure_runner_ready_in_background", side_effect=ensure_now):
         status = service.get_ssh_status()
 
@@ -181,6 +213,29 @@ def test_status_refresh_recovers_runner_when_ssh_stays_connected() -> None:
     assert manager.bootstrap_calls == 1
     assert status["runner"]["state"] == "ready"
     assert status["runner"]["deploymentAction"] == "recovered"
+
+
+def test_background_runner_ensure_does_not_mask_unexpected_errors(monkeypatch) -> None:
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+
+    def fail_ready(_server_id: str):
+        raise RuntimeError("background ensure adapter crashed")
+
+    class ImmediateThread:
+        def __init__(self, *, target, name: str, daemon: bool) -> None:
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target()
+
+    service.ensure_remote_runner_ready = fail_ready
+    monkeypatch.setattr("core.app_runtime.server_state.threading.Thread", ImmediateThread)
+
+    with pytest.raises(RuntimeError, match="background ensure adapter crashed"):
+        service._ensure_runner_ready_in_background("srv_test")
+    assert "srv_test" not in service._runner_ensure_inflight
 
 
 
@@ -210,9 +265,9 @@ def test_connect_ssh_persists_key_mode_only() -> None:
         cfg.clear()
         cfg.update(snapshot)
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config", side_effect=save_capture
-    ), patch("core.app_runtime.service.ssh_connect", return_value=result):
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", side_effect=save_capture
+    ), patch("core.app_runtime.ssh_connection.ssh_connect", return_value=result):
         status = service.connect_ssh({"auth_mode": "key_file", "identity_ref": "C:/keys/id_ed25519"})
 
     assert status["connected"] is True
@@ -247,8 +302,8 @@ def test_disconnect_ssh_clears_auto_connect_flag() -> None:
         cfg.clear()
         cfg.update(snapshot)
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config", side_effect=save_capture
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", side_effect=save_capture
     ):
         status = service.disconnect_ssh()
 
@@ -287,13 +342,13 @@ def test_connect_ssh_persists_password_ref_for_password_auth() -> None:
         cfg.clear()
         cfg.update(snapshot)
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config", side_effect=save_capture
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", side_effect=save_capture
     ), patch(
-        "core.app_runtime.service.store_ssh_password",
+        "core.app_runtime.ssh_connection.store_ssh_password",
         return_value=make_ssh_password_ref(host="192.0.2.10", port=22, user="tester"),
     ) as store_password, patch(
-        "core.app_runtime.service.ssh_connect", return_value=result
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
     ):
         status = service.connect_ssh({"password": "secret", "auth_mode": "password_ref"})
 
@@ -326,13 +381,13 @@ def test_connect_ssh_forces_password_auth_auto_connect_off() -> None:
         saved.clear()
         saved.update(next_cfg)
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config", side_effect=save_capture
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", side_effect=save_capture
     ), patch(
-        "core.app_runtime.service.store_ssh_password",
+        "core.app_runtime.ssh_connection.store_ssh_password",
         return_value=make_ssh_password_ref(host="192.0.2.10", port=22, user="tester"),
     ), patch(
-        "core.app_runtime.service.ssh_connect", return_value=result
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
     ):
         status = service.connect_ssh(
             {
@@ -365,10 +420,10 @@ def test_connect_ssh_failure_does_not_save_config() -> None:
     service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
     service._initialized = True
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config"
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config"
     ) as save_config, patch(
-        "core.app_runtime.service.ssh_connect", return_value=result
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
     ):
         try:
             service.connect_ssh(
@@ -426,12 +481,12 @@ def test_connect_ssh_resolves_ssh_config_alias_and_persists_new_model() -> None:
         "auto_connect_on_startup": False,
     }
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config", side_effect=save_capture
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", side_effect=save_capture
     ), patch(
-        "core.app_runtime.service.resolve_ssh_config_target", return_value=resolved
+        "core.app_runtime.ssh_connection.resolve_ssh_config_target", return_value=resolved
     ), patch(
-        "core.app_runtime.service.ssh_connect", return_value=result
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
     ):
         status = service.connect_ssh({"auth_mode": "ssh_config", "ssh_host_alias": "prod-box"})
 
@@ -464,10 +519,10 @@ def test_connect_ssh_uses_agent_mode_without_password_or_identity() -> None:
         saved.clear()
         saved.update(next_cfg)
 
-    with patch("core.app_runtime.service.get_config", return_value=cfg), patch(
-        "core.app_runtime.service.save_config", side_effect=save_capture
+    with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", side_effect=save_capture
     ), patch(
-        "core.app_runtime.service.ssh_connect", return_value=result
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
     ) as connect_mock:
         status = service.connect_ssh({"auth_mode": "agent", "host": "192.0.2.10", "user": "tester"})
 
@@ -492,3 +547,12 @@ def test_ssh_reconnect_closes_existing_tunnels() -> None:
 
     assert closed["count"] == 1
     assert service._tunnels == {}
+
+
+def test_runtime_service_reconnect_callbacks_use_declared_ssh_reconnect_error() -> None:
+    source = Path("core/app_runtime/ssh_connection.py").read_text(encoding="utf-8")
+
+    assert "SSHReconnectError" in source
+    assert "raise RuntimeError(r.message)" not in source
+    assert "raise RuntimeError(reconnect.message)" not in source
+    assert source.count("raise SSHReconnectError(") == 2

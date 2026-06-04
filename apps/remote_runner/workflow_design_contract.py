@@ -21,6 +21,9 @@ WorkflowDesignParamValue = str | int | float | bool
 class WorkflowDesignModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=False, strict=True)
 
+    def runtime_payload(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
+
 
 class WorkflowDesignMetadata(WorkflowDesignModel):
     name: str = Field(min_length=1)

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -30,6 +31,27 @@ def test_remote_runner_config_defaults_to_dynamic_loopback_port() -> None:
     assert cfg.bind_host == "127.0.0.1"
     assert cfg.bind_port == 0
     assert Path(cfg.runtime_state_path).parts[-2:] == ("runtime", "runner-state.json")
+
+def test_workflow_runtime_config_helpers_live_outside_config_module() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config_source = (root / "apps" / "remote_runner" / "config.py").read_text(encoding="utf-8")
+    workflow_runtime_path = root / "apps" / "remote_runner" / "workflow_runtime_config.py"
+
+    assert workflow_runtime_path.exists()
+    workflow_runtime_source = workflow_runtime_path.read_text(encoding="utf-8")
+    assert len(config_source.splitlines()) <= 260
+    assert "from .workflow_runtime_config import (" in config_source
+    for helper in (
+        "build_workflow_runtime_environment",
+        "get_workflow_profile_dir",
+        "get_workflow_profile_name",
+        "get_workflow_profile_path",
+        "inspect_workflow_profile",
+        "inspect_workflow_runtime",
+    ):
+        assert f"def {helper}(" not in config_source
+        assert f"def {helper}(" in workflow_runtime_source
+    assert "subprocess.run(" not in config_source
 
 def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
     cfg = RemoteRunnerConfig(
@@ -130,7 +152,15 @@ def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_p
     managed_conda_command.chmod(0o755)
     snakemake_command.write_text("#!/usr/bin/env python3.12\n", encoding="utf-8")
     snakemake_command.chmod(0o755)
+    shared_root = tmp_path / "shared"
     cfg = RemoteRunnerConfig(
+        data_root=str(shared_root),
+        db_path=str(shared_root / "data" / "runner.db"),
+        runtime_state_path=str(shared_root / "runtime" / "runner-state.json"),
+        uploads_dir=str(shared_root / "uploads"),
+        results_dir=str(shared_root / "results"),
+        work_dir=str(shared_root / "work"),
+        logs_dir=str(shared_root / "logs"),
         managed_conda_command=str(managed_conda_command),
         snakemake_command=str(snakemake_command),
     )
@@ -146,7 +176,7 @@ def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_p
         calls.append({"cmd": cmd, "env": kwargs.get("env")})
         return Result()
 
-    monkeypatch.setattr("apps.remote_runner.config.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.workflow_runtime_config.subprocess.run", fake_run)
 
     result = inspect_workflow_runtime(cfg)
 
@@ -155,3 +185,36 @@ def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_p
     env = calls[0]["env"]
     assert isinstance(env, dict)
     assert env["PATH"].split(os.pathsep)[0] == str(snakemake_command.parent)
+
+
+def test_inspect_workflow_runtime_does_not_mask_unexpected_version_check_errors(
+    tmp_path: Path, monkeypatch
+) -> None:
+    managed_conda_command = tmp_path / "tooling" / "workflow-env" / "bin" / "conda"
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    managed_conda_command.parent.mkdir(parents=True, exist_ok=True)
+    managed_conda_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    managed_conda_command.chmod(0o755)
+    snakemake_command.write_text("#!/usr/bin/env python3.12\n", encoding="utf-8")
+    snakemake_command.chmod(0o755)
+    shared_root = tmp_path / "shared"
+    cfg = RemoteRunnerConfig(
+        data_root=str(shared_root),
+        db_path=str(shared_root / "data" / "runner.db"),
+        runtime_state_path=str(shared_root / "runtime" / "runner-state.json"),
+        uploads_dir=str(shared_root / "uploads"),
+        results_dir=str(shared_root / "results"),
+        work_dir=str(shared_root / "work"),
+        logs_dir=str(shared_root / "logs"),
+        managed_conda_command=str(managed_conda_command),
+        snakemake_command=str(snakemake_command),
+    )
+    ensure_runtime_layout(cfg)
+
+    def fake_run(*args, **kwargs):
+        raise ValueError("unexpected subprocess state")
+
+    monkeypatch.setattr("apps.remote_runner.workflow_runtime_config.subprocess.run", fake_run)
+
+    with pytest.raises(ValueError, match="unexpected subprocess state"):
+        inspect_workflow_runtime(cfg)

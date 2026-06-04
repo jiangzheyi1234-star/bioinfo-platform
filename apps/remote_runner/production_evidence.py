@@ -6,7 +6,7 @@ from .config import RemoteRunnerConfig
 from .databases import fetch_reference_database
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .storage import fetch_run, fetch_run_results
-from .tools_errors import ToolRegistryError
+from .tools_errors import ToolProductionConflictError, ToolRegistryError
 
 PRODUCTION_EVIDENCE_TYPES = {
     "real-data-acceptance",
@@ -32,32 +32,32 @@ def validate_production_evidence_run(
     run_id = str(evidence.get("runId") or "").strip()
     run = fetch_run(cfg, run_id)
     if run is None:
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND")
     if str(run.get("status") or "") != "completed":
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED")
     if str(run.get("pipelineId") or "") != GENERATED_TOOL_RUN_PIPELINE_ID:
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH")
     if tool_id not in _run_tool_ids(run.get("runSpec")):
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH")
     _validate_database_evidence(cfg, evidence, run.get("runSpec"))
     try:
         results = fetch_run_results(cfg, run_id)
     except KeyError as exc:
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND") from exc
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_FOUND") from exc
     artifacts = results.get("artifacts") if isinstance(results, dict) else []
     if not artifacts:
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED")
     artifact_dicts = [item for item in artifacts if isinstance(item, dict)]
     if not artifact_dicts:
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_REQUIRED")
     artifact_name = str(evidence.get("artifactName") or "").strip()
     candidate_artifacts = artifact_dicts
     if artifact_name:
         candidate_artifacts = [item for item in artifact_dicts if _artifact_matches(item, artifact_name)]
         if not candidate_artifacts:
-            raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_NOT_FOUND")
+            raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_NOT_FOUND")
     if any(_artifact_size_bytes(item) <= 0 for item in candidate_artifacts):
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_EMPTY")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_ARTIFACT_EMPTY")
     names = [_artifact_name(item) for item in artifact_dicts]
     names = [name for name in names if name]
     return {"artifactCount": str(len(artifacts)), "artifactNames": ",".join(names)}
@@ -73,6 +73,9 @@ def _run_tool_ids(run_spec: Any) -> set[str]:
         for node in nodes:
             if isinstance(node, dict):
                 _collect_tool_id(node.get("tool"), ids)
+                tool_revision_id = str(node.get("toolRevisionId") or "").strip()
+                if tool_revision_id:
+                    ids.add(tool_revision_id)
     return ids
 
 
@@ -87,15 +90,15 @@ def _validate_database_evidence(cfg: RemoteRunnerConfig, evidence: dict[str, Any
     bindings = _run_database_bindings(run_spec)
     binding = bindings.get(role)
     if binding is None or str(binding.get("databaseId") or "").strip() != database_id:
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
     if str(binding.get("templateId") or "").strip().lower() != template_id.lower():
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
     database = fetch_reference_database(cfg, database_id)
     if str((database or {}).get("status") or "") != "available":
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE")
     registered_template_id = str(((database or {}).get("metadata") or {}).get("templateId") or "").strip().lower()
     if registered_template_id != template_id.lower():
-        raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
 
 
 def _run_database_bindings(run_spec: Any) -> dict[str, dict[str, Any]]:

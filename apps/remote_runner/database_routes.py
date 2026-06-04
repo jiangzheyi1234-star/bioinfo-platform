@@ -4,84 +4,52 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
-from starlette.concurrency import run_in_threadpool
+from fastapi import APIRouter
 
 from .api_models import DatabaseManifestRequest, DatabaseUpdateRequest
-from .database_templates import list_database_templates
-from .databases import (
-    DatabaseRegistryError,
-    add_verified_reference_database,
-    check_reference_database,
-    list_reference_databases,
-    remove_reference_database,
-    update_reference_database,
+from .database_service import (
+    add_database_from_request,
+    check_database_from_request,
+    delete_database_from_request,
+    list_database_templates_from_request,
+    list_databases_from_request,
+    update_database_from_request,
 )
-from .route_utils import authorized_config, data_response
+from .route_headers import AuthorizationHeader
 
 
 router = APIRouter()
 
 
-def _database_registry_status_code(detail: str) -> int:
-    if detail.startswith("DATABASE_CANDIDATES:"):
-        return 409
-    if detail == "DATABASE_NOT_FOUND":
-        return 404
-    return 400
-
-
 @router.get("/api/v1/databases")
-async def get_databases(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    return data_response({"items": list_reference_databases(cfg)})
+async def get_databases(authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await list_databases_from_request(authorization)
 
 
 @router.get("/api/v1/database-templates")
-async def get_database_templates(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    authorized_config(authorization)
-    return data_response({"items": list_database_templates()})
+async def get_database_templates(authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await list_database_templates_from_request(authorization)
 
 
 @router.post("/api/v1/databases", status_code=201)
-async def add_database(payload: DatabaseManifestRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    try:
-        item = await run_in_threadpool(add_verified_reference_database, cfg, payload.model_dump(exclude_none=True))
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return data_response(item)
+async def add_database(payload: DatabaseManifestRequest, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await add_database_from_request(payload, authorization)
 
 
 @router.delete("/api/v1/databases/{database_id}")
-async def delete_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    try:
-        remove_reference_database(cfg, database_id)
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return data_response({"id": database_id, "deleted": True})
+async def delete_database_api(database_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await delete_database_from_request(database_id, authorization)
 
 
 @router.patch("/api/v1/databases/{database_id}")
-async def update_database_api(database_id: str, payload: DatabaseUpdateRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    try:
-        item = update_reference_database(cfg, database_id, payload.model_dump(exclude_none=True))
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return data_response(item)
+async def update_database_api(
+    database_id: str,
+    payload: DatabaseUpdateRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await update_database_from_request(database_id, payload, authorization)
 
 
 @router.post("/api/v1/databases/{database_id}/check")
-async def check_database_api(database_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
-    try:
-        item = await run_in_threadpool(check_reference_database, cfg, database_id)
-    except DatabaseRegistryError as exc:
-        detail = str(exc)
-        raise HTTPException(status_code=_database_registry_status_code(detail), detail=detail) from exc
-    return data_response(item)
+async def check_database_api(database_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await check_database_from_request(database_id, authorization)

@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -19,13 +18,8 @@ from apps.remote_runner.config import (
 )
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.main import (
-    RunCreateRequest,
-    UploadCreateRequest,
-    create_run,
-    create_upload,
-    get_pipeline_api,
-    get_pipelines,
+from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
+from apps.remote_runner.execution_query_routes import (
     get_result_api,
     get_result_preview_api,
     get_run as get_run_api,
@@ -33,11 +27,11 @@ from apps.remote_runner.main import (
     get_run_logs_api,
     get_run_results_api,
     get_runs as list_runs_api,
-    health_live,
-    health_ready,
-    health_startup,
     list_results_api,
 )
+from apps.remote_runner.health_routes import health_live, health_ready, health_startup
+from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
+from apps.remote_runner.submission_routes import create_run, create_upload
 from config import get_app_cache_dir
 from core.remote_runner.artifact import RemoteRunnerArtifactError
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder

@@ -5,6 +5,11 @@ from pydantic import ValidationError
 
 from apps.api.models import (
     RunSubmitRequest,
+    TERMINAL_CLIENT_MESSAGE_ADAPTER,
+    TerminalInputMessage,
+    TerminalPingMessage,
+    TerminalResizeMessage,
+    TerminalSessionSnapshot,
     ToolManifestRequest,
     UploadSubmitRequest,
     WorkflowDesignDraftCompileRequest,
@@ -40,7 +45,7 @@ def test_tool_manifest_request_rejects_extra_fields() -> None:
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
 
 
-def test_run_submit_request_rejects_top_level_pipeline_id() -> None:
+def test_run_submit_request_rejects_top_level_pipeline_id_as_extra_field() -> None:
     with pytest.raises(ValidationError) as exc_info:
         RunSubmitRequest.model_validate(
             {
@@ -50,10 +55,12 @@ def test_run_submit_request_rejects_top_level_pipeline_id() -> None:
             }
         )
 
-    assert "UNSUPPORTED_LEGACY_PAYLOAD" in str(exc_info.value)
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("pipelineId",) for error in errors)
+    assert any(error["type"] == "missing" and error["loc"] == ("runSpec", "pipelineId") for error in errors)
 
 
-def test_run_submit_request_rejects_legacy_run_spec_server_id() -> None:
+def test_run_submit_request_rejects_legacy_run_spec_server_id_as_extra_field() -> None:
     with pytest.raises(ValidationError) as exc_info:
         RunSubmitRequest.model_validate(
             {
@@ -62,7 +69,8 @@ def test_run_submit_request_rejects_legacy_run_spec_server_id() -> None:
             }
         )
 
-    assert "UNSUPPORTED_LEGACY_PAYLOAD" in str(exc_info.value)
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+    assert exc_info.value.errors()[0]["loc"] == ("runSpec", "serverId")
 
 
 def test_run_submit_request_accepts_pipeline_id_inside_run_spec() -> None:
@@ -74,7 +82,8 @@ def test_run_submit_request_accepts_pipeline_id_inside_run_spec() -> None:
     )
 
     assert request.serverId == "srv_demo"
-    assert request.runSpec["pipelineId"] == "file-summary-v1"
+    assert request.runSpec.pipelineId == "file-summary-v1"
+    assert request.model_dump()["runSpec"]["inputs"] == []
 
 
 def test_workflow_design_compile_request_is_strict() -> None:
@@ -84,5 +93,65 @@ def test_workflow_design_compile_request_is_strict() -> None:
 
     with pytest.raises(ValidationError) as exc_info:
         WorkflowDesignDraftCompileRequest.model_validate({"serverId": "srv_demo", "legacyRunSpec": {}})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_terminal_client_message_adapter_uses_pydantic_discriminated_models() -> None:
+    input_message = TERMINAL_CLIENT_MESSAGE_ADAPTER.validate_python({"type": "input", "data": "ls\n"})
+    resize_message = TERMINAL_CLIENT_MESSAGE_ADAPTER.validate_python({"type": "resize", "cols": 132, "rows": 33})
+    ping_message = TERMINAL_CLIENT_MESSAGE_ADAPTER.validate_python({"type": "ping"})
+
+    assert isinstance(input_message, TerminalInputMessage)
+    assert input_message.data == "ls\n"
+    assert isinstance(resize_message, TerminalResizeMessage)
+    assert resize_message.cols == 132
+    assert resize_message.rows == 33
+    assert isinstance(ping_message, TerminalPingMessage)
+
+
+def test_terminal_client_message_adapter_rejects_unknown_message_type() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        TERMINAL_CLIENT_MESSAGE_ADAPTER.validate_python({"type": "legacy-input", "data": "ls\n"})
+
+    assert exc_info.value.errors()[0]["type"] == "union_tag_invalid"
+
+
+def test_terminal_session_snapshot_normalizes_runtime_dict() -> None:
+    snapshot = TerminalSessionSnapshot.model_validate(
+        {
+            "session_id": "term_1",
+            "cursor": 12,
+            "output": "hello",
+            "connected": True,
+            "input_enabled": True,
+            "closed": False,
+            "message": "",
+            "created_at": 1780470000.0,
+            "closed_at": None,
+        }
+    )
+
+    assert snapshot.cursor == 12
+    assert snapshot.output == "hello"
+    assert snapshot.state_key == (True, True, "")
+
+
+def test_terminal_session_snapshot_rejects_unknown_runtime_fields() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        TerminalSessionSnapshot.model_validate(
+            {
+                "session_id": "term_1",
+                "cursor": 12,
+                "output": "hello",
+                "connected": True,
+                "input_enabled": True,
+                "closed": False,
+                "message": "",
+                "created_at": 1780470000.0,
+                "closed_at": None,
+                "legacyState": "connected",
+            }
+        )
 
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"

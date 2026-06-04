@@ -7,23 +7,26 @@ import threading
 from pathlib import Path
 
 from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
+from .executor_artifacts import _collect_artifacts
+from .executor_inputs import _build_run_outputs, _resolve_run_inputs
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
-from .tool_contract_validation import _validate_outputs
 from .workflow_resources import build_workflow_resource_config
 from .storage import (
     append_log_lines,
-    fetch_upload,
-    persist_artifact,
     update_run_state,
 )
 from .snakemake_execution_lock import SNAKEMAKE_EXECUTION_LOCK
 
 
+class WorkflowRuntimeCommandError(RuntimeError):
+    pass
+
+
 def _snakemake_command(cfg: RemoteRunnerConfig) -> list[str]:
     snakemake_command = str(cfg.snakemake_command or "").strip()
     if not snakemake_command:
-        raise RuntimeError("snakemake command not configured")
+        raise WorkflowRuntimeCommandError("snakemake command not configured")
     return [snakemake_command]
 
 
@@ -74,7 +77,7 @@ def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str
     )
     try:
         thread.start()
-    except Exception as exc:
+    except RuntimeError as exc:
         _mark_failed(
             cfg,
             run_id=run_id,
@@ -246,12 +249,12 @@ def run_snakemake_execution(
                 stderr=str(exc) or "Run validation failed.",
                 result_dir=str(result_dir),
             )
-        except Exception as exc:
+        except (WorkflowRuntimeCommandError, OSError, subprocess.SubprocessError) as exc:
             detail = str(exc).strip()
             lowered = detail.lower()
             message = "Run executor crashed during startup."
             code = "RUN_EXECUTOR_CRASHED"
-            if "snakemake command not configured" in lowered:
+            if isinstance(exc, WorkflowRuntimeCommandError):
                 message = "Snakemake command is not configured."
                 code = "WORKFLOW_RUNTIME_MISSING"
             elif isinstance(exc, FileNotFoundError) or "no such file or directory" in lowered:
@@ -271,91 +274,6 @@ def run_snakemake_execution(
                 stderr=detail or "Run executor crashed during startup.",
                 result_dir=str(result_dir),
             )
-
-
-def _collect_artifacts(
-    cfg: RemoteRunnerConfig,
-    run_id: str,
-    *,
-    output_schema: dict | None,
-    outputs: dict[str, str] | None,
-) -> list[dict]:
-    if not isinstance(output_schema, dict) or not isinstance(outputs, dict) or not outputs:
-        raise ValueError("MANIFEST_OUTPUTS_REQUIRED")
-    raw_artifacts = output_schema.get("artifacts")
-    if not isinstance(raw_artifacts, list) or not raw_artifacts:
-        raise ValueError("OUTPUT_ARTIFACTS_REQUIRED")
-    output_error = _validate_outputs(output_schema=output_schema, outputs=outputs)
-    if output_error:
-        raise ValueError(f"{output_error['code']}: {output_error['message']}")
-    artifacts = []
-    for artifact in raw_artifacts:
-        if not isinstance(artifact, dict):
-            raise ValueError("OUTPUT_ARTIFACT_INVALID")
-        key = str(artifact.get("key") or "").strip()
-        if key not in outputs:
-            raise ValueError(f"OUTPUT_ARTIFACT_KEY_UNKNOWN: {key}")
-        path = Path(outputs[key])
-        kind = str(artifact.get("kind") or "").strip()
-        mime_type = str(artifact.get("mimeType") or "").strip()
-        if not kind or not mime_type:
-            raise ValueError(f"OUTPUT_ARTIFACT_METADATA_REQUIRED: {key}")
-        directory = bool(artifact.get("directory")) or kind == "directory" or mime_type == "inode/directory"
-        if not path.exists() or (directory and not path.is_dir()) or (not directory and not path.is_file()):
-            raise ValueError(f"OUTPUT_ARTIFACT_MISSING: {key}")
-        artifacts.append(persist_artifact(cfg, run_id=run_id, kind=kind, path=path, mime_type=mime_type))
-    return artifacts
-
-
-def _build_run_outputs(execution: dict, result_dir: Path) -> dict[str, str]:
-    configured = execution.get("outputs") if isinstance(execution, dict) else None
-    if not isinstance(configured, dict) or not configured:
-        raise ValueError("EXECUTION_OUTPUTS_REQUIRED")
-    outputs: dict[str, str] = {}
-    for key, value in configured.items():
-        name = str(key or "").strip()
-        relative = str(value or "").strip()
-        if not name or not relative:
-            continue
-        candidate = (result_dir / relative).resolve()
-        if result_dir.resolve() not in [candidate, *candidate.parents]:
-            raise ValueError("OUTPUT_PATH_OUTSIDE_RESULT_DIR")
-        outputs[name] = str(candidate)
-    if not outputs:
-        raise ValueError("OUTPUTS_REQUIRED")
-    return outputs
-
-
-def _resolve_run_inputs(cfg: RemoteRunnerConfig, run_spec: dict) -> list[dict]:
-    raw_inputs = run_spec.get("inputs") or []
-    if not isinstance(raw_inputs, list) or not raw_inputs:
-        raise ValueError("INPUT_REQUIRED")
-    resolved: list[dict] = []
-    for index, item in enumerate(raw_inputs):
-        if not isinstance(item, dict):
-            raise ValueError("INPUT_INVALID")
-        upload_id = str(item.get("uploadId") or "").strip()
-        if not upload_id:
-            raise ValueError("INPUT_UPLOAD_ID_REQUIRED")
-        upload = fetch_upload(cfg, upload_id)
-        if upload is None:
-            raise ValueError("INPUT_NOT_FOUND")
-        path = Path(str(upload["path"]))
-        if not path.exists():
-            raise ValueError("INPUT_FILE_MISSING")
-        resolved.append(
-            {
-                "uploadId": upload["uploadId"],
-                "filename": str(item.get("filename") or upload["filename"]),
-                "role": str(item.get("role") or "input"),
-                "path": str(path),
-                "sizeBytes": upload["sizeBytes"],
-                "sha256": upload["sha256"],
-                "mimeType": upload["mimeType"],
-                "index": index,
-            }
-        )
-    return resolved
 
 
 def _mark_failed(

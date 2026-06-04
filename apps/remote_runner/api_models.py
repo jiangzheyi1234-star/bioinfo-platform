@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from .workflow_design_contract import WorkflowDesignDraftV1
 
@@ -19,21 +19,25 @@ class UploadCreateRequest(RemoteRunnerRequest):
     mimeType: str = "application/octet-stream"
 
 
+class RunSpecRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pipelineId: str = Field(min_length=1)
+    projectId: str | None = None
+    pipelineVersion: str | None = None
+    runId: str | None = None
+    runSpecVersion: str | None = None
+    inputs: list[dict[str, Any]] | None = None
+    params: dict[str, Any] | None = None
+    resourceBindings: dict[str, Any] | None = None
+    workflowDesign: dict[str, Any] | None = None
+    workflow: dict[str, Any] | None = None
+
+
 class RunCreateRequest(RemoteRunnerRequest):
     serverId: str = Field(min_length=1)
     requestId: str | None = None
-    runSpec: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_legacy_run_spec_server_id(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            run_spec = data.get("runSpec")
-            if isinstance(run_spec, dict) and "serverId" in run_spec:
-                raise ValueError(
-                    "UNSUPPORTED_LEGACY_PAYLOAD: runSpec.serverId is not supported; use top-level serverId"
-                )
-        return data
+    runSpec: RunSpecRequest
 
 
 class ToolManifestRequest(RemoteRunnerRequest):

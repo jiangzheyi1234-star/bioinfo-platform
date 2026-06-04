@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -18,14 +17,9 @@ from apps.remote_runner.config import (
     write_runtime_state,
 )
 from apps.remote_runner.config import RemoteRunnerConfig
-from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.main import (
-    RunCreateRequest,
-    UploadCreateRequest,
-    create_run,
-    create_upload,
-    get_pipeline_api,
-    get_pipelines,
+from apps.remote_runner.executor import run_snakemake_execution, start_run_execution
+from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
+from apps.remote_runner.execution_query_routes import (
     get_result_api,
     get_result_preview_api,
     get_run as get_run_api,
@@ -33,11 +27,11 @@ from apps.remote_runner.main import (
     get_run_logs_api,
     get_run_results_api,
     get_runs as list_runs_api,
-    health_live,
-    health_ready,
-    health_startup,
     list_results_api,
 )
+from apps.remote_runner.health_routes import health_live, health_ready, health_startup
+from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
+from apps.remote_runner.submission_routes import create_run, create_upload
 from config import get_app_cache_dir
 from core.remote_runner.artifact import RemoteRunnerArtifactError
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
@@ -52,6 +46,51 @@ from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
 )
 
+def test_start_run_execution_records_thread_start_runtime_errors(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeThread:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr("apps.remote_runner.executor.threading.Thread", FakeThread)
+    monkeypatch.setattr("apps.remote_runner.executor._mark_failed", lambda *args, **kwargs: calls.append(kwargs))
+
+    start_run_execution(SimpleNamespace(), run_id="run_thread_start", request_id="req_thread_start", run_spec={})
+
+    assert calls == [
+        {
+            "run_id": "run_thread_start",
+            "request_id": "req_thread_start",
+            "message": "Failed to start run executor.",
+            "scope": "startup",
+            "code": "RUN_EXECUTOR_START_FAILED",
+            "stderr": "thread start failed",
+        }
+    ]
+
+
+def test_start_run_execution_does_not_mask_unexpected_thread_adapter_errors(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeThread:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            raise ValueError("thread adapter crashed")
+
+    monkeypatch.setattr("apps.remote_runner.executor.threading.Thread", FakeThread)
+    monkeypatch.setattr("apps.remote_runner.executor._mark_failed", lambda *args, **kwargs: calls.append(kwargs))
+
+    with pytest.raises(ValueError, match="thread adapter crashed"):
+        start_run_execution(SimpleNamespace(), run_id="run_thread_crash", request_id="req_thread_crash", run_spec={})
+    assert calls == []
+
+
 def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypatch) -> None:
     snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     cfg = RemoteRunnerConfig(
@@ -65,10 +104,10 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
         release_dir=str(tmp_path / "release"),
         snakemake_command=str(snakemake_command),
     )
-    ensure_runtime_layout(cfg)
     snakemake_command.parent.mkdir(parents=True, exist_ok=True)
     snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
 
     calls: list[list[str]] = []
 
@@ -83,7 +122,7 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
         return Result()
 
     monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
-    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda cfg, run_id, result_dir: [])
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
 
@@ -130,8 +169,8 @@ def test_executor_fails_when_upload_input_is_missing(tmp_path: Path, monkeypatch
         release_dir=str(tmp_path / "release"),
         snakemake_command=str(tmp_path / "snakemake"),
     )
-    ensure_runtime_layout(cfg)
     _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
     from apps.remote_runner.storage import create_run_record, fetch_run
 
     create_run_record(
@@ -182,12 +221,12 @@ def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, 
         managed_conda_root_prefix=str(managed_conda_root_prefix),
         snakemake_command=str(snakemake_command),
     )
-    ensure_runtime_layout(cfg)
     managed_conda_command.parent.mkdir(parents=True, exist_ok=True)
     managed_conda_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     snakemake_command.parent.mkdir(parents=True, exist_ok=True)
     snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
 
     calls: list[dict[str, object]] = []
 
@@ -202,7 +241,7 @@ def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, 
         return Result()
 
     monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
-    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda cfg, run_id, result_dir: [])
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
     monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
 

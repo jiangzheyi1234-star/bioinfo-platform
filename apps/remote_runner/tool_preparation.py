@@ -4,7 +4,8 @@ from typing import Any, Callable
 
 from .config import RemoteRunnerConfig
 from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
-from .tool_contract_validation import WAITING_RESOURCE_CODES, build_resource_wait_details, run_tool_contract_validation
+from .tool_contract_resources import WAITING_RESOURCE_CODES, build_resource_wait_details
+from .tool_contract_validation import run_tool_contract_validation
 from .tools_errors import ToolPrepareWaitingResourceError
 from .tools import (
     ToolRegistryError,

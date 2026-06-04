@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from apps.remote_runner.databases import (
+    DatabaseCandidateConflictError,
     DatabaseRegistryError,
     add_reference_database,
     add_verified_reference_database,
@@ -166,10 +167,8 @@ def test_verified_database_add_returns_structured_candidates_for_multiple_blast_
             cfg,
             {"id": "blast-core", "name": "BLAST core", "templateId": "blast", "path": str(database_dir)},
         )
-    except DatabaseRegistryError as exc:
-        message = str(exc)
-        assert message.startswith("DATABASE_CANDIDATES:")
-        payload = json.loads(message.removeprefix("DATABASE_CANDIDATES:"))
+    except DatabaseCandidateConflictError as exc:
+        payload = exc.payload
         assert payload["status"] == "multiple_candidates"
         assert [candidate["entryPath"] for candidate in payload["candidates"]] == [
             str(database_dir / "core_nt.00"),

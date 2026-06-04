@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from core.remote_runner.client import RemoteRunnerClientError
+from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerConflictError
 
 
 DATABASE_VALIDATION_TIMEOUT_SECONDS = 2100
@@ -16,10 +15,7 @@ class RemoteRunnerCatalogMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        try:
-            return client.get_json("/api/v1/database-templates")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
+        return client.get_json("/api/v1/database-templates")["data"]["items"]
 
     def list_databases(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
@@ -27,10 +23,7 @@ class RemoteRunnerCatalogMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        try:
-            return client.get_json("/api/v1/databases")["data"]["items"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
+        return client.get_json("/api/v1/databases")["data"]["items"]
 
     def add_database(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
@@ -41,17 +34,10 @@ class RemoteRunnerCatalogMixin:
         )
         try:
             return client.post_json("/api/v1/databases", kwargs["payload"])["data"]
+        except RemoteRunnerConflictError:
+            raise
         except RemoteRunnerClientError as exc:
-            detail = str(exc)
-            marker = "runner http error 409:"
-            if detail.startswith(marker):
-                raw = detail.removeprefix(marker).strip()
-                try:
-                    payload = json.loads(raw)
-                except Exception:
-                    payload = raw
-                raise self._manager_error(f"DATABASE_CANDIDATES:{json.dumps(payload, ensure_ascii=False)}") from exc
-            raise self._manager_error(str(exc)) from exc
+            raise self._manager_error(str(exc), status_code=exc.status_code, detail=exc.detail) from exc
 
     def update_database(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
@@ -59,10 +45,7 @@ class RemoteRunnerCatalogMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        try:
-            return client.patch_json(f"/api/v1/databases/{kwargs['database_id']}", kwargs["payload"])["data"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
+        return client.patch_json(f"/api/v1/databases/{kwargs['database_id']}", kwargs["payload"])["data"]
 
     def delete_database(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
@@ -70,10 +53,7 @@ class RemoteRunnerCatalogMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        try:
-            return client.delete_json(f"/api/v1/databases/{kwargs['database_id']}")["data"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
+        return client.delete_json(f"/api/v1/databases/{kwargs['database_id']}")["data"]
 
     def check_database(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
@@ -82,13 +62,10 @@ class RemoteRunnerCatalogMixin:
             record=kwargs["server_record"],
             timeout=DATABASE_VALIDATION_TIMEOUT_SECONDS,
         )
-        try:
-            return client.post_json(f"/api/v1/databases/{kwargs['database_id']}/check", {})["data"]
-        except RemoteRunnerClientError as exc:
-            raise self._manager_error(str(exc)) from exc
+        return client.post_json(f"/api/v1/databases/{kwargs['database_id']}/check", {})["data"]
 
     @staticmethod
-    def _manager_error(message: str) -> RuntimeError:
+    def _manager_error(message: str, *, status_code: int | None = None, detail: Any = None) -> RuntimeError:
         from core.remote_runner.manager import RemoteRunnerManagerError
 
-        return RemoteRunnerManagerError(message)
+        return RemoteRunnerManagerError(message, status_code=status_code, detail=detail)

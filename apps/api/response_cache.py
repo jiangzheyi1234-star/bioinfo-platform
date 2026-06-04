@@ -39,13 +39,15 @@ async def cached_response(
             task = asyncio.create_task(loader())
             _in_flight[key] = task
 
+    succeeded = False
     try:
         value = await task
-    except Exception:
-        async with _lock:
-            if _in_flight.get(key) is task:
-                _in_flight.pop(key, None)
-        raise
+        succeeded = True
+    finally:
+        if not succeeded:
+            async with _lock:
+                if _in_flight.get(key) is task:
+                    _in_flight.pop(key, None)
 
     async with _lock:
         if _in_flight.get(key) is task:

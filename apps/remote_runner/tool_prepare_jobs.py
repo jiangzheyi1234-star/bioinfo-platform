@@ -39,8 +39,6 @@ def run_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> None:
         mark_tool_prepare_job_waiting_resource(cfg, job_id, code=exc.code, message=exc.message, details=exc.details)
     except ToolRegistryError as exc:
         fail_tool_prepare_job(cfg, job_id, code=str(exc), message=str(exc))
-    except Exception as exc:
-        fail_tool_prepare_job(cfg, job_id, code="TOOL_PREPARE_JOB_FAILED", message=str(exc) or "Prepare job failed.")
 
 
 def _job_event_recorder(cfg: RemoteRunnerConfig, job_id: str):

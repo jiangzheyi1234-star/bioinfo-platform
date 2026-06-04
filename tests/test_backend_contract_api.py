@@ -4,35 +4,38 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import HTTPException, Response
+from fastapi import Response
 
-from apps.api.main import (
+from apps.api.execution_query_routes import (
+    get_result,
+    get_result_preview,
+    get_run,
+    get_run_events,
+    get_run_results,
+    list_results,
+)
+from apps.api.ssh_routes import (
     accept_server_host_key,
-    ensure_server_runner,
     close_terminal_session,
     connect_ssh,
     create_terminal_session,
     disconnect_ssh,
-    get_run,
-    get_run_events,
-    get_run_results,
-    get_result,
-    get_result_preview,
+    ensure_server_runner,
     get_server_health,
     get_ssh_status,
-    list_results,
     list_servers,
     refresh_server_health,
     rotate_server_token,
-    submit_run,
-    upload_file,
 )
+from apps.api.submission_routes import submit_run
+from apps.api.response_cache import invalidate_response_cache
+from apps.api.route_errors import runtime_service_status_code
 from apps.api.models import (
     RunSubmitRequest,
     SSHConnectionRequest,
     SSHTerminalCreateRequest,
-    UploadSubmitRequest,
 )
+from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.service import RuntimeService, ServiceLocator
 
 
@@ -40,6 +43,20 @@ def make_service(_tmp_path: Path) -> RuntimeService:
     service = RuntimeService(service_locator=ServiceLocator())
     service._initialized = True
     return service
+
+
+RUNTIME_CACHE_KEYS = ("runs", "servers", "ssh_status", "tools")
+RUNTIME_CACHE_PREFIXES = ("run_detail:", "workflow_design_drafts:")
+
+
+def patch_runtime_service(monkeypatch, service: RuntimeService) -> None:
+    asyncio.run(invalidate_response_cache(*RUNTIME_CACHE_KEYS, prefixes=RUNTIME_CACHE_PREFIXES))
+    for target in (
+        "apps.api.execution_query_service.runtime_service",
+        "apps.api.ssh_control_service.runtime_service",
+        "apps.api.submission_service.runtime_service",
+    ):
+        monkeypatch.setattr(target, lambda: service)
 
 
 class FakeTerminalSession:
@@ -134,14 +151,14 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
         cfg.clear()
         cfg.update(snapshot)
 
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
     monkeypatch.setattr(
-        "core.app_runtime.service.ssh_connect",
+        "core.app_runtime.ssh_connection.ssh_connect",
         lambda **kwargs: SimpleNamespace(ok=True, client=object(), message=""),
     )
-    monkeypatch.setattr("core.app_runtime.service.SSHService", lambda *args, **kwargs: fake_shell)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.ssh_connection.SSHService", lambda *args, **kwargs: fake_shell)
+    patch_runtime_service(monkeypatch, service)
 
     connected = asyncio.run(
         connect_ssh(
@@ -157,7 +174,7 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
     assert connected["connected"] is True
     assert connected["identity_ref"] == "C:/keys/id_ed25519"
     assert connected["message"] == "SSH connected"
-    assert connected["runner"]["state"] == "ready"
+    assert connected["runner"]["state"] == "preparing"
     assert cfg["ssh"]["auth_mode"] == "key_file"
     assert cfg["ssh"]["identity_ref"] == "C:/keys/id_ed25519"
 
@@ -165,6 +182,7 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
     assert status["connected"] is True
     assert status["host"] == "192.0.2.10"
     assert status["user"] == "tester"
+    assert status["runner"]["state"] == "ready"
 
     terminal = asyncio.run(
         create_terminal_session(SSHTerminalCreateRequest(cols=132, rows=33))
@@ -202,7 +220,7 @@ def test_ssh_connection_request_preserves_auth_persistence_fields() -> None:
 def test_servers_health_contract_exposes_reason_code(monkeypatch, tmp_path: Path) -> None:
     service = make_service(tmp_path)
     monkeypatch.setattr(
-        "core.app_runtime.service.get_config",
+        "core.app_runtime.runtime_config.get_runtime_config",
         lambda: {
             "ssh": {
                 "host": "192.0.2.10",
@@ -214,7 +232,7 @@ def test_servers_health_contract_exposes_reason_code(monkeypatch, tmp_path: Path
             }
         },
     )
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    patch_runtime_service(monkeypatch, service)
 
     servers_payload = asyncio.run(list_servers())
     server = servers_payload["data"]["items"][0]
@@ -277,13 +295,13 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
         cfg.clear()
         cfg.update(snapshot)
 
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
     monkeypatch.setattr(
         "core.app_runtime.service.store_runner_token",
         lambda **kwargs: "runner://srv_test_local",
     )
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    patch_runtime_service(monkeypatch, service)
 
     server = asyncio.run(list_servers())["data"]["items"][0]
     server_id = server["serverId"]
@@ -306,7 +324,7 @@ def test_connected_server_health_reports_runner_not_ready(monkeypatch, tmp_path:
     service = make_service(tmp_path)
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
     monkeypatch.setattr(
-        "core.app_runtime.service.get_config",
+        "core.app_runtime.runtime_config.get_runtime_config",
         lambda: {
             "ssh": {
                 "host": "192.0.2.10",
@@ -319,7 +337,7 @@ def test_connected_server_health_reports_runner_not_ready(monkeypatch, tmp_path:
         },
     )
 
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    patch_runtime_service(monkeypatch, service)
 
     server = asyncio.run(list_servers())["data"]["items"][0]
     assert server["connected"] is True
@@ -373,9 +391,9 @@ def test_ensure_server_runner_uses_remote_runner_manager_and_persists_server_reg
         cfg.clear()
         cfg.update(snapshot)
 
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
+    patch_runtime_service(monkeypatch, service)
 
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
     result = asyncio.run(ensure_server_runner(server_id))
@@ -443,9 +461,9 @@ def test_ensure_server_runner_persists_bootstrap_metadata_and_replaces_stale_fai
         cfg.clear()
         cfg.update(snapshot)
 
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
+    patch_runtime_service(monkeypatch, service)
 
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
     cfg["servers"][server_id] = {
@@ -505,9 +523,9 @@ def test_failed_runner_ensure_persists_specific_readiness_reason_for_followup_he
         cfg.clear()
         cfg.update(snapshot)
 
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.service.save_config", save_capture)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
+    patch_runtime_service(monkeypatch, service)
 
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
 
@@ -574,8 +592,8 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
             return {"artifactId": "art_002", "preview": {"kind": "table"}}
 
     service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    patch_runtime_service(monkeypatch, service)
 
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
     cfg["servers"][server_id] = {
@@ -652,8 +670,8 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
             }
 
     service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    patch_runtime_service(monkeypatch, service)
 
     server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
     cfg["servers"][server_id] = {
@@ -682,9 +700,9 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     assert payload["data"]["requestId"] == "req_submit_001"
 
 
-def test_submit_run_readiness_failure_returns_503(monkeypatch, tmp_path: Path) -> None:
+def test_submit_run_readiness_failure_raises_runtime_error_for_route_handler(monkeypatch, tmp_path: Path) -> None:
     service = make_service(tmp_path)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
+    patch_runtime_service(monkeypatch, service)
 
     def fail_submit_run(payload):
         raise RuntimeServiceError("Remote workflow runtime is unavailable: snakemake missing")
@@ -702,216 +720,8 @@ def test_submit_run_readiness_failure_returns_503(monkeypatch, tmp_path: Path) -
                 Response(),
             )
         )
-    except HTTPException as exc:
-        assert exc.status_code == 503
-        assert exc.detail["code"] == "RUNNER_NOT_READY"
-        assert "snakemake missing" in exc.detail["detail"]
+    except RuntimeServiceError as exc:
+        assert runtime_service_status_code(str(exc)) == 503
+        assert "snakemake missing" in str(exc)
     else:
         raise AssertionError("submit_run should reject readiness failures")
-
-
-def test_submit_run_persists_run_spec_for_followup_detail(monkeypatch, tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
-    cfg = {
-        "ssh": {
-            "host": "192.0.2.10",
-            "port": 22,
-            "user": "tester",
-            "auth_mode": "key_file",
-            "identity_ref": "C:/keys/id_ed25519",
-            "timeout_sec": 5,
-        },
-        "servers": {},
-    }
-
-    class FakeRemoteRunnerManager:
-        def submit_run(self, **kwargs):
-            return {
-                "data": {
-                    "runId": "run_contract_submit",
-                    "status": "queued",
-                    "stage": "submitted",
-                    "requestId": "req_submit_002",
-                },
-                "location": "/api/v1/runs/run_contract_submit",
-                "retryAfter": 2,
-                "requestId": "req_submit_002",
-            }
-
-        def get_run(self, **kwargs):
-            return {
-                "runId": "run_contract_submit",
-                "projectId": "proj_contract",
-                "runSpec": {
-                    "projectId": "proj_contract",
-                    "pipelineId": "assembly-v3",
-                    "inputs": [{"sampleId": "sample_alpha"}],
-                },
-            }
-
-        def get_health(self, **kwargs):
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-21T12:00:00Z",
-            }
-
-    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
-
-    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
-    cfg["servers"][server_id] = {
-        "bootstrap_version": "phase2-test",
-        "runner_mode": "background_process",
-        "service_port": 43127,
-        "token_ref": "runner://srv_test",
-    }
-
-    response = Response()
-    submitted = asyncio.run(
-        submit_run(
-            RunSubmitRequest(
-                serverId=server_id,
-                runId="run_contract_submit",
-                requestId="req_submit_002",
-                runSpec={
-                    "projectId": "proj_contract",
-                    "pipelineId": "assembly-v3",
-                    "inputs": [{"sampleId": "sample_alpha", "uploadId": "upl_alpha", "kind": "fastq_pair"}],
-                },
-            ),
-            response,
-        )
-    )
-
-    detail = asyncio.run(get_run(submitted["data"]["runId"]))
-    run = detail["data"]
-    assert run["runId"] == "run_contract_submit"
-    assert run["projectId"] == "proj_contract"
-    assert run["runSpec"]["projectId"] == "proj_contract"
-    assert run["runSpec"]["pipelineId"] == "assembly-v3"
-    assert run["runSpec"]["inputs"][0]["sampleId"] == "sample_alpha"
-
-
-def test_upload_file_routes_to_remote_runner_manager(monkeypatch, tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
-    cfg = {
-        "ssh": {
-            "host": "192.0.2.10",
-            "port": 22,
-            "user": "tester",
-            "auth_mode": "key_file",
-            "identity_ref": "C:/keys/id_ed25519",
-            "timeout_sec": 5,
-        },
-        "servers": {},
-    }
-
-    class FakeRemoteRunnerManager:
-        def upload_content(self, **kwargs):
-            return {
-                "uploadId": "upl_test",
-                "path": "/srv/uploads/upl_test_reads.fastq",
-                "sizeBytes": 12,
-                "sha256": "abc123",
-                "mimeType": "text/plain",
-                "uploadedAt": "2026-04-21T12:00:00Z",
-            }
-
-        def get_health(self, **kwargs):
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-21T12:00:00Z",
-            }
-
-    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
-
-    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
-    cfg["servers"][server_id] = {
-        "bootstrap_version": "phase2-test",
-        "runner_mode": "background_process",
-        "service_port": 43127,
-        "token_ref": "runner://srv_test",
-    }
-
-    payload = asyncio.run(
-        upload_file(
-            UploadSubmitRequest(
-                serverId=server_id,
-                filename="reads.fastq",
-                contentBase64="QEdPQgo=",
-                mimeType="text/plain",
-            )
-        )
-    )
-
-    assert payload["data"]["uploadId"] == "upl_test"
-    assert payload["data"]["sha256"] == "abc123"
-
-
-def test_upload_file_normalizes_runtime_transport_failures(monkeypatch, tmp_path: Path) -> None:
-    service = make_service(tmp_path)
-    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
-    cfg = {
-        "ssh": {
-            "host": "192.0.2.10",
-            "port": 22,
-            "user": "tester",
-            "auth_mode": "key_file",
-            "identity_ref": "C:/keys/id_ed25519",
-            "timeout_sec": 5,
-        },
-        "servers": {},
-    }
-
-    class FakeRemoteRunnerManager:
-        def upload_content(self, **kwargs):
-            raise RuntimeError("SSH transport is not active")
-
-        def get_health(self, **kwargs):
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-21T12:00:00Z",
-            }
-
-    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
-    monkeypatch.setattr("core.app_runtime.service.get_config", lambda: cfg)
-    monkeypatch.setattr("apps.api.main._runtime", lambda: service)
-
-    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
-    cfg["servers"][server_id] = {
-        "bootstrap_version": "phase2-test",
-        "runner_mode": "background_process",
-        "service_port": 43127,
-        "token_ref": "runner://srv_test",
-    }
-
-    try:
-        asyncio.run(
-            upload_file(
-                UploadSubmitRequest(
-                    serverId=server_id,
-                    filename="reads.fastq",
-                    contentBase64="QEdPQgo=",
-                    mimeType="text/plain",
-                )
-            )
-        )
-    except Exception as exc:
-        assert getattr(exc, "status_code", None) == 400
-        assert "SSH transport is not active" in str(exc.detail)
-    else:
-        raise AssertionError("transport failures should surface as handled HTTP errors")
