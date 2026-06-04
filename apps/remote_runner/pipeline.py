@@ -9,7 +9,11 @@ from .config import RemoteRunnerConfig
 
 
 class PipelineRegistryError(ValueError):
-    pass
+    status_code = 400
+
+
+class PipelineNotFoundError(PipelineRegistryError):
+    status_code = 404
 
 
 @dataclass(frozen=True)
@@ -84,15 +88,12 @@ def get_pipeline(cfg: RemoteRunnerConfig, pipeline_id: str) -> PipelineDefinitio
         raise PipelineRegistryError("PIPELINE_ID_REQUIRED")
     manifest_path = pipeline_registry_dir(cfg) / normalized / "pipeline.json"
     if not manifest_path.exists():
-        raise PipelineRegistryError("PIPELINE_NOT_FOUND")
+        raise PipelineNotFoundError("PIPELINE_NOT_FOUND")
     return _load_pipeline_manifest(manifest_path)
 
 
 def inspect_pipeline_registry(cfg: RemoteRunnerConfig) -> dict[str, Any]:
-    try:
-        pipelines = list_pipelines(cfg)
-    except Exception as exc:
-        return {"ok": False, "message": f"Pipeline registry is invalid: {exc}", "count": 0, "items": []}
+    pipelines = list_pipelines(cfg)
     if not pipelines:
         return {"ok": False, "message": "No pipelines are registered.", "count": 0, "items": []}
     missing = [item.pipeline_id for item in pipelines if not item.snakefile.exists()]

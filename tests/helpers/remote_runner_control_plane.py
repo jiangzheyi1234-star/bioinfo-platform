@@ -68,9 +68,11 @@ def _fake_runtime_dir(tmp_path: Path) -> Path:
 
 
 def _write_file_summary_pipeline(release_dir: Path) -> None:
+    (release_dir / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
     pipeline_dir = release_dir / "pipelines" / "file-summary-v1"
-    (pipeline_dir / "envs").mkdir(parents=True, exist_ok=True)
+    (pipeline_dir / "workflow" / "envs").mkdir(parents=True, exist_ok=True)
     (pipeline_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    (pipeline_dir / ".test").mkdir(parents=True, exist_ok=True)
     (pipeline_dir / "pipeline.json").write_text(
         json.dumps(
             {
@@ -84,7 +86,7 @@ def _write_file_summary_pipeline(release_dir: Path) -> None:
                 "license": "internal",
                 "status": "installed",
                 "enabled": True,
-                "snakefile": "Snakefile",
+                "snakefile": "workflow/Snakefile",
                 "inputsSchema": {
                     "type": "array",
                     "minItems": 1,
@@ -103,15 +105,29 @@ def _write_file_summary_pipeline(release_dir: Path) -> None:
                     "properties": {"threads": {"type": "integer", "minimum": 1, "maximum": 64}},
                     "additionalProperties": True,
                 },
-                "outputSchema": {"type": "object"},
+                "outputSchema": {
+                    "artifacts": [
+                        {
+                            "key": "summary",
+                            "name": "Summary",
+                            "kind": "report",
+                            "mimeType": "text/plain",
+                        }
+                    ]
+                },
+                "execution": {"outputs": {"summary": "done.txt"}},
                 "uiSchema": {"inputs": {"widget": "file-upload"}},
             }
         ),
         encoding="utf-8",
     )
-    (pipeline_dir / "Snakefile").write_text("rule all:\n  input: 'done.txt'\n", encoding="utf-8")
-    (pipeline_dir / "envs" / "base.yaml").write_text(
+    (pipeline_dir / "workflow" / "Snakefile").write_text("rule all:\n  input: 'done.txt'\n", encoding="utf-8")
+    (pipeline_dir / "workflow" / "envs" / "base.yaml").write_text(
         "channels: [conda-forge]\ndependencies: [python=3.12]\n",
+        encoding="utf-8",
+    )
+    (pipeline_dir / ".test" / "run-config.json").write_text(
+        json.dumps({"inputs": [], "outputs": {"summary": "done.txt"}}),
         encoding="utf-8",
     )
 

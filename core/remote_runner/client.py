@@ -10,7 +10,38 @@ from typing import Any
 
 
 class RemoteRunnerClientError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None, detail: Any = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.detail = detail
+
+
+class RemoteRunnerConflictError(RuntimeError):
+    def __init__(self, payload: dict[str, Any]):
+        super().__init__("remote runner conflict")
+        self.payload = payload
+
+
+def _http_error_detail_value(payload: str) -> Any:
+    cleaned = payload.strip()
+    if not cleaned:
+        return None
+    try:
+        decoded = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return cleaned
+    if not isinstance(decoded, dict):
+        return cleaned
+    return decoded.get("detail")
+
+
+def _http_error_detail(payload: str) -> str:
+    detail = _http_error_detail_value(payload)
+    if detail is None:
+        return ""
+    if isinstance(detail, str):
+        return detail.strip()
+    return json.dumps(detail, ensure_ascii=False, separators=(",", ":"))
 
 
 @dataclass
@@ -45,20 +76,15 @@ class RemoteRunnerHttpClient:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            detail = ""
-            try:
-                payload = exc.read().decode("utf-8")
-            except Exception:
-                payload = ""
-            if payload:
-                try:
-                    detail = str(json.loads(payload).get("detail") or "").strip()
-                except Exception:
-                    detail = payload.strip()
+            response_payload = exc.read().decode("utf-8", errors="replace")
+            detail_value = _http_error_detail_value(response_payload)
+            if exc.code == 409 and isinstance(detail_value, dict):
+                raise RemoteRunnerConflictError(detail_value) from exc
+            detail = _http_error_detail(response_payload)
             message = f"runner http error {exc.code}"
             if detail:
                 message = f"{message}: {detail}"
-            raise RemoteRunnerClientError(message) from exc
+            raise RemoteRunnerClientError(message, status_code=exc.code, detail=detail_value) from exc
         except urllib.error.URLError as exc:
             raise RemoteRunnerClientError(str(exc.reason) or "runner unreachable") from exc
         except (http.client.RemoteDisconnected, ConnectionError, OSError) as exc:

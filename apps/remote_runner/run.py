@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ctypes
 import socket
-import sys
 
 import uvicorn
 
@@ -11,15 +10,11 @@ from .main import app
 
 
 def _set_process_name(name: str = "h2ometa-remote") -> None:
-    try:
-        libc = ctypes.CDLL(None)
-        encoded = name.encode("utf-8")[:15]
-        result = libc.prctl(15, ctypes.c_char_p(encoded), 0, 0, 0)
-    except Exception as exc:
-        print(f"failed to set process name: {exc}", file=sys.stderr)
-        return
+    libc = ctypes.CDLL(None)
+    encoded = name.encode("utf-8")[:15]
+    result = libc.prctl(15, ctypes.c_char_p(encoded), 0, 0, 0)
     if result != 0:
-        print("failed to set process name: prctl returned non-zero", file=sys.stderr)
+        raise RuntimeError("REMOTE_RUNNER_PROCESS_NAME_FAILED")
 
 
 def main() -> None:

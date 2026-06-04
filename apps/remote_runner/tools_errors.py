@@ -4,7 +4,15 @@ from typing import Any
 
 
 class ToolRegistryError(ValueError):
-    pass
+    status_code = 400
+
+
+class ToolNotFoundError(ToolRegistryError):
+    status_code = 404
+
+
+class ToolProductionConflictError(ToolRegistryError):
+    status_code = 409
 
 
 class ToolPrepareWaitingResourceError(ToolRegistryError):

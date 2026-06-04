@@ -2,65 +2,42 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Query
 
-from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda_index
-from apps.api.tool_capabilities import search_tool_capabilities
+from apps.api.tool_capability_service import (
+    get_tool_capabilities_index_status_from_request,
+    refresh_tool_capabilities_index_from_request,
+    search_tool_capabilities_from_request,
+)
 
 
 router = APIRouter()
-
-
-async def _run_sync(func, *, status_code: int, handled_errors: tuple[type[Exception], ...]):
-    try:
-        return await asyncio.to_thread(func)
-    except handled_errors as exc:
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-
-
-def _refresh_bioconda_index_status() -> dict[str, Any]:
-    refresh_bioconda_index()
-    return {"data": bioconda_index_status()}
 
 
 @router.get("/api/v1/tool-capabilities/search")
 async def search_tool_capabilities_api(
     q: str = "",
     targetPlatform: str = "",
-    limit: int = 20,
-    page: int = 1,
-    pageSize: int = 20,
+    limit: int = Query(default=20, ge=1, le=50),
+    page: int = Query(default=1, ge=1),
+    pageSize: int | None = Query(default=None, ge=1, le=50),
 ) -> dict[str, Any]:
-    try:
-        bounded_page = max(1, int(page))
-        bounded_page_size = max(1, min(int(pageSize or limit), 50))
-        return await _run_sync(
-            lambda: search_tool_capabilities(
-                q,
-                target_platform=targetPlatform,
-                limit=bounded_page_size,
-                page=bounded_page,
-                page_size=bounded_page_size,
-            ),
-            status_code=502,
-            handled_errors=(ValueError, TimeoutError, OSError),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await search_tool_capabilities_from_request(
+        q=q,
+        target_platform=targetPlatform,
+        limit=limit,
+        page=page,
+        page_size=pageSize,
+    )
 
 
 @router.get("/api/v1/tool-capabilities/index/status")
 async def tool_capabilities_index_status_api() -> dict[str, Any]:
-    return {"data": bioconda_index_status()}
+    return await get_tool_capabilities_index_status_from_request()
 
 
 @router.post("/api/v1/tool-capabilities/index/refresh")
 async def refresh_tool_capabilities_index_api() -> dict[str, Any]:
-    return await _run_sync(
-        _refresh_bioconda_index_status,
-        status_code=502,
-        handled_errors=(OSError, TimeoutError, ValueError),
-    )
+    return await refresh_tool_capabilities_index_from_request()

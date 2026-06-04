@@ -49,7 +49,7 @@ def test_marked_workflow_runtime_is_reinstalled_when_verification_fails(monkeypa
                 return 0, artifact.sha256, ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 self._snakemake_checks += 1
-                if self._snakemake_checks <= 10:
+                if self._snakemake_checks <= 5:
                     return 127, "", "snakemake: not found"
                 return 0, "9.19.0\n", ""
             if "sha256sum /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" in cmd:

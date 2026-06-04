@@ -36,6 +36,21 @@ READY_CONTRACT_STATUS = {
 _TEST_TOOL_REVISIONS: dict[str, str] = {}
 
 
+def generated_workflow_runner_config(tmp_path: Path) -> RemoteRunnerConfig:
+    return RemoteRunnerConfig(
+        token="phase-tool-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(Path.cwd() / "apps" / "remote_runner"),
+        managed_conda_command=str(tmp_path / "workflow-env" / "bin" / "conda"),
+        snakemake_command=str(tmp_path / "workflow-env" / "bin" / "snakemake"),
+    )
+
+
 def test_tool_revision_id(tool_id: str) -> str:
     return _TEST_TOOL_REVISIONS.get(tool_id, tool_id)
 

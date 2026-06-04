@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -19,13 +18,8 @@ from apps.remote_runner.config import (
 )
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.main import (
-    RunCreateRequest,
-    UploadCreateRequest,
-    create_run,
-    create_upload,
-    get_pipeline_api,
-    get_pipelines,
+from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
+from apps.remote_runner.execution_query_routes import (
     get_result_api,
     get_result_preview_api,
     get_run as get_run_api,
@@ -33,11 +27,11 @@ from apps.remote_runner.main import (
     get_run_logs_api,
     get_run_results_api,
     get_runs as list_runs_api,
-    health_live,
-    health_ready,
-    health_startup,
     list_results_api,
 )
+from apps.remote_runner.health_routes import health_live, health_ready, health_startup
+from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
+from apps.remote_runner.submission_routes import create_run, create_upload
 from config import get_app_cache_dir
 from core.remote_runner.artifact import RemoteRunnerArtifactError
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
@@ -78,7 +72,7 @@ def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(mon
                 return 1, "", "missing"
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 self._snakemake_checks += 1
-                if self._snakemake_checks <= 5:
+                if self._snakemake_checks <= 4:
                     return 127, "", "missing"
                 return 0, "9.19.0\n", ""
             if "sha256sum /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" in cmd:

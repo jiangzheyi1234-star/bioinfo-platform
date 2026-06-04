@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
+from .tool_contract_environment import summarize_contract_environment
+from .tool_contract_rule_summary import (
+    has_rule_template_shape,
+    selected_rule_entry,
+    summarize_rule_template,
+)
+from .tool_contract_smoke_summary import summarize_smoke_test
+from .tool_resource_codes import WAITING_RESOURCE_CODES
+from .tool_contract_status import (
+    VALIDATION_PASSED,
+    default_contract_status,
+    normalize_contract_status,
+)
 
-VALIDATION_KEYS = ("dryRun", "smokeRun", "outputValidation", "production")
-VALIDATION_PASSED = "passed"
-VALIDATION_NOT_RUN = "not_run"
-MOVING_WRAPPER_REFS = {"bio", "master", "main", "latest", "head", "dev"}
-WRAPPER_VERSION_RE = re.compile(r"^v?\d+(?:\.\d+){1,}(?:[-+._A-Za-z0-9]*)?$")
-WRAPPER_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 BUILDER_ELIGIBLE_STATES = {
     "WorkflowReady",
     "ProductionEnabled",
-}
-WAITING_RESOURCE_CODES = {
-    "RESOURCE_BINDING_MISSING",
-    "RESOURCE_BINDING_AMBIGUOUS",
-    "WORKFLOW_RESOURCE_BINDING_REQUIRED",
-    "WORKFLOW_RESOURCE_UNAVAILABLE",
 }
 
 
@@ -34,60 +34,17 @@ def package_version_from_spec(spec: str) -> str:
     return ""
 
 
-def default_contract_status() -> dict[str, dict[str, str]]:
-    return {key: {"status": VALIDATION_NOT_RUN, "message": ""} for key in VALIDATION_KEYS}
-
-
-def normalize_contract_status(raw: Any) -> dict[str, dict[str, str]]:
-    if not isinstance(raw, dict):
-        return default_contract_status()
-    normalized = default_contract_status()
-    for key in VALIDATION_KEYS:
-        value = raw.get(key)
-        if not isinstance(value, dict):
-            continue
-        status = str(value.get("status") or VALIDATION_NOT_RUN).strip() or VALIDATION_NOT_RUN
-        item = {"status": status, "message": str(value.get("message") or "")}
-        code = str(value.get("code") or "").strip()
-        if code:
-            item["code"] = code
-        checked_at = str(value.get("checkedAt") or "").strip()
-        if checked_at:
-            item["checkedAt"] = checked_at
-        for evidence_key in (
-            "runId",
-            "logPath",
-            "resourceKey",
-            "resourceType",
-            "configKey",
-            "acceptedTemplates",
-            "acceptedCapabilities",
-            "evidenceType",
-            "databaseId",
-            "templateId",
-            "role",
-            "artifactName",
-            "artifactCount",
-            "artifactNames",
-        ):
-            evidence_value = str(value.get(evidence_key) or "").strip()
-            if evidence_value:
-                item[evidence_key] = evidence_value
-        normalized[key] = item
-    return normalized
-
-
 def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
     status = normalize_contract_status(tool.get("contractStatus"))
     package_spec = str(tool.get("packageSpec") or "").strip()
     target_platform = str(tool.get("targetPlatform") or "linux-64").strip() or "linux-64"
     platform_supported = bool(tool.get("targetPlatformSupported"))
     draft = tool.get("ruleSpecDraft") if isinstance(tool.get("ruleSpecDraft"), dict) else {}
-    rule_entry = _selected_rule_entry(tool)
+    rule_entry = selected_rule_entry(tool)
     template = rule_entry["template"]
-    template_summary = _template_summary(template)
-    smoke_test = _smoke_test_summary(template)
-    has_draft = bool(draft) or _has_rule_template_shape(template)
+    template_summary = summarize_rule_template(template)
+    smoke_test = summarize_smoke_test(template)
+    has_draft = bool(draft) or has_rule_template_shape(template)
     requires_completion = bool(draft.get("requiresUserCompletion")) if isinstance(draft, dict) else False
     rule_confirmed = (
         bool(template)
@@ -101,7 +58,7 @@ def build_tool_contract(tool: dict[str, Any]) -> dict[str, Any]:
         and template_summary["resourcesReady"]
         and template_summary["logReady"]
     )
-    environment = _environment_summary(template)
+    environment = summarize_contract_environment(template)
     environment_ready = bool(environment["specified"])
     renderable = bool(package_spec and platform_supported and rule_confirmed and environment_ready)
     validation = {
@@ -210,64 +167,6 @@ def _state_for_contract(
     return "AddedDependency"
 
 
-def _selected_rule_entry(tool: dict[str, Any]) -> dict[str, Any]:
-    manifest = tool.get("ruleTemplate") if isinstance(tool.get("ruleTemplate"), dict) else {}
-    if _has_rule_template_shape(manifest):
-        return {"source": "manifest", "template": manifest}
-    return {"source": "", "template": {}}
-
-
-def _template_summary(template: dict[str, Any]) -> dict[str, Any]:
-    actions = _rule_action_fields(template)
-    action = actions[0] if len(actions) == 1 else ""
-    wrapper = _string(template.get("wrapper"))
-    wrapper_locked = _wrapper_ref_locked(wrapper) if action == "wrapper" else False
-    inputs = [item for item in template.get("inputs") or [] if isinstance(item, dict)]
-    outputs = [item for item in template.get("outputs") or [] if isinstance(item, dict)]
-    params = template.get("params") if isinstance(template.get("params"), dict) else {}
-    params_ready = isinstance(template.get("params"), dict)
-    threads_ready = _threads_ready(template)
-    scheduler_resources = _scheduler_resource_count(template)
-    log_ready = _log_ready(template.get("log"))
-    return {
-        "action": action,
-        "actionCount": len(actions),
-        "hasSingleAction": len(actions) == 1,
-        "actionReady": len(actions) == 1 and (action != "wrapper" or wrapper_locked),
-        "wrapperLocked": wrapper_locked,
-        "inputs": len(inputs),
-        "outputs": len(outputs),
-        "params": len(params),
-        "threads": 1 if threads_ready else 0,
-        "schedulerResources": scheduler_resources,
-        "log": 1 if log_ready else 0,
-        "inputsReady": bool(inputs) and all(_string(item.get("name")) for item in inputs),
-        "outputsReady": bool(outputs) and all(_output_ready(item) for item in outputs),
-        "paramsReady": params_ready,
-        "threadsReady": threads_ready,
-        "resourcesReady": scheduler_resources > 0,
-        "logReady": log_ready,
-    }
-
-
-def _environment_summary(template: dict[str, Any]) -> dict[str, Any]:
-    conda = template.get("environment", {}).get("conda") if isinstance(template.get("environment"), dict) else {}
-    conda = conda if isinstance(conda, dict) else {}
-    channels = _string_list(conda.get("channels"))
-    dependencies = _string_list(conda.get("dependencies"))
-    declared = bool(channels or dependencies)
-    locked = bool(dependencies) and all(_dependency_locked(item) for item in dependencies)
-    channel_priority = _channel_priority_strict(channels)
-    return {
-        "specified": bool(channels and dependencies and locked and channel_priority),
-        "declared": declared,
-        "locked": locked,
-        "channelPriorityStrict": channel_priority,
-        "channels": channels,
-        "dependencies": dependencies,
-    }
-
-
 def _contract_reasons(
     requirements: dict[str, bool],
     template_summary: dict[str, Any],
@@ -307,159 +206,6 @@ def _contract_reasons(
             if not environment.get("channelPriorityStrict"):
                 reasons.append("TOOL_RULE_ENVIRONMENT_CHANNEL_PRIORITY_REQUIRED")
     return reasons
-
-
-def _smoke_test_summary(template: dict[str, Any]) -> dict[str, Any]:
-    inputs = [item for item in template.get("inputs") or [] if isinstance(item, dict)]
-    required_inputs = [item for item in inputs if bool(item.get("required", True))]
-    input_names = [_string(item.get("name")) for item in required_inputs if _string(item.get("name"))]
-    raw_smoke = template.get("smokeTest")
-    smoke_specified = isinstance(raw_smoke, dict)
-    smoke = raw_smoke if smoke_specified else {}
-    smoke_inputs = smoke.get("inputs") if isinstance(smoke.get("inputs"), dict) else {}
-    missing_inputs = [name for name in input_names if not _smoke_input_ready(smoke_inputs.get(name))]
-    return {
-        "specified": smoke_specified and not missing_inputs,
-        "inputs": len(smoke_inputs),
-        "requiredInputs": len(input_names),
-        "missingInputs": missing_inputs,
-    }
-
-
-def _smoke_input_ready(raw: Any) -> bool:
-    if not isinstance(raw, dict):
-        return False
-    return isinstance(raw.get("content"), str) or bool(_string(raw.get("contentBase64")))
-
-
-def _has_rule_template_shape(template: dict[str, Any]) -> bool:
-    return bool(
-        _rule_action_fields(template)
-        or isinstance(template.get("inputs"), list)
-        or isinstance(template.get("outputs"), list)
-        or isinstance(template.get("params"), dict)
-    )
-
-
-def _rule_action_fields(template: dict[str, Any]) -> list[str]:
-    actions: list[str] = []
-    for field in ("commandTemplate", "wrapper", "script"):
-        if _string(template.get(field)):
-            actions.append(field)
-    module = template.get("module")
-    if isinstance(module, dict) and (_string(module.get("snakefile")) or _string(module.get("rule"))):
-        actions.append("module")
-    return actions
-
-
-def _wrapper_ref_locked(wrapper: str) -> bool:
-    parts = [part for part in wrapper.split("/") if part]
-    if len(parts) < 2:
-        return False
-    ref = parts[0].strip()
-    if not ref or ref.lower() in MOVING_WRAPPER_REFS:
-        return False
-    return bool(WRAPPER_VERSION_RE.match(ref) or WRAPPER_COMMIT_RE.match(ref))
-
-
-def _output_ready(item: dict[str, Any]) -> bool:
-    return bool(
-        _string(item.get("name"))
-        and _string(item.get("path"))
-    )
-
-
-def _threads_ready(template: dict[str, Any]) -> bool:
-    return _positive_int(template.get("threads")) or _positive_int(_resource_default(template.get("resources"), "threads"))
-
-
-def _scheduler_resource_count(template: dict[str, Any]) -> int:
-    names: set[str] = set()
-    for field in ("schedulerResources", "runtimeResources"):
-        raw = template.get(field)
-        if isinstance(raw, dict):
-            names.update(name for name, value in raw.items() if _string(name) and _scheduler_value_ready(value))
-    resources = template.get("resources")
-    if isinstance(resources, dict):
-        for name, value in resources.items():
-            if name == "threads":
-                continue
-            if _scheduler_value_ready(value) and not _workflow_resource_value(value):
-                names.add(str(name))
-    return len(names)
-
-
-def _scheduler_value_ready(value: Any) -> bool:
-    if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-        return bool(str(value).strip())
-    if isinstance(value, dict):
-        if _workflow_resource_value(value):
-            return False
-        return any(_scheduler_value_ready(value.get(key)) for key in ("default", "value"))
-    return False
-
-
-def _workflow_resource_value(value: Any) -> bool:
-    if not isinstance(value, dict):
-        return False
-    return any(key in value for key in ("acceptedTemplates", "acceptedCapabilities", "configKey")) or str(value.get("type") or "") == "database"
-
-
-def _resource_default(resources: Any, name: str) -> Any:
-    if not isinstance(resources, dict):
-        return None
-    value = resources.get(name)
-    if isinstance(value, dict):
-        return value.get("default", value.get("value"))
-    return value
-
-
-def _positive_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
-
-
-def _log_ready(raw: Any) -> bool:
-    if isinstance(raw, str):
-        return bool(raw.strip())
-    if isinstance(raw, dict):
-        return bool(raw) and all(_string(name) and _string(path) for name, path in raw.items())
-    return False
-
-
-def _dependency_locked(value: str) -> bool:
-    spec = value.strip()
-    if not spec or any(operator in spec for operator in (">", "<", "*")):
-        return False
-    package = spec.rsplit("::", 1)[-1]
-    if "==" in package:
-        name, version = package.split("==", 1)
-    elif "=" in package:
-        name, version = package.split("=", 1)
-    else:
-        return False
-    return bool(name.strip() and version.strip())
-
-
-def _channel_priority_strict(channels: list[str]) -> bool:
-    if not channels:
-        return False
-    try:
-        conda_forge_index = channels.index("conda-forge")
-    except ValueError:
-        return False
-    if "bioconda" not in channels:
-        return True
-    return conda_forge_index < channels.index("bioconda")
-
-
-def _string_list(raw: Any) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    return [value for value in (_string(item) for item in raw) if value]
-
-
-def _string(raw: Any) -> str:
-    return str(raw or "").strip()
 
 
 def _passed(status: dict[str, str]) -> bool:

@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .errors import RemoteRunnerNotFoundError, WorkflowDesignRevisionConflictError
 from .storage import get_connection, now_iso
 from .workflow_design_contract import normalize_workflow_design_draft
 
@@ -44,7 +45,7 @@ def create_workflow_design_draft(
         connection.commit()
     saved = fetch_workflow_design_draft(cfg, draft_id)
     if saved is None:
-        raise KeyError(draft_id)
+        raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
     return saved
 
 
@@ -68,6 +69,13 @@ def fetch_workflow_design_draft(cfg: RemoteRunnerConfig, draft_id: str) -> dict[
     return _row_to_dict(row) if row is not None else None
 
 
+def require_workflow_design_draft(cfg: RemoteRunnerConfig, draft_id: str) -> dict[str, Any]:
+    item = fetch_workflow_design_draft(cfg, draft_id)
+    if item is None:
+        raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
+    return item
+
+
 def update_workflow_design_draft(
     cfg: RemoteRunnerConfig,
     draft_id: str,
@@ -83,10 +91,10 @@ def update_workflow_design_draft(
             (draft_id,),
         ).fetchone()
         if existing is None:
-            raise KeyError(draft_id)
+            raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
         revision = int(existing["revision"])
         if expected_revision is not None and revision != expected_revision:
-            raise ValueError("WORKFLOW_DESIGN_REVISION_CONFLICT")
+            raise WorkflowDesignRevisionConflictError("WORKFLOW_DESIGN_REVISION_CONFLICT")
         connection.execute(
             """
             UPDATE workflow_design_drafts
@@ -108,7 +116,7 @@ def update_workflow_design_draft(
         connection.commit()
     updated = fetch_workflow_design_draft(cfg, draft_id)
     if updated is None:
-        raise KeyError(draft_id)
+        raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
     return updated
 
 
@@ -120,7 +128,7 @@ def fork_workflow_design_draft(
 ) -> dict[str, Any]:
     existing = fetch_workflow_design_draft(cfg, draft_id)
     if existing is None:
-        raise KeyError(draft_id)
+        raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
     draft = dict(existing["draft"])
     if name:
         draft["metadata"] = {**dict(draft.get("metadata") or {}), "name": name}
@@ -135,7 +143,7 @@ def delete_workflow_design_draft(cfg: RemoteRunnerConfig, draft_id: str) -> None
         )
         connection.commit()
     if cursor.rowcount == 0:
-        raise KeyError(draft_id)
+        raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
 
 
 def _row_to_dict(row) -> dict[str, Any]:

@@ -6,6 +6,10 @@ from core.remote_runner.artifact import WorkflowRuntimeArtifact
 
 
 DEFAULT_SNAKEMAKE_WRAPPER_PREFIX = "https://raw.githubusercontent.com/snakemake/snakemake-wrappers/"
+MAX_COMPACT_PREVIEW_CONTENT_CHARS = 1024
+MAX_COMPACT_PREVIEW_TABLE_COLUMNS = 12
+MAX_COMPACT_PREVIEW_TABLE_ROWS = 5
+MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS = 128
 
 
 def build_remote_workflow_profile_content(
@@ -45,7 +49,9 @@ def summarize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def compact_preview_payload(preview_payload: dict[str, Any]) -> dict[str, Any]:
+def compact_preview_payload(preview_payload: Any) -> dict[str, Any]:
+    if not isinstance(preview_payload, dict):
+        return {"kind": "", "truncated": False}
     data = preview_payload.get("data") if isinstance(preview_payload.get("data"), dict) else preview_payload
     if isinstance(data, dict):
         preview = data.get("preview") if isinstance(data.get("preview"), dict) else data
@@ -56,14 +62,51 @@ def compact_preview_payload(preview_payload: dict[str, Any]) -> dict[str, Any]:
             "truncated": bool(preview.get("truncated")),
         }
         if compact["kind"] == "table":
-            compact["columns"] = preview.get("columns") if isinstance(preview.get("columns"), list) else []
-            rows = preview.get("rows") if isinstance(preview.get("rows"), list) else []
-            compact["rows"] = rows[:5]
+            columns, columns_truncated = _compact_preview_cells(preview.get("columns"))
+            rows, rows_truncated = _compact_preview_rows(preview.get("rows"))
+            compact["columns"] = columns
+            compact["rows"] = rows
+            compact["truncated"] = bool(compact["truncated"] or columns_truncated or rows_truncated)
         else:
-            content = str(preview.get("content") or "")
-            compact["content"] = content[:1024]
+            content, content_truncated = _compact_preview_text(preview.get("content"), MAX_COMPACT_PREVIEW_CONTENT_CHARS)
+            compact["content"] = content
+            compact["truncated"] = bool(compact["truncated"] or content_truncated)
         return compact
     return {"kind": "", "truncated": False}
+
+
+def _compact_preview_rows(raw_rows: Any) -> tuple[list[list[str]], bool]:
+    if not isinstance(raw_rows, list):
+        return [], False
+    rows: list[list[str]] = []
+    truncated = len(raw_rows) > MAX_COMPACT_PREVIEW_TABLE_ROWS
+    for raw_row in raw_rows[:MAX_COMPACT_PREVIEW_TABLE_ROWS]:
+        if not isinstance(raw_row, list):
+            cell, cell_truncated = _compact_preview_text(raw_row, MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS)
+            rows.append([cell])
+            truncated = truncated or cell_truncated
+            continue
+        cells, cells_truncated = _compact_preview_cells(raw_row)
+        rows.append(cells)
+        truncated = truncated or cells_truncated
+    return rows, truncated
+
+
+def _compact_preview_cells(raw_cells: Any) -> tuple[list[str], bool]:
+    if not isinstance(raw_cells, list):
+        return [], False
+    cells: list[str] = []
+    truncated = len(raw_cells) > MAX_COMPACT_PREVIEW_TABLE_COLUMNS
+    for raw_cell in raw_cells[:MAX_COMPACT_PREVIEW_TABLE_COLUMNS]:
+        cell, cell_truncated = _compact_preview_text(raw_cell, MAX_COMPACT_PREVIEW_TABLE_CELL_CHARS)
+        cells.append(cell)
+        truncated = truncated or cell_truncated
+    return cells, truncated
+
+
+def _compact_preview_text(value: Any, limit: int) -> tuple[str, bool]:
+    text = str(value or "")
+    return text[:limit], len(text) > limit
 
 
 def build_fast_reuse_metadata(
@@ -141,6 +184,62 @@ def build_workflow_runtime_metadata(*, artifact: WorkflowRuntimeArtifact, remote
         "conda_unpack": f"{remote_dir}/{artifact.conda_unpack_entrypoint}",
         "snakemake_command": f"{remote_dir}/{artifact.snakemake_entrypoint}",
         "snakemake_version": snakemake_version,
+    }
+
+
+def build_install_bootstrap_metadata(
+    *,
+    mode: str,
+    remote_platform: str,
+    artifact: Any,
+    workflow_runtime: dict[str, Any],
+    remote_service_python: str,
+    remote_profile_dir: str,
+    remote_profile_path: str,
+    remote_profile_name: str,
+    remote_release: str,
+    previous_release: str,
+    previous_mode: str,
+) -> dict[str, Any]:
+    return {
+        "preflight": {
+            "launcher": {"mode": mode},
+            "platform": remote_platform,
+        },
+        "tooling": {
+            "service_runtime": {
+                "provider": "bundled",
+                "source": "artifact",
+                "python": remote_service_python,
+                "platform": getattr(artifact, "platform", remote_platform),
+            },
+            "workflow_runtime": workflow_runtime,
+        },
+        "workflow_profile": {
+            "path": remote_profile_dir,
+            "config": remote_profile_path,
+            "name": remote_profile_name,
+        },
+        "deployment_action": "installed",
+        "release_switch": {
+            "target_release": remote_release,
+            "target_mode": mode,
+            "previous_release": previous_release,
+            "previous_mode": previous_mode,
+            "switched": False,
+        },
+        "rollback": {
+            "attempted": False,
+            "restored": False,
+            "previous_release": previous_release,
+            "previous_mode": previous_mode,
+            "message": "",
+        },
+        "canary": {
+            "ok": False,
+            "status": "pending",
+            "message": "",
+        },
     }
 
 

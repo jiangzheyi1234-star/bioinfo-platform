@@ -211,6 +211,66 @@ def test_artifact_provider_rejects_missing_profile_wrapper_assets(
         RemoteRunnerArtifactProvider(search_roots=[]).resolve("dev", platform="linux-64")
 
 
+def test_artifact_validation_uses_specific_archive_parse_errors() -> None:
+    root = Path(__file__).resolve().parents[1] / "core" / "remote_runner"
+    io_source = (root / "artifact_io.py").read_text(encoding="utf-8")
+    runner_validation_source = (root / "remote_runner_artifact_validation.py").read_text(encoding="utf-8")
+    workflow_validation_source = (root / "workflow_runtime_artifact_validation.py").read_text(encoding="utf-8")
+
+    wrapper_source = runner_validation_source.split("def verify_required_wrapper_assets(", 1)[1]
+    manifest_source = io_source.split("def read_manifest(", 1)[1]
+    manifest_source = manifest_source.split("def validated_member_names(", 1)[0]
+    workflow_source = workflow_validation_source.split("def verify_workflow_runtime_contents(", 1)[1]
+
+    for block in (wrapper_source, manifest_source, workflow_source):
+        assert "except Exception" not in block
+
+
+def test_artifact_provider_delegates_io_and_runtime_validation_details() -> None:
+    root = Path(__file__).resolve().parents[1]
+    artifact_path = root / "core" / "remote_runner" / "artifact.py"
+    io_path = root / "core" / "remote_runner" / "artifact_io.py"
+    runner_validation_path = root / "core" / "remote_runner" / "remote_runner_artifact_validation.py"
+    workflow_validation_path = root / "core" / "remote_runner" / "workflow_runtime_artifact_validation.py"
+
+    assert io_path.exists()
+    assert runner_validation_path.exists()
+    assert workflow_validation_path.exists()
+
+    artifact_source = artifact_path.read_text(encoding="utf-8")
+    io_source = io_path.read_text(encoding="utf-8")
+    runner_validation_source = runner_validation_path.read_text(encoding="utf-8")
+    workflow_validation_source = workflow_validation_path.read_text(encoding="utf-8")
+
+    assert len(artifact_source.splitlines()) <= 260
+    assert "from core.remote_runner.artifact_io import" in artifact_source
+    assert "from core.remote_runner.remote_runner_artifact_validation import verify_required_wrapper_assets" in artifact_source
+    assert "from core.remote_runner.workflow_runtime_artifact_validation import" in artifact_source
+
+    for helper_name in (
+        "_download_declared_archive",
+        "_artifact_cache_root",
+        "_download_headers",
+        "_read_expected_sha256",
+        "_sha256_file",
+        "_read_manifest",
+        "_validated_member_names",
+        "_verify_required_wrapper_assets",
+        "_verify_workflow_runtime_contents",
+    ):
+        assert f"def {helper_name}(" not in artifact_source
+    assert "urlopen" not in artifact_source
+    assert "shutil.copyfileobj" not in artifact_source
+    assert "PurePosixPath" not in artifact_source
+
+    assert "def resolve_archive_path(" in io_source
+    assert "def download_declared_archive(" in io_source
+    assert "def read_manifest(" in io_source
+    assert "def validated_member_names(" in io_source
+    assert "def verify_required_wrapper_assets(" in runner_validation_source
+    assert "def verify_workflow_runtime_contents(" in workflow_validation_source
+
+
 def test_artifact_provider_downloads_declared_artifact_to_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -384,17 +444,21 @@ def test_checked_in_remote_runner_artifact_contains_tool_prepare_endpoint() -> N
     with tarfile.open(bundle, "r:gz") as archive:
         names = _normalized_tar_names(archive)
         routes = _extract_normalized(archive, "remote_runner/tool_routes.py")
+        service = _extract_normalized(archive, "remote_runner/tool_service.py")
         assert routes is not None
+        assert service is not None
         routes_text = routes.read().decode("utf-8")
+        service_text = service.read().decode("utf-8")
 
     assert {
         "remote_runner/tool_preparation.py",
         "remote_runner/tool_prepare_job_storage.py",
         "remote_runner/tool_prepare_jobs.py",
         "remote_runner/tool_revisions.py",
+        "remote_runner/tool_service.py",
     }.issubset(names)
     assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in routes_text
-    assert "run_tool_prepare_job" in routes_text
+    assert "run_tool_prepare_job" in service_text
 
 
 def test_checked_in_workflow_runtime_artifact_wraps_activate_for_per_rule_conda_envs() -> None:

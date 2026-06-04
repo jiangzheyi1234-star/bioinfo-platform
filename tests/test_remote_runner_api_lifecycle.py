@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -19,14 +18,11 @@ from apps.remote_runner.config import (
     write_runtime_state,
 )
 from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.errors import RemoteRunnerAuthError
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.main import (
-    RunCreateRequest,
-    UploadCreateRequest,
-    create_run,
-    create_upload,
-    get_pipeline_api,
-    get_pipelines,
+from apps.remote_runner.pipeline import PipelineRegistryError
+from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
+from apps.remote_runner.execution_query_routes import (
     get_result_api,
     get_result_preview_api,
     get_run as get_run_api,
@@ -34,11 +30,11 @@ from apps.remote_runner.main import (
     get_run_logs_api,
     get_run_results_api,
     get_runs as list_runs_api,
-    health_live,
-    health_ready,
-    health_startup,
     list_results_api,
 )
+from apps.remote_runner.health_routes import health_live, health_ready, health_startup
+from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
+from apps.remote_runner.submission_routes import create_run, create_upload
 from config import get_app_cache_dir
 from core.remote_runner.artifact import RemoteRunnerArtifactError
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
@@ -73,12 +69,8 @@ def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
-    try:
+    with pytest.raises(RemoteRunnerAuthError, match="runner authentication failed"):
         asyncio.run(health_startup(authorization=None))
-    except HTTPException as exc:
-        assert exc.status_code == 401
-    else:
-        raise AssertionError("health_startup should require authorization")
 
     cfg = load_remote_runner_config()
     ensure_runtime_layout(cfg)
@@ -180,6 +172,36 @@ def test_remote_runner_pipeline_api_lists_registered_pipelines(tmp_path: Path, m
     assert detail["paramsSchema"]["type"] == "object"
     assert detail["uiSchema"]["inputs"]["widget"] == "file-upload"
 
+
+def test_remote_runner_health_ready_surfaces_invalid_pipeline_manifest(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    release_dir = tmp_path / "release"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase2-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+                "release_dir": str(release_dir),
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_dir = release_dir / "pipelines" / "broken-v1"
+    pipeline_dir.mkdir(parents=True)
+    (pipeline_dir / "pipeline.json").write_text("{", encoding="utf-8")
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+
+    with pytest.raises(PipelineRegistryError) as exc_info:
+        asyncio.run(health_ready(authorization="Bearer phase2-token"))
+
+    assert str(exc_info.value) == "PIPELINE_MANIFEST_INVALID_JSON"
+
+
 def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"
     config_path.write_text(
@@ -203,7 +225,7 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(PipelineRegistryError) as exc_info:
         asyncio.run(
             create_run(
                 RunCreateRequest(
@@ -217,8 +239,7 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
             )
         )
 
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "PIPELINE_NOT_FOUND"
+    assert str(exc_info.value) == "PIPELINE_NOT_FOUND"
 
 def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"
@@ -243,7 +264,7 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(PipelineRegistryError) as exc_info:
         asyncio.run(
             create_run(
                 RunCreateRequest(
@@ -262,8 +283,7 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
             )
         )
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "PARAM_SCHEMA_INVALID"
+    assert str(exc_info.value) == "PARAM_SCHEMA_INVALID"
 
 def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"
@@ -287,7 +307,10 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
-    monkeypatch.setattr("apps.remote_runner.main.start_run_execution", lambda cfg, run_id, request_id, run_spec: None)
+    monkeypatch.setattr(
+        "apps.remote_runner.submission_service.start_run_execution",
+        lambda cfg, run_id, request_id, run_spec: None,
+    )
 
     submit = asyncio.run(
         create_run(
@@ -385,9 +408,8 @@ def test_remote_runner_upload_rejects_oversized_payload(tmp_path: Path, monkeypa
 
     try:
         asyncio.run(create_upload(payload, authorization="Bearer phase2-token"))
-    except HTTPException as exc:
-        assert exc.status_code == 413
-        assert exc.detail == "UPLOAD_TOO_LARGE"
+    except ValueError as exc:
+        assert str(exc) == "UPLOAD_TOO_LARGE"
     else:
         raise AssertionError("oversized upload should be rejected")
 

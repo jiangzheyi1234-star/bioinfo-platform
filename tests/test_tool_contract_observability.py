@@ -68,7 +68,7 @@ def test_output_validation_records_validated_artifact_summary(tmp_path: Path) ->
             output.write_text("ok\n", encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
 
-    with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
+    with patch("apps.remote_runner.tool_contract_snakemake.subprocess.run", fake_run):
         checked = _validate_registered_tool(cfg, "conda-forge::observable")
 
     output_status = checked["contractStatus"]["outputValidation"]
@@ -114,7 +114,7 @@ def test_output_validation_failure_records_smoke_log_path(tmp_path: Path) -> Non
     def fake_run(_cmd, **_kwargs):
         return SimpleNamespace(returncode=0, stdout="smoke ok\n", stderr="")
 
-    with patch("apps.remote_runner.tool_contract_validation.subprocess.run", fake_run):
+    with patch("apps.remote_runner.tool_contract_snakemake.subprocess.run", fake_run):
         checked = _validate_registered_tool(cfg, "conda-forge::missing-output")
 
     output_status = checked["contractStatus"]["outputValidation"]

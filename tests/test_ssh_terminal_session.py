@@ -1,8 +1,61 @@
+from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
 
-from core.remote.ssh_service import LocalTunnel, SSHService, TerminalSession
+import pytest
+
+from core.remote.ssh_service import LocalTunnel, SSHReconnector, SSHService, TerminalSession
+
+
+def test_terminal_session_logic_lives_outside_ssh_service() -> None:
+    service_source = Path("core/remote/ssh_service.py").read_text(encoding="utf-8")
+    terminal_path = Path("core/remote/terminal_session.py")
+
+    assert terminal_path.exists()
+    terminal_source = terminal_path.read_text(encoding="utf-8")
+    assert "from core.remote.terminal_session import TerminalSession" in service_source
+    assert "class TerminalSession:" not in service_source
+    assert "class TerminalSession:" in terminal_source
+    assert "def _reader_loop(" in terminal_source
+    assert "except Exception" not in terminal_source
+
+
+def test_local_tunnel_logic_lives_outside_ssh_service() -> None:
+    service_source = Path("core/remote/ssh_service.py").read_text(encoding="utf-8")
+    tunnel_path = Path("core/remote/local_tunnel.py")
+
+    assert tunnel_path.exists()
+    tunnel_source = tunnel_path.read_text(encoding="utf-8")
+    assert "from core.remote.local_tunnel import LocalTunnel" in service_source
+    assert "class LocalTunnel:" not in service_source
+    assert "socketserver.ThreadingTCPServer" not in service_source
+    assert "select.select(" not in service_source
+    assert "class LocalTunnel:" in tunnel_source
+    assert "socketserver.ThreadingTCPServer" in tunnel_source
+    assert "select.select(" in tunnel_source
+
+
+def test_ssh_reconnector_logic_lives_outside_ssh_service() -> None:
+    service_source = Path("core/remote/ssh_service.py").read_text(encoding="utf-8")
+    reconnect_path = Path("core/remote/ssh_reconnect.py")
+
+    assert reconnect_path.exists()
+    reconnect_source = reconnect_path.read_text(encoding="utf-8")
+    assert "from core.remote.ssh_reconnect import SSHReconnectError, SSHReconnector" in service_source
+    assert "class SSHReconnector:" not in service_source
+    assert "class SSHReconnectError" not in service_source
+    assert "BACKOFF_DELAYS =" not in service_source
+    assert "class SSHReconnector:" in reconnect_source
+    assert "class SSHReconnectError" in reconnect_source
+    assert "BACKOFF_DELAYS =" in reconnect_source
+
+
+def test_local_tunnel_forwarder_uses_explicit_transport_error_boundaries() -> None:
+    local_tunnel_source = Path("core/remote/local_tunnel.py").read_text(encoding="utf-8")
+
+    assert "except Exception" not in local_tunnel_source
+    assert local_tunnel_source.count("except (OSError, EOFError, paramiko.SSHException)") == 2
 
 
 class DummyChannel:
@@ -66,6 +119,58 @@ def test_terminal_session_snapshot_marks_closed_session_as_unavailable() -> None
     assert snapshot["closed"] is True
     assert snapshot["message"] == "SSH disconnected"
     assert snapshot["closed_at"] is not None
+
+
+def test_terminal_session_close_does_not_swallow_channel_close_errors() -> None:
+    class BrokenCloseChannel(DummyChannel):
+        def close(self) -> None:
+            raise RuntimeError("channel close adapter crashed")
+
+    session = TerminalSession("term_test_close_error", BrokenCloseChannel())
+
+    with pytest.raises(RuntimeError, match="channel close adapter crashed"):
+        session.close()
+    assert session.snapshot()["closed"] is True
+
+
+def test_terminal_session_reader_marks_channel_io_errors_closed(monkeypatch) -> None:
+    class IdleThread:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+    class BrokenReadChannel(DummyChannel):
+        def recv_ready(self) -> bool:
+            raise OSError("channel read failed")
+
+    monkeypatch.setattr("core.remote.terminal_session.threading.Thread", IdleThread)
+    session = TerminalSession("term_test_reader_io_error", BrokenReadChannel())
+
+    session._reader_loop()
+
+    assert session.snapshot()["closed"] is True
+
+
+def test_terminal_session_reader_does_not_mask_unexpected_channel_errors(monkeypatch) -> None:
+    class IdleThread:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+    class BrokenReadChannel(DummyChannel):
+        def recv_ready(self) -> bool:
+            raise RuntimeError("channel adapter crashed")
+
+    monkeypatch.setattr("core.remote.terminal_session.threading.Thread", IdleThread)
+    session = TerminalSession("term_test_reader_adapter_error", BrokenReadChannel())
+
+    with pytest.raises(RuntimeError, match="channel adapter crashed"):
+        session._reader_loop()
+    assert session.snapshot()["closed"] is False
 
 
 def test_wait_for_update_returns_promptly_when_output_arrives() -> None:
@@ -205,3 +310,55 @@ def test_list_directory_allows_large_remote_directory_listing() -> None:
 
     assert len(result["items"]) == 700
     assert result["truncated"] is False
+
+
+def test_ssh_service_is_connected_reports_transport_os_errors_as_disconnected() -> None:
+    class FakeClient:
+        def get_transport(self):
+            raise OSError("transport socket closed")
+
+    service = SSHService(initial_client=FakeClient())
+
+    assert service.is_connected is False
+
+
+def test_ssh_service_is_connected_does_not_mask_unexpected_transport_errors() -> None:
+    class FakeClient:
+        def get_transport(self):
+            raise RuntimeError("transport adapter crashed")
+
+    service = SSHService(initial_client=FakeClient())
+
+    with pytest.raises(RuntimeError, match="transport adapter crashed"):
+        _connected = service.is_connected
+
+
+def test_ssh_reconnector_retries_channel_io_errors(monkeypatch) -> None:
+    attempts = {"count": 0}
+    failures: list[str] = []
+
+    def connect():
+        attempts["count"] += 1
+        raise OSError("ssh socket closed")
+
+    monkeypatch.setattr("core.remote.ssh_reconnect.time.sleep", lambda _delay: None)
+    reconnector = SSHReconnector(connect, max_retries=2, on_failure=failures.append)
+
+    reconnector._run()
+
+    assert attempts["count"] == 2
+    assert failures == ["SSH 重连失败"]
+
+
+def test_ssh_reconnector_does_not_mask_unexpected_connect_errors(monkeypatch) -> None:
+    failures: list[str] = []
+
+    def connect():
+        raise RuntimeError("ssh adapter crashed")
+
+    monkeypatch.setattr("core.remote.ssh_reconnect.time.sleep", lambda _delay: None)
+    reconnector = SSHReconnector(connect, max_retries=2, on_failure=failures.append)
+
+    with pytest.raises(RuntimeError, match="ssh adapter crashed"):
+        reconnector._run()
+    assert failures == []

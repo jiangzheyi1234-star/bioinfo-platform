@@ -1,65 +1,33 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import shutil
-import tarfile
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-from typing import Any
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+from pathlib import Path
 
+from core.remote_runner.artifact_io import (
+    is_declared_release_artifact,
+    read_expected_sha256,
+    read_manifest,
+    resolve_archive_path,
+    sha256_file,
+    verify_declared_artifact_metadata,
+)
+from core.remote_runner.artifact_models import (
+    RemoteRunnerArtifact,
+    RemoteRunnerArtifactError,
+    WorkflowRuntimeArtifact,
+)
 from core.remote_runner.release_manifest import (
-    RELEASE_MANIFEST,
     REMOTE_RUNNER_ARTIFACT,
     REMOTE_RUNNER_VERSION,
-    ReleaseArtifactSpec,
     WORKFLOW_RUNTIME_ARTIFACT,
     WORKFLOW_RUNTIME_VERSION,
 )
-
-
-class RemoteRunnerArtifactError(RuntimeError):
-    pass
-
-
-@dataclass(frozen=True)
-class RemoteRunnerArtifact:
-    version: str
-    platform: str
-    archive_path: Path
-    sha256: str
-    manifest: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class WorkflowRuntimeArtifact:
-    version: str
-    platform: str
-    archive_path: Path
-    sha256: str
-    manifest: dict[str, Any]
-    snakemake_entrypoint: str
-    conda_unpack_entrypoint: str
-    python_entrypoint: str
-    conda_entrypoint: str
+from core.remote_runner.remote_runner_artifact_validation import REQUIRED_WRAPPER_ASSET_MEMBERS
+from core.remote_runner.remote_runner_artifact_validation import verify_required_wrapper_assets
+from core.remote_runner.workflow_runtime_artifact_validation import verify_workflow_runtime_contents
 
 
 class RemoteRunnerArtifactProvider:
-    REQUIRED_WRAPPER_ASSET_MEMBERS = frozenset(
-        {
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastp/wrapper.py",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastp/environment.yaml",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastqc/wrapper.py",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/fastqc/environment.yaml",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/multiqc/wrapper.py",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/multiqc/environment.yaml",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/seqkit/wrapper.py",
-            "remote_runner/snakemake_wrappers/v9.8.0/bio/seqkit/environment.yaml",
-        }
-    )
+    REQUIRED_WRAPPER_ASSET_MEMBERS = REQUIRED_WRAPPER_ASSET_MEMBERS
 
     def __init__(
         self,
@@ -71,31 +39,34 @@ class RemoteRunnerArtifactProvider:
         self._search_roots = search_roots
 
     def resolve(self, version: str = REMOTE_RUNNER_VERSION, *, platform: str = "linux-64") -> RemoteRunnerArtifact:
-        archive_path = self._resolve_archive_path(REMOTE_RUNNER_ARTIFACT, version=version, platform=platform)
+        archive_path = resolve_archive_path(
+            REMOTE_RUNNER_ARTIFACT,
+            version=version,
+            platform=platform,
+            repo_root=self._repo_root,
+            search_roots=self._search_roots,
+        )
         checksum_path = Path(str(archive_path) + ".sha256")
         if not checksum_path.exists():
-            raise RemoteRunnerArtifactError(
-                f"remote runner artifact checksum not found: {checksum_path}"
-            )
-        expected = self._read_expected_sha256(checksum_path)
-        actual = self._sha256_file(archive_path)
+            raise RemoteRunnerArtifactError(f"remote runner artifact checksum not found: {checksum_path}")
+        expected = read_expected_sha256(checksum_path)
+        actual = sha256_file(archive_path)
         if actual != expected:
-            raise RemoteRunnerArtifactError(
-                f"remote runner artifact sha256 mismatch: {archive_path}"
-            )
-        if self._is_declared_release_artifact(
+            raise RemoteRunnerArtifactError(f"remote runner artifact sha256 mismatch: {archive_path}")
+        if is_declared_release_artifact(
             REMOTE_RUNNER_ARTIFACT,
             version=version,
             platform=platform,
             archive_path=archive_path,
+            repo_root=self._repo_root,
         ):
-            self._verify_declared_artifact_metadata(
+            verify_declared_artifact_metadata(
                 REMOTE_RUNNER_ARTIFACT,
                 platform=platform,
                 archive_path=archive_path,
                 sha256=actual,
             )
-        manifest = self._read_manifest(archive_path)
+        manifest = read_manifest(archive_path)
         if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unexpected service: {archive_path}")
         if str(manifest.get("version") or "") != version:
@@ -105,7 +76,7 @@ class RemoteRunnerArtifactProvider:
         runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
         if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
             raise RemoteRunnerArtifactError(f"remote runner artifact does not declare bundled runtime: {archive_path}")
-        self._verify_required_wrapper_assets(archive_path)
+        verify_required_wrapper_assets(archive_path)
         return RemoteRunnerArtifact(
             version=version,
             platform=platform,
@@ -113,246 +84,6 @@ class RemoteRunnerArtifactProvider:
             sha256=actual,
             manifest=manifest,
         )
-
-    def _resolve_archive_path(self, spec: ReleaseArtifactSpec, *, version: str, platform: str) -> Path:
-        explicit = str(os.environ.get(spec.bundle_env_var, "") or "").strip()
-        if explicit:
-            path = Path(explicit)
-            if not path.exists():
-                raise RemoteRunnerArtifactError(
-                    f"{spec.key.replace('_', ' ')} artifact not found: {path}"
-                )
-            return path
-
-        filename = f"{spec.name}-{version}-{platform}.tar.gz"
-        roots = self._candidate_roots(spec)
-        for root in roots:
-            path = root / filename
-            if path.exists():
-                return path
-        downloaded = self._download_declared_archive(spec, version=version, platform=platform, filename=filename)
-        if downloaded is not None:
-            return downloaded
-        roots_display = ", ".join(str(root) for root in roots)
-        raise RemoteRunnerArtifactError(
-            f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
-        )
-
-    @classmethod
-    def _download_declared_archive(
-        cls,
-        spec: ReleaseArtifactSpec,
-        *,
-        version: str,
-        platform: str,
-        filename: str,
-    ) -> Path | None:
-        if version != spec.version:
-            return None
-        url = str(spec.download_urls.get(platform) or "").strip()
-        if not url:
-            return None
-        expected_sha = str(spec.sha256.get(platform) or "").strip().lower()
-        if len(expected_sha) != 64:
-            raise RemoteRunnerArtifactError(
-                f"{spec.key.replace('_', ' ')} artifact download is missing manifest sha256 for {platform}"
-            )
-        expected_size = int(spec.size_bytes.get(platform) or 0)
-        cache_dir = cls._artifact_cache_root() / spec.key / version / platform
-        archive_path = cache_dir / filename
-        if archive_path.exists():
-            actual_sha = cls._sha256_file(archive_path)
-            actual_size = archive_path.stat().st_size
-            if actual_sha == expected_sha and (not expected_size or actual_size == expected_size):
-                cls._write_checksum_file(archive_path, expected_sha)
-                return archive_path
-            archive_path.unlink()
-
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path = archive_path.with_name(f"{archive_path.name}.tmp")
-        if tmp_path.exists():
-            tmp_path.unlink()
-        label = spec.key.replace("_", " ")
-        try:
-            request = Request(url, headers=cls._download_headers())
-            with urlopen(request, timeout=120) as response, tmp_path.open("wb") as handle:
-                shutil.copyfileobj(response, handle)
-            actual_size = tmp_path.stat().st_size
-            if expected_size and actual_size != expected_size:
-                raise RemoteRunnerArtifactError(
-                    f"{label} artifact size mismatch after download: expected {expected_size}, got {actual_size}"
-                )
-            actual_sha = cls._sha256_file(tmp_path)
-            if actual_sha != expected_sha:
-                raise RemoteRunnerArtifactError(f"{label} artifact sha256 mismatch after download: {url}")
-            os.replace(tmp_path, archive_path)
-            cls._write_checksum_file(archive_path, expected_sha)
-            return archive_path
-        except RemoteRunnerArtifactError:
-            raise
-        except (OSError, URLError) as exc:
-            raise RemoteRunnerArtifactError(
-                f"{label} artifact download failed from {url}; "
-                "for private GitHub releases set H2OMETA_RELEASE_DOWNLOAD_TOKEN, GH_TOKEN, or GITHUB_TOKEN"
-            ) from exc
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-
-    @staticmethod
-    def _artifact_cache_root() -> Path:
-        explicit = str(os.environ.get("H2OMETA_ARTIFACT_CACHE_DIR", "") or "").strip()
-        if explicit:
-            return Path(explicit)
-        if os.name == "nt":
-            local_app_data = str(os.environ.get("LOCALAPPDATA", "") or "").strip()
-            if local_app_data:
-                return Path(local_app_data) / "H2OMeta" / "artifacts"
-        xdg_cache_home = str(os.environ.get("XDG_CACHE_HOME", "") or "").strip()
-        return (Path(xdg_cache_home) if xdg_cache_home else Path.home() / ".cache") / "h2ometa" / "artifacts"
-
-    @staticmethod
-    def _download_headers() -> dict[str, str]:
-        headers = {
-            "Accept": "application/octet-stream",
-            "User-Agent": "h2ometa-artifact-provider",
-        }
-        token = (
-            str(os.environ.get("H2OMETA_RELEASE_DOWNLOAD_TOKEN", "") or "").strip()
-            or str(os.environ.get("GH_TOKEN", "") or "").strip()
-            or str(os.environ.get("GITHUB_TOKEN", "") or "").strip()
-        )
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        return headers
-
-    @staticmethod
-    def _write_checksum_file(path: Path, sha256: str) -> None:
-        path.with_suffix(path.suffix + ".sha256").write_text(
-            f"{sha256}  {path.name}\n",
-            encoding="utf-8",
-        )
-
-    @classmethod
-    def _verify_required_wrapper_assets(cls, archive_path: Path) -> None:
-        try:
-            with tarfile.open(archive_path, "r:gz") as archive:
-                names = cls._validated_member_names(archive, archive_path)
-        except RemoteRunnerArtifactError:
-            raise
-        except Exception as exc:
-            raise RemoteRunnerArtifactError(f"remote runner artifact wrapper assets are unreadable: {archive_path}") from exc
-        missing = sorted(cls.REQUIRED_WRAPPER_ASSET_MEMBERS - names)
-        if missing:
-            raise RemoteRunnerArtifactError(
-                f"remote runner artifact missing bundled Snakemake wrapper assets: {', '.join(missing)}"
-            )
-
-    def _candidate_roots(self, spec: ReleaseArtifactSpec) -> list[Path]:
-        if self._search_roots is not None:
-            return list(self._search_roots)
-        roots: list[Path] = []
-        for key in spec.search_root_env_vars:
-            raw = str(os.environ.get(key, "") or "").strip()
-            if raw:
-                roots.append(Path(raw))
-        resources_root = str(os.environ.get("H2OMETA_RESOURCES_DIR", "") or "").strip()
-        if resources_root:
-            roots.append(Path(resources_root) / "remote-runner")
-        roots.extend(RELEASE_MANIFEST.repo_search_roots(self._repo_root))
-        return roots
-
-    @staticmethod
-    def _read_expected_sha256(path: Path) -> str:
-        raw = path.read_text(encoding="utf-8").strip()
-        expected = raw.split()[0] if raw else ""
-        if len(expected) != 64:
-            raise RemoteRunnerArtifactError(
-                f"remote runner artifact checksum is invalid: {path}"
-            )
-        return expected.lower()
-
-    @staticmethod
-    def _sha256_file(path: Path) -> str:
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-
-    @staticmethod
-    def _verify_declared_artifact_metadata(
-        spec: ReleaseArtifactSpec,
-        *,
-        platform: str,
-        archive_path: Path,
-        sha256: str,
-    ) -> None:
-        declared_sha = str(spec.sha256.get(platform) or "").strip().lower()
-        if declared_sha and declared_sha != sha256:
-            raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} manifest sha256 mismatch: {archive_path}")
-        declared_size = int(spec.size_bytes.get(platform) or 0)
-        if declared_size and declared_size != archive_path.stat().st_size:
-            raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} manifest size mismatch: {archive_path}")
-
-    def _is_declared_release_artifact(
-        self,
-        spec: ReleaseArtifactSpec,
-        *,
-        version: str,
-        platform: str,
-        archive_path: Path,
-    ) -> bool:
-        if version != spec.version or archive_path.name != spec.archive_filename(platform):
-            return False
-        resolved_path = archive_path.resolve()
-        for root in RELEASE_MANIFEST.repo_search_roots(self._repo_root):
-            if resolved_path == (root / spec.archive_filename(platform)).resolve():
-                return True
-        return False
-
-    @staticmethod
-    def _read_manifest(path: Path) -> dict[str, Any]:
-        try:
-            with tarfile.open(path, "r:gz") as archive:
-                RemoteRunnerArtifactProvider._validated_member_names(archive, path)
-                member = next(
-                    (
-                        item
-                        for item in archive.getmembers()
-                        if item.name.strip("./") == "bootstrap_manifest.json"
-                    ),
-                    None,
-                )
-                if member is None:
-                    raise RemoteRunnerArtifactError(f"remote runner artifact manifest not found: {path}")
-                handle = archive.extractfile(member)
-                if handle is None:
-                    raise RemoteRunnerArtifactError(f"remote runner artifact manifest is unreadable: {path}")
-                payload = json.loads(handle.read().decode("utf-8"))
-        except RemoteRunnerArtifactError:
-            raise
-        except Exception as exc:
-            raise RemoteRunnerArtifactError(f"remote runner artifact manifest is invalid: {path}") from exc
-        if not isinstance(payload, dict):
-            raise RemoteRunnerArtifactError(f"remote runner artifact manifest is not an object: {path}")
-        return payload
-
-    @staticmethod
-    def _validated_member_names(archive: tarfile.TarFile, path: Path) -> set[str]:
-        names: set[str] = set()
-        for item in archive.getmembers():
-            raw_name = item.name.replace("\\", "/")
-            if raw_name in {".", "./"}:
-                continue
-            posix_name = PurePosixPath(raw_name)
-            if raw_name.startswith("/") or posix_name.is_absolute() or ".." in posix_name.parts:
-                raise RemoteRunnerArtifactError(f"remote runner artifact has unsafe tar member: {path}")
-            name = raw_name.strip("./")
-            if not name:
-                raise RemoteRunnerArtifactError(f"remote runner artifact has unsafe tar member: {path}")
-            names.add(name)
-        return names
 
 
 class WorkflowRuntimeArtifactProvider:
@@ -366,27 +97,34 @@ class WorkflowRuntimeArtifactProvider:
         self._search_roots = search_roots
 
     def resolve(self, version: str = WORKFLOW_RUNTIME_VERSION, *, platform: str = "linux-64") -> WorkflowRuntimeArtifact:
-        archive_path = self._resolve_archive_path(WORKFLOW_RUNTIME_ARTIFACT, version=version, platform=platform)
+        archive_path = resolve_archive_path(
+            WORKFLOW_RUNTIME_ARTIFACT,
+            version=version,
+            platform=platform,
+            repo_root=self._repo_root,
+            search_roots=self._search_roots,
+        )
         checksum_path = Path(str(archive_path) + ".sha256")
         if not checksum_path.exists():
             raise RemoteRunnerArtifactError(f"workflow runtime artifact checksum not found: {checksum_path}")
-        expected = RemoteRunnerArtifactProvider._read_expected_sha256(checksum_path)
-        actual = RemoteRunnerArtifactProvider._sha256_file(archive_path)
+        expected = read_expected_sha256(checksum_path)
+        actual = sha256_file(archive_path)
         if actual != expected:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact sha256 mismatch: {archive_path}")
-        if RemoteRunnerArtifactProvider(repo_root=self._repo_root)._is_declared_release_artifact(
+        if is_declared_release_artifact(
             WORKFLOW_RUNTIME_ARTIFACT,
             version=version,
             platform=platform,
             archive_path=archive_path,
+            repo_root=self._repo_root,
         ):
-            RemoteRunnerArtifactProvider._verify_declared_artifact_metadata(
+            verify_declared_artifact_metadata(
                 WORKFLOW_RUNTIME_ARTIFACT,
                 platform=platform,
                 archive_path=archive_path,
                 sha256=actual,
             )
-        manifest = RemoteRunnerArtifactProvider._read_manifest(archive_path)
+        manifest = read_manifest(archive_path)
         if str(manifest.get("service") or "") != WORKFLOW_RUNTIME_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"workflow runtime artifact manifest has unexpected service: {archive_path}")
         if str(manifest.get("version") or "") != version:
@@ -412,7 +150,7 @@ class WorkflowRuntimeArtifactProvider:
         ):
             if value.startswith("/") or ".." in Path(value).parts:
                 raise RemoteRunnerArtifactError(f"workflow runtime artifact has invalid {label} entrypoint: {archive_path}")
-        self._verify_workflow_runtime_contents(
+        verify_workflow_runtime_contents(
             archive_path,
             python_entrypoint=python_entrypoint,
             snakemake_entrypoint=snakemake_entrypoint,
@@ -430,78 +168,3 @@ class WorkflowRuntimeArtifactProvider:
             python_entrypoint=python_entrypoint,
             conda_entrypoint=conda_entrypoint,
         )
-
-    @staticmethod
-    def _verify_workflow_runtime_contents(
-        path: Path,
-        *,
-        python_entrypoint: str,
-        snakemake_entrypoint: str,
-        conda_unpack_entrypoint: str,
-        conda_entrypoint: str,
-    ) -> None:
-        try:
-            with tarfile.open(path, "r:gz") as archive:
-                names = RemoteRunnerArtifactProvider._validated_member_names(archive, path)
-        except Exception as exc:
-            raise RemoteRunnerArtifactError(f"workflow runtime artifact is unreadable: {path}") from exc
-        required = {
-            python_entrypoint,
-            snakemake_entrypoint,
-            conda_unpack_entrypoint,
-            conda_entrypoint,
-        }
-        missing = sorted(entry for entry in required if entry.strip("./") not in names)
-        if missing:
-            raise RemoteRunnerArtifactError(
-                f"workflow runtime artifact missing required entrypoints: {', '.join(missing)}"
-            )
-        has_snakemake_module = any(
-            name.startswith("workflow-env/lib/")
-            and "/site-packages/snakemake/" in name
-            and name.endswith("__init__.py")
-            for name in names
-        )
-        if not has_snakemake_module:
-            raise RemoteRunnerArtifactError(f"workflow runtime artifact missing snakemake Python package: {path}")
-
-    def _resolve_archive_path(self, spec: ReleaseArtifactSpec, *, version: str, platform: str) -> Path:
-        explicit = str(os.environ.get(spec.bundle_env_var, "") or "").strip()
-        if explicit:
-            path = Path(explicit)
-            if not path.exists():
-                raise RemoteRunnerArtifactError(f"{spec.key.replace('_', ' ')} artifact not found: {path}")
-            return path
-
-        filename = f"{spec.name}-{version}-{platform}.tar.gz"
-        roots = self._candidate_roots(spec)
-        for root in roots:
-            path = root / filename
-            if path.exists():
-                return path
-        downloaded = RemoteRunnerArtifactProvider._download_declared_archive(
-            spec,
-            version=version,
-            platform=platform,
-            filename=filename,
-        )
-        if downloaded is not None:
-            return downloaded
-        roots_display = ", ".join(str(root) for root in roots)
-        raise RemoteRunnerArtifactError(
-            f"{spec.key.replace('_', ' ')} artifact not found for version {version}; searched: {roots_display}"
-        )
-
-    def _candidate_roots(self, spec: ReleaseArtifactSpec) -> list[Path]:
-        if self._search_roots is not None:
-            return list(self._search_roots)
-        roots: list[Path] = []
-        for key in spec.search_root_env_vars:
-            raw = str(os.environ.get(key, "") or "").strip()
-            if raw:
-                roots.append(Path(raw))
-        resources_root = str(os.environ.get("H2OMETA_RESOURCES_DIR", "") or "").strip()
-        if resources_root:
-            roots.append(Path(resources_root) / "remote-runner")
-        roots.extend(RELEASE_MANIFEST.repo_search_roots(self._repo_root))
-        return roots

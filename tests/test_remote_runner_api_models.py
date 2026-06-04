@@ -50,7 +50,20 @@ def test_remote_runner_run_request_requires_top_level_server_id() -> None:
     assert exc_info.value.errors()[0]["loc"] == ("serverId",)
 
 
-def test_remote_runner_run_request_rejects_legacy_run_spec_server_id() -> None:
+def test_remote_runner_run_request_requires_pipeline_id_in_run_spec() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        RunCreateRequest.model_validate(
+            {
+                "serverId": "srv_demo",
+                "requestId": "req_demo",
+                "runSpec": {"inputs": []},
+            }
+        )
+
+    assert exc_info.value.errors()[0]["loc"] == ("runSpec", "pipelineId")
+
+
+def test_remote_runner_run_request_rejects_legacy_run_spec_server_id_as_extra_field() -> None:
     with pytest.raises(ValidationError) as exc_info:
         RunCreateRequest.model_validate(
             {
@@ -60,7 +73,21 @@ def test_remote_runner_run_request_rejects_legacy_run_spec_server_id() -> None:
             }
         )
 
-    assert "UNSUPPORTED_LEGACY_PAYLOAD" in str(exc_info.value)
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+    assert exc_info.value.errors()[0]["loc"] == ("runSpec", "serverId")
+
+
+def test_remote_runner_run_request_preserves_run_spec_extensions() -> None:
+    request = RunCreateRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "requestId": "req_demo",
+            "runSpec": {"pipelineId": "file-summary-v1", "inputs": []},
+        }
+    )
+
+    assert request.runSpec.pipelineId == "file-summary-v1"
+    assert request.model_dump()["runSpec"]["inputs"] == []
 
 
 def test_remote_runner_workflow_design_compile_request_rejects_server_id() -> None:

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .errors import WorkflowToolNotReadyError
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .generated_workflow_plan import plan_generated_workflow_steps, resolve_exposed_outputs
 from .pipeline import PipelineDefinition
@@ -12,7 +13,15 @@ from .workflow_resources import build_workflow_resource_config, collect_workflow
 
 
 class RunPreflightError(ValueError):
-    pass
+    def __init__(self, message: str, *, status_code: int = 422):
+        super().__init__(message)
+        self.status_code = status_code
+
+    @classmethod
+    def from_value_error(cls, exc: ValueError) -> "RunPreflightError":
+        if isinstance(exc, WorkflowToolNotReadyError):
+            return cls(str(exc), status_code=exc.status_code)
+        return cls(str(exc))
 
 
 def preflight_run_spec(cfg: RemoteRunnerConfig, pipeline: PipelineDefinition, run_spec: dict[str, Any]) -> None:
@@ -36,7 +45,7 @@ def _preflight_pipeline_resources(
             bindings=dict(run_spec.get("resourceBindings") or {}),
         )
     except ValueError as exc:
-        raise RunPreflightError(str(exc)) from exc
+        raise RunPreflightError.from_value_error(exc) from exc
 
 
 def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> None:
@@ -62,7 +71,7 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             bindings=dict(plan.run_spec.get("resourceBindings") or {}),
         )
     except ValueError as exc:
-        raise RunPreflightError(str(exc)) from exc
+        raise RunPreflightError.from_value_error(exc) from exc
 
 
 def _preflight_resolved_inputs(run_spec: dict[str, Any]) -> list[dict[str, str]]:

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from apps.remote_runner.config import RemoteRunnerConfig
-import apps.remote_runner.tool_contract_validation as validation
+import apps.remote_runner.tool_contract_snakemake as snakemake
 
 
 def test_tool_contract_snakemake_runs_are_serialized(tmp_path: Path) -> None:
@@ -20,7 +20,7 @@ def test_tool_contract_snakemake_runs_are_serialized(tmp_path: Path) -> None:
     max_active = 0
     active_lock = threading.Lock()
     start = threading.Barrier(3)
-    original_run = validation.subprocess.run
+    original_run = snakemake.subprocess.run
 
     def fake_run(_cmd, **_kwargs):
         nonlocal active, max_active
@@ -34,7 +34,7 @@ def test_tool_contract_snakemake_runs_are_serialized(tmp_path: Path) -> None:
 
     def run_snakemake(index: int) -> None:
         start.wait(timeout=5)
-        validation._run_snakemake(
+        snakemake.run_snakemake(
             cfg,
             snakefile=tmp_path / f"Snakefile.{index}",
             work_dir=tmp_path / f"work-{index}",
@@ -44,13 +44,13 @@ def test_tool_contract_snakemake_runs_are_serialized(tmp_path: Path) -> None:
         )
 
     try:
-        validation.subprocess.run = fake_run
+        snakemake.subprocess.run = fake_run
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(run_snakemake, index) for index in range(2)]
             start.wait(timeout=5)
             for future in futures:
                 future.result(timeout=5)
     finally:
-        validation.subprocess.run = original_run
+        snakemake.subprocess.run = original_run
 
     assert max_active == 1

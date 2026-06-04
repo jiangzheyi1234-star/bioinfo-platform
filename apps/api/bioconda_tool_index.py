@@ -101,16 +101,13 @@ def load_bioconda_index(*, cache_dir: Path | None = None) -> dict[str, Any] | No
     index_path = root / INDEX_FILENAME
     try:
         mtime = index_path.stat().st_mtime
-    except OSError:
+    except FileNotFoundError:
         return None
     cache_key = str(index_path)
     cached = _INDEX_MEMORY_CACHE.get(cache_key)
     if cached and cached[0] == mtime:
         return cached[1]
-    try:
-        payload = json.loads(index_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or int(payload.get("version") or 0) != INDEX_VERSION:
         return None
     _INDEX_MEMORY_CACHE[cache_key] = (mtime, payload)

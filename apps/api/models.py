@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-from typing import Literal
+from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from apps.remote_runner.workflow_design_contract import WorkflowDesignDraftV1
 
@@ -33,34 +31,65 @@ class SSHTerminalCreateRequest(ApiRequest):
     rows: int = Field(default=28, ge=12, le=80)
 
 
+class TerminalInputMessage(ApiRequest):
+    type: Literal["input"]
+    data: str = Field(min_length=1)
+
+
+class TerminalResizeMessage(ApiRequest):
+    type: Literal["resize"]
+    cols: int = Field(default=120, ge=40, le=240)
+    rows: int = Field(default=28, ge=12, le=80)
+
+
+class TerminalPingMessage(ApiRequest):
+    type: Literal["ping"]
+
+
+class TerminalSessionSnapshot(ApiRequest):
+    session_id: str = Field(min_length=1)
+    cursor: int = Field(ge=0)
+    output: str
+    connected: bool
+    input_enabled: bool
+    closed: bool
+    message: str
+    created_at: float
+    closed_at: float | None
+
+    @property
+    def state_key(self) -> tuple[bool, bool, str]:
+        return self.connected, self.input_enabled, self.message
+
+
+TerminalClientMessage: TypeAlias = Annotated[
+    TerminalInputMessage | TerminalResizeMessage | TerminalPingMessage,
+    Field(discriminator="type"),
+]
+TERMINAL_CLIENT_MESSAGE_ADAPTER = TypeAdapter(TerminalClientMessage)
+
+
+class RunSpecRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pipelineId: str = Field(min_length=1)
+    projectId: str | None = None
+    pipelineVersion: str | None = None
+    runId: str | None = None
+    runSpecVersion: str | None = None
+    inputs: list[dict[str, Any]] | None = None
+    params: dict[str, Any] | None = None
+    resourceBindings: dict[str, Any] | None = None
+    workflowDesign: dict[str, Any] | None = None
+    workflow: dict[str, Any] | None = None
+
+
 class RunSubmitRequest(ApiRequest):
     serverId: str = Field(min_length=1)
     runId: str | None = None
     requestId: str | None = None
     idempotencyKey: str | None = Field(default=None, min_length=1)
-    runSpec: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_legacy_payload_shape(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            if "pipelineId" in data:
-                raise ValueError(
-                    "UNSUPPORTED_LEGACY_PAYLOAD: top-level pipelineId is not supported; use runSpec.pipelineId"
-                )
-            run_spec = data.get("runSpec")
-            if isinstance(run_spec, dict) and "serverId" in run_spec:
-                raise ValueError(
-                    "UNSUPPORTED_LEGACY_PAYLOAD: runSpec.serverId is not supported; use top-level serverId"
-                )
-        return data
-
-    @model_validator(mode="after")
-    def validate_pipeline_binding(self) -> "RunSubmitRequest":
-        run_spec_pipeline_id = str(self.runSpec.get("pipelineId") or "").strip()
-        if not run_spec_pipeline_id:
-            raise ValueError("pipelineId is required")
-        return self
+    runSpec: RunSpecRequest
 
 
 class UploadSubmitRequest(ApiRequest):
@@ -133,6 +162,9 @@ class DatabaseUpdateRequest(ApiRequest):
 
 class WorkflowDesignRequest(ApiRequest):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+    def runtime_payload(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
 class WorkflowDesignDraftCreateRequest(WorkflowDesignRequest):

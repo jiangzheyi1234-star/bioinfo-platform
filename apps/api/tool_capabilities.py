@@ -7,17 +7,27 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
 from typing import Any
 
 from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
 from apps.api.snakemake_wrappers import find_snakemake_wrappers_for_tool
+from apps.api.tool_capability_anaconda import (
+    SUPPORTED_CHANNELS,
+    CondaPackageHit,
+    latest_version as _latest_version,
+    normalize_target_platform as _normalize_target_platform,
+    package_spec as _package_spec,
+    parse_search_item as _parse_search_item,
+    platform_supported as _platform_supported,
+    platforms as _platforms,
+    remaining_timeout as _remaining_timeout,
+    versions as _versions,
+)
 from apps.api.tool_contract_resolver import DEFAULT_TOOL_CONTRACT_RESOLVER
 
 
 ANACONDA_SEARCH_URL = "https://api.anaconda.org/search"
 ANACONDA_PACKAGE_URL = "https://api.anaconda.org/package"
-SUPPORTED_CHANNELS = ("bioconda", "conda-forge")
 CACHE_TTL_SECONDS = 300
 ANACONDA_TOTAL_SEARCH_TIMEOUT_SECONDS = 30.0
 ANACONDA_SEARCH_TIMEOUT_SECONDS = 20.0
@@ -25,43 +35,6 @@ ANACONDA_EXACT_LOOKUP_TIMEOUT_SECONDS = 5.0
 ONLINE_SEARCH_RESULT_LIMIT = 200
 
 _CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
-
-
-@dataclass(frozen=True)
-class CondaPackageHit:
-    name: str
-    channel: str
-    summary: str
-    latest_version: str
-    versions: list[str]
-    package_spec: str
-    source_url: str
-    platforms: list[str]
-    target_platform: str
-    target_platform_supported: bool
-
-    def to_dict(self) -> dict[str, Any]:
-        source_label = "Bioconda" if self.channel == "bioconda" else "conda-forge"
-        return {
-            "id": f"{self.channel}::{self.name}",
-            "name": self.name,
-            "summary": self.summary,
-            "source": self.channel,
-            "sourceLabel": source_label,
-            "category": "在线工具",
-            "tasks": [],
-            "packageSpec": self.package_spec,
-            "latestVersion": self.latest_version,
-            "versions": self.versions,
-            "targetModule": "选择流程后配置",
-            "envPath": "envs/<module>.yaml",
-            "sourceUrl": self.source_url,
-            "platforms": self.platforms,
-            "targetPlatform": self.target_platform,
-            "targetPlatformSupported": self.target_platform_supported,
-            "capabilities": [],
-            "online": True,
-        }
 
 
 def search_tool_capabilities(
@@ -317,101 +290,6 @@ def _search_anaconda(query: str, *, target_platform: str, limit: int) -> list[Co
         target_platform=target_platform,
         deadline=deadline,
     )
-
-
-def _parse_search_item(raw: Any, *, target_platform: str) -> CondaPackageHit | None:
-    if not isinstance(raw, dict):
-        return None
-    channel = str(raw.get("owner") or raw.get("channel") or "").strip().lower()
-    if channel not in SUPPORTED_CHANNELS:
-        return None
-    name = str(raw.get("name") or "").strip()
-    if not name:
-        return None
-    summary = str(raw.get("summary") or raw.get("description") or "").strip()
-    latest_version = _latest_version(raw)
-    versions = _versions(raw)
-    platforms = _platforms(raw)
-    return CondaPackageHit(
-        name=name,
-        channel=channel,
-        summary=summary or "Conda package",
-        latest_version=latest_version,
-        versions=versions,
-        package_spec=_package_spec(channel, name, latest_version),
-        source_url=f"https://anaconda.org/{channel}/{name}",
-        platforms=platforms,
-        target_platform=target_platform,
-        target_platform_supported=_platform_supported(platforms, target_platform),
-    )
-
-
-def _latest_version(raw: dict[str, Any]) -> str:
-    for key in ("latest_version", "latestVersion", "version"):
-        value = str(raw.get(key) or "").strip()
-        if value:
-            return value
-    versions = raw.get("versions")
-    if isinstance(versions, list) and versions:
-        return str(versions[-1] or "").strip()
-    return ""
-
-
-def _versions(raw: dict[str, Any]) -> list[str]:
-    versions = raw.get("versions")
-    if not isinstance(versions, list):
-        return []
-    return [str(item).strip() for item in versions if str(item or "").strip()]
-
-
-def _package_spec(channel: str, name: str, version: str) -> str:
-    if version:
-        return f"{channel}::{name}={version}"
-    return f"{channel}::{name}"
-
-
-def _platforms(raw: dict[str, Any]) -> list[str]:
-    conda_platforms = raw.get("conda_platforms")
-    if isinstance(conda_platforms, list):
-        return sorted({str(item).strip() for item in conda_platforms if str(item or "").strip()})
-
-    platforms = raw.get("platforms")
-    if isinstance(platforms, dict):
-        return sorted({str(item).strip() for item in platforms.keys() if str(item or "").strip()})
-    if isinstance(platforms, list):
-        return sorted({str(item).strip() for item in platforms if str(item or "").strip()})
-
-    files = raw.get("files")
-    if isinstance(files, list):
-        subdirs = set()
-        for file_item in files:
-            if not isinstance(file_item, dict):
-                continue
-            subdir = str(file_item.get("attrs", {}).get("subdir") or file_item.get("subdir") or "").strip()
-            if subdir:
-                subdirs.add(subdir)
-        return sorted(subdirs)
-
-    return []
-
-
-def _normalize_target_platform(target_platform: str) -> str:
-    return str(target_platform or "").strip().lower()
-
-
-def _platform_supported(platforms: list[str], target_platform: str) -> bool:
-    if not target_platform:
-        return True
-    if not platforms:
-        return False
-    return target_platform in platforms or "noarch" in platforms
-
-
-def _remaining_timeout(deadline: float, request_timeout: float) -> float:
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError("ANACONDA_SEARCH_TIMEOUT")
-    return min(request_timeout, remaining)
 
 
 def _search_exact_packages(
