@@ -39,10 +39,11 @@ def wrapper_contract_hints(wrapper_path: str) -> dict[str, Any]:
     if disk is not None:
         _META_HINTS_CACHE[normalized_path] = (now, disk)
         return dict(disk)
+    hints: dict[str, Any] = {}
     try:
-        hints = wrapper_contract_hints_from_meta_yaml(_request_wrapper_meta_yaml(normalized_path))
+        hints.update(wrapper_contract_hints_from_meta_yaml(_request_wrapper_meta_yaml(normalized_path)))
     except (OSError, urllib.error.URLError, ValueError, yaml.YAMLError):
-        hints = {}
+        pass
     if hints:
         source_ref = dict(hints.get("sourceRef") or {})
         source_ref.update(
@@ -54,6 +55,22 @@ def wrapper_contract_hints(wrapper_path: str) -> dict[str, Any]:
             }
         )
         hints["sourceRef"] = source_ref
+    try:
+        environment = wrapper_environment_hints_from_environment_yaml(_request_wrapper_environment_yaml(normalized_path))
+    except (OSError, urllib.error.URLError, ValueError, yaml.YAMLError):
+        environment = {}
+    if environment:
+        source_ref = dict(environment.get("sourceRef") or {})
+        source_ref.update(
+            {
+                "path": f"{normalized_path}/environment.yaml",
+                "repository": SNAKEMAKE_WRAPPERS_REPOSITORY,
+                "ref": SNAKEMAKE_WRAPPERS_REF,
+                "url": wrapper_environment_url(normalized_path),
+            }
+        )
+        environment["sourceRef"] = source_ref
+        hints["environment"] = environment
     _save_cached_meta_hints(normalized_path, hints)
     _META_HINTS_CACHE[normalized_path] = (now, hints)
     return dict(hints)
@@ -80,13 +97,48 @@ def wrapper_contract_hints_from_meta_yaml(raw: str) -> dict[str, Any]:
     return hints
 
 
+def wrapper_environment_hints_from_environment_yaml(raw: str) -> dict[str, Any]:
+    payload = yaml.safe_load(str(raw or "")) or {}
+    if not isinstance(payload, dict):
+        return {}
+    channels = _string_list(payload.get("channels"))
+    dependencies = _string_list(payload.get("dependencies"))
+    conda: dict[str, Any] = {}
+    if channels:
+        conda["channels"] = channels
+    if dependencies:
+        conda["dependencies"] = dependencies
+    if not conda:
+        return {}
+    return {
+        "conda": conda,
+        "sourceRef": {
+            "type": "snakemake-wrapper-environment",
+            "format": "environment.yaml",
+        },
+    }
+
+
 def wrapper_meta_url(wrapper_path: str) -> str:
     return f"{SNAKEMAKE_WRAPPERS_RAW_ROOT}/{_normalize_wrapper_path(wrapper_path)}/meta.yaml"
+
+
+def wrapper_environment_url(wrapper_path: str) -> str:
+    return f"{SNAKEMAKE_WRAPPERS_RAW_ROOT}/{_normalize_wrapper_path(wrapper_path)}/environment.yaml"
 
 
 def _request_wrapper_meta_yaml(wrapper_path: str) -> str:
     request = urllib.request.Request(
         wrapper_meta_url(wrapper_path),
+        headers={"Accept": "text/yaml,*/*", "User-Agent": "h2ometa-tool-search"},
+    )
+    with urllib.request.urlopen(request, timeout=WRAPPER_LOOKUP_TIMEOUT_SECONDS) as response:
+        return response.read().decode("utf-8")
+
+
+def _request_wrapper_environment_yaml(wrapper_path: str) -> str:
+    request = urllib.request.Request(
+        wrapper_environment_url(wrapper_path),
         headers={"Accept": "text/yaml,*/*", "User-Agent": "h2ometa-tool-search"},
     )
     with urllib.request.urlopen(request, timeout=WRAPPER_LOOKUP_TIMEOUT_SECONDS) as response:
