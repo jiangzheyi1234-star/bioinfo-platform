@@ -76,14 +76,16 @@ export async function searchToolCapabilities({
 export async function searchToolCandidates({
   query,
   page,
+  signal,
 }: {
   query: string;
   page: number;
+  signal?: AbortSignal;
 }): Promise<ToolCandidateCatalogResponse["data"]> {
   const response = await requestLocalApiJson<ToolCandidateCatalogResponse>(
     "GET",
     `/api/v1/tool-capabilities/candidates?q=${encodeURIComponent(query)}&page=${page}&pageSize=50&targetPlatform=linux-64`,
-    { cache: "no-store", timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
+    { cache: "no-store", signal, timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
   );
   return response.data;
 }

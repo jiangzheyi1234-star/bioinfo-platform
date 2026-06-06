@@ -185,11 +185,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "Snakemake wrapper catalog" in ui
     assert "ToolCatalogQualityStrip" in page
     assert "wrapperCatalog={state.wrapperCatalog}" in page
-    assert "searchNotice" in hook
-    assert "searchNotice" in ui
-    assert "searchNoticeMessage" in hook
+    assert "searchNotice" not in hook
+    assert "searchNotice" not in ui
+    assert "searchNoticeMessage" not in model
     assert "onlineUnavailableReason" in model
-    assert "在线工具源暂时限流" in model
     assert "export function ToolPreviewPanel" in ui
     assert "RuleNodeSummary" in ui
     assert "RuleSpecContractPreview" in ui
@@ -268,3 +267,27 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "href={toolSearchHref(recommendation)}" in recommendation_ui
     assert 'pathname: "/workflows/tools"' in recommendation_ui
     assert "query: { q: recommendationSearchQuery(recommendation) }" in recommendation_ui
+
+
+def test_tools_search_surfaces_unified_candidate_catalog() -> None:
+    api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
+    hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
+    ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+
+    assert "signal?: AbortSignal" in api
+    assert "searchToolCandidates" in hook
+    assert "searchToolCapabilities" not in hook
+    assert "const [candidateCatalog" in hook
+    assert "setCandidateCatalogLoading" in hook
+    assert "setCandidateCatalogError" in hook
+    assert "installableCandidateItems" in hook
+    assert "candidateCatalog={state.candidateCatalog}" in page
+    assert "candidateCatalogLoading={state.candidateCatalogLoading}" in page
+    assert "candidateCatalogError={state.candidateCatalogError}" in page
+    assert "candidateCatalog?: ToolCandidateCatalog | null" in ui
+    assert "Tool candidate catalog" in ui
+    assert "sourceCounts" in ui
+    assert "conda packages" in ui
+    assert "wrappers" in ui
+    assert "profiles" in ui
