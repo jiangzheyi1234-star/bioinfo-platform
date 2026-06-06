@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 import json
 import subprocess
-import threading
 from pathlib import Path
 
 from .config import RemoteRunnerConfig
@@ -21,31 +20,6 @@ from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
 )
-
-
-def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str, run_spec: dict) -> None:
-    thread = threading.Thread(
-        target=run_snakemake_execution,
-        kwargs={
-            "cfg": cfg,
-            "run_id": run_id,
-            "request_id": request_id,
-            "run_spec": run_spec,
-        },
-        daemon=True,
-    )
-    try:
-        thread.start()
-    except RuntimeError as exc:
-        _mark_failed(
-            cfg,
-            run_id=run_id,
-            request_id=request_id,
-            message="Failed to start run executor.",
-            scope="startup",
-            code="RUN_EXECUTOR_START_FAILED",
-            stderr=str(exc) or "Failed to start run executor.",
-        )
 
 
 def run_snakemake_execution(
