@@ -31,6 +31,7 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "search_tool_capabilities_from_request" in source
     assert "search_tool_candidates_from_request" in source
     assert "recommend_tool_candidates_from_request" in source
+    assert "get_tool_candidate_target_acceptance_from_request" in source
     assert "list_snakemake_wrapper_catalog_from_request" in source
     assert "list_tool_profile_catalog_from_request" in source
     assert "get_tool_capabilities_index_status_from_request" in source
@@ -39,6 +40,7 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "def search_tool_capabilities_from_request(" in service_source
     assert "def search_tool_candidates_from_request(" in service_source
     assert "def recommend_tool_candidates_from_request(" in service_source
+    assert "def get_tool_candidate_target_acceptance_from_request(" in service_source
     assert "def list_snakemake_wrapper_catalog_from_request(" in service_source
     assert "def list_tool_profile_catalog_from_request(" in service_source
     assert "def get_tool_capabilities_index_status_from_request(" in service_source
@@ -47,6 +49,7 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert '@router.get("/api/v1/tool-capabilities/tool-profiles", operation_id="listToolProfileCatalog")' in source
     assert '@router.get("/api/v1/tool-capabilities/candidates", operation_id="searchToolCandidates")' in source
     assert '@router.get("/api/v1/tool-capabilities/candidate-recommendations", operation_id="recommendToolCandidates")' in source
+    assert '@router.get("/api/v1/tool-capabilities/target-acceptance", operation_id="getToolCandidateTargetAcceptance")' in source
     assert 'outputKind: str = ""' in source
     assert 'outputMimeType: str = ""' in source
     assert 'outputData: str = ""' in source
@@ -62,6 +65,7 @@ def test_local_api_routes_pin_openapi_operation_ids() -> None:
         "searchToolCapabilities",
         "searchToolCandidates",
         "recommendToolCandidates",
+        "getToolCandidateTargetAcceptance",
         "listSnakemakeWrapperCatalog",
         "listToolProfileCatalog",
         "getToolCapabilitiesIndexStatus",
