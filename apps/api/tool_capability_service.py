@@ -6,6 +6,7 @@ from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda
 from apps.api.route_utils import run_sync
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_candidate_catalog import search_tool_candidates
+from apps.api.tool_candidate_recommendations import recommend_tool_candidates
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 
@@ -42,6 +43,25 @@ async def search_tool_candidates_from_request(
             "data": search_tool_candidates(
                 q,
                 target_platform=target_platform,
+                page=page,
+                page_size=page_size,
+            )
+        },
+    )
+
+
+async def recommend_tool_candidates_from_request(
+    *,
+    q: str,
+    output_port: dict[str, Any],
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    return await run_sync(
+        lambda: {
+            "data": recommend_tool_candidates(
+                output_port=output_port,
+                query=q,
                 page=page,
                 page_size=page_size,
             )

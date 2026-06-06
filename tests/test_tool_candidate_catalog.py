@@ -153,3 +153,25 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         "workflowReady": 36,
         "productionEnabled": 6,
     }
+
+
+def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
+    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
+
+    catalog = recommend_tool_candidates(
+        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
+        page=1,
+        page_size=20,
+    )
+
+    candidate_ids = [item["candidate"]["candidateId"] for item in catalog["items"]]
+    assert "h2ometa-tool-profile::fastqc" in candidate_ids
+    assert "h2ometa-tool-profile::bracken" not in candidate_ids
+    fastqc = next(item for item in catalog["items"] if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc")
+    assert fastqc["decision"] == "recommended"
+    assert fastqc["confidence"] >= 0.55
+    assert fastqc["matchedFields"] == ["kind", "mimeType"]
+    assert fastqc["inputPort"]["name"] == "reads"
+    assert fastqc["candidate"]["qualityTier"] == "draft-runnable"
+    assert "端口方向 output -> input" in fastqc["hardChecks"]
+    assert any("kind" in value for value in fastqc["evidence"])
