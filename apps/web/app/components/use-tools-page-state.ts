@@ -7,6 +7,7 @@ import {
   createToolPrepareJob,
   fetchAddedTools,
   fetchSnakemakeWrapperCatalog,
+  fetchToolCandidateTargetAcceptance,
   getCachedAddedTools,
   openToolSourceUrl,
   removeToolDependency,
@@ -19,6 +20,7 @@ import {
   type SnakemakeWrapperCatalog,
   type ToolCandidateCatalog,
   type ToolCandidateCatalogItem,
+  type ToolCatalogTargetAcceptance,
   type ToolSearchItem,
   applySelectedPackageLock,
   applySelectedWrapperLock,
@@ -59,6 +61,9 @@ export function useToolsPageState(initialQuery = "") {
   const [wrapperCatalog, setWrapperCatalog] = useState<SnakemakeWrapperCatalog | null>(null);
   const [wrapperCatalogLoading, setWrapperCatalogLoading] = useState(true);
   const [wrapperCatalogError, setWrapperCatalogError] = useState("");
+  const [targetAcceptance, setTargetAcceptance] = useState<ToolCatalogTargetAcceptance | null>(null);
+  const [targetAcceptanceLoading, setTargetAcceptanceLoading] = useState(true);
+  const [targetAcceptanceError, setTargetAcceptanceError] = useState("");
   const [editingRuleSpecToolId, setEditingRuleSpecToolId] = useState("");
   const [ruleSpecSavingId, setRuleSpecSavingId] = useState("");
   const [ruleSpecEditError, setRuleSpecEditError] = useState("");
@@ -119,6 +124,28 @@ export function useToolsPageState(initialQuery = "") {
     };
   }, []);
 
+  const loadTargetAcceptance = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setTargetAcceptanceLoading(true);
+    }
+    setTargetAcceptanceError("");
+    try {
+      const acceptance = await fetchToolCandidateTargetAcceptance();
+      setTargetAcceptance(acceptance);
+    } catch (err) {
+      setTargetAcceptance(null);
+      setTargetAcceptanceError(toolErrorMessage(err, "读取 Catalog v1 targets 失败"));
+    } finally {
+      if (!options.silent) {
+        setTargetAcceptanceLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTargetAcceptance();
+  }, [loadTargetAcceptance]);
+
   useEffect(() => {
     let shouldRefresh = false;
     prepareTasks.forEach((task) => {
@@ -130,8 +157,9 @@ export function useToolsPageState(initialQuery = "") {
     });
     if (shouldRefresh) {
       void loadAddedTools({ forceRefresh: true, silent: true });
+      void loadTargetAcceptance({ silent: true });
     }
-  }, [loadAddedTools, prepareTasks]);
+  }, [loadAddedTools, loadTargetAcceptance, prepareTasks]);
 
   useEffect(() => {
     const normalized = query.trim();
@@ -345,10 +373,12 @@ export function useToolsPageState(initialQuery = "") {
           trackToolPrepareJob(job);
         }
         await loadAddedTools({ forceRefresh: true, silent: true });
+        await loadTargetAcceptance({ silent: true });
         setView("library");
       } catch (err) {
         if (saved) {
           await loadAddedTools({ forceRefresh: true, silent: true });
+          await loadTargetAcceptance({ silent: true });
           setView("library");
           setToolsError(toolErrorMessage(err, "工具已加入，但启动验证失败"));
         } else {
@@ -367,6 +397,7 @@ export function useToolsPageState(initialQuery = "") {
       try {
         await removeToolDependency(id);
         await loadAddedTools({ forceRefresh: true, silent: true });
+        await loadTargetAcceptance({ silent: true });
       } catch (err) {
         setToolsError(toolErrorMessage(err, "移除工具失败"));
       }
@@ -380,6 +411,7 @@ export function useToolsPageState(initialQuery = "") {
       try {
         await updateToolRuleTemplate(id, ruleTemplate);
         await loadAddedTools({ forceRefresh: true, silent: true });
+        await loadTargetAcceptance({ silent: true });
         setEditingRuleSpecToolId("");
       } catch (err) {
         setRuleSpecEditError(toolErrorMessage(err, "保存 RuleSpec 失败"));
@@ -446,6 +478,9 @@ export function useToolsPageState(initialQuery = "") {
     setSource,
     setView,
     source,
+    targetAcceptance,
+    targetAcceptanceError,
+    targetAcceptanceLoading,
     toolsError,
     toolsLoading,
     wrapperCatalog,

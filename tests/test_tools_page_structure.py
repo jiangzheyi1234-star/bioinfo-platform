@@ -183,6 +183,14 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "draft-runnable" in ui
     assert "workflow-ready" in ui
     assert "production-enabled" in ui
+    assert "ToolCatalogTargetAcceptance" in model
+    assert "fetchToolCandidateTargetAcceptance" in api
+    assert "/api/v1/tool-capabilities/target-acceptance" in api
+    assert "targetAcceptance" in hook
+    assert "setTargetAcceptance" in hook
+    assert "targetAcceptance={state.targetAcceptance}" in page
+    assert "Catalog v1 targets" in ui
+    assert "remaining" in ui
     assert "Snakemake wrapper catalog" in ui
     assert "ToolCatalogQualityStrip" in page
     assert "wrapperCatalog={state.wrapperCatalog}" in page

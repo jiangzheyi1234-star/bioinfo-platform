@@ -327,6 +327,38 @@ export type ToolCandidateCatalogResponse = {
   data: ToolCandidateCatalog;
 };
 
+export type ToolCatalogTargetResult = {
+  target: number;
+  actual: number;
+  passed: boolean;
+  remaining: number;
+};
+
+export type ToolCatalogTargetAcceptance = {
+  targetName: string;
+  targetPlatform: string;
+  complete: boolean;
+  blockedTargets: string[];
+  targets: {
+    discovered: ToolCatalogTargetResult;
+    addableDraft: ToolCatalogTargetResult;
+    snakemakeRenderable: ToolCatalogTargetResult;
+    workflowReady: ToolCatalogTargetResult;
+    productionEnabled: ToolCatalogTargetResult;
+  };
+  catalog?: {
+    registeredToolCounts?: {
+      total: number;
+      workflowReady: number;
+      productionEnabled: number;
+    };
+  };
+};
+
+export type ToolCatalogTargetAcceptanceResponse = {
+  data: ToolCatalogTargetAcceptance;
+};
+
 export type SnakemakeWrapperCatalog = {
   items: SnakemakeWrapperMatch[];
   query: string;

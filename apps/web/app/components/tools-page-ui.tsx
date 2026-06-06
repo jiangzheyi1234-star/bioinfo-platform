@@ -4,7 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import type { RuleSpecDraft, SnakemakeWrapperCatalog, ToolCandidateCatalog, ToolSearchItem } from "./tools-page-model";
+import type {
+  RuleSpecDraft,
+  SnakemakeWrapperCatalog,
+  ToolCandidateCatalog,
+  ToolCatalogTargetAcceptance,
+  ToolCatalogTargetResult,
+  ToolSearchItem,
+} from "./tools-page-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 import { ToolWrapperSelector } from "./tools-page-wrapper-selector";
 
@@ -81,6 +88,9 @@ export function ToolCatalogQualityStrip({
   candidateCatalogLoading = false,
   error,
   loading,
+  targetAcceptance,
+  targetAcceptanceError = "",
+  targetAcceptanceLoading = false,
   wrapperCatalog,
 }: {
   candidateCatalog?: ToolCandidateCatalog | null;
@@ -88,6 +98,9 @@ export function ToolCatalogQualityStrip({
   candidateCatalogLoading?: boolean;
   error: string;
   loading: boolean;
+  targetAcceptance?: ToolCatalogTargetAcceptance | null;
+  targetAcceptanceError?: string;
+  targetAcceptanceLoading?: boolean;
   wrapperCatalog: SnakemakeWrapperCatalog | null;
 }) {
   const showingCandidates = Boolean(candidateCatalog || candidateCatalogLoading || candidateCatalogError);
@@ -116,6 +129,14 @@ export function ToolCatalogQualityStrip({
         : loading
           ? "正在读取 catalog"
           : error || wrapperCatalog?.sourceRef?.ref || "source pending";
+  const targetMetrics = targetAcceptance ? catalogTargetMetrics(targetAcceptance) : [];
+  const targetStatusText = targetAcceptanceLoading
+    ? "正在读取 Catalog v1 targets"
+    : targetAcceptanceError || (
+        targetAcceptance
+          ? `${targetAcceptance.blockedTargets.length} blocked targets`
+          : "targets pending"
+      );
   return (
     <section className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -140,8 +161,41 @@ export function ToolCatalogQualityStrip({
           ))}
         </div>
       </div>
+      <div className="mt-2 border-t border-slate-200 pt-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-slate-700">Catalog v1 targets</div>
+            <div className="mt-0.5 text-[11px] text-slate-400">{targetStatusText}</div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {targetMetrics.map(([label, result]) => (
+              <span
+                key={label}
+                className={cn(
+                  "inline-flex h-6 items-center rounded-md border bg-white px-2 text-[11px]",
+                  result.passed ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"
+                )}
+              >
+                <span className="mr-1 font-mono text-slate-900">{result.actual}/{result.target}</span>
+                {label}
+                <span className="ml-1 text-slate-400">{result.remaining} remaining</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
     </section>
   );
+}
+
+function catalogTargetMetrics(acceptance: ToolCatalogTargetAcceptance): [string, ToolCatalogTargetResult][] {
+  return [
+    ["discovered", acceptance.targets.discovered],
+    ["addable", acceptance.targets.addableDraft],
+    ["renderable", acceptance.targets.snakemakeRenderable],
+    ["workflow-ready", acceptance.targets.workflowReady],
+    ["production-enabled", acceptance.targets.productionEnabled],
+  ];
 }
 
 export function RuleNodeSummary({ item }: { item: ToolSearchItem }) {
