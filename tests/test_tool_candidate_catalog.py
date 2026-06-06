@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
     from apps.api.tool_profile_catalog import catalog_tool_profiles
@@ -28,19 +33,23 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
 
     monkeypatch.setattr(
         tool_candidate_catalog,
-        "search_tool_capabilities",
-        lambda query, *, target_platform, limit, page, page_size: {
-            "data": {
-                "items": [
-                    {
-                        "candidateId": "bioconda::fastp",
-                        "candidateKind": "conda-package",
-                        "qualityTier": "draft-runnable",
-                        "name": "fastp",
-                    }
-                ],
-                "total": 1,
-            }
+        "catalog_conda_package_candidates",
+        lambda *, query, target_platform, page, page_size: {
+            "items": [
+                {
+                    "candidateId": "bioconda::fastp",
+                    "candidateKind": "conda-package",
+                    "qualityTier": "draft-runnable",
+                    "name": "fastp",
+                }
+            ],
+            "total": 1,
+            "qualityCounts": {
+                "discovered": 1,
+                "draftRunnable": 1,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         },
     )
     monkeypatch.setattr(
@@ -56,6 +65,12 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
                 }
             ],
             "total": 1,
+            "qualityCounts": {
+                "discovered": 1,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         },
     )
     monkeypatch.setattr(
@@ -71,6 +86,12 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
                 }
             ],
             "total": 1,
+            "qualityCounts": {
+                "discovered": 1,
+                "draftRunnable": 1,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         },
     )
 
@@ -92,7 +113,7 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
         "toolProfiles": 1,
     }
     assert catalog["qualityCounts"] == {
-        "discovered": 1,
+        "discovered": 3,
         "draftRunnable": 2,
         "workflowReady": 0,
         "productionEnabled": 0,
@@ -105,12 +126,16 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
 
     monkeypatch.setattr(
         tool_candidate_catalog,
-        "search_tool_capabilities",
-        lambda query, *, target_platform, limit, page, page_size: {
-            "data": {
-                "items": [{"candidateId": "bioconda::fastp", "candidateKind": "conda-package"}],
-                "total": 20,
-            }
+        "catalog_conda_package_candidates",
+        lambda *, query, target_platform, page, page_size: {
+            "items": [{"candidateId": "bioconda::fastp", "candidateKind": "conda-package"}],
+            "total": 20,
+            "qualityCounts": {
+                "discovered": 20,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         },
     )
     monkeypatch.setattr(
@@ -148,11 +173,87 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
     assert catalog["total"] == 532
     assert catalog["hasMore"] is True
     assert catalog["qualityCounts"] == {
-        "discovered": 513,
+        "discovered": 532,
         "draftRunnable": 112,
         "workflowReady": 36,
         "productionEnabled": 6,
     }
+
+
+def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_query(monkeypatch) -> None:
+    from apps.api import tool_candidate_catalog
+
+    source = (ROOT / "apps/api/tool_candidate_catalog.py").read_text(encoding="utf-8")
+    assert "search_tool_capabilities" not in source
+
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "catalog_snakemake_wrappers",
+        lambda *, query, page, page_size: {
+            "items": [],
+            "total": 0,
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "items": [],
+            "total": 0,
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "search_bioconda_index_page",
+        lambda query, *, page, page_size, cache_dir: {
+            "items": [
+                {
+                    "name": "catalog-only-tool",
+                    "summary": "Catalog-only package",
+                    "latestVersion": "2.1.3",
+                    "versions": ["2.1.3"],
+                    "platforms": ["linux-64", "noarch"],
+                }
+            ],
+            "total": 12398,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": True,
+            "indexAvailable": True,
+        },
+    )
+    monkeypatch.setattr(tool_candidate_catalog, "find_snakemake_wrappers_for_tool", lambda name: [])
+
+    catalog = tool_candidate_catalog.search_tool_candidates("", target_platform="linux-64", page=1, page_size=10)
+
+    assert catalog["sourceCounts"] == {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 0}
+    assert catalog["qualityCounts"]["discovered"] == 12398
+    assert catalog["total"] == 12398
+    assert catalog["hasMore"] is True
+    item = catalog["items"][0]
+    assert item["candidateId"] == "bioconda::catalog-only-tool"
+    assert item["candidateKind"] == "conda-package"
+    assert item["qualityTier"] == "discovered"
+    assert item["sourceRef"] == {
+        "type": "conda-package",
+        "channel": "bioconda",
+        "name": "catalog-only-tool",
+        "url": "https://anaconda.org/bioconda/catalog-only-tool",
+    }
+    assert item["packageSpec"] == "bioconda::catalog-only-tool=2.1.3"
+    assert item["targetPlatformSupported"] is True
 
 
 def test_semantic_tool_recommendations_use_profile_input_ports() -> None:

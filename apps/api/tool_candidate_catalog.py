@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
-from apps.api.tool_capabilities import search_tool_capabilities
+from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
+from apps.api.snakemake_wrappers import catalog_snakemake_wrappers, find_snakemake_wrappers_for_tool
+from apps.api.tool_candidate_model import conda_tool_candidate_fields
+from apps.api.tool_capability_anaconda import (
+    CondaPackageHit,
+    normalize_target_platform,
+    package_spec,
+    platform_supported,
+)
+from apps.api.tool_contract_resolver import DEFAULT_TOOL_CONTRACT_RESOLVER
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 
 
@@ -73,17 +81,101 @@ def search_tool_candidates(
 
 
 def _conda_candidate_catalog(query: str, *, target_platform: str, page_size: int) -> dict[str, Any]:
-    if not query:
-        return {"items": [], "total": 0}
-    payload = search_tool_capabilities(
-        query,
+    return catalog_conda_package_candidates(
+        query=query,
         target_platform=target_platform,
-        limit=page_size,
         page=1,
         page_size=page_size,
     )
-    data = payload.get("data") if isinstance(payload, dict) else None
-    return data if isinstance(data, dict) else {"items": [], "total": 0}
+
+
+def catalog_conda_package_candidates(
+    *,
+    query: str,
+    target_platform: str = "",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    normalized_query = str(query or "").strip().lower()
+    normalized_target_platform = normalize_target_platform(target_platform)
+    bounded_page = max(1, int(page or 1))
+    bounded_page_size = max(1, min(int(page_size or 50), 100))
+    index_page = search_bioconda_index_page(
+        normalized_query,
+        page=bounded_page,
+        page_size=bounded_page_size,
+        cache_dir=get_bioconda_index_cache_dir(),
+    )
+    records = index_page.get("items")
+    if not isinstance(records, list):
+        records = []
+    items = [
+        _conda_candidate_from_index_record(record, target_platform=normalized_target_platform)
+        for record in records
+        if isinstance(record, dict)
+    ]
+    total = _count_value(index_page.get("total"))
+    quality_counts = _quality_counts(items)
+    quality_counts["discovered"] = total
+    return {
+        "items": items,
+        "query": normalized_query,
+        "total": total,
+        "page": int(index_page.get("page") or bounded_page),
+        "pageSize": int(index_page.get("pageSize") or bounded_page_size),
+        "hasMore": bool(index_page.get("hasMore")),
+        "localIndexAvailable": bool(index_page.get("indexAvailable")),
+        "qualityCounts": quality_counts,
+        "sourceRef": {
+            "type": "bioconda-index",
+            "channel": "bioconda",
+        },
+    }
+
+
+def _conda_candidate_from_index_record(record: dict[str, Any], *, target_platform: str) -> dict[str, Any]:
+    name = str(record.get("name") or "").strip()
+    latest_version = str(record.get("latestVersion") or "").strip()
+    versions = [str(item).strip() for item in record.get("versions", []) if str(item or "").strip()]
+    platforms = [str(item).strip() for item in record.get("platforms", []) if str(item or "").strip()]
+    hit = CondaPackageHit(
+        name=name,
+        channel="bioconda",
+        summary=str(record.get("summary") or "Conda package"),
+        latest_version=latest_version,
+        versions=versions,
+        package_spec=package_spec("bioconda", name, latest_version),
+        source_url=f"https://anaconda.org/bioconda/{name}",
+        platforms=platforms,
+        target_platform=target_platform,
+        target_platform_supported=platform_supported(platforms, target_platform),
+    ).to_dict()
+    hit["cached"] = True
+    wrappers = find_snakemake_wrappers_for_tool(name)
+    first_wrapper_draft = _first_wrapper_rule_spec_draft(wrappers)
+    dependency_draft = DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_dependency(hit, wrappers=wrappers)
+    rule_spec_draft = _preferred_rule_spec_draft(dependency_draft, first_wrapper_draft)
+    return {
+        **hit,
+        "snakemakeWrappers": wrappers,
+        "snakemakeWrapperCount": len(wrappers),
+        "ruleSpecDraft": rule_spec_draft,
+        **conda_tool_candidate_fields(hit, rule_spec_draft=rule_spec_draft),
+    }
+
+
+def _first_wrapper_rule_spec_draft(wrappers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for wrapper in wrappers:
+        draft = wrapper.get("ruleSpecDraft")
+        if isinstance(draft, dict):
+            return draft
+    return None
+
+
+def _preferred_rule_spec_draft(dependency_draft: dict[str, Any], wrapper_draft: dict[str, Any] | None) -> dict[str, Any]:
+    if dependency_draft.get("requiresUserCompletion") is False:
+        return dependency_draft
+    return wrapper_draft or dependency_draft
 
 
 def _payload_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
