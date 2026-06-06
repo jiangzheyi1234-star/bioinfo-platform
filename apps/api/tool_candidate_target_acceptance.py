@@ -28,19 +28,20 @@ def bio_agent_catalog_target_acceptance(
     target_platform: str = "linux-64",
     registered_tools: list[dict[str, Any]] | None = None,
     latest_prepare_jobs_by_tool_id: dict[str, Any] | None = None,
+    catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_target_platform = str(target_platform or "linux-64").strip() or "linux-64"
     registered = registered_tools or []
     registered_counts = _registered_tool_counts(registered)
-    catalog = search_tool_candidates(
+    catalog_payload = catalog if isinstance(catalog, dict) else search_tool_candidates(
         "",
         target_platform=normalized_target_platform,
         page=1,
         page_size=1,
     )
     profile_catalog = catalog_tool_profiles(query="", page=1, page_size=100)
-    quality_counts = _record_value(catalog.get("qualityCounts"))
-    addable_counts = _record_value(catalog.get("addableDraftCounts"))
+    quality_counts = _record_value(catalog_payload.get("qualityCounts"))
+    addable_counts = _record_value(catalog_payload.get("addableDraftCounts"))
     targets = {
         "discovered": _target_result(actual=_count_value(quality_counts.get("discovered")), target=CATALOG_TARGETS["discovered"]),
         "addableDraft": _target_result(actual=_count_value(addable_counts.get("total")), target=CATALOG_TARGETS["addableDraft"]),
@@ -77,8 +78,8 @@ def bio_agent_catalog_target_acceptance(
         "productionQueue": production_queue,
         "targets": targets,
         "catalog": {
-            "total": _count_value(catalog.get("total")),
-            "sourceCounts": _record_value(catalog.get("sourceCounts")),
+            "total": _count_value(catalog_payload.get("total")),
+            "sourceCounts": _record_value(catalog_payload.get("sourceCounts")),
             "addableDraftCounts": addable_counts,
             "qualityCounts": quality_counts,
             "registeredToolCounts": registered_counts,

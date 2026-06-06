@@ -276,10 +276,18 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
     latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
         runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
     )
+    catalog = _search_tool_candidates_with_tool_index(
+        runtime=runtime,
+        query="",
+        target_platform=target_platform,
+        page=1,
+        page_size=1,
+    )
     return bio_agent_catalog_target_acceptance(
         target_platform=target_platform,
         registered_tools=registered_tools,
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
+        catalog=catalog,
     )
 
 
