@@ -29,12 +29,16 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "bounded_page" not in source
     assert "bounded_page_size" not in source
     assert "search_tool_capabilities_from_request" in source
+    assert "list_snakemake_wrapper_catalog_from_request" in source
     assert "get_tool_capabilities_index_status_from_request" in source
     assert "refresh_tool_capabilities_index_from_request" in source
 
     assert "def search_tool_capabilities_from_request(" in service_source
+    assert "def list_snakemake_wrapper_catalog_from_request(" in service_source
     assert "def get_tool_capabilities_index_status_from_request(" in service_source
     assert "def refresh_tool_capabilities_index_from_request(" in service_source
+    assert '@router.get("/api/v1/tool-capabilities/snakemake-wrappers")' in source
+    assert 'pageSize: int = Query(default=50, ge=1, le=100)' in source
 
 
 def test_tool_capability_anaconda_parsing_lives_outside_search_orchestrator() -> None:
@@ -731,4 +735,3 @@ def test_ssh_read_and_terminal_routes_delegate_runtime_calls_to_service() -> Non
     assert "class TerminalWebSocket(Protocol)" in terminal_service_source
     assert "from fastapi import WebSocket, WebSocketDisconnect" not in terminal_service_source
     assert "from fastapi import WebSocketDisconnect" in terminal_service_source
-
