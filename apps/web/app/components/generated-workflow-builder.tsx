@@ -31,6 +31,7 @@ import {
   GeneratedWorkflowSnakefilePreview,
 } from "./generated-workflow-snakefile-preview";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
+import { GeneratedWorkflowToolRecommendations } from "./generated-workflow-tool-recommendations";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 import type { WorkflowDesignCompileResult, WorkflowDesignDraftRecord, WorkflowDesignPlan } from "./workflow-design-draft-model";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
@@ -183,6 +184,11 @@ export function GeneratedWorkflowBuilder({
       />
 
       <OutputExposureEditor builder={builder} outputCandidates={outputCandidates} />
+      <GeneratedWorkflowToolRecommendations
+        outputCandidates={outputCandidates}
+        tools={workflowReadyTools}
+        onAddTool={(toolRevisionId) => builder.addStep(toolRevisionId)}
+      />
       <GeneratedResourceBindings builder={builder} availableDatabases={availableDatabases} />
       <WorkflowDesignPlanPreview plan={designPlan || null} />
       <WorkflowDesignCompileSummary result={compileResult || null} />
