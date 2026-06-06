@@ -14,13 +14,14 @@ import yaml
 
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_VERSION
-from .generated_workflow_plan import plan_generated_workflow_steps, resolve_exposed_outputs
+from .generated_workflow_outputs import resolve_exposed_outputs
+from .generated_workflow_plan import plan_generated_workflow_steps
 from .rule_action import materialize_rule_assets
 from .rule_environment import render_rule_conda_env_yaml
 from .rule_outputs import SnakemakeExpression, output_spec_metadata, rule_output_metadata
 from .rule_rendering import render_generated_workflow_snakefile
 from .rule_runtime import runtime_config
-from .workflow_design_contract import (
+from core.contracts.workflow_design import (
     WorkflowDesignDraftV1,
     workflow_design_graph,
     workflow_design_resolved_inputs,

@@ -9,7 +9,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError, WorkflowDesignRevisionConflictError
 from .storage import get_connection, now_iso
-from .workflow_design_contract import normalize_workflow_design_draft
+from core.contracts.workflow_design import normalize_workflow_design_draft
 
 
 def create_workflow_design_draft(

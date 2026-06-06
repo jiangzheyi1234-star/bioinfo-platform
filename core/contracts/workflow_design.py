@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from .generated_workflow_graph import GENERATED_WORKFLOW_RULE_CONTRACT_VERSION
+GENERATED_TOOL_RUN_PIPELINE_ID = "generated-tool-run-v1"
+GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1"
 
 WORKFLOW_DESIGN_DRAFT_CONTRACT_VERSION = "workflow-design-draft-v1"
 WORKFLOW_DESIGN_ENGINE = "snakemake"

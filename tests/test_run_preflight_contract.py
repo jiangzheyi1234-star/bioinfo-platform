@@ -8,7 +8,7 @@ from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
 from apps.remote_runner.storage import upsert_tool as _upsert_tool
 from apps.remote_runner.tool_revisions import publish_tool_revision
-from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
+from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 
 READY_CONTRACT_STATUS = {"dryRun": {"status": "passed"}, "smokeRun": {"status": "passed"}, "outputValidation": {"status": "passed"}}

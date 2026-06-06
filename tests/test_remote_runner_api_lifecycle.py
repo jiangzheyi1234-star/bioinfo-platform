@@ -20,7 +20,7 @@ from apps.remote_runner.config import (
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.errors import RemoteRunnerAuthError
 from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.pipeline import PipelineRegistryError
+from core.contracts.pipeline_manifest import PipelineRegistryError
 from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
 from apps.remote_runner.execution_query_routes import (
     get_result_api,

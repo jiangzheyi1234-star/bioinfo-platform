@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from apps.remote_runner.main import app
 from apps.remote_runner.storage import fetch_run, list_runs
-from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
+from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 from tests.generated_workflow_test_helpers import upsert_ready_tool
 from tests.helpers.workflow_design_drafts import (

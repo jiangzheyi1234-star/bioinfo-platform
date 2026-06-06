@@ -5,7 +5,7 @@ from typing import Any
 
 from .generated_workflow_names import safe_identifier, safe_relative_output_path, safe_snakemake_name
 from .rule_command import command_param_names, validate_command_input_tokens_bound
-from .rule_ports import validate_input_binding_compatibility
+from core.contracts.rule_ports import validate_input_binding_compatibility
 
 
 _MISSING = object()

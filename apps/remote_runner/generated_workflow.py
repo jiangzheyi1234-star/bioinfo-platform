@@ -8,10 +8,10 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .generated_workflow_graph import workflow_graph_config
+from .generated_workflow_outputs import resolve_exposed_outputs
 from .generated_workflow_plan import (
     GeneratedWorkflowStepPlan,
     plan_generated_workflow_steps,
-    resolve_exposed_outputs,
 )
 from .rule_action import materialize_rule_assets
 from .rule_environment import render_rule_conda_env_yaml

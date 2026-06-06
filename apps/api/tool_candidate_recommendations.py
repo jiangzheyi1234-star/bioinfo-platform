@@ -8,7 +8,7 @@ from apps.api.tool_candidate_model import tool_profile_candidate_fields
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
-from apps.remote_runner.rule_ports import (
+from core.contracts.rule_ports import (
     matched_compatibility_fields,
     mismatched_compatibility_field,
     port_spec_from_rule_item,

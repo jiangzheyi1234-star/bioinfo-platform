@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .workflow_design_contract import WorkflowDesignDraftV1
+from core.contracts.workflow_design import WorkflowDesignDraftV1
 
 
 class RemoteRunnerRequest(BaseModel):
