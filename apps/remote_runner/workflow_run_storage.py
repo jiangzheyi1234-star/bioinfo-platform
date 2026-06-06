@@ -3,12 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError
 from .execution_query_storage import fetch_run
 from .storage_core import get_connection, now_iso
+
+
+@dataclass(frozen=True)
+class RunCreateRecordResult:
+    run: dict[str, Any]
+    status: str
+    created: bool
+    reason: str
 
 
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
@@ -37,7 +46,7 @@ def create_run_record(
     run_spec: dict[str, Any],
     idempotency_key: str,
     payload_hash: str,
-) -> tuple[dict[str, Any], str]:
+) -> RunCreateRecordResult:
     run_id = str(run_spec.get("runId") or f"run_{uuid.uuid4().hex[:12]}").strip()
     project_id = str(run_spec.get("projectId") or "proj_default").strip() or "proj_default"
     pipeline_id = str(run_spec.get("pipelineId") or "").strip()
@@ -79,7 +88,12 @@ def create_run_record(
             existing_run = fetch_run(cfg, existing["run_id"])
             if existing_run is None:
                 raise ValueError("RUN_NOT_FOUND")
-            return existing_run, existing["status"]
+            return RunCreateRecordResult(
+                run=existing_run,
+                status=existing["status"],
+                created=False,
+                reason="idempotency_replay",
+            )
 
         connection.execute(
             """
@@ -138,7 +152,7 @@ def create_run_record(
             (server_id, idempotency_key, payload_hash, run["runId"], "accepted"),
         )
         connection.commit()
-    return run, "accepted"
+    return RunCreateRecordResult(run=run, status="accepted", created=True, reason="created")
 
 
 def update_run_state(
