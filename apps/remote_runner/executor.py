@@ -28,10 +28,19 @@ def run_snakemake_execution(
     run_id: str,
     request_id: str,
     run_spec: dict,
+    attempt_id: str | None = None,
+    lease_generation: int | None = None,
+    attempt_work_dir: str | None = None,
 ) -> None:
     with SNAKEMAKE_EXECUTION_LOCK:
         result_dir = Path(cfg.results_dir) / run_id
-        work_dir = Path(cfg.work_dir) / run_id
+        work_dir = _resolve_execution_work_dir(
+            cfg,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            attempt_work_dir=attempt_work_dir,
+        )
         logs_dir = Path(cfg.logs_dir)
         config_path = work_dir / "run-config.json"
         stdout_log = logs_dir / f"{run_id}.stdout.log"
@@ -204,6 +213,30 @@ def run_snakemake_execution(
                 stderr=detail or "Run executor crashed during startup.",
                 result_dir=str(result_dir),
             )
+
+
+def _resolve_execution_work_dir(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    attempt_id: str | None,
+    lease_generation: int | None,
+    attempt_work_dir: str | None,
+) -> Path:
+    has_attempt_context = any(
+        value is not None and str(value).strip()
+        for value in (attempt_id, lease_generation, attempt_work_dir)
+    )
+    if not has_attempt_context:
+        return Path(cfg.work_dir) / run_id
+    if not str(attempt_id or "").strip():
+        raise ValueError("RUN_ATTEMPT_ID_REQUIRED")
+    if lease_generation is None:
+        raise ValueError("RUN_LEASE_GENERATION_REQUIRED")
+    normalized_work_dir = str(attempt_work_dir or "").strip()
+    if not normalized_work_dir:
+        raise ValueError("RUN_ATTEMPT_WORK_DIR_REQUIRED")
+    return Path(normalized_work_dir)
 
 
 def _mark_failed(
