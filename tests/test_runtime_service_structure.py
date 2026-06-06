@@ -378,6 +378,26 @@ def test_runtime_file_operations_live_in_dedicated_mixin() -> None:
         assert f"def {method_name}(" not in runner_ops_source
 
 
+def test_runtime_file_operations_delegate_to_file_manager() -> None:
+    service_source = _source("core/app_runtime/service.py")
+    file_ops_source = _source("core/app_runtime/runner_file_ops.py")
+    file_manager_path = ROOT / "core/app_runtime/managers/file.py"
+
+    assert file_manager_path.exists()
+
+    file_manager_source = file_manager_path.read_text(encoding="utf-8")
+
+    assert "from core.app_runtime.managers.file import FileManager" in service_source
+    assert "self.files = FileManager(self)" in service_source
+    assert "class FileManager(BaseRuntimeManager)" in file_manager_source
+    assert 'self.call_runner(\n            "upload_content"' in file_manager_source
+    assert "ssh.list_directory(" in file_manager_source
+    assert "self._call_remote_runner(" not in file_ops_source
+    assert "self._require_runner_ready(" not in file_ops_source
+    assert "self._ensure_ssh_connected(" not in file_ops_source
+    assert "self.files.upload_file(" in file_ops_source
+
+
 def test_remote_listening_ports_does_not_wrap_ssh_run_errors() -> None:
     service_source = _source("core/app_runtime/service.py")
 
