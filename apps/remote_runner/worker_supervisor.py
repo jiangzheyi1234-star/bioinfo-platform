@@ -7,6 +7,8 @@ from typing import Any
 
 from .config import load_remote_runner_config
 from .run_worker import process_next_run_job
+from .tool_prepare_job_storage import claim_next_tool_prepare_job
+from .tool_prepare_jobs import run_tool_prepare_job
 
 
 LOGGER = logging.getLogger(__name__)
@@ -53,6 +55,39 @@ class RunWorkerSupervisor:
                 self._stop_event.wait(self._poll_interval_seconds)
 
 
+class ToolPrepareWorkerSupervisor:
+    def __init__(
+        self,
+        cfg: Any,
+        *,
+        poll_interval_seconds: float,
+        error_backoff_seconds: float,
+    ) -> None:
+        self._cfg = cfg
+        self._poll_interval_seconds = poll_interval_seconds
+        self._error_backoff_seconds = error_backoff_seconds
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run_loop, name="h2ometa-tool-prepare-worker", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self, *, timeout_seconds: float = 5.0) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=timeout_seconds)
+
+    def _run_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                result = process_next_tool_prepare_job(self._cfg)
+            except Exception:  # noqa: BLE001 - supervisor must keep polling after persisting/logging failures.
+                LOGGER.exception("Remote runner tool prepare worker loop failed.")
+                self._stop_event.wait(self._error_backoff_seconds)
+                continue
+            if not result.get("claimed"):
+                self._stop_event.wait(self._poll_interval_seconds)
+
+
 def start_run_worker_supervisor(
     cfg: Any,
     *,
@@ -72,11 +107,41 @@ def start_run_worker_supervisor(
     return supervisor
 
 
+def process_next_tool_prepare_job(cfg: Any) -> dict[str, Any]:
+    job = claim_next_tool_prepare_job(cfg)
+    if job is None:
+        return {"claimed": False}
+    run_tool_prepare_job(cfg, str(job["jobId"]))
+    return {"claimed": True, "jobId": str(job["jobId"])}
+
+
+def start_tool_prepare_worker_supervisor(
+    cfg: Any,
+    *,
+    poll_interval_seconds: float = 1.0,
+    error_backoff_seconds: float = 5.0,
+) -> ToolPrepareWorkerSupervisor:
+    supervisor = ToolPrepareWorkerSupervisor(
+        cfg,
+        poll_interval_seconds=poll_interval_seconds,
+        error_backoff_seconds=error_backoff_seconds,
+    )
+    supervisor.start()
+    return supervisor
+
+
 def start_configured_run_worker_supervisor() -> RunWorkerSupervisor | None:
     cfg = load_remote_runner_config()
     if not cfg.token or not _run_worker_enabled():
         return None
     return start_run_worker_supervisor(cfg)
+
+
+def start_configured_tool_prepare_worker_supervisor() -> ToolPrepareWorkerSupervisor | None:
+    cfg = load_remote_runner_config()
+    if not cfg.token or not _run_worker_enabled():
+        return None
+    return start_tool_prepare_worker_supervisor(cfg)
 
 
 def _run_worker_enabled() -> bool:

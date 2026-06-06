@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+
+from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job
 
 
 def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
@@ -41,3 +45,58 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
         "workerId": "worker_test",
         "heartbeatIntervalSeconds": 0.02,
     }
+
+
+def test_tool_prepare_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
+    from apps.remote_runner import worker_supervisor
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_process_next_tool_prepare_job(cfg):
+        calls.append({"cfg": cfg})
+        return {"claimed": False}
+
+    monkeypatch.setattr(worker_supervisor, "process_next_tool_prepare_job", fake_process_next_tool_prepare_job)
+
+    cfg = SimpleNamespace(service_name="test-runner")
+    supervisor = worker_supervisor.start_tool_prepare_worker_supervisor(
+        cfg,
+        poll_interval_seconds=0.01,
+    )
+    deadline = time.monotonic() + 1
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    supervisor.stop(timeout_seconds=1)
+
+    assert calls == [{"cfg": cfg}]
+
+
+def test_process_next_tool_prepare_job_runs_one_queued_job(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner import worker_supervisor
+
+    cfg = _config(tmp_path)
+    job = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    calls: list[str] = []
+    monkeypatch.setattr(worker_supervisor, "run_tool_prepare_job", lambda _cfg, job_id: calls.append(job_id))
+
+    result = worker_supervisor.process_next_tool_prepare_job(cfg)
+
+    assert result == {"claimed": True, "jobId": job["jobId"]}
+    assert calls == [job["jobId"]]
+
+
+def _config(tmp_path: Path) -> RemoteRunnerConfig:
+    (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
+    return RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        managed_conda_command="python",
+        snakemake_command="snakemake",
+    )

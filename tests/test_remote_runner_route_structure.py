@@ -340,9 +340,10 @@ def test_tool_manifest_routes_delegate_request_dumping_to_services() -> None:
     assert "def update_tool_rule_template_from_request(" in service_source
     assert "def delete_tool_from_request(" in service_source
     assert "def mark_tool_production_from_request(" in service_source
-    assert "run_tool_prepare_job" in service_source
+    assert "run_tool_prepare_job" not in service_source
     assert "from fastapi import BackgroundTasks" not in service_source
-    assert "class BackgroundTaskScheduler(Protocol)" in service_source
+    assert "class BackgroundTaskScheduler(Protocol)" not in service_source
+    assert "background_tasks.add_task" not in service_source
     assert "def add_registered_tool_from_request(" not in tools_source
     assert "def mark_registered_tool_production_enabled_from_request(" not in tools_source
     assert "from .route_utils import authorized_config, data_response, request_payload, run_sync" in service_source
