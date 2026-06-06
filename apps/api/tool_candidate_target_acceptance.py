@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from apps.api.tool_candidate_catalog import search_tool_candidates
+from apps.api.tool_profile_external_refs import profile_snakemake_wrappers
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
+from apps.api.tool_profile_semantics import enrich_rule_template_semantics
 
 
 CATALOG_TARGETS = {
@@ -135,6 +137,7 @@ def _validation_queue(*, registered_tools: list[dict[str, Any]], remaining: int)
         for profile in TOOL_PROFILES
         if not _profile_registered_workflow_ready(profile, workflow_ready_names)
     ]
+    candidates.sort(key=lambda item: (-_count_value(item["priority"]["score"]), str(item["candidateId"])))
     bounded_remaining = max(0, int(remaining or 0))
     return {
         "target": "workflowReady",
@@ -146,6 +149,9 @@ def _validation_queue(*, registered_tools: list[dict[str, Any]], remaining: int)
 
 
 def _validation_queue_item(profile: ToolProfile) -> dict[str, Any]:
+    prepare_payload = profile_prepare_payload(profile)
+    evidence = _validation_evidence(profile=profile, prepare_payload=prepare_payload)
+    priority = _validation_priority(evidence=evidence, prepare_payload=prepare_payload)
     return {
         "candidateId": f"h2ometa-tool-profile::{profile.profile_id}",
         "candidateKind": "h2ometa-tool-profile",
@@ -155,8 +161,69 @@ def _validation_queue_item(profile: ToolProfile) -> dict[str, Any]:
         "currentState": "SnakemakeRenderable",
         "requiredState": "WorkflowReady",
         "action": "prepare-tool",
-        "preparePayload": profile_prepare_payload(profile),
+        "priority": priority,
+        "evidence": evidence,
+        "preparePayload": prepare_payload,
     }
+
+
+def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any]) -> dict[str, Any]:
+    wrappers = profile_snakemake_wrappers(profile)
+    semantic = _semantic_port_summary(prepare_payload)
+    return {
+        "snakemakeWrapperCount": len(wrappers),
+        "snakemakeWrapperPaths": [str(item.get("wrapperPath") or "") for item in wrappers if str(item.get("wrapperPath") or "")],
+        **semantic,
+    }
+
+
+def _validation_priority(*, evidence: dict[str, Any], prepare_payload: dict[str, Any]) -> dict[str, Any]:
+    score = 0
+    reasons: list[str] = []
+    if _count_value(evidence.get("snakemakeWrapperCount")) > 0:
+        score += 40
+        reasons.append("snakemake-wrapper-evidence")
+    if evidence.get("semanticPortFields"):
+        score += 30
+        reasons.append("edam-port-semantics")
+    rule_draft = prepare_payload.get("ruleSpecDraft") if isinstance(prepare_payload.get("ruleSpecDraft"), dict) else {}
+    if rule_draft.get("requiresUserCompletion") is False:
+        score += 20
+        reasons.append("ready-prepare-payload")
+    if _semantic_format_count(evidence) >= 2:
+        score += 10
+        reasons.append("multi-port-format-coverage")
+    return {"score": score, "reasons": reasons}
+
+
+def _semantic_port_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
+    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
+    enriched = enrich_rule_template_semantics(template)
+    fields: set[str] = set()
+    data_terms: set[str] = set()
+    format_terms: set[str] = set()
+    for section in ("inputs", "outputs"):
+        for port in enriched.get(section) or []:
+            if not isinstance(port, dict):
+                continue
+            data = str(port.get("data") or port.get("edamData") or "").strip()
+            format_id = str(port.get("format") or port.get("edamFormat") or "").strip()
+            if data:
+                fields.add("data")
+                data_terms.add(data)
+            if format_id:
+                fields.add("format")
+                format_terms.add(format_id)
+    return {
+        "semanticPortFields": sorted(fields),
+        "semanticData": sorted(data_terms),
+        "semanticFormats": sorted(format_terms),
+    }
+
+
+def _semantic_format_count(evidence: dict[str, Any]) -> int:
+    formats = evidence.get("semanticFormats")
+    return len(formats) if isinstance(formats, list) else 0
 
 
 def _workflow_ready_tool_names(tools: list[dict[str, Any]]) -> set[str]:
