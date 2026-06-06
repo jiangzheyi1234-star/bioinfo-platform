@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EDAM_FASTQ = "http://edamontology.org/format_1930"
 
 
 def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
@@ -336,6 +337,27 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
     assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
     assert "端口方向 output -> input" in fastqc["hardChecks"]
     assert any("kind" in value for value in fastqc["evidence"])
+
+
+def test_semantic_tool_recommendations_match_edam_format_only() -> None:
+    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
+
+    catalog = recommend_tool_candidates(
+        output_port={"format": EDAM_FASTQ},
+        page=1,
+        page_size=20,
+    )
+
+    fastqc = next(
+        item
+        for item in catalog["items"]
+        if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc"
+    )
+    assert fastqc["matchedFields"] == ["format"]
+    assert fastqc["inputPort"]["format"] == EDAM_FASTQ
+    assert fastqc["preparePayload"]["ruleTemplate"]["inputs"][0]["format"] == EDAM_FASTQ
+    assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
+    assert any(f"format matches: {EDAM_FASTQ}" == value for value in fastqc["evidence"])
 
 
 def test_semantic_tool_recommendations_allow_registered_workflow_ready_tools() -> None:

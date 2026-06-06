@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-from copy import deepcopy
 from typing import Any
 
 from .tool_profile_registry import TOOL_PROFILES, ToolProfile
+from .tool_profile_semantics import enrich_rule_template_semantics
 
 
 PROFILE_CONTRACT_SOURCE = "h2ometa-tool-profile-registry"
@@ -62,7 +62,7 @@ def known_tool_profile_ids() -> list[str]:
 
 
 def _profile_rule_template(profile: ToolProfile, package_spec: str) -> dict[str, Any]:
-    template = deepcopy(profile.rule_template)
+    template = enrich_rule_template_semantics(profile.rule_template)
     conda = template.setdefault("environment", {}).setdefault("conda", {})
     dependencies = conda.get("dependencies")
     if isinstance(dependencies, list):
