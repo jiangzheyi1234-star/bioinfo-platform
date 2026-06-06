@@ -567,6 +567,83 @@ def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
     assert fastp["preferredWrapperPaths"] == ["bio/fastp"]
 
 
+def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
+    from apps.api import tool_candidate_catalog
+
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "search_tool_capabilities",
+        lambda query, *, target_platform, limit, page, page_size: {
+            "data": {
+                "items": [
+                    {
+                        "candidateId": "bioconda::fastp",
+                        "candidateKind": "conda-package",
+                        "qualityTier": "draft-runnable",
+                        "name": "fastp",
+                    }
+                ],
+                "total": 1,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "catalog_snakemake_wrappers",
+        lambda *, query, page, page_size: {
+            "items": [
+                {
+                    "candidateId": "snakemake-wrapper::v9.8.0/bio/fastp",
+                    "candidateKind": "snakemake-wrapper",
+                    "qualityTier": "discovered",
+                    "wrapperPath": "bio/fastp",
+                }
+            ],
+            "total": 1,
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "items": [
+                {
+                    "candidateId": "h2ometa-tool-profile::fastp",
+                    "candidateKind": "h2ometa-tool-profile",
+                    "qualityTier": "draft-runnable",
+                    "profileId": "fastp",
+                }
+            ],
+            "total": 1,
+        },
+    )
+
+    catalog = tool_candidate_catalog.search_tool_candidates(
+        "fastp",
+        target_platform="linux-64",
+        page=1,
+        page_size=10,
+    )
+
+    assert [item["candidateKind"] for item in catalog["items"]] == [
+        "h2ometa-tool-profile",
+        "snakemake-wrapper",
+        "conda-package",
+    ]
+    assert catalog["sourceCounts"] == {
+        "condaPackages": 1,
+        "snakemakeWrappers": 1,
+        "toolProfiles": 1,
+    }
+    assert catalog["qualityCounts"] == {
+        "discovered": 1,
+        "draftRunnable": 2,
+        "workflowReady": 0,
+        "productionEnabled": 0,
+    }
+    assert catalog["total"] == 3
+
+
 def test_snakemake_wrapper_index_attaches_unresolved_wrapper_draft_without_contract() -> None:
     index = snakemake_wrapper_index.build_wrapper_index(
         {

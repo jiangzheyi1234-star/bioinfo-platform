@@ -29,18 +29,21 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "bounded_page" not in source
     assert "bounded_page_size" not in source
     assert "search_tool_capabilities_from_request" in source
+    assert "search_tool_candidates_from_request" in source
     assert "list_snakemake_wrapper_catalog_from_request" in source
     assert "list_tool_profile_catalog_from_request" in source
     assert "get_tool_capabilities_index_status_from_request" in source
     assert "refresh_tool_capabilities_index_from_request" in source
 
     assert "def search_tool_capabilities_from_request(" in service_source
+    assert "def search_tool_candidates_from_request(" in service_source
     assert "def list_snakemake_wrapper_catalog_from_request(" in service_source
     assert "def list_tool_profile_catalog_from_request(" in service_source
     assert "def get_tool_capabilities_index_status_from_request(" in service_source
     assert "def refresh_tool_capabilities_index_from_request(" in service_source
     assert '@router.get("/api/v1/tool-capabilities/snakemake-wrappers")' in source
     assert '@router.get("/api/v1/tool-capabilities/tool-profiles")' in source
+    assert '@router.get("/api/v1/tool-capabilities/candidates")' in source
     assert 'pageSize: int = Query(default=50, ge=1, le=100)' in source
 
 

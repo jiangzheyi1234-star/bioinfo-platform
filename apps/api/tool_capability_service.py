@@ -5,6 +5,7 @@ from typing import Any
 from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda_index
 from apps.api.route_utils import run_sync
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
+from apps.api.tool_candidate_catalog import search_tool_candidates
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 
@@ -26,6 +27,25 @@ async def search_tool_capabilities_from_request(
             page=page,
             page_size=resolved_page_size,
         ),
+    )
+
+
+async def search_tool_candidates_from_request(
+    *,
+    q: str,
+    target_platform: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    return await run_sync(
+        lambda: {
+            "data": search_tool_candidates(
+                q,
+                target_platform=target_platform,
+                page=page,
+                page_size=page_size,
+            )
+        },
     )
 
 

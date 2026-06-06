@@ -7,6 +7,7 @@ import {
   type AddedTool,
   type RuleSpecTemplate,
   type SnakemakeWrapperCatalogResponse,
+  type ToolCandidateCatalogResponse,
   type ToolProfileCatalogResponse,
   type ToolPrepareJob,
   type ToolPrepareJobResponse,
@@ -68,6 +69,21 @@ export async function searchToolCapabilities({
     "GET",
     `/api/v1/tool-capabilities/search?q=${encodeURIComponent(query)}&page=${page}&pageSize=${TOOL_SEARCH_PAGE_SIZE}&targetPlatform=linux-64`,
     { cache: "no-store", signal, timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
+  );
+  return response.data;
+}
+
+export async function searchToolCandidates({
+  query,
+  page,
+}: {
+  query: string;
+  page: number;
+}): Promise<ToolCandidateCatalogResponse["data"]> {
+  const response = await requestLocalApiJson<ToolCandidateCatalogResponse>(
+    "GET",
+    `/api/v1/tool-capabilities/candidates?q=${encodeURIComponent(query)}&page=${page}&pageSize=50&targetPlatform=linux-64`,
+    { cache: "no-store", timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
   );
   return response.data;
 }

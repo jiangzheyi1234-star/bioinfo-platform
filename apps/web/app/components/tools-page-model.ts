@@ -299,6 +299,29 @@ export type ToolCatalogQualityCounts = {
   productionEnabled: number;
 };
 
+export type ToolCandidateSourceCounts = {
+  condaPackages: number;
+  snakemakeWrappers: number;
+  toolProfiles: number;
+};
+
+export type ToolCandidateCatalogItem = ToolSearchItem | SnakemakeWrapperMatch | ToolProfileCandidate;
+
+export type ToolCandidateCatalog = {
+  items: ToolCandidateCatalogItem[];
+  query: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  sourceCounts: ToolCandidateSourceCounts;
+  qualityCounts: ToolCatalogQualityCounts;
+};
+
+export type ToolCandidateCatalogResponse = {
+  data: ToolCandidateCatalog;
+};
+
 export type SnakemakeWrapperCatalog = {
   items: SnakemakeWrapperMatch[];
   query: string;
