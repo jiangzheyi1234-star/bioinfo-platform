@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 import { sourceFilters } from "./tools-page-model";
 import { ToolsLibrarySection } from "./tools-page-library-section";
-import { ToolPreviewPanel, ToolSearchResults } from "./tools-page-ui";
+import { ToolCatalogQualityStrip, ToolPreviewPanel, ToolSearchResults } from "./tools-page-ui";
 import { useToolsPageState } from "./use-tools-page-state";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
@@ -57,6 +57,12 @@ export function ToolsPage() {
           />
         ) : (
           <>
+            <ToolCatalogQualityStrip
+              error={state.wrapperCatalogError}
+              loading={state.wrapperCatalogLoading}
+              wrapperCatalog={state.wrapperCatalog}
+            />
+
             <div>
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="relative">

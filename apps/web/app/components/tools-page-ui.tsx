@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import type { RuleSpecDraft, ToolSearchItem } from "./tools-page-model";
+import type { RuleSpecDraft, SnakemakeWrapperCatalog, ToolSearchItem } from "./tools-page-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 import { ToolWrapperSelector } from "./tools-page-wrapper-selector";
 
@@ -72,6 +72,44 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
       <Workflow strokeWidth={1.5} className="mr-1 h-3 w-3" />
       {count} wrapper
     </span>
+  );
+}
+
+export function ToolCatalogQualityStrip({
+  error,
+  loading,
+  wrapperCatalog,
+}: {
+  error: string;
+  loading: boolean;
+  wrapperCatalog: SnakemakeWrapperCatalog | null;
+}) {
+  const qualityCounts = wrapperCatalog?.qualityCounts;
+  const metrics = [
+    ["discovered", wrapperCatalog?.total ?? qualityCounts?.discovered ?? 0],
+    ["draft-runnable", wrapperCatalog?.addableTotal ?? qualityCounts?.draftRunnable ?? 0],
+    ["workflow-ready", qualityCounts?.workflowReady ?? 0],
+    ["production-enabled", qualityCounts?.productionEnabled ?? 0],
+  ] as const;
+  return (
+    <section className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-slate-700">Snakemake wrapper catalog</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">
+            {loading ? "正在读取 catalog" : error || wrapperCatalog?.sourceRef?.ref || "source pending"}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {metrics.map(([label, value]) => (
+            <span key={label} className="inline-flex h-6 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600">
+              <span className="mr-1 font-mono text-slate-900">{value}</span>
+              {label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

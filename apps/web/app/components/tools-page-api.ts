@@ -6,6 +6,7 @@ import { cachedAsync, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/l
 import {
   type AddedTool,
   type RuleSpecTemplate,
+  type SnakemakeWrapperCatalogResponse,
   type ToolPrepareJob,
   type ToolPrepareJobResponse,
   type ToolSearchResponse,
@@ -66,6 +67,15 @@ export async function searchToolCapabilities({
     "GET",
     `/api/v1/tool-capabilities/search?q=${encodeURIComponent(query)}&page=${page}&pageSize=${TOOL_SEARCH_PAGE_SIZE}&targetPlatform=linux-64`,
     { cache: "no-store", signal, timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
+  );
+  return response.data;
+}
+
+export async function fetchSnakemakeWrapperCatalog(): Promise<SnakemakeWrapperCatalogResponse["data"]> {
+  const response = await requestLocalApiJson<SnakemakeWrapperCatalogResponse>(
+    "GET",
+    "/api/v1/tool-capabilities/snakemake-wrappers?page=1&pageSize=1",
+    { cache: "no-store" }
   );
   return response.data;
 }

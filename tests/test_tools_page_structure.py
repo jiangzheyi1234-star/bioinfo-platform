@@ -23,6 +23,8 @@ def test_tools_page_has_focused_support_modules() -> None:
 
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
+    assert "export async function fetchSnakemakeWrapperCatalog" in api
+    assert "/api/v1/tool-capabilities/snakemake-wrappers?page=1&pageSize=1" in api
     assert "export async function createToolPrepareJob" in api
     assert "export async function fetchToolPrepareJob" in api
     assert "export async function updateToolRuleTemplate" in api
@@ -34,6 +36,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "export function useToolsPageState" in hook
+    assert "fetchSnakemakeWrapperCatalog" in hook
+    assert "wrapperCatalog" in hook
+    assert "wrapperCatalogLoading" in hook
+    assert "wrapperCatalogError" in hook
+    assert "setWrapperCatalogError" in hook
     assert "editingRuleSpecToolId" in hook
     assert "ruleSpecSavingId" in hook
     assert "checkingToolId" in hook
@@ -41,6 +48,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "checkTool" in hook
     assert "saveToolRuleTemplate" in hook
     assert "export type ToolSearchItem" in model
+    assert "export type ToolCatalogQualityCounts" in model
+    assert "export type SnakemakeWrapperCatalogResponse" in model
     assert "localIndexAvailable?: boolean" in model
     assert "export type RuleSpecTemplate" in model
     assert "export type RuleSpecEnvironment" in model
@@ -138,6 +147,14 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "directory: true" not in readiness
     assert "qc_dir" not in readiness
     assert "export function ToolSearchResults" in ui
+    assert "export function ToolCatalogQualityStrip" in ui
+    assert "discovered" in ui
+    assert "draft-runnable" in ui
+    assert "workflow-ready" in ui
+    assert "production-enabled" in ui
+    assert "Snakemake wrapper catalog" in ui
+    assert "ToolCatalogQualityStrip" in page
+    assert "wrapperCatalog={state.wrapperCatalog}" in page
     assert "searchNotice" in hook
     assert "searchNotice" in ui
     assert "searchNoticeMessage" in hook
