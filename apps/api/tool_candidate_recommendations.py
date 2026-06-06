@@ -9,6 +9,7 @@ from apps.api.tool_profile_external_refs import profile_external_candidate_field
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
+from apps.api.tool_profile_semantics import enrich_rule_template_semantics
 from core.contracts.rule_ports import (
     matched_compatibility_fields,
     mismatched_compatibility_field,
@@ -167,7 +168,8 @@ def _normalized_tool_name(value: Any) -> str:
 
 
 def _input_ports(profile: ToolProfile) -> list[dict[str, Any]]:
-    return [item for item in profile.rule_template.get("inputs") or [] if isinstance(item, dict)]
+    template = enrich_rule_template_semantics(profile.rule_template)
+    return [item for item in template.get("inputs") or [] if isinstance(item, dict)]
 
 
 def _input_port_summary(input_port: dict[str, Any], input_spec: dict[str, str]) -> dict[str, Any]:

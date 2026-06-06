@@ -6,6 +6,11 @@ from apps.api.tool_profiles import resolve_tool_profile
 
 
 BIO_TOOL_PACK_V1_PROFILE_COUNT = 20
+EDAM_SEQUENCE = "http://edamontology.org/data_2044"
+EDAM_SEQUENCE_ALIGNMENT = "http://edamontology.org/data_0863"
+EDAM_FASTQ = "http://edamontology.org/format_1930"
+EDAM_SAM = "http://edamontology.org/format_2573"
+EDAM_HTML = "http://edamontology.org/format_2331"
 
 
 def test_bio_tool_pack_v1_has_twenty_curated_profiles() -> None:
@@ -66,3 +71,32 @@ def test_bio_tool_pack_v1_profiles_resolve_to_ready_rule_spec_drafts() -> None:
         assert draft["status"] == "ready-for-validation"
         assert draft["lock"]["profileId"] == profile.profile_id
         assert draft["ruleTemplate"]["environment"]["conda"]["dependencies"] == [f"bioconda::{profile.tool_names[0]}=1.0"]
+
+
+def test_bio_tool_pack_resolved_profiles_include_edam_port_semantics() -> None:
+    fastqc = resolve_tool_profile(
+        {
+            "name": "fastqc",
+            "source": "bioconda",
+            "packageSpec": "bioconda::fastqc=1.0",
+        }
+    )
+    bwa = resolve_tool_profile(
+        {
+            "name": "bwa",
+            "source": "bioconda",
+            "packageSpec": "bioconda::bwa=1.0",
+        }
+    )
+
+    assert fastqc is not None
+    reads = fastqc["ruleTemplate"]["inputs"][0]
+    html = next(item for item in fastqc["ruleTemplate"]["outputs"] if item["name"] == "html")
+    assert reads["data"] == EDAM_SEQUENCE
+    assert reads["format"] == EDAM_FASTQ
+    assert html["format"] == EDAM_HTML
+
+    assert bwa is not None
+    sam = next(item for item in bwa["ruleTemplate"]["outputs"] if item["name"] == "sam")
+    assert sam["data"] == EDAM_SEQUENCE_ALIGNMENT
+    assert sam["format"] == EDAM_SAM
