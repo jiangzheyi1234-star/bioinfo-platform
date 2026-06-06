@@ -25,6 +25,7 @@ def recommend_tool_candidates(
     page: int = 1,
     page_size: int = 20,
     registered_tools: list[dict[str, Any]] | None = None,
+    latest_prepare_jobs_by_tool_id: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_query = str(query or "").strip().lower()
     bounded_page = max(1, int(page or 1))
@@ -35,6 +36,7 @@ def recommend_tool_candidates(
             output_spec=output_spec,
             query=normalized_query,
             registered_tools=registered_tools or [],
+            latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id or {},
         ),
         key=lambda item: (-float(item["confidence"]), str(item["candidate"]["candidateId"]), str(item["inputPort"]["name"])),
     )
@@ -55,6 +57,7 @@ def _profile_recommendations(
     output_spec: dict[str, str],
     query: str,
     registered_tools: list[dict[str, Any]],
+    latest_prepare_jobs_by_tool_id: dict[str, Any],
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
     workflow_ready_tools = _workflow_ready_tools_by_name(registered_tools)
@@ -62,6 +65,7 @@ def _profile_recommendations(
         if query and not _profile_matches_query(profile, query):
             continue
         registered_tool = _matching_registered_tool(profile, workflow_ready_tools)
+        latest_prepare_job = _latest_prepare_job(profile, latest_prepare_jobs_by_tool_id)
         for input_port in _input_ports(profile):
             input_spec = port_spec_from_rule_item(input_port)
             if mismatched_compatibility_field(input_spec, output_spec):
@@ -72,7 +76,7 @@ def _profile_recommendations(
             item = {
                 "decision": "recommended",
                 "candidate": _profile_candidate(profile),
-                "executionGate": _execution_gate(profile, registered_tool=registered_tool),
+                "executionGate": _execution_gate(profile, registered_tool=registered_tool, latest_prepare_job=latest_prepare_job),
                 "inputPort": _input_port_summary(input_port, input_spec),
                 "matchedFields": matched_fields,
                 "confidence": _confidence(matched_fields=matched_fields, input_port=input_port),
@@ -80,8 +84,11 @@ def _profile_recommendations(
                 "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
             }
             if registered_tool is None:
-                item["preparePayload"] = profile_prepare_payload(profile)
                 item["validationPlan"] = workflow_ready_validation_plan()
+                if latest_prepare_job is not None:
+                    item["latestPrepareJob"] = latest_prepare_job
+                if not _active_prepare_job(latest_prepare_job):
+                    item["preparePayload"] = profile_prepare_payload(profile)
             recommendations.append(item)
     return recommendations
 
@@ -97,7 +104,12 @@ def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
     }
 
 
-def _execution_gate(profile: ToolProfile, *, registered_tool: dict[str, Any] | None = None) -> dict[str, Any]:
+def _execution_gate(
+    profile: ToolProfile,
+    *,
+    registered_tool: dict[str, Any] | None = None,
+    latest_prepare_job: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if registered_tool is not None:
         contract = registered_tool.get("toolContract") if isinstance(registered_tool.get("toolContract"), dict) else {}
         return {
@@ -109,6 +121,17 @@ def _execution_gate(profile: ToolProfile, *, registered_tool: dict[str, Any] | N
             "sourceOfTruth": "registeredTool.toolContract",
             "toolRevisionId": str(registered_tool.get("toolRevisionId") or ""),
             "toolId": str(registered_tool.get("id") or ""),
+        }
+    if _active_prepare_job(latest_prepare_job):
+        return {
+            "currentState": "SnakemakeRenderable",
+            "requiredState": "WorkflowReady",
+            "canAddStep": False,
+            "nextAction": "wait-for-tool-validation",
+            "reason": "TOOL_PREPARE_JOB_ACTIVE",
+            "sourceOfTruth": "toolPrepareJob",
+            "jobId": str(latest_prepare_job.get("jobId") or ""),
+            "toolId": str(latest_prepare_job.get("toolId") or ""),
         }
     candidate = _profile_candidate(profile)
     return {
@@ -137,6 +160,26 @@ def _matching_registered_tool(profile: ToolProfile, tools_by_name: dict[str, dic
         if normalized in tools_by_name:
             return tools_by_name[normalized]
     return None
+
+
+def _latest_prepare_job(profile: ToolProfile, latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any] | None:
+    for tool_id in _profile_prepare_tool_ids(profile):
+        value = latest_prepare_jobs_by_tool_id.get(tool_id)
+        if isinstance(value, dict):
+            return dict(value)
+    return None
+
+
+def _profile_prepare_tool_ids(profile: ToolProfile) -> list[str]:
+    tool_name = str(profile.tool_names[0] if profile.tool_names else profile.profile_id).strip()
+    package_name = str(profile.package_name or tool_name).strip()
+    return [tool_id for tool_id in [f"bioconda::{package_name}", package_name, tool_name] if tool_id]
+
+
+def _active_prepare_job(value: dict[str, Any] | None) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return str(value.get("status") or "").strip() in {"queued", "running"}
 
 
 def _is_workflow_ready_tool(tool: dict[str, Any]) -> bool:

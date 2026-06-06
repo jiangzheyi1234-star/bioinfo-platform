@@ -52,6 +52,20 @@ export type WorkflowToolRecommendationExecutionGate = {
   sourceOfTruth?: string;
   toolRevisionId?: string;
   toolId?: string;
+  jobId?: string;
+};
+
+export type WorkflowToolRecommendationLatestPrepareJob = {
+  jobId?: string;
+  toolId?: string;
+  status?: string;
+  stage?: string;
+  message?: string;
+  errorCode?: string;
+  updatedAt?: string;
+  resultState?: string;
+  workflowReady?: boolean;
+  productionEnabled?: boolean;
 };
 
 export type WorkflowToolRecommendationValidationPlan = {
@@ -100,6 +114,7 @@ export type WorkflowToolRecommendationItem = {
   decision: "recommended" | "blocked" | "ambiguous" | string;
   candidate: WorkflowToolRecommendationCandidate;
   executionGate?: WorkflowToolRecommendationExecutionGate;
+  latestPrepareJob?: WorkflowToolRecommendationLatestPrepareJob;
   validationPlan?: WorkflowToolRecommendationValidationPlan;
   preparePayload?: WorkflowToolRecommendationPreparePayload;
   inputPort: {

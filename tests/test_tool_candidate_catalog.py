@@ -480,6 +480,56 @@ def test_semantic_tool_recommendations_allow_registered_workflow_ready_tools() -
     assert "preparePayload" not in fastqc
 
 
+def test_semantic_tool_recommendations_wait_on_active_prepare_jobs() -> None:
+    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
+
+    catalog = recommend_tool_candidates(
+        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
+        page=1,
+        page_size=20,
+        latest_prepare_jobs_by_tool_id={
+            "bioconda::fastqc": {
+                "jobId": "toolprep_fastqc",
+                "toolId": "bioconda::fastqc",
+                "status": "running",
+                "stage": "dry_run",
+                "message": "Validating Snakemake workflow.",
+                "errorCode": "",
+                "updatedAt": "2026-06-07T00:00:00Z",
+                "resultState": "",
+                "workflowReady": False,
+                "productionEnabled": False,
+            }
+        },
+    )
+
+    fastqc = next(item for item in catalog["items"] if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc")
+    assert fastqc["latestPrepareJob"] == {
+        "jobId": "toolprep_fastqc",
+        "toolId": "bioconda::fastqc",
+        "status": "running",
+        "stage": "dry_run",
+        "message": "Validating Snakemake workflow.",
+        "errorCode": "",
+        "updatedAt": "2026-06-07T00:00:00Z",
+        "resultState": "",
+        "workflowReady": False,
+        "productionEnabled": False,
+    }
+    assert fastqc["executionGate"] == {
+        "currentState": "SnakemakeRenderable",
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "wait-for-tool-validation",
+        "reason": "TOOL_PREPARE_JOB_ACTIVE",
+        "sourceOfTruth": "toolPrepareJob",
+        "jobId": "toolprep_fastqc",
+        "toolId": "bioconda::fastqc",
+    }
+    assert "preparePayload" not in fastqc
+    assert fastqc["validationPlan"]["poll"]["pathTemplate"] == "/api/v1/tools/prepare-jobs/{jobId}"
+
+
 def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
@@ -494,6 +544,10 @@ def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> N
     class Runtime:
         def list_tools(self) -> dict[str, object]:
             return {"data": {"items": [registered_tool]}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            assert tool_ids
+            return {"data": {"byToolId": {}}}
 
     def fake_recommend_tool_candidates(**kwargs):
         captured.update(kwargs)
@@ -513,3 +567,52 @@ def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> N
 
     assert result == {"data": {"items": [], "total": 0}}
     assert captured["registered_tools"] == [registered_tool]
+
+
+def test_tool_recommendation_service_hydrates_latest_prepare_jobs(monkeypatch) -> None:
+    from apps.api import tool_capability_service
+
+    captured: dict[str, object] = {}
+
+    class Runtime:
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": []}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            assert "bioconda::fastqc" in tool_ids
+            return {
+                "data": {
+                    "byToolId": {
+                        "bioconda::fastqc": {
+                            "jobId": "toolprep_fastqc",
+                            "toolId": "bioconda::fastqc",
+                            "status": "running",
+                        }
+                    }
+                }
+            }
+
+    def fake_recommend_tool_candidates(**kwargs):
+        captured.update(kwargs)
+        return {"items": [], "total": 0}
+
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(tool_capability_service, "recommend_tool_candidates", fake_recommend_tool_candidates)
+
+    result = asyncio.run(
+        tool_capability_service.recommend_tool_candidates_from_request(
+            q="fastqc",
+            output_port={"kind": "sequence_reads"},
+            page=1,
+            page_size=5,
+        )
+    )
+
+    assert result == {"data": {"items": [], "total": 0}}
+    assert captured["latest_prepare_jobs_by_tool_id"] == {
+        "bioconda::fastqc": {
+            "jobId": "toolprep_fastqc",
+            "toolId": "bioconda::fastqc",
+            "status": "running",
+        }
+    }
