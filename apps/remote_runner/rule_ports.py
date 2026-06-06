@@ -9,7 +9,7 @@ COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"]
 
 def build_output_port_specs(rule_template: dict[str, Any]) -> dict[str, dict[str, str]]:
     return {
-        name: _port_spec(item)
+        name: port_spec_from_rule_item(item)
         for item in _rule_io_items(rule_template, "outputs")
         if (name := str(item.get("name") or "").strip())
     }
@@ -33,18 +33,18 @@ def validate_input_binding_compatibility(
     source_specs = upstream_output_specs.get(_safe_identifier(from_step)) or {}
     output_spec = source_specs.get(output_name) or {}
     input_spec = _input_port_spec(rule_template, input_name)
-    if not _ports_compatible(input_spec, output_spec):
+    if not ports_compatible(input_spec, output_spec):
         raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: {from_step}.{output_name} -> {input_name}")
 
 
 def _input_port_spec(rule_template: dict[str, Any], input_name: str) -> dict[str, str]:
     for item in _rule_io_items(rule_template, "inputs"):
         if str(item.get("name") or "").strip() == input_name:
-            return _port_spec(item)
+            return port_spec_from_rule_item(item)
     return {}
 
 
-def _port_spec(rule_item: dict[str, Any]) -> dict[str, str]:
+def port_spec_from_rule_item(rule_item: dict[str, Any]) -> dict[str, str]:
     spec: dict[str, str] = {}
     for key in COMPATIBILITY_FIELDS:
         value = str(rule_item.get(key) or "").strip()
@@ -61,13 +61,25 @@ def _port_spec(rule_item: dict[str, Any]) -> dict[str, str]:
     return spec
 
 
-def _ports_compatible(input_spec: dict[str, str], output_spec: dict[str, str]) -> bool:
+def ports_compatible(input_spec: dict[str, str], output_spec: dict[str, str]) -> bool:
+    return mismatched_compatibility_field(input_spec, output_spec) == ""
+
+
+def matched_compatibility_fields(input_spec: dict[str, str], output_spec: dict[str, str]) -> list[str]:
+    return [
+        key
+        for key in COMPATIBILITY_FIELDS
+        if input_spec.get(key) and output_spec.get(key) and input_spec.get(key) == output_spec.get(key)
+    ]
+
+
+def mismatched_compatibility_field(input_spec: dict[str, str], output_spec: dict[str, str]) -> str:
     for key in COMPATIBILITY_FIELDS:
         input_value = input_spec.get(key)
         output_value = output_spec.get(key)
         if input_value and output_value and input_value != output_value:
-            return False
-    return True
+            return key
+    return ""
 
 
 def _rule_io_items(rule_template: dict[str, Any], key: str) -> list[dict[str, Any]]:

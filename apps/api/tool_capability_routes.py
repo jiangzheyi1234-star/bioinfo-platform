@@ -10,6 +10,7 @@ from apps.api.tool_capability_service import (
     get_tool_capabilities_index_status_from_request,
     list_snakemake_wrapper_catalog_from_request,
     list_tool_profile_catalog_from_request,
+    recommend_tool_candidates_from_request,
     refresh_tool_capabilities_index_from_request,
     search_tool_candidates_from_request,
     search_tool_capabilities_from_request,
@@ -46,6 +47,31 @@ async def search_tool_candidates_api(
     return await search_tool_candidates_from_request(
         q=q,
         target_platform=targetPlatform,
+        page=page,
+        page_size=pageSize,
+    )
+
+
+@router.get("/api/v1/tool-capabilities/candidate-recommendations")
+async def recommend_tool_candidates_api(
+    q: str = "",
+    outputType: str = "",
+    outputKind: str = "",
+    outputMimeType: str = "",
+    outputData: str = "",
+    outputFormat: str = "",
+    page: int = Query(default=1, ge=1),
+    pageSize: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    return await recommend_tool_candidates_from_request(
+        q=q,
+        output_port={
+            "type": outputType,
+            "kind": outputKind,
+            "mimeType": outputMimeType,
+            "data": outputData,
+            "format": outputFormat,
+        },
         page=page,
         page_size=pageSize,
     )
