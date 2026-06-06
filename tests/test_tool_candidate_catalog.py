@@ -42,6 +42,45 @@ def test_curated_tool_profile_catalog_attaches_snakemake_wrapper_evidence() -> N
     assert fastqc["snakemakeWrappers"][0]["sourceRef"]["type"] == "snakemake-wrapper"
 
 
+def test_curated_tool_profile_catalog_exposes_external_registry_refs() -> None:
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
+
+    catalog = catalog_tool_profiles(query="fastqc", page=1, page_size=10)
+
+    fastqc = next(item for item in catalog["items"] if item["profileId"] == "fastqc")
+    refs = fastqc["externalRefs"]
+    refs_by_type = {ref["type"]: ref for ref in refs}
+
+    assert refs_by_type["bioconda-package"] == {
+        "type": "bioconda-package",
+        "channel": "bioconda",
+        "name": "fastqc",
+        "url": "https://anaconda.org/bioconda/fastqc",
+        "verified": True,
+    }
+    assert refs_by_type["biocontainers-container"] == {
+        "type": "biocontainers-container",
+        "registry": "quay.io",
+        "namespace": "biocontainers",
+        "name": "fastqc",
+        "image": "quay.io/biocontainers/fastqc",
+        "registryUrl": "https://biocontainers.pro/",
+        "verified": False,
+        "derivation": "bioconda-package-name",
+    }
+    assert refs_by_type["bio.tools-entry"] == {
+        "type": "bio.tools-entry",
+        "biotoolsId": "fastqc",
+        "url": "https://bio.tools/fastqc",
+        "verified": False,
+        "derivation": "tool-name-normalized",
+    }
+    wrapper_refs = [ref for ref in refs if ref["type"] == "snakemake-wrapper"]
+    assert wrapper_refs[0]["repository"] == "snakemake/snakemake-wrappers"
+    assert wrapper_refs[0]["path"] == "bio/fastqc"
+    assert wrapper_refs[0]["verified"] is True
+
+
 def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
     from apps.api import tool_candidate_catalog
 
