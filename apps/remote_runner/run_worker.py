@@ -70,6 +70,9 @@ def process_next_run_job(
             run_id=run_id,
             request_id=str(run["requestId"]),
             run_spec=dict(run["runSpec"] or {}),
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            attempt_work_dir=str(claim["attempt"]["workDir"]),
         )
     except Exception as exc:  # noqa: BLE001 - worker must persist failure before returning.
         execution_error = str(exc) or exc.__class__.__name__

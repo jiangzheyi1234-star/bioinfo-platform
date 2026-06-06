@@ -64,6 +64,7 @@ def test_run_worker_claims_job_and_completes_current_attempt(tmp_path: Path) -> 
         run_id: str,
         request_id: str,
         run_spec: dict[str, Any],
+        **_attempt_context: Any,
     ) -> None:
         seen.append({"runId": run_id, "requestId": request_id, "runSpec": run_spec})
         update_run_state(
@@ -113,6 +114,76 @@ def test_run_worker_claims_job_and_completes_current_attempt(tmp_path: Path) -> 
     assert lease["state"] == "completed"
 
 
+def test_run_worker_passes_attempt_context_to_executor(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg, "run_worker_attempt_context")
+    seen: list[dict[str, Any]] = []
+    clock = FakeClock()
+
+    def fake_execute(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+        attempt_id: str,
+        lease_generation: int,
+        attempt_work_dir: str,
+    ) -> None:
+        seen.append(
+            {
+                "runId": run_id,
+                "requestId": request_id,
+                "runSpec": run_spec,
+                "attemptId": attempt_id,
+                "leaseGeneration": lease_generation,
+                "attemptWorkDir": attempt_work_dir,
+            }
+        )
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Fake worker execution completed.",
+            request_id=request_id,
+        )
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_context",
+        execute_run=fake_execute,
+        lease_seconds=30,
+        heartbeat_interval_seconds=0,
+        now_factory=clock,
+    )
+
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT work_dir FROM run_attempts WHERE attempt_id = ?",
+            (result["attemptId"],),
+        ).fetchone()
+
+    assert result["claimed"] is True
+    assert attempt is not None
+    assert seen == [
+        {
+            "runId": run_id,
+            "requestId": "req_worker",
+            "runSpec": {
+                "runId": run_id,
+                "projectId": "proj_worker",
+                "pipelineId": "pipeline_worker",
+                "pipelineVersion": "0.1.0",
+            },
+            "attemptId": result["attemptId"],
+            "leaseGeneration": result["leaseGeneration"],
+            "attemptWorkDir": attempt["work_dir"],
+        }
+    ]
+    assert Path(seen[0]["attemptWorkDir"]).parent == Path(cfg.work_dir) / "attempts"
+
+
 def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     _create_queued_run(cfg, "run_worker_heartbeat")
@@ -126,6 +197,7 @@ def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:
         run_id: str,
         request_id: str,
         run_spec: dict[str, Any],
+        **_attempt_context: Any,
     ) -> None:
         nonlocal heartbeat_seen, initial_heartbeat
         deadline = time.monotonic() + 1
