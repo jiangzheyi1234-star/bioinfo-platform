@@ -11,6 +11,7 @@ from apps.api import tool_capability_service
 from apps.api.snakemake_wrappers import archive as snakemake_wrapper_archive
 from apps.api.snakemake_wrappers import catalog as snakemake_wrapper_catalog
 from apps.api.snakemake_wrappers import index as snakemake_wrapper_index
+from apps.api.snakemake_wrappers import metadata as snakemake_wrapper_metadata
 
 
 def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
@@ -507,6 +508,79 @@ def test_snakemake_wrapper_catalog_summarizes_full_index(monkeypatch) -> None:
         "url": "https://github.com/snakemake/snakemake-wrappers/tree/master/bio/samtools/sort",
     }
     assert [item["wrapperPath"] for item in summary["items"]] == ["bio/samtools/sort", "bio/seqkit/stats"]
+
+
+def test_snakemake_wrapper_metadata_maps_meta_yaml_to_contract_hints() -> None:
+    hints = snakemake_wrapper_metadata.wrapper_contract_hints_from_meta_yaml(
+        """
+        name: samtools sort
+        description: Sort alignments by coordinate.
+        url: https://www.htslib.org/doc/samtools-sort.html
+        authors:
+          - Jane Maintainer
+        input:
+          - BAM file to sort.
+        output:
+          - Sorted BAM file.
+        params:
+          - Extra samtools arguments.
+        notes: |
+          Requires an indexed reference for some workflows.
+        """
+    )
+
+    assert hints == {
+        "name": "samtools sort",
+        "description": "Sort alignments by coordinate.",
+        "url": "https://www.htslib.org/doc/samtools-sort.html",
+        "authors": ["Jane Maintainer"],
+        "input": ["BAM file to sort."],
+        "output": ["Sorted BAM file."],
+        "params": ["Extra samtools arguments."],
+        "notes": ["Requires an indexed reference for some workflows."],
+        "sourceRef": {
+            "type": "snakemake-wrapper-meta",
+            "format": "meta.yaml",
+        },
+    }
+
+
+def test_snakemake_wrapper_catalog_attaches_meta_yaml_hints_to_page_items(monkeypatch) -> None:
+    monkeypatch.setattr(
+        snakemake_wrapper_catalog,
+        "wrapper_index",
+        lambda: {"samtools": [_samtools_sort_wrapper("samtools")]},
+    )
+    monkeypatch.setattr(
+        snakemake_wrapper_catalog,
+        "wrapper_contract_hints",
+        lambda wrapper_path: {
+            "description": f"{wrapper_path} community metadata",
+            "input": ["BAM"],
+            "output": ["sorted BAM"],
+            "sourceRef": {
+                "type": "snakemake-wrapper-meta",
+                "format": "meta.yaml",
+                "path": f"{wrapper_path}/meta.yaml",
+            },
+        },
+    )
+
+    summary = snakemake_wrapper_catalog.catalog_snakemake_wrappers(query="samtools", page=1, page_size=10)
+    item = summary["items"][0]
+
+    assert item["wrapperContractHints"] == {
+        "description": "bio/samtools/sort community metadata",
+        "input": ["BAM"],
+        "output": ["sorted BAM"],
+        "sourceRef": {
+            "type": "snakemake-wrapper-meta",
+            "format": "meta.yaml",
+            "path": "bio/samtools/sort/meta.yaml",
+        },
+    }
+    assert item["ruleSpecDraft"]["requiresUserCompletion"] is True
+    assert item["qualityTier"] == "discovered"
 
 
 def test_snakemake_wrapper_catalog_service_wraps_catalog_payload(monkeypatch) -> None:
