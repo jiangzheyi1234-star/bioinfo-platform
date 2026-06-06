@@ -466,11 +466,27 @@ def test_remote_runner_process_entrypoint_fails_loudly_on_process_name_errors() 
 
 def test_executor_startup_failure_boundary_uses_declared_runtime_errors() -> None:
     source = _source("apps/remote_runner/executor.py")
+    adapter_source = _source("apps/remote_runner/workflow_engine_adapter.py")
 
     assert "except Exception as exc" not in source
-    assert "class WorkflowRuntimeCommandError(RuntimeError):" in source
-    assert 'raise WorkflowRuntimeCommandError("snakemake command not configured")' in source
+    assert "class WorkflowRuntimeCommandError(RuntimeError):" in adapter_source
+    assert 'raise WorkflowRuntimeCommandError("snakemake command not configured")' in adapter_source
     assert "except (WorkflowRuntimeCommandError, OSError, subprocess.SubprocessError) as exc" in source
+
+
+def test_executor_delegates_snakemake_invocation_to_engine_adapter() -> None:
+    source = _source("apps/remote_runner/executor.py")
+    adapter_source = _source("apps/remote_runner/workflow_engine_adapter.py")
+
+    assert "from .workflow_engine_adapter import (" in source
+    assert "SnakemakeEngineAdapter" in source
+    assert "WorkflowEngineAdapter" in adapter_source
+    assert "class SnakemakeEngineAdapter:" in adapter_source
+    assert "def dry_run(" in adapter_source
+    assert "def run(" in adapter_source
+    assert "subprocess.run(" not in source
+    assert "dry_run = engine.dry_run(" in source
+    assert "run_result = engine.run(" in source
 
 
 def test_executor_artifact_collection_lives_outside_execution_flow() -> None:
@@ -532,4 +548,3 @@ def test_database_routes_delegate_request_dumping_to_services() -> None:
     assert "DatabaseUpdateRequest" not in registry_source
     assert "def add_verified_reference_database_from_request(" not in registry_source
     assert "def update_reference_database_from_request(" not in registry_source
-
