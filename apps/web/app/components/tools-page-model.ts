@@ -7,6 +7,8 @@ export type ToolCandidateSourceRef = {
   profileId?: string;
   version?: string;
   profileCount?: string;
+  toolId?: string;
+  toolRevisionId?: string;
   repository?: string;
   ref?: string;
   path?: string;
@@ -303,13 +305,30 @@ export type ToolCandidateSourceCounts = {
   condaPackages: number;
   snakemakeWrappers: number;
   toolProfiles: number;
+  registeredToolIndex?: number;
 };
 
 export type ToolCandidateAddableDraftCounts = ToolCandidateSourceCounts & {
   total: number;
 };
 
-export type ToolCandidateCatalogItem = ToolSearchItem | SnakemakeWrapperMatch | ToolProfileCandidate;
+export type RegisteredToolIndexCandidate = {
+  candidateId: string;
+  candidateKind: "registered-tool-index" | string;
+  toolId: string;
+  toolRevisionId?: string;
+  name: string;
+  source?: string;
+  packageSpec?: string;
+  sourceRef?: ToolCandidateSourceRef;
+  qualityTier?: ToolCandidateQualityTier;
+  toolContract?: ToolContract;
+  validationSummary?: Record<string, unknown>;
+  qualityScore?: number;
+  upgradeAvailable?: boolean;
+};
+
+export type ToolCandidateCatalogItem = ToolSearchItem | SnakemakeWrapperMatch | ToolProfileCandidate | RegisteredToolIndexCandidate;
 
 export type ToolCandidateCatalog = {
   items: ToolCandidateCatalogItem[];

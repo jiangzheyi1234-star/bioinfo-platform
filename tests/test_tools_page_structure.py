@@ -362,3 +362,11 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "wrapperContractHintCount" in validation_queue
     assert "wrapperContractHintFields" in validation_queue
     assert "wrapperCondaDependencies" in validation_queue
+
+
+def test_tools_page_candidate_catalog_knows_registered_tool_index_source() -> None:
+    model = (ROOT / "apps/web/app/components/tools-page-model.ts").read_text(encoding="utf-8")
+
+    assert "registeredToolIndex?: number" in model
+    assert "RegisteredToolIndexCandidate" in model
+    assert '"registered-tool-index"' in model
