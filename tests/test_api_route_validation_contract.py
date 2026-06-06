@@ -226,9 +226,11 @@ def test_local_api_main_delegates_system_routes() -> None:
     assert "router = APIRouter()" in route_source
     assert '@router.get("/health")' in route_source
     assert '@router.get("/api/v1/version")' in route_source
-    assert "from apps.api.system_service import health_from_request, version_from_request" in route_source
+    assert '@router.get("/api/v1/service-info")' in route_source
+    assert "service_info_from_request" in route_source
     assert "return await health_from_request()" in route_source
     assert "return await version_from_request()" in route_source
+    assert "return await service_info_from_request()" in route_source
     assert "TERMINAL_RUNTIME_BUILD_ID" not in route_source
     assert "os.environ" not in route_source
 
@@ -236,6 +238,7 @@ def test_local_api_main_delegates_system_routes() -> None:
     assert "os.environ.get(" in service_source
     assert "async def health_from_request(" in service_source
     assert "async def version_from_request(" in service_source
+    assert "async def service_info_from_request(" in service_source
 
 
 def test_local_api_lifespan_lives_outside_app_composition_module() -> None:
