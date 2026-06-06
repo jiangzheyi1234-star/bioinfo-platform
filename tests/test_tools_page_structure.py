@@ -80,6 +80,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export type ToolCandidateSourceCounts" in model
     assert "profileId: string" in model
     assert "preferredWrapperPaths: string[]" in model
+    assert "contractState?: ToolContractState | string" in model
     assert "localIndexAvailable?: boolean" in model
     assert "export type RuleSpecTemplate" in model
     assert "export type RuleSpecEnvironment" in model

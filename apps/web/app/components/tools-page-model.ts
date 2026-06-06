@@ -350,6 +350,7 @@ export type SnakemakeWrapperCatalogResponse = {
 export type ToolProfileCandidate = {
   candidateId?: string;
   candidateKind?: string;
+  contractState?: ToolContractState | string;
   qualityTier?: ToolCandidateQualityTier;
   sourceRef?: ToolCandidateSourceRef;
   profileId: string;

@@ -59,6 +59,7 @@ def tool_profile_candidate_fields(profile: Any) -> dict[str, Any]:
             "profileId": profile_id,
             "version": version,
         },
+        "contractState": "SnakemakeRenderable",
         "qualityTier": "draft-runnable",
     }
 
