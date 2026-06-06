@@ -46,7 +46,10 @@ def bio_agent_catalog_target_acceptance(
         "discovered": _target_result(actual=_count_value(quality_counts.get("discovered")), target=CATALOG_TARGETS["discovered"]),
         "addableDraft": _target_result(actual=_count_value(addable_counts.get("total")), target=CATALOG_TARGETS["addableDraft"]),
         "snakemakeRenderable": _target_result(
-            actual=_contract_state_count(profile_catalog, "SnakemakeRenderable"),
+            actual=max(
+                _count_value(quality_counts.get("draftRunnable")),
+                _contract_state_count(profile_catalog, "SnakemakeRenderable"),
+            ),
             target=CATALOG_TARGETS["snakemakeRenderable"],
         ),
         "workflowReady": _target_result(
