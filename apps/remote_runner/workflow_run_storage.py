@@ -9,6 +9,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError
 from .execution_query_storage import fetch_run
+from .run_execution_storage import enqueue_run_job_record
 from .storage_core import get_connection, now_iso
 
 
@@ -143,6 +144,11 @@ def create_run_record(
                 submitted_at,
                 None,
             ),
+        )
+        enqueue_run_job_record(
+            connection,
+            run_id=run["runId"],
+            available_at=submitted_at,
         )
         connection.execute(
             """

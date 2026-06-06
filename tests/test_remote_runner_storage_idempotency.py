@@ -79,8 +79,10 @@ def test_create_run_record_reports_idempotency_replay_without_new_rows(tmp_path:
     with get_connection(cfg) as connection:
         run_count = connection.execute("SELECT COUNT(*) AS count FROM runs").fetchone()["count"]
         event_count = connection.execute("SELECT COUNT(*) AS count FROM run_events").fetchone()["count"]
+        job_count = connection.execute("SELECT COUNT(*) AS count FROM run_jobs").fetchone()["count"]
     assert run_count == 1
-    assert event_count == 1
+    assert event_count == 2
+    assert job_count == 1
 
 
 def test_submission_idempotency_replay_does_not_start_second_executor(
