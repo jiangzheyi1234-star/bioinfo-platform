@@ -16,7 +16,7 @@ from apps.api.tool_profile_semantics import enrich_rule_template_semantics
 CATALOG_TARGETS = {
     "discovered": 500,
     "addableDraft": 100,
-    "snakemakeRenderable": 20,
+    "snakemakeRenderable": 30,
     "workflowReady": 30,
     "productionEnabled": 10,
 }

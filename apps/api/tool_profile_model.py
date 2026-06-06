@@ -13,3 +13,4 @@ class ToolProfile:
     tool_names: tuple[str, ...]
     rule_template: dict[str, Any]
     preferred_wrapper_paths: tuple[str, ...] = ()
+    package_name: str = ""

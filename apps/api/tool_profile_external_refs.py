@@ -10,7 +10,10 @@ from apps.api.tool_profile_model import ToolProfile
 
 def profile_snakemake_wrappers(profile: ToolProfile, *, limit: int = 4) -> list[dict[str, Any]]:
     wrappers_by_path: dict[str, dict[str, Any]] = {}
-    for tool_name in profile.tool_names:
+    tool_names = [*profile.tool_names]
+    if profile.package_name:
+        tool_names.append(profile.package_name)
+    for tool_name in tool_names:
         for wrapper in find_snakemake_wrappers_for_tool(tool_name):
             path = str(wrapper.get("wrapperPath") or "").strip()
             if path:

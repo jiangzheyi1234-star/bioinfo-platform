@@ -5,7 +5,7 @@ from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profiles import resolve_tool_profile
 
 
-BIO_TOOL_PACK_V1_PROFILE_COUNT = 20
+BIO_TOOL_PACK_V1_PROFILE_COUNT = 30
 EDAM_SEQUENCE = "http://edamontology.org/data_2044"
 EDAM_SEQUENCE_ALIGNMENT = "http://edamontology.org/data_0863"
 EDAM_FASTQ = "http://edamontology.org/format_1930"
@@ -13,12 +13,23 @@ EDAM_SAM = "http://edamontology.org/format_2573"
 EDAM_HTML = "http://edamontology.org/format_2331"
 
 
-def test_bio_tool_pack_v1_has_twenty_curated_profiles() -> None:
+def test_bio_tool_pack_v1_has_thirty_curated_profiles() -> None:
     profile_ids = [profile.profile_id for profile in TOOL_PROFILES]
 
     assert len(profile_ids) >= BIO_TOOL_PACK_V1_PROFILE_COUNT
     assert len(profile_ids) == len(set(profile_ids))
-    assert {"fastp", "fastqc", "kraken2", "bracken", "multiqc", "seqkit-stats"}.issubset(profile_ids)
+    assert {
+        "fastp",
+        "fastqc",
+        "kraken2",
+        "bracken",
+        "multiqc",
+        "seqkit-stats",
+        "samtools-sort",
+        "picard-markduplicates",
+        "blastn-search",
+        "salmon-quant",
+    }.issubset(profile_ids)
 
 
 def test_bio_tool_pack_v1_profiles_are_snakemake_renderable() -> None:
@@ -57,11 +68,12 @@ def test_bio_tool_pack_v1_catalog_exposes_addable_profile_candidates() -> None:
 
 def test_bio_tool_pack_v1_profiles_resolve_to_ready_rule_spec_drafts() -> None:
     for profile in TOOL_PROFILES:
+        package_name = profile.package_name or profile.tool_names[0]
         draft = resolve_tool_profile(
             {
                 "name": profile.tool_names[0],
                 "source": "bioconda",
-                "packageSpec": f"bioconda::{profile.tool_names[0]}=1.0",
+                "packageSpec": f"bioconda::{package_name}=1.0",
             }
         )
 
@@ -70,7 +82,7 @@ def test_bio_tool_pack_v1_profiles_resolve_to_ready_rule_spec_drafts() -> None:
         assert draft["requiresUserCompletion"] is False
         assert draft["status"] == "ready-for-validation"
         assert draft["lock"]["profileId"] == profile.profile_id
-        assert draft["ruleTemplate"]["environment"]["conda"]["dependencies"] == [f"bioconda::{profile.tool_names[0]}=1.0"]
+        assert draft["ruleTemplate"]["environment"]["conda"]["dependencies"] == [f"bioconda::{package_name}=1.0"]
 
 
 def test_bio_tool_pack_resolved_profiles_include_edam_port_semantics() -> None:
