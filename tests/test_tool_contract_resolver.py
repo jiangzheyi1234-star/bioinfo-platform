@@ -76,7 +76,10 @@ def test_bracken_profile_overlay_returns_workflow_rule_spec() -> None:
 
 
 def test_profile_registry_exposes_p0_h2ometa_profiles() -> None:
-    assert known_tool_profile_ids() == ["bracken", "fastp", "fastqc", "kraken2", "multiqc", "seqkit-stats"]
+    profile_ids = known_tool_profile_ids()
+
+    assert len(profile_ids) >= 20
+    assert {"bracken", "fastp", "fastqc", "kraken2", "multiqc", "seqkit-stats"}.issubset(profile_ids)
 
 
 def test_fastp_profile_overlay_has_no_database_resource() -> None:

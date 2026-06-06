@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .tool_profile_open_source_pack import OPEN_SOURCE_TOOL_PROFILES
 from .tool_profile_model import ToolProfile
 
 
@@ -392,4 +393,4 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
             },
         },
     ),
-)
+) + OPEN_SOURCE_TOOL_PROFILES
