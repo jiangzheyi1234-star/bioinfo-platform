@@ -72,6 +72,16 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "output_validation" in task_bar
 
 
+def test_prepare_job_service_schedules_only_new_prepare_jobs() -> None:
+    service_source = (ROOT / "apps" / "remote_runner" / "tool_service.py").read_text(encoding="utf-8")
+    storage_source = (ROOT / "apps" / "remote_runner" / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
+
+    assert 'job["reusedExisting"] = True' in storage_source
+    assert 'job["reusedExisting"] = False' in storage_source
+    assert 'if not job.get("reusedExisting"):' in service_source
+    assert "background_tasks.add_task(run_tool_prepare_job, cfg, job[\"jobId\"])" in service_source
+
+
 def test_prepare_task_status_lives_in_bottom_status_bar() -> None:
     shell = (ROOT / "apps" / "web" / "app" / "components" / "ssh-shell.tsx").read_text(encoding="utf-8")
     shell_ui = (ROOT / "apps" / "web" / "app" / "components" / "ssh-shell-ui.tsx").read_text(encoding="utf-8")

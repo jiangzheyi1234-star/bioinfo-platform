@@ -22,6 +22,28 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
     job_id = f"toolprep_{uuid.uuid4().hex[:12]}"
     tool_id = str(payload.get("id") or "").strip()
     with get_connection(cfg) as connection:
+        existing_row = connection.execute(
+            """
+            SELECT *
+            FROM tool_prepare_jobs
+            WHERE tool_id = ? AND status IN ('queued', 'running')
+            ORDER BY rowid DESC
+            LIMIT 1
+            """,
+            (tool_id,),
+        ).fetchone()
+        if existing_row is not None:
+            event_rows = connection.execute(
+                """
+                SELECT * FROM tool_prepare_job_events
+                WHERE job_id = ?
+                ORDER BY rowid ASC
+                """,
+                (existing_row["job_id"],),
+            ).fetchall()
+            job = job_row_to_dict(existing_row, [event_row_to_dict(event_row) for event_row in event_rows])
+            job["reusedExisting"] = True
+            return job
         connection.execute(
             """
             INSERT INTO tool_prepare_jobs (
@@ -57,6 +79,7 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
     job = fetch_tool_prepare_job(cfg, job_id)
     if job is None:
         raise KeyError(job_id)
+    job["reusedExisting"] = False
     return job
 
 
