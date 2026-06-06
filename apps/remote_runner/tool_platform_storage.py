@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from typing import Any
@@ -122,6 +123,15 @@ def record_prepare_job_validation_result(
     validation_result_id = f"toolval_{uuid.uuid4().hex[:12]}"
     occurred_at = str(created_at or now_iso())
     tool_id = str(job["tool_id"] or payload.get("id") or "").strip()
+    tool_revision_id = str(result_payload.get("toolRevisionId") or payload.get("toolRevisionId") or "")
+    runtime_profile_id = _upsert_runtime_profile_for_validation(
+        connection,
+        tool_id=tool_id,
+        tool_revision_id=tool_revision_id,
+        payload=payload,
+        result_payload=result_payload,
+        created_at=occurred_at,
+    )
     connection.execute(
         """
         INSERT INTO tool_validation_results (
@@ -133,8 +143,8 @@ def record_prepare_job_validation_result(
         (
             validation_result_id,
             tool_id,
-            str(result_payload.get("toolRevisionId") or ""),
-            str(payload.get("runtimeProfileId") or "") or None,
+            tool_revision_id,
+            runtime_profile_id,
             job_id,
             str(stage or ""),
             str(status or ""),
@@ -184,6 +194,81 @@ def list_tool_validation_results(
             (str(tool_id or "").strip(), min(100, max(1, int(limit)))),
         ).fetchall()
     return [_validation_result_row_to_dict(row) for row in rows]
+
+
+def list_tool_runtime_profiles(
+    cfg: RemoteRunnerConfig,
+    *,
+    tool_revision_id: str,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM tool_runtime_profiles
+            WHERE tool_revision_id = ?
+            ORDER BY created_at DESC, runtime_profile_id DESC
+            LIMIT ?
+            """,
+            (str(tool_revision_id or "").strip(), min(100, max(1, int(limit)))),
+        ).fetchall()
+    return [_runtime_profile_row_to_dict(row) for row in rows]
+
+
+def _upsert_runtime_profile_for_validation(
+    connection: Any,
+    *,
+    tool_id: str,
+    tool_revision_id: str,
+    payload: dict[str, Any],
+    result_payload: dict[str, Any],
+    created_at: str,
+) -> str:
+    profile = _runtime_profile_payload(payload, result_payload)
+    platform = str(profile.get("platform") or payload.get("targetPlatform") or "linux-64").strip() or "linux-64"
+    engine = str(profile.get("engine") or payload.get("engine") or "snakemake").strip() or "snakemake"
+    environment_lock = _profile_object(profile, payload, result_payload, "environmentLock")
+    if not environment_lock:
+        environment_lock = {
+            "manager": "conda",
+            "packageSpec": str(payload.get("packageSpec") or ""),
+            "targetPlatform": platform,
+        }
+    resource_profile = _profile_object(profile, payload, result_payload, "resourceProfile")
+    security_policy = _profile_object(profile, payload, result_payload, "securityPolicy")
+    normalized_revision_id = str(tool_revision_id or "").strip() or str(tool_id or "").strip()
+    content_hash = _runtime_profile_hash(
+        tool_revision_id=normalized_revision_id,
+        platform=platform,
+        engine=engine,
+        environment_lock=environment_lock,
+        resource_profile=resource_profile,
+        security_policy=security_policy,
+    )
+    runtime_profile_id = f"toolrt_{content_hash[:16]}"
+    connection.execute(
+        """
+        INSERT INTO tool_runtime_profiles (
+            runtime_profile_id, tool_revision_id, platform, engine,
+            environment_lock_json, resource_profile_json, security_policy_json,
+            content_hash, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(runtime_profile_id) DO NOTHING
+        """,
+        (
+            runtime_profile_id,
+            normalized_revision_id,
+            platform,
+            engine,
+            _json(environment_lock),
+            _json(resource_profile),
+            _json(security_policy),
+            content_hash,
+            created_at,
+        ),
+    )
+    return runtime_profile_id
 
 
 def _update_tool_index_validation_summary(connection: Any, *, tool_id: str, summary: dict[str, Any], updated_at: str) -> None:
@@ -272,6 +357,65 @@ def _validation_result_row_to_dict(row: Any) -> dict[str, Any]:
         "durationMs": row["duration_ms"],
         "createdAt": row["created_at"],
     }
+
+
+def _runtime_profile_row_to_dict(row: Any) -> dict[str, Any]:
+    return {
+        "runtimeProfileId": row["runtime_profile_id"],
+        "toolRevisionId": row["tool_revision_id"],
+        "platform": row["platform"],
+        "engine": row["engine"],
+        "environmentLock": json.loads(row["environment_lock_json"] or "{}"),
+        "resourceProfile": json.loads(row["resource_profile_json"] or "{}"),
+        "securityPolicy": json.loads(row["security_policy_json"] or "{}"),
+        "contentHash": row["content_hash"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _runtime_profile_payload(payload: dict[str, Any], result_payload: dict[str, Any]) -> dict[str, Any]:
+    for source in (result_payload.get("runtimeProfile"), payload.get("runtimeProfile")):
+        if isinstance(source, dict):
+            return source
+    return {}
+
+
+def _profile_object(
+    profile: dict[str, Any],
+    payload: dict[str, Any],
+    result_payload: dict[str, Any],
+    key: str,
+) -> dict[str, Any]:
+    for source in (profile.get(key), result_payload.get(key), payload.get(key)):
+        if isinstance(source, dict):
+            return source
+    return {}
+
+
+def _runtime_profile_hash(
+    *,
+    tool_revision_id: str,
+    platform: str,
+    engine: str,
+    environment_lock: dict[str, Any],
+    resource_profile: dict[str, Any],
+    security_policy: dict[str, Any],
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "engine": engine,
+                "environmentLock": environment_lock,
+                "platform": platform,
+                "resourceProfile": resource_profile,
+                "securityPolicy": security_policy,
+                "toolRevisionId": tool_revision_id,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _tool_facets(tool: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:

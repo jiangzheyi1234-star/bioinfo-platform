@@ -243,6 +243,12 @@ CREATE TABLE IF NOT EXISTS tool_runtime_profiles (
     created_at TEXT NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_runtime_profiles_hash
+ON tool_runtime_profiles(content_hash);
+
+CREATE INDEX IF NOT EXISTS idx_tool_runtime_profiles_revision
+ON tool_runtime_profiles(tool_revision_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS tool_validation_results (
     validation_result_id TEXT PRIMARY KEY,
     tool_id TEXT NOT NULL,
