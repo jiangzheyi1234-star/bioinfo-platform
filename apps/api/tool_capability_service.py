@@ -147,7 +147,7 @@ def _prepare_tool_validation_queue(*, runtime: Any, target_platform: str, max_it
             skipped.append(_skipped_validation_item(item, tool_id=tool_id, reason="DUPLICATE_TOOL_ID"))
             continue
         seen_tool_ids.add(tool_id)
-        latest_prepare_job = latest_jobs_by_tool_id.get(tool_id)
+        latest_prepare_job = latest_jobs_by_tool_id.get(tool_id) or _safe_item_latest_prepare_job(item)
         if _active_prepare_job(latest_prepare_job):
             skipped.append(
                 _skipped_validation_item(
@@ -214,6 +214,13 @@ def _queue_item_with_latest_prepare_job(item: dict[str, Any], latest_prepare_job
     return next_item
 
 
+def _safe_item_latest_prepare_job(item: dict[str, Any]) -> dict[str, Any] | None:
+    value = item.get("latestPrepareJob")
+    if not isinstance(value, dict):
+        return None
+    return _safe_prepare_job_summary(value)
+
+
 def _active_prepare_job(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
@@ -231,7 +238,8 @@ def _remaining_workflow_ready(acceptance: dict[str, Any]) -> int:
 
 def _queue_item_tool_id(item: dict[str, Any]) -> str:
     prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else {}
-    return str(prepare_payload.get("id") or "").strip()
+    latest_prepare_job = item.get("latestPrepareJob") if isinstance(item.get("latestPrepareJob"), dict) else {}
+    return str(prepare_payload.get("id") or latest_prepare_job.get("toolId") or "").strip()
 
 
 def _skipped_validation_item(item: dict[str, Any], *, tool_id: str, reason: str) -> dict[str, Any]:
