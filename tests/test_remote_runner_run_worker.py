@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any
+
+from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.run_worker import process_next_run_job
+from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
+from apps.remote_runner.storage_core import get_connection
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.tick = 0
+
+    def __call__(self) -> str:
+        self.tick += 1
+        return f"2026-06-07T10:00:{self.tick:02d}Z"
+
+
+def _config(tmp_path: Path) -> RemoteRunnerConfig:
+    (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
+    return RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        managed_conda_command="python",
+        snakemake_command="snakemake",
+    )
+
+
+def _create_queued_run(cfg: RemoteRunnerConfig, run_id: str = "run_worker") -> str:
+    created = create_run_record(
+        cfg,
+        server_id="srv_worker",
+        request_id="req_worker",
+        run_spec={
+            "runId": run_id,
+            "projectId": "proj_worker",
+            "pipelineId": "pipeline_worker",
+            "pipelineVersion": "0.1.0",
+        },
+        idempotency_key=f"idem_{run_id}",
+        payload_hash=f"payload_{run_id}",
+    )
+    return created.run["runId"]
+
+
+def test_run_worker_claims_job_and_completes_current_attempt(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg)
+    seen: list[dict[str, Any]] = []
+    clock = FakeClock()
+
+    def fake_execute(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+    ) -> None:
+        seen.append({"runId": run_id, "requestId": request_id, "runSpec": run_spec})
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Fake worker execution completed.",
+            request_id=request_id,
+        )
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_test",
+        execute_run=fake_execute,
+        lease_seconds=30,
+        heartbeat_interval_seconds=0.01,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert result["runId"] == run_id
+    assert result["attemptCompletion"]["accepted"] is True
+    assert result["attemptCompletion"]["state"] == "succeeded"
+    assert seen == [
+        {
+            "runId": run_id,
+            "requestId": "req_worker",
+            "runSpec": {
+                "runId": run_id,
+                "projectId": "proj_worker",
+                "pipelineId": "pipeline_worker",
+                "pipelineVersion": "0.1.0",
+            },
+        }
+    ]
+
+    run = fetch_run(cfg, run_id)
+    assert run is not None
+    assert run["status"] == "completed"
+    with get_connection(cfg) as connection:
+        job = connection.execute("SELECT state FROM run_jobs WHERE run_id = ?", (run_id,)).fetchone()
+        attempt = connection.execute("SELECT state FROM run_attempts WHERE run_id = ?", (run_id,)).fetchone()
+        lease = connection.execute("SELECT state FROM run_leases WHERE run_id = ?", (run_id,)).fetchone()
+    assert job["state"] == "completed"
+    assert attempt["state"] == "succeeded"
+    assert lease["state"] == "completed"
+
+
+def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    _create_queued_run(cfg, "run_worker_heartbeat")
+    heartbeat_seen = False
+    initial_heartbeat = ""
+    clock = FakeClock()
+
+    def fake_execute(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+    ) -> None:
+        nonlocal heartbeat_seen, initial_heartbeat
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            with get_connection(cfg) as connection:
+                lease = connection.execute(
+                    "SELECT heartbeat_at FROM run_leases WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+            if lease is not None:
+                if not initial_heartbeat:
+                    initial_heartbeat = str(lease["heartbeat_at"])
+                elif lease["heartbeat_at"] != initial_heartbeat:
+                    heartbeat_seen = True
+                    break
+            time.sleep(0.01)
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Fake worker execution completed.",
+            request_id=request_id,
+        )
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_heartbeat",
+        execute_run=fake_execute,
+        lease_seconds=30,
+        heartbeat_interval_seconds=0.01,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert heartbeat_seen is True

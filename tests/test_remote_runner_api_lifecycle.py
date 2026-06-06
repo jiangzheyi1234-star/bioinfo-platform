@@ -2,24 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
-    get_runtime_state_path,
-    inspect_workflow_runtime,
     load_remote_runner_config,
-    write_runtime_state,
 )
-from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.errors import RemoteRunnerAuthError
-from apps.remote_runner.executor import run_snakemake_execution
 from core.contracts.pipeline_manifest import PipelineRegistryError
 from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
 from apps.remote_runner.execution_query_routes import (
@@ -35,17 +27,7 @@ from apps.remote_runner.execution_query_routes import (
 from apps.remote_runner.health_routes import health_live, health_ready, health_startup
 from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
 from apps.remote_runner.submission_routes import create_run, create_upload
-from config import get_app_cache_dir
-from core.remote_runner.artifact import RemoteRunnerArtifactError
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
-from core.remote_runner.client import RemoteRunnerClientError
-from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from tests.helpers.remote_runner_control_plane import (
-    _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
-    _default_workflow_runtime,
-    _fake_runtime_dir,
-    _fake_workflow_artifact,
-    _runtime_state_json,
     _write_file_summary_pipeline,
 )
 
@@ -158,6 +140,7 @@ def test_remote_runner_pipeline_api_lists_registered_pipelines(tmp_path: Path, m
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
@@ -222,6 +205,7 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
@@ -261,6 +245,7 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
 
@@ -305,12 +290,9 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
     ensure_runtime_layout(load_remote_runner_config())
     _write_file_summary_pipeline(tmp_path / "release")
-    monkeypatch.setattr(
-        "apps.remote_runner.submission_service.start_run_execution",
-        lambda cfg, run_id, request_id, run_spec: None,
-    )
 
     submit = asyncio.run(
         create_run(
@@ -399,7 +381,7 @@ def test_remote_runner_upload_rejects_oversized_payload(tmp_path: Path, monkeypa
         encoding="utf-8",
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
-    monkeypatch.setattr("apps.remote_runner.storage.MAX_UPLOAD_BYTES", 8)
+    monkeypatch.setattr("apps.remote_runner.upload_storage.MAX_UPLOAD_BYTES", 8)
     payload = UploadCreateRequest(
         filename="reads.fastq",
         contentBase64="QUJDREVGR0hJSg==",
