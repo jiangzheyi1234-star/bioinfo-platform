@@ -45,6 +45,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     page = (COMPONENTS / "workflows-page.tsx").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
+    generated_model = (COMPONENTS / "generated-workflow-model.ts").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
@@ -58,7 +59,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "/api/v1/servers" in api
     assert "serverId" in api
     assert "contentBase64" in api
-    assert "generated-tool-run-v1" in model
+    assert "generated-tool-run-v1" in generated_model
     assert "ruleReadyToolScore" in model
     assert "WORKFLOW_TOOL_NOT_READY" in model
     assert "所选工具还未通过合同验证" in model
@@ -71,6 +72,29 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
     assert "export function WorkflowRunBuilder" in ui
+
+
+def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
+    api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
+    builder_ui = (COMPONENTS / "generated-workflow-builder.tsx").read_text(encoding="utf-8")
+    recommendations_path = COMPONENTS / "generated-workflow-tool-recommendations.tsx"
+
+    assert recommendations_path.exists()
+    recommendations_ui = recommendations_path.read_text(encoding="utf-8")
+    assert "export async function fetchWorkflowToolRecommendations" in api
+    assert "/api/v1/tool-capabilities/candidate-recommendations" in api
+    assert "outputKind" in api
+    assert "outputMimeType" in api
+    assert "outputData" in api
+    assert "outputFormat" in api
+    assert "GeneratedWorkflowToolRecommendations" in builder_ui
+    assert "outputCandidates={outputCandidates}" in builder_ui
+    assert "onAddTool={(toolRevisionId) => builder.addStep(toolRevisionId)}" in builder_ui
+    assert "fetchWorkflowToolRecommendations" in recommendations_ui
+    assert "useEffect" in recommendations_ui
+    assert "selectedOutputCandidate" in recommendations_ui
+    assert "matchingWorkflowReadyTool" in recommendations_ui
+    assert "builder.addStep" not in recommendations_ui
 
 
 def test_generated_workflow_builder_has_explicit_dag_contract() -> None:

@@ -2,6 +2,7 @@ import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/lib/async-cache";
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
+import type { RuleOutputSpec } from "./generated-workflow-model";
 import type { AddedTool, ToolsResponse } from "./tools-page-model";
 import type {
   WorkflowDesignCompileResult,
@@ -27,6 +28,43 @@ import {
 type FetchOptions = {
   forceRefresh?: boolean;
   serverId?: string;
+};
+
+export type WorkflowToolRecommendationCandidate = {
+  candidateId?: string;
+  candidateKind?: string;
+  qualityTier?: string;
+  profileId?: string;
+  profileVersion?: number;
+  toolNames?: string[];
+  preferredWrapperPaths?: string[];
+};
+
+export type WorkflowToolRecommendationItem = {
+  decision: "recommended" | "blocked" | "ambiguous" | string;
+  candidate: WorkflowToolRecommendationCandidate;
+  inputPort: {
+    name: string;
+    required?: boolean;
+    type?: string;
+    kind?: string;
+    mimeType?: string;
+    data?: string;
+    format?: string;
+  };
+  matchedFields: string[];
+  confidence: number;
+  hardChecks: string[];
+  evidence: string[];
+};
+
+export type WorkflowToolRecommendations = {
+  items: WorkflowToolRecommendationItem[];
+  query: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
 };
 
 const WORKFLOW_CATALOG_CACHE_KEY = "workflow:catalog";
@@ -80,6 +118,35 @@ export async function fetchWorkflowDatabases(options: FetchOptions = {}): Promis
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function fetchWorkflowToolRecommendations({
+  outputPort,
+  query = "",
+  page = 1,
+  pageSize = 5,
+}: {
+  outputPort: RuleOutputSpec;
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<WorkflowToolRecommendations> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  if (query) params.set("q", query);
+  if (outputPort.type) params.set("outputType", outputPort.type);
+  if (outputPort.kind) params.set("outputKind", outputPort.kind);
+  if (outputPort.mimeType) params.set("outputMimeType", outputPort.mimeType);
+  if (outputPort.data) params.set("outputData", outputPort.data);
+  if (outputPort.format) params.set("outputFormat", outputPort.format);
+  const response = await requestLocalApiJson<{ data: WorkflowToolRecommendations }>(
+    "GET",
+    `/api/v1/tool-capabilities/candidate-recommendations?${params.toString()}`,
+    { cache: "no-store" }
+  );
+  return response.data;
 }
 
 export async function fetchWorkflowDesignDrafts(options: FetchOptions = {}): Promise<WorkflowDesignDraftRecord[]> {
