@@ -11,6 +11,7 @@ from config import (
 from core.app_runtime.managers.database import DatabaseManager
 from core.app_runtime.managers.execution import ExecutionManager
 from core.app_runtime.managers.file import FileManager
+from core.app_runtime.managers.runner import RunnerManager
 from core.app_runtime.managers.tool import ToolManager
 from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
@@ -76,6 +77,7 @@ class RuntimeService(
         self.databases = DatabaseManager(self)
         self.execution = ExecutionManager(self)
         self.files = FileManager(self)
+        self.runner = RunnerManager(self)
         self.tools = ToolManager(self)
         self.workflows = WorkflowManager(self)
 
