@@ -21,3 +21,33 @@ async def version_from_request() -> dict[str, Any]:
             "backend_source": os.environ.get("H2OMETA_BACKEND_SOURCE", "unknown"),
         }
     }
+
+
+async def service_info_from_request() -> dict[str, Any]:
+    build_id = os.environ.get("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
+    backend_source = os.environ.get("H2OMETA_BACKEND_SOURCE", "unknown")
+    return {
+        "item": {
+            "service": "h2ometa-local-api",
+            "kind": "local-control-plane",
+            "identity": {
+                "service": "h2ometa-local-api",
+                "processId": os.getpid(),
+                "backendSource": backend_source,
+            },
+            "version": {
+                "buildId": build_id,
+                "terminalRuntimeBuildId": TERMINAL_RUNTIME_BUILD_ID,
+                "terminalTransport": "websocket",
+                "backendSource": backend_source,
+            },
+            "readiness": {
+                "status": "ready",
+                "checks": {
+                    "process": bool(os.getpid()),
+                    "systemRoutes": True,
+                },
+            },
+            "stateCounts": {"localApiProcesses": 1},
+        }
+    }
