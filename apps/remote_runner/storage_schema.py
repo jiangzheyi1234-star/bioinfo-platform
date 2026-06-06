@@ -126,6 +126,43 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS artifact_blobs (
+    artifact_blob_id TEXT PRIMARY KEY,
+    sha256 TEXT NOT NULL UNIQUE,
+    blake3 TEXT,
+    size_bytes INTEGER NOT NULL,
+    media_type TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS artifact_materializations (
+    materialization_id TEXT PRIMARY KEY,
+    artifact_blob_id TEXT NOT NULL,
+    storage_backend TEXT NOT NULL,
+    storage_uri TEXT NOT NULL,
+    local_path TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(artifact_blob_id, storage_backend, storage_uri)
+);
+
+CREATE TABLE IF NOT EXISTS run_artifact_edges (
+    edge_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    artifact_blob_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    port_name TEXT,
+    step_id TEXT,
+    content_hash TEXT NOT NULL,
+    upstream_run_id TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_artifact_edges_run
+ON run_artifact_edges(run_id, role, port_name, step_id);
+
+CREATE INDEX IF NOT EXISTS idx_run_artifact_edges_blob
+ON run_artifact_edges(artifact_blob_id);
+
 CREATE TABLE IF NOT EXISTS idempotency (
     server_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
