@@ -549,6 +549,17 @@ def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> N
             assert tool_ids
             return {"data": {"byToolId": {}}}
 
+        def list_tool_index(
+            self,
+            *,
+            query: str = "",
+            limit: int = 50,
+            offset: int = 0,
+            source: str | None = None,
+            state: str | None = None,
+        ) -> dict[str, object]:
+            return {"data": {"items": [], "total": 0, "hasMore": False}}
+
     def fake_recommend_tool_candidates(**kwargs):
         captured.update(kwargs)
         return {"items": [], "total": 0}
@@ -686,6 +697,17 @@ def test_tool_recommendation_service_hydrates_latest_prepare_jobs(monkeypatch) -
                     }
                 }
             }
+
+        def list_tool_index(
+            self,
+            *,
+            query: str = "",
+            limit: int = 50,
+            offset: int = 0,
+            source: str | None = None,
+            state: str | None = None,
+        ) -> dict[str, object]:
+            return {"data": {"items": [], "total": 0, "hasMore": False}}
 
     def fake_recommend_tool_candidates(**kwargs):
         captured.update(kwargs)
