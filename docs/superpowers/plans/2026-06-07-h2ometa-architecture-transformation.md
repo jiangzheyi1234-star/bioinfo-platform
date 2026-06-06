@@ -542,6 +542,7 @@ reconcile_queue(
   resource_id text not null,
   dedup_key text not null,
   reason text not null,
+  state text not null default 'pending',
   available_at text not null,
   claimed_by text,
   claimed_until text,
@@ -572,6 +573,7 @@ Acceptance:
 - marking a resource for deletion sets `deletion_timestamp` and keeps finalizers until cleanup completes
 - owner fields can express `RunJob -> Run` and `RunnerRelease -> RemoteRuntime`
 - failed reconcile items use bounded exponential backoff with jitter and eventually stop retrying
+- exhausted reconcile items are explicit and cannot be claimed again until reactivated by a new desired-state change
 
 ### PR 1.5: Shadow Reconciler
 
