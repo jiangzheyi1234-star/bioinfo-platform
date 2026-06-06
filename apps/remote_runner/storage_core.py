@@ -17,6 +17,7 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
     _ensure_tools_columns(connection)
+    _ensure_artifact_columns(connection)
     connection.commit()
     return connection
 
@@ -39,3 +40,11 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE tools ADD COLUMN contract_status_json TEXT NOT NULL DEFAULT '{}'")
     if "published_at" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN published_at TEXT")
+
+
+def _ensure_artifact_columns(connection: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(artifacts)").fetchall()}
+    if "storage_backend" not in columns:
+        connection.execute("ALTER TABLE artifacts ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'")
+    if "storage_uri" not in columns:
+        connection.execute("ALTER TABLE artifacts ADD COLUMN storage_uri TEXT NOT NULL DEFAULT ''")
