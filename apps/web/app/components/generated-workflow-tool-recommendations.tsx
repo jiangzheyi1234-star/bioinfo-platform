@@ -122,6 +122,11 @@ export function GeneratedWorkflowToolRecommendations({
                 <div className="mt-1 truncate text-[11px] text-slate-500">
                   input {recommendation.inputPort.name} · {recommendation.matchedFields.join(" / ")}
                 </div>
+                {!tool && recommendation.executionGate?.requiredState ? (
+                  <div className="mt-1 truncate text-[11px] text-amber-700">
+                    当前 {recommendation.executionGate.currentState || "Discovered"} · 需验证到 {recommendation.executionGate.requiredState}
+                  </div>
+                ) : null}
                 <div className="mt-1 truncate text-[11px] text-slate-500">{recommendation.evidence.join(" · ")}</div>
               </div>
               {tool ? (
@@ -138,7 +143,7 @@ export function GeneratedWorkflowToolRecommendations({
                 <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs">
                   <Link href={toolSearchHref(recommendation)}>
                     <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
-                    先加入工具库
+                    准备并验证工具
                   </Link>
                 </Button>
               )}

@@ -57,6 +57,7 @@ def _profile_recommendations(*, output_spec: dict[str, str], query: str) -> list
                 {
                     "decision": "recommended",
                     "candidate": _profile_candidate(profile),
+                    "executionGate": _execution_gate(profile),
                     "inputPort": _input_port_summary(input_port, input_spec),
                     "matchedFields": matched_fields,
                     "confidence": _confidence(matched_fields=matched_fields, input_port=input_port),
@@ -74,6 +75,17 @@ def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
         "toolNames": list(profile.tool_names),
         "preferredWrapperPaths": list(profile.preferred_wrapper_paths),
         **tool_profile_candidate_fields(profile),
+    }
+
+
+def _execution_gate(profile: ToolProfile) -> dict[str, Any]:
+    candidate = _profile_candidate(profile)
+    return {
+        "currentState": candidate.get("contractState") or "Discovered",
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "prepare-tool",
+        "reason": "WORKFLOW_TOOL_NOT_READY",
     }
 
 

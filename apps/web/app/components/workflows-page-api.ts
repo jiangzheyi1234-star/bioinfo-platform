@@ -33,6 +33,7 @@ type FetchOptions = {
 export type WorkflowToolRecommendationCandidate = {
   candidateId?: string;
   candidateKind?: string;
+  contractState?: string;
   qualityTier?: string;
   profileId?: string;
   profileVersion?: number;
@@ -40,9 +41,18 @@ export type WorkflowToolRecommendationCandidate = {
   preferredWrapperPaths?: string[];
 };
 
+export type WorkflowToolRecommendationExecutionGate = {
+  currentState?: string;
+  requiredState?: string;
+  canAddStep?: boolean;
+  nextAction?: string;
+  reason?: string;
+};
+
 export type WorkflowToolRecommendationItem = {
   decision: "recommended" | "blocked" | "ambiguous" | string;
   candidate: WorkflowToolRecommendationCandidate;
+  executionGate?: WorkflowToolRecommendationExecutionGate;
   inputPort: {
     name: string;
     required?: boolean;
