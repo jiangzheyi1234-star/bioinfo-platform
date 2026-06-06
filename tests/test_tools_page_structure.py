@@ -351,6 +351,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "preparingCandidateId" in validation_queue
     assert "priority?.score" in validation_queue
     assert "executionGate?.nextAction" in validation_queue
+    assert "activePrepareJob" in validation_queue
+    assert "isActivePrepareJob(item)" in validation_queue
     assert "latestPrepareJob?.status" in validation_queue
     assert "latestPrepareJob?.errorCode" in validation_queue
     assert "validationPlan?.stages?.length" in validation_queue

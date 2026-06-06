@@ -263,6 +263,10 @@ def _validation_queue_item(profile: ToolProfile, *, latest_prepare_jobs_by_tool_
     latest_prepare_job = _safe_latest_prepare_job(latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or "")))
     if latest_prepare_job is not None:
         item["latestPrepareJob"] = latest_prepare_job
+    if _active_prepare_job(latest_prepare_job):
+        item["action"] = "wait-for-tool-validation"
+        item["executionGate"] = _active_prepare_job_execution_gate(latest_prepare_job)
+        item.pop("preparePayload", None)
     return item
 
 
@@ -298,6 +302,25 @@ def _validation_execution_gate() -> dict[str, Any]:
         "nextAction": "prepare-tool",
         "reason": "WORKFLOW_TOOL_NOT_READY",
         "sourceOfTruth": "registeredTool.toolContract",
+    }
+
+
+def _active_prepare_job(value: dict[str, Any] | None) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return str(value.get("status") or "").strip() in {"queued", "running"}
+
+
+def _active_prepare_job_execution_gate(latest_prepare_job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "currentState": "SnakemakeRenderable",
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "wait-for-tool-validation",
+        "reason": "TOOL_PREPARE_JOB_ACTIVE",
+        "sourceOfTruth": "toolPrepareJob",
+        "jobId": str(latest_prepare_job.get("jobId") or ""),
+        "toolId": str(latest_prepare_job.get("toolId") or ""),
     }
 
 

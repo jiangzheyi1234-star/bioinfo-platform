@@ -424,6 +424,55 @@ def test_validation_queue_item_includes_latest_prepare_job_without_counting_it_r
     assert report["targets"]["productionEnabled"]["actual"] == 0
 
 
+def test_validation_queue_item_waits_on_active_prepare_job(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 20},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 20, "total": 12418},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 20, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 20,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(20)],
+        },
+    )
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(
+        target_platform="linux-64",
+        latest_prepare_jobs_by_tool_id={
+            "bioconda::fastqc": {
+                "jobId": "toolprep_fastqc",
+                "toolId": "bioconda::fastqc",
+                "status": "running",
+                "stage": "dry_run",
+            }
+        },
+    )
+
+    fastqc = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "fastqc")
+    assert fastqc["action"] == "wait-for-tool-validation"
+    assert fastqc["executionGate"] == {
+        "currentState": "SnakemakeRenderable",
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "wait-for-tool-validation",
+        "reason": "TOOL_PREPARE_JOB_ACTIVE",
+        "sourceOfTruth": "toolPrepareJob",
+        "jobId": "toolprep_fastqc",
+        "toolId": "bioconda::fastqc",
+    }
+    assert "preparePayload" not in fastqc
+
+
 def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
@@ -486,7 +535,8 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
 
         def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
             assert tool_ids
-            self.active_tool_id = tool_ids[0]
+            if not self.active_tool_id:
+                self.active_tool_id = tool_ids[0]
             return {
                 "data": {
                     "byToolId": {
@@ -556,3 +606,17 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
     ]
     assert data["targets"]["workflowReady"]["actual"] == 0
     assert data["remainingWorkflowReady"] == data["targets"]["workflowReady"]["remaining"]
+
+
+def test_validation_queue_tool_id_uses_latest_prepare_job_when_payload_hidden() -> None:
+    from apps.api import tool_capability_service
+
+    assert tool_capability_service._queue_item_tool_id(
+        {
+            "preparePayload": {},
+            "latestPrepareJob": {
+                "toolId": "bioconda::fastqc",
+                "status": "running",
+            },
+        }
+    ) == "bioconda::fastqc"

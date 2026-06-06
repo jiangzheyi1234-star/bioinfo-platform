@@ -62,6 +62,7 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
       <div className="mt-2 flex flex-wrap gap-1.5">
         {items.map((item) => {
           const preparing = preparingCandidateId === item.candidateId;
+          const activePrepareJob = isActivePrepareJob(item);
           return (
             <span
               key={item.candidateId}
@@ -112,11 +113,11 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
                 type="button"
                 variant="outline"
                 className="ml-1 h-6 bg-white px-1.5 text-[11px]"
-                disabled={preparing || !item.preparePayload}
+                disabled={preparing || activePrepareJob || !item.preparePayload}
                 onClick={() => void prepareValidationCandidate(item)}
               >
-                {preparing ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
-                验证
+                {preparing || activePrepareJob ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
+                {activePrepareJob ? "验证中" : "验证"}
               </Button>
             </span>
           );
@@ -139,6 +140,11 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
       {error ? <div className="mt-1 text-[11px] text-red-600">{error}</div> : null}
     </>
   );
+}
+
+function isActivePrepareJob(item: ToolCatalogValidationQueueItem): boolean {
+  const status = String(item.latestPrepareJob?.status || "").trim();
+  return status === "queued" || status === "running";
 }
 
 function addedToolFromValidationQueueItem(item: ToolCatalogValidationQueueItem): AddedTool | null {
