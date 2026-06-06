@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from apps.api import tool_capabilities
+from apps.api import tool_capability_service
 from apps.api.snakemake_wrappers import archive as snakemake_wrapper_archive
 from apps.api.snakemake_wrappers import catalog as snakemake_wrapper_catalog
 from apps.api.snakemake_wrappers import index as snakemake_wrapper_index
@@ -484,6 +486,42 @@ def test_snakemake_wrapper_catalog_summarizes_full_index(monkeypatch) -> None:
         "productionEnabled": 0,
     }
     assert [item["wrapperPath"] for item in summary["items"]] == ["bio/samtools/sort", "bio/seqkit/stats"]
+
+
+def test_snakemake_wrapper_catalog_service_wraps_catalog_payload(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_catalog(*, query: str, page: int, page_size: int) -> dict[str, Any]:
+        calls.append({"query": query, "page": page, "pageSize": page_size})
+        return {
+            "items": [],
+            "query": query,
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "addableTotal": 0,
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        }
+
+    monkeypatch.setattr(tool_capability_service, "catalog_snakemake_wrappers", fake_catalog)
+
+    response = asyncio.run(
+        tool_capability_service.list_snakemake_wrapper_catalog_from_request(
+            q="sam",
+            page=2,
+            page_size=25,
+        )
+    )
+
+    assert calls == [{"query": "sam", "page": 2, "pageSize": 25}]
+    assert response["data"]["qualityCounts"]["draftRunnable"] == 0
+    assert response["data"]["page"] == 2
 
 
 def test_snakemake_wrapper_index_attaches_unresolved_wrapper_draft_without_contract() -> None:
