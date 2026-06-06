@@ -84,6 +84,28 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
               <span className="text-slate-400">prepare stages</span>
               <span className="text-slate-400">wrappers</span>
               <span className="font-mono text-slate-800">{item.evidence?.snakemakeWrapperCount ?? 0}</span>
+              {item.evidence?.wrapperContractHintCount ? (
+                <>
+                  <span className="text-slate-400">metadata</span>
+                  <span
+                    className="font-mono text-slate-800"
+                    title={(item.evidence?.wrapperContractHintFields || []).join(", ")}
+                  >
+                    {item.evidence.wrapperContractHintCount}
+                  </span>
+                </>
+              ) : null}
+              {item.evidence?.wrapperCondaDependencies?.length ? (
+                <>
+                  <span className="text-slate-400">env</span>
+                  <span
+                    className="font-mono text-slate-800"
+                    title={item.evidence.wrapperCondaDependencies.join(", ")}
+                  >
+                    {item.evidence.wrapperCondaDependencies.length}
+                  </span>
+                </>
+              ) : null}
               <span className="text-slate-400">semantics</span>
               <span className="font-mono text-slate-800">{(item.evidence?.semanticPortFields || []).join("/") || "none"}</span>
               <Button

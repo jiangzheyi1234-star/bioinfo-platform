@@ -330,6 +330,9 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "executionGate?: ToolCatalogExecutionGate" in model
     assert "latestPrepareJob?: ToolCatalogLatestPrepareJob" in model
     assert "semanticPortFields?: string[]" in model
+    assert "wrapperContractHintCount?: number" in model
+    assert "wrapperContractHintFields?: string[]" in model
+    assert "wrapperCondaDependencies?: string[]" in model
     assert "validationQueue?: ToolCatalogValidationQueue" in model
     assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
     assert "validationQueueItems" in ui
@@ -354,3 +357,6 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "prepare stages" in validation_queue
     assert "semanticPortFields" in validation_queue
     assert "snakemakeWrapperCount" in validation_queue
+    assert "wrapperContractHintCount" in validation_queue
+    assert "wrapperContractHintFields" in validation_queue
+    assert "wrapperCondaDependencies" in validation_queue
