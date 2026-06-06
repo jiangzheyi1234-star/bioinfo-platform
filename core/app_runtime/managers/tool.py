@@ -9,6 +9,26 @@ class ToolManager(BaseRuntimeManager):
     def list_tools(self) -> dict[str, Any]:
         return {"data": {"items": self.call_existing_runner("list_tools")}}
 
+    def list_tool_index(
+        self,
+        *,
+        query: str = "",
+        limit: int = 50,
+        offset: int = 0,
+        source: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "list_tool_index",
+                query=query,
+                limit=limit,
+                offset=offset,
+                source=source,
+                state=state,
+            )
+        }
+
     def add_tool(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)

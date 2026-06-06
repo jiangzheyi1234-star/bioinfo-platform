@@ -15,6 +15,7 @@ from .tool_service import (
     delete_tool_from_request,
     get_tool_prepare_job_from_request,
     list_latest_tool_prepare_jobs_from_request,
+    list_tool_index_from_request,
     list_tools_from_request,
     mark_tool_production_from_request,
     update_tool_rule_template_from_request,
@@ -27,6 +28,25 @@ router = APIRouter()
 @router.get("/api/v1/tools")
 async def get_tools(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_tools_from_request(authorization)
+
+
+@router.get("/api/v1/tools/index")
+async def get_tool_index(
+    query: str = "",
+    limit: int = 50,
+    offset: int = 0,
+    source: str | None = None,
+    state: str | None = None,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_tool_index_from_request(
+        authorization,
+        query=query,
+        limit=limit,
+        offset=offset,
+        source=source,
+        state=state,
+    )
 
 
 @router.post("/api/v1/tools", status_code=201)

@@ -322,6 +322,7 @@ def test_tool_manifest_routes_delegate_request_dumping_to_services() -> None:
     assert "payload.ruleTemplate" not in route_source
     assert "background_tasks.add_task(" not in route_source
     assert "list_tools_from_request" in route_source
+    assert "list_tool_index_from_request" in route_source
     assert "add_tool_from_request" in route_source
     assert "create_tool_prepare_job_response_from_request" in route_source
     assert "get_tool_prepare_job_from_request" in route_source
@@ -331,6 +332,7 @@ def test_tool_manifest_routes_delegate_request_dumping_to_services() -> None:
     assert "mark_tool_production_from_request" in route_source
 
     assert "def list_tools_from_request(" in service_source
+    assert "def list_tool_index_from_request(" in service_source
     assert "def add_tool_from_request(" in service_source
     assert "def create_tool_prepare_job_response_from_request(" in service_source
     assert "def get_tool_prepare_job_from_request(" in service_source

@@ -254,6 +254,7 @@ def test_runtime_tool_operations_live_in_dedicated_mixin() -> None:
     assert "class RunnerToolOperationsMixin" in tool_ops_source
     for method_name in (
         "list_tools",
+        "list_tool_index",
         "add_tool",
         "create_tool_prepare_job",
         "list_latest_tool_prepare_jobs",
@@ -290,6 +291,7 @@ def test_runtime_tool_operations_delegate_to_tool_manager() -> None:
     assert "self._call_remote_runner(" not in tool_ops_source
     assert "self._require_existing_runner_ready(" not in tool_ops_source
     assert "self.tools.create_tool_prepare_job(" in tool_ops_source
+    assert "self.tools.list_tool_index(" in tool_ops_source
     assert "self.tools.list_latest_tool_prepare_jobs(" in tool_ops_source
 
 

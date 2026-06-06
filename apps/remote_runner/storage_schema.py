@@ -231,6 +231,64 @@ CREATE TABLE IF NOT EXISTS tool_revisions (
     UNIQUE(tool_id, revision)
 );
 
+CREATE TABLE IF NOT EXISTS tool_runtime_profiles (
+    runtime_profile_id TEXT PRIMARY KEY,
+    tool_revision_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    environment_lock_json TEXT NOT NULL,
+    resource_profile_json TEXT NOT NULL,
+    security_policy_json TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_validation_results (
+    validation_result_id TEXT PRIMARY KEY,
+    tool_id TEXT NOT NULL,
+    tool_revision_id TEXT NOT NULL DEFAULT '',
+    runtime_profile_id TEXT,
+    job_id TEXT,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence_id TEXT,
+    logs_json TEXT NOT NULL DEFAULT '[]',
+    artifacts_json TEXT NOT NULL DEFAULT '[]',
+    failure_code TEXT,
+    duration_ms INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_validation_results_tool
+ON tool_validation_results(tool_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tool_validation_results_job
+ON tool_validation_results(job_id);
+
+CREATE TABLE IF NOT EXISTS tool_index (
+    tool_id TEXT PRIMARY KEY,
+    latest_stable_revision_id TEXT,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT '',
+    package_spec TEXT NOT NULL,
+    searchable_text TEXT NOT NULL,
+    facets_json TEXT NOT NULL,
+    validation_summary_json TEXT NOT NULL,
+    quality_score INTEGER NOT NULL,
+    upgrade_available INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_index_search
+ON tool_index(searchable_text);
+
+CREATE INDEX IF NOT EXISTS idx_tool_index_source_quality
+ON tool_index(source, quality_score DESC, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tool_index_state_quality
+ON tool_index(state, quality_score DESC, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS tool_prepare_jobs (
     job_id TEXT PRIMARY KEY,
     status TEXT NOT NULL,

@@ -659,6 +659,7 @@ def test_tool_routes_delegate_request_dumping_to_service() -> None:
     assert "payload.model_dump(" not in tool_routes
     assert "invalidate_response_cache" not in tool_routes
     assert "list_tools_from_request" in tool_list_route
+    assert "list_tool_index_from_request" in tool_list_route
     assert "add_tool_from_request" in tool_routes
     assert "create_tool_prepare_job_from_request" in tool_routes
     assert "get_tool_prepare_job_from_request" in tool_routes
@@ -667,6 +668,7 @@ def test_tool_routes_delegate_request_dumping_to_service() -> None:
     assert "delete_tool_from_request" in tool_routes
 
     assert "def list_tools_from_request(" in service_source
+    assert "def list_tool_index_from_request(" in service_source
     assert "def add_tool_from_request(" in service_source
     assert "def create_tool_prepare_job_from_request(" in service_source
     assert "def get_tool_prepare_job_from_request(" in service_source

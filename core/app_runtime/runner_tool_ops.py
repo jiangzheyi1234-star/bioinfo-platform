@@ -7,6 +7,23 @@ class RunnerToolOperationsMixin:
     def list_tools(self) -> dict[str, Any]:
         return self.tools.list_tools()
 
+    def list_tool_index(
+        self,
+        *,
+        query: str = "",
+        limit: int = 50,
+        offset: int = 0,
+        source: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, Any]:
+        return self.tools.list_tool_index(
+            query=query,
+            limit=limit,
+            offset=offset,
+            source=source,
+            state=state,
+        )
+
     def add_tool(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.tools.add_tool(payload)
 

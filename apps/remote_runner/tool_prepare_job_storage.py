@@ -12,6 +12,7 @@ from .tool_prepare_job_records import (
     event_row_to_dict,
     job_row_to_dict,
 )
+from .tool_platform_storage import record_prepare_job_validation_result
 from .tool_prepare_reservations import tool_prepare_job_reservation
 
 
@@ -311,6 +312,14 @@ def complete_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, result: dict
                 message=str(result.get("message") or "Tool revision published."),
                 details={"toolRevisionId": str(result.get("toolRevisionId") or "")},
             )
+            record_prepare_job_validation_result(
+                connection,
+                job_id=job_id,
+                stage="published",
+                status="succeeded",
+                result=result,
+                created_at=now,
+            )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)
     if job is None:
@@ -337,6 +346,14 @@ def fail_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, *, code: str, me
                 level="error",
                 message=message,
                 details={"code": code},
+            )
+            record_prepare_job_validation_result(
+                connection,
+                job_id=job_id,
+                stage="failed",
+                status="failed",
+                failure_code=code,
+                created_at=now,
             )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)
@@ -376,6 +393,14 @@ def mark_tool_prepare_job_waiting_resource(
                 message=normalized_message,
                 details=event_details,
             )
+            record_prepare_job_validation_result(
+                connection,
+                job_id=job_id,
+                stage="waiting_resource",
+                status="waiting_resource",
+                failure_code=normalized_code,
+                created_at=now,
+            )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)
     if job is None:
@@ -402,6 +427,13 @@ def cancel_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, A
                 stage="cancelled",
                 level="warning",
                 message="Prepare job cancelled.",
+            )
+            record_prepare_job_validation_result(
+                connection,
+                job_id=job_id,
+                stage="cancelled",
+                status="cancelled",
+                created_at=now,
             )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)

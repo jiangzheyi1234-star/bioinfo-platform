@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from config import resolve_runner_token
 from core.remote_runner.client import RemoteRunnerHttpClient
@@ -41,6 +41,23 @@ class RemoteRunnerProxyMixin:
             record=kwargs["server_record"],
         )
         return client.get_json("/api/v1/tools")["data"]["items"]
+
+    def list_tool_index(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        query = urlencode(
+            {
+                "query": kwargs.get("query") or "",
+                "limit": int(kwargs.get("limit") or 50),
+                "offset": int(kwargs.get("offset") or 0),
+                "source": kwargs.get("source") or "",
+                "state": kwargs.get("state") or "",
+            }
+        )
+        return client.get_json(f"/api/v1/tools/index?{query}")["data"]
 
     def add_tool(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(

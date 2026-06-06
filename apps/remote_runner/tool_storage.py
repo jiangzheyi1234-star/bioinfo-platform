@@ -6,6 +6,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .storage_core import get_connection, now_iso
 from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
+from .tool_platform_storage import delete_tool_index, upsert_tool_index
 
 
 def _tool_row_to_dict(row) -> dict[str, Any]:
@@ -140,6 +141,7 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
     saved = fetch_tool(cfg, tool_id)
     if saved is None:
         raise KeyError(tool_id)
+    upsert_tool_index(cfg, saved)
     return saved
 
 
@@ -149,6 +151,7 @@ def delete_tool(cfg: RemoteRunnerConfig, tool_id: str) -> None:
         connection.commit()
     if cursor.rowcount == 0:
         raise KeyError(tool_id)
+    delete_tool_index(cfg, tool_id)
 
 
 def _latest_contract_checked_at(contract_status: dict[str, dict[str, str]]) -> str | None:
