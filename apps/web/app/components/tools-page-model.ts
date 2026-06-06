@@ -1,5 +1,21 @@
+export type ToolCandidateQualityTier = "discovered" | "draft-runnable" | "workflow-ready" | "production-enabled" | string;
+
+export type ToolCandidateSourceRef = {
+  type?: string;
+  channel?: string;
+  name?: string;
+  repository?: string;
+  ref?: string;
+  path?: string;
+  url?: string;
+};
+
 export type ToolSearchItem = {
   id: string;
+  candidateId?: string;
+  candidateKind?: string;
+  qualityTier?: ToolCandidateQualityTier;
+  sourceRef?: ToolCandidateSourceRef;
   toolRevisionId?: string;
   revision?: number;
   name: string;
@@ -127,6 +143,10 @@ export type RuleSpecLock = {
 };
 
 export type SnakemakeWrapperMatch = {
+  candidateId?: string;
+  candidateKind?: string;
+  qualityTier?: ToolCandidateQualityTier;
+  sourceRef?: ToolCandidateSourceRef;
   name: string;
   toolName: string;
   wrapperRepository?: string;

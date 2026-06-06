@@ -48,6 +48,12 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "checkTool" in hook
     assert "saveToolRuleTemplate" in hook
     assert "export type ToolSearchItem" in model
+    assert "candidateId?: string" in model
+    assert "candidateKind?: string" in model
+    assert "qualityTier?: ToolCandidateQualityTier" in model
+    assert "sourceRef?: ToolCandidateSourceRef" in model
+    assert "export type ToolCandidateSourceRef" in model
+    assert "export type ToolCandidateQualityTier" in model
     assert "export type ToolCatalogQualityCounts" in model
     assert "export type SnakemakeWrapperCatalogResponse" in model
     assert "localIndexAvailable?: boolean" in model

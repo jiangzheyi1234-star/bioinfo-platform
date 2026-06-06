@@ -202,6 +202,15 @@ def test_tool_search_builds_dependency_rule_spec_draft_without_wrapper(monkeypat
 
     item = response["data"]["items"][0]
     draft = item["ruleSpecDraft"]
+    assert item["candidateId"] == "bioconda::fastq"
+    assert item["candidateKind"] == "conda-package"
+    assert item["qualityTier"] == "discovered"
+    assert item["sourceRef"] == {
+        "type": "conda-package",
+        "channel": "bioconda",
+        "name": "fastq",
+        "url": "https://anaconda.org/bioconda/fastq",
+    }
     assert item["snakemakeWrapperCount"] == 0
     assert draft["source"] == "conda-package"
     assert draft["contractSource"] == "command-template-builder"
@@ -260,6 +269,8 @@ def test_tool_search_applies_profile_overlay_ahead_of_wrapper_draft(monkeypatch)
 
     item = response["data"]["items"][0]
     draft = item["ruleSpecDraft"]
+    assert item["candidateKind"] == "conda-package"
+    assert item["qualityTier"] == "draft-runnable"
     assert item["snakemakeWrapperCount"] == 1
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["requiresUserCompletion"] is False
@@ -484,6 +495,16 @@ def test_snakemake_wrapper_catalog_summarizes_full_index(monkeypatch) -> None:
         "draftRunnable": 1,
         "workflowReady": 0,
         "productionEnabled": 0,
+    }
+    assert summary["items"][0]["candidateId"] == "snakemake-wrapper::test-wrapper-ref/bio/samtools/sort"
+    assert summary["items"][0]["candidateKind"] == "snakemake-wrapper"
+    assert summary["items"][0]["qualityTier"] == "draft-runnable"
+    assert summary["items"][0]["sourceRef"] == {
+        "type": "snakemake-wrapper",
+        "repository": "snakemake/snakemake-wrappers",
+        "ref": "test-wrapper-ref",
+        "path": "bio/samtools/sort",
+        "url": "https://github.com/snakemake/snakemake-wrappers/tree/master/bio/samtools/sort",
     }
     assert [item["wrapperPath"] for item in summary["items"]] == ["bio/samtools/sort", "bio/seqkit/stats"]
 
