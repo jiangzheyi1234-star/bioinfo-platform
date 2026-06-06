@@ -102,6 +102,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "executionGate" in api
     assert "requiredState?: string" in api
     assert "canAddStep?: boolean" in api
+    assert "sourceOfTruth?: string" in api
+    assert "validationPlan?: WorkflowToolRecommendationValidationPlan" in api
     assert "toolRevisionId?: string" in api
     assert "toolId?: string" in api
     assert "WorkflowToolRecommendationPreparePayload" in api
@@ -112,6 +114,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "ruleSpecDraft?: RuleSpecDraft" in api
     assert "需验证到" in recommendations_ui
     assert "recommendation.executionGate.requiredState" in recommendations_ui
+    assert "recommendation.executionGate?.sourceOfTruth" in recommendations_ui
+    assert "recommendation.validationPlan?.stages?.length" in recommendations_ui
     assert "recommendation.executionGate?.toolRevisionId" in recommendations_ui
     assert "recommendation.executionGate?.toolId" in recommendations_ui
     assert "准备并验证工具" in recommendations_ui

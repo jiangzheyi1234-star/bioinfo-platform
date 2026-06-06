@@ -152,6 +152,10 @@ export function GeneratedWorkflowToolRecommendations({
                     当前 {recommendation.executionGate.currentState || "Discovered"} · 需验证到 {recommendation.executionGate.requiredState}
                   </div>
                 ) : null}
+                <div className="mt-1 truncate text-[11px] text-slate-500">
+                  {recommendation.executionGate?.sourceOfTruth || "recommendation"} · validation stages{" "}
+                  {recommendation.validationPlan?.stages?.length ?? 0}
+                </div>
                 <div className="mt-1 truncate text-[11px] text-slate-500">{recommendation.evidence.join(" · ")}</div>
               </div>
               {tool ? (

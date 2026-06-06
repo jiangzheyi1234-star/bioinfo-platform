@@ -10,6 +10,7 @@ from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profile_semantics import enrich_rule_template_semantics
+from apps.api.tool_validation_plan import workflow_ready_validation_plan
 from core.contracts.rule_ports import (
     matched_compatibility_fields,
     mismatched_compatibility_field,
@@ -80,6 +81,7 @@ def _profile_recommendations(
             }
             if registered_tool is None:
                 item["preparePayload"] = profile_prepare_payload(profile)
+                item["validationPlan"] = workflow_ready_validation_plan()
             recommendations.append(item)
     return recommendations
 
@@ -104,6 +106,7 @@ def _execution_gate(profile: ToolProfile, *, registered_tool: dict[str, Any] | N
             "canAddStep": True,
             "nextAction": "add-step",
             "reason": "WORKFLOW_TOOL_READY",
+            "sourceOfTruth": "registeredTool.toolContract",
             "toolRevisionId": str(registered_tool.get("toolRevisionId") or ""),
             "toolId": str(registered_tool.get("id") or ""),
         }
@@ -114,6 +117,7 @@ def _execution_gate(profile: ToolProfile, *, registered_tool: dict[str, Any] | N
         "canAddStep": False,
         "nextAction": "prepare-tool",
         "reason": "WORKFLOW_TOOL_NOT_READY",
+        "sourceOfTruth": "registeredTool.toolContract",
     }
 
 

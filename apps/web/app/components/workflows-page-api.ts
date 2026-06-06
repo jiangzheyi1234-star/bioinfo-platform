@@ -49,8 +49,36 @@ export type WorkflowToolRecommendationExecutionGate = {
   canAddStep?: boolean;
   nextAction?: string;
   reason?: string;
+  sourceOfTruth?: string;
   toolRevisionId?: string;
   toolId?: string;
+};
+
+export type WorkflowToolRecommendationValidationPlan = {
+  planVersion?: string;
+  requiredState?: string;
+  submit?: {
+    method?: string;
+    path?: string;
+    payloadRef?: string;
+  };
+  poll?: {
+    method?: string;
+    pathTemplate?: string;
+    jobIdField?: string;
+  };
+  terminalStatuses?: {
+    success?: string[];
+    waiting?: string[];
+    failure?: string[];
+  };
+  stages?: Array<{
+    id?: string;
+    contractStatusKey?: string;
+    evidence?: string;
+  }>;
+  successCriteria?: Array<Record<string, unknown>>;
+  readinessBoundary?: string;
 };
 
 export type WorkflowToolRecommendationPreparePayload = {
@@ -72,6 +100,7 @@ export type WorkflowToolRecommendationItem = {
   decision: "recommended" | "blocked" | "ambiguous" | string;
   candidate: WorkflowToolRecommendationCandidate;
   executionGate?: WorkflowToolRecommendationExecutionGate;
+  validationPlan?: WorkflowToolRecommendationValidationPlan;
   preparePayload?: WorkflowToolRecommendationPreparePayload;
   inputPort: {
     name: string;

@@ -11,6 +11,7 @@ from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profile_semantics import enrich_rule_template_semantics
+from apps.api.tool_validation_plan import workflow_ready_validation_plan
 
 
 CATALOG_TARGETS = {
@@ -229,61 +230,7 @@ def _validation_execution_gate() -> dict[str, Any]:
 
 
 def _validation_plan() -> dict[str, Any]:
-    return {
-        "planVersion": "tool-validation-plan-v1",
-        "requiredState": "WorkflowReady",
-        "submit": {
-            "method": "POST",
-            "path": "/api/v1/tools/prepare-jobs",
-            "payloadRef": "preparePayload",
-        },
-        "poll": {
-            "method": "GET",
-            "pathTemplate": "/api/v1/tools/prepare-jobs/{jobId}",
-            "jobIdField": "jobId",
-        },
-        "terminalStatuses": {
-            "success": ["succeeded"],
-            "waiting": ["waiting_resource"],
-            "failure": ["failed", "cancelled"],
-        },
-        "stages": [
-            {
-                "id": "profile_schema_validation",
-                "evidence": "Tool manifest and profile schema accepted by the remote runner.",
-            },
-            {
-                "id": "static_rulespec_validation",
-                "evidence": "RuleSpec is complete and Snakemake-renderable before execution.",
-            },
-            {
-                "id": "dry_run",
-                "contractStatusKey": "dryRun",
-                "evidence": "Snakemake dry-run passes for the generated smoke workflow.",
-            },
-            {
-                "id": "smoke_run",
-                "contractStatusKey": "smokeRun",
-                "evidence": "Snakemake smoke run completes with profile fixtures/resources.",
-            },
-            {
-                "id": "output_validation",
-                "contractStatusKey": "outputValidation",
-                "evidence": "Declared outputs exist and satisfy the rule output schema.",
-            },
-            {
-                "id": "published",
-                "evidence": "Immutable tool revision is saved only after WorkflowReady validation.",
-            },
-        ],
-        "successCriteria": [
-            {"contractStatusKey": "dryRun", "status": "passed"},
-            {"contractStatusKey": "smokeRun", "status": "passed"},
-            {"contractStatusKey": "outputValidation", "status": "passed"},
-            {"toolContractField": "workflowReady", "value": True},
-        ],
-        "readinessBoundary": "Candidate remains queued until the prepare job succeeds and returns toolContract.workflowReady=true.",
-    }
+    return workflow_ready_validation_plan()
 
 
 def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any]) -> dict[str, Any]:
