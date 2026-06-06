@@ -219,6 +219,23 @@ def test_runtime_database_operations_live_in_dedicated_mixin() -> None:
         assert f"def {method_name}(" not in runner_ops_source
 
 
+def test_runtime_database_operations_delegate_to_database_manager() -> None:
+    service_source = _source("core/app_runtime/service.py")
+    database_ops_source = _source("core/app_runtime/runner_database_ops.py")
+    database_manager_path = ROOT / "core/app_runtime/managers/database.py"
+
+    assert database_manager_path.exists()
+
+    database_manager_source = database_manager_path.read_text(encoding="utf-8")
+
+    assert "from core.app_runtime.managers.database import DatabaseManager" in service_source
+    assert "self.databases = DatabaseManager(self)" in service_source
+    assert "class DatabaseManager(BaseRuntimeManager)" in database_manager_source
+    assert "self._call_remote_runner(" not in database_ops_source
+    assert "self._require_existing_runner_ready(" not in database_ops_source
+    assert "self.databases.add_database(" in database_ops_source
+
+
 def test_runtime_tool_operations_live_in_dedicated_mixin() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
     tool_ops_source = _source("core/app_runtime/runner_tool_ops.py")
