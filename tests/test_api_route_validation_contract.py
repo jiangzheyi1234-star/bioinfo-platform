@@ -43,15 +43,38 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "def list_tool_profile_catalog_from_request(" in service_source
     assert "def get_tool_capabilities_index_status_from_request(" in service_source
     assert "def refresh_tool_capabilities_index_from_request(" in service_source
-    assert '@router.get("/api/v1/tool-capabilities/snakemake-wrappers")' in source
-    assert '@router.get("/api/v1/tool-capabilities/tool-profiles")' in source
-    assert '@router.get("/api/v1/tool-capabilities/candidates")' in source
-    assert '@router.get("/api/v1/tool-capabilities/candidate-recommendations")' in source
+    assert '@router.get("/api/v1/tool-capabilities/snakemake-wrappers", operation_id="listSnakemakeWrapperCatalog")' in source
+    assert '@router.get("/api/v1/tool-capabilities/tool-profiles", operation_id="listToolProfileCatalog")' in source
+    assert '@router.get("/api/v1/tool-capabilities/candidates", operation_id="searchToolCandidates")' in source
+    assert '@router.get("/api/v1/tool-capabilities/candidate-recommendations", operation_id="recommendToolCandidates")' in source
     assert 'outputKind: str = ""' in source
     assert 'outputMimeType: str = ""' in source
     assert 'outputData: str = ""' in source
     assert 'outputFormat: str = ""' in source
     assert 'pageSize: int = Query(default=50, ge=1, le=100)' in source
+
+
+def test_local_api_routes_pin_openapi_operation_ids() -> None:
+    tool_source = _source("apps/api/tool_capability_routes.py")
+    system_source = _source("apps/api/system_routes.py")
+
+    for operation_id in [
+        "searchToolCapabilities",
+        "searchToolCandidates",
+        "recommendToolCandidates",
+        "listSnakemakeWrapperCatalog",
+        "listToolProfileCatalog",
+        "getToolCapabilitiesIndexStatus",
+        "refreshToolCapabilitiesIndex",
+    ]:
+        assert f'operation_id="{operation_id}"' in tool_source
+
+    for operation_id in [
+        "health",
+        "getVersion",
+        "getServiceInfo",
+    ]:
+        assert f'operation_id="{operation_id}"' in system_source
 
 
 def test_tool_capability_anaconda_parsing_lives_outside_search_orchestrator() -> None:
@@ -231,9 +254,9 @@ def test_local_api_main_delegates_system_routes() -> None:
     assert "os.environ" not in main_source
 
     assert "router = APIRouter()" in route_source
-    assert '@router.get("/health")' in route_source
-    assert '@router.get("/api/v1/version")' in route_source
-    assert '@router.get("/api/v1/service-info")' in route_source
+    assert '@router.get("/health", operation_id="health")' in route_source
+    assert '@router.get("/api/v1/version", operation_id="getVersion")' in route_source
+    assert '@router.get("/api/v1/service-info", operation_id="getServiceInfo")' in route_source
     assert "service_info_from_request" in route_source
     assert "return await health_from_request()" in route_source
     assert "return await version_from_request()" in route_source
