@@ -169,20 +169,28 @@ def test_remote_file_listing_does_not_wrap_ssh_list_directory_errors() -> None:
 
 def test_stop_remote_runner_service_does_not_wrap_ssh_run_errors() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
+    runner_manager_source = _source("core/app_runtime/managers/runner.py")
 
     stop_source = runner_ops_source.split("def stop_remote_runner_service(", 1)[1]
-    stop_source = stop_source.split("def list_runs(", 1)[0]
+    stop_source = stop_source.split("@staticmethod", 1)[0]
     assert "except Exception" not in stop_source
-    assert "ssh.run(command, timeout=30)" in stop_source
+    assert "self.runner.stop_remote_runner_service()" in stop_source
+
+    manager_stop_source = runner_manager_source.split("def stop_remote_runner_service(", 1)[1]
+    assert "except Exception" not in manager_stop_source
+    assert "ssh.run(command, timeout=30)" in manager_stop_source
 
 
 def test_runner_operations_keep_stop_script_and_call_translation_in_helpers() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
+    runner_manager_source = _source("core/app_runtime/managers/runner.py")
     stop_source = _source("core/app_runtime/remote_runner_stop.py")
     call_source = _source("core/app_runtime/remote_runner_call.py")
 
     assert len(runner_ops_source.splitlines()) <= 700
-    assert "from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND" in runner_ops_source
+    assert "from core.app_runtime.managers.runner import RunnerManager" in _source("core/app_runtime/service.py")
+    assert "self.runner = RunnerManager(self)" in _source("core/app_runtime/service.py")
+    assert "from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND" in runner_manager_source
     assert "from core.app_runtime.remote_runner_call import call_remote_runner" in runner_ops_source
     assert "_STOP_REMOTE_RUNNER_COMMAND" not in runner_ops_source
     assert "REMOTE_STOP_SYSTEMD_OUTPUT" not in runner_ops_source
@@ -193,6 +201,7 @@ def test_runner_operations_keep_stop_script_and_call_translation_in_helpers() ->
     assert "RemoteRunnerManagerError" not in runner_ops_source
 
     assert "STOP_REMOTE_RUNNER_COMMAND" in stop_source
+    assert "class RunnerManager(BaseRuntimeManager)" in runner_manager_source
     assert "REMOTE_STOP_SYSTEMD_OUTPUT" in stop_source
     assert "def call_remote_runner(" in call_source
     assert "except RemoteRunnerConflictError as exc:" in call_source
