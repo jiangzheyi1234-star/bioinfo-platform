@@ -47,7 +47,8 @@ async def create_tool_prepare_job_response_from_request(
 ) -> dict[str, Any]:
     cfg = authorized_config(authorization)
     job = await run_sync(create_tool_prepare_job, cfg, request_payload(payload))
-    background_tasks.add_task(run_tool_prepare_job, cfg, job["jobId"])
+    if not job.get("reusedExisting"):
+        background_tasks.add_task(run_tool_prepare_job, cfg, job["jobId"])
     return data_response(job)
 
 

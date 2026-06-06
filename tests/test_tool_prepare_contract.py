@@ -572,6 +572,29 @@ def test_waiting_resource_prepare_job_is_terminal(tmp_path: Path) -> None:
     assert [event["stage"] for event in finished["events"]] == ["queued", "waiting_resource"]
 
 
+def test_create_prepare_job_reuses_existing_active_job_for_same_tool(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    first = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    second = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc", "summary": "ignored"})
+
+    assert second["jobId"] == first["jobId"]
+    assert second["status"] == "queued"
+    assert second["request"] == {"id": "bioconda::fastqc", "name": "fastqc"}
+    assert [event["stage"] for event in second["events"]] == ["queued"]
+
+    record_tool_prepare_job_event(cfg, first["jobId"], stage="dry_run", message="Running dry-run.")
+    third = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    assert third["jobId"] == first["jobId"]
+    assert third["status"] == "running"
+
+    fail_tool_prepare_job(cfg, first["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    retry = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    assert retry["jobId"] != first["jobId"]
+    assert retry["status"] == "queued"
+
+
 def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
