@@ -308,5 +308,14 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
         "nextAction": "prepare-tool",
         "reason": "WORKFLOW_TOOL_NOT_READY",
     }
+    assert fastqc["preparePayload"]["id"] == "bioconda::fastqc"
+    assert fastqc["preparePayload"]["name"] == "fastqc"
+    assert fastqc["preparePayload"]["source"] == "bioconda"
+    assert fastqc["preparePayload"]["packageSpec"] == "bioconda::fastqc"
+    assert fastqc["preparePayload"]["targetPlatform"] == "linux-64"
+    assert fastqc["preparePayload"]["targetPlatformSupported"] is True
+    assert fastqc["preparePayload"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
+    assert fastqc["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
+    assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
     assert "端口方向 output -> input" in fastqc["hardChecks"]
     assert any("kind" in value for value in fastqc["evidence"])
