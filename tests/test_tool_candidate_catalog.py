@@ -301,5 +301,12 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
     assert fastqc["inputPort"]["name"] == "reads"
     assert fastqc["candidate"]["qualityTier"] == "draft-runnable"
     assert fastqc["candidate"]["contractState"] == "SnakemakeRenderable"
+    assert fastqc["executionGate"] == {
+        "currentState": "SnakemakeRenderable",
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "prepare-tool",
+        "reason": "WORKFLOW_TOOL_NOT_READY",
+    }
     assert "端口方向 output -> input" in fastqc["hardChecks"]
     assert any("kind" in value for value in fastqc["evidence"])

@@ -94,6 +94,13 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "useEffect" in recommendations_ui
     assert "selectedOutputCandidate" in recommendations_ui
     assert "matchingWorkflowReadyTool" in recommendations_ui
+    assert "executionGate" in api
+    assert "requiredState?: string" in api
+    assert "canAddStep?: boolean" in api
+    assert "需验证到" in recommendations_ui
+    assert "recommendation.executionGate.requiredState" in recommendations_ui
+    assert "准备并验证工具" in recommendations_ui
+    assert "先加入工具库" not in recommendations_ui
     assert "builder.addStep" not in recommendations_ui
 
 
