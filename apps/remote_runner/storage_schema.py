@@ -195,6 +195,26 @@ CREATE TABLE IF NOT EXISTS workflow_design_drafts (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workflow_revisions (
+    workflow_revision_id TEXT PRIMARY KEY,
+    draft_id TEXT,
+    draft_revision INTEGER,
+    content_hash TEXT NOT NULL,
+    manifest_json TEXT NOT NULL,
+    graph_snapshot_json TEXT NOT NULL,
+    runtime_lock_json TEXT NOT NULL,
+    compiler_json TEXT NOT NULL,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(content_hash)
+);
+
+CREATE TRIGGER IF NOT EXISTS workflow_revisions_no_update
+BEFORE UPDATE ON workflow_revisions
+BEGIN
+    SELECT RAISE(ABORT, 'WORKFLOW_REVISION_IMMUTABLE');
+END;
+
 CREATE TABLE IF NOT EXISTS resources (
     resource_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
