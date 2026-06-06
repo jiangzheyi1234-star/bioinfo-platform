@@ -32,6 +32,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export async function searchToolCandidates" in api
     assert "/api/v1/tool-capabilities/candidates" in api
     assert "export async function createToolPrepareJob" in api
+    assert "export async function prepareToolValidationQueue" in api
+    assert "/api/v1/tool-capabilities/validation-queue/prepare" in api
     assert "export async function fetchToolPrepareJob" in api
     assert "export async function updateToolRuleTemplate" in api
     assert "/api/v1/tools/prepare-jobs" in api
@@ -334,6 +336,11 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} />" in ui
     assert "validation queue" in validation_queue
     assert "createToolPrepareJob(tool)" in validation_queue
+    assert "prepareToolValidationQueue(3)" in validation_queue
+    assert "trackToolPrepareJob(queueJobToPrepareTask(item))" in validation_queue
+    assert "batchPreparing" in validation_queue
+    assert "批量验证" in validation_queue
+    assert "queuedCount" in validation_queue
     assert "trackToolPrepareJob(job)" in validation_queue
     assert "waitForToolPrepareJob" not in validation_queue
     assert "addedToolFromValidationQueueItem" in validation_queue

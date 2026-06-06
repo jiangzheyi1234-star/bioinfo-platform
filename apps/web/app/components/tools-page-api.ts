@@ -13,6 +13,7 @@ import {
   type ToolPrepareJob,
   type ToolPrepareJobResponse,
   type ToolSearchResponse,
+  type ToolValidationQueuePrepareResponse,
   TOOL_SEARCH_PAGE_SIZE,
   type ToolsResponse,
   uniqueDependencies,
@@ -129,6 +130,15 @@ export async function createToolPrepareJob(tool: AddedTool): Promise<ToolPrepare
   const response = await requestLocalApiJson<ToolPrepareJobResponse>("POST", "/api/v1/tools/prepare-jobs", {
     body: toolManifestBody(tool),
   });
+  return response.data;
+}
+
+export async function prepareToolValidationQueue(maxItems: number): Promise<ToolValidationQueuePrepareResponse["data"]> {
+  const response = await requestLocalApiJson<ToolValidationQueuePrepareResponse>(
+    "POST",
+    `/api/v1/tool-capabilities/validation-queue/prepare?targetPlatform=linux-64&maxItems=${maxItems}`,
+    { body: {} }
+  );
   return response.data;
 }
 
