@@ -569,6 +569,101 @@ def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> N
     assert captured["registered_tools"] == [registered_tool]
 
 
+def test_tool_candidate_service_merges_remote_tool_index(monkeypatch) -> None:
+    from apps.api import tool_capability_service
+
+    index_calls: list[dict[str, object]] = []
+
+    class Runtime:
+        def list_tool_index(
+            self,
+            *,
+            query: str = "",
+            limit: int = 50,
+            offset: int = 0,
+            source: str | None = None,
+            state: str | None = None,
+        ) -> dict[str, object]:
+            index_calls.append({"query": query, "limit": limit, "offset": offset, "source": source, "state": state})
+            totals = {"WorkflowReady": 1, "ProductionEnabled": 1, "SnakemakeRenderable": 0}
+            if state:
+                return {"data": {"items": [], "total": totals.get(state, 0), "hasMore": False}}
+            return {
+                "data": {
+                    "items": [
+                        {
+                            "toolId": "bioconda::fastqc",
+                            "latestStableRevisionId": "bioconda::fastqc@0.12.1",
+                            "name": "fastqc",
+                            "source": "bioconda",
+                            "packageSpec": "bioconda::fastqc=0.12.1",
+                            "facets": {"state": "WorkflowReady"},
+                            "validationSummary": {"latestStatus": "succeeded"},
+                            "qualityScore": 80,
+                        },
+                        {
+                            "toolId": "bioconda::multiqc",
+                            "latestStableRevisionId": "bioconda::multiqc@1.25",
+                            "name": "multiqc",
+                            "source": "bioconda",
+                            "packageSpec": "bioconda::multiqc=1.25",
+                            "facets": {"state": "ProductionEnabled"},
+                            "validationSummary": {"latestStatus": "succeeded"},
+                            "qualityScore": 100,
+                        },
+                    ],
+                    "total": 2,
+                    "hasMore": False,
+                }
+            }
+
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(
+        tool_capability_service,
+        "search_tool_candidates",
+        lambda q, *, target_platform, page, page_size: {
+            "items": [],
+            "query": q,
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "sourceCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0},
+            "addableDraftCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0, "total": 0},
+            "qualityCounts": {"discovered": 0, "draftRunnable": 0, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+
+    response = asyncio.run(
+        tool_capability_service.search_tool_candidates_from_request(
+            q="fast",
+            target_platform="linux-64",
+            page=1,
+            page_size=10,
+        )
+    )
+
+    catalog = response["data"]
+    assert catalog["total"] == 2
+    assert catalog["sourceCounts"]["registeredToolIndex"] == 2
+    assert catalog["addableDraftCounts"]["registeredToolIndex"] == 0
+    assert catalog["qualityCounts"] == {
+        "discovered": 2,
+        "draftRunnable": 0,
+        "workflowReady": 1,
+        "productionEnabled": 1,
+    }
+    assert [item["candidateKind"] for item in catalog["items"]] == ["registered-tool-index", "registered-tool-index"]
+    assert catalog["items"][0]["qualityTier"] == "workflow-ready"
+    assert catalog["items"][0]["toolContract"] == {"state": "WorkflowReady", "workflowReady": True, "productionEnabled": False}
+    assert index_calls == [
+        {"query": "fast", "limit": 10, "offset": 0, "source": None, "state": None},
+        {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "SnakemakeRenderable"},
+        {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "WorkflowReady"},
+        {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "ProductionEnabled"},
+    ]
+
+
 def test_tool_recommendation_service_hydrates_latest_prepare_jobs(monkeypatch) -> None:
     from apps.api import tool_capability_service
 

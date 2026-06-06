@@ -44,10 +44,12 @@ async def search_tool_candidates_from_request(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
+    runtime = runtime_service()
     return await run_sync(
         lambda: {
-            "data": search_tool_candidates(
-                q,
+            "data": _search_tool_candidates_with_tool_index(
+                runtime=runtime,
+                query=q,
                 target_platform=target_platform,
                 page=page,
                 page_size=page_size,
@@ -97,6 +99,156 @@ def _recommend_tool_candidates_with_registered_tools(
         registered_tools=registered_tools,
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
     )
+
+
+def _search_tool_candidates_with_tool_index(
+    *,
+    runtime: Any,
+    query: str,
+    target_platform: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    local_catalog = search_tool_candidates(
+        query,
+        target_platform=target_platform,
+        page=page,
+        page_size=page_size,
+    )
+    bounded_page = max(1, int(page or 1))
+    bounded_page_size = max(1, min(int(page_size or 50), 100))
+    tool_index_page = _tool_index_page_from_runtime_payload(
+        runtime.list_tool_index(
+            query=query,
+            limit=bounded_page_size,
+            offset=(bounded_page - 1) * bounded_page_size,
+        )
+    )
+    tool_index_quality_counts = _tool_index_quality_counts(
+        runtime=runtime,
+        query=query,
+        discovered=_count_value(tool_index_page.get("total")),
+    )
+    return _merge_tool_index_into_candidate_catalog(
+        local_catalog,
+        tool_index_page=tool_index_page,
+        tool_index_quality_counts=tool_index_quality_counts,
+    )
+
+
+def _tool_index_quality_counts(*, runtime: Any, query: str, discovered: int) -> dict[str, int]:
+    return {
+        "discovered": discovered,
+        "draftRunnable": _tool_index_state_count(runtime, query=query, state="SnakemakeRenderable"),
+        "workflowReady": _tool_index_state_count(runtime, query=query, state="WorkflowReady"),
+        "productionEnabled": _tool_index_state_count(runtime, query=query, state="ProductionEnabled"),
+    }
+
+
+def _tool_index_state_count(runtime: Any, *, query: str, state: str) -> int:
+    page = _tool_index_page_from_runtime_payload(
+        runtime.list_tool_index(
+            query=query,
+            limit=1,
+            offset=0,
+            state=state,
+        )
+    )
+    return _count_value(page.get("total"))
+
+
+def _merge_tool_index_into_candidate_catalog(
+    catalog: dict[str, Any],
+    *,
+    tool_index_page: dict[str, Any],
+    tool_index_quality_counts: dict[str, int],
+) -> dict[str, Any]:
+    local_items = catalog.get("items") if isinstance(catalog.get("items"), list) else []
+    index_items = tool_index_page.get("items") if isinstance(tool_index_page.get("items"), list) else []
+    source_counts = _record_counts(catalog.get("sourceCounts"))
+    addable_counts = _record_counts(catalog.get("addableDraftCounts"))
+    quality_counts = _record_counts(catalog.get("qualityCounts"))
+    index_total = _count_value(tool_index_page.get("total"))
+    source_counts["registeredToolIndex"] = index_total
+    addable_counts["registeredToolIndex"] = 0
+    addable_counts["total"] = _count_value(addable_counts.get("total"))
+    merged_quality_counts = {
+        key: _count_value(quality_counts.get(key)) + _count_value(tool_index_quality_counts.get(key))
+        for key in ("discovered", "draftRunnable", "workflowReady", "productionEnabled")
+    }
+    return {
+        **catalog,
+        "items": [_registered_tool_index_candidate(item) for item in index_items if isinstance(item, dict)] + local_items,
+        "total": _count_value(catalog.get("total")) + index_total,
+        "hasMore": bool(catalog.get("hasMore")) or bool(tool_index_page.get("hasMore")),
+        "sourceCounts": source_counts,
+        "addableDraftCounts": addable_counts,
+        "qualityCounts": merged_quality_counts,
+    }
+
+
+def _tool_index_page_from_runtime_payload(payload: Any) -> dict[str, Any]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    page = data if isinstance(data, dict) else payload
+    if not isinstance(page, dict):
+        raise ValueError("Invalid tool index payload: expected an object")
+    items = page.get("items") if isinstance(page.get("items"), list) else []
+    return {
+        "items": [item for item in items if isinstance(item, dict)],
+        "total": _count_value(page.get("total")),
+        "hasMore": bool(page.get("hasMore")),
+    }
+
+
+def _registered_tool_index_candidate(item: dict[str, Any]) -> dict[str, Any]:
+    facets = item.get("facets") if isinstance(item.get("facets"), dict) else {}
+    state = str(item.get("state") or facets.get("state") or "").strip()
+    tool_id = str(item.get("toolId") or item.get("id") or "").strip()
+    revision_id = str(item.get("latestStableRevisionId") or item.get("toolRevisionId") or "").strip()
+    return {
+        "candidateId": f"registered-tool-index::{tool_id}",
+        "candidateKind": "registered-tool-index",
+        "toolId": tool_id,
+        "toolRevisionId": revision_id,
+        "name": str(item.get("name") or tool_id).strip(),
+        "source": str(item.get("source") or "").strip(),
+        "packageSpec": str(item.get("packageSpec") or "").strip(),
+        "sourceRef": {
+            "type": "registered-tool-index",
+            "toolId": tool_id,
+            "toolRevisionId": revision_id,
+        },
+        "qualityTier": _tool_index_quality_tier(state),
+        "toolContract": {
+            "state": state,
+            "workflowReady": state in {"WorkflowReady", "ProductionEnabled"},
+            "productionEnabled": state == "ProductionEnabled",
+        },
+        "validationSummary": item.get("validationSummary") if isinstance(item.get("validationSummary"), dict) else {},
+        "qualityScore": _count_value(item.get("qualityScore")),
+        "upgradeAvailable": bool(item.get("upgradeAvailable")),
+    }
+
+
+def _tool_index_quality_tier(state: str) -> str:
+    if state == "ProductionEnabled":
+        return "production-enabled"
+    if state == "WorkflowReady":
+        return "workflow-ready"
+    if state == "SnakemakeRenderable":
+        return "draft-runnable"
+    return "discovered"
+
+
+def _record_counts(value: Any) -> dict[str, int]:
+    return {str(key): _count_value(count) for key, count in value.items()} if isinstance(value, dict) else {}
+
+
+def _count_value(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 async def get_tool_candidate_target_acceptance_from_request(*, target_platform: str) -> dict[str, Any]:
