@@ -593,6 +593,81 @@ def test_target_acceptance_service_counts_remote_tool_index(monkeypatch) -> None
     assert report["catalog"]["qualityCounts"]["productionEnabled"] == 10
 
 
+def test_target_acceptance_service_uses_tool_index_for_production_queue(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance, tool_capability_service
+
+    class Runtime:
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": []}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            assert tool_ids
+            return {"data": {"byToolId": {}}}
+
+        def list_tool_index(
+            self,
+            *,
+            query: str = "",
+            limit: int = 50,
+            offset: int = 0,
+            source: str | None = None,
+            state: str | None = None,
+        ) -> dict[str, object]:
+            if state == "WorkflowReady":
+                return {
+                    "data": {
+                        "items": [
+                            {
+                                "toolId": "bioconda::fastqc",
+                                "latestStableRevisionId": "bioconda::fastqc@0.12.1",
+                                "name": "fastqc",
+                                "facets": {"state": "WorkflowReady"},
+                            }
+                        ],
+                        "total": 1,
+                        "hasMore": False,
+                    }
+                }
+            totals = {"SnakemakeRenderable": 30, "ProductionEnabled": 0}
+            if state:
+                return {"data": {"items": [], "total": totals.get(state, 0), "hasMore": False}}
+            return {"data": {"items": [], "total": 1, "hasMore": False}}
+
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(
+        tool_capability_service,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "items": [],
+            "query": query,
+            "total": 12884,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 30},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 30, "total": 12428},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 30, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 30,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(30)],
+        },
+    )
+
+    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+
+    production_queue = result["data"]["productionQueue"]
+    assert production_queue["available"] == 1
+    assert production_queue["items"][0]["toolId"] == "bioconda::fastqc"
+    assert production_queue["items"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
+    assert production_queue["items"][0]["action"] == "submit-production-evidence"
+    assert production_queue["items"][0]["executionGate"]["sourceOfTruth"] == "registeredTool.toolContract"
+
+
 def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
