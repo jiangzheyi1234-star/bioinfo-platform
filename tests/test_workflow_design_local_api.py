@@ -22,6 +22,7 @@ from apps.api.workflow_design_routes import (
     update_workflow_design_draft_api,
 )
 from core.app_runtime.errors import RuntimeServiceError
+from core.app_runtime.managers.workflow import WorkflowManager
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 
 
@@ -56,6 +57,7 @@ class FakeRunnerOps(RunnerOperationsMixin):
         self.manager = FakeRemoteRunnerManager()
         self._service_locator = type("ServiceLocator", (), {"remote_runner_manager": self.manager})()
         self.selected_server_id = ""
+        self.workflows = WorkflowManager(self)
 
     def _ensure_initialized(self) -> None:
         return None
@@ -87,7 +89,7 @@ class FakeRuntime:
 
     def upload_file(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(("upload", payload))
-        return {"data": {"uploadId": "upl_demo", "filename": payload["filename"]}}
+        return {"uploadId": "upl_demo", "filename": payload["filename"]}
 
     def list_workflow_design_drafts(self, *, server_id: str | None = None) -> dict[str, Any]:
         self.calls.append(("list", {"serverId": server_id}))
