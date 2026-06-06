@@ -33,7 +33,7 @@ def test_workflow_design_plan_and_compile_paths_live_in_service() -> None:
 def test_workflow_design_routes_delegate_request_dumping_to_services() -> None:
     route_source = _source("apps/remote_runner/workflow_design_routes.py")
     service_source = _source("apps/remote_runner/workflow_design_service.py")
-    contract_source = _source("apps/remote_runner/workflow_design_contract.py")
+    shared_contract_source = _source("core/contracts/workflow_design.py")
     route_utils_source = _source("apps/remote_runner/route_utils.py")
 
     assert "from starlette.concurrency import run_in_threadpool" not in route_source
@@ -67,7 +67,8 @@ def test_workflow_design_routes_delegate_request_dumping_to_services() -> None:
     assert "request.draft.model_dump(" not in service_source
     assert "by_alias=True" not in service_source
     assert "request_payload(request.draft)" in service_source
-    assert "def runtime_payload(self) -> dict[str, Any]:" in contract_source
+    assert not (ROOT / "apps" / "remote_runner" / "workflow_design_contract.py").exists()
+    assert "def runtime_payload(self) -> dict[str, Any]:" in shared_contract_source
     assert "from core.async_boundary import run_sync" in route_utils_source
     assert "from core.api_responses import data_response" in route_utils_source
     assert "from core.api_payloads import request_payload" in route_utils_source
@@ -123,7 +124,7 @@ def test_generated_workflow_plan_delegates_binding_and_output_resolution() -> No
     assert len(plan_source.splitlines()) <= 230
     assert "from .generated_workflow_steps import" in plan_source
     assert "from .generated_workflow_ports import" in plan_source
-    assert "from .generated_workflow_outputs import resolve_exposed_outputs" in plan_source
+    assert "from .generated_workflow_outputs import resolve_exposed_outputs" not in plan_source
     assert "from .generated_workflow_names import" in plan_source
 
     for helper_name in (
@@ -201,10 +202,13 @@ def test_upload_size_status_code_lives_on_domain_error() -> None:
 
 def test_pipeline_not_found_status_lives_on_domain_error() -> None:
     pipeline_source = _source("apps/remote_runner/pipeline.py")
+    shared_pipeline_source = _source("core/contracts/pipeline_manifest.py")
     route_errors_source = _source("apps/remote_runner/route_errors.py")
 
-    assert "class PipelineRegistryError(ValueError):\n    status_code = 400" in pipeline_source
+    assert "from core.contracts.pipeline_manifest import (" in pipeline_source
+    assert "class PipelineRegistryError(ValueError):\n    status_code = 400" in shared_pipeline_source
     assert "class PipelineNotFoundError(PipelineRegistryError)" in pipeline_source
+    assert "def validate_pipeline_manifest(" not in pipeline_source
     assert 'raise PipelineNotFoundError("PIPELINE_NOT_FOUND")' in pipeline_source
     assert "def pipeline_registry_status_code(" not in route_errors_source
     assert "PIPELINE_NOT_FOUND" not in route_errors_source

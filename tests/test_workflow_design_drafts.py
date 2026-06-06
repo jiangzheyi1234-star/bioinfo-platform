@@ -12,7 +12,7 @@ from apps.remote_runner.api_models import WorkflowDesignDraftCreateRequest, Work
 from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
-from apps.remote_runner.workflow_design_contract import workflow_design_graph, workflow_design_to_generated_run_spec
+from core.contracts.workflow_design import workflow_design_graph, workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
 from apps.remote_runner.workflow_design_storage import (

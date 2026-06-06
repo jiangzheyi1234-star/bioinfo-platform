@@ -616,7 +616,7 @@ def test_workflow_sample_data_service_uses_runtime_infrastructure() -> None:
 def test_workflow_catalog_service_fails_loudly_on_invalid_manifests() -> None:
     service_source = _source("apps/api/workflow_catalog_service.py")
 
-    assert "from apps.remote_runner.pipeline import validate_pipeline_manifest" in service_source
+    assert "from core.contracts.pipeline_manifest import validate_pipeline_manifest" in service_source
     assert "PipelineRegistryError" not in service_source
     assert "json.JSONDecodeError" not in service_source
     assert "errors = []" not in service_source

@@ -402,7 +402,7 @@ def test_checked_in_remote_runner_artifact_contains_current_runtime_contract() -
     assert "build_workflow_runtime_environment" in executor_text
 
 
-def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -> None:
+def test_checked_in_remote_runner_artifact_contains_workflow_design_contract_dependency() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     bundle = _local_release_artifact_or_skip(
         repo_root,
@@ -414,7 +414,6 @@ def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -
     assert resolved.archive_path == bundle
     required_members = {
         "remote_runner/workflow_design_compiler.py",
-        "remote_runner/workflow_design_contract.py",
         "remote_runner/workflow_design_planner.py",
         "remote_runner/workflow_design_routes.py",
         "remote_runner/workflow_design_storage.py",
@@ -427,6 +426,14 @@ def test_checked_in_remote_runner_artifact_contains_workflow_design_contract() -
         main_text = main.read().decode("utf-8")
 
     assert required_members.issubset(names)
+    assert (
+        {
+            "core/__init__.py",
+            "core/contracts/__init__.py",
+            "core/contracts/workflow_design.py",
+        }.issubset(names)
+        or "remote_runner/workflow_design_contract.py" in names
+    )
     assert "workflow_design_router" in main_text
     assert "app.include_router(workflow_design_router)" in main_text
 

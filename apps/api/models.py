@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from apps.remote_runner.workflow_design_contract import WorkflowDesignDraftV1
+from core.contracts.workflow_design import WorkflowDesignDraftV1
 
 
 class ApiRequest(BaseModel):

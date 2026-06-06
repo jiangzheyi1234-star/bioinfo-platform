@@ -43,6 +43,15 @@ class RemoteRunnerBundleBuilder:
             bundle_dir / "remote_runner",
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
         )
+        source_core = Path(__file__).resolve().parents[2] / "core"
+        core_bundle = bundle_dir / "core"
+        core_bundle.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_core / "__init__.py", core_bundle / "__init__.py")
+        shutil.copytree(
+            source_core / "contracts",
+            core_bundle / "contracts",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+        )
         shutil.copytree(runtime_dir, bundle_dir / "runtime", symlinks=True)
 
         manifest = {

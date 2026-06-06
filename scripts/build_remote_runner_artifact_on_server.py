@@ -124,14 +124,26 @@ def mkdir_p_sftp(sftp, remote_dir: str) -> None:
 
 
 def git_status_for_path(path: Path) -> str:
+    return git_status_for_paths([path])
+
+
+def git_status_for_paths(paths: list[Path] | tuple[Path, ...]) -> str:
     result = subprocess.run(
-        ["git", "status", "--porcelain", "--", str(path.relative_to(REPO_ROOT))],
+        ["git", "status", "--porcelain", "--", *(str(path.relative_to(REPO_ROOT)) for path in paths)],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
     )
     return result.stdout.strip()
+
+
+def remote_runner_release_source_paths() -> tuple[Path, ...]:
+    return (
+        REPO_ROOT / "apps" / "remote_runner",
+        REPO_ROOT / "core" / "__init__.py",
+        REPO_ROOT / "core" / "contracts",
+    )
 
 
 def git_tracked_release_files(local_dir: Path, *, include_untracked: bool = False) -> list[Path]:
@@ -178,6 +190,32 @@ def upload_tree(sftp, local_dir: Path, remote_dir: str, *, include_untracked: bo
         remote_path = posixpath.join(remote_dir, rel)
         mkdir_p_sftp(sftp, posixpath.dirname(remote_path))
         sftp.put(str(path), remote_path)
+
+
+def upload_file(sftp, local_file: Path, remote_file: str) -> None:
+    mkdir_p_sftp(sftp, posixpath.dirname(remote_file))
+    sftp.put(str(local_file), remote_file)
+
+
+def upload_remote_runner_sources(sftp, build_root: str, *, include_untracked: bool = False) -> None:
+    upload_tree(
+        sftp,
+        REPO_ROOT / "apps" / "remote_runner",
+        posixpath.join(build_root, "bundle", "remote_runner"),
+        include_untracked=include_untracked,
+    )
+    upload_file(
+        sftp,
+        REPO_ROOT / "core" / "__init__.py",
+        posixpath.join(build_root, "bundle", "core", "__init__.py"),
+    )
+    upload_tree(
+        sftp,
+        REPO_ROOT / "core" / "contracts",
+        posixpath.join(build_root, "bundle", "core", "contracts"),
+        include_untracked=include_untracked,
+    )
+
 
 def validate_explicit_lock(path: Path) -> None:
     if not path.exists():
@@ -458,10 +496,10 @@ def main() -> int:
         )
         return 0
 
-    source_status = git_status_for_path(REPO_ROOT / "apps" / "remote_runner")
+    source_status = git_status_for_paths(remote_runner_release_source_paths())
     if source_status and not args.allow_dirty_source:
         raise SystemExit(
-            "apps/remote_runner has uncommitted changes; commit or stash before release build, "
+            "remote runner release sources have uncommitted changes; commit or stash before release build, "
             "or pass --allow-dirty-source for a development-only build"
         )
 
@@ -477,12 +515,7 @@ def main() -> int:
         build_root = run(client, "mktemp -d /tmp/h2ometa-remote-runner.XXXXXX", timeout=30).strip()
         sftp = client.open_sftp()
         try:
-            upload_tree(
-                sftp,
-                REPO_ROOT / "apps" / "remote_runner",
-                posixpath.join(build_root, "bundle", "remote_runner"),
-                include_untracked=args.allow_dirty_source,
-            )
+            upload_remote_runner_sources(sftp, build_root, include_untracked=args.allow_dirty_source)
             if args.runtime_source == "lockfile":
                 sftp.put(str(lock_file), posixpath.join(build_root, "explicit.txt"))
         finally:

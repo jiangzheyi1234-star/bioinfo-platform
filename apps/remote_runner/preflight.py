@@ -6,7 +6,8 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import WorkflowToolNotReadyError
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
-from .generated_workflow_plan import plan_generated_workflow_steps, resolve_exposed_outputs
+from .generated_workflow_outputs import resolve_exposed_outputs
+from .generated_workflow_plan import plan_generated_workflow_steps
 from .pipeline import PipelineDefinition
 from .workflow_design_submission import validate_workflow_design_run_spec
 from .workflow_resources import build_workflow_resource_config, collect_workflow_resource_specs

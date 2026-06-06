@@ -8,7 +8,7 @@ from typing import Any
 
 from apps.api.response_cache import cached_response
 from apps.api.route_utils import run_sync, runtime_service
-from apps.remote_runner.pipeline import validate_pipeline_manifest
+from core.contracts.pipeline_manifest import validate_pipeline_manifest
 
 
 async def get_workflow_catalog_from_request(refresh: bool) -> dict[str, Any]:

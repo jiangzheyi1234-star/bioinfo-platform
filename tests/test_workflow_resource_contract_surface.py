@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from apps.api.workflow_catalog_service import _catalog_item_from_pipeline
-from apps.remote_runner.pipeline import PipelineRegistryError, validate_pipeline_manifest
+from core.contracts.pipeline_manifest import PipelineRegistryError, validate_pipeline_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]

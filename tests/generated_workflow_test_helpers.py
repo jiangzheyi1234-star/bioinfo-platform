@@ -10,7 +10,7 @@ from apps.remote_runner.generated_workflow_graph import GENERATED_WORKFLOW_RULE_
 from apps.remote_runner.storage import upsert_tool
 from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import normalize_rule_template
-from apps.remote_runner.workflow_design_contract import workflow_design_to_generated_run_spec
+from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 
 

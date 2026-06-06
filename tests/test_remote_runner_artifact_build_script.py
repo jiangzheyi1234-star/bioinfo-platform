@@ -38,3 +38,30 @@ def test_dirty_source_release_files_include_untracked_modules(monkeypatch, tmp_p
     assert pipeline_contract in files
     assert ignored_test not in files
     assert any("--others" in call for call in calls)
+
+
+def test_remote_runner_source_upload_includes_shared_contracts(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path
+    (repo_root / "apps" / "remote_runner").mkdir(parents=True)
+    (repo_root / "core" / "contracts").mkdir(parents=True)
+    (repo_root / "core" / "__init__.py").write_text("", encoding="utf-8")
+
+    calls: list[tuple[str, str, str, bool]] = []
+
+    def fake_upload_tree(sftp, local_dir: Path, remote_dir: str, *, include_untracked: bool = False) -> None:
+        calls.append(("tree", local_dir.relative_to(repo_root).as_posix(), remote_dir, include_untracked))
+
+    def fake_upload_file(sftp, local_file: Path, remote_file: str) -> None:
+        calls.append(("file", local_file.relative_to(repo_root).as_posix(), remote_file, False))
+
+    monkeypatch.setattr(builder, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(builder, "upload_tree", fake_upload_tree)
+    monkeypatch.setattr(builder, "upload_file", fake_upload_file)
+
+    builder.upload_remote_runner_sources(object(), "/tmp/h2ometa-build", include_untracked=True)
+
+    assert calls == [
+        ("tree", "apps/remote_runner", "/tmp/h2ometa-build/bundle/remote_runner", True),
+        ("file", "core/__init__.py", "/tmp/h2ometa-build/bundle/core/__init__.py", False),
+        ("tree", "core/contracts", "/tmp/h2ometa-build/bundle/core/contracts", True),
+    ]

@@ -8,7 +8,6 @@ from .config import RemoteRunnerConfig
 from .errors import WorkflowToolNotReadyError
 from .generated_workflow_graph import normalize_generated_workflow_run_spec
 from .generated_workflow_names import safe_identifier, safe_snakemake_name
-from .generated_workflow_outputs import resolve_exposed_outputs
 from .generated_workflow_ports import resolve_outputs, resolve_step_inputs, resolve_step_params
 from .generated_workflow_steps import (
     resolve_requested_steps,
@@ -16,7 +15,7 @@ from .generated_workflow_steps import (
     step_tool_revision_id,
     topologically_order_steps,
 )
-from .rule_ports import build_output_port_specs
+from core.contracts.rule_ports import build_output_port_specs
 from .rule_runtime import RuleRuntimeDirectives, resolve_rule_runtime_directives
 from .rule_templates import rule_template_candidate_entries
 from .tool_revisions import fetch_tool_revision

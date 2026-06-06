@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .workflow_design_contract import workflow_design_to_generated_run_spec
+from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from .workflow_design_storage import fetch_workflow_design_draft
 
 
