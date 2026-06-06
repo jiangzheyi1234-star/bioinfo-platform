@@ -56,10 +56,10 @@ def test_bio_agent_catalog_target_acceptance_reports_current_gates(monkeypatch) 
         "remaining": 0,
     }
     assert report["targets"]["snakemakeRenderable"] == {
-        "target": 20,
+        "target": 30,
         "actual": 20,
-        "passed": True,
-        "remaining": 0,
+        "passed": False,
+        "remaining": 10,
     }
     assert report["targets"]["workflowReady"] == {
         "target": 30,
@@ -73,8 +73,15 @@ def test_bio_agent_catalog_target_acceptance_reports_current_gates(monkeypatch) 
         "passed": False,
         "remaining": 10,
     }
-    assert report["blockedTargets"] == ["workflowReady", "productionEnabled"]
+    assert report["blockedTargets"] == ["snakemakeRenderable", "workflowReady", "productionEnabled"]
     assert report["nextActions"] == [
+        {
+            "target": "snakemakeRenderable",
+            "remaining": 10,
+            "action": "expand-catalog-source-coverage",
+            "requiredState": "snakemakeRenderable",
+            "evidence": "Catalog source counts and candidate quality counts",
+        },
         {
             "target": "workflowReady",
             "remaining": 30,

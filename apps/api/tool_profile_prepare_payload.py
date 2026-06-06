@@ -12,7 +12,8 @@ from apps.api.tool_profiles import resolve_tool_profile
 def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     tool_name = str(profile.tool_names[0] if profile.tool_names else profile.profile_id).strip()
     source = "bioconda"
-    package_spec = f"{source}::{tool_name}"
+    package_name = str(profile.package_name or tool_name).strip()
+    package_spec = f"{source}::{package_name}"
     wrappers = profile_snakemake_wrappers(profile)
     draft = resolve_tool_profile(
         {

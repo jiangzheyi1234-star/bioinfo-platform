@@ -44,11 +44,32 @@ def _profile(
                 "timeoutSeconds": 300,
             },
         },
+        package_name=package_name,
     )
 
 
 def _fastq_input(name: str) -> list[dict[str, Any]]:
     return [_input(name, "sequence_reads", "text/plain", filename=f"{name}.fastq", content="@smoke\nACGTACGT\n+\nFFFFFFFF\n")]
+
+
+def _fasta_input(name: str) -> list[dict[str, Any]]:
+    return [_input(name, "sequence_reads", "text/plain", filename=f"{name}.fasta", content=">smoke\nACGTACGT\n")]
+
+
+def _bam_input(name: str = "bam") -> list[dict[str, Any]]:
+    return [_input(name, "alignment_bam", "application/octet-stream", filename=f"{name}.bam", content="BAM placeholder\n")]
+
+
+def _vcf_input(name: str = "vcf") -> list[dict[str, Any]]:
+    return [
+        _input(
+            name,
+            "variants_vcf",
+            "text/plain",
+            filename=f"{name}.vcf",
+            content="##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+        )
+    ]
 
 
 def _input(
@@ -198,5 +219,112 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
         tool_names=("subread", "featureCounts"),
         resources={"annotation_gtf": _database_resource("custom")},
         threads=2,
+    ),
+    _profile(
+        "samtools-sort",
+        "samtools",
+        "samtools sort -@ {threads} -o {output.sorted_bam:q} {input.bam:q}",
+        _bam_input(),
+        [_output("sorted_bam", "results/samtools-sorted.bam", "alignment_bam", "application/octet-stream")],
+        tool_names=("samtools-sort", "samtools sort"),
+        threads=2,
+    ),
+    _profile(
+        "picard-markduplicates",
+        "picard",
+        "picard MarkDuplicates I={input.bam:q} O={output.dedup_bam:q} M={output.metrics:q} {params.extra}",
+        _bam_input(),
+        [
+            _output("dedup_bam", "results/picard-dedup.bam", "alignment_bam", "application/octet-stream"),
+            _output("metrics", "results/picard-markduplicates-metrics.txt", "report", "text/plain"),
+        ],
+        tool_names=("picard-markduplicates", "picard MarkDuplicates"),
+        params={"extra": {"type": "string", "title": "Extra Picard MarkDuplicates arguments", "default": "VALIDATION_STRINGENCY=SILENT"}},
+        mem_mb=2048,
+    ),
+    _profile(
+        "blastn-search",
+        "blast",
+        "blastn -query {input.query:q} -db {config.blast_db:q} -out {output.hits:q} -outfmt 6 {params.extra}",
+        _fasta_input("query"),
+        [_output("hits", "results/blastn-hits.tsv", "tabular_hits", "text/tab-separated-values")],
+        tool_names=("blastn-search", "blastn"),
+        params={"extra": {"type": "string", "title": "Extra BLASTN arguments", "default": ""}},
+        resources={"blast_db": _database_resource("blast")},
+        threads=2,
+        mem_mb=2048,
+    ),
+    _profile(
+        "salmon-quant",
+        "salmon",
+        "salmon quant -i {config.transcriptome_index:q} -l A -r {input.reads:q} -p {threads} -o results/salmon && cp results/salmon/quant.sf {output.quant:q}",
+        _fastq_input("reads"),
+        [_output("quant", "results/salmon/quant.sf", "transcript_quantification", "text/tab-separated-values")],
+        tool_names=("salmon-quant", "salmon quant"),
+        resources={"transcriptome_index": _database_resource("custom")},
+        threads=4,
+        mem_mb=4096,
+    ),
+    _profile(
+        "hisat2-align",
+        "hisat2",
+        "hisat2 -x {config.hisat2_index:q} -U {input.reads:q} -S {output.sam:q} -p {threads}",
+        _fastq_input("reads"),
+        [_output("sam", "results/hisat2.sam", "alignment_sam", "text/plain")],
+        resources={"hisat2_index": _database_resource("custom")},
+        threads=4,
+        mem_mb=4096,
+    ),
+    _profile(
+        "star-align",
+        "star",
+        "STAR --genomeDir {config.star_index:q} --readFilesIn {input.reads:q} --runThreadN {threads} --outFileNamePrefix results/star/ && cp results/star/Aligned.out.sam {output.sam:q}",
+        _fastq_input("reads"),
+        [_output("sam", "results/star/Aligned.out.sam", "alignment_sam", "text/plain")],
+        resources={"star_index": _database_resource("custom")},
+        threads=4,
+        mem_mb=8192,
+    ),
+    _profile(
+        "kallisto-quant",
+        "kallisto",
+        "kallisto quant -i {config.transcriptome_index:q} -o results/kallisto --single -l {params.fragment_length} -s {params.fragment_sd} {input.reads:q} && cp results/kallisto/abundance.tsv {output.abundance:q}",
+        _fastq_input("reads"),
+        [_output("abundance", "results/kallisto/abundance.tsv", "transcript_quantification", "text/tab-separated-values")],
+        params={
+            "fragment_length": {"type": "integer", "title": "Fragment length", "default": 200, "minimum": 1},
+            "fragment_sd": {"type": "integer", "title": "Fragment length standard deviation", "default": 20, "minimum": 1},
+        },
+        resources={"transcriptome_index": _database_resource("custom")},
+        threads=4,
+        mem_mb=4096,
+    ),
+    _profile(
+        "htseq-count",
+        "htseq",
+        "htseq-count {params.extra} {input.bam:q} {config.annotation_gtf:q} > {output.counts:q}",
+        _bam_input(),
+        [_output("counts", "results/htseq-counts.tsv", "gene_counts", "text/tab-separated-values")],
+        params={"extra": {"type": "string", "title": "Extra HTSeq-count arguments", "default": "-f bam -r pos -s no"}},
+        resources={"annotation_gtf": _database_resource("custom")},
+        mem_mb=2048,
+    ),
+    _profile(
+        "freebayes-call",
+        "freebayes",
+        "freebayes -f {config.reference_fasta:q} {input.bam:q} > {output.vcf:q}",
+        _bam_input(),
+        [_output("vcf", "results/freebayes.vcf", "variants_vcf", "text/plain")],
+        resources={"reference_fasta": _database_resource("custom")},
+        threads=2,
+        mem_mb=4096,
+    ),
+    _profile(
+        "vcftools-filter",
+        "vcftools",
+        "vcftools --vcf {input.vcf:q} --recode --recode-INFO-all --out results/vcftools-filtered {params.extra} && cp results/vcftools-filtered.recode.vcf {output.filtered_vcf:q}",
+        _vcf_input(),
+        [_output("filtered_vcf", "results/vcftools-filtered.recode.vcf", "variants_vcf", "text/plain")],
+        params={"extra": {"type": "string", "title": "Extra VCFtools filter arguments", "default": ""}},
     ),
 )
