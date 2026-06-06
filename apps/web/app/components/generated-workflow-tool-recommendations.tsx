@@ -7,7 +7,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import type { AddedTool } from "./tools-page-model";
+import { createToolPrepareJob } from "./tools-page-api";
+import { type AddedTool, toolErrorMessage } from "./tools-page-model";
+import { useToolPrepareTasks } from "./tool-prepare-task-context";
 import { describePortSpec, workflowToolRevisionId } from "./generated-workflow-model";
 import type { GeneratedWorkflowOutputCandidate } from "./generated-workflow-port-bindings-editor";
 import {
@@ -33,6 +35,8 @@ export function GeneratedWorkflowToolRecommendations({
   const [recommendations, setRecommendations] = useState<WorkflowToolRecommendationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [preparingCandidateId, setPreparingCandidateId] = useState("");
+  const { trackToolPrepareJob } = useToolPrepareTasks();
 
   useEffect(() => {
     const values = outputCandidateValues ? outputCandidateValues.split("|") : [];
@@ -65,6 +69,25 @@ export function GeneratedWorkflowToolRecommendations({
     selectedOutputCandidate?.port.data,
     selectedOutputCandidate?.port.format,
   ]);
+
+  async function handlePrepareRecommendation(recommendation: WorkflowToolRecommendationItem) {
+    const tool = addedToolFromRecommendation(recommendation);
+    if (!tool) {
+      setError("推荐缺少可验证工具草案");
+      return;
+    }
+    const key = recommendationKey(recommendation);
+    setPreparingCandidateId(key);
+    setError("");
+    try {
+      const job = await createToolPrepareJob(tool);
+      trackToolPrepareJob(job);
+    } catch (err) {
+      setError(toolErrorMessage(err, "启动工具验证失败"));
+    } finally {
+      setPreparingCandidateId((current) => current === key ? "" : current);
+    }
+  }
 
   if (outputCandidates.length === 0) return null;
 
@@ -110,8 +133,10 @@ export function GeneratedWorkflowToolRecommendations({
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">暂无可自动推荐的下一步工具。</div>
         ) : recommendations.slice(0, 5).map((recommendation) => {
           const tool = matchingWorkflowReadyTool(recommendation, tools);
+          const key = recommendationKey(recommendation);
+          const preparing = preparingCandidateId === key;
           return (
-            <div key={`${recommendation.candidate.candidateId || recommendation.candidate.profileId}-${recommendation.inputPort.name}`} className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto]">
+            <div key={key} className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="truncate text-sm font-medium text-slate-800">{recommendationLabel(recommendation)}</span>
@@ -139,6 +164,21 @@ export function GeneratedWorkflowToolRecommendations({
                   <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
                   添加步骤
                 </Button>
+              ) : recommendation.preparePayload ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 bg-white px-2.5 text-xs"
+                  disabled={preparing}
+                  onClick={() => void handlePrepareRecommendation(recommendation)}
+                >
+                  {preparing ? (
+                    <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  准备并验证工具
+                </Button>
               ) : (
                 <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs">
                   <Link href={toolSearchHref(recommendation)}>
@@ -153,6 +193,10 @@ export function GeneratedWorkflowToolRecommendations({
       </div>
     </div>
   );
+}
+
+function recommendationKey(recommendation: WorkflowToolRecommendationItem): string {
+  return `${recommendation.candidate.candidateId || recommendation.candidate.profileId}-${recommendation.inputPort.name}`;
 }
 
 function matchingWorkflowReadyTool(recommendation: WorkflowToolRecommendationItem, tools: AddedTool[]): AddedTool | undefined {
@@ -178,4 +222,31 @@ function toolSearchHref(recommendation: WorkflowToolRecommendationItem) {
 
 function recommendationSearchQuery(recommendation: WorkflowToolRecommendationItem): string {
   return recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || "";
+}
+
+function addedToolFromRecommendation(recommendation: WorkflowToolRecommendationItem): AddedTool | null {
+  const payload = recommendation.preparePayload;
+  const id = String(payload?.id || "").trim();
+  const name = String(payload?.name || recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || "").trim();
+  const packageSpec = String(payload?.packageSpec || "").trim();
+  if (!id || !name || !packageSpec) return null;
+  const source = String(payload?.source || "bioconda").trim() || "bioconda";
+  const version = String(payload?.version || "").trim();
+  return {
+    id,
+    name,
+    summary: recommendationLabel(recommendation),
+    source,
+    sourceLabel: String(payload?.sourceLabel || source).trim() || source,
+    packageSpec,
+    selectedPackageSpec: packageSpec,
+    selectedVersion: version,
+    version,
+    latestVersion: version,
+    versions: version ? [version] : [],
+    targetPlatform: payload?.targetPlatform || "linux-64",
+    targetPlatformSupported: payload?.targetPlatformSupported !== false,
+    ruleTemplate: payload?.ruleTemplate,
+    ruleSpecDraft: payload?.ruleSpecDraft,
+  };
 }

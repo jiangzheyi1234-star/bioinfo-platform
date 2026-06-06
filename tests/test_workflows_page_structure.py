@@ -91,6 +91,11 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "outputCandidates={outputCandidates}" in builder_ui
     assert "onAddTool={(toolRevisionId) => builder.addStep(toolRevisionId)}" in builder_ui
     assert "fetchWorkflowToolRecommendations" in recommendations_ui
+    assert "createToolPrepareJob" in recommendations_ui
+    assert "useToolPrepareTasks" in recommendations_ui
+    assert "trackToolPrepareJob" in recommendations_ui
+    assert "handlePrepareRecommendation" in recommendations_ui
+    assert "recommendation.preparePayload" in recommendations_ui
     assert "useEffect" in recommendations_ui
     assert "selectedOutputCandidate" in recommendations_ui
     assert "matchingWorkflowReadyTool" in recommendations_ui
