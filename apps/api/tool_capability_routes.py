@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from apps.api.tool_capability_service import (
+    get_tool_candidate_target_acceptance_from_request,
     get_tool_capabilities_index_status_from_request,
     list_snakemake_wrapper_catalog_from_request,
     list_tool_profile_catalog_from_request,
@@ -74,6 +75,15 @@ async def recommend_tool_candidates_api(
         },
         page=page,
         page_size=pageSize,
+    )
+
+
+@router.get("/api/v1/tool-capabilities/target-acceptance", operation_id="getToolCandidateTargetAcceptance")
+async def tool_candidate_target_acceptance_api(
+    targetPlatform: str = "linux-64",
+) -> dict[str, Any]:
+    return await get_tool_candidate_target_acceptance_from_request(
+        target_platform=targetPlatform,
     )
 
 

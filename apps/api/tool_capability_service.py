@@ -7,6 +7,7 @@ from apps.api.route_utils import run_sync
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_candidate_catalog import search_tool_candidates
 from apps.api.tool_candidate_recommendations import recommend_tool_candidates
+from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_acceptance
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 
@@ -64,6 +65,16 @@ async def recommend_tool_candidates_from_request(
                 query=q,
                 page=page,
                 page_size=page_size,
+            )
+        },
+    )
+
+
+async def get_tool_candidate_target_acceptance_from_request(*, target_platform: str) -> dict[str, Any]:
+    return await run_sync(
+        lambda: {
+            "data": bio_agent_catalog_target_acceptance(
+                target_platform=target_platform,
             )
         },
     )
