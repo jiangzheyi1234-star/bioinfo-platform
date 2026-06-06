@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from apps.api import bioconda_tool_index, snakemake_wrappers, tool_capabilities
+from apps.api import bioconda_tool_index, tool_capabilities
+from apps.api.snakemake_wrappers import archive as snakemake_wrapper_archive
+from apps.api.snakemake_wrappers import index as snakemake_wrapper_index
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -251,8 +253,8 @@ def test_tool_search_keeps_index_results_when_wrapper_lookup_is_rate_limited(tmp
         },
     )
     monkeypatch.setattr(tool_capabilities, "get_bioconda_index_cache_dir", lambda: cache_dir)
-    monkeypatch.setattr(snakemake_wrappers, "_WRAPPER_CACHE", None)
-    monkeypatch.setattr(snakemake_wrappers, "_wrapper_index_cache_path", lambda: tmp_path / "missing-wrapper-cache.json")
+    snakemake_wrapper_index.clear_wrapper_index_cache()
+    monkeypatch.setattr(snakemake_wrapper_index, "wrapper_index_cache_path", lambda: tmp_path / "missing-wrapper-cache.json")
 
     def rate_limited_tree():
         raise urllib.error.HTTPError(
@@ -263,7 +265,7 @@ def test_tool_search_keeps_index_results_when_wrapper_lookup_is_rate_limited(tmp
             fp=None,
         )
 
-    monkeypatch.setattr(snakemake_wrappers, "_request_wrapper_tree", rate_limited_tree)
+    monkeypatch.setattr(snakemake_wrapper_archive, "request_wrapper_tree", rate_limited_tree)
 
     response = tool_capabilities.search_tool_capabilities("kraken", limit=5)
 

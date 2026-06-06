@@ -6,7 +6,9 @@ from typing import Any
 import pytest
 
 from apps.api import tool_capabilities
-from apps.api import snakemake_wrappers
+from apps.api.snakemake_wrappers import archive as snakemake_wrapper_archive
+from apps.api.snakemake_wrappers import catalog as snakemake_wrapper_catalog
+from apps.api.snakemake_wrappers import index as snakemake_wrapper_index
 
 
 def test_tool_search_propagates_online_search_timeout(monkeypatch) -> None:
@@ -369,30 +371,30 @@ def test_tool_search_returns_h2ometa_profile_for_p0_tools(
 
 
 def test_snakemake_wrapper_lookup_uses_disk_cache_before_network(monkeypatch) -> None:
-    snakemake_wrappers._WRAPPER_CACHE = None
+    snakemake_wrapper_index.clear_wrapper_index_cache()
     cached_index = {"samtools": [_samtools_sort_wrapper("samtools")]}
-    monkeypatch.setattr(snakemake_wrappers, "_load_cached_wrapper_index", lambda: cached_index)
+    monkeypatch.setattr(snakemake_wrapper_index, "load_cached_wrapper_index", lambda: cached_index)
 
     def fail_network() -> dict[str, Any]:
         raise AssertionError("network wrapper lookup should not run when disk cache exists")
 
-    monkeypatch.setattr(snakemake_wrappers, "_request_wrapper_tree", fail_network)
-    wrappers = snakemake_wrappers.find_snakemake_wrappers_for_tool("samtools")
+    monkeypatch.setattr(snakemake_wrapper_archive, "request_wrapper_tree", fail_network)
+    wrappers = snakemake_wrapper_catalog.find_snakemake_wrappers_for_tool("samtools")
 
     assert wrappers[0]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
 
 
 def test_snakemake_wrapper_lookup_propagates_network_error_without_cache(monkeypatch) -> None:
-    snakemake_wrappers._WRAPPER_CACHE = None
-    monkeypatch.setattr(snakemake_wrappers, "_load_cached_wrapper_index", lambda: None)
+    snakemake_wrapper_index.clear_wrapper_index_cache()
+    monkeypatch.setattr(snakemake_wrapper_index, "load_cached_wrapper_index", lambda: None)
 
     def fail_network() -> dict[str, Any]:
         raise TimeoutError("wrapper index timed out")
 
-    monkeypatch.setattr(snakemake_wrappers, "_request_wrapper_tree", fail_network)
+    monkeypatch.setattr(snakemake_wrapper_archive, "request_wrapper_tree", fail_network)
 
     with pytest.raises(TimeoutError, match="wrapper index timed out"):
-        snakemake_wrappers.find_snakemake_wrappers_for_tool("samtools")
+        snakemake_wrapper_catalog.find_snakemake_wrappers_for_tool("samtools")
 
 
 def test_snakemake_wrapper_cache_rehydrates_rule_spec_draft_metadata(tmp_path: Path, monkeypatch) -> None:
@@ -422,9 +424,9 @@ def test_snakemake_wrapper_cache_rehydrates_rule_spec_draft_metadata(tmp_path: P
         """,
         encoding="utf-8",
     )
-    monkeypatch.setattr(snakemake_wrappers, "_wrapper_index_cache_path", lambda: cache_path)
+    monkeypatch.setattr(snakemake_wrapper_index, "wrapper_index_cache_path", lambda: cache_path)
 
-    index = snakemake_wrappers._load_cached_wrapper_index()
+    index = snakemake_wrapper_index.load_cached_wrapper_index()
 
     assert index is not None
     draft = index["example"][0]["ruleSpecDraft"]
@@ -433,8 +435,59 @@ def test_snakemake_wrapper_cache_rehydrates_rule_spec_draft_metadata(tmp_path: P
     assert draft["ruleTemplate"]["wrapper"] == "v9.8.0/bio/example/report"
 
 
+def test_snakemake_wrapper_catalog_summarizes_full_index(monkeypatch) -> None:
+    monkeypatch.setattr(
+        snakemake_wrapper_catalog,
+        "wrapper_index",
+        lambda: {
+            "samtools": [
+                {
+                    **_samtools_sort_wrapper("samtools"),
+                    "ruleSpecDraft": {
+                        **_samtools_sort_wrapper("samtools")["ruleSpecDraft"],
+                        "requiresUserCompletion": False,
+                    },
+                }
+            ],
+            "seqkit": [
+                {
+                    "name": "seqkit stats",
+                    "toolName": "seqkit",
+                    "wrapperRepository": "snakemake/snakemake-wrappers",
+                    "wrapperRef": "v9.8.0",
+                    "wrapperPath": "bio/seqkit/stats",
+                    "wrapperIdentifier": "v9.8.0/bio/seqkit/stats",
+                    "wrapperUrl": "https://example.test/bio/seqkit/stats",
+                    "ruleSpecDraft": {
+                        "source": "snakemake-wrapper",
+                        "requiresUserCompletion": True,
+                        "ruleTemplate": {"wrapper": "v9.8.0/bio/seqkit/stats"},
+                    },
+                }
+            ],
+        },
+    )
+
+    summary = snakemake_wrapper_catalog.catalog_snakemake_wrappers(query="s", page=1, page_size=10)
+
+    assert summary["sourceRef"] == {
+        "type": "github-tree",
+        "repository": "snakemake/snakemake-wrappers",
+        "ref": "v9.8.0",
+    }
+    assert summary["total"] == 2
+    assert summary["addableTotal"] == 1
+    assert summary["qualityCounts"] == {
+        "discovered": 2,
+        "draftRunnable": 1,
+        "workflowReady": 0,
+        "productionEnabled": 0,
+    }
+    assert [item["wrapperPath"] for item in summary["items"]] == ["bio/samtools/sort", "bio/seqkit/stats"]
+
+
 def test_snakemake_wrapper_index_attaches_unresolved_wrapper_draft_without_contract() -> None:
-    index = snakemake_wrappers._build_wrapper_index(
+    index = snakemake_wrapper_index.build_wrapper_index(
         {
             "tree": [
                 {"type": "blob", "path": "bio/example/report/wrapper.py"},
