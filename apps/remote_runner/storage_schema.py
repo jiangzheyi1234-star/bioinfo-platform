@@ -52,6 +52,51 @@ CREATE TABLE IF NOT EXISTS run_events (
     details_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS run_jobs (
+    job_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    available_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id)
+);
+
+CREATE TABLE IF NOT EXISTS run_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    lease_generation INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    worker_id TEXT NOT NULL,
+    work_dir TEXT NOT NULL,
+    process_group_id TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    exit_code INTEGER,
+    fenced_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_leases (
+    run_id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL,
+    lease_generation INTEGER NOT NULL,
+    worker_id TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    state TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_jobs_claimable
+ON run_jobs(state, available_at, priority, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_run_leases_active_expiry
+ON run_leases(state, expires_at);
+
 CREATE TABLE IF NOT EXISTS artifacts (
     artifact_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

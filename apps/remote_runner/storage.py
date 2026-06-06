@@ -22,6 +22,12 @@ from .resource_storage import (
     mark_resource_for_deletion,
     record_reconcile_failure,
 )
+from .run_execution_storage import (
+    claim_next_run_job,
+    complete_run_attempt,
+    enqueue_run_job,
+    heartbeat_run_attempt,
+)
 from .workflow_run_storage import (
     canonical_payload_hash,
     create_run_record,
@@ -48,8 +54,11 @@ __all__ = [
     "append_log_lines",
     "apply_resource",
     "canonical_payload_hash",
+    "claim_next_run_job",
+    "complete_run_attempt",
     "create_run_record",
     "delete_tool",
+    "enqueue_run_job",
     "enqueue_reconcile",
     "fetch_log_lines",
     "fetch_result",
@@ -67,6 +76,7 @@ __all__ = [
     "persist_upload",
     "record_reconcile_failure",
     "require_run",
+    "heartbeat_run_attempt",
     "now_iso",
     "update_run_state",
     "upsert_tool",
