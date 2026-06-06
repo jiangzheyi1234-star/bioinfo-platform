@@ -323,7 +323,11 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
         "canAddStep": False,
         "nextAction": "prepare-tool",
         "reason": "WORKFLOW_TOOL_NOT_READY",
+        "sourceOfTruth": "registeredTool.toolContract",
     }
+    assert fastqc["validationPlan"]["requiredState"] == "WorkflowReady"
+    assert fastqc["validationPlan"]["submit"]["path"] == "/api/v1/tools/prepare-jobs"
+    assert fastqc["validationPlan"]["successCriteria"][-1] == {"toolContractField": "workflowReady", "value": True}
     assert fastqc["preparePayload"]["id"] == "bioconda::fastqc"
     assert fastqc["preparePayload"]["name"] == "fastqc"
     assert fastqc["preparePayload"]["source"] == "bioconda"
@@ -388,9 +392,11 @@ def test_semantic_tool_recommendations_allow_registered_workflow_ready_tools() -
         "canAddStep": True,
         "nextAction": "add-step",
         "reason": "WORKFLOW_TOOL_READY",
+        "sourceOfTruth": "registeredTool.toolContract",
         "toolRevisionId": "bioconda::fastqc@1.0.0",
         "toolId": "bioconda::fastqc",
     }
+    assert "validationPlan" not in fastqc
     assert "preparePayload" not in fastqc
 
 
