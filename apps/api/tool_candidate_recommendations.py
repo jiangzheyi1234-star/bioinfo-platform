@@ -6,8 +6,8 @@ from typing import Any
 
 from apps.api.tool_candidate_model import tool_profile_candidate_fields
 from apps.api.tool_profile_model import ToolProfile
+from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
-from apps.api.tool_profiles import resolve_tool_profile
 from apps.remote_runner.rule_ports import (
     matched_compatibility_fields,
     mismatched_compatibility_field,
@@ -77,7 +77,7 @@ def _profile_recommendations(
                 "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
             }
             if registered_tool is None:
-                item["preparePayload"] = _profile_prepare_payload(profile)
+                item["preparePayload"] = profile_prepare_payload(profile)
             recommendations.append(item)
     return recommendations
 
@@ -89,31 +89,6 @@ def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
         "toolNames": list(profile.tool_names),
         "preferredWrapperPaths": list(profile.preferred_wrapper_paths),
         **tool_profile_candidate_fields(profile),
-    }
-
-
-def _profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
-    tool_name = str(profile.tool_names[0] if profile.tool_names else profile.profile_id).strip()
-    source = "bioconda"
-    package_spec = f"{source}::{tool_name}"
-    draft = resolve_tool_profile(
-        {
-            "id": package_spec,
-            "name": tool_name,
-            "source": source,
-            "packageSpec": package_spec,
-        }
-    )
-    return {
-        "id": package_spec,
-        "name": tool_name,
-        "source": source,
-        "sourceLabel": "Bioconda",
-        "packageSpec": package_spec,
-        "targetPlatform": "linux-64",
-        "targetPlatformSupported": True,
-        "ruleTemplate": dict((draft or {}).get("ruleTemplate") or {}),
-        "ruleSpecDraft": dict(draft or {}),
     }
 
 

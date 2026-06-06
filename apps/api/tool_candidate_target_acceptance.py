@@ -6,6 +6,9 @@ from typing import Any
 
 from apps.api.tool_candidate_catalog import search_tool_candidates
 from apps.api.tool_profile_catalog import catalog_tool_profiles
+from apps.api.tool_profile_model import ToolProfile
+from apps.api.tool_profile_prepare_payload import profile_prepare_payload
+from apps.api.tool_profile_registry import TOOL_PROFILES
 
 
 CATALOG_TARGETS = {
@@ -23,7 +26,8 @@ def bio_agent_catalog_target_acceptance(
     registered_tools: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_target_platform = str(target_platform or "linux-64").strip() or "linux-64"
-    registered_counts = _registered_tool_counts(registered_tools or [])
+    registered = registered_tools or []
+    registered_counts = _registered_tool_counts(registered)
     catalog = search_tool_candidates(
         "",
         target_platform=normalized_target_platform,
@@ -50,12 +54,17 @@ def bio_agent_catalog_target_acceptance(
         ),
     }
     blocked_targets = [name for name, result in targets.items() if result["passed"] is not True]
+    validation_queue = _validation_queue(
+        registered_tools=registered,
+        remaining=targets["workflowReady"]["remaining"],
+    )
     return {
         "targetName": "Bio Agent Tool Catalog & Recommendation v1",
         "targetPlatform": normalized_target_platform,
         "complete": not blocked_targets,
         "blockedTargets": blocked_targets,
         "nextActions": [_next_action(name, targets[name]) for name in blocked_targets],
+        "validationQueue": validation_queue,
         "targets": targets,
         "catalog": {
             "total": _count_value(catalog.get("total")),
@@ -119,10 +128,70 @@ def _registered_tool_counts(tools: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
+def _validation_queue(*, registered_tools: list[dict[str, Any]], remaining: int) -> dict[str, Any]:
+    workflow_ready_names = _workflow_ready_tool_names(registered_tools)
+    candidates = [
+        _validation_queue_item(profile)
+        for profile in TOOL_PROFILES
+        if not _profile_registered_workflow_ready(profile, workflow_ready_names)
+    ]
+    bounded_remaining = max(0, int(remaining or 0))
+    return {
+        "target": "workflowReady",
+        "requiredState": "WorkflowReady",
+        "remaining": bounded_remaining,
+        "available": len(candidates),
+        "items": candidates[:bounded_remaining],
+    }
+
+
+def _validation_queue_item(profile: ToolProfile) -> dict[str, Any]:
+    return {
+        "candidateId": f"h2ometa-tool-profile::{profile.profile_id}",
+        "candidateKind": "h2ometa-tool-profile",
+        "profileId": profile.profile_id,
+        "profileVersion": profile.version,
+        "toolNames": list(profile.tool_names),
+        "currentState": "SnakemakeRenderable",
+        "requiredState": "WorkflowReady",
+        "action": "prepare-tool",
+        "preparePayload": profile_prepare_payload(profile),
+    }
+
+
+def _workflow_ready_tool_names(tools: list[dict[str, Any]]) -> set[str]:
+    names: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict) or not _registered_tool_workflow_ready(tool):
+            continue
+        for value in (tool.get("name"), tool.get("id"), tool.get("toolRevisionId")):
+            normalized = _normalized_tool_name(_tool_name_from_identifier(value))
+            if normalized:
+                names.add(normalized)
+    return names
+
+
+def _profile_registered_workflow_ready(profile: ToolProfile, names: set[str]) -> bool:
+    return any(_normalized_tool_name(name) in names for name in (profile.profile_id, *profile.tool_names))
+
+
 def _registered_tool_workflow_ready(tool: dict[str, Any]) -> bool:
     contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
     state = str(contract.get("state") or "")
     return bool(contract.get("workflowReady")) or state in {"WorkflowReady", "ProductionEnabled"}
+
+
+def _tool_name_from_identifier(value: Any) -> str:
+    text = str(value or "").strip()
+    if "::" in text:
+        text = text.rsplit("::", 1)[-1]
+    if "@" in text:
+        text = text.split("@", 1)[0]
+    return text
+
+
+def _normalized_tool_name(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _registered_tool_production_enabled(tool: dict[str, Any]) -> bool:
