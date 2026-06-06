@@ -21,13 +21,18 @@ def recommend_tool_candidates(
     query: str = "",
     page: int = 1,
     page_size: int = 20,
+    registered_tools: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_query = str(query or "").strip().lower()
     bounded_page = max(1, int(page or 1))
     bounded_page_size = max(1, min(int(page_size or 20), 100))
     output_spec = port_spec_from_rule_item(output_port)
     items = sorted(
-        _profile_recommendations(output_spec=output_spec, query=normalized_query),
+        _profile_recommendations(
+            output_spec=output_spec,
+            query=normalized_query,
+            registered_tools=registered_tools or [],
+        ),
         key=lambda item: (-float(item["confidence"]), str(item["candidate"]["candidateId"]), str(item["inputPort"]["name"])),
     )
     offset = (bounded_page - 1) * bounded_page_size
@@ -42,11 +47,18 @@ def recommend_tool_candidates(
     }
 
 
-def _profile_recommendations(*, output_spec: dict[str, str], query: str) -> list[dict[str, Any]]:
+def _profile_recommendations(
+    *,
+    output_spec: dict[str, str],
+    query: str,
+    registered_tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
+    workflow_ready_tools = _workflow_ready_tools_by_name(registered_tools)
     for profile in TOOL_PROFILES:
         if query and not _profile_matches_query(profile, query):
             continue
+        registered_tool = _matching_registered_tool(profile, workflow_ready_tools)
         for input_port in _input_ports(profile):
             input_spec = port_spec_from_rule_item(input_port)
             if mismatched_compatibility_field(input_spec, output_spec):
@@ -54,19 +66,19 @@ def _profile_recommendations(*, output_spec: dict[str, str], query: str) -> list
             matched_fields = matched_compatibility_fields(input_spec, output_spec)
             if not matched_fields:
                 continue
-            recommendations.append(
-                {
-                    "decision": "recommended",
-                    "candidate": _profile_candidate(profile),
-                    "executionGate": _execution_gate(profile),
-                    "preparePayload": _profile_prepare_payload(profile),
-                    "inputPort": _input_port_summary(input_port, input_spec),
-                    "matchedFields": matched_fields,
-                    "confidence": _confidence(matched_fields=matched_fields, input_port=input_port),
-                    "hardChecks": ["端口方向 output -> input", "类型字段无冲突"],
-                    "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
-                }
-            )
+            item = {
+                "decision": "recommended",
+                "candidate": _profile_candidate(profile),
+                "executionGate": _execution_gate(profile, registered_tool=registered_tool),
+                "inputPort": _input_port_summary(input_port, input_spec),
+                "matchedFields": matched_fields,
+                "confidence": _confidence(matched_fields=matched_fields, input_port=input_port),
+                "hardChecks": ["端口方向 output -> input", "类型字段无冲突"],
+                "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
+            }
+            if registered_tool is None:
+                item["preparePayload"] = _profile_prepare_payload(profile)
+            recommendations.append(item)
     return recommendations
 
 
@@ -105,7 +117,18 @@ def _profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     }
 
 
-def _execution_gate(profile: ToolProfile) -> dict[str, Any]:
+def _execution_gate(profile: ToolProfile, *, registered_tool: dict[str, Any] | None = None) -> dict[str, Any]:
+    if registered_tool is not None:
+        contract = registered_tool.get("toolContract") if isinstance(registered_tool.get("toolContract"), dict) else {}
+        return {
+            "currentState": str(contract.get("state") or "WorkflowReady"),
+            "requiredState": "WorkflowReady",
+            "canAddStep": True,
+            "nextAction": "add-step",
+            "reason": "WORKFLOW_TOOL_READY",
+            "toolRevisionId": str(registered_tool.get("toolRevisionId") or ""),
+            "toolId": str(registered_tool.get("id") or ""),
+        }
     candidate = _profile_candidate(profile)
     return {
         "currentState": candidate.get("contractState") or "Discovered",
@@ -114,6 +137,56 @@ def _execution_gate(profile: ToolProfile) -> dict[str, Any]:
         "nextAction": "prepare-tool",
         "reason": "WORKFLOW_TOOL_NOT_READY",
     }
+
+
+def _workflow_ready_tools_by_name(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for tool in tools:
+        if not _is_workflow_ready_tool(tool):
+            continue
+        for name in _registered_tool_names(tool):
+            indexed.setdefault(name, tool)
+    return indexed
+
+
+def _matching_registered_tool(profile: ToolProfile, tools_by_name: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    for name in [profile.profile_id, *profile.tool_names]:
+        normalized = _normalized_tool_name(name)
+        if normalized in tools_by_name:
+            return tools_by_name[normalized]
+    return None
+
+
+def _is_workflow_ready_tool(tool: dict[str, Any]) -> bool:
+    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    return bool(contract.get("workflowReady")) or str(contract.get("state") or "") == "ProductionEnabled"
+
+
+def _registered_tool_names(tool: dict[str, Any]) -> list[str]:
+    names = [
+        tool.get("name"),
+        tool.get("id"),
+        tool.get("toolRevisionId"),
+    ]
+    return [
+        normalized
+        for value in names
+        for normalized in [_normalized_tool_name(_tool_name_from_identifier(value))]
+        if normalized
+    ]
+
+
+def _tool_name_from_identifier(value: Any) -> str:
+    text = str(value or "").strip()
+    if "::" in text:
+        text = text.rsplit("::", 1)[-1]
+    if "@" in text:
+        text = text.split("@", 1)[0]
+    return text
+
+
+def _normalized_tool_name(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _input_ports(profile: ToolProfile) -> list[dict[str, Any]]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 
@@ -319,3 +320,72 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
     assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
     assert "端口方向 output -> input" in fastqc["hardChecks"]
     assert any("kind" in value for value in fastqc["evidence"])
+
+
+def test_semantic_tool_recommendations_allow_registered_workflow_ready_tools() -> None:
+    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
+
+    catalog = recommend_tool_candidates(
+        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
+        page=1,
+        page_size=20,
+        registered_tools=[
+            {
+                "id": "bioconda::fastqc",
+                "toolRevisionId": "bioconda::fastqc@1.0.0",
+                "name": "fastqc",
+                "toolContract": {
+                    "state": "WorkflowReady",
+                    "workflowReady": True,
+                },
+            }
+        ],
+    )
+
+    fastqc = next(item for item in catalog["items"] if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc")
+
+    assert fastqc["executionGate"] == {
+        "currentState": "WorkflowReady",
+        "requiredState": "WorkflowReady",
+        "canAddStep": True,
+        "nextAction": "add-step",
+        "reason": "WORKFLOW_TOOL_READY",
+        "toolRevisionId": "bioconda::fastqc@1.0.0",
+        "toolId": "bioconda::fastqc",
+    }
+    assert "preparePayload" not in fastqc
+
+
+def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> None:
+    from apps.api import tool_capability_service
+
+    captured: dict[str, object] = {}
+    registered_tool = {
+        "id": "bioconda::fastqc",
+        "toolRevisionId": "bioconda::fastqc@1.0.0",
+        "name": "fastqc",
+        "toolContract": {"state": "WorkflowReady", "workflowReady": True},
+    }
+
+    class Runtime:
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": [registered_tool]}}
+
+    def fake_recommend_tool_candidates(**kwargs):
+        captured.update(kwargs)
+        return {"items": [], "total": 0}
+
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(tool_capability_service, "recommend_tool_candidates", fake_recommend_tool_candidates)
+
+    result = asyncio.run(
+        tool_capability_service.recommend_tool_candidates_from_request(
+            q="fastqc",
+            output_port={"kind": "sequence_reads"},
+            page=1,
+            page_size=5,
+        )
+    )
+
+    assert result == {"data": {"items": [], "total": 0}}
+    assert captured["registered_tools"] == [registered_tool]
