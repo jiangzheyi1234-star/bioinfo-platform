@@ -323,8 +323,10 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "priority?: ToolCatalogValidationPriority" in model
     assert "export type ToolCatalogValidationPlan" in model
     assert "export type ToolCatalogExecutionGate" in model
+    assert "export type ToolCatalogLatestPrepareJob" in model
     assert "validationPlan?: ToolCatalogValidationPlan" in model
     assert "executionGate?: ToolCatalogExecutionGate" in model
+    assert "latestPrepareJob?: ToolCatalogLatestPrepareJob" in model
     assert "semanticPortFields?: string[]" in model
     assert "validationQueue?: ToolCatalogValidationQueue" in model
     assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
@@ -338,6 +340,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "preparingCandidateId" in validation_queue
     assert "priority?.score" in validation_queue
     assert "executionGate?.nextAction" in validation_queue
+    assert "latestPrepareJob?.status" in validation_queue
+    assert "latestPrepareJob?.errorCode" in validation_queue
     assert "validationPlan?.stages?.length" in validation_queue
     assert "prepare stages" in validation_queue
     assert "semanticPortFields" in validation_queue

@@ -26,6 +26,7 @@ def bio_agent_catalog_target_acceptance(
     *,
     target_platform: str = "linux-64",
     registered_tools: list[dict[str, Any]] | None = None,
+    latest_prepare_jobs_by_tool_id: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_target_platform = str(target_platform or "linux-64").strip() or "linux-64"
     registered = registered_tools or []
@@ -59,6 +60,7 @@ def bio_agent_catalog_target_acceptance(
     validation_queue = _validation_queue(
         registered_tools=registered,
         remaining=targets["workflowReady"]["remaining"],
+        latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id or {},
     )
     return {
         "targetName": "Bio Agent Tool Catalog & Recommendation v1",
@@ -130,10 +132,28 @@ def _registered_tool_counts(tools: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def _validation_queue(*, registered_tools: list[dict[str, Any]], remaining: int) -> dict[str, Any]:
+def validation_queue_tool_ids(*, registered_tools: list[dict[str, Any]] | None = None) -> list[str]:
+    workflow_ready_names = _workflow_ready_tool_names(registered_tools or [])
+    ids: list[str] = []
+    for profile in TOOL_PROFILES:
+        if _profile_registered_workflow_ready(profile, workflow_ready_names):
+            continue
+        prepare_payload = profile_prepare_payload(profile)
+        tool_id = str(prepare_payload.get("id") or "").strip()
+        if tool_id:
+            ids.append(tool_id)
+    return ids
+
+
+def _validation_queue(
+    *,
+    registered_tools: list[dict[str, Any]],
+    remaining: int,
+    latest_prepare_jobs_by_tool_id: dict[str, Any],
+) -> dict[str, Any]:
     workflow_ready_names = _workflow_ready_tool_names(registered_tools)
     candidates = [
-        _validation_queue_item(profile)
+        _validation_queue_item(profile, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id)
         for profile in TOOL_PROFILES
         if not _profile_registered_workflow_ready(profile, workflow_ready_names)
     ]
@@ -148,11 +168,11 @@ def _validation_queue(*, registered_tools: list[dict[str, Any]], remaining: int)
     }
 
 
-def _validation_queue_item(profile: ToolProfile) -> dict[str, Any]:
+def _validation_queue_item(profile: ToolProfile, *, latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any]:
     prepare_payload = profile_prepare_payload(profile)
     evidence = _validation_evidence(profile=profile, prepare_payload=prepare_payload)
     priority = _validation_priority(evidence=evidence, prepare_payload=prepare_payload)
-    return {
+    item = {
         "candidateId": f"h2ometa-tool-profile::{profile.profile_id}",
         "candidateKind": "h2ometa-tool-profile",
         "profileId": profile.profile_id,
@@ -167,6 +187,34 @@ def _validation_queue_item(profile: ToolProfile) -> dict[str, Any]:
         "validationPlan": _validation_plan(),
         "preparePayload": prepare_payload,
     }
+    latest_prepare_job = _safe_latest_prepare_job(latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or "")))
+    if latest_prepare_job is not None:
+        item["latestPrepareJob"] = latest_prepare_job
+    return item
+
+
+def _safe_latest_prepare_job(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    status = str(value.get("status") or "").strip()
+    succeeded = status == "succeeded"
+    result_state = str(value.get("resultState") or "").strip() if succeeded else ""
+    item = {
+        "jobId": str(value.get("jobId") or "").strip(),
+        "toolId": str(value.get("toolId") or "").strip(),
+        "status": status,
+        "stage": str(value.get("stage") or "").strip(),
+        "message": str(value.get("message") or "").strip(),
+        "errorCode": str(value.get("errorCode") or "").strip(),
+        "updatedAt": str(value.get("updatedAt") or "").strip(),
+        "resultState": result_state,
+        "workflowReady": succeeded and bool(value.get("workflowReady")),
+        "productionEnabled": succeeded and bool(value.get("productionEnabled")),
+    }
+    for key in ("createdAt", "startedAt", "finishedAt", "cancelledAt"):
+        if value.get(key) is not None:
+            item[key] = value.get(key)
+    return item
 
 
 def _validation_execution_gate() -> dict[str, Any]:
