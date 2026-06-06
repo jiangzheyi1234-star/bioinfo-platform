@@ -272,6 +272,7 @@ def test_tools_page_has_focused_support_modules() -> None:
 def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
+    model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
 
@@ -293,6 +294,9 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     assert "candidateCatalog?: ToolCandidateCatalog | null" in ui
     assert "Tool candidate catalog" in ui
     assert "sourceCounts" in ui
+    assert "addableDraftCounts" in model
+    assert "addableDraftCounts" in ui
+    assert "addable drafts" in ui
     assert "conda packages" in ui
     assert "wrappers" in ui
     assert "profiles" in ui
