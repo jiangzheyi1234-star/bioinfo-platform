@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
     run_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     path TEXT NOT NULL,
+    storage_backend TEXT NOT NULL DEFAULT 'local',
+    storage_uri TEXT NOT NULL DEFAULT '',
     size_bytes INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     mime_type TEXT NOT NULL,

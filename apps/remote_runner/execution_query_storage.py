@@ -89,6 +89,8 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
             "runId": row["run_id"],
             "kind": row["kind"],
             "path": row["path"],
+            "storageBackend": row["storage_backend"],
+            "storageUri": row["storage_uri"],
             "sizeBytes": row["size_bytes"],
             "sha256": row["sha256"],
             "mimeType": row["mime_type"],

@@ -19,11 +19,15 @@ def persist_artifact(
 ) -> dict[str, Any]:
     size_bytes, sha256 = _artifact_payload_stats(path)
     created_at = now_iso()
+    storage_backend = "local"
+    storage_uri = path.resolve().as_uri()
     artifact = {
         "artifactId": f"art_{uuid.uuid4().hex[:10]}",
         "runId": run_id,
         "kind": kind,
         "path": str(path),
+        "storageBackend": storage_backend,
+        "storageUri": storage_uri,
         "sizeBytes": size_bytes,
         "sha256": sha256,
         "mimeType": mime_type,
@@ -32,14 +36,19 @@ def persist_artifact(
     with get_connection(cfg) as connection:
         connection.execute(
             """
-            INSERT INTO artifacts (artifact_id, run_id, kind, path, size_bytes, sha256, mime_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO artifacts (
+                artifact_id, run_id, kind, path, storage_backend, storage_uri,
+                size_bytes, sha256, mime_type, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 artifact["artifactId"],
                 artifact["runId"],
                 artifact["kind"],
                 artifact["path"],
+                artifact["storageBackend"],
+                artifact["storageUri"],
                 artifact["sizeBytes"],
                 artifact["sha256"],
                 artifact["mimeType"],
