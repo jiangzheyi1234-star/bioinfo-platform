@@ -20,6 +20,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     task_context = (COMPONENTS / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
     task_bar = (COMPONENTS / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
+    route_page = (ROOT / "apps/web/app/workflows/tools/page.tsx").read_text(encoding="utf-8")
+    recommendation_ui = (COMPONENTS / "generated-workflow-tool-recommendations.tsx").read_text(encoding="utf-8")
 
     assert "export async function fetchAddedTools" in api
     assert "export async function searchToolCapabilities" in api
@@ -40,6 +42,16 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "export function useToolsPageState" in hook
+    assert "initialQuery" in hook
+    assert "useToolsPageState(initialQuery)" in page
+    assert "useSearchParams" not in page
+    assert "searchParams" in route_page
+    assert "type ToolsSearchParams = Promise" in route_page
+    assert "export default async function Page" in route_page
+    assert "const params = await searchParams" in route_page
+    assert "Array.isArray(params?.q)" in route_page
+    assert 'initialQuery={query || ""}' in route_page
+    assert 'useState<"library" | "search">(() => initialQuery ? "search" : "library")' in hook
     assert "fetchSnakemakeWrapperCatalog" in hook
     assert "wrapperCatalog" in hook
     assert "wrapperCatalogLoading" in hook
@@ -253,3 +265,6 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "加入依赖" not in ui
     assert "连接流程" not in library
     assert "添加到流程" not in library
+    assert "href={toolSearchHref(recommendation)}" in recommendation_ui
+    assert 'pathname: "/workflows/tools"' in recommendation_ui
+    assert "query: { q: recommendationSearchQuery(recommendation) }" in recommendation_ui
