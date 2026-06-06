@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from apps.remote_runner.execution_query_storage import fetch_run
+from apps.remote_runner.workflow_run_storage import StaleRunAttemptError, update_run_state
 from apps.remote_runner.run_execution_storage import (
     claim_next_run_job,
     complete_run_attempt,
@@ -146,6 +149,31 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     assert completion["accepted"] is False
     assert completion["reason"] == "stale_generation"
     run = fetch_run(cfg, "run_stale_attempt")
+    assert run["status"] == "queued"
+
+
+def test_stale_attempt_cannot_update_run_projection(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_stale_projection")
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
+    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    assert first is not None
+    assert second is not None
+
+    with pytest.raises(StaleRunAttemptError) as raised:
+        update_run_state(
+            cfg,
+            run_id="run_stale_projection",
+            status="completed",
+            stage="finalize",
+            message="Stale completion should not publish.",
+            request_id="req_run_stale_projection",
+            attempt_id=first["attemptId"],
+            lease_generation=first["leaseGeneration"],
+        )
+
+    assert str(raised.value) == "RUN_ATTEMPT_STALE"
+    run = fetch_run(cfg, "run_stale_projection")
     assert run["status"] == "queued"
 
 

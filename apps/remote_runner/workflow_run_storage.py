@@ -22,6 +22,10 @@ class RunCreateRecordResult:
     reason: str
 
 
+class StaleRunAttemptError(RuntimeError):
+    """Raised when an old attempt tries to publish run state."""
+
+
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
     def _normalize(value: Any) -> Any:
         if isinstance(value, dict):
@@ -181,6 +185,8 @@ def update_run_state(
     request_id: str,
     last_error: dict[str, Any] | None = None,
     result_dir: str | None = None,
+    attempt_id: str | None = None,
+    lease_generation: int | None = None,
 ) -> dict[str, Any]:
     with get_connection(cfg) as connection:
         existing = connection.execute(
@@ -189,6 +195,13 @@ def update_run_state(
         ).fetchone()
         if existing is None:
             raise KeyError(run_id)
+        if not _attempt_can_publish(
+            connection,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        ):
+            raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
         next_state_version = int(existing["state_version"]) + 1
         started_at = existing["started_at"] or now_iso()
         finished_at = now_iso() if status in {"completed", "failed"} else None
@@ -228,3 +241,30 @@ def update_run_state(
         )
         connection.commit()
     return fetch_run(cfg, run_id)
+
+
+def _attempt_can_publish(
+    connection,
+    *,
+    run_id: str,
+    attempt_id: str | None,
+    lease_generation: int | None,
+) -> bool:
+    has_attempt_context = any(
+        value is not None and str(value).strip()
+        for value in (attempt_id, lease_generation)
+    )
+    if not has_attempt_context:
+        return True
+    if not str(attempt_id or "").strip() or lease_generation is None:
+        return False
+    lease = connection.execute(
+        "SELECT attempt_id, lease_generation, state FROM run_leases WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    return bool(
+        lease is not None
+        and lease["attempt_id"] == attempt_id
+        and int(lease["lease_generation"]) == int(lease_generation)
+        and lease["state"] == "active"
+    )

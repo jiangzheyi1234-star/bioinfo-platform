@@ -14,6 +14,7 @@ from .storage import (
     now_iso,
     update_run_state,
 )
+from .workflow_run_storage import StaleRunAttemptError
 
 
 RunExecutorWithKeywords = Callable[..., None]
@@ -74,22 +75,29 @@ def process_next_run_job(
             lease_generation=lease_generation,
             attempt_work_dir=str(claim["attempt"]["workDir"]),
         )
+    except StaleRunAttemptError as exc:
+        execution_error = str(exc) or exc.__class__.__name__
     except Exception as exc:  # noqa: BLE001 - worker must persist failure before returning.
         execution_error = str(exc) or exc.__class__.__name__
-        update_run_state(
-            cfg,
-            run_id=run_id,
-            status="failed",
-            stage="worker",
-            message="Run worker execution failed.",
-            request_id=str(run["requestId"]),
-            last_error={
-                "code": "RUN_WORKER_EXECUTION_FAILED",
-                "message": execution_error,
-                "scope": "worker",
-                "stage": "worker",
-            },
-        )
+        try:
+            update_run_state(
+                cfg,
+                run_id=run_id,
+                status="failed",
+                stage="worker",
+                message="Run worker execution failed.",
+                request_id=str(run["requestId"]),
+                last_error={
+                    "code": "RUN_WORKER_EXECUTION_FAILED",
+                    "message": execution_error,
+                    "scope": "worker",
+                    "stage": "worker",
+                },
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+            )
+        except StaleRunAttemptError:
+            pass
     finally:
         stop_heartbeat.set()
         if heartbeat_thread is not None:
