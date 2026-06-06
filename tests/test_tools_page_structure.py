@@ -317,13 +317,23 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
 def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    validation_queue = (COMPONENTS / "tools-page-validation-queue.tsx").read_text(encoding="utf-8")
 
     assert "export type ToolCatalogValidationQueueItem" in model
     assert "priority?: ToolCatalogValidationPriority" in model
+    assert "export type ToolCatalogValidationPlan" in model
+    assert "export type ToolCatalogExecutionGate" in model
+    assert "validationPlan?: ToolCatalogValidationPlan" in model
+    assert "executionGate?: ToolCatalogExecutionGate" in model
     assert "semanticPortFields?: string[]" in model
     assert "validationQueue?: ToolCatalogValidationQueue" in model
+    assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
     assert "validationQueueItems" in ui
-    assert "validation queue" in ui
-    assert "priority?.score" in ui
-    assert "semanticPortFields" in ui
-    assert "snakemakeWrapperCount" in ui
+    assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} />" in ui
+    assert "validation queue" in validation_queue
+    assert "priority?.score" in validation_queue
+    assert "executionGate?.nextAction" in validation_queue
+    assert "validationPlan?.stages?.length" in validation_queue
+    assert "prepare stages" in validation_queue
+    assert "semanticPortFields" in validation_queue
+    assert "snakemakeWrapperCount" in validation_queue
