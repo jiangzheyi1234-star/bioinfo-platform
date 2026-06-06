@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from apps.api.tool_candidate_model import snakemake_wrapper_candidate_fields
 from apps.api.tool_contract_resolver import DEFAULT_TOOL_CONTRACT_RESOLVER
 
 from .archive import SNAKEMAKE_WRAPPERS_REF, SNAKEMAKE_WRAPPERS_REPOSITORY, SNAKEMAKE_WRAPPERS_WEB_ROOT
@@ -29,6 +30,7 @@ def build_wrapper_entry(wrapper_dir: str, *, has_environment: bool) -> dict[str,
         "wrapperUrl": f"{SNAKEMAKE_WRAPPERS_WEB_ROOT}/{wrapper_dir}",
         "ruleSpecDraft": rule_spec_draft,
     }
+    entry.update(snakemake_wrapper_candidate_fields(entry))
     if has_environment:
         entry["environmentUrl"] = wrapper_environment_url(wrapper_dir)
     return entry
@@ -52,6 +54,7 @@ def rehydrate_cached_wrapper_entry(raw: dict[str, Any], *, cache_path: Path) -> 
         wrapper_path=wrapper_path,
         wrapper_identifier=wrapper_identifier,
     )
+    entry.update(snakemake_wrapper_candidate_fields(entry))
     return entry
 
 

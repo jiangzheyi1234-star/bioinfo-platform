@@ -11,6 +11,7 @@ from typing import Any
 
 from apps.api.bioconda_tool_index import get_bioconda_index_cache_dir, search_bioconda_index_page
 from apps.api.snakemake_wrappers import find_snakemake_wrappers_for_tool
+from apps.api.tool_candidate_model import conda_tool_candidate_fields
 from apps.api.tool_capability_anaconda import (
     SUPPORTED_CHANNELS,
     CondaPackageHit,
@@ -149,12 +150,14 @@ def _attach_snakemake_wrappers(items: list[dict[str, Any]]) -> list[dict[str, An
         wrappers = find_snakemake_wrappers_for_tool(tool_name)
         first_wrapper_draft = _first_wrapper_rule_spec_draft(wrappers)
         dependency_draft = DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_dependency(item, wrappers=wrappers)
+        rule_spec_draft = _preferred_rule_spec_draft(dependency_draft, first_wrapper_draft)
         enriched.append(
             {
                 **item,
                 "snakemakeWrappers": wrappers,
                 "snakemakeWrapperCount": len(wrappers),
-                "ruleSpecDraft": _preferred_rule_spec_draft(dependency_draft, first_wrapper_draft),
+                "ruleSpecDraft": rule_spec_draft,
+                **conda_tool_candidate_fields(item, rule_spec_draft=rule_spec_draft),
             }
         )
     return enriched

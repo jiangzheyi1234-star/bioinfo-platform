@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.tool_candidate_model import snakemake_wrapper_candidate_fields
+
 from .candidate import normalize_tool_name
 from .index import wrapper_index
 from .package_metadata import wrapper_source_ref
@@ -47,7 +49,7 @@ def catalog_snakemake_wrappers(*, query: str = "", page: int = 1, page_size: int
 
 
 def _catalog_items(index: dict[str, list[dict[str, Any]]], *, query: str) -> list[dict[str, Any]]:
-    items = [entry for entries in index.values() for entry in entries]
+    items = [_with_candidate_fields(entry) for entries in index.values() for entry in entries]
     if query:
         items = [entry for entry in items if _matches_query(entry, query)]
     return sorted(items, key=lambda entry: str(entry.get("wrapperPath") or ""))
@@ -64,3 +66,12 @@ def _matches_query(entry: dict[str, Any], query: str) -> bool:
 def _is_addable_wrapper(entry: dict[str, Any]) -> bool:
     draft = entry.get("ruleSpecDraft")
     return isinstance(draft, dict) and draft.get("requiresUserCompletion") is False
+
+
+def _with_candidate_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    if entry.get("candidateKind") == "snakemake-wrapper" and entry.get("candidateId"):
+        return entry
+    return {
+        **entry,
+        **snakemake_wrapper_candidate_fields(entry),
+    }
