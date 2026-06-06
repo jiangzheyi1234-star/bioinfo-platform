@@ -407,3 +407,88 @@ def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> Non
             "status": "queued",
         }
     }
+
+
+def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monkeypatch) -> None:
+    from apps.api import tool_capability_service
+
+    class Runtime:
+        def __init__(self) -> None:
+            self.created_payloads: list[dict[str, object]] = []
+            self.active_tool_id = ""
+
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": []}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            assert tool_ids
+            self.active_tool_id = tool_ids[0]
+            return {
+                "data": {
+                    "byToolId": {
+                        self.active_tool_id: {
+                            "jobId": "toolprep_active",
+                            "toolId": self.active_tool_id,
+                            "status": "running",
+                            "stage": "dry_run",
+                        }
+                    }
+                }
+            }
+
+        def create_tool_prepare_job(self, payload: dict[str, object]) -> dict[str, object]:
+            self.created_payloads.append(payload)
+            return {
+                "data": {
+                    "jobId": f"toolprep_{payload['name']}",
+                    "toolId": payload["id"],
+                    "status": "queued",
+                    "stage": "queued",
+                }
+            }
+
+    runtime = Runtime()
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        tool_capability_service.prepare_tool_validation_queue_from_request(
+            target_platform="linux-64",
+            max_items=3,
+        )
+    )
+
+    data = result["data"]
+    assert data["targetPlatform"] == "linux-64"
+    assert data["requested"] == 3
+    assert data["consideredCount"] == 3
+    assert data["activeStatuses"] == ["queued", "running"]
+    assert data["terminalStatuses"] == ["cancelled", "failed", "succeeded", "waiting_resource"]
+    assert data["queuedCount"] == 2
+    assert data["skippedCount"] == 1
+    assert [item["toolId"] for item in data["queued"]] == [payload["id"] for payload in runtime.created_payloads]
+    assert all(item["status"] == "queued" for item in data["queued"])
+    assert all(item["workflowReady"] is False for item in data["queued"])
+    assert all(item["resultState"] == "" for item in data["queued"])
+    assert all(item["pollPath"] == f"/api/v1/tools/prepare-jobs/{item['jobId']}" for item in data["queued"])
+    assert data["skipped"] == [
+        {
+            "candidateId": data["skipped"][0]["candidateId"],
+            "profileId": data["skipped"][0]["profileId"],
+            "toolId": runtime.active_tool_id,
+            "reason": "ACTIVE_PREPARE_JOB",
+            "latestPrepareJob": {
+                "jobId": "toolprep_active",
+                "toolId": runtime.active_tool_id,
+                "status": "running",
+                "stage": "dry_run",
+                "message": "",
+                "errorCode": "",
+                "updatedAt": "",
+                "resultState": "",
+                "workflowReady": False,
+                "productionEnabled": False,
+            },
+        }
+    ]
+    assert data["targets"]["workflowReady"]["actual"] == 0
+    assert data["remainingWorkflowReady"] == data["targets"]["workflowReady"]["remaining"]

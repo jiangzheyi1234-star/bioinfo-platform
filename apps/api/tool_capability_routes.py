@@ -11,6 +11,7 @@ from apps.api.tool_capability_service import (
     get_tool_capabilities_index_status_from_request,
     list_snakemake_wrapper_catalog_from_request,
     list_tool_profile_catalog_from_request,
+    prepare_tool_validation_queue_from_request,
     recommend_tool_candidates_from_request,
     refresh_tool_capabilities_index_from_request,
     search_tool_candidates_from_request,
@@ -84,6 +85,17 @@ async def tool_candidate_target_acceptance_api(
 ) -> dict[str, Any]:
     return await get_tool_candidate_target_acceptance_from_request(
         target_platform=targetPlatform,
+    )
+
+
+@router.post("/api/v1/tool-capabilities/validation-queue/prepare", operation_id="prepareToolValidationQueue")
+async def prepare_tool_validation_queue_api(
+    targetPlatform: str = "linux-64",
+    maxItems: int = Query(default=3, ge=1, le=10),
+) -> dict[str, Any]:
+    return await prepare_tool_validation_queue_from_request(
+        target_platform=targetPlatform,
+        max_items=maxItems,
     )
 
 
