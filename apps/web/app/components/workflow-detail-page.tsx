@@ -88,6 +88,7 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
                 designError={state.workflowDesignError}
                 designPlan={state.workflowDesignPlan}
                 inputCount={state.generatedInputCount}
+                onAddRecommendedTool={state.addRecommendedWorkflowTool}
                 onOpenDesignDraft={state.openWorkflowDesignDraft}
                 onCompile={() => {
                   void state.compileGeneratedWorkflowDesign().catch(() => undefined);

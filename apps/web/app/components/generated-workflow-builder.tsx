@@ -49,6 +49,7 @@ type GeneratedWorkflowBuilderProps = {
   designError?: string;
   designPlan?: WorkflowDesignPlan | null;
   onCompile?: () => void;
+  onAddRecommendedTool?: (toolRevisionId: string) => void;
   onOpenDesignDraft?: (draftId: string) => void;
   onSaveAndValidate?: () => void;
 };
@@ -65,6 +66,7 @@ export function GeneratedWorkflowBuilder({
   designError = "",
   designPlan,
   onCompile,
+  onAddRecommendedTool,
   onOpenDesignDraft,
   onSaveAndValidate,
 }: GeneratedWorkflowBuilderProps) {
@@ -187,7 +189,7 @@ export function GeneratedWorkflowBuilder({
       <GeneratedWorkflowToolRecommendations
         outputCandidates={outputCandidates}
         tools={workflowReadyTools}
-        onAddTool={(toolRevisionId) => builder.addStep(toolRevisionId)}
+        onAddTool={onAddRecommendedTool || builder.addStep}
       />
       <GeneratedResourceBindings builder={builder} availableDatabases={availableDatabases} />
       <WorkflowDesignPlanPreview plan={designPlan || null} />

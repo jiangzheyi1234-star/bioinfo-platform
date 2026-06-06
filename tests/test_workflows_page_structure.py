@@ -89,7 +89,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "outputFormat" in api
     assert "GeneratedWorkflowToolRecommendations" in builder_ui
     assert "outputCandidates={outputCandidates}" in builder_ui
-    assert "onAddTool={(toolRevisionId) => builder.addStep(toolRevisionId)}" in builder_ui
+    assert "onAddTool={onAddRecommendedTool || builder.addStep}" in builder_ui
+    assert "onAddRecommendedTool?: (toolRevisionId: string) => void" in builder_ui
     assert "fetchWorkflowToolRecommendations" in recommendations_ui
     assert "createToolPrepareJob" in recommendations_ui
     assert "useToolPrepareTasks" in recommendations_ui
@@ -529,6 +530,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "workflowDesign.draftId" in api
     assert "workflowDesign.revision" in api
     assert "useGeneratedWorkflowBuilder" in page_hook
+    assert "addRecommendedWorkflowTool" in page_hook
+    assert "fetchWorkflowTools({ forceRefresh: true })" in page_hook
+    assert "generatedBuilder.addStep(toolRevisionId)" in page_hook
+    assert "setTools(nextTools)" in page_hook
     assert "buildWorkflowDesignDraft" in page_hook
     assert "existingDraft: activeWorkflowDesignDraft?.draft" in page_hook
     assert "saveAndValidateGeneratedWorkflowDesign" in page_hook
@@ -559,6 +564,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "编译导出" in builder_ui
     assert "WorkflowDesignCompileSummary" in builder_ui
     assert "GeneratedWorkflowBuilder" in detail_page
+    assert "onAddRecommendedTool={state.addRecommendedWorkflowTool}" in detail_page
     assert "onCompile" in detail_page
     assert "generatedBuilder" in page_ui
     assert "!isGeneratedToolRun ? dagPreview : null" in page_ui
