@@ -104,6 +104,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "canAddStep?: boolean" in api
     assert "sourceOfTruth?: string" in api
     assert "validationPlan?: WorkflowToolRecommendationValidationPlan" in api
+    assert "latestPrepareJob?: WorkflowToolRecommendationLatestPrepareJob" in api
+    assert "export type WorkflowToolRecommendationLatestPrepareJob" in api
     assert "toolRevisionId?: string" in api
     assert "toolId?: string" in api
     assert "WorkflowToolRecommendationPreparePayload" in api
@@ -116,6 +118,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "recommendation.executionGate.requiredState" in recommendations_ui
     assert "recommendation.executionGate?.sourceOfTruth" in recommendations_ui
     assert "recommendation.validationPlan?.stages?.length" in recommendations_ui
+    assert "recommendation.latestPrepareJob?.status" in recommendations_ui
+    assert "activePrepareJob" in recommendations_ui
     assert "recommendation.executionGate?.toolRevisionId" in recommendations_ui
     assert "recommendation.executionGate?.toolId" in recommendations_ui
     assert "准备并验证工具" in recommendations_ui

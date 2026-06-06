@@ -85,12 +85,17 @@ def _recommend_tool_candidates_with_registered_tools(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
+    registered_tools = registered_tools_from_runtime_payload(runtime.list_tools())
+    latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
+        runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
+    )
     return recommend_tool_candidates(
         output_port=output_port,
         query=query,
         page=page,
         page_size=page_size,
-        registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
+        registered_tools=registered_tools,
+        latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
     )
 
 

@@ -133,6 +133,7 @@ export function GeneratedWorkflowToolRecommendations({
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">暂无可自动推荐的下一步工具。</div>
         ) : recommendations.slice(0, 5).map((recommendation) => {
           const tool = matchingWorkflowReadyTool(recommendation, tools);
+          const activePrepareJob = isActivePrepareJob(recommendation);
           const key = recommendationKey(recommendation);
           const preparing = preparingCandidateId === key;
           return (
@@ -156,6 +157,12 @@ export function GeneratedWorkflowToolRecommendations({
                   {recommendation.executionGate?.sourceOfTruth || "recommendation"} · validation stages{" "}
                   {recommendation.validationPlan?.stages?.length ?? 0}
                 </div>
+                {recommendation.latestPrepareJob?.status ? (
+                  <div className="mt-1 truncate text-[11px] text-blue-700">
+                    验证任务 {recommendation.latestPrepareJob.status}
+                    {recommendation.latestPrepareJob.stage ? ` · ${recommendation.latestPrepareJob.stage}` : ""}
+                  </div>
+                ) : null}
                 <div className="mt-1 truncate text-[11px] text-slate-500">{recommendation.evidence.join(" · ")}</div>
               </div>
               {tool ? (
@@ -167,6 +174,16 @@ export function GeneratedWorkflowToolRecommendations({
                 >
                   <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
                   添加步骤
+                </Button>
+              ) : activePrepareJob ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 bg-white px-2.5 text-xs"
+                  disabled
+                >
+                  <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  验证中
                 </Button>
               ) : recommendation.preparePayload ? (
                 <Button
@@ -218,6 +235,11 @@ function matchingWorkflowReadyTool(recommendation: WorkflowToolRecommendationIte
     ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
   );
   return tools.find((tool) => names.has(String(tool.name || "").trim().toLowerCase()));
+}
+
+function isActivePrepareJob(recommendation: WorkflowToolRecommendationItem): boolean {
+  const status = String(recommendation.latestPrepareJob?.status || "").trim();
+  return status === "queued" || status === "running";
 }
 
 function recommendationLabel(recommendation: WorkflowToolRecommendationItem): string {
