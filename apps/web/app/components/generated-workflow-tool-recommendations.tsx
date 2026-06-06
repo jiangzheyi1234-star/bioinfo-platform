@@ -200,6 +200,13 @@ function recommendationKey(recommendation: WorkflowToolRecommendationItem): stri
 }
 
 function matchingWorkflowReadyTool(recommendation: WorkflowToolRecommendationItem, tools: AddedTool[]): AddedTool | undefined {
+  const toolRevisionId = String(recommendation.executionGate?.toolRevisionId || "").trim();
+  const toolId = String(recommendation.executionGate?.toolId || "").trim();
+  const matchedByGate = tools.find((tool) =>
+    (toolRevisionId && workflowToolRevisionId(tool) === toolRevisionId) ||
+    (toolId && String(tool.id || "").trim() === toolId)
+  );
+  if (matchedByGate) return matchedByGate;
   const names = new Set(
     [
       recommendation.candidate.profileId,

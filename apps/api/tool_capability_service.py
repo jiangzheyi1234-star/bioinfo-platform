@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda_index
-from apps.api.route_utils import run_sync
+from apps.api.route_utils import run_sync, runtime_service
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_candidate_catalog import search_tool_candidates
 from apps.api.tool_candidate_recommendations import recommend_tool_candidates
@@ -58,9 +58,11 @@ async def recommend_tool_candidates_from_request(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
+    runtime = runtime_service()
     return await run_sync(
         lambda: {
-            "data": recommend_tool_candidates(
+            "data": _recommend_tool_candidates_with_registered_tools(
+                runtime=runtime,
                 output_port=output_port,
                 query=q,
                 page=page,
@@ -68,6 +70,41 @@ async def recommend_tool_candidates_from_request(
             )
         },
     )
+
+
+def _recommend_tool_candidates_with_registered_tools(
+    *,
+    runtime: Any,
+    output_port: dict[str, Any],
+    query: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    return recommend_tool_candidates(
+        output_port=output_port,
+        query=query,
+        page=page,
+        page_size=page_size,
+        registered_tools=_registered_tools_from_runtime_payload(runtime.list_tools()),
+    )
+
+
+def _registered_tools_from_runtime_payload(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            items = data.get("items")
+        else:
+            items = payload.get("items")
+    else:
+        items = None
+    if not isinstance(items, list):
+        raise ValueError("Invalid tools registry payload: expected an items list")
+    if any(not isinstance(item, dict) for item in items):
+        raise ValueError("Invalid tools registry payload: tool items must be objects")
+    return items
 
 
 async def get_tool_candidate_target_acceptance_from_request(*, target_platform: str) -> dict[str, Any]:

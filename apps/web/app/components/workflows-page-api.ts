@@ -47,6 +47,8 @@ export type WorkflowToolRecommendationExecutionGate = {
   canAddStep?: boolean;
   nextAction?: string;
   reason?: string;
+  toolRevisionId?: string;
+  toolId?: string;
 };
 
 export type WorkflowToolRecommendationPreparePayload = {
