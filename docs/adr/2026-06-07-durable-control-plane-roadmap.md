@@ -29,7 +29,7 @@ The first implementation sequence is:
 1. Add architecture guardrails and contract boundary tests.
 2. Harden idempotent submission so duplicate requests cannot enqueue or start duplicate execution.
 3. Add durable run jobs, attempts, leases, and fencing generations.
-4. Move run events toward a versioned append-only event appender.
+4. Move run events toward a versioned append-only event appender with command ids and hash-chain fields.
 5. Add resource envelope tables and a shadow reconciler before replacing existing behavior.
 
 ## Boundaries
@@ -39,6 +39,8 @@ Workflow drafts stay mutable and user-editable. Runs must execute immutable work
 Workflow revisions are immutable compiled workflow records. They must include generated workflow files, graph snapshots, tool and wrapper revision references, runtime lock identity, resource references, checksums, and compiler provenance. Any material change creates a new workflow revision. The term asset is reserved for data assets, artifact blobs, database versions, and future DRS or RO-Crate objects.
 
 Run ledger facts belong to `apps/remote_runner`. Runs, jobs, attempts, leases, events, artifacts, cancel/retry facts, evidence, and reconciliation observations are remote-runner-owned state.
+
+`runs` is a projection/cache. Durable intent and facts belong in `run_commands`, `run_events`, `run_attempts`, `run_leases`, candidate outputs, artifact adoption, and policy decisions. The event ledger must record deterministic sequencing and integrity fields including `payload_hash`, `event_hash`, and `prev_event_hash`; later projection rebuilds should prove that submit, claim, complete, cancel, and fence projections can be reconstructed from ledger facts.
 
 Execution fencing must protect both database writes and the filesystem. Every attempt writes into an attempt-scoped working directory, terminal publication is atomic and gated by the current lease generation, and expired attempt process groups must be stopped before a replacement attempt can publish.
 

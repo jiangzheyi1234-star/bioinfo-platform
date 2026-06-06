@@ -18,6 +18,11 @@ def test_durable_control_plane_roadmap_adr_records_phase_zero_guardrails() -> No
     assert "run_attempts" in source
     assert "run_leases" in source
     assert "workflow_revisions" in source
+    assert "run_commands" in source
+    assert "payload_hash" in source
+    assert "event_hash" in source
+    assert "prev_event_hash" in source
+    assert "projection/cache" in source
     assert "old ad hoc executable run payloads must fail loudly" in source
     assert "Kubernetes" in source
     assert "Temporal" in source
