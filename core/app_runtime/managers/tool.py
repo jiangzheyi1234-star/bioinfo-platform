@@ -31,6 +31,16 @@ class ToolManager(BaseRuntimeManager):
             )
         }
 
+    def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, Any]:
+        return {
+            "data": {
+                "byToolId": self.call_existing_runner(
+                    "list_latest_tool_prepare_jobs",
+                    tool_ids=tool_ids,
+                )
+            }
+        }
+
     def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
         return {
             "data": self.call_existing_runner(

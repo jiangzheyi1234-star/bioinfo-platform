@@ -17,6 +17,7 @@ from apps.remote_runner.tool_prepare_job_storage import (
     create_tool_prepare_job,
     fail_tool_prepare_job,
     fetch_tool_prepare_job,
+    list_latest_tool_prepare_jobs_by_tool_id,
     mark_tool_prepare_job_waiting_resource,
     record_tool_prepare_job_event,
 )
@@ -569,6 +570,58 @@ def test_waiting_resource_prepare_job_is_terminal(tmp_path: Path) -> None:
     assert finished["errorCode"] == "WORKFLOW_RESOURCE_BINDING_REQUIRED"
     assert finished["result"] is None
     assert [event["stage"] for event in finished["events"]] == ["queued", "waiting_resource"]
+
+
+def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    older = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    complete_tool_prepare_job(
+        cfg,
+        older["jobId"],
+        {
+            "id": "bioconda::fastqc",
+            "toolContract": {"state": "WorkflowReady", "workflowReady": True},
+            "message": "Tool revision published.",
+        },
+    )
+    latest = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    fail_tool_prepare_job(
+        cfg,
+        latest["jobId"],
+        code="SNAKEMAKE_DRY_RUN_FAILED",
+        message="Snakemake dry-run failed.",
+    )
+    other = create_tool_prepare_job(cfg, {"id": "bioconda::multiqc", "name": "multiqc"})
+
+    summaries = list_latest_tool_prepare_jobs_by_tool_id(
+        cfg,
+        ["bioconda::fastqc", "bioconda::multiqc", "missing", ""],
+    )
+
+    assert set(summaries) == {"bioconda::fastqc", "bioconda::multiqc"}
+    assert summaries["bioconda::fastqc"] == {
+        "jobId": latest["jobId"],
+        "toolId": "bioconda::fastqc",
+        "status": "failed",
+        "stage": "failed",
+        "message": "Snakemake dry-run failed.",
+        "errorCode": "SNAKEMAKE_DRY_RUN_FAILED",
+        "createdAt": summaries["bioconda::fastqc"]["createdAt"],
+        "updatedAt": summaries["bioconda::fastqc"]["updatedAt"],
+        "startedAt": None,
+        "finishedAt": summaries["bioconda::fastqc"]["finishedAt"],
+        "cancelledAt": None,
+        "resultState": "",
+        "workflowReady": False,
+        "productionEnabled": False,
+    }
+    assert summaries["bioconda::multiqc"]["jobId"] == other["jobId"]
+    assert summaries["bioconda::multiqc"]["status"] == "queued"
+    assert "request" not in summaries["bioconda::fastqc"]
+    assert "result" not in summaries["bioconda::fastqc"]
+    assert "events" not in summaries["bioconda::fastqc"]
 
 
 def test_tool_prepare_job_does_not_mask_unexpected_validation_errors(monkeypatch, tmp_path: Path) -> None:

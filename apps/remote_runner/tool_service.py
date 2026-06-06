@@ -8,6 +8,7 @@ from .route_utils import authorized_config, data_response, request_payload, run_
 from .tool_prepare_job_storage import (
     cancel_tool_prepare_job,
     create_tool_prepare_job,
+    list_latest_tool_prepare_jobs_by_tool_id,
     require_tool_prepare_job,
 )
 from .tool_prepare_jobs import run_tool_prepare_job
@@ -59,6 +60,19 @@ async def get_tool_prepare_job_from_request(
     return data_response(job)
 
 
+async def list_latest_tool_prepare_jobs_from_request(
+    tool_ids: str,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    latest_jobs = await run_sync(
+        list_latest_tool_prepare_jobs_by_tool_id,
+        cfg,
+        _tool_ids_from_query(tool_ids),
+    )
+    return data_response({"items": list(latest_jobs.values()), "byToolId": latest_jobs})
+
+
 async def cancel_tool_prepare_job_from_request(
     job_id: str,
     authorization: str | None,
@@ -66,6 +80,10 @@ async def cancel_tool_prepare_job_from_request(
     cfg = authorized_config(authorization)
     job = await run_sync(cancel_tool_prepare_job, cfg, job_id)
     return data_response(job)
+
+
+def _tool_ids_from_query(value: str) -> list[str]:
+    return [item for item in (part.strip() for part in str(value or "").split(",")) if item]
 
 
 async def update_tool_rule_template_from_request(

@@ -13,6 +13,9 @@ class RunnerToolOperationsMixin:
     def create_tool_prepare_job(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.tools.create_tool_prepare_job(payload)
 
+    def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, Any]:
+        return self.tools.list_latest_tool_prepare_jobs(tool_ids)
+
     def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
         return self.tools.get_tool_prepare_job(job_id)
 
