@@ -9,6 +9,10 @@ from apps.remote_runner.candidate_output_storage import (
     record_candidate_output,
     verify_candidate_outputs,
 )
+from apps.remote_runner.artifact_ledger_storage import (
+    list_artifact_materializations,
+    list_run_artifact_edges,
+)
 from apps.remote_runner.execution_query_storage import fetch_run_results
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record
@@ -108,6 +112,12 @@ def test_candidate_output_must_be_verified_before_adoption(tmp_path: Path) -> No
     assert len(artifacts) == 1
     assert artifacts[0]["artifactId"] == adopted["artifactIds"][0]
     assert artifacts[0]["sha256"] == candidate["sha256"]
+    edges = list_run_artifact_edges(cfg, claim["runId"])
+    assert len(edges) == 1
+    assert edges[0]["role"] == "output"
+    assert edges[0]["portName"] == "report"
+    assert edges[0]["contentHash"] == candidate["sha256"]
+    assert list_artifact_materializations(cfg, edges[0]["artifactBlobId"])[0]["storageUri"] == output.resolve().as_uri()
 
 
 def test_candidate_output_verification_rejects_checksum_mismatch_and_missing_expected(tmp_path: Path) -> None:
