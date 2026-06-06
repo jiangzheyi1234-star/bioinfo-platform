@@ -172,6 +172,44 @@ def test_bio_agent_catalog_target_acceptance_counts_registered_tool_contracts(mo
     assert first_item["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
 
 
+def test_validation_queue_prioritizes_wrapper_evidence_and_semantic_ports(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 20},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 20, "total": 12418},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 20, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 20,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(20)],
+        },
+    )
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(target_platform="linux-64")
+
+    items = report["validationQueue"]["items"]
+    assert len(items) >= 2
+    assert all(items[index]["priority"]["score"] >= items[index + 1]["priority"]["score"] for index in range(len(items) - 1))
+
+    fastqc = next(item for item in items if item["profileId"] == "fastqc")
+    assert "snakemake-wrapper-evidence" in fastqc["priority"]["reasons"]
+    assert "edam-port-semantics" in fastqc["priority"]["reasons"]
+    assert "ready-prepare-payload" in fastqc["priority"]["reasons"]
+    assert fastqc["evidence"]["snakemakeWrapperCount"] >= 1
+    assert {"data", "format"}.issubset(set(fastqc["evidence"]["semanticPortFields"]))
+    assert fastqc["evidence"]["semanticFormats"]
+    assert fastqc["priority"]["score"] >= 80
+
+
 def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
