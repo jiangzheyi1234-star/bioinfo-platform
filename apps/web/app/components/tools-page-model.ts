@@ -476,16 +476,6 @@ export function searchErrorMessage(err: unknown) {
   return message || "在线搜索失败";
 }
 
-export function searchNoticeMessage(reason: string | undefined) {
-  if (reason === "ANACONDA_RATE_LIMITED") {
-    return "在线工具源暂时限流，本地索引没有命中。请稍后重试，或换一个更具体的工具名。";
-  }
-  if (reason) {
-    return "在线工具源暂不可用，本地索引没有命中。请稍后重试。";
-  }
-  return "";
-}
-
 export function dependencyKey(packageSpec: string) {
   return String(packageSpec || "").trim().toLowerCase();
 }

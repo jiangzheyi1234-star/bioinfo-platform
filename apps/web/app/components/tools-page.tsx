@@ -58,6 +58,9 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
         ) : (
           <>
             <ToolCatalogQualityStrip
+              candidateCatalog={state.candidateCatalog}
+              candidateCatalogError={state.candidateCatalogError}
+              candidateCatalogLoading={state.candidateCatalogLoading}
               error={state.wrapperCatalogError}
               loading={state.wrapperCatalogLoading}
               wrapperCatalog={state.wrapperCatalog}
@@ -106,7 +109,6 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
                 query={state.query}
                 searchComplete={state.searchComplete}
                 searchHasMore={state.searchHasMore}
-                searchNotice={state.searchNotice}
                 searchPage={state.searchPage}
                 searchTotal={state.searchTotal}
                 selectedId={state.selectedId}

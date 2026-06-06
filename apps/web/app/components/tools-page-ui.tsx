@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import type { RuleSpecDraft, SnakemakeWrapperCatalog, ToolSearchItem } from "./tools-page-model";
+import type { RuleSpecDraft, SnakemakeWrapperCatalog, ToolCandidateCatalog, ToolSearchItem } from "./tools-page-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 import { ToolWrapperSelector } from "./tools-page-wrapper-selector";
 
@@ -76,31 +76,61 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
 }
 
 export function ToolCatalogQualityStrip({
+  candidateCatalog,
+  candidateCatalogError = "",
+  candidateCatalogLoading = false,
   error,
   loading,
   wrapperCatalog,
 }: {
+  candidateCatalog?: ToolCandidateCatalog | null;
+  candidateCatalogError?: string;
+  candidateCatalogLoading?: boolean;
   error: string;
   loading: boolean;
   wrapperCatalog: SnakemakeWrapperCatalog | null;
 }) {
-  const qualityCounts = wrapperCatalog?.qualityCounts;
+  const showingCandidates = Boolean(candidateCatalog || candidateCatalogLoading || candidateCatalogError);
+  const qualityCounts = showingCandidates ? candidateCatalog?.qualityCounts : wrapperCatalog?.qualityCounts;
   const metrics = [
-    ["discovered", wrapperCatalog?.total ?? qualityCounts?.discovered ?? 0],
-    ["draft-runnable", wrapperCatalog?.addableTotal ?? qualityCounts?.draftRunnable ?? 0],
+    ["discovered", candidateCatalog?.total ?? (!showingCandidates ? wrapperCatalog?.total : undefined) ?? qualityCounts?.discovered ?? 0],
+    ["draft-runnable", qualityCounts?.draftRunnable ?? (!showingCandidates ? wrapperCatalog?.addableTotal : undefined) ?? 0],
     ["workflow-ready", qualityCounts?.workflowReady ?? 0],
     ["production-enabled", qualityCounts?.productionEnabled ?? 0],
   ] as const;
+  const sourceCounts = candidateCatalog?.sourceCounts;
+  const sourceMetrics = sourceCounts
+    ? ([
+        ["conda packages", sourceCounts.condaPackages],
+        ["wrappers", sourceCounts.snakemakeWrappers],
+        ["profiles", sourceCounts.toolProfiles],
+      ] as const)
+    : [];
+  const statusText = candidateCatalogLoading
+    ? "正在搜索 candidate catalog"
+    : candidateCatalogError
+      ? candidateCatalogError
+      : candidateCatalog
+        ? `${candidateCatalog.total} candidates · page ${candidateCatalog.page}`
+        : loading
+          ? "正在读取 catalog"
+          : error || wrapperCatalog?.sourceRef?.ref || "source pending";
   return (
     <section className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-xs font-medium text-slate-700">Snakemake wrapper catalog</div>
-          <div className="mt-0.5 text-[11px] text-slate-400">
-            {loading ? "正在读取 catalog" : error || wrapperCatalog?.sourceRef?.ref || "source pending"}
+          <div className="text-xs font-medium text-slate-700">
+            {showingCandidates ? "Tool candidate catalog" : "Snakemake wrapper catalog"}
           </div>
+          <div className="mt-0.5 text-[11px] text-slate-400">{statusText}</div>
         </div>
         <div className="flex flex-wrap gap-1.5">
+          {sourceMetrics.map(([label, value]) => (
+            <span key={label} className="inline-flex h-6 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600">
+              <span className="mr-1 font-mono text-slate-900">{value}</span>
+              {label}
+            </span>
+          ))}
           {metrics.map(([label, value]) => (
             <span key={label} className="inline-flex h-6 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600">
               <span className="mr-1 font-mono text-slate-900">{value}</span>
@@ -289,7 +319,6 @@ export function ToolSearchResults({
   query,
   searchComplete,
   searchHasMore,
-  searchNotice,
   searchPage,
   searchTotal,
   selectedId,
@@ -302,7 +331,6 @@ export function ToolSearchResults({
   query: string;
   searchComplete: boolean;
   searchHasMore: boolean;
-  searchNotice: string;
   searchPage: number;
   searchTotal: number;
   selectedId: string;
@@ -321,11 +349,6 @@ export function ToolSearchResults({
       </div>
 
       <div className="min-h-[320px] space-y-2">
-        {!loading && !error && searchNotice ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-            {searchNotice}
-          </div>
-        ) : null}
         {loading ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
             <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" />

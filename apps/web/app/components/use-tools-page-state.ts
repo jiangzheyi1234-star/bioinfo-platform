@@ -10,13 +10,15 @@ import {
   getCachedAddedTools,
   openToolSourceUrl,
   removeToolDependency,
-  searchToolCapabilities,
+  searchToolCandidates,
   updateToolRuleTemplate,
 } from "./tools-page-api";
 import {
   type AddedTool,
   type RuleSpecTemplate,
   type SnakemakeWrapperCatalog,
+  type ToolCandidateCatalog,
+  type ToolCandidateCatalogItem,
   type ToolSearchItem,
   applySelectedPackageLock,
   applySelectedWrapperLock,
@@ -26,7 +28,6 @@ import {
   missingRuleSpecFields,
   packageSpecLocked,
   searchErrorMessage,
-  searchNoticeMessage,
   toolErrorMessage,
 } from "./tools-page-model";
 import { isActiveJob, isTerminalJob, useToolPrepareTasks } from "./tool-prepare-task-context";
@@ -48,11 +49,13 @@ export function useToolsPageState(initialQuery = "") {
   const [outputPathOverrides, setOutputPathOverrides] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [searchNotice, setSearchNotice] = useState("");
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchComplete, setSearchComplete] = useState(true);
+  const [candidateCatalog, setCandidateCatalog] = useState<ToolCandidateCatalog | null>(null);
+  const [candidateCatalogLoading, setCandidateCatalogLoading] = useState(false);
+  const [candidateCatalogError, setCandidateCatalogError] = useState("");
   const [wrapperCatalog, setWrapperCatalog] = useState<SnakemakeWrapperCatalog | null>(null);
   const [wrapperCatalogLoading, setWrapperCatalogLoading] = useState(true);
   const [wrapperCatalogError, setWrapperCatalogError] = useState("");
@@ -136,30 +139,37 @@ export function useToolsPageState(initialQuery = "") {
       setItems([]);
       setSelectedId("");
       setError("");
-      setSearchNotice("");
       setLoading(false);
       setSearchTotal(0);
       setSearchHasMore(false);
       setSearchComplete(true);
+      setCandidateCatalog(null);
+      setCandidateCatalogLoading(false);
+      setCandidateCatalogError("");
       return;
     }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true);
       setError("");
-      setSearchNotice("");
+      setCandidateCatalogLoading(true);
+      setCandidateCatalogError("");
       try {
-        const response = await searchToolCapabilities({
+        const catalog = await searchToolCandidates({
           query: normalized,
           page: searchPage,
           signal: controller.signal,
         });
-        const nextItems = response.items || [];
+        if (controller.signal.aborted) {
+          return;
+        }
+        const nextItems = installableCandidateItems(catalog.items || []);
+        setCandidateCatalog(catalog);
+        setCandidateCatalogError("");
         setItems(nextItems);
-        setSearchTotal(response.total ?? nextItems.length);
-        setSearchHasMore(Boolean(response.hasMore));
-        setSearchComplete(response.complete !== false);
-        setSearchNotice(searchNoticeMessage(response.onlineUnavailableReason));
+        setSearchTotal(catalog.sourceCounts?.condaPackages ?? nextItems.length);
+        setSearchHasMore(Boolean(catalog.hasMore));
+        setSearchComplete(!catalog.hasMore);
         setError("");
         setSelectedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id || ""));
       } catch (err) {
@@ -171,11 +181,13 @@ export function useToolsPageState(initialQuery = "") {
         setSearchTotal(0);
         setSearchHasMore(false);
         setSearchComplete(true);
+        setCandidateCatalog(null);
+        setCandidateCatalogError(searchErrorMessage(err));
         setError(searchErrorMessage(err));
-        setSearchNotice("");
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
+          setCandidateCatalogLoading(false);
         }
       }
     }, 350);
@@ -395,6 +407,9 @@ export function useToolsPageState(initialQuery = "") {
     addedTools,
     addingSelectedTool: addingSelectedTool || selectedPrepareRunning,
     canSaveSelected,
+    candidateCatalog,
+    candidateCatalogError,
+    candidateCatalogLoading,
     checkingToolId,
     preparingToolIds: Array.from(activePrepareToolIds),
     waitingResourceJobsByToolId,
@@ -406,7 +421,6 @@ export function useToolsPageState(initialQuery = "") {
     query,
     searchComplete,
     searchHasMore,
-    searchNotice,
     searchPage,
     searchTotal,
     selected,
@@ -443,6 +457,21 @@ export function useToolsPageState(initialQuery = "") {
     saveToolRuleTemplate,
     setEditingRuleSpecToolId,
   };
+}
+
+function installableCandidateItems(items: ToolCandidateCatalogItem[]): ToolSearchItem[] {
+  return items.filter(isInstallableCandidateItem);
+}
+
+function isInstallableCandidateItem(item: ToolCandidateCatalogItem): item is ToolSearchItem {
+  const candidate = item as Partial<ToolSearchItem>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.source === "string" &&
+    typeof candidate.sourceLabel === "string" &&
+    typeof candidate.packageSpec === "string"
+  );
 }
 
 function draftOnlyWhenActionMissing(tool: AddedTool): AddedTool {
