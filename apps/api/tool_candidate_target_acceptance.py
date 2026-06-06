@@ -311,8 +311,42 @@ def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any
     return {
         "snakemakeWrapperCount": len(wrappers),
         "snakemakeWrapperPaths": [str(item.get("wrapperPath") or "") for item in wrappers if str(item.get("wrapperPath") or "")],
+        **_wrapper_contract_hint_summary(wrappers),
         **semantic,
     }
+
+
+def _wrapper_contract_hint_summary(wrappers: list[dict[str, Any]]) -> dict[str, Any]:
+    hint_count = 0
+    fields: set[str] = set()
+    dependencies: set[str] = set()
+    for wrapper in wrappers:
+        hints = wrapper.get("wrapperContractHints") if isinstance(wrapper, dict) else None
+        if not isinstance(hints, dict) or not hints:
+            continue
+        hint_count += 1
+        fields.update(_contract_hint_fields(hints))
+        dependencies.update(_contract_hint_conda_dependencies(hints))
+    return {
+        "wrapperContractHintCount": hint_count,
+        "wrapperContractHintFields": sorted(fields),
+        "wrapperCondaDependencies": sorted(dependencies),
+    }
+
+
+def _contract_hint_fields(hints: dict[str, Any]) -> set[str]:
+    return {
+        key
+        for key in ("name", "description", "url", "authors", "input", "output", "params", "notes", "environment")
+        if hints.get(key)
+    }
+
+
+def _contract_hint_conda_dependencies(hints: dict[str, Any]) -> set[str]:
+    environment = hints.get("environment") if isinstance(hints.get("environment"), dict) else {}
+    conda = environment.get("conda") if isinstance(environment.get("conda"), dict) else {}
+    dependencies = conda.get("dependencies") if isinstance(conda.get("dependencies"), list) else []
+    return {str(dependency).strip() for dependency in dependencies if str(dependency or "").strip()}
 
 
 def _validation_priority(*, evidence: dict[str, Any], prepare_payload: dict[str, Any]) -> dict[str, Any]:
