@@ -331,6 +331,11 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "validationQueueItems" in ui
     assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} />" in ui
     assert "validation queue" in validation_queue
+    assert "createToolPrepareJob(tool)" in validation_queue
+    assert "trackToolPrepareJob(job)" in validation_queue
+    assert "waitForToolPrepareJob" not in validation_queue
+    assert "addedToolFromValidationQueueItem" in validation_queue
+    assert "preparingCandidateId" in validation_queue
     assert "priority?.score" in validation_queue
     assert "executionGate?.nextAction" in validation_queue
     assert "validationPlan?.stages?.length" in validation_queue
