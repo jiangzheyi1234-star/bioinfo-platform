@@ -3,7 +3,7 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { RuleOutputSpec } from "./generated-workflow-model";
-import type { AddedTool, ToolsResponse } from "./tools-page-model";
+import type { AddedTool, RuleSpecDraft, RuleSpecTemplate, ToolsResponse } from "./tools-page-model";
 import type {
   WorkflowDesignCompileResult,
   WorkflowDesignDraft,
@@ -49,10 +49,24 @@ export type WorkflowToolRecommendationExecutionGate = {
   reason?: string;
 };
 
+export type WorkflowToolRecommendationPreparePayload = {
+  id?: string;
+  name?: string;
+  source?: string;
+  sourceLabel?: string;
+  version?: string;
+  packageSpec?: string;
+  targetPlatform?: string;
+  targetPlatformSupported?: boolean;
+  ruleTemplate?: RuleSpecTemplate;
+  ruleSpecDraft?: RuleSpecDraft;
+};
+
 export type WorkflowToolRecommendationItem = {
   decision: "recommended" | "blocked" | "ambiguous" | string;
   candidate: WorkflowToolRecommendationCandidate;
   executionGate?: WorkflowToolRecommendationExecutionGate;
+  preparePayload?: WorkflowToolRecommendationPreparePayload;
   inputPort: {
     name: string;
     required?: boolean;
