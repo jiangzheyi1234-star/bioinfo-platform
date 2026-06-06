@@ -130,6 +130,37 @@ def test_search_bioconda_index_page_returns_total_before_slicing(tmp_path: Path)
     assert page["items"][0]["name"] == "kraken-helper-20"
 
 
+def test_search_bioconda_index_page_allows_empty_query_for_catalog_paging(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+    _write_json(
+        cache_dir / "search-index-v1.json",
+        {
+            "version": 1,
+            "updatedAt": "2026-04-29T00:00:00Z",
+            "packages": [
+                {
+                    "name": f"tool-{index:02d}",
+                    "channel": "bioconda",
+                    "summary": "Catalog package",
+                    "latestVersion": "1.0",
+                    "versions": ["1.0"],
+                    "platforms": ["linux-64"],
+                }
+                for index in range(25)
+            ],
+        },
+    )
+
+    page = bioconda_tool_index.search_bioconda_index_page("", page=2, page_size=10, cache_dir=cache_dir)
+
+    assert page["total"] == 25
+    assert page["page"] == 2
+    assert page["pageSize"] == 10
+    assert page["hasMore"] is True
+    assert page["indexAvailable"] is True
+    assert [item["name"] for item in page["items"]] == [f"tool-{index:02d}" for index in range(10, 20)]
+
+
 def test_search_bioconda_index_page_reports_missing_index(tmp_path: Path) -> None:
     page = bioconda_tool_index.search_bioconda_index_page("kraken", page=1, page_size=20, cache_dir=tmp_path / "cache")
 

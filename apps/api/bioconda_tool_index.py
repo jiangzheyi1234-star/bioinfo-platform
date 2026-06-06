@@ -44,15 +44,6 @@ def search_bioconda_index_page(
     normalized = _normalize_query(query)
     bounded_page = max(1, int(page or 1))
     bounded_page_size = max(1, min(int(page_size or 20), 100))
-    if not normalized:
-        return {
-            "items": [],
-            "total": 0,
-            "page": bounded_page,
-            "pageSize": bounded_page_size,
-            "hasMore": False,
-            "indexAvailable": False,
-        }
     index = load_bioconda_index(cache_dir=cache_dir)
     if index is None:
         return {
@@ -74,20 +65,24 @@ def search_bioconda_index_page(
             "indexAvailable": False,
         }
 
-    scored: list[tuple[int, str, dict[str, Any]]] = []
-    for raw in records:
-        if not isinstance(raw, dict):
-            continue
-        score = _score_record(raw, normalized)
-        if score <= 0:
-            continue
-        scored.append((score, str(raw.get("name") or ""), raw))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    total = len(scored)
+    if normalized:
+        scored: list[tuple[int, str, dict[str, Any]]] = []
+        for raw in records:
+            if not isinstance(raw, dict):
+                continue
+            score = _score_record(raw, normalized)
+            if score <= 0:
+                continue
+            scored.append((score, str(raw.get("name") or ""), raw))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        matched_records = [item[2] for item in scored]
+    else:
+        matched_records = [raw for raw in records if isinstance(raw, dict)]
+    total = len(matched_records)
     offset = (bounded_page - 1) * bounded_page_size
-    page_items = scored[offset : offset + bounded_page_size]
+    page_items = matched_records[offset : offset + bounded_page_size]
     return {
-        "items": [dict(item[2]) for item in page_items],
+        "items": [dict(item) for item in page_items],
         "total": total,
         "page": bounded_page,
         "pageSize": bounded_page_size,
