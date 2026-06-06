@@ -30,6 +30,63 @@ def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
     assert fastp["preferredWrapperPaths"] == ["bio/fastp"]
 
 
+def test_conda_package_candidate_exposes_contract_state(monkeypatch) -> None:
+    from apps.api import tool_candidate_catalog
+
+    monkeypatch.setattr(tool_candidate_catalog, "find_snakemake_wrappers_for_tool", lambda name: [])
+    monkeypatch.setattr(
+        tool_candidate_catalog.DEFAULT_TOOL_CONTRACT_RESOLVER,
+        "resolve_dependency",
+        lambda hit, *, wrappers: {
+            "requiresUserCompletion": False,
+            "status": "ready-for-validation",
+            "ruleTemplate": {"commandTemplate": "fastqc {input.reads}"},
+        },
+    )
+
+    candidate = tool_candidate_catalog._conda_candidate_from_index_record(
+        {
+            "name": "fastqc",
+            "summary": "Read QC",
+            "latestVersion": "0.12.1",
+            "versions": ["0.12.1"],
+            "platforms": ["linux-64"],
+        },
+        target_platform="linux-64",
+    )
+
+    assert candidate["qualityTier"] == "draft-runnable"
+    assert candidate["contractState"] == "SnakemakeRenderable"
+
+
+def test_wrapper_candidate_exposes_contract_state() -> None:
+    from apps.api.tool_candidate_model import snakemake_wrapper_candidate_fields
+
+    fields = snakemake_wrapper_candidate_fields(
+        {
+            "wrapperRepository": "snakemake/snakemake-wrappers",
+            "wrapperRef": "v9.8.0",
+            "wrapperPath": "bio/fastqc",
+            "wrapperIdentifier": "v9.8.0/bio/fastqc",
+            "ruleSpecDraft": {"requiresUserCompletion": False},
+        }
+    )
+    incomplete = snakemake_wrapper_candidate_fields(
+        {
+            "wrapperRepository": "snakemake/snakemake-wrappers",
+            "wrapperRef": "v9.8.0",
+            "wrapperPath": "bio/custom",
+            "wrapperIdentifier": "v9.8.0/bio/custom",
+            "ruleSpecDraft": {"requiresUserCompletion": True},
+        }
+    )
+
+    assert fields["qualityTier"] == "draft-runnable"
+    assert fields["contractState"] == "SnakemakeRenderable"
+    assert incomplete["qualityTier"] == "discovered"
+    assert incomplete["contractState"] == "Discovered"
+
+
 def test_curated_tool_profile_catalog_attaches_snakemake_wrapper_evidence() -> None:
     from apps.api.tool_profile_catalog import catalog_tool_profiles
 

@@ -21,6 +21,7 @@ def conda_tool_candidate_fields(tool: dict[str, Any], *, rule_spec_draft: dict[s
         "candidateId": candidate_id,
         "candidateKind": "conda-package",
         "sourceRef": source_ref,
+        "contractState": contract_state(tool, rule_spec_draft=rule_spec_draft),
         "qualityTier": quality_tier(tool, rule_spec_draft=rule_spec_draft),
     }
 
@@ -44,6 +45,7 @@ def snakemake_wrapper_candidate_fields(wrapper: dict[str, Any]) -> dict[str, Any
         "candidateId": f"snakemake-wrapper::{wrapper_identifier}",
         "candidateKind": "snakemake-wrapper",
         "sourceRef": source_ref,
+        "contractState": contract_state(wrapper, rule_spec_draft=draft),
         "qualityTier": quality_tier(wrapper, rule_spec_draft=draft),
     }
 
@@ -74,3 +76,18 @@ def quality_tier(record: dict[str, Any], *, rule_spec_draft: dict[str, Any] | No
     if rule_spec_draft and rule_spec_draft.get("requiresUserCompletion") is False:
         return "draft-runnable"
     return "discovered"
+
+
+def contract_state(record: dict[str, Any], *, rule_spec_draft: dict[str, Any] | None) -> str:
+    contract = record.get("toolContract")
+    if isinstance(contract, dict):
+        state = str(contract.get("state") or "").strip()
+        if state:
+            return state
+        if contract.get("productionEnabled") is True:
+            return "ProductionEnabled"
+        if contract.get("workflowReady") is True:
+            return "WorkflowReady"
+    if rule_spec_draft and rule_spec_draft.get("requiresUserCompletion") is False:
+        return "SnakemakeRenderable"
+    return "Discovered"
