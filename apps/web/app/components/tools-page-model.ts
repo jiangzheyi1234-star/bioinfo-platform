@@ -342,6 +342,9 @@ export type ToolCatalogValidationPriority = {
 export type ToolCatalogValidationEvidence = {
   snakemakeWrapperCount?: number;
   snakemakeWrapperPaths?: string[];
+  wrapperContractHintCount?: number;
+  wrapperContractHintFields?: string[];
+  wrapperCondaDependencies?: string[];
   semanticPortFields?: string[];
   semanticData?: string[];
   semanticFormats?: string[];
