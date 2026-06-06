@@ -63,6 +63,10 @@ def bio_agent_catalog_target_acceptance(
         remaining=targets["workflowReady"]["remaining"],
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id or {},
     )
+    production_queue = _production_queue(
+        registered_tools=registered,
+        remaining=targets["productionEnabled"]["remaining"],
+    )
     return {
         "targetName": "Bio Agent Tool Catalog & Recommendation v1",
         "targetPlatform": normalized_target_platform,
@@ -70,6 +74,7 @@ def bio_agent_catalog_target_acceptance(
         "blockedTargets": blocked_targets,
         "nextActions": [_next_action(name, targets[name]) for name in blocked_targets],
         "validationQueue": validation_queue,
+        "productionQueue": production_queue,
         "targets": targets,
         "catalog": {
             "total": _count_value(catalog.get("total")),
@@ -130,6 +135,73 @@ def _registered_tool_counts(tools: list[dict[str, Any]]) -> dict[str, int]:
         "total": len(valid_tools),
         "workflowReady": sum(1 for tool in valid_tools if _registered_tool_workflow_ready(tool)),
         "productionEnabled": sum(1 for tool in valid_tools if _registered_tool_production_enabled(tool)),
+    }
+
+
+def _production_queue(*, registered_tools: list[dict[str, Any]], remaining: int) -> dict[str, Any]:
+    candidates = [
+        _production_queue_item(tool)
+        for tool in registered_tools
+        if isinstance(tool, dict) and _registered_tool_workflow_ready(tool) and not _registered_tool_production_enabled(tool)
+    ]
+    candidates.sort(key=lambda item: str(item["toolId"]))
+    bounded_remaining = max(0, int(remaining or 0))
+    return {
+        "target": "productionEnabled",
+        "requiredState": "ProductionEnabled",
+        "remaining": bounded_remaining,
+        "available": len(candidates),
+        "items": candidates[:bounded_remaining],
+    }
+
+
+def _production_queue_item(tool: dict[str, Any]) -> dict[str, Any]:
+    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    tool_id = str(tool.get("id") or tool.get("toolId") or tool.get("name") or "").strip()
+    return {
+        "toolId": tool_id,
+        "toolRevisionId": str(tool.get("toolRevisionId") or contract.get("toolRevisionId") or "").strip(),
+        "toolName": str(tool.get("name") or _tool_name_from_identifier(tool_id)).strip(),
+        "currentState": str(contract.get("state") or "WorkflowReady"),
+        "requiredState": "ProductionEnabled",
+        "action": "submit-production-evidence",
+        "executionGate": _production_execution_gate(contract),
+        "productionPlan": _production_plan(),
+    }
+
+
+def _production_execution_gate(contract: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "currentState": str(contract.get("state") or "WorkflowReady"),
+        "requiredState": "ProductionEnabled",
+        "canPromote": False,
+        "nextAction": "submit-production-evidence",
+        "reason": "PRODUCTION_EVIDENCE_REQUIRED",
+        "sourceOfTruth": "registeredTool.toolContract",
+    }
+
+
+def _production_plan() -> dict[str, Any]:
+    return {
+        "planVersion": "tool-production-plan-v1",
+        "requiredState": "ProductionEnabled",
+        "submit": {
+            "method": "POST",
+            "pathTemplate": "/api/v1/tools/{toolId}/production",
+            "payloadRef": "productionEvidence",
+        },
+        "acceptedEvidenceTypes": ["real-data-acceptance"],
+        "requiredEvidenceFields": ["runId", "evidenceType", "artifactName"],
+        "scopedAttestation": [
+            "toolRevisionId",
+            "targetPlatform",
+            "environmentLock",
+            "databaseId",
+            "inputScope",
+            "artifactDigest",
+            "policyVersion",
+        ],
+        "readinessBoundary": "ProductionEnabled is granted only after real run evidence validates artifacts and scoped production requirements.",
     }
 
 

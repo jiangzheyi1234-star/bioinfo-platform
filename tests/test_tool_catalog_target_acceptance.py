@@ -178,6 +178,28 @@ def test_bio_agent_catalog_target_acceptance_counts_registered_tool_contracts(mo
     assert first_item["preparePayload"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
     assert first_item["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
 
+    production_queue = report["productionQueue"]
+    assert production_queue["target"] == "productionEnabled"
+    assert production_queue["requiredState"] == "ProductionEnabled"
+    assert production_queue["remaining"] == 9
+    assert production_queue["available"] == 2
+    assert [item["toolId"] for item in production_queue["items"]] == ["bioconda::fastp", "bioconda::fastqc"]
+    first_production_item = production_queue["items"][0]
+    assert first_production_item["currentState"] == "WorkflowReady"
+    assert first_production_item["requiredState"] == "ProductionEnabled"
+    assert first_production_item["action"] == "submit-production-evidence"
+    assert first_production_item["executionGate"] == {
+        "currentState": "WorkflowReady",
+        "requiredState": "ProductionEnabled",
+        "canPromote": False,
+        "nextAction": "submit-production-evidence",
+        "reason": "PRODUCTION_EVIDENCE_REQUIRED",
+        "sourceOfTruth": "registeredTool.toolContract",
+    }
+    assert first_production_item["productionPlan"]["submit"]["pathTemplate"] == "/api/v1/tools/{toolId}/production"
+    assert "runId" in first_production_item["productionPlan"]["requiredEvidenceFields"]
+    assert "real-data-acceptance" in first_production_item["productionPlan"]["acceptedEvidenceTypes"]
+
 
 def test_validation_queue_prioritizes_wrapper_evidence_and_semantic_ports(monkeypatch) -> None:
     from apps.api import tool_candidate_target_acceptance
