@@ -42,6 +42,7 @@ def test_tool_storage_lives_outside_general_storage_module() -> None:
     assert "def fetch_tool(" in tool_storage
     assert "def upsert_tool(" in tool_storage
     assert "def delete_tool(" in tool_storage
+    assert "from .tool_platform_storage import delete_tool_index, upsert_tool_index" in tool_storage
     assert "from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status" in tool_storage
     assert "from .storage import get_connection, now_iso" not in tool_storage
     assert "from .storage_core import get_connection, now_iso" in tool_storage
@@ -49,6 +50,23 @@ def test_tool_storage_lives_outside_general_storage_module() -> None:
     assert "def get_connection(" in storage_core
     assert "def now_iso(" in storage_core
     assert "def _ensure_tools_columns(" in storage_core
+
+
+def test_tool_platform_storage_lives_outside_tool_storage_module() -> None:
+    tool_storage = (REMOTE_RUNNER / "tool_storage.py").read_text(encoding="utf-8")
+    platform_storage_path = REMOTE_RUNNER / "tool_platform_storage.py"
+
+    assert platform_storage_path.exists()
+    platform_storage = platform_storage_path.read_text(encoding="utf-8")
+    assert "def search_tool_index(" in platform_storage
+    assert "def record_prepare_job_validation_result(" in platform_storage
+    assert "def list_tool_validation_results(" in platform_storage
+    assert "CREATE TABLE IF NOT EXISTS tool_index" in (REMOTE_RUNNER / "storage_schema.py").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS tool_validation_results" in (
+        REMOTE_RUNNER / "storage_schema.py"
+    ).read_text(encoding="utf-8")
+    assert "def search_tool_index(" not in tool_storage
+    assert "def record_prepare_job_validation_result(" not in tool_storage
 
 
 def test_run_query_storage_lives_outside_general_storage_module() -> None:

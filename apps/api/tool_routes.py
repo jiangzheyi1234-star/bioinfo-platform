@@ -13,6 +13,7 @@ from apps.api.tool_service import (
     create_tool_prepare_job_from_request,
     delete_tool_from_request,
     get_tool_prepare_job_from_request,
+    list_tool_index_from_request,
     list_tools_from_request,
     update_tool_rule_template_from_request,
 )
@@ -24,6 +25,25 @@ router = APIRouter()
 @router.get("/api/v1/tools")
 async def list_tools_api(refresh: bool = False) -> dict[str, Any]:
     return await list_tools_from_request(refresh)
+
+
+@router.get("/api/v1/tools/index")
+async def list_tool_index_api(
+    query: str = "",
+    limit: int = 50,
+    offset: int = 0,
+    source: str | None = None,
+    state: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    return await list_tool_index_from_request(
+        query=query,
+        limit=limit,
+        offset=offset,
+        source=source,
+        state=state,
+        refresh=refresh,
+    )
 
 
 @router.post("/api/v1/tools", status_code=201)

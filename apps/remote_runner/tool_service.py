@@ -11,6 +11,7 @@ from .tool_prepare_job_storage import (
     list_latest_tool_prepare_jobs_by_tool_id,
     require_tool_prepare_job,
 )
+from .tool_platform_storage import search_tool_index
 from .tool_prepare_jobs import run_tool_prepare_job
 from .tools import (
     add_registered_tool,
@@ -29,6 +30,28 @@ async def list_tools_from_request(authorization: str | None) -> dict[str, Any]:
     cfg = authorized_config(authorization)
     items = await run_sync(list_registered_tools, cfg)
     return data_response({"items": items})
+
+
+async def list_tool_index_from_request(
+    authorization: str | None,
+    *,
+    query: str = "",
+    limit: int = 50,
+    offset: int = 0,
+    source: str | None = None,
+    state: str | None = None,
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    page = await run_sync(
+        search_tool_index,
+        cfg,
+        query=query,
+        limit=limit,
+        offset=offset,
+        source=source,
+        state=state,
+    )
+    return data_response(page)
 
 
 async def add_tool_from_request(

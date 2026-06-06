@@ -22,6 +22,31 @@ async def list_tools_from_request(refresh: bool) -> dict[str, Any]:
     )
 
 
+async def list_tool_index_from_request(
+    *,
+    query: str = "",
+    limit: int = 50,
+    offset: int = 0,
+    source: str | None = None,
+    state: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    cache_key = f"tools:index:{query}:{limit}:{offset}:{source or ''}:{state or ''}"
+    return await cached_runtime_payload(
+        cache_key,
+        30,
+        lambda: runtime_service().list_tool_index(
+            query=query,
+            limit=limit,
+            offset=offset,
+            source=source,
+            state=state,
+        ),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
 async def add_tool_from_request(request: ToolManifestRequest) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().add_tool(request_payload(request)),
