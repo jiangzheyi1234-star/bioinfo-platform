@@ -7,6 +7,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .storage_core import get_connection, now_iso
+from .workflow_run_storage import StaleRunAttemptError, run_attempt_can_publish
 
 
 def persist_artifact(
@@ -16,6 +17,8 @@ def persist_artifact(
     kind: str,
     path: Path,
     mime_type: str,
+    attempt_id: str | None = None,
+    lease_generation: int | None = None,
 ) -> dict[str, Any]:
     size_bytes, sha256 = artifact_payload_stats(path)
     created_at = now_iso()
@@ -34,6 +37,13 @@ def persist_artifact(
         "createdAt": created_at,
     }
     with get_connection(cfg) as connection:
+        if not run_attempt_can_publish(
+            connection,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        ):
+            raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
         connection.execute(
             """
             INSERT INTO artifacts (
