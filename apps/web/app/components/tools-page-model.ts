@@ -347,6 +347,44 @@ export type ToolCatalogValidationEvidence = {
   semanticFormats?: string[];
 };
 
+export type ToolCatalogExecutionGate = {
+  currentState: string;
+  requiredState: string;
+  canAddStep: boolean;
+  nextAction: string;
+  reason?: string;
+  sourceOfTruth?: string;
+  toolRevisionId?: string;
+  toolId?: string;
+};
+
+export type ToolCatalogValidationPlan = {
+  planVersion: string;
+  requiredState: string;
+  submit?: {
+    method: string;
+    path: string;
+    payloadRef: string;
+  };
+  poll?: {
+    method: string;
+    pathTemplate: string;
+    jobIdField: string;
+  };
+  terminalStatuses?: {
+    success?: string[];
+    waiting?: string[];
+    failure?: string[];
+  };
+  stages?: Array<{
+    id: string;
+    contractStatusKey?: string;
+    evidence?: string;
+  }>;
+  successCriteria?: Array<Record<string, string | boolean>>;
+  readinessBoundary?: string;
+};
+
 export type ToolCatalogValidationQueueItem = {
   candidateId: string;
   candidateKind: string;
@@ -358,6 +396,8 @@ export type ToolCatalogValidationQueueItem = {
   action: string;
   priority?: ToolCatalogValidationPriority;
   evidence?: ToolCatalogValidationEvidence;
+  executionGate?: ToolCatalogExecutionGate;
+  validationPlan?: ToolCatalogValidationPlan;
   preparePayload?: {
     id?: string;
     name?: string;

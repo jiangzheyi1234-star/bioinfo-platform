@@ -210,6 +210,102 @@ def test_validation_queue_prioritizes_wrapper_evidence_and_semantic_ports(monkey
     assert fastqc["priority"]["score"] >= 80
 
 
+def test_validation_queue_item_includes_prepare_job_validation_plan(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 20},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 20, "total": 12418},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 20, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 20,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(20)],
+        },
+    )
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(target_platform="linux-64")
+
+    fastqc = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "fastqc")
+    plan = fastqc["validationPlan"]
+    assert plan["planVersion"] == "tool-validation-plan-v1"
+    assert plan["requiredState"] == "WorkflowReady"
+    assert plan["submit"] == {
+        "method": "POST",
+        "path": "/api/v1/tools/prepare-jobs",
+        "payloadRef": "preparePayload",
+    }
+    assert plan["poll"] == {
+        "method": "GET",
+        "pathTemplate": "/api/v1/tools/prepare-jobs/{jobId}",
+        "jobIdField": "jobId",
+    }
+    assert plan["terminalStatuses"]["success"] == ["succeeded"]
+    assert plan["terminalStatuses"]["waiting"] == ["waiting_resource"]
+    assert plan["terminalStatuses"]["failure"] == ["failed", "cancelled"]
+    assert [stage["id"] for stage in plan["stages"]] == [
+        "profile_schema_validation",
+        "static_rulespec_validation",
+        "dry_run",
+        "smoke_run",
+        "output_validation",
+        "published",
+    ]
+    assert plan["successCriteria"] == [
+        {"contractStatusKey": "dryRun", "status": "passed"},
+        {"contractStatusKey": "smokeRun", "status": "passed"},
+        {"contractStatusKey": "outputValidation", "status": "passed"},
+        {"toolContractField": "workflowReady", "value": True},
+    ]
+    assert "prepare job succeeds" in plan["readinessBoundary"]
+
+
+def test_validation_queue_item_exposes_execution_gate_without_marking_ready(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 20},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 20, "total": 12418},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 20, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 20,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(20)],
+        },
+    )
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(target_platform="linux-64")
+
+    fastqc = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "fastqc")
+    assert fastqc["currentState"] == "SnakemakeRenderable"
+    assert fastqc["executionGate"] == {
+        "currentState": "SnakemakeRenderable",
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "prepare-tool",
+        "reason": "WORKFLOW_TOOL_NOT_READY",
+        "sourceOfTruth": "registeredTool.toolContract",
+    }
+    assert fastqc["executionGate"]["canAddStep"] is False
+    assert report["targets"]["workflowReady"]["actual"] == 0
+
+
 def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
