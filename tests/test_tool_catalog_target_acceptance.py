@@ -100,6 +100,39 @@ def test_bio_agent_catalog_target_acceptance_reports_current_gates(monkeypatch) 
     assert report["catalog"]["sourceCounts"]["snakemakeWrappers"] == 466
 
 
+def test_target_acceptance_uses_unified_catalog_draft_runnable_count(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 30},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 100, "toolProfiles": 30, "total": 12528},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 112, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 30,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(30)],
+        },
+    )
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(target_platform="linux-64")
+
+    assert report["targets"]["snakemakeRenderable"] == {
+        "target": 30,
+        "actual": 112,
+        "passed": True,
+        "remaining": 0,
+    }
+    assert "snakemakeRenderable" not in report["blockedTargets"]
+
+
 def test_bio_agent_catalog_target_acceptance_counts_registered_tool_contracts(monkeypatch) -> None:
     from apps.api import tool_candidate_target_acceptance
 
