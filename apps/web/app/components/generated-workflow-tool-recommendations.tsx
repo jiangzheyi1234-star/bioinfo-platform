@@ -133,6 +133,8 @@ export function GeneratedWorkflowToolRecommendations({
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">暂无可自动推荐的下一步工具。</div>
         ) : recommendations.slice(0, 5).map((recommendation) => {
           const tool = matchingWorkflowReadyTool(recommendation, tools);
+          const addStepRevisionId = recommendationAddStepRevisionId(recommendation, tool);
+          const canAddStep = Boolean(recommendation.executionGate?.canAddStep && addStepRevisionId);
           const activePrepareJob = isActivePrepareJob(recommendation);
           const key = recommendationKey(recommendation);
           const preparing = preparingCandidateId === key;
@@ -148,7 +150,7 @@ export function GeneratedWorkflowToolRecommendations({
                 <div className="mt-1 truncate text-[11px] text-slate-500">
                   input {recommendation.inputPort.name} · {recommendation.matchedFields.join(" / ")}
                 </div>
-                {!tool && recommendation.executionGate?.requiredState ? (
+                {!canAddStep && !tool && recommendation.executionGate?.requiredState ? (
                   <div className="mt-1 truncate text-[11px] text-amber-700">
                     当前 {recommendation.executionGate.currentState || "Discovered"} · 需验证到 {recommendation.executionGate.requiredState}
                   </div>
@@ -165,12 +167,12 @@ export function GeneratedWorkflowToolRecommendations({
                 ) : null}
                 <div className="mt-1 truncate text-[11px] text-slate-500">{recommendation.evidence.join(" · ")}</div>
               </div>
-              {tool ? (
+              {canAddStep ? (
                 <Button
                   type="button"
                   variant="outline"
                   className="h-8 bg-white px-2.5 text-xs"
-                  onClick={() => onAddTool(workflowToolRevisionId(tool))}
+                  onClick={() => onAddTool(addStepRevisionId)}
                 >
                   <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
                   添加步骤
@@ -235,6 +237,11 @@ function matchingWorkflowReadyTool(recommendation: WorkflowToolRecommendationIte
     ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
   );
   return tools.find((tool) => names.has(String(tool.name || "").trim().toLowerCase()));
+}
+
+function recommendationAddStepRevisionId(recommendation: WorkflowToolRecommendationItem, tool: AddedTool | undefined): string {
+  const localRevisionId = tool ? workflowToolRevisionId(tool) : "";
+  return localRevisionId || String(recommendation.executionGate?.toolRevisionId || "").trim();
 }
 
 function isActivePrepareJob(recommendation: WorkflowToolRecommendationItem): boolean {
