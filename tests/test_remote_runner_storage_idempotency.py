@@ -85,7 +85,7 @@ def test_create_run_record_reports_idempotency_replay_without_new_rows(tmp_path:
     assert job_count == 1
 
 
-def test_submission_idempotency_replay_does_not_start_second_executor(
+def test_submission_records_durable_job_without_starting_executor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -102,13 +102,8 @@ def test_submission_idempotency_replay_does_not_start_second_executor(
         snakemake_command="snakemake",
     )
     _write_file_summary_pipeline(Path(cfg.release_dir))
-    starts: list[str] = []
 
     monkeypatch.setattr("apps.remote_runner.submission_service.ensure_submission_ready", lambda cfg: None)
-    monkeypatch.setattr(
-        "apps.remote_runner.submission_service.start_run_execution",
-        lambda cfg, run_id, request_id, run_spec: starts.append(run_id),
-    )
 
     request = RunCreateRequest(
         serverId="srv_idem",
@@ -124,4 +119,9 @@ def test_submission_idempotency_replay_does_not_start_second_executor(
     replay = create_run_from_request(cfg, request, idempotency_key="idem_same", x_request_id="req_idem")
 
     assert first["data"]["runId"] == replay["data"]["runId"]
-    assert starts == [first["data"]["runId"]]
+    with get_connection(cfg) as connection:
+        job_rows = connection.execute(
+            "SELECT state FROM run_jobs WHERE run_id = ?",
+            (first["data"]["runId"],),
+        ).fetchall()
+    assert [row["state"] for row in job_rows] == ["queued"]

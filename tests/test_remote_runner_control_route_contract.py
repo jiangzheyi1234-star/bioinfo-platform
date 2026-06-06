@@ -55,7 +55,8 @@ def test_run_create_route_delegates_submission_to_service() -> None:
     assert "pipeline_id = request.runSpec.pipelineId" in service_source
     assert "pipeline_version = request.runSpec.pipelineVersion" in service_source
     assert "apps.remote_runner.main.start_run_execution" not in lifecycle_source
-    assert "apps.remote_runner.submission_service.start_run_execution" in lifecycle_source
+    assert "start_run_execution" not in service_source
+    assert "apps.remote_runner.submission_service.start_run_execution" not in lifecycle_source
     assert "apps.remote_runner.main.load_remote_runner_config" not in workflow_draft_sources
     assert "apps.remote_runner.main.inspect_workflow_runtime" not in workflow_draft_sources
     assert "apps.remote_runner.main.inspect_pipeline_registry" not in workflow_draft_sources
@@ -64,10 +65,7 @@ def test_run_create_route_delegates_submission_to_service() -> None:
         "apps.remote_runner.submission_service.ensure_submission_ready"
         in workflow_draft_api_lifecycle_source
     )
-    assert (
-        "apps.remote_runner.submission_service.start_run_execution"
-        in workflow_draft_api_lifecycle_source
-    )
+    assert "apps.remote_runner.submission_service.start_run_execution" not in workflow_draft_api_lifecycle_source
 
 
 def test_remote_runner_control_plane_services_use_async_thread_boundary() -> None:

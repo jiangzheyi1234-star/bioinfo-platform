@@ -108,10 +108,6 @@ def test_generated_tool_run_record_keeps_strict_draft_run_spec(monkeypatch, tmp_
     run_spec["inputs"] = [{"role": "input", "uploadId": "upl_reads", "filename": "reads.fastq"}]
     monkeypatch.setattr("apps.remote_runner.route_utils.load_remote_runner_config", lambda: cfg)
     monkeypatch.setattr("apps.remote_runner.submission_service.ensure_submission_ready", lambda cfg: None)
-    monkeypatch.setattr(
-        "apps.remote_runner.submission_service.start_run_execution",
-        lambda cfg, run_id, request_id, run_spec: None,
-    )
     client = TestClient(app)
 
     response = client.post(

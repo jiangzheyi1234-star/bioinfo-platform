@@ -5,7 +5,6 @@ from typing import Any
 
 from .api_models import RunCreateRequest
 from .config import RemoteRunnerConfig
-from .executor import start_run_execution
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from .health_service import ensure_submission_ready
 from .pipeline import get_pipeline, validate_run_spec_for_pipeline
@@ -46,13 +45,6 @@ def create_run_from_request(
         payload_hash=payload_hash,
     )
     run = run_create.run
-    if run_create.created:
-        start_run_execution(
-            cfg,
-            run_id=run["runId"],
-            request_id=request_id,
-            run_spec=run_spec,
-        )
     return {
         "data": {
             "requestId": run["requestId"],
