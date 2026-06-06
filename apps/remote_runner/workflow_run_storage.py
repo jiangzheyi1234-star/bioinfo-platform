@@ -195,7 +195,7 @@ def update_run_state(
         ).fetchone()
         if existing is None:
             raise KeyError(run_id)
-        if not _attempt_can_publish(
+        if not run_attempt_can_publish(
             connection,
             run_id=run_id,
             attempt_id=attempt_id,
@@ -243,7 +243,7 @@ def update_run_state(
     return fetch_run(cfg, run_id)
 
 
-def _attempt_can_publish(
+def run_attempt_can_publish(
     connection,
     *,
     run_id: str,

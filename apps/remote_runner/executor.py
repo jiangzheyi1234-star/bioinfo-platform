@@ -177,7 +177,14 @@ def run_snakemake_execution(
                 )
                 return
 
-            _collect_artifacts(cfg, run_id, output_schema=output_schema, outputs=run_outputs)
+            _collect_artifacts(
+                cfg,
+                run_id,
+                output_schema=output_schema,
+                outputs=run_outputs,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+            )
             update_run_state(
                 cfg,
                 run_id=run_id,

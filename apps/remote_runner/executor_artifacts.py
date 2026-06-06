@@ -13,6 +13,8 @@ def _collect_artifacts(
     *,
     output_schema: dict | None,
     outputs: dict[str, str] | None,
+    attempt_id: str | None = None,
+    lease_generation: int | None = None,
 ) -> list[dict]:
     if not isinstance(output_schema, dict) or not isinstance(outputs, dict) or not outputs:
         raise ValueError("MANIFEST_OUTPUTS_REQUIRED")
@@ -37,5 +39,15 @@ def _collect_artifacts(
         directory = bool(artifact.get("directory")) or kind == "directory" or mime_type == "inode/directory"
         if not path.exists() or (directory and not path.is_dir()) or (not directory and not path.is_file()):
             raise ValueError(f"OUTPUT_ARTIFACT_MISSING: {key}")
-        artifacts.append(persist_artifact(cfg, run_id=run_id, kind=kind, path=path, mime_type=mime_type))
+        artifacts.append(
+            persist_artifact(
+                cfg,
+                run_id=run_id,
+                kind=kind,
+                path=path,
+                mime_type=mime_type,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+            )
+        )
     return artifacts
