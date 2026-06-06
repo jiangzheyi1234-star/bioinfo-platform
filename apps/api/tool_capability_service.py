@@ -87,7 +87,10 @@ def _recommend_tool_candidates_with_registered_tools(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
-    registered_tools = registered_tools_from_runtime_payload(runtime.list_tools())
+    registered_tools = _registered_tools_with_tool_index(
+        runtime=runtime,
+        registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
+    )
     latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
         runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
     )
@@ -304,16 +307,19 @@ def _registered_tools_with_tool_index(*, runtime: Any, registered_tools: list[di
 
 
 def _workflow_ready_tools_from_tool_index(runtime: Any) -> list[dict[str, Any]]:
-    page = _tool_index_page_from_runtime_payload(
-        runtime.list_tool_index(
-            query="",
-            limit=100,
-            offset=0,
-            state="WorkflowReady",
+    tools: list[dict[str, Any]] = []
+    for state in ("WorkflowReady", "ProductionEnabled"):
+        page = _tool_index_page_from_runtime_payload(
+            runtime.list_tool_index(
+                query="",
+                limit=100,
+                offset=0,
+                state=state,
+            )
         )
-    )
-    items = page.get("items") if isinstance(page.get("items"), list) else []
-    return [_tool_index_registered_tool(item) for item in items if isinstance(item, dict)]
+        items = page.get("items") if isinstance(page.get("items"), list) else []
+        tools.extend(_tool_index_registered_tool(item) for item in items if isinstance(item, dict))
+    return tools
 
 
 def _tool_index_registered_tool(item: dict[str, Any]) -> dict[str, Any]:
