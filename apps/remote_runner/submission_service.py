@@ -37,7 +37,7 @@ def create_run_from_request(
     ):
         run_spec["pipelineVersion"] = pipeline.version
     payload_hash = canonical_payload_hash({"serverId": server_id, "runSpec": run_spec})
-    run, idem_status = create_run_record(
+    run_create = create_run_record(
         cfg,
         server_id=server_id,
         request_id=request_id,
@@ -45,7 +45,8 @@ def create_run_from_request(
         idempotency_key=idem_key,
         payload_hash=payload_hash,
     )
-    if idem_status == "accepted":
+    run = run_create.run
+    if run_create.created:
         start_run_execution(
             cfg,
             run_id=run["runId"],
