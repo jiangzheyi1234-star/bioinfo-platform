@@ -545,6 +545,66 @@ def test_snakemake_wrapper_metadata_maps_meta_yaml_to_contract_hints() -> None:
     }
 
 
+def test_snakemake_wrapper_metadata_maps_environment_yaml_to_contract_hints() -> None:
+    hints = snakemake_wrapper_metadata.wrapper_environment_hints_from_environment_yaml(
+        """
+        channels:
+          - conda-forge
+          - bioconda
+          - nodefaults
+        dependencies:
+          - samtools =1.20
+          - snakemake-wrapper-utils =0.8.0
+        """
+    )
+
+    assert hints == {
+        "conda": {
+            "channels": ["conda-forge", "bioconda", "nodefaults"],
+            "dependencies": ["samtools =1.20", "snakemake-wrapper-utils =0.8.0"],
+        },
+        "sourceRef": {
+            "type": "snakemake-wrapper-environment",
+            "format": "environment.yaml",
+        },
+    }
+
+
+def test_snakemake_wrapper_contract_hints_merge_meta_and_environment_yaml(monkeypatch) -> None:
+    snakemake_wrapper_metadata._META_HINTS_CACHE.clear()
+    monkeypatch.setattr(snakemake_wrapper_metadata, "_load_cached_meta_hints", lambda wrapper_path: None)
+    monkeypatch.setattr(snakemake_wrapper_metadata, "_save_cached_meta_hints", lambda wrapper_path, hints: None)
+    monkeypatch.setattr(
+        snakemake_wrapper_metadata,
+        "_request_wrapper_meta_yaml",
+        lambda wrapper_path: "description: Sort alignments by coordinate.",
+    )
+    monkeypatch.setattr(
+        snakemake_wrapper_metadata,
+        "_request_wrapper_environment_yaml",
+        lambda wrapper_path: "channels: [conda-forge, bioconda]\ndependencies: [samtools =1.20]",
+    )
+
+    hints = snakemake_wrapper_metadata.wrapper_contract_hints("bio/samtools/sort")
+
+    assert hints["description"] == "Sort alignments by coordinate."
+    assert hints["sourceRef"]["path"] == "bio/samtools/sort/meta.yaml"
+    assert hints["environment"] == {
+        "conda": {
+            "channels": ["conda-forge", "bioconda"],
+            "dependencies": ["samtools =1.20"],
+        },
+        "sourceRef": {
+            "type": "snakemake-wrapper-environment",
+            "format": "environment.yaml",
+            "path": "bio/samtools/sort/environment.yaml",
+            "repository": "snakemake/snakemake-wrappers",
+            "ref": "v9.8.0",
+            "url": "https://raw.githubusercontent.com/snakemake/snakemake-wrappers/v9.8.0/bio/samtools/sort/environment.yaml",
+        },
+    }
+
+
 def test_snakemake_wrapper_catalog_attaches_meta_yaml_hints_to_page_items(monkeypatch) -> None:
     monkeypatch.setattr(
         snakemake_wrapper_catalog,
