@@ -47,7 +47,7 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
     setBatchStatus("");
     setError("");
     try {
-      const result = await prepareToolValidationQueue(3);
+      const result = await prepareToolValidationQueue(Math.min(items.length, 30));
       result.queued.forEach((item) => trackToolPrepareJob(queueJobToPrepareTask(item)));
       setBatchStatus(`${result.queuedCount} queued · ${result.skippedCount} skipped`);
     } catch (err) {

@@ -336,7 +336,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} />" in ui
     assert "validation queue" in validation_queue
     assert "createToolPrepareJob(tool)" in validation_queue
-    assert "prepareToolValidationQueue(3)" in validation_queue
+    assert "prepareToolValidationQueue(Math.min(items.length, 30))" in validation_queue
+    assert "prepareToolValidationQueue(3)" not in validation_queue
     assert "trackToolPrepareJob(queueJobToPrepareTask(item))" in validation_queue
     assert "batchPreparing" in validation_queue
     assert "批量验证" in validation_queue

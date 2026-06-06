@@ -53,6 +53,7 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert '@router.get("/api/v1/tool-capabilities/candidate-recommendations", operation_id="recommendToolCandidates")' in source
     assert '@router.get("/api/v1/tool-capabilities/target-acceptance", operation_id="getToolCandidateTargetAcceptance")' in source
     assert '@router.post("/api/v1/tool-capabilities/validation-queue/prepare", operation_id="prepareToolValidationQueue")' in source
+    assert 'maxItems: int = Query(default=3, ge=1, le=30)' in source
     assert 'outputKind: str = ""' in source
     assert 'outputMimeType: str = ""' in source
     assert 'outputData: str = ""' in source
