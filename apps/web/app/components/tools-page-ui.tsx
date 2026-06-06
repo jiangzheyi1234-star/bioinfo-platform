@@ -130,6 +130,7 @@ export function ToolCatalogQualityStrip({
           ? "正在读取 catalog"
           : error || wrapperCatalog?.sourceRef?.ref || "source pending";
   const targetMetrics = targetAcceptance ? catalogTargetMetrics(targetAcceptance) : [];
+  const validationQueueItems = targetAcceptance?.validationQueue?.items?.slice(0, 3) ?? [];
   const targetStatusText = targetAcceptanceLoading
     ? "正在读取 Catalog v1 targets"
     : targetAcceptanceError || (
@@ -183,6 +184,27 @@ export function ToolCatalogQualityStrip({
             ))}
           </div>
         </div>
+        {validationQueueItems.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {validationQueueItems.map((item) => (
+              <span
+                key={item.candidateId}
+                className="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-blue-100 bg-white px-2 py-1 text-[11px] text-slate-600"
+                title={(item.priority?.reasons || []).join(", ")}
+              >
+                <span className="truncate font-medium text-slate-800">{item.profileId}</span>
+                <span className="font-mono text-blue-700">{item.priority?.score ?? 0}</span>
+                <span className="text-slate-400">wrappers</span>
+                <span className="font-mono text-slate-800">{item.evidence?.snakemakeWrapperCount ?? 0}</span>
+                <span className="text-slate-400">semantics</span>
+                <span className="font-mono text-slate-800">{(item.evidence?.semanticPortFields || []).join("/") || "none"}</span>
+              </span>
+            ))}
+            <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-400">
+              validation queue
+            </span>
+          </div>
+        ) : null}
       </div>
     </section>
   );

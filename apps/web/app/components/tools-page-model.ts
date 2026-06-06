@@ -334,6 +334,49 @@ export type ToolCatalogTargetResult = {
   remaining: number;
 };
 
+export type ToolCatalogValidationPriority = {
+  score: number;
+  reasons?: string[];
+};
+
+export type ToolCatalogValidationEvidence = {
+  snakemakeWrapperCount?: number;
+  snakemakeWrapperPaths?: string[];
+  semanticPortFields?: string[];
+  semanticData?: string[];
+  semanticFormats?: string[];
+};
+
+export type ToolCatalogValidationQueueItem = {
+  candidateId: string;
+  candidateKind: string;
+  profileId: string;
+  profileVersion: number;
+  toolNames: string[];
+  currentState: string;
+  requiredState: string;
+  action: string;
+  priority?: ToolCatalogValidationPriority;
+  evidence?: ToolCatalogValidationEvidence;
+  preparePayload?: {
+    id?: string;
+    name?: string;
+    source?: string;
+    packageSpec?: string;
+    targetPlatformSupported?: boolean;
+    ruleTemplate?: RuleSpecTemplate;
+    ruleSpecDraft?: RuleSpecDraft;
+  };
+};
+
+export type ToolCatalogValidationQueue = {
+  target: string;
+  requiredState: string;
+  remaining: number;
+  available: number;
+  items: ToolCatalogValidationQueueItem[];
+};
+
 export type ToolCatalogTargetAcceptance = {
   targetName: string;
   targetPlatform: string;
@@ -353,6 +396,7 @@ export type ToolCatalogTargetAcceptance = {
       productionEnabled: number;
     };
   };
+  validationQueue?: ToolCatalogValidationQueue;
 };
 
 export type ToolCatalogTargetAcceptanceResponse = {

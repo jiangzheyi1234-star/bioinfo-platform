@@ -312,3 +312,18 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     assert "conda packages" in ui
     assert "wrappers" in ui
     assert "profiles" in ui
+
+
+def test_tools_page_surfaces_target_validation_queue_priority() -> None:
+    model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+
+    assert "export type ToolCatalogValidationQueueItem" in model
+    assert "priority?: ToolCatalogValidationPriority" in model
+    assert "semanticPortFields?: string[]" in model
+    assert "validationQueue?: ToolCatalogValidationQueue" in model
+    assert "validationQueueItems" in ui
+    assert "validation queue" in ui
+    assert "priority?.score" in ui
+    assert "semanticPortFields" in ui
+    assert "snakemakeWrapperCount" in ui
