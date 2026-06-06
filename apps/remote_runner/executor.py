@@ -6,7 +6,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
+from .config import RemoteRunnerConfig
 from .executor_artifacts import _collect_artifacts
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
@@ -17,51 +17,10 @@ from .storage import (
     update_run_state,
 )
 from .snakemake_execution_lock import SNAKEMAKE_EXECUTION_LOCK
-
-
-class WorkflowRuntimeCommandError(RuntimeError):
-    pass
-
-
-def _snakemake_command(cfg: RemoteRunnerConfig) -> list[str]:
-    snakemake_command = str(cfg.snakemake_command or "").strip()
-    if not snakemake_command:
-        raise WorkflowRuntimeCommandError("snakemake command not configured")
-    return [snakemake_command]
-
-
-def _snakemake_environment(cfg: RemoteRunnerConfig) -> dict[str, str]:
-    return build_workflow_runtime_environment(cfg)
-
-
-def _snakemake_profile_args(cfg: RemoteRunnerConfig) -> list[str]:
-    workflow_profile_dir = get_workflow_profile_dir(cfg)
-    if workflow_profile_dir is None:
-        return []
-    return ["--workflow-profile", str(workflow_profile_dir)]
-
-
-def _snakemake_execution_args(
-    cfg: RemoteRunnerConfig,
-    *,
-    snakefile: Path,
-    work_dir: Path,
-    config_path: Path,
-) -> list[str]:
-    profile_args = _snakemake_profile_args(cfg)
-    command = [
-        *_snakemake_command(cfg),
-        "--snakefile",
-        str(snakefile),
-        "--directory",
-        str(work_dir),
-    ]
-    if profile_args:
-        command.extend(profile_args)
-    else:
-        command.extend(["--cores", "1", "--use-conda"])
-    command.extend(["--configfile", str(config_path)])
-    return command
+from .workflow_engine_adapter import (
+    SnakemakeEngineAdapter,
+    WorkflowRuntimeCommandError,
+)
 
 
 def start_run_execution(cfg: RemoteRunnerConfig, *, run_id: str, request_id: str, run_spec: dict) -> None:
@@ -103,11 +62,11 @@ def run_snakemake_execution(
         config_path = work_dir / "run-config.json"
         stdout_log = logs_dir / f"{run_id}.stdout.log"
         stderr_log = logs_dir / f"{run_id}.stderr.log"
-        dry_run_cmd: list[str] | None = None
-        run_cmd: list[str] | None = None
+        engine_stage: str | None = None
         output_schema: dict | None = None
         run_outputs: dict[str, str] | None = None
         try:
+            engine = SnakemakeEngineAdapter(cfg, run_command=subprocess.run)
             result_dir.mkdir(parents=True, exist_ok=True)
             work_dir.mkdir(parents=True, exist_ok=True)
             logs_dir.mkdir(parents=True, exist_ok=True)
@@ -176,13 +135,11 @@ def run_snakemake_execution(
                 message="Validating Snakemake workflow.",
                 request_id=request_id,
             )
-            dry_run_cmd = [*_snakemake_execution_args(cfg, snakefile=snakefile, work_dir=work_dir, config_path=config_path), "-n"]
-
-            dry_run = subprocess.run(
-                dry_run_cmd,
-                capture_output=True,
-                text=True,
-                env=_snakemake_environment(cfg),
+            engine_stage = "dry_run"
+            dry_run = engine.dry_run(
+                snakefile=snakefile,
+                work_dir=work_dir,
+                config_path=config_path,
             )
             append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
             append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
@@ -205,12 +162,11 @@ def run_snakemake_execution(
                 message="Executing Snakemake workflow.",
                 request_id=request_id,
             )
-            run_cmd = _snakemake_execution_args(cfg, snakefile=snakefile, work_dir=work_dir, config_path=config_path)
-            run_result = subprocess.run(
-                run_cmd,
-                capture_output=True,
-                text=True,
-                env=_snakemake_environment(cfg),
+            engine_stage = "run"
+            run_result = engine.run(
+                snakefile=snakefile,
+                work_dir=work_dir,
+                config_path=config_path,
             )
             stdout_log.write_text(run_result.stdout or "", encoding="utf-8")
             stderr_log.write_text(run_result.stderr or "", encoding="utf-8")
@@ -258,10 +214,10 @@ def run_snakemake_execution(
                 message = "Snakemake command is not configured."
                 code = "WORKFLOW_RUNTIME_MISSING"
             elif isinstance(exc, FileNotFoundError) or "no such file or directory" in lowered:
-                if dry_run_cmd is not None and run_cmd is None:
+                if engine_stage == "dry_run":
                     message = "Failed to launch Snakemake dry-run."
                     code = "SNAKEMAKE_DRY_RUN_LAUNCH_FAILED"
-                elif run_cmd is not None:
+                elif engine_stage == "run":
                     message = "Failed to launch Snakemake execution."
                     code = "SNAKEMAKE_EXECUTION_LAUNCH_FAILED"
             _mark_failed(
