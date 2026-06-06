@@ -64,6 +64,11 @@ def test_bio_tool_pack_v1_catalog_exposes_addable_profile_candidates() -> None:
     assert all(item["candidateKind"] == "h2ometa-tool-profile" for item in catalog["items"])
     assert all(item["contractState"] == "SnakemakeRenderable" for item in catalog["items"])
     assert all(item["qualityTier"] == "draft-runnable" for item in catalog["items"])
+    expected_ref_types = {"bioconda-package", "biocontainers-container", "bio.tools-entry"}
+    assert all(
+        expected_ref_types.issubset({ref["type"] for ref in item["externalRefs"]})
+        for item in catalog["items"]
+    )
 
 
 def test_bio_tool_pack_v1_profiles_resolve_to_ready_rule_spec_drafts() -> None:
