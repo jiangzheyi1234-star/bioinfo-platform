@@ -48,6 +48,15 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
               <span className="truncate font-medium text-slate-800">{item.profileId}</span>
               <span className="font-mono text-blue-700">{item.priority?.score ?? 0}</span>
               <span className="text-slate-400">{item.executionGate?.nextAction || item.action}</span>
+              {item.latestPrepareJob?.status ? (
+                <>
+                  <span className="text-slate-400">latest</span>
+                  <span className="font-mono text-slate-800">{item.latestPrepareJob?.status}</span>
+                  {item.latestPrepareJob?.errorCode ? (
+                    <span className="max-w-[140px] truncate font-mono text-amber-700">{item.latestPrepareJob?.errorCode}</span>
+                  ) : null}
+                </>
+              ) : null}
               <span className="font-mono text-slate-800">{item.validationPlan?.stages?.length ?? 0}</span>
               <span className="text-slate-400">prepare stages</span>
               <span className="text-slate-400">wrappers</span>

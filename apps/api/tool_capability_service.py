@@ -7,7 +7,7 @@ from apps.api.route_utils import run_sync, runtime_service
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_candidate_catalog import search_tool_candidates
 from apps.api.tool_candidate_recommendations import recommend_tool_candidates
-from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_acceptance
+from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_acceptance, validation_queue_tool_ids
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_registry_payload import registered_tools_from_runtime_payload
@@ -93,13 +93,33 @@ def _recommend_tool_candidates_with_registered_tools(
 async def get_tool_candidate_target_acceptance_from_request(*, target_platform: str) -> dict[str, Any]:
     runtime = runtime_service()
     return await run_sync(
-        lambda: {
-            "data": bio_agent_catalog_target_acceptance(
-                target_platform=target_platform,
-                registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
-            )
-        },
+        lambda: {"data": _target_acceptance_with_runtime_state(runtime=runtime, target_platform=target_platform)},
     )
+
+
+def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str) -> dict[str, Any]:
+    registered_tools = registered_tools_from_runtime_payload(runtime.list_tools())
+    latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
+        runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
+    )
+    return bio_agent_catalog_target_acceptance(
+        target_platform=target_platform,
+        registered_tools=registered_tools,
+        latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
+    )
+
+
+def _latest_prepare_jobs_from_runtime_payload(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        jobs = data.get("byToolId") if isinstance(data, dict) else payload.get("byToolId")
+    else:
+        jobs = None
+    if not isinstance(jobs, dict):
+        raise ValueError("Invalid tool prepare jobs payload: expected a byToolId object")
+    if any(not isinstance(value, dict) for value in jobs.values()):
+        raise ValueError("Invalid tool prepare jobs payload: job summaries must be objects")
+    return jobs
 
 
 async def get_tool_capabilities_index_status_from_request() -> dict[str, Any]:

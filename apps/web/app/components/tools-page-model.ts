@@ -385,6 +385,23 @@ export type ToolCatalogValidationPlan = {
   readinessBoundary?: string;
 };
 
+export type ToolCatalogLatestPrepareJob = {
+  jobId: string;
+  toolId: string;
+  status: string;
+  stage: string;
+  message?: string;
+  errorCode?: string;
+  updatedAt?: string;
+  resultState?: string;
+  workflowReady?: boolean;
+  productionEnabled?: boolean;
+  createdAt?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  cancelledAt?: string | null;
+};
+
 export type ToolCatalogValidationQueueItem = {
   candidateId: string;
   candidateKind: string;
@@ -398,6 +415,7 @@ export type ToolCatalogValidationQueueItem = {
   evidence?: ToolCatalogValidationEvidence;
   executionGate?: ToolCatalogExecutionGate;
   validationPlan?: ToolCatalogValidationPlan;
+  latestPrepareJob?: ToolCatalogLatestPrepareJob;
   preparePayload?: {
     id?: string;
     name?: string;

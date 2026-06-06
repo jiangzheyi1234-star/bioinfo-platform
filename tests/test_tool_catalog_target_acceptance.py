@@ -306,10 +306,65 @@ def test_validation_queue_item_exposes_execution_gate_without_marking_ready(monk
     assert report["targets"]["workflowReady"]["actual"] == 0
 
 
+def test_validation_queue_item_includes_latest_prepare_job_without_counting_it_ready(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 20},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 20, "total": 12418},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 20, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 20,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(20)],
+        },
+    )
+    latest_job = {
+        "jobId": "toolprep_fastqc",
+        "toolId": "bioconda::fastqc",
+        "status": "waiting_resource",
+        "stage": "waiting_resource",
+        "message": "Required database resource binding is missing: db",
+        "errorCode": "WORKFLOW_RESOURCE_BINDING_REQUIRED",
+        "updatedAt": "2026-06-07T00:00:00Z",
+        "workflowReady": True,
+    }
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(
+        target_platform="linux-64",
+        latest_prepare_jobs_by_tool_id={"bioconda::fastqc": latest_job},
+    )
+
+    fastqc = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "fastqc")
+    assert fastqc["latestPrepareJob"] == {
+        "jobId": "toolprep_fastqc",
+        "toolId": "bioconda::fastqc",
+        "status": "waiting_resource",
+        "stage": "waiting_resource",
+        "message": "Required database resource binding is missing: db",
+        "errorCode": "WORKFLOW_RESOURCE_BINDING_REQUIRED",
+        "updatedAt": "2026-06-07T00:00:00Z",
+        "resultState": "",
+        "workflowReady": False,
+        "productionEnabled": False,
+    }
+    assert report["targets"]["workflowReady"]["actual"] == 0
+    assert report["targets"]["productionEnabled"]["actual"] == 0
+
+
 def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
     captured: dict[str, object] = {}
+    captured_tool_ids: list[str] = []
     registered_tool = {
         "id": "bioconda::fastqc",
         "toolContract": {"state": "WorkflowReady", "workflowReady": True},
@@ -318,6 +373,20 @@ def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> Non
     class Runtime:
         def list_tools(self) -> dict[str, object]:
             return {"data": {"items": [registered_tool]}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            captured_tool_ids.extend(tool_ids)
+            return {
+                "data": {
+                    "byToolId": {
+                        "bioconda::multiqc": {
+                            "jobId": "toolprep_multiqc",
+                            "toolId": "bioconda::multiqc",
+                            "status": "queued",
+                        }
+                    }
+                }
+            }
 
     def fake_acceptance(**kwargs):
         captured.update(kwargs)
@@ -330,3 +399,11 @@ def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> Non
 
     assert result == {"data": {"complete": False}}
     assert captured["registered_tools"] == [registered_tool]
+    assert "bioconda::multiqc" in captured_tool_ids
+    assert captured["latest_prepare_jobs_by_tool_id"] == {
+        "bioconda::multiqc": {
+            "jobId": "toolprep_multiqc",
+            "toolId": "bioconda::multiqc",
+            "status": "queued",
+        }
+    }
