@@ -379,6 +379,16 @@ export type SnakemakeWrapperCatalogResponse = {
   data: SnakemakeWrapperCatalog;
 };
 
+export type ToolProfileWrapperEvidence = {
+  wrapperRepository?: string;
+  wrapperRef?: string;
+  wrapperPath: string;
+  wrapperIdentifier?: string;
+  wrapperUrl?: string;
+  environmentUrl?: string;
+  sourceRef?: ToolCandidateSourceRef;
+};
+
 export type ToolProfileCandidate = {
   candidateId?: string;
   candidateKind?: string;
@@ -389,6 +399,8 @@ export type ToolProfileCandidate = {
   profileVersion: number;
   toolNames: string[];
   preferredWrapperPaths: string[];
+  snakemakeWrappers?: ToolProfileWrapperEvidence[];
+  snakemakeWrapperCount?: number;
 };
 
 export type ToolProfileCatalog = {

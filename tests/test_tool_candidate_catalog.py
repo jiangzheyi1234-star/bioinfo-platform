@@ -29,6 +29,18 @@ def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
     assert fastp["preferredWrapperPaths"] == ["bio/fastp"]
 
 
+def test_curated_tool_profile_catalog_attaches_snakemake_wrapper_evidence() -> None:
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
+
+    catalog = catalog_tool_profiles(query="fastqc", page=1, page_size=10)
+
+    fastqc = next(item for item in catalog["items"] if item["profileId"] == "fastqc")
+    assert fastqc["snakemakeWrapperCount"] >= 1
+    assert fastqc["snakemakeWrappers"][0]["wrapperPath"] == "bio/fastqc"
+    assert fastqc["snakemakeWrappers"][0]["wrapperRepository"] == "snakemake/snakemake-wrappers"
+    assert fastqc["snakemakeWrappers"][0]["sourceRef"]["type"] == "snakemake-wrapper"
+
+
 def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
     from apps.api import tool_candidate_catalog
 
@@ -302,6 +314,8 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
     assert fastqc["inputPort"]["name"] == "reads"
     assert fastqc["candidate"]["qualityTier"] == "draft-runnable"
     assert fastqc["candidate"]["contractState"] == "SnakemakeRenderable"
+    assert fastqc["candidate"]["snakemakeWrapperCount"] >= 1
+    assert fastqc["candidate"]["snakemakeWrappers"][0]["wrapperPath"] == "bio/fastqc"
     assert fastqc["executionGate"] == {
         "currentState": "SnakemakeRenderable",
         "requiredState": "WorkflowReady",
@@ -317,6 +331,8 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
     assert fastqc["preparePayload"]["targetPlatformSupported"] is True
     assert fastqc["preparePayload"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
     assert fastqc["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
+    assert fastqc["preparePayload"]["snakemakeWrappers"][0]["wrapperPath"] == "bio/fastqc"
+    assert fastqc["preparePayload"]["ruleSpecDraft"]["lock"]["matchedWrapper"]["wrapperPath"] == "bio/fastqc"
     assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
     assert "端口方向 output -> input" in fastqc["hardChecks"]
     assert any("kind" in value for value in fastqc["evidence"])

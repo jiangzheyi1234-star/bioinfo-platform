@@ -74,6 +74,9 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export type SnakemakeWrapperCatalogResponse" in model
     assert "export type ToolProfileCatalog" in model
     assert "export type ToolProfileCatalogResponse" in model
+    assert "export type ToolProfileWrapperEvidence" in model
+    assert "snakemakeWrappers?: ToolProfileWrapperEvidence[]" in model
+    assert "snakemakeWrapperCount?: number" in model
     assert "export type ToolCandidateCatalog" in model
     assert "export type ToolCandidateCatalogResponse" in model
     assert "sourceCounts: ToolCandidateSourceCounts" in model

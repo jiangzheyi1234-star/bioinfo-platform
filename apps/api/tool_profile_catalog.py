@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from apps.api.tool_candidate_model import tool_profile_candidate_fields
+from apps.api.tool_profile_external_refs import profile_external_candidate_fields
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_registry import TOOL_PROFILES
 
@@ -46,6 +47,7 @@ def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
         "profileVersion": profile.version,
         "toolNames": list(profile.tool_names),
         "preferredWrapperPaths": list(profile.preferred_wrapper_paths),
+        **profile_external_candidate_fields(profile),
         **tool_profile_candidate_fields(profile),
     }
 

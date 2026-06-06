@@ -3,7 +3,7 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { RuleOutputSpec } from "./generated-workflow-model";
-import type { AddedTool, RuleSpecDraft, RuleSpecTemplate, ToolsResponse } from "./tools-page-model";
+import type { AddedTool, RuleSpecDraft, RuleSpecTemplate, ToolProfileWrapperEvidence, ToolsResponse } from "./tools-page-model";
 import type {
   WorkflowDesignCompileResult,
   WorkflowDesignDraft,
@@ -39,6 +39,8 @@ export type WorkflowToolRecommendationCandidate = {
   profileVersion?: number;
   toolNames?: string[];
   preferredWrapperPaths?: string[];
+  snakemakeWrappers?: ToolProfileWrapperEvidence[];
+  snakemakeWrapperCount?: number;
 };
 
 export type WorkflowToolRecommendationExecutionGate = {
@@ -60,6 +62,8 @@ export type WorkflowToolRecommendationPreparePayload = {
   packageSpec?: string;
   targetPlatform?: string;
   targetPlatformSupported?: boolean;
+  snakemakeWrappers?: ToolProfileWrapperEvidence[];
+  snakemakeWrapperCount?: number;
   ruleTemplate?: RuleSpecTemplate;
   ruleSpecDraft?: RuleSpecDraft;
 };
