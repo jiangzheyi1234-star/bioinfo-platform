@@ -9,6 +9,7 @@ from config import (
     store_runner_token,
 )
 from core.app_runtime.managers.database import DatabaseManager
+from core.app_runtime.managers.execution import ExecutionManager
 from core.app_runtime.managers.tool import ToolManager
 from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
@@ -72,6 +73,7 @@ class RuntimeService(
         self._auto_connect_notice_key = ""
         self._server_action_state: dict[str, dict[str, Any]] = {}
         self.databases = DatabaseManager(self)
+        self.execution = ExecutionManager(self)
         self.tools = ToolManager(self)
         self.workflows = WorkflowManager(self)
 

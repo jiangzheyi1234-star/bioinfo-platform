@@ -344,6 +344,28 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         assert f"def {method_name}(" not in runner_ops_source
 
 
+def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
+    service_source = _source("core/app_runtime/service.py")
+    execution_ops_source = _source("core/app_runtime/runner_execution_ops.py")
+    base_manager_source = _source("core/app_runtime/managers/base.py")
+    execution_manager_path = ROOT / "core/app_runtime/managers/execution.py"
+
+    assert execution_manager_path.exists()
+
+    execution_manager_source = execution_manager_path.read_text(encoding="utf-8")
+
+    assert "from core.app_runtime.managers.execution import ExecutionManager" in service_source
+    assert "self.execution = ExecutionManager(self)" in service_source
+    assert "class ExecutionManager(BaseRuntimeManager)" in execution_manager_source
+    assert "def _runner_context(" in base_manager_source
+    assert "def call_runner(" in base_manager_source
+    assert "serverId is required" in execution_manager_source
+    assert "pipelineId is required" in execution_manager_source
+    assert "self._call_remote_runner(" not in execution_ops_source
+    assert "self._require_runner_ready(" not in execution_ops_source
+    assert "self.execution.submit_run(" in execution_ops_source
+
+
 def test_runtime_file_operations_live_in_dedicated_mixin() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
     file_ops_source = _source("core/app_runtime/runner_file_ops.py")
