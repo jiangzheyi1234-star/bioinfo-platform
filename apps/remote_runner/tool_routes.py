@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 
 from .api_models import ToolManifestRequest, ToolProductionEvidenceRequest, ToolRuleTemplateRequest
 from .route_headers import AuthorizationHeader
@@ -57,12 +57,10 @@ async def add_tool(payload: ToolManifestRequest, authorization: AuthorizationHea
 @router.post("/api/v1/tools/prepare-jobs", status_code=202)
 async def create_prepare_job(
     payload: ToolManifestRequest,
-    background_tasks: BackgroundTasks,
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await create_tool_prepare_job_response_from_request(
         payload,
-        background_tasks,
         authorization,
     )
 

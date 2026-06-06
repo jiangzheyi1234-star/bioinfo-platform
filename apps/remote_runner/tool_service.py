@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any
 
 from .api_models import ToolManifestRequest, ToolProductionEvidenceRequest, ToolRuleTemplateRequest
 from .route_utils import authorized_config, data_response, request_payload, run_sync
@@ -12,7 +11,6 @@ from .tool_prepare_job_storage import (
     require_tool_prepare_job,
 )
 from .tool_platform_storage import search_tool_index
-from .tool_prepare_jobs import run_tool_prepare_job
 from .tools import (
     add_registered_tool,
     list_registered_tools,
@@ -20,10 +18,6 @@ from .tools import (
     remove_registered_tool,
     update_registered_tool_rule_template,
 )
-
-
-class BackgroundTaskScheduler(Protocol):
-    def add_task(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> None: ...
 
 
 async def list_tools_from_request(authorization: str | None) -> dict[str, Any]:
@@ -65,13 +59,10 @@ async def add_tool_from_request(
 
 async def create_tool_prepare_job_response_from_request(
     payload: ToolManifestRequest,
-    background_tasks: BackgroundTaskScheduler,
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = authorized_config(authorization)
     job = await run_sync(create_tool_prepare_job, cfg, request_payload(payload))
-    if not job.get("reusedExisting"):
-        background_tasks.add_task(run_tool_prepare_job, cfg, job["jobId"])
     return data_response(job)
 
 

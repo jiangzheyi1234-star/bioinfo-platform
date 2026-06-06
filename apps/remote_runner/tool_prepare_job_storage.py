@@ -171,6 +171,42 @@ def list_latest_tool_prepare_jobs_by_tool_id(cfg: RemoteRunnerConfig, tool_ids: 
     return latest_jobs_by_tool_id
 
 
+def claim_next_tool_prepare_job(cfg: RemoteRunnerConfig) -> dict[str, Any] | None:
+    now = now_iso()
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """
+            SELECT *
+            FROM tool_prepare_jobs
+            WHERE status = 'queued'
+            ORDER BY created_at ASC, job_id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            connection.commit()
+            return None
+        connection.execute(
+            """
+            UPDATE tool_prepare_jobs
+            SET status = 'running', stage = 'claimed', message = 'Prepare job claimed by worker.',
+                started_at = COALESCE(started_at, ?), updated_at = ?
+            WHERE job_id = ? AND status = 'queued'
+            """,
+            (now, now, row["job_id"]),
+        )
+        _insert_prepare_job_event(
+            connection,
+            job_id=str(row["job_id"]),
+            stage="claimed",
+            level="info",
+            message="Prepare job claimed by worker.",
+        )
+        connection.commit()
+    return fetch_tool_prepare_job(cfg, str(row["job_id"]))
+
+
 def _normalized_tool_ids(tool_ids: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
