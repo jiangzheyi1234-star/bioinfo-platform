@@ -8,6 +8,7 @@ from apps.api.tool_candidate_model import snakemake_wrapper_candidate_fields
 
 from .candidate import normalize_tool_name
 from .index import wrapper_index
+from .metadata import wrapper_contract_hints
 from .package_metadata import wrapper_source_ref
 
 
@@ -30,8 +31,9 @@ def catalog_snakemake_wrappers(*, query: str = "", page: int = 1, page_size: int
     total = len(items)
     addable_total = sum(1 for item in items if _is_addable_wrapper(item))
     offset = (bounded_page - 1) * bounded_page_size
+    page_items = [_with_wrapper_contract_hints(item) for item in items[offset : offset + bounded_page_size]]
     return {
-        "items": items[offset : offset + bounded_page_size],
+        "items": page_items,
         "query": normalized_query,
         "total": total,
         "page": bounded_page,
@@ -75,3 +77,10 @@ def _with_candidate_fields(entry: dict[str, Any]) -> dict[str, Any]:
         **entry,
         **snakemake_wrapper_candidate_fields(entry),
     }
+
+
+def _with_wrapper_contract_hints(entry: dict[str, Any]) -> dict[str, Any]:
+    hints = wrapper_contract_hints(str(entry.get("wrapperPath") or ""))
+    if not hints:
+        return entry
+    return {**entry, "wrapperContractHints": hints}
