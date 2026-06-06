@@ -20,7 +20,7 @@ from apps.api.tool_capability_service import (
 router = APIRouter()
 
 
-@router.get("/api/v1/tool-capabilities/search")
+@router.get("/api/v1/tool-capabilities/search", operation_id="searchToolCapabilities")
 async def search_tool_capabilities_api(
     q: str = "",
     targetPlatform: str = "",
@@ -37,7 +37,7 @@ async def search_tool_capabilities_api(
     )
 
 
-@router.get("/api/v1/tool-capabilities/candidates")
+@router.get("/api/v1/tool-capabilities/candidates", operation_id="searchToolCandidates")
 async def search_tool_candidates_api(
     q: str = "",
     targetPlatform: str = "",
@@ -52,7 +52,7 @@ async def search_tool_candidates_api(
     )
 
 
-@router.get("/api/v1/tool-capabilities/candidate-recommendations")
+@router.get("/api/v1/tool-capabilities/candidate-recommendations", operation_id="recommendToolCandidates")
 async def recommend_tool_candidates_api(
     q: str = "",
     outputType: str = "",
@@ -77,7 +77,7 @@ async def recommend_tool_candidates_api(
     )
 
 
-@router.get("/api/v1/tool-capabilities/snakemake-wrappers")
+@router.get("/api/v1/tool-capabilities/snakemake-wrappers", operation_id="listSnakemakeWrapperCatalog")
 async def list_snakemake_wrapper_catalog_api(
     q: str = "",
     page: int = Query(default=1, ge=1),
@@ -90,7 +90,7 @@ async def list_snakemake_wrapper_catalog_api(
     )
 
 
-@router.get("/api/v1/tool-capabilities/tool-profiles")
+@router.get("/api/v1/tool-capabilities/tool-profiles", operation_id="listToolProfileCatalog")
 async def list_tool_profile_catalog_api(
     q: str = "",
     page: int = Query(default=1, ge=1),
@@ -103,11 +103,11 @@ async def list_tool_profile_catalog_api(
     )
 
 
-@router.get("/api/v1/tool-capabilities/index/status")
+@router.get("/api/v1/tool-capabilities/index/status", operation_id="getToolCapabilitiesIndexStatus")
 async def tool_capabilities_index_status_api() -> dict[str, Any]:
     return await get_tool_capabilities_index_status_from_request()
 
 
-@router.post("/api/v1/tool-capabilities/index/refresh")
+@router.post("/api/v1/tool-capabilities/index/refresh", operation_id="refreshToolCapabilitiesIndex")
 async def refresh_tool_capabilities_index_api() -> dict[str, Any]:
     return await refresh_tool_capabilities_index_from_request()
