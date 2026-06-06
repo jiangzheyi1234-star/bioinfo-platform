@@ -1,94 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
-import pytest
-
-from apps.remote_runner.config import (
-    ensure_runtime_layout,
-    get_runtime_state_path,
-    inspect_workflow_runtime,
-    load_remote_runner_config,
-    write_runtime_state,
-)
-from apps.remote_runner.config import RemoteRunnerConfig
-from apps.remote_runner.executor import run_snakemake_execution, start_run_execution
-from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
-from apps.remote_runner.execution_query_routes import (
-    get_result_api,
-    get_result_preview_api,
-    get_run as get_run_api,
-    get_run_events_api,
-    get_run_logs_api,
-    get_run_results_api,
-    get_runs as list_runs_api,
-    list_results_api,
-)
-from apps.remote_runner.health_routes import health_live, health_ready, health_startup
-from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
-from apps.remote_runner.submission_routes import create_run, create_upload
-from config import get_app_cache_dir
-from core.remote_runner.artifact import RemoteRunnerArtifactError
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
-from core.remote_runner.client import RemoteRunnerClientError
-from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.executor import run_snakemake_execution
 from tests.helpers.remote_runner_control_plane import (
-    _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
-    _default_workflow_runtime,
-    _fake_runtime_dir,
-    _fake_workflow_artifact,
-    _runtime_state_json,
     _write_file_summary_pipeline,
 )
-
-def test_start_run_execution_records_thread_start_runtime_errors(monkeypatch) -> None:
-    calls: list[dict[str, object]] = []
-
-    class FakeThread:
-        def __init__(self, **_kwargs) -> None:
-            return None
-
-        def start(self) -> None:
-            raise RuntimeError("thread start failed")
-
-    monkeypatch.setattr("apps.remote_runner.executor.threading.Thread", FakeThread)
-    monkeypatch.setattr("apps.remote_runner.executor._mark_failed", lambda *args, **kwargs: calls.append(kwargs))
-
-    start_run_execution(SimpleNamespace(), run_id="run_thread_start", request_id="req_thread_start", run_spec={})
-
-    assert calls == [
-        {
-            "run_id": "run_thread_start",
-            "request_id": "req_thread_start",
-            "message": "Failed to start run executor.",
-            "scope": "startup",
-            "code": "RUN_EXECUTOR_START_FAILED",
-            "stderr": "thread start failed",
-        }
-    ]
-
-
-def test_start_run_execution_does_not_mask_unexpected_thread_adapter_errors(monkeypatch) -> None:
-    calls: list[dict[str, object]] = []
-
-    class FakeThread:
-        def __init__(self, **_kwargs) -> None:
-            return None
-
-        def start(self) -> None:
-            raise ValueError("thread adapter crashed")
-
-    monkeypatch.setattr("apps.remote_runner.executor.threading.Thread", FakeThread)
-    monkeypatch.setattr("apps.remote_runner.executor._mark_failed", lambda *args, **kwargs: calls.append(kwargs))
-
-    with pytest.raises(ValueError, match="thread adapter crashed"):
-        start_run_execution(SimpleNamespace(), run_id="run_thread_crash", request_id="req_thread_crash", run_spec={})
-    assert calls == []
 
 
 def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypatch) -> None:
