@@ -5,10 +5,12 @@ from pathlib import Path
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_platform_storage import (
+    list_tool_runtime_profiles,
     list_tool_validation_results,
     search_tool_index,
 )
 from apps.remote_runner.tool_prepare_job_storage import (
+    complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
 )
@@ -87,3 +89,67 @@ def test_tool_validation_results_are_durable_and_update_tool_index_summary(tmp_p
     assert results[0]["failureCode"] == "SNAKEMAKE_DRY_RUN_FAILED"
     assert page["items"][0]["validationSummary"]["latestStatus"] == "failed"
     assert page["items"][0]["validationSummary"]["latestResultId"] == results[0]["validationResultId"]
+
+
+def test_tool_validation_result_reuses_runtime_profile_for_same_revision_and_lock(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    add_registered_tool(cfg, _tool_payload("FastQC"))
+    runtime_profile = {
+        "platform": "linux-64",
+        "engine": "snakemake",
+        "environmentLock": {
+            "manager": "conda",
+            "packageSpec": "bioconda::fastqc=1.0",
+            "solver": "mamba",
+        },
+        "resourceProfile": {"threads": 2, "memMb": 1024},
+        "securityPolicy": {"network": "disabled"},
+    }
+    first = create_tool_prepare_job(
+        cfg,
+        {
+            **_tool_payload("FastQC"),
+            "validationTarget": "workflow-ready",
+            "runtimeProfile": runtime_profile,
+        },
+    )
+    second = create_tool_prepare_job(
+        cfg,
+        {
+            **_tool_payload("FastQC"),
+            "validationTarget": "production-evidence",
+            "runtimeProfile": runtime_profile,
+        },
+    )
+
+    complete_tool_prepare_job(
+        cfg,
+        first["jobId"],
+        {
+            "id": "bioconda::fastqc",
+            "toolRevisionId": "bioconda::fastqc#rev1",
+            "message": "Tool revision published.",
+        },
+    )
+    complete_tool_prepare_job(
+        cfg,
+        second["jobId"],
+        {
+            "id": "bioconda::fastqc",
+            "toolRevisionId": "bioconda::fastqc#rev1",
+            "message": "Tool revision published.",
+        },
+    )
+
+    results = list_tool_validation_results(cfg, tool_id="bioconda::fastqc")
+    profiles = list_tool_runtime_profiles(cfg, tool_revision_id="bioconda::fastqc#rev1")
+
+    assert len(results) == 2
+    assert len(profiles) == 1
+    assert {result["runtimeProfileId"] for result in results} == {profiles[0]["runtimeProfileId"]}
+    assert profiles[0]["platform"] == "linux-64"
+    assert profiles[0]["engine"] == "snakemake"
+    assert profiles[0]["environmentLock"]["packageSpec"] == "bioconda::fastqc=1.0"
+    assert profiles[0]["resourceProfile"] == {"memMb": 1024, "threads": 2}
+    assert profiles[0]["securityPolicy"] == {"network": "disabled"}
