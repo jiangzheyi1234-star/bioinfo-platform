@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.run_worker import process_next_run_job
 from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
 from apps.remote_runner.storage_core import get_connection
@@ -234,3 +235,55 @@ def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:
 
     assert result["claimed"] is True
     assert heartbeat_seen is True
+
+
+def test_run_worker_does_not_publish_failure_for_stale_attempt(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    _create_queued_run(cfg, "run_worker_stale_attempt")
+    clock = FakeClock()
+
+    def fake_execute(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+        attempt_id: str,
+        lease_generation: int,
+        attempt_work_dir: str,
+    ) -> None:
+        reclaimed = claim_next_run_job(
+            cfg,
+            worker_id="worker_reclaim",
+            now="2026-06-07T10:05:00Z",
+            lease_seconds=30,
+        )
+        assert reclaimed is not None
+        assert reclaimed["leaseGeneration"] == lease_generation + 1
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Stale attempt should not publish.",
+            request_id=request_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        )
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_stale",
+        execute_run=fake_execute,
+        lease_seconds=1,
+        heartbeat_interval_seconds=0,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert result["executionError"] == "RUN_ATTEMPT_STALE"
+    assert result["attemptCompletion"]["accepted"] is False
+    assert result["attemptCompletion"]["reason"] == "stale_generation"
+    run = fetch_run(cfg, "run_worker_stale_attempt")
+    assert run is not None
+    assert run["status"] == "queued"

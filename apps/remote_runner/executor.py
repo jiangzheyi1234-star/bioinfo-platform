@@ -61,6 +61,8 @@ def run_snakemake_execution(
                 stage="validate",
                 message="Validating pipeline and run inputs.",
                 request_id=request_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
             )
             pipeline_id = str(run_spec.get("pipelineId") or "")
             if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
@@ -117,6 +119,8 @@ def run_snakemake_execution(
                 stage="validate",
                 message="Validating Snakemake workflow.",
                 request_id=request_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
             )
             engine_stage = "dry_run"
             dry_run = engine.dry_run(
@@ -134,6 +138,8 @@ def run_snakemake_execution(
                     message="Snakemake dry-run failed.",
                     scope="validate",
                     stderr=dry_run.stderr,
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
                 )
                 return
 
@@ -144,6 +150,8 @@ def run_snakemake_execution(
                 stage="snakemake",
                 message="Executing Snakemake workflow.",
                 request_id=request_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
             )
             engine_stage = "run"
             run_result = engine.run(
@@ -164,6 +172,8 @@ def run_snakemake_execution(
                     scope="workflow",
                     stderr=run_result.stderr,
                     result_dir=str(result_dir),
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
                 )
                 return
 
@@ -176,6 +186,8 @@ def run_snakemake_execution(
                 message="Snakemake execution completed.",
                 request_id=request_id,
                 result_dir=str(result_dir),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
             )
         except (PipelineRegistryError, ValueError) as exc:
             _mark_failed(
@@ -187,6 +199,8 @@ def run_snakemake_execution(
                 code=str(exc) or "RUN_VALIDATION_FAILED",
                 stderr=str(exc) or "Run validation failed.",
                 result_dir=str(result_dir),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
             )
         except (WorkflowRuntimeCommandError, OSError, subprocess.SubprocessError) as exc:
             detail = str(exc).strip()
@@ -212,6 +226,8 @@ def run_snakemake_execution(
                 code=code,
                 stderr=detail or "Run executor crashed during startup.",
                 result_dir=str(result_dir),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
             )
 
 
@@ -249,6 +265,8 @@ def _mark_failed(
     stderr: str,
     code: str | None = None,
     result_dir: str = "",
+    attempt_id: str | None = None,
+    lease_generation: int | None = None,
 ) -> None:
     update_run_state(
         cfg,
@@ -258,6 +276,8 @@ def _mark_failed(
         message=message,
         request_id=request_id,
         result_dir=result_dir,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
         last_error={
             "code": code or ("WORKFLOW_RUNTIME_MISSING" if scope == "validate" else "WORKFLOW_EXECUTION_FAILED"),
             "message": stderr.strip() or message,
