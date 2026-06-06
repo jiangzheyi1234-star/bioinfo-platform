@@ -272,7 +272,10 @@ async def prepare_tool_validation_queue_from_request(*, target_platform: str, ma
 
 
 def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str) -> dict[str, Any]:
-    registered_tools = registered_tools_from_runtime_payload(runtime.list_tools())
+    registered_tools = _registered_tools_with_tool_index(
+        runtime=runtime,
+        registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
+    )
     latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
         runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
     )
@@ -289,6 +292,54 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
         catalog=catalog,
     )
+
+
+def _registered_tools_with_tool_index(*, runtime: Any, registered_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    for tool in [*_workflow_ready_tools_from_tool_index(runtime), *registered_tools]:
+        tool_id = str(tool.get("id") or tool.get("toolId") or "").strip()
+        if tool_id:
+            by_id[tool_id] = tool
+    return list(by_id.values())
+
+
+def _workflow_ready_tools_from_tool_index(runtime: Any) -> list[dict[str, Any]]:
+    page = _tool_index_page_from_runtime_payload(
+        runtime.list_tool_index(
+            query="",
+            limit=100,
+            offset=0,
+            state="WorkflowReady",
+        )
+    )
+    items = page.get("items") if isinstance(page.get("items"), list) else []
+    return [_tool_index_registered_tool(item) for item in items if isinstance(item, dict)]
+
+
+def _tool_index_registered_tool(item: dict[str, Any]) -> dict[str, Any]:
+    facets = item.get("facets") if isinstance(item.get("facets"), dict) else {}
+    state = str(item.get("state") or facets.get("state") or "WorkflowReady").strip() or "WorkflowReady"
+    tool_id = str(item.get("toolId") or item.get("id") or "").strip()
+    return {
+        "id": tool_id,
+        "toolId": tool_id,
+        "toolRevisionId": str(item.get("latestStableRevisionId") or item.get("toolRevisionId") or "").strip(),
+        "name": str(item.get("name") or _tool_name_from_identifier(tool_id)).strip(),
+        "toolContract": {
+            "state": state,
+            "workflowReady": state in {"WorkflowReady", "ProductionEnabled"},
+            "productionEnabled": state == "ProductionEnabled",
+        },
+    }
+
+
+def _tool_name_from_identifier(value: Any) -> str:
+    text = str(value or "").strip()
+    if "::" in text:
+        text = text.rsplit("::", 1)[-1]
+    if "@" in text:
+        text = text.split("@", 1)[0]
+    return text
 
 
 def _prepare_tool_validation_queue(*, runtime: Any, target_platform: str, max_items: int) -> dict[str, Any]:
