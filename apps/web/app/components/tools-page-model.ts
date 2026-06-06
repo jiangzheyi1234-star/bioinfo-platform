@@ -572,6 +572,36 @@ export type ToolPrepareJobResponse = {
   data: ToolPrepareJob;
 };
 
+export type ToolValidationQueuePrepareItem = {
+  candidateId: string;
+  profileId: string;
+  toolId: string;
+  jobId: string;
+  status: ToolPrepareJobStatus;
+  stage: string;
+  message?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  pollPath?: string;
+  resultState?: string;
+  workflowReady?: boolean;
+};
+
+export type ToolValidationQueuePrepareResult = {
+  targetPlatform: string;
+  requested: number;
+  consideredCount: number;
+  queuedCount: number;
+  skippedCount: number;
+  queued: ToolValidationQueuePrepareItem[];
+  skipped: Array<Record<string, unknown>>;
+  remainingWorkflowReady: number;
+};
+
+export type ToolValidationQueuePrepareResponse = {
+  data: ToolValidationQueuePrepareResult;
+};
+
 export type ToolsResponse = {
   data: {
     items: AddedTool[];
