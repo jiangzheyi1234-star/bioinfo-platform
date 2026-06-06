@@ -281,6 +281,11 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     assert "const [candidateCatalog" in hook
     assert "setCandidateCatalogLoading" in hook
     assert "setCandidateCatalogError" in hook
+    assert 'if (view !== "search")' in hook
+    assert "const canSearchTools = normalized.length >= 2" in hook
+    assert 'query: canSearchTools ? normalized : ""' in hook
+    assert "page: canSearchTools ? searchPage : 1" in hook
+    assert "if (!canSearchTools)" in hook
     assert "installableCandidateItems" in hook
     assert "candidateCatalog={state.candidateCatalog}" in page
     assert "candidateCatalogLoading={state.candidateCatalogLoading}" in page
