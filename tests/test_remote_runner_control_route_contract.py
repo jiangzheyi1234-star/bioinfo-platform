@@ -68,6 +68,18 @@ def test_run_create_route_delegates_submission_to_service() -> None:
     assert "apps.remote_runner.submission_service.start_run_execution" not in workflow_draft_api_lifecycle_source
 
 
+def test_remote_runner_app_lifespan_starts_durable_worker_supervisor() -> None:
+    main_source = _source("apps/remote_runner/main.py")
+
+    assert "from contextlib import asynccontextmanager" in main_source
+    assert "from .worker_supervisor import start_configured_run_worker_supervisor" in main_source
+    assert "@asynccontextmanager" in main_source
+    assert "async def lifespan(" in main_source
+    assert "FastAPI(title=\"H2OMeta Remote Runner\", version=\"0.1.1-control-plane\", lifespan=lifespan)" in main_source
+    assert "start_configured_run_worker_supervisor()" in main_source
+    assert "supervisor.stop()" in main_source
+
+
 def test_remote_runner_control_plane_services_use_async_thread_boundary() -> None:
     control_source = _source("apps/remote_runner/control_service.py")
     route_sources = [
