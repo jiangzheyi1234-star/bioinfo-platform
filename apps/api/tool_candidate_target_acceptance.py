@@ -47,6 +47,7 @@ def bio_agent_catalog_target_acceptance(*, target_platform: str = "linux-64") ->
         "targetPlatform": normalized_target_platform,
         "complete": not blocked_targets,
         "blockedTargets": blocked_targets,
+        "nextActions": [_next_action(name, targets[name]) for name in blocked_targets],
         "targets": targets,
         "catalog": {
             "total": _count_value(catalog.get("total")),
@@ -62,6 +63,34 @@ def _target_result(*, actual: int, target: int) -> dict[str, Any]:
         "target": target,
         "actual": actual,
         "passed": actual >= target,
+        "remaining": max(0, target - actual),
+    }
+
+
+def _next_action(target_name: str, result: dict[str, Any]) -> dict[str, Any]:
+    remaining = _count_value(result.get("remaining"))
+    if target_name == "workflowReady":
+        return {
+            "target": target_name,
+            "remaining": remaining,
+            "action": "prepare-and-validate-tool-contracts",
+            "requiredState": "WorkflowReady",
+            "evidence": "Snakemake dry-run, smoke run, and output validation evidence",
+        }
+    if target_name == "productionEnabled":
+        return {
+            "target": target_name,
+            "remaining": remaining,
+            "action": "promote-workflow-ready-tools-with-production-evidence",
+            "requiredState": "ProductionEnabled",
+            "evidence": "Scoped production attestation for tool revision, platform, environment, data scope, and policy",
+        }
+    return {
+        "target": target_name,
+        "remaining": remaining,
+        "action": "expand-catalog-source-coverage",
+        "requiredState": target_name,
+        "evidence": "Catalog source counts and candidate quality counts",
     }
 
 
