@@ -156,6 +156,20 @@ def test_bio_agent_catalog_target_acceptance_counts_registered_tool_contracts(mo
         "workflowReady": 3,
         "productionEnabled": 1,
     }
+    queue = report["validationQueue"]
+    assert queue["target"] == "workflowReady"
+    assert queue["requiredState"] == "WorkflowReady"
+    assert queue["remaining"] == 27
+    assert queue["available"] >= 1
+    queued_ids = {item["candidateId"] for item in queue["items"]}
+    assert "h2ometa-tool-profile::fastqc" not in queued_ids
+    first_item = queue["items"][0]
+    assert first_item["action"] == "prepare-tool"
+    assert first_item["currentState"] == "SnakemakeRenderable"
+    assert first_item["preparePayload"]["source"] == "bioconda"
+    assert first_item["preparePayload"]["targetPlatformSupported"] is True
+    assert first_item["preparePayload"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
+    assert first_item["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
 
 
 def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> None:
