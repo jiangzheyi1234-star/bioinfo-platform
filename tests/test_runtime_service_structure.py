@@ -303,6 +303,25 @@ def test_runtime_workflow_design_operations_live_in_dedicated_mixin() -> None:
         assert f"def {method_name}(" not in runner_ops_source
 
 
+def test_runtime_workflow_design_operations_delegate_to_workflow_manager() -> None:
+    service_source = _source("core/app_runtime/service.py")
+    workflow_ops_source = _source("core/app_runtime/runner_workflow_design_ops.py")
+    workflow_manager_path = ROOT / "core/app_runtime/managers/workflow.py"
+
+    assert workflow_manager_path.exists()
+
+    workflow_manager_source = workflow_manager_path.read_text(encoding="utf-8")
+
+    assert "from core.app_runtime.managers.workflow import WorkflowManager" in service_source
+    assert "self.workflows = WorkflowManager(self)" in service_source
+    assert "class WorkflowManager(BaseRuntimeManager)" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_PLAN_UNSUPPORTED_FIELD" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_COMPILE_UNSUPPORTED_FIELD" in workflow_manager_source
+    assert "self._call_remote_runner(" not in workflow_ops_source
+    assert "self._require_existing_runner_ready(" not in workflow_ops_source
+    assert "self.workflows.compile_workflow_design_draft(" in workflow_ops_source
+
+
 def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
     execution_ops_source = _source("core/app_runtime/runner_execution_ops.py")
