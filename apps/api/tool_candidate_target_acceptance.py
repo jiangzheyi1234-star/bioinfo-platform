@@ -17,8 +17,13 @@ CATALOG_TARGETS = {
 }
 
 
-def bio_agent_catalog_target_acceptance(*, target_platform: str = "linux-64") -> dict[str, Any]:
+def bio_agent_catalog_target_acceptance(
+    *,
+    target_platform: str = "linux-64",
+    registered_tools: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     normalized_target_platform = str(target_platform or "linux-64").strip() or "linux-64"
+    registered_counts = _registered_tool_counts(registered_tools or [])
     catalog = search_tool_candidates(
         "",
         target_platform=normalized_target_platform,
@@ -35,9 +40,12 @@ def bio_agent_catalog_target_acceptance(*, target_platform: str = "linux-64") ->
             actual=_contract_state_count(profile_catalog, "SnakemakeRenderable"),
             target=CATALOG_TARGETS["snakemakeRenderable"],
         ),
-        "workflowReady": _target_result(actual=_count_value(quality_counts.get("workflowReady")), target=CATALOG_TARGETS["workflowReady"]),
+        "workflowReady": _target_result(
+            actual=max(_count_value(quality_counts.get("workflowReady")), registered_counts["workflowReady"]),
+            target=CATALOG_TARGETS["workflowReady"],
+        ),
         "productionEnabled": _target_result(
-            actual=_count_value(quality_counts.get("productionEnabled")),
+            actual=max(_count_value(quality_counts.get("productionEnabled")), registered_counts["productionEnabled"]),
             target=CATALOG_TARGETS["productionEnabled"],
         ),
     }
@@ -54,6 +62,7 @@ def bio_agent_catalog_target_acceptance(*, target_platform: str = "linux-64") ->
             "sourceCounts": _record_value(catalog.get("sourceCounts")),
             "addableDraftCounts": addable_counts,
             "qualityCounts": quality_counts,
+            "registeredToolCounts": registered_counts,
         },
     }
 
@@ -99,6 +108,31 @@ def _contract_state_count(catalog: dict[str, Any], state: str) -> int:
     if not isinstance(items, list):
         return 0
     return sum(1 for item in items if isinstance(item, dict) and item.get("contractState") == state)
+
+
+def _registered_tool_counts(tools: list[dict[str, Any]]) -> dict[str, int]:
+    valid_tools = [tool for tool in tools if isinstance(tool, dict)]
+    return {
+        "total": len(valid_tools),
+        "workflowReady": sum(1 for tool in valid_tools if _registered_tool_workflow_ready(tool)),
+        "productionEnabled": sum(1 for tool in valid_tools if _registered_tool_production_enabled(tool)),
+    }
+
+
+def _registered_tool_workflow_ready(tool: dict[str, Any]) -> bool:
+    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    state = str(contract.get("state") or "")
+    return bool(contract.get("workflowReady")) or state in {"WorkflowReady", "ProductionEnabled"}
+
+
+def _registered_tool_production_enabled(tool: dict[str, Any]) -> bool:
+    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    requirements = contract.get("requirements") if isinstance(contract.get("requirements"), dict) else {}
+    return (
+        bool(contract.get("productionEnabled"))
+        or bool(requirements.get("productionEnabled"))
+        or str(contract.get("state") or "") == "ProductionEnabled"
+    )
 
 
 def _record_value(value: Any) -> dict[str, Any]:

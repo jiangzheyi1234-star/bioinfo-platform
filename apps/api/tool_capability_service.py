@@ -10,6 +10,7 @@ from apps.api.tool_candidate_recommendations import recommend_tool_candidates
 from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_acceptance
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
+from apps.api.tool_registry_payload import registered_tools_from_runtime_payload
 
 
 async def search_tool_capabilities_from_request(
@@ -85,33 +86,17 @@ def _recommend_tool_candidates_with_registered_tools(
         query=query,
         page=page,
         page_size=page_size,
-        registered_tools=_registered_tools_from_runtime_payload(runtime.list_tools()),
+        registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
     )
 
 
-def _registered_tools_from_runtime_payload(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        items = payload
-    elif isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, dict):
-            items = data.get("items")
-        else:
-            items = payload.get("items")
-    else:
-        items = None
-    if not isinstance(items, list):
-        raise ValueError("Invalid tools registry payload: expected an items list")
-    if any(not isinstance(item, dict) for item in items):
-        raise ValueError("Invalid tools registry payload: tool items must be objects")
-    return items
-
-
 async def get_tool_candidate_target_acceptance_from_request(*, target_platform: str) -> dict[str, Any]:
+    runtime = runtime_service()
     return await run_sync(
         lambda: {
             "data": bio_agent_catalog_target_acceptance(
                 target_platform=target_platform,
+                registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
             )
         },
     )
