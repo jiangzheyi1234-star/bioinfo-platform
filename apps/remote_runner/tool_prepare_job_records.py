@@ -13,6 +13,11 @@ def job_row_to_dict(row: Any, events: list[dict[str, Any]]) -> dict[str, Any]:
         "stage": row["stage"],
         "message": row["message"],
         "toolId": row["tool_id"],
+        "reservation": {
+            "key": row["reservation_key"],
+            "packageSpec": row["reservation_package_spec"],
+            "validationTarget": row["reservation_validation_target"],
+        },
         "request": request,
         "result": result,
         "errorCode": row["error_code"],

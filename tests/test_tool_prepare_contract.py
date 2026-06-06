@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,7 @@ from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database, check_reference_database
 from apps.remote_runner.storage import fetch_tool
 from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_prepare_job_storage import (
     cancel_tool_prepare_job,
     complete_tool_prepare_job,
@@ -593,6 +595,113 @@ def test_create_prepare_job_reuses_existing_active_job_for_same_tool(tmp_path: P
     retry = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
     assert retry["jobId"] != first["jobId"]
     assert retry["status"] == "queued"
+
+
+def test_create_prepare_job_reserves_active_job_by_package_and_validation_target(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    first = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "bioconda::fastqc",
+            "name": "fastqc",
+            "packageSpec": "  Bioconda::FASTQC=0.12.1  ",
+            "validationTarget": "workflow-ready",
+        },
+    )
+    same_reservation = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "curated::fastqc",
+            "name": "FastQC",
+            "packageSpec": "bioconda::fastqc=0.12.1",
+            "validationTarget": " workflow-ready ",
+        },
+    )
+    different_target = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "curated::fastqc-production",
+            "name": "FastQC",
+            "packageSpec": "bioconda::fastqc=0.12.1",
+            "validationTarget": "production-evidence",
+        },
+    )
+
+    assert same_reservation["jobId"] == first["jobId"]
+    assert same_reservation["reusedExisting"] is True
+    assert same_reservation["reservation"] == {
+        "key": "workflow-ready\x1fbioconda::fastqc=0.12.1",
+        "packageSpec": "bioconda::fastqc=0.12.1",
+        "validationTarget": "workflow-ready",
+    }
+    assert different_target["jobId"] != first["jobId"]
+    assert different_target["reusedExisting"] is False
+
+    fail_tool_prepare_job(cfg, first["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    retry = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "curated::fastqc-retry",
+            "name": "FastQC",
+            "packageSpec": "bioconda::fastqc=0.12.1",
+            "validationTarget": "workflow-ready",
+        },
+    )
+    assert retry["jobId"] != first["jobId"]
+    assert retry["reservation"]["key"] == "workflow-ready\x1fbioconda::fastqc=0.12.1"
+
+
+def test_prepare_job_storage_migrates_reservation_columns_for_legacy_database(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy = sqlite3.connect(str(db_path))
+    legacy.execute(
+        """
+        CREATE TABLE tool_prepare_jobs (
+            job_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            message TEXT NOT NULL,
+            tool_id TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            result_json TEXT,
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            cancelled_at TEXT
+        )
+        """
+    )
+    legacy.close()
+
+    job = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "bioconda::multiqc",
+            "name": "MultiQC",
+            "packageSpec": "bioconda::multiqc=1.25",
+            "validationTarget": "workflow-ready",
+        },
+    )
+
+    with get_connection(cfg) as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(tool_prepare_jobs)").fetchall()}
+        row = connection.execute(
+            """
+            SELECT reservation_key, reservation_package_spec, reservation_validation_target
+            FROM tool_prepare_jobs
+            WHERE job_id = ?
+            """,
+            (job["jobId"],),
+        ).fetchone()
+
+    assert {"reservation_key", "reservation_package_spec", "reservation_validation_target"} <= columns
+    assert row["reservation_key"] == "workflow-ready\x1fbioconda::multiqc=1.25"
 
 
 def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(tmp_path: Path) -> None:
