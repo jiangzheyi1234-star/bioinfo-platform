@@ -7,6 +7,7 @@ import {
   type AddedTool,
   type RuleSpecTemplate,
   type SnakemakeWrapperCatalogResponse,
+  type ToolProfileCatalogResponse,
   type ToolPrepareJob,
   type ToolPrepareJobResponse,
   type ToolSearchResponse,
@@ -75,6 +76,15 @@ export async function fetchSnakemakeWrapperCatalog(): Promise<SnakemakeWrapperCa
   const response = await requestLocalApiJson<SnakemakeWrapperCatalogResponse>(
     "GET",
     "/api/v1/tool-capabilities/snakemake-wrappers?page=1&pageSize=1",
+    { cache: "no-store" }
+  );
+  return response.data;
+}
+
+export async function fetchToolProfileCatalog(): Promise<ToolProfileCatalogResponse["data"]> {
+  const response = await requestLocalApiJson<ToolProfileCatalogResponse>(
+    "GET",
+    "/api/v1/tool-capabilities/tool-profiles?page=1&pageSize=50",
     { cache: "no-store" }
   );
   return response.data;

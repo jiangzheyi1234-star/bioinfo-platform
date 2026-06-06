@@ -4,6 +4,9 @@ export type ToolCandidateSourceRef = {
   type?: string;
   channel?: string;
   name?: string;
+  profileId?: string;
+  version?: string;
+  profileCount?: string;
   repository?: string;
   ref?: string;
   path?: string;
@@ -314,6 +317,33 @@ export type SnakemakeWrapperCatalog = {
 
 export type SnakemakeWrapperCatalogResponse = {
   data: SnakemakeWrapperCatalog;
+};
+
+export type ToolProfileCandidate = {
+  candidateId?: string;
+  candidateKind?: string;
+  qualityTier?: ToolCandidateQualityTier;
+  sourceRef?: ToolCandidateSourceRef;
+  profileId: string;
+  profileVersion: number;
+  toolNames: string[];
+  preferredWrapperPaths: string[];
+};
+
+export type ToolProfileCatalog = {
+  items: ToolProfileCandidate[];
+  query: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  addableTotal: number;
+  qualityCounts: ToolCatalogQualityCounts;
+  sourceRef?: ToolCandidateSourceRef;
+};
+
+export type ToolProfileCatalogResponse = {
+  data: ToolProfileCatalog;
 };
 
 export type AddedTool = ToolSearchItem & {

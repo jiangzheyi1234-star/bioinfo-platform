@@ -545,6 +545,28 @@ def test_snakemake_wrapper_catalog_service_wraps_catalog_payload(monkeypatch) ->
     assert response["data"]["page"] == 2
 
 
+def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
+
+    catalog = catalog_tool_profiles(query="fast", page=1, page_size=10)
+
+    assert catalog["total"] == 2
+    assert catalog["addableTotal"] == 2
+    assert catalog["qualityCounts"]["discovered"] >= 6
+    assert catalog["qualityCounts"]["draftRunnable"] >= 6
+    fastp = next(item for item in catalog["items"] if item["profileId"] == "fastp")
+    assert fastp["candidateId"] == "h2ometa-tool-profile::fastp"
+    assert fastp["candidateKind"] == "h2ometa-tool-profile"
+    assert fastp["qualityTier"] == "draft-runnable"
+    assert fastp["sourceRef"] == {
+        "type": "h2ometa-tool-profile",
+        "profileId": "fastp",
+        "version": "1",
+    }
+    assert fastp["toolNames"] == ["fastp"]
+    assert fastp["preferredWrapperPaths"] == ["bio/fastp"]
+
+
 def test_snakemake_wrapper_index_attaches_unresolved_wrapper_draft_without_contract() -> None:
     index = snakemake_wrapper_index.build_wrapper_index(
         {

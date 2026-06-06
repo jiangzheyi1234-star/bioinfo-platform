@@ -25,6 +25,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export async function searchToolCapabilities" in api
     assert "export async function fetchSnakemakeWrapperCatalog" in api
     assert "/api/v1/tool-capabilities/snakemake-wrappers?page=1&pageSize=1" in api
+    assert "export async function fetchToolProfileCatalog" in api
+    assert "/api/v1/tool-capabilities/tool-profiles?page=1&pageSize=50" in api
     assert "export async function createToolPrepareJob" in api
     assert "export async function fetchToolPrepareJob" in api
     assert "export async function updateToolRuleTemplate" in api
@@ -56,6 +58,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export type ToolCandidateQualityTier" in model
     assert "export type ToolCatalogQualityCounts" in model
     assert "export type SnakemakeWrapperCatalogResponse" in model
+    assert "export type ToolProfileCatalog" in model
+    assert "export type ToolProfileCatalogResponse" in model
+    assert "profileId: string" in model
+    assert "preferredWrapperPaths: string[]" in model
     assert "localIndexAvailable?: boolean" in model
     assert "export type RuleSpecTemplate" in model
     assert "export type RuleSpecEnvironment" in model
