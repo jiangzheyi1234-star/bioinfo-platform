@@ -55,6 +55,9 @@ def test_tool_revision_id(tool_id: str) -> str:
     return _TEST_TOOL_REVISIONS.get(tool_id, tool_id)
 
 
+test_tool_revision_id.__test__ = False
+
+
 def generated_workflow_node(
     tool_id: str,
     *,
