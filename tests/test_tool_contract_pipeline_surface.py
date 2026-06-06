@@ -80,6 +80,8 @@ def test_tool_production_acceptance_is_exposed_through_api_layers() -> None:
     local_service = (root / "apps" / "api" / "tool_contract_service.py").read_text(encoding="utf-8")
     proxy = (root / "core" / "remote_runner" / "proxy.py").read_text(encoding="utf-8")
     runner_ops = (root / "core" / "app_runtime" / "runner_ops.py").read_text(encoding="utf-8")
+    runner_tool_ops = (root / "core" / "app_runtime" / "runner_tool_ops.py").read_text(encoding="utf-8")
+    tool_manager = (root / "core" / "app_runtime" / "managers" / "tool.py").read_text(encoding="utf-8")
 
     assert "tool_router" in remote_main
     assert '@router.post("/api/v1/tools/{tool_id}/production")' in remote_route
@@ -92,4 +94,6 @@ def test_tool_production_acceptance_is_exposed_through_api_layers() -> None:
     assert 'await invalidate_response_cache("tools", "workflow_catalog")' in local_service
     assert "def mark_tool_production_enabled" in proxy
     assert "/api/v1/tools/{kwargs['tool_id']}/production" in proxy
-    assert "def mark_tool_production_enabled" in runner_ops
+    assert "RunnerToolOperationsMixin" in runner_ops
+    assert "def mark_tool_production_enabled" in runner_tool_ops
+    assert "def mark_tool_production_enabled" in tool_manager

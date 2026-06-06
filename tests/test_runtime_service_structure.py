@@ -240,6 +240,31 @@ def test_runtime_tool_operations_live_in_dedicated_mixin() -> None:
         assert f"def {method_name}(" not in runner_ops_source
 
 
+def test_runtime_tool_operations_delegate_to_tool_manager() -> None:
+    service_source = _source("core/app_runtime/service.py")
+    tool_ops_source = _source("core/app_runtime/runner_tool_ops.py")
+    base_manager_path = ROOT / "core/app_runtime/managers/base.py"
+    tool_manager_path = ROOT / "core/app_runtime/managers/tool.py"
+
+    assert base_manager_path.exists()
+    assert tool_manager_path.exists()
+
+    base_manager_source = base_manager_path.read_text(encoding="utf-8")
+    tool_manager_source = tool_manager_path.read_text(encoding="utf-8")
+
+    assert "from core.app_runtime.managers.tool import ToolManager" in service_source
+    assert "self.tools = ToolManager(self)" in service_source
+    assert "class BaseRuntimeManager" in base_manager_source
+    assert "def call_existing_runner(" in base_manager_source
+    assert "def _existing_runner_context(" in base_manager_source
+    assert "class ToolManager(BaseRuntimeManager)" in tool_manager_source
+    assert "self._service._call_remote_runner(" in base_manager_source
+    assert "self._service._require_existing_runner_ready(" in base_manager_source
+    assert "self._call_remote_runner(" not in tool_ops_source
+    assert "self._require_existing_runner_ready(" not in tool_ops_source
+    assert "self.tools.create_tool_prepare_job(" in tool_ops_source
+
+
 def test_runtime_workflow_design_operations_live_in_dedicated_mixin() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
     workflow_ops_source = _source("core/app_runtime/runner_workflow_design_ops.py")

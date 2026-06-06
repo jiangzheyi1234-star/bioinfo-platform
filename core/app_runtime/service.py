@@ -8,6 +8,7 @@ from typing import Any, Optional
 from config import (
     store_runner_token,
 )
+from core.app_runtime.managers.tool import ToolManager
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
@@ -68,6 +69,7 @@ class RuntimeService(
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
         self._server_action_state: dict[str, dict[str, Any]] = {}
+        self.tools = ToolManager(self)
 
     def initialize(self) -> None:
         with self._lock:
