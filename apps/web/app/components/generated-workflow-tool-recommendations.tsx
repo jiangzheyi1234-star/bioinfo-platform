@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Sparkles } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -123,16 +124,24 @@ export function GeneratedWorkflowToolRecommendations({
                 </div>
                 <div className="mt-1 truncate text-[11px] text-slate-500">{recommendation.evidence.join(" · ")}</div>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 bg-white px-2.5 text-xs"
-                disabled={!tool}
-                onClick={() => tool && onAddTool(workflowToolRevisionId(tool))}
-              >
-                <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
-                {tool ? "添加步骤" : "先加入工具库"}
-              </Button>
+              {tool ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 bg-white px-2.5 text-xs"
+                  onClick={() => onAddTool(workflowToolRevisionId(tool))}
+                >
+                  <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+                  添加步骤
+                </Button>
+              ) : (
+                <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs">
+                  <Link href={toolSearchHref(recommendation)}>
+                    <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+                    先加入工具库
+                  </Link>
+                </Button>
+              )}
             </div>
           );
         })}
@@ -153,4 +162,15 @@ function matchingWorkflowReadyTool(recommendation: WorkflowToolRecommendationIte
 
 function recommendationLabel(recommendation: WorkflowToolRecommendationItem): string {
   return recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || recommendation.candidate.candidateId || "candidate";
+}
+
+function toolSearchHref(recommendation: WorkflowToolRecommendationItem) {
+  return {
+    pathname: "/workflows/tools",
+    query: { q: recommendationSearchQuery(recommendation) },
+  };
+}
+
+function recommendationSearchQuery(recommendation: WorkflowToolRecommendationItem): string {
+  return recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || "";
 }

@@ -31,15 +31,15 @@ import {
 } from "./tools-page-model";
 import { isActiveJob, isTerminalJob, useToolPrepareTasks } from "./tool-prepare-task-context";
 
-export function useToolsPageState() {
+export function useToolsPageState(initialQuery = "") {
   const { tasks: prepareTasks, trackToolPrepareJob } = useToolPrepareTasks();
   const [initialCachedAddedTools] = useState(() => getCachedAddedTools());
-  const [view, setView] = useState<"library" | "search">("library");
+  const [view, setView] = useState<"library" | "search">(() => initialQuery ? "search" : "library");
   const [addedTools, setAddedTools] = useState<AddedTool[]>(() => initialCachedAddedTools || []);
   const addedToolsRef = useRef<AddedTool[]>(initialCachedAddedTools || []);
   const [toolsLoading, setToolsLoading] = useState(() => !initialCachedAddedTools);
   const [toolsError, setToolsError] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [source, setSource] = useState("all");
   const [items, setItems] = useState<ToolSearchItem[]>([]);
   const [selectedId, setSelectedId] = useState("");

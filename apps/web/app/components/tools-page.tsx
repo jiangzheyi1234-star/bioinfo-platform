@@ -13,8 +13,8 @@ import { useToolsPageState } from "./use-tools-page-state";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 
-export function ToolsPage() {
-  const state = useToolsPageState();
+export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
+  const state = useToolsPageState(initialQuery);
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-4 py-6 text-slate-800 sm:px-6 sm:py-10 lg:px-8">
