@@ -97,6 +97,22 @@ ON run_jobs(state, available_at, priority, created_at);
 CREATE INDEX IF NOT EXISTS idx_run_leases_active_expiry
 ON run_leases(state, expires_at);
 
+CREATE TABLE IF NOT EXISTS candidate_outputs (
+    candidate_output_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    output_key TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size_bytes INTEGER,
+    sha256 TEXT,
+    observed_at TEXT NOT NULL,
+    verification_state TEXT NOT NULL,
+    verification_json TEXT NOT NULL DEFAULT '{}',
+    adopted_artifact_id TEXT,
+    adopted_at TEXT,
+    UNIQUE(run_id, attempt_id, output_key)
+);
+
 CREATE TABLE IF NOT EXISTS artifacts (
     artifact_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

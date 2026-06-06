@@ -17,7 +17,7 @@ def persist_artifact(
     path: Path,
     mime_type: str,
 ) -> dict[str, Any]:
-    size_bytes, sha256 = _artifact_payload_stats(path)
+    size_bytes, sha256 = artifact_payload_stats(path)
     created_at = now_iso()
     storage_backend = "local"
     storage_uri = path.resolve().as_uri()
@@ -59,7 +59,7 @@ def persist_artifact(
     return artifact
 
 
-def _artifact_payload_stats(path: Path) -> tuple[int, str]:
+def artifact_payload_stats(path: Path) -> tuple[int, str]:
     if path.is_file():
         content = path.read_bytes()
         return len(content), hashlib.sha256(content).hexdigest()
