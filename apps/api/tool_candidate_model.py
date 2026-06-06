@@ -48,6 +48,21 @@ def snakemake_wrapper_candidate_fields(wrapper: dict[str, Any]) -> dict[str, Any
     }
 
 
+def tool_profile_candidate_fields(profile: Any) -> dict[str, Any]:
+    profile_id = str(profile.profile_id).strip()
+    version = str(profile.version).strip()
+    return {
+        "candidateId": f"h2ometa-tool-profile::{profile_id}",
+        "candidateKind": "h2ometa-tool-profile",
+        "sourceRef": {
+            "type": "h2ometa-tool-profile",
+            "profileId": profile_id,
+            "version": version,
+        },
+        "qualityTier": "draft-runnable",
+    }
+
+
 def quality_tier(record: dict[str, Any], *, rule_spec_draft: dict[str, Any] | None) -> str:
     contract = record.get("toolContract")
     if isinstance(contract, dict):

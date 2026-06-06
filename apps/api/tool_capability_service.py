@@ -6,6 +6,7 @@ from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda
 from apps.api.route_utils import run_sync
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_capabilities import search_tool_capabilities
+from apps.api.tool_profile_catalog import catalog_tool_profiles
 
 
 async def search_tool_capabilities_from_request(
@@ -41,6 +42,23 @@ async def list_snakemake_wrapper_catalog_from_request(
     return await run_sync(
         lambda: {
             "data": catalog_snakemake_wrappers(
+                query=q,
+                page=page,
+                page_size=page_size,
+            )
+        },
+    )
+
+
+async def list_tool_profile_catalog_from_request(
+    *,
+    q: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    return await run_sync(
+        lambda: {
+            "data": catalog_tool_profiles(
                 query=q,
                 page=page,
                 page_size=page_size,
