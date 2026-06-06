@@ -402,8 +402,15 @@ export type ToolCatalogValidationQueueItem = {
     id?: string;
     name?: string;
     source?: string;
+    sourceLabel?: string;
     packageSpec?: string;
+    version?: string;
+    latestVersion?: string;
+    targetPlatform?: string;
     targetPlatformSupported?: boolean;
+    capabilities?: ToolCapability[];
+    snakemakeWrappers?: SnakemakeWrapperMatch[];
+    snakemakeWrapperCount?: number;
     ruleTemplate?: RuleSpecTemplate;
     ruleSpecDraft?: RuleSpecDraft;
   };
