@@ -94,6 +94,7 @@ export function ToolCatalogQualityStrip({
   const qualityCounts = showingCandidates ? candidateCatalog?.qualityCounts : wrapperCatalog?.qualityCounts;
   const metrics = [
     ["discovered", candidateCatalog?.total ?? (!showingCandidates ? wrapperCatalog?.total : undefined) ?? qualityCounts?.discovered ?? 0],
+    ["addable drafts", candidateCatalog?.addableDraftCounts?.total ?? (!showingCandidates ? wrapperCatalog?.addableTotal : undefined) ?? 0],
     ["draft-runnable", qualityCounts?.draftRunnable ?? (!showingCandidates ? wrapperCatalog?.addableTotal : undefined) ?? 0],
     ["workflow-ready", qualityCounts?.workflowReady ?? 0],
     ["production-enabled", qualityCounts?.productionEnabled ?? 0],

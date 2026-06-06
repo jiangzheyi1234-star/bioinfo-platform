@@ -305,6 +305,10 @@ export type ToolCandidateSourceCounts = {
   toolProfiles: number;
 };
 
+export type ToolCandidateAddableDraftCounts = ToolCandidateSourceCounts & {
+  total: number;
+};
+
 export type ToolCandidateCatalogItem = ToolSearchItem | SnakemakeWrapperMatch | ToolProfileCandidate;
 
 export type ToolCandidateCatalog = {
@@ -315,6 +319,7 @@ export type ToolCandidateCatalog = {
   pageSize: number;
   hasMore: boolean;
   sourceCounts: ToolCandidateSourceCounts;
+  addableDraftCounts: ToolCandidateAddableDraftCounts;
   qualityCounts: ToolCatalogQualityCounts;
 };
 

@@ -44,6 +44,7 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
                 }
             ],
             "total": 1,
+            "addableTotal": 1,
             "qualityCounts": {
                 "discovered": 1,
                 "draftRunnable": 1,
@@ -65,6 +66,7 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
                 }
             ],
             "total": 1,
+            "addableTotal": 0,
             "qualityCounts": {
                 "discovered": 1,
                 "draftRunnable": 0,
@@ -86,6 +88,7 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
                 }
             ],
             "total": 1,
+            "addableTotal": 1,
             "qualityCounts": {
                 "discovered": 1,
                 "draftRunnable": 1,
@@ -112,6 +115,12 @@ def test_unified_tool_candidate_catalog_merges_sources(monkeypatch) -> None:
         "snakemakeWrappers": 1,
         "toolProfiles": 1,
     }
+    assert catalog["addableDraftCounts"] == {
+        "condaPackages": 1,
+        "snakemakeWrappers": 0,
+        "toolProfiles": 1,
+        "total": 2,
+    }
     assert catalog["qualityCounts"] == {
         "discovered": 3,
         "draftRunnable": 2,
@@ -130,6 +139,7 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         lambda *, query, target_platform, page, page_size: {
             "items": [{"candidateId": "bioconda::fastp", "candidateKind": "conda-package"}],
             "total": 20,
+            "addableTotal": 20,
             "qualityCounts": {
                 "discovered": 20,
                 "draftRunnable": 0,
@@ -144,6 +154,7 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         lambda *, query, page, page_size: {
             "items": [{"candidateId": "snakemake-wrapper::v9.8.0/bio/fastp", "candidateKind": "snakemake-wrapper"}],
             "total": 500,
+            "addableTotal": 100,
             "qualityCounts": {
                 "discovered": 500,
                 "draftRunnable": 100,
@@ -158,6 +169,7 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         lambda *, query, page, page_size: {
             "items": [{"candidateId": "h2ometa-tool-profile::fastp", "candidateKind": "h2ometa-tool-profile"}],
             "total": 12,
+            "addableTotal": 12,
             "qualityCounts": {
                 "discovered": 12,
                 "draftRunnable": 12,
@@ -170,6 +182,12 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
     catalog = tool_candidate_catalog.search_tool_candidates("fastp", page=1, page_size=10)
 
     assert catalog["sourceCounts"] == {"condaPackages": 20, "snakemakeWrappers": 500, "toolProfiles": 12}
+    assert catalog["addableDraftCounts"] == {
+        "condaPackages": 20,
+        "snakemakeWrappers": 100,
+        "toolProfiles": 12,
+        "total": 132,
+    }
     assert catalog["total"] == 532
     assert catalog["hasMore"] is True
     assert catalog["qualityCounts"] == {
@@ -192,6 +210,7 @@ def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_quer
         lambda *, query, page, page_size: {
             "items": [],
             "total": 0,
+            "addableTotal": 0,
             "qualityCounts": {
                 "discovered": 0,
                 "draftRunnable": 0,
@@ -206,6 +225,7 @@ def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_quer
         lambda *, query, page, page_size: {
             "items": [],
             "total": 0,
+            "addableTotal": 0,
             "qualityCounts": {
                 "discovered": 0,
                 "draftRunnable": 0,
@@ -239,6 +259,12 @@ def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_quer
     catalog = tool_candidate_catalog.search_tool_candidates("", target_platform="linux-64", page=1, page_size=10)
 
     assert catalog["sourceCounts"] == {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 0}
+    assert catalog["addableDraftCounts"] == {
+        "condaPackages": 12398,
+        "snakemakeWrappers": 0,
+        "toolProfiles": 0,
+        "total": 12398,
+    }
     assert catalog["qualityCounts"]["discovered"] == 12398
     assert catalog["total"] == 12398
     assert catalog["hasMore"] is True

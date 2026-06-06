@@ -59,6 +59,9 @@ def search_tool_candidates(
     conda_total = _source_total(conda_catalog, conda_items)
     wrapper_total = _source_total(wrapper_catalog, wrapper_items)
     profile_total = _source_total(profile_catalog, profile_items)
+    conda_addable_total = _source_addable_total(conda_catalog, conda_items)
+    wrapper_addable_total = _source_addable_total(wrapper_catalog, wrapper_items)
+    profile_addable_total = _source_addable_total(profile_catalog, profile_items)
     total = conda_total + wrapper_total + profile_total
     return {
         "items": items[offset : offset + bounded_page_size],
@@ -71,6 +74,12 @@ def search_tool_candidates(
             "condaPackages": conda_total,
             "snakemakeWrappers": wrapper_total,
             "toolProfiles": profile_total,
+        },
+        "addableDraftCounts": {
+            "condaPackages": conda_addable_total,
+            "snakemakeWrappers": wrapper_addable_total,
+            "toolProfiles": profile_addable_total,
+            "total": conda_addable_total + wrapper_addable_total + profile_addable_total,
         },
         "qualityCounts": _merge_quality_counts(
             _quality_counts_from_source(conda_catalog, conda_items),
@@ -115,12 +124,18 @@ def catalog_conda_package_candidates(
         if isinstance(record, dict)
     ]
     total = _count_value(index_page.get("total"))
+    addable_total = _conda_addable_total(
+        total=total,
+        items=items,
+        target_platform=normalized_target_platform,
+    )
     quality_counts = _quality_counts(items)
     quality_counts["discovered"] = total
     return {
         "items": items,
         "query": normalized_query,
         "total": total,
+        "addableTotal": addable_total,
         "page": int(index_page.get("page") or bounded_page),
         "pageSize": int(index_page.get("pageSize") or bounded_page_size),
         "hasMore": bool(index_page.get("hasMore")),
@@ -131,6 +146,12 @@ def catalog_conda_package_candidates(
             "channel": "bioconda",
         },
     }
+
+
+def _conda_addable_total(*, total: int, items: list[dict[str, Any]], target_platform: str) -> int:
+    if not target_platform or target_platform == "linux-64":
+        return total
+    return sum(1 for item in items if _is_addable_draft(item))
 
 
 def _conda_candidate_from_index_record(record: dict[str, Any], *, target_platform: str) -> dict[str, Any]:
@@ -190,6 +211,12 @@ def _source_total(payload: dict[str, Any], items: list[dict[str, Any]]) -> int:
         return len(items)
 
 
+def _source_addable_total(payload: dict[str, Any], items: list[dict[str, Any]]) -> int:
+    if "addableTotal" in payload:
+        return _count_value(payload.get("addableTotal"))
+    return sum(1 for item in items if _is_addable_draft(item))
+
+
 def _quality_counts_from_source(payload: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, int]:
     quality_counts = payload.get("qualityCounts") if isinstance(payload, dict) else None
     if isinstance(quality_counts, dict):
@@ -221,3 +248,16 @@ def _quality_counts(items: list[dict[str, Any]]) -> dict[str, int]:
         else:
             counts["discovered"] += 1
     return counts
+
+
+def _is_addable_draft(item: dict[str, Any]) -> bool:
+    kind = str(item.get("candidateKind") or "")
+    if kind == "h2ometa-tool-profile":
+        return True
+    if kind == "snakemake-wrapper":
+        draft = item.get("ruleSpecDraft")
+        return isinstance(draft, dict) and draft.get("requiresUserCompletion") is False
+    if kind == "conda-package":
+        package_spec = str(item.get("packageSpec") or "")
+        return item.get("targetPlatformSupported") is True and "=" in package_spec
+    return False
