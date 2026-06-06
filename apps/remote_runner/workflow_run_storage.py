@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError
+from .event_contracts import append_run_event_v2, record_run_command
 from .execution_query_storage import fetch_run
 from .run_execution_storage import enqueue_run_job_record
 from .storage_core import get_connection, now_iso
@@ -125,25 +126,34 @@ def create_run_record(
                 json.dumps(run["runSpec"]),
             ),
         )
-        connection.execute(
-            """
-            INSERT INTO run_events (
-                event_id, run_id, event_type, from_status, to_status, stage, state_version, message, request_id, created_at, details_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"evt_{uuid.uuid4().hex[:10]}",
-                run["runId"],
-                "accepted",
-                None,
-                "queued",
-                "submitted",
-                1,
-                "Accepted for asynchronous execution",
-                request_id,
-                submitted_at,
-                None,
-            ),
+        command = record_run_command(
+            connection,
+            run_id=run["runId"],
+            command_type="submit_run",
+            payload=run["runSpec"],
+            idempotency_key=idempotency_key,
+            actor=server_id,
+            requested_at=submitted_at,
+        )
+        append_run_event_v2(
+            connection,
+            run_id=run["runId"],
+            event_type="accepted",
+            from_status=None,
+            to_status="queued",
+            stage="submitted",
+            state_version=1,
+            message="Accepted for asynchronous execution",
+            request_id=request_id,
+            command_id=command["commandId"],
+            actor=server_id,
+            payload={
+                "pipelineId": run["pipelineId"],
+                "projectId": run["projectId"],
+                "runId": run["runId"],
+            },
+            occurred_at=submitted_at,
+            command_derived=True,
         )
         enqueue_run_job_record(
             connection,
@@ -203,25 +213,18 @@ def update_run_state(
                 run_id,
             ),
         )
-        connection.execute(
-            """
-            INSERT INTO run_events (
-                event_id, run_id, event_type, from_status, to_status, stage, state_version, message, request_id, created_at, details_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"evt_{uuid.uuid4().hex[:10]}",
-                run_id,
-                "status-transition",
-                existing["status"],
-                status,
-                stage,
-                next_state_version,
-                message,
-                request_id,
-                last_updated_at,
-                json.dumps(last_error) if last_error else None,
-            ),
+        append_run_event_v2(
+            connection,
+            run_id=run_id,
+            event_type="status-transition",
+            from_status=existing["status"],
+            to_status=status,
+            stage=stage,
+            state_version=next_state_version,
+            message=message,
+            request_id=request_id,
+            payload={"lastError": last_error} if last_error else {},
+            occurred_at=last_updated_at,
         )
         connection.commit()
     return fetch_run(cfg, run_id)

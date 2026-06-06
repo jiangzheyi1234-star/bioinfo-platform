@@ -42,15 +42,37 @@ CREATE TABLE IF NOT EXISTS run_events (
     event_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
+    seq INTEGER NOT NULL DEFAULT 0,
+    schema_version TEXT NOT NULL DEFAULT '',
     from_status TEXT,
     to_status TEXT,
     stage TEXT NOT NULL,
     state_version INTEGER NOT NULL,
     message TEXT NOT NULL,
     request_id TEXT NOT NULL,
+    command_id TEXT,
+    correlation_id TEXT,
+    actor TEXT,
+    payload_hash TEXT NOT NULL DEFAULT '',
+    event_hash TEXT NOT NULL DEFAULT '',
+    prev_event_hash TEXT,
     created_at TEXT NOT NULL,
     details_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS run_commands (
+    command_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    command_type TEXT NOT NULL,
+    idempotency_key TEXT,
+    actor TEXT,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    requested_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_commands_run
+ON run_commands(run_id, requested_at);
 
 CREATE TABLE IF NOT EXISTS run_jobs (
     job_id TEXT PRIMARY KEY,

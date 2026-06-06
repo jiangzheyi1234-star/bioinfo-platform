@@ -16,10 +16,41 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
+    _ensure_run_event_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_artifact_columns(connection)
     connection.commit()
     return connection
+
+
+def _ensure_run_event_columns(connection: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(run_events)").fetchall()}
+    column_definitions = {
+        "seq": "INTEGER NOT NULL DEFAULT 0",
+        "schema_version": "TEXT NOT NULL DEFAULT ''",
+        "command_id": "TEXT",
+        "correlation_id": "TEXT",
+        "actor": "TEXT",
+        "payload_hash": "TEXT NOT NULL DEFAULT ''",
+        "event_hash": "TEXT NOT NULL DEFAULT ''",
+        "prev_event_hash": "TEXT",
+    }
+    for column, definition in column_definitions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE run_events ADD COLUMN {column} {definition}")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_run_events_run_seq
+        ON run_events(run_id, seq)
+        WHERE seq > 0
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_run_events_hash_chain
+        ON run_events(run_id, seq, event_hash)
+        """
+    )
 
 
 def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
