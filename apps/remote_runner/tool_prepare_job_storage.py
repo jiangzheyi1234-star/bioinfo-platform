@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from typing import Any
 
@@ -11,6 +12,7 @@ from .tool_prepare_job_records import (
     event_row_to_dict,
     job_row_to_dict,
 )
+from .tool_prepare_reservations import tool_prepare_job_reservation
 
 
 TERMINAL_PREPARE_JOB_STATUSES = {"succeeded", "failed", "cancelled", "waiting_resource"}
@@ -21,59 +23,56 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
     now = now_iso()
     job_id = f"toolprep_{uuid.uuid4().hex[:12]}"
     tool_id = str(payload.get("id") or "").strip()
+    reservation = tool_prepare_job_reservation(payload, tool_id)
     with get_connection(cfg) as connection:
-        existing_row = connection.execute(
-            """
-            SELECT *
-            FROM tool_prepare_jobs
-            WHERE tool_id = ? AND status IN ('queued', 'running')
-            ORDER BY rowid DESC
-            LIMIT 1
-            """,
-            (tool_id,),
-        ).fetchone()
+        existing_row = _fetch_active_prepare_job_by_reservation(connection, reservation["key"])
         if existing_row is not None:
-            event_rows = connection.execute(
-                """
-                SELECT * FROM tool_prepare_job_events
-                WHERE job_id = ?
-                ORDER BY rowid ASC
-                """,
-                (existing_row["job_id"],),
-            ).fetchall()
-            job = job_row_to_dict(existing_row, [event_row_to_dict(event_row) for event_row in event_rows])
+            job = _job_with_events(connection, existing_row)
             job["reusedExisting"] = True
             return job
-        connection.execute(
-            """
-            INSERT INTO tool_prepare_jobs (
-                job_id, status, stage, message, tool_id, request_json,
-                result_json, error_code, created_at, updated_at, started_at, finished_at, cancelled_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                job_id,
-                "queued",
-                "queued",
-                "Prepare job queued.",
-                tool_id,
-                json.dumps(payload, ensure_ascii=False, sort_keys=True),
-                None,
-                None,
-                now,
-                now,
-                None,
-                None,
-                None,
-            ),
-        )
+        try:
+            connection.execute(
+                """
+                INSERT INTO tool_prepare_jobs (
+                    job_id, status, stage, message, tool_id,
+                    reservation_key, reservation_package_spec, reservation_validation_target,
+                    request_json, result_json, error_code, created_at, updated_at,
+                    started_at, finished_at, cancelled_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    "queued",
+                    "queued",
+                    "Prepare job queued.",
+                    tool_id,
+                    reservation["key"],
+                    reservation["packageSpec"],
+                    reservation["validationTarget"],
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    None,
+                    None,
+                    now,
+                    now,
+                    None,
+                    None,
+                    None,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            existing_row = _fetch_active_prepare_job_by_reservation(connection, reservation["key"])
+            if existing_row is None:
+                raise
+            job = _job_with_events(connection, existing_row)
+            job["reusedExisting"] = True
+            return job
         _insert_prepare_job_event(
             connection,
             job_id=job_id,
             stage="queued",
             level="info",
             message="Prepare job queued.",
-            details={"toolId": tool_id},
+            details={"toolId": tool_id, "reservation": _reservation_payload(reservation)},
         )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)
@@ -102,6 +101,42 @@ def fetch_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, An
             else []
         )
     return job_row_to_dict(row, [event_row_to_dict(event_row) for event_row in event_rows]) if row is not None else None
+
+
+def _fetch_active_prepare_job_by_reservation(connection: sqlite3.Connection, reservation_key: str) -> sqlite3.Row | None:
+    normalized_key = str(reservation_key or "")
+    if not normalized_key:
+        return None
+    return connection.execute(
+        """
+        SELECT *
+        FROM tool_prepare_jobs
+        WHERE reservation_key = ? AND status IN ('queued', 'running')
+        ORDER BY rowid DESC
+        LIMIT 1
+        """,
+        (normalized_key,),
+    ).fetchone()
+
+
+def _job_with_events(connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    event_rows = connection.execute(
+        """
+        SELECT * FROM tool_prepare_job_events
+        WHERE job_id = ?
+        ORDER BY rowid ASC
+        """,
+        (row["job_id"],),
+    ).fetchall()
+    return job_row_to_dict(row, [event_row_to_dict(event_row) for event_row in event_rows])
+
+
+def _reservation_payload(reservation: dict[str, str]) -> dict[str, str]:
+    return {
+        "key": reservation["key"],
+        "packageSpec": reservation["packageSpec"],
+        "validationTarget": reservation["validationTarget"],
+    }
 
 
 def require_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, Any]:

@@ -5,6 +5,7 @@ import time
 
 from .config import RemoteRunnerConfig, ensure_runtime_layout
 from .storage_schema import SCHEMA_SQL
+from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 
 def now_iso() -> str:
@@ -18,6 +19,7 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection.executescript(SCHEMA_SQL)
     _ensure_run_event_columns(connection)
     _ensure_tools_columns(connection)
+    _ensure_tool_prepare_job_columns(connection)
     _ensure_artifact_columns(connection)
     connection.commit()
     return connection
@@ -71,6 +73,69 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE tools ADD COLUMN contract_status_json TEXT NOT NULL DEFAULT '{}'")
     if "published_at" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN published_at TEXT")
+
+
+def _ensure_tool_prepare_job_columns(connection: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(tool_prepare_jobs)").fetchall()}
+    column_definitions = {
+        "reservation_key": "TEXT NOT NULL DEFAULT ''",
+        "reservation_package_spec": "TEXT NOT NULL DEFAULT ''",
+        "reservation_validation_target": "TEXT NOT NULL DEFAULT ''",
+    }
+    added_columns = False
+    for column, definition in column_definitions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE tool_prepare_jobs ADD COLUMN {column} {definition}")
+            added_columns = True
+    if added_columns or _tool_prepare_jobs_need_reservation_backfill(connection):
+        _backfill_tool_prepare_job_reservations(connection)
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_prepare_jobs_active_reservation
+        ON tool_prepare_jobs(reservation_key)
+        WHERE status IN ('queued', 'running') AND reservation_key <> ''
+        """
+    )
+
+
+def _tool_prepare_jobs_need_reservation_backfill(connection: sqlite3.Connection) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM tool_prepare_jobs
+        WHERE reservation_key = ''
+        LIMIT 1
+        """
+    ).fetchone()
+    return row is not None
+
+
+def _backfill_tool_prepare_job_reservations(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        """
+        SELECT job_id, tool_id, request_json
+        FROM tool_prepare_jobs
+        WHERE reservation_key = ''
+        """
+    ).fetchall()
+    for row in rows:
+        request = json_object(row["request_json"])
+        reservation = tool_prepare_job_reservation(request, str(row["tool_id"] or ""))
+        connection.execute(
+            """
+            UPDATE tool_prepare_jobs
+            SET reservation_key = ?,
+                reservation_package_spec = ?,
+                reservation_validation_target = ?
+            WHERE job_id = ?
+            """,
+            (
+                reservation["key"],
+                reservation["packageSpec"],
+                reservation["validationTarget"],
+                row["job_id"],
+            ),
+        )
 
 
 def _ensure_artifact_columns(connection: sqlite3.Connection) -> None:
