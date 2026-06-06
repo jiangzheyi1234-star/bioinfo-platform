@@ -269,6 +269,33 @@ export type ToolSearchResponse = {
   };
 };
 
+export type ToolCatalogQualityCounts = {
+  discovered: number;
+  draftRunnable: number;
+  workflowReady: number;
+  productionEnabled: number;
+};
+
+export type SnakemakeWrapperCatalog = {
+  items: SnakemakeWrapperMatch[];
+  query: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  addableTotal: number;
+  qualityCounts: ToolCatalogQualityCounts;
+  sourceRef?: {
+    type?: string;
+    repository?: string;
+    ref?: string;
+  };
+};
+
+export type SnakemakeWrapperCatalogResponse = {
+  data: SnakemakeWrapperCatalog;
+};
+
 export type AddedTool = ToolSearchItem & {
   selectedVersion: string;
   selectedPackageSpec: string;

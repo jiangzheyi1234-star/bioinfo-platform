@@ -6,6 +6,7 @@ import {
   addToolDependency,
   createToolPrepareJob,
   fetchAddedTools,
+  fetchSnakemakeWrapperCatalog,
   getCachedAddedTools,
   openToolSourceUrl,
   removeToolDependency,
@@ -15,6 +16,7 @@ import {
 import {
   type AddedTool,
   type RuleSpecTemplate,
+  type SnakemakeWrapperCatalog,
   type ToolSearchItem,
   applySelectedPackageLock,
   applySelectedWrapperLock,
@@ -51,6 +53,9 @@ export function useToolsPageState() {
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchComplete, setSearchComplete] = useState(true);
+  const [wrapperCatalog, setWrapperCatalog] = useState<SnakemakeWrapperCatalog | null>(null);
+  const [wrapperCatalogLoading, setWrapperCatalogLoading] = useState(true);
+  const [wrapperCatalogError, setWrapperCatalogError] = useState("");
   const [editingRuleSpecToolId, setEditingRuleSpecToolId] = useState("");
   const [ruleSpecSavingId, setRuleSpecSavingId] = useState("");
   const [ruleSpecEditError, setRuleSpecEditError] = useState("");
@@ -84,6 +89,32 @@ export function useToolsPageState() {
   useEffect(() => {
     void loadAddedTools({ silent: Boolean(initialCachedAddedTools) });
   }, [initialCachedAddedTools, loadAddedTools]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setWrapperCatalogLoading(true);
+      setWrapperCatalogError("");
+      try {
+        const catalog = await fetchSnakemakeWrapperCatalog();
+        if (!cancelled) {
+          setWrapperCatalog(catalog);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setWrapperCatalog(null);
+          setWrapperCatalogError(toolErrorMessage(err, "读取 Snakemake wrapper catalog 失败"));
+        }
+      } finally {
+        if (!cancelled) {
+          setWrapperCatalogLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let shouldRefresh = false;
@@ -393,6 +424,9 @@ export function useToolsPageState() {
     source,
     toolsError,
     toolsLoading,
+    wrapperCatalog,
+    wrapperCatalogError,
+    wrapperCatalogLoading,
     ruleSpecEditError,
     ruleSpecSavingId,
     updateQuery,
