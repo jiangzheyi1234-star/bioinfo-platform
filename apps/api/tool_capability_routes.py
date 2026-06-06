@@ -91,7 +91,7 @@ async def tool_candidate_target_acceptance_api(
 @router.post("/api/v1/tool-capabilities/validation-queue/prepare", operation_id="prepareToolValidationQueue")
 async def prepare_tool_validation_queue_api(
     targetPlatform: str = "linux-64",
-    maxItems: int = Query(default=3, ge=1, le=10),
+    maxItems: int = Query(default=3, ge=1, le=30),
 ) -> dict[str, Any]:
     return await prepare_tool_validation_queue_from_request(
         target_platform=targetPlatform,

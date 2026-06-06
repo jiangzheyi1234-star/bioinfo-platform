@@ -177,7 +177,7 @@ def _bounded_validation_batch_size(value: int) -> int:
         parsed = int(value)
     except (TypeError, ValueError):
         parsed = 3
-    return min(10, max(1, parsed))
+    return min(30, max(1, parsed))
 
 
 def _latest_prepare_jobs_for_queue_items(runtime: Any, items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

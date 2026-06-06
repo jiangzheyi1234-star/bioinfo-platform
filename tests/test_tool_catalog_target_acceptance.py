@@ -460,17 +460,17 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
     result = asyncio.run(
         tool_capability_service.prepare_tool_validation_queue_from_request(
             target_platform="linux-64",
-            max_items=3,
+            max_items=50,
         )
     )
 
     data = result["data"]
     assert data["targetPlatform"] == "linux-64"
-    assert data["requested"] == 3
-    assert data["consideredCount"] == 3
+    assert data["requested"] == 30
+    assert data["consideredCount"] == 30
     assert data["activeStatuses"] == ["queued", "running"]
     assert data["terminalStatuses"] == ["cancelled", "failed", "succeeded", "waiting_resource"]
-    assert data["queuedCount"] == 2
+    assert data["queuedCount"] == 29
     assert data["skippedCount"] == 1
     assert [item["toolId"] for item in data["queued"]] == [payload["id"] for payload in runtime.created_payloads]
     assert all(item["status"] == "queued" for item in data["queued"])
