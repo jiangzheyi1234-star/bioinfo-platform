@@ -8,6 +8,7 @@ import {
   type RuleSpecTemplate,
   type SnakemakeWrapperCatalogResponse,
   type ToolCandidateCatalogResponse,
+  type ToolCatalogTargetAcceptanceResponse,
   type ToolProfileCatalogResponse,
   type ToolPrepareJob,
   type ToolPrepareJobResponse,
@@ -103,6 +104,15 @@ export async function fetchToolProfileCatalog(): Promise<ToolProfileCatalogRespo
   const response = await requestLocalApiJson<ToolProfileCatalogResponse>(
     "GET",
     "/api/v1/tool-capabilities/tool-profiles?page=1&pageSize=50",
+    { cache: "no-store" }
+  );
+  return response.data;
+}
+
+export async function fetchToolCandidateTargetAcceptance(): Promise<ToolCatalogTargetAcceptanceResponse["data"]> {
+  const response = await requestLocalApiJson<ToolCatalogTargetAcceptanceResponse>(
+    "GET",
+    "/api/v1/tool-capabilities/target-acceptance?targetPlatform=linux-64",
     { cache: "no-store" }
   );
   return response.data;
