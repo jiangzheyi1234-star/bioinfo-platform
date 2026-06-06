@@ -16,6 +16,12 @@ from .log_storage import (
     append_log_lines,
     fetch_log_lines,
 )
+from .resource_storage import (
+    apply_resource,
+    enqueue_reconcile,
+    mark_resource_for_deletion,
+    record_reconcile_failure,
+)
 from .workflow_run_storage import (
     canonical_payload_hash,
     create_run_record,
@@ -36,3 +42,32 @@ from .upload_storage import (
     fetch_upload,
     persist_upload,
 )
+
+__all__ = [
+    "MAX_UPLOAD_BYTES",
+    "append_log_lines",
+    "apply_resource",
+    "canonical_payload_hash",
+    "create_run_record",
+    "delete_tool",
+    "enqueue_reconcile",
+    "fetch_log_lines",
+    "fetch_result",
+    "fetch_run",
+    "fetch_run_events",
+    "fetch_run_results",
+    "fetch_tool",
+    "fetch_upload",
+    "get_connection",
+    "list_results",
+    "list_runs",
+    "list_tools",
+    "mark_resource_for_deletion",
+    "persist_artifact",
+    "persist_upload",
+    "record_reconcile_failure",
+    "require_run",
+    "now_iso",
+    "update_run_state",
+    "upsert_tool",
+]

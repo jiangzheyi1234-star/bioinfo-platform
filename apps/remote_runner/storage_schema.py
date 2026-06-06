@@ -147,4 +147,52 @@ CREATE TABLE IF NOT EXISTS workflow_design_drafts (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS resources (
+    resource_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    desired_json TEXT NOT NULL,
+    observed_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    owner_kind TEXT,
+    owner_id TEXT,
+    finalizers_json TEXT NOT NULL DEFAULT '[]',
+    deletion_timestamp TEXT,
+    conditions_json TEXT NOT NULL DEFAULT '[]',
+    generation INTEGER NOT NULL,
+    observed_generation INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(kind, name)
+);
+
+CREATE TABLE IF NOT EXISTS resource_events (
+    event_id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    UNIQUE(resource_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS reconcile_queue (
+    item_id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    dedup_key TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',
+    available_at TEXT NOT NULL,
+    claimed_by TEXT,
+    claimed_until TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    backoff_seconds INTEGER NOT NULL DEFAULT 1,
+    max_attempts INTEGER NOT NULL DEFAULT 12,
+    jitter_seed TEXT NOT NULL,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(dedup_key)
+);
 """
