@@ -88,6 +88,70 @@ def require_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, 
     return job
 
 
+def list_latest_tool_prepare_jobs_by_tool_id(cfg: RemoteRunnerConfig, tool_ids: list[str]) -> dict[str, dict[str, Any]]:
+    normalized_ids = _normalized_tool_ids(tool_ids)
+    if not normalized_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in normalized_ids)
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT rowid, *
+            FROM tool_prepare_jobs
+            WHERE tool_id IN ({placeholders})
+            ORDER BY rowid DESC
+            """,
+            tuple(normalized_ids),
+        ).fetchall()
+    latest_jobs_by_tool_id: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        tool_id = str(row["tool_id"] or "").strip()
+        if not tool_id or tool_id in latest_jobs_by_tool_id:
+            continue
+        latest_jobs_by_tool_id[tool_id] = _job_row_to_safe_summary(row)
+    return latest_jobs_by_tool_id
+
+
+def _normalized_tool_ids(tool_ids: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in tool_ids:
+        tool_id = str(value or "").strip()
+        if not tool_id or tool_id in seen:
+            continue
+        seen.add(tool_id)
+        normalized.append(tool_id)
+    return normalized
+
+
+def _job_row_to_safe_summary(row: Any) -> dict[str, Any]:
+    result = json.loads(row["result_json"] or "{}") if row["result_json"] else {}
+    contract = result.get("toolContract") if isinstance(result, dict) and isinstance(result.get("toolContract"), dict) else {}
+    state = str(contract.get("state") or "").strip()
+    succeeded = str(row["status"] or "") == "succeeded"
+    workflow_ready = succeeded and (bool(contract.get("workflowReady")) or state in {"WorkflowReady", "ProductionEnabled"})
+    production_enabled = succeeded and (
+        bool(contract.get("productionEnabled"))
+        or str(contract.get("state") or "") == "ProductionEnabled"
+    )
+    return {
+        "jobId": row["job_id"],
+        "toolId": row["tool_id"],
+        "status": row["status"],
+        "stage": row["stage"],
+        "message": row["message"],
+        "errorCode": row["error_code"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+        "startedAt": row["started_at"],
+        "finishedAt": row["finished_at"],
+        "cancelledAt": row["cancelled_at"],
+        "resultState": state if succeeded else "",
+        "workflowReady": workflow_ready,
+        "productionEnabled": production_enabled,
+    }
+
+
 def record_tool_prepare_job_event(
     cfg: RemoteRunnerConfig,
     job_id: str,

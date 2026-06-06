@@ -20,6 +20,7 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     job_storage = (ROOT / "apps" / "remote_runner" / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
 
     assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in remote_route
+    assert '@router.get("/api/v1/tools/prepare-jobs")' in remote_route
     assert '@router.get("/api/v1/tools/prepare-jobs/{job_id}")' in remote_route
     assert '@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")' in remote_route
 
@@ -29,12 +30,15 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
 
     assert "def create_tool_prepare_job" in proxy
     assert 'client.post_json("/api/v1/tools/prepare-jobs"' in proxy
+    assert "def list_latest_tool_prepare_jobs" in proxy
+    assert 'client.get_json(f"/api/v1/tools/prepare-jobs?toolIds={tool_ids}"' in proxy
     assert "def get_tool_prepare_job" in proxy
     assert 'client.get_json(f"/api/v1/tools/prepare-jobs/{kwargs' in proxy
     assert "def cancel_tool_prepare_job" in proxy
 
     assert "RunnerToolOperationsMixin" in runner_ops
     assert "def create_tool_prepare_job" in runner_tool_ops
+    assert "def list_latest_tool_prepare_jobs" in runner_tool_ops
     assert "def get_tool_prepare_job" in runner_tool_ops
     assert "def cancel_tool_prepare_job" in runner_tool_ops
 
@@ -53,6 +57,8 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "trackToolPrepareJob(job)" in frontend_state
     assert "CREATE TABLE IF NOT EXISTS tool_prepare_job_events" in storage_schema
     assert "record_tool_prepare_job_event" in job_storage
+    assert "def list_latest_tool_prepare_jobs_by_tool_id" in job_storage
+    assert "latest_jobs_by_tool_id" in job_storage
     assert "fetchToolPrepareJob(jobId)" in task_context
     assert "cancelToolPrepareJob(jobId)" in task_context
     assert "ToolPrepareTaskBar" in task_bar

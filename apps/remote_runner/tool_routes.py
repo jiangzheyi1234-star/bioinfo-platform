@@ -14,6 +14,7 @@ from .tool_service import (
     create_tool_prepare_job_response_from_request,
     delete_tool_from_request,
     get_tool_prepare_job_from_request,
+    list_latest_tool_prepare_jobs_from_request,
     list_tools_from_request,
     mark_tool_production_from_request,
     update_tool_rule_template_from_request,
@@ -44,6 +45,11 @@ async def create_prepare_job(
         background_tasks,
         authorization,
     )
+
+
+@router.get("/api/v1/tools/prepare-jobs")
+async def list_latest_prepare_jobs(toolIds: str = "", authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await list_latest_tool_prepare_jobs_from_request(toolIds, authorization)
 
 
 @router.get("/api/v1/tools/prepare-jobs/{job_id}")
