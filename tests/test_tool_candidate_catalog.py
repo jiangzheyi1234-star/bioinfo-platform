@@ -42,6 +42,47 @@ def test_curated_tool_profile_catalog_attaches_snakemake_wrapper_evidence() -> N
     assert fastqc["snakemakeWrappers"][0]["sourceRef"]["type"] == "snakemake-wrapper"
 
 
+def test_curated_tool_profile_wrapper_evidence_preserves_contract_hints(monkeypatch) -> None:
+    from apps.api import tool_profile_external_refs
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
+
+    monkeypatch.setattr(
+        tool_profile_external_refs,
+        "find_snakemake_wrappers_for_tool",
+        lambda _tool_name: [
+            {
+                "wrapperRepository": "snakemake/snakemake-wrappers",
+                "wrapperRef": "v9.8.0",
+                "wrapperPath": "bio/fastqc",
+                "wrapperIdentifier": "v9.8.0/bio/fastqc",
+                "sourceRef": {"type": "snakemake-wrapper"},
+                "wrapperContractHints": {
+                    "description": "FastQC wrapper metadata",
+                    "environment": {
+                        "conda": {
+                            "channels": ["conda-forge", "bioconda"],
+                            "dependencies": ["fastqc =0.12.1"],
+                        }
+                    },
+                },
+            }
+        ],
+    )
+
+    catalog = catalog_tool_profiles(query="fastqc", page=1, page_size=10)
+
+    fastqc = next(item for item in catalog["items"] if item["profileId"] == "fastqc")
+    assert fastqc["snakemakeWrappers"][0]["wrapperContractHints"] == {
+        "description": "FastQC wrapper metadata",
+        "environment": {
+            "conda": {
+                "channels": ["conda-forge", "bioconda"],
+                "dependencies": ["fastqc =0.12.1"],
+            }
+        },
+    }
+
+
 def test_curated_tool_profile_catalog_exposes_external_registry_refs() -> None:
     from apps.api.tool_profile_catalog import catalog_tool_profiles
 

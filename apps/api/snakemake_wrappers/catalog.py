@@ -20,7 +20,10 @@ def find_snakemake_wrappers_for_tool(tool_name: str) -> list[dict[str, Any]]:
     if not normalized:
         return []
     index = wrapper_index()
-    return list(index.get(normalized, []))[:MAX_WRAPPER_MATCHES_PER_TOOL]
+    return [
+        _with_wrapper_contract_hints(entry)
+        for entry in list(index.get(normalized, []))[:MAX_WRAPPER_MATCHES_PER_TOOL]
+    ]
 
 
 def catalog_snakemake_wrappers(*, query: str = "", page: int = 1, page_size: int = 50) -> dict[str, Any]:

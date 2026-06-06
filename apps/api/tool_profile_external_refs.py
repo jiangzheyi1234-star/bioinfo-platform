@@ -61,6 +61,9 @@ def _wrapper_evidence(wrapper: dict[str, Any]) -> dict[str, Any]:
     environment_url = str(wrapper.get("environmentUrl") or "").strip()
     if environment_url:
         evidence["environmentUrl"] = environment_url
+    contract_hints = wrapper.get("wrapperContractHints")
+    if isinstance(contract_hints, dict) and contract_hints:
+        evidence["wrapperContractHints"] = dict(contract_hints)
     return evidence
 
 

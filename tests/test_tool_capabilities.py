@@ -398,6 +398,39 @@ def test_snakemake_wrapper_lookup_uses_disk_cache_before_network(monkeypatch) ->
     assert wrappers[0]["wrapperIdentifier"] == "test-wrapper-ref/bio/samtools/sort"
 
 
+def test_snakemake_wrapper_lookup_attaches_contract_hints(monkeypatch) -> None:
+    monkeypatch.setattr(
+        snakemake_wrapper_catalog,
+        "wrapper_index",
+        lambda: {"samtools": [_samtools_sort_wrapper("samtools")]},
+    )
+    monkeypatch.setattr(
+        snakemake_wrapper_catalog,
+        "wrapper_contract_hints",
+        lambda wrapper_path: {
+            "description": f"{wrapper_path} community metadata",
+            "environment": {
+                "conda": {
+                    "channels": ["conda-forge", "bioconda"],
+                    "dependencies": ["samtools =1.20"],
+                }
+            },
+        },
+    )
+
+    wrappers = snakemake_wrapper_catalog.find_snakemake_wrappers_for_tool("samtools")
+
+    assert wrappers[0]["wrapperContractHints"] == {
+        "description": "bio/samtools/sort community metadata",
+        "environment": {
+            "conda": {
+                "channels": ["conda-forge", "bioconda"],
+                "dependencies": ["samtools =1.20"],
+            }
+        },
+    }
+
+
 def test_snakemake_wrapper_lookup_propagates_network_error_without_cache(monkeypatch) -> None:
     snakemake_wrapper_index.clear_wrapper_index_cache()
     monkeypatch.setattr(snakemake_wrapper_index, "load_cached_wrapper_index", lambda: None)
