@@ -135,7 +135,7 @@ export function useToolsPageState(initialQuery = "") {
 
   useEffect(() => {
     const normalized = query.trim();
-    if (normalized.length < 2) {
+    if (view !== "search") {
       setItems([]);
       setSelectedId("");
       setError("");
@@ -148,24 +148,34 @@ export function useToolsPageState(initialQuery = "") {
       setCandidateCatalogError("");
       return;
     }
+    const canSearchTools = normalized.length >= 2;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setLoading(true);
+      setLoading(canSearchTools);
       setError("");
       setCandidateCatalogLoading(true);
       setCandidateCatalogError("");
       try {
         const catalog = await searchToolCandidates({
-          query: normalized,
-          page: searchPage,
+          query: canSearchTools ? normalized : "",
+          page: canSearchTools ? searchPage : 1,
           signal: controller.signal,
         });
         if (controller.signal.aborted) {
           return;
         }
-        const nextItems = installableCandidateItems(catalog.items || []);
         setCandidateCatalog(catalog);
         setCandidateCatalogError("");
+        if (!canSearchTools) {
+          setItems([]);
+          setSelectedId("");
+          setSearchTotal(0);
+          setSearchHasMore(false);
+          setSearchComplete(true);
+          setError("");
+          return;
+        }
+        const nextItems = installableCandidateItems(catalog.items || []);
         setItems(nextItems);
         setSearchTotal(catalog.sourceCounts?.condaPackages ?? nextItems.length);
         setSearchHasMore(Boolean(catalog.hasMore));
@@ -195,7 +205,7 @@ export function useToolsPageState(initialQuery = "") {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [query, searchPage]);
+  }, [query, searchPage, view]);
 
   const filtered = useMemo(() => {
     if (source === "all") {
