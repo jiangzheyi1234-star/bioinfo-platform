@@ -239,6 +239,41 @@ def test_validation_queue_prioritizes_wrapper_evidence_and_semantic_ports(monkey
     assert fastqc["priority"]["score"] >= 80
 
 
+def test_validation_evidence_summarizes_wrapper_contract_hints(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    profile = next(profile for profile in tool_candidate_target_acceptance.TOOL_PROFILES if profile.profile_id == "fastqc")
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "profile_snakemake_wrappers",
+        lambda _profile: [
+            {
+                "wrapperPath": "bio/fastqc",
+                "wrapperContractHints": {
+                    "description": "FastQC wrapper metadata",
+                    "input": ["FASTQ reads"],
+                    "output": ["HTML report"],
+                    "environment": {
+                        "conda": {
+                            "channels": ["conda-forge", "bioconda"],
+                            "dependencies": ["fastqc =0.12.1", "snakemake-wrapper-utils =0.8.0"],
+                        }
+                    },
+                },
+            }
+        ],
+    )
+
+    evidence = tool_candidate_target_acceptance._validation_evidence(
+        profile=profile,
+        prepare_payload={"ruleTemplate": profile.rule_template},
+    )
+
+    assert evidence["wrapperContractHintCount"] == 1
+    assert evidence["wrapperContractHintFields"] == ["description", "environment", "input", "output"]
+    assert evidence["wrapperCondaDependencies"] == ["fastqc =0.12.1", "snakemake-wrapper-utils =0.8.0"]
+
+
 def test_validation_queue_item_includes_prepare_job_validation_plan(monkeypatch) -> None:
     from apps.api import tool_candidate_target_acceptance
 
