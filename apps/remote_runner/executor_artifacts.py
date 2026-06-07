@@ -48,6 +48,8 @@ def _collect_artifacts(
                 mime_type=mime_type,
                 attempt_id=attempt_id,
                 lease_generation=lease_generation,
+                artifact_key=key,
+                step_id=str(artifact.get("stepId") or "").strip() or None,
             )
         )
     return artifacts

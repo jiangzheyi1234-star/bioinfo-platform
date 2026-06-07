@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from apps.remote_runner.execution_query_storage import fetch_run_results
+from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations, list_run_artifact_edges
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
@@ -48,6 +49,35 @@ def test_persist_artifact_records_storage_backend_and_uri(tmp_path: Path) -> Non
     assert artifact["storageUri"] == artifact_path.resolve().as_uri()
     assert fetched["storageBackend"] == "local"
     assert fetched["storageUri"] == artifact_path.resolve().as_uri()
+
+
+def test_persist_artifact_records_blob_materialization_and_output_edge(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_artifact_ledger")
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_text("accepted\n", encoding="utf-8")
+
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_artifact_ledger",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+
+    edges = list_run_artifact_edges(cfg, "run_artifact_ledger")
+    assert len(edges) == 1
+    assert edges[0]["role"] == "output"
+    assert edges[0]["portName"] == "report"
+    assert edges[0]["stepId"] == "summarize"
+    assert edges[0]["contentHash"] == artifact["sha256"]
+    assert artifact["artifactBlobId"] == edges[0]["artifactBlobId"]
+    materializations = list_artifact_materializations(cfg, edges[0]["artifactBlobId"])
+    assert len(materializations) == 1
+    assert materializations[0]["storageBackend"] == "local"
+    assert materializations[0]["storageUri"] == artifact_path.resolve().as_uri()
 
 
 def test_stale_attempt_cannot_publish_official_artifact(tmp_path: Path) -> None:
