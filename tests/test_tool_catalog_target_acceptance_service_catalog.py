@@ -7,6 +7,7 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
     from apps.api import tool_candidate_target_acceptance, tool_capability_service
 
     requested_page_sizes: list[int] = []
+    latest_prepare_tool_ids: list[str] = []
     prepare_payload = {
         "id": "bioconda::aaa-ready",
         "name": "aaa-ready",
@@ -29,7 +30,19 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
 
         def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
             assert tool_ids
-            return {"data": {"byToolId": {}}}
+            latest_prepare_tool_ids.extend(tool_ids)
+            return {
+                "data": {
+                    "byToolId": {
+                        "bioconda::aaa-ready": {
+                            "jobId": "toolprep_aaa",
+                            "toolId": "bioconda::aaa-ready",
+                            "status": "queued",
+                            "stage": "queued",
+                        }
+                    }
+                }
+            }
 
         def list_tool_index(
             self,
@@ -83,5 +96,10 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
     result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
 
     assert requested_page_sizes == [100]
+    assert "bioconda::aaa-ready" in latest_prepare_tool_ids
     queued_ids = {item["candidateId"] for item in result["data"]["validationQueue"]["items"]}
     assert "aaa-conda::ready" in queued_ids
+    queue_item = next(item for item in result["data"]["validationQueue"]["items"] if item["candidateId"] == "aaa-conda::ready")
+    assert queue_item["latestPrepareJob"]["jobId"] == "toolprep_aaa"
+    assert queue_item["action"] == "wait-for-tool-validation"
+    assert "preparePayload" not in queue_item

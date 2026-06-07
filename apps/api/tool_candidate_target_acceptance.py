@@ -215,7 +215,11 @@ def _production_plan() -> dict[str, Any]:
     }
 
 
-def validation_queue_tool_ids(*, registered_tools: list[dict[str, Any]] | None = None) -> list[str]:
+def validation_queue_tool_ids(
+    *,
+    registered_tools: list[dict[str, Any]] | None = None,
+    catalog_items: list[dict[str, Any]] | None = None,
+) -> list[str]:
     workflow_ready_names = _workflow_ready_tool_names(registered_tools or [])
     ids: list[str] = []
     for profile in TOOL_PROFILES:
@@ -223,7 +227,14 @@ def validation_queue_tool_ids(*, registered_tools: list[dict[str, Any]] | None =
             continue
         prepare_payload = profile_prepare_payload(profile)
         tool_id = str(prepare_payload.get("id") or "").strip()
-        if tool_id:
+        if tool_id and tool_id not in ids:
+            ids.append(tool_id)
+    for item in catalog_items or []:
+        if not _catalog_candidate_needs_validation(item, workflow_ready_names):
+            continue
+        prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else {}
+        tool_id = str(prepare_payload.get("id") or "").strip()
+        if tool_id and tool_id not in ids:
             ids.append(tool_id)
     return ids
 
