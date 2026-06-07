@@ -12,6 +12,7 @@ from .health_service import (
 from .pipeline import get_pipeline, list_pipelines
 from .result_preview_service import build_result_preview_data
 from .route_utils import authorized_config, data_response, run_sync
+from .run_worker_storage import build_run_worker_health
 from .storage import (
     fetch_log_lines,
     fetch_result,
@@ -48,6 +49,12 @@ async def health_meta_from_request(authorization: str | None) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     public_config = await run_sync(dump_public_config, cfg)
     return data_response(public_config)
+
+
+async def health_workers_from_request(authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    worker_health = await run_sync(build_run_worker_health, cfg)
+    return data_response(worker_health)
 
 
 async def list_pipelines_from_request(authorization: str | None) -> dict[str, Any]:

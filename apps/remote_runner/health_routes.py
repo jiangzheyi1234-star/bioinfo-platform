@@ -9,6 +9,7 @@ from .control_service import (
     health_meta_from_request,
     health_ready_from_request,
     health_startup_from_request,
+    health_workers_from_request,
 )
 from .route_headers import AuthorizationHeader
 
@@ -34,3 +35,8 @@ async def health_ready(authorization: AuthorizationHeader = None) -> dict[str, A
 @router.get("/health/meta")
 async def health_meta(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await health_meta_from_request(authorization)
+
+
+@router.get("/health/workers")
+async def health_workers(authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await health_workers_from_request(authorization)

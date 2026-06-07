@@ -24,8 +24,9 @@ from apps.remote_runner.execution_query_routes import (
     get_runs as list_runs_api,
     list_results_api,
 )
-from apps.remote_runner.health_routes import health_live, health_ready, health_startup
+from apps.remote_runner.health_routes import health_live, health_ready, health_startup, health_workers
 from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
+from apps.remote_runner.run_worker_storage import register_run_worker
 from apps.remote_runner.submission_routes import create_run, create_upload
 from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
@@ -91,6 +92,43 @@ def test_remote_runner_health_does_not_create_runtime_layout(tmp_path: Path, mon
     assert startup["status"] == "failed"
     assert ready["status"] == "failed"
     assert not Path(tmp_path / "shared" / "data" / "runner.db").exists()
+
+
+def test_remote_runner_worker_health_endpoint_reports_worker_sessions(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase-worker-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    cfg = load_remote_runner_config()
+    ensure_runtime_layout(cfg)
+    register_run_worker(
+        cfg,
+        worker_id="worker-api",
+        session_id="session-api",
+        pid=789,
+        hostname="host-api",
+        now="2026-06-07T10:00:00Z",
+    )
+
+    response = asyncio.run(health_workers(authorization="Bearer phase-worker-token"))
+
+    assert response["data"]["queueDepth"] == 0
+    assert response["data"]["claimedJobs"] == 0
+    assert response["data"]["workers"][0]["workerId"] == "worker-api"
+    assert response["data"]["workers"][0]["sessionId"] == "session-api"
+
 
 def test_remote_runner_upload_persists_file_and_metadata(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"

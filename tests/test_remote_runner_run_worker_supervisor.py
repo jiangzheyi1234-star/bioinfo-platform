@@ -13,17 +13,33 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
     from apps.remote_runner import worker_supervisor
 
     calls: list[dict[str, Any]] = []
+    heartbeats: list[dict[str, Any]] = []
+    registrations: list[dict[str, Any]] = []
+    stopped: list[dict[str, Any]] = []
 
-    def fake_process_next_run_job(cfg, *, worker_id: str, heartbeat_interval_seconds: float):
+    def fake_process_next_run_job(
+        cfg,
+        *,
+        worker_id: str,
+        heartbeat_interval_seconds: float,
+        on_attempt_claimed,
+        on_attempt_finished,
+    ):
         calls.append(
             {
                 "cfg": cfg,
                 "workerId": worker_id,
                 "heartbeatIntervalSeconds": heartbeat_interval_seconds,
+                "hasAttemptClaimedCallback": callable(on_attempt_claimed),
+                "hasAttemptFinishedCallback": callable(on_attempt_finished),
             }
         )
         return {"claimed": False}
 
+    monkeypatch.setattr(worker_supervisor, "register_run_worker", lambda _cfg, **kwargs: registrations.append(kwargs))
+    monkeypatch.setattr(worker_supervisor, "heartbeat_run_worker", lambda _cfg, **kwargs: heartbeats.append(kwargs))
+    monkeypatch.setattr(worker_supervisor, "mark_run_worker_stopped", lambda _cfg, **kwargs: stopped.append(kwargs))
+    monkeypatch.setattr(worker_supervisor, "run_worker_is_draining", lambda _cfg, _worker_id: False)
     monkeypatch.setattr(worker_supervisor, "process_next_run_job", fake_process_next_run_job)
 
     cfg = SimpleNamespace(service_name="test-runner")
@@ -44,7 +60,40 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
         "cfg": cfg,
         "workerId": "worker_test",
         "heartbeatIntervalSeconds": 0.02,
+        "hasAttemptClaimedCallback": True,
+        "hasAttemptFinishedCallback": True,
     }
+    assert registrations[0]["worker_id"] == "worker_test"
+    assert heartbeats[0]["state"] == "idle"
+    assert stopped[0]["worker_id"] == "worker_test"
+
+
+def test_run_worker_supervisor_drain_skips_new_claims(monkeypatch) -> None:
+    from apps.remote_runner import worker_supervisor
+
+    heartbeats: list[dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(worker_supervisor, "register_run_worker", lambda _cfg, **_kwargs: {})
+    monkeypatch.setattr(worker_supervisor, "heartbeat_run_worker", lambda _cfg, **kwargs: heartbeats.append(kwargs))
+    monkeypatch.setattr(worker_supervisor, "mark_run_worker_stopped", lambda _cfg, **_kwargs: {})
+    monkeypatch.setattr(worker_supervisor, "run_worker_is_draining", lambda _cfg, _worker_id: True)
+    monkeypatch.setattr(worker_supervisor, "process_next_run_job", lambda *_args, **kwargs: calls.append(kwargs))
+
+    supervisor = worker_supervisor.start_run_worker_supervisor(
+        SimpleNamespace(service_name="test-runner"),
+        worker_id="worker_draining",
+        poll_interval_seconds=0.01,
+        heartbeat_interval_seconds=0.02,
+    )
+    deadline = time.monotonic() + 1
+    while not heartbeats and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    supervisor.stop(timeout_seconds=1)
+
+    assert calls == []
+    assert heartbeats[0]["state"] == "draining"
 
 
 def test_tool_prepare_worker_supervisor_polls_until_stopped(monkeypatch) -> None:

@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import threading
 from typing import Any
+import uuid
 
 from .config import load_remote_runner_config
 from .run_worker import process_next_run_job
+from .run_worker_storage import (
+    heartbeat_run_worker,
+    mark_run_worker_stopped,
+    register_run_worker,
+    run_worker_is_draining,
+)
 from .tool_prepare_job_storage import (
     claim_next_tool_prepare_job,
     heartbeat_tool_prepare_job,
@@ -27,9 +35,14 @@ class RunWorkerSupervisor:
         poll_interval_seconds: float,
         heartbeat_interval_seconds: float,
         error_backoff_seconds: float,
+        queue_name: str = "default",
+        concurrency_limit: int = 1,
     ) -> None:
         self._cfg = cfg
         self._worker_id = worker_id
+        self._session_id = f"session_{uuid.uuid4().hex[:12]}"
+        self._queue_name = queue_name
+        self._concurrency_limit = max(1, int(concurrency_limit))
         self._poll_interval_seconds = poll_interval_seconds
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._error_backoff_seconds = error_backoff_seconds
@@ -37,26 +50,91 @@ class RunWorkerSupervisor:
         self._thread = threading.Thread(target=self._run_loop, name=f"h2ometa-run-worker-{worker_id}", daemon=True)
 
     def start(self) -> None:
+        register_run_worker(
+            self._cfg,
+            worker_id=self._worker_id,
+            session_id=self._session_id,
+            pid=os.getpid(),
+            hostname=socket.gethostname(),
+            queue_name=self._queue_name,
+            concurrency_limit=self._concurrency_limit,
+        )
         self._thread.start()
 
     def stop(self, *, timeout_seconds: float = 5.0) -> None:
         self._stop_event.set()
         self._thread.join(timeout=timeout_seconds)
+        if not self._thread.is_alive():
+            self._heartbeat_stopped()
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
+                if run_worker_is_draining(self._cfg, self._worker_id):
+                    self._heartbeat("draining")
+                    self._stop_event.wait(self._poll_interval_seconds)
+                    continue
+                self._heartbeat("idle")
                 result = process_next_run_job(
                     self._cfg,
                     worker_id=self._worker_id,
                     heartbeat_interval_seconds=self._heartbeat_interval_seconds,
+                    on_attempt_claimed=self._mark_attempt_claimed,
+                    on_attempt_finished=self._mark_attempt_finished,
                 )
-            except Exception:  # noqa: BLE001 - supervisor must keep polling after persisting/logging failures.
+            except Exception as exc:  # noqa: BLE001 - supervisor must keep polling after persisting/logging failures.
+                self._heartbeat(
+                    "error",
+                    last_error={
+                        "code": "RUN_WORKER_LOOP_FAILED",
+                        "message": str(exc) or exc.__class__.__name__,
+                    },
+                )
                 LOGGER.exception("Remote runner worker loop failed.")
                 self._stop_event.wait(self._error_backoff_seconds)
                 continue
             if not result.get("claimed"):
                 self._stop_event.wait(self._poll_interval_seconds)
+
+    def _mark_attempt_claimed(self, claim: dict[str, Any]) -> None:
+        self._heartbeat("running", current_attempt_id=str(claim.get("attemptId") or ""))
+
+    def _mark_attempt_finished(self, result: dict[str, Any]) -> None:
+        error_message = str(result.get("executionError") or "")
+        self._heartbeat(
+            "idle",
+            last_error=(
+                {
+                    "code": "RUN_WORKER_EXECUTION_FAILED",
+                    "message": error_message,
+                }
+                if error_message
+                else None
+            ),
+        )
+
+    def _heartbeat(
+        self,
+        state: str,
+        *,
+        current_attempt_id: str | None = None,
+        last_error: dict[str, Any] | None = None,
+    ) -> None:
+        heartbeat_run_worker(
+            self._cfg,
+            worker_id=self._worker_id,
+            session_id=self._session_id,
+            state=state,
+            current_attempt_id=current_attempt_id,
+            last_error=last_error,
+        )
+
+    def _heartbeat_stopped(self) -> None:
+        mark_run_worker_stopped(
+            self._cfg,
+            worker_id=self._worker_id,
+            session_id=self._session_id,
+        )
 
 
 class ToolPrepareWorkerSupervisor:

@@ -19,6 +19,7 @@ from .workflow_run_storage import StaleRunAttemptError
 
 RunExecutorWithKeywords = Callable[..., None]
 NowFactory = Callable[[], str]
+AttemptCallback = Callable[[dict[str, Any]], None]
 
 
 def process_next_run_job(
@@ -29,6 +30,8 @@ def process_next_run_job(
     lease_seconds: int = 60,
     heartbeat_interval_seconds: float = 15.0,
     now_factory: NowFactory = now_iso,
+    on_attempt_claimed: AttemptCallback | None = None,
+    on_attempt_finished: AttemptCallback | None = None,
 ) -> dict[str, Any]:
     claim = claim_next_run_job(
         cfg,
@@ -45,6 +48,8 @@ def process_next_run_job(
     run = fetch_run(cfg, run_id)
     if run is None:
         raise KeyError(run_id)
+    if on_attempt_claimed is not None:
+        on_attempt_claimed(claim)
 
     heartbeat = heartbeat_run_attempt(
         cfg,
@@ -119,7 +124,7 @@ def process_next_run_job(
         exit_code=0 if attempt_state == "succeeded" else 1,
         now=now_factory(),
     )
-    return {
+    result = {
         "claimed": True,
         "runId": run_id,
         "jobId": claim["jobId"],
@@ -129,6 +134,9 @@ def process_next_run_job(
         "attemptCompletion": completion,
         "executionError": execution_error,
     }
+    if on_attempt_finished is not None:
+        on_attempt_finished(result)
+    return result
 
 
 def _start_heartbeat_thread(
