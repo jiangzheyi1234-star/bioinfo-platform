@@ -287,3 +287,52 @@ def test_run_worker_does_not_publish_failure_for_stale_attempt(tmp_path: Path) -
     run = fetch_run(cfg, "run_worker_stale_attempt")
     assert run is not None
     assert run["status"] == "queued"
+
+
+def test_run_worker_passes_stale_lease_cancellation_callback_to_executor(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner import run_worker
+
+    cfg = _config(tmp_path)
+    _create_queued_run(cfg, "run_worker_stale_cancellation")
+    clock = FakeClock()
+    cancel_seen = False
+
+    def fake_executor(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+        attempt_id: str,
+        lease_generation: int,
+        attempt_work_dir: str,
+        should_cancel_attempt,
+    ) -> None:
+        nonlocal cancel_seen
+        reclaimed = claim_next_run_job(
+            cfg,
+            worker_id="worker_reclaim_cancellation",
+            now="2026-06-07T10:05:00Z",
+            lease_seconds=30,
+        )
+        assert reclaimed is not None
+        assert reclaimed["leaseGeneration"] == lease_generation + 1
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if should_cancel_attempt():
+                cancel_seen = True
+                return
+            time.sleep(0.01)
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fake_executor)
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_stale_cancellation",
+        lease_seconds=1,
+        heartbeat_interval_seconds=0.01,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert cancel_seen is True

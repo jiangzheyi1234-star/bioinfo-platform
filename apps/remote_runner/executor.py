@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from .config import RemoteRunnerConfig
@@ -22,6 +23,9 @@ from .workflow_engine_adapter import (
 )
 
 
+_ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
+
+
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
     *,
@@ -31,6 +35,7 @@ def run_snakemake_execution(
     attempt_id: str | None = None,
     lease_generation: int | None = None,
     attempt_work_dir: str | None = None,
+    should_cancel_attempt: Callable[[], bool] | None = None,
 ) -> None:
     with SNAKEMAKE_EXECUTION_LOCK:
         result_dir = Path(cfg.results_dir) / run_id
@@ -49,7 +54,11 @@ def run_snakemake_execution(
         output_schema: dict | None = None
         run_outputs: dict[str, str] | None = None
         try:
-            engine = SnakemakeEngineAdapter(cfg, run_command=subprocess.run)
+            engine = SnakemakeEngineAdapter(
+                cfg,
+                run_command=_patched_subprocess_run_command(),
+                should_cancel=should_cancel_attempt,
+            )
             result_dir.mkdir(parents=True, exist_ok=True)
             work_dir.mkdir(parents=True, exist_ok=True)
             logs_dir.mkdir(parents=True, exist_ok=True)
@@ -236,6 +245,11 @@ def run_snakemake_execution(
                 attempt_id=attempt_id,
                 lease_generation=lease_generation,
             )
+
+
+def _patched_subprocess_run_command() -> Callable[..., object] | None:
+    current = getattr(subprocess, "run")
+    return current if current is not _ORIGINAL_SUBPROCESS_RUN else None
 
 
 def _resolve_execution_work_dir(

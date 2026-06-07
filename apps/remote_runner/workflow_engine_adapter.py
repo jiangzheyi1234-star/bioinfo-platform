@@ -1,10 +1,9 @@
 from __future__ import annotations
-
-import subprocess
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
+from .process_runner import ShouldCancel, run_process
 
 
 class WorkflowRuntimeCommandError(RuntimeError):
@@ -37,9 +36,13 @@ class SnakemakeEngineAdapter:
         cfg: RemoteRunnerConfig,
         *,
         run_command: Callable[..., Any] | None = None,
+        should_cancel: ShouldCancel | None = None,
+        poll_interval_seconds: float = 0.2,
     ) -> None:
         self._cfg = cfg
         self._run_command = run_command
+        self._should_cancel = should_cancel
+        self._poll_interval_seconds = poll_interval_seconds
 
     def dry_run(
         self,
@@ -64,12 +67,19 @@ class SnakemakeEngineAdapter:
         )
 
     def _execute(self, command: list[str]) -> Any:
-        run_command = self._run_command or subprocess.run
-        return run_command(
+        env = build_workflow_runtime_environment(self._cfg)
+        if self._run_command is not None:
+            return self._run_command(
+                command,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+        return run_process(
             command,
-            capture_output=True,
-            text=True,
-            env=build_workflow_runtime_environment(self._cfg),
+            env=env,
+            should_cancel=self._should_cancel,
+            poll_interval_seconds=self._poll_interval_seconds,
         )
 
     def _execution_args(

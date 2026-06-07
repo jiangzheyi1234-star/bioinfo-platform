@@ -66,14 +66,19 @@ def process_next_run_job(
     execution_error = ""
     try:
         executor = execute_run or run_snakemake_execution
+        executor_kwargs: dict[str, Any] = {
+            "run_id": run_id,
+            "request_id": str(run["requestId"]),
+            "run_spec": dict(run["runSpec"] or {}),
+            "attempt_id": attempt_id,
+            "lease_generation": lease_generation,
+            "attempt_work_dir": str(claim["attempt"]["workDir"]),
+        }
+        if execute_run is None:
+            executor_kwargs["should_cancel_attempt"] = stop_heartbeat.is_set
         executor(
             cfg,
-            run_id=run_id,
-            request_id=str(run["requestId"]),
-            run_spec=dict(run["runSpec"] or {}),
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-            attempt_work_dir=str(claim["attempt"]["workDir"]),
+            **executor_kwargs,
         )
     except StaleRunAttemptError as exc:
         execution_error = str(exc) or exc.__class__.__name__
