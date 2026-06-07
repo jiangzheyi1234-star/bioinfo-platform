@@ -467,6 +467,8 @@ def test_validation_queue_item_includes_latest_prepare_job_without_counting_it_r
         "errorCode": "WORKFLOW_RESOURCE_BINDING_REQUIRED",
         "updatedAt": "2026-06-07T00:00:00Z",
         "workflowReady": True,
+        "validationResultId": "toolval_fastqc",
+        "evidenceId": "evid_fastqc",
     }
 
     report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(
@@ -486,6 +488,8 @@ def test_validation_queue_item_includes_latest_prepare_job_without_counting_it_r
         "resultState": "",
         "workflowReady": False,
         "productionEnabled": False,
+        "validationResultId": "toolval_fastqc",
+        "evidenceId": "evid_fastqc",
     }
     assert report["targets"]["workflowReady"]["actual"] == 0
     assert report["targets"]["productionEnabled"]["actual"] == 0
@@ -859,12 +863,14 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
                 "message": "",
                 "errorCode": "",
                 "updatedAt": "",
-                "resultState": "",
-                "workflowReady": False,
-                "productionEnabled": False,
-            },
-        }
-    ]
+                    "resultState": "",
+                    "workflowReady": False,
+                    "productionEnabled": False,
+                    "validationResultId": "",
+                    "evidenceId": "",
+                },
+            }
+        ]
     assert data["targets"]["workflowReady"]["actual"] == 0
     assert data["remainingWorkflowReady"] == data["targets"]["workflowReady"]["remaining"]
 

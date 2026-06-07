@@ -436,6 +436,8 @@ export type ToolCatalogLatestPrepareJob = {
   resultState?: string;
   workflowReady?: boolean;
   productionEnabled?: boolean;
+  validationResultId?: string;
+  evidenceId?: string;
   createdAt?: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -611,8 +613,10 @@ export type ToolPrepareJob = {
   message: string;
   toolId: string;
   request?: { id?: string; name?: string; packageSpec?: string } & Record<string, unknown>;
-  result?: AddedTool | null;
+  result?: (AddedTool & { validationResultId?: string; evidenceId?: string }) | null;
   errorCode?: string | null;
+  validationResultId?: string;
+  evidenceId?: string;
   missingResources?: MissingToolResource[];
   createdAt: string;
   updatedAt: string;

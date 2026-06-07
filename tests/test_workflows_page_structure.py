@@ -113,6 +113,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "validationPlan?: WorkflowToolRecommendationValidationPlan" in api
     assert "latestPrepareJob?: WorkflowToolRecommendationLatestPrepareJob" in api
     assert "export type WorkflowToolRecommendationLatestPrepareJob" in api
+    assert "validationResultId?: string" in _type_body(api, "WorkflowToolRecommendationLatestPrepareJob")
+    assert "evidenceId?: string" in _type_body(api, "WorkflowToolRecommendationLatestPrepareJob")
     assert "toolRevisionId?: string" in api
     assert "toolId?: string" in api
     assert "WorkflowToolRecommendationPreparePayload" in api

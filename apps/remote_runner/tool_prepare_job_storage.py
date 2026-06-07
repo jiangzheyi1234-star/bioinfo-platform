@@ -499,6 +499,8 @@ def _job_row_to_safe_summary(row: Any) -> dict[str, Any]:
         "resultState": state if succeeded else "",
         "workflowReady": workflow_ready,
         "productionEnabled": production_enabled,
+        "validationResultId": str(result.get("validationResultId") or "") if succeeded else "",
+        "evidenceId": str(result.get("evidenceId") or "") if succeeded else "",
     }
 
 
@@ -595,21 +597,38 @@ def complete_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, result: dict
             ),
         )
         if cursor.rowcount:
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="published",
-                level="success",
-                message=str(result.get("message") or "Tool revision published."),
-                details={"toolRevisionId": str(result.get("toolRevisionId") or "")},
-            )
-            record_prepare_job_validation_result(
+            validation_result = record_prepare_job_validation_result(
                 connection,
                 job_id=job_id,
                 stage="published",
                 status="succeeded",
                 result=result,
                 created_at=now,
+            )
+            stored_result = {
+                **result,
+                "validationResultId": validation_result["validationResultId"],
+                "evidenceId": validation_result["evidenceId"],
+            }
+            connection.execute(
+                """
+                UPDATE tool_prepare_jobs
+                SET result_json = ?
+                WHERE job_id = ?
+                """,
+                (json.dumps(stored_result, ensure_ascii=False, sort_keys=True), job_id),
+            )
+            _insert_prepare_job_event(
+                connection,
+                job_id=job_id,
+                stage="published",
+                level="success",
+                message=str(result.get("message") or "Tool revision published."),
+                details={
+                    "toolRevisionId": str(result.get("toolRevisionId") or ""),
+                    "validationResultId": validation_result["validationResultId"],
+                    "evidenceId": validation_result["evidenceId"],
+                },
             )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)

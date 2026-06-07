@@ -418,6 +418,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "isActivePrepareJob(item)" in validation_queue
     assert "latestPrepareJob?.status" in validation_queue
     assert "latestPrepareJob?.errorCode" in validation_queue
+    assert "validationResultId?: string" in model
+    assert "evidenceId?: string" in model
     assert "validationPlan?.stages?.length" in validation_queue
     assert "prepare stages" in validation_queue
     assert "semanticPortFields" in validation_queue

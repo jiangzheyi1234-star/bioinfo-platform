@@ -458,6 +458,8 @@ def _safe_prepare_job_summary(value: dict[str, Any]) -> dict[str, Any]:
         "resultState": str(value.get("resultState") or "").strip() if succeeded else "",
         "workflowReady": succeeded and bool(value.get("workflowReady")),
         "productionEnabled": succeeded and bool(value.get("productionEnabled")),
+        "validationResultId": str(value.get("validationResultId") or "").strip(),
+        "evidenceId": str(value.get("evidenceId") or "").strip(),
     }
 
 

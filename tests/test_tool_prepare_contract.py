@@ -753,6 +753,8 @@ def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(tmp_path: Pa
         "resultState": "",
         "workflowReady": False,
         "productionEnabled": False,
+        "validationResultId": "",
+        "evidenceId": "",
     }
     assert summaries["bioconda::multiqc"]["jobId"] == other["jobId"]
     assert summaries["bioconda::multiqc"]["status"] == "queued"

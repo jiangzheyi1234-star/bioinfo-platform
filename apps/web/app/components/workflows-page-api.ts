@@ -67,6 +67,8 @@ export type WorkflowToolRecommendationLatestPrepareJob = {
   resultState?: string;
   workflowReady?: boolean;
   productionEnabled?: boolean;
+  validationResultId?: string;
+  evidenceId?: string;
 };
 
 export type WorkflowToolRecommendationValidationPlan = {

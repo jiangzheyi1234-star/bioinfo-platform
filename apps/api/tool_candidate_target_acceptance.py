@@ -389,6 +389,8 @@ def _safe_latest_prepare_job(value: Any) -> dict[str, Any] | None:
         "resultState": result_state,
         "workflowReady": succeeded and bool(value.get("workflowReady")),
         "productionEnabled": succeeded and bool(value.get("productionEnabled")),
+        "validationResultId": str(value.get("validationResultId") or "").strip(),
+        "evidenceId": str(value.get("evidenceId") or "").strip(),
     }
     for key in ("createdAt", "startedAt", "finishedAt", "cancelledAt"):
         if value.get(key) is not None:
