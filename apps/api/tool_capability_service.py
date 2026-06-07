@@ -302,12 +302,16 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
             validation_queue_tool_ids(registered_tools=registered_tools, catalog_items=_catalog_items(catalog))
         )
     )
-    return bio_agent_catalog_target_acceptance(
+    acceptance = bio_agent_catalog_target_acceptance(
         target_platform=target_platform,
         registered_tools=registered_tools,
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
         catalog=catalog,
     )
+    acceptance["prepareJobQueue"] = _prepare_job_queue_from_runtime_payload(
+        runtime.list_tool_prepare_job_queue(status="", limit=50, offset=0)
+    )
+    return acceptance
 
 
 def _catalog_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:
@@ -556,6 +560,27 @@ def _latest_prepare_jobs_from_runtime_payload(payload: Any) -> dict[str, Any]:
     if any(not isinstance(value, dict) for value in jobs.values()):
         raise ValueError("Invalid tool prepare jobs payload: job summaries must be objects")
     return jobs
+
+
+def _prepare_job_queue_from_runtime_payload(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        page = data if isinstance(data, dict) else payload
+    else:
+        page = None
+    if not isinstance(page, dict):
+        raise ValueError("Invalid tool prepare queue payload: expected an object")
+    items = page.get("items") if isinstance(page.get("items"), list) else []
+    status_counts = _record_counts(page.get("statusCounts"))
+    for status in (*ACTIVE_PREPARE_JOB_STATUSES, *TERMINAL_PREPARE_JOB_STATUSES):
+        status_counts.setdefault(status, 0)
+    return {
+        "items": [dict(item) for item in items if isinstance(item, dict)],
+        "total": _count_value(page.get("total")),
+        "limit": _count_value(page.get("limit")),
+        "offset": _count_value(page.get("offset")),
+        "statusCounts": status_counts,
+    }
 
 
 async def get_tool_capabilities_index_status_from_request() -> dict[str, Any]:
