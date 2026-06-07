@@ -81,6 +81,15 @@ def _ensure_tool_prepare_job_columns(connection: sqlite3.Connection) -> None:
         "reservation_key": "TEXT NOT NULL DEFAULT ''",
         "reservation_package_spec": "TEXT NOT NULL DEFAULT ''",
         "reservation_validation_target": "TEXT NOT NULL DEFAULT ''",
+        "claimed_by": "TEXT NOT NULL DEFAULT ''",
+        "claimed_until": "TEXT",
+        "heartbeat_at": "TEXT",
+        "attempts": "INTEGER NOT NULL DEFAULT 0",
+        "max_attempts": "INTEGER NOT NULL DEFAULT 3",
+        "next_attempt_at": "TEXT",
+        "exhausted_at": "TEXT",
+        "backoff_seconds": "INTEGER NOT NULL DEFAULT 30",
+        "last_worker_error_json": "TEXT NOT NULL DEFAULT '{}'",
     }
     added_columns = False
     for column, definition in column_definitions.items():

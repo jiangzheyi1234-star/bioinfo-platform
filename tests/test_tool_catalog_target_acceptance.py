@@ -800,7 +800,7 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
     assert data["requested"] == 30
     assert data["consideredCount"] == 30
     assert data["activeStatuses"] == ["queued", "running"]
-    assert data["terminalStatuses"] == ["cancelled", "failed", "succeeded", "waiting_resource"]
+    assert data["terminalStatuses"] == ["cancelled", "exhausted", "failed", "succeeded", "waiting_resource"]
     assert data["queuedCount"] == 29
     assert data["skippedCount"] == 1
     assert [item["toolId"] for item in data["queued"]] == [payload["id"] for payload in runtime.created_payloads]
