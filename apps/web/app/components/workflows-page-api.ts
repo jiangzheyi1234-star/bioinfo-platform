@@ -41,6 +41,7 @@ export type WorkflowToolRecommendationCandidate = {
   preferredWrapperPaths?: string[];
   snakemakeWrappers?: ToolProfileWrapperEvidence[];
   snakemakeWrapperCount?: number;
+  preparePayload?: WorkflowToolRecommendationPreparePayload;
 };
 
 export type WorkflowToolRecommendationExecutionGate = {

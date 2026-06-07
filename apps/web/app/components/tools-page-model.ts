@@ -38,6 +38,7 @@ export type ToolSearchItem = {
   testCommand?: string;
   ruleTemplate?: RuleSpecTemplate;
   ruleSpecDraft?: RuleSpecDraft;
+  preparePayload?: ToolCandidatePreparePayload;
   capabilities?: ToolCapability[];
   snakemakeWrappers?: SnakemakeWrapperMatch[];
   snakemakeWrapperCount?: number;
@@ -66,6 +67,23 @@ export type ToolCapability = {
   topics?: string[];
   inputs?: ToolCapabilitySlot[];
   outputs?: ToolCapabilitySlot[];
+};
+
+export type ToolCandidatePreparePayload = {
+  id?: string;
+  name?: string;
+  source?: string;
+  sourceLabel?: string;
+  packageSpec?: string;
+  version?: string;
+  latestVersion?: string;
+  targetPlatform?: string;
+  targetPlatformSupported?: boolean;
+  capabilities?: ToolCapability[];
+  snakemakeWrappers?: SnakemakeWrapperMatch[];
+  snakemakeWrapperCount?: number;
+  ruleTemplate?: RuleSpecTemplate;
+  ruleSpecDraft?: RuleSpecDraft;
 };
 
 export type RuleSpecScalar = string | number | boolean;
@@ -438,22 +456,7 @@ export type ToolCatalogValidationQueueItem = {
   executionGate?: ToolCatalogExecutionGate;
   validationPlan?: ToolCatalogValidationPlan;
   latestPrepareJob?: ToolCatalogLatestPrepareJob;
-  preparePayload?: {
-    id?: string;
-    name?: string;
-    source?: string;
-    sourceLabel?: string;
-    packageSpec?: string;
-    version?: string;
-    latestVersion?: string;
-    targetPlatform?: string;
-    targetPlatformSupported?: boolean;
-    capabilities?: ToolCapability[];
-    snakemakeWrappers?: SnakemakeWrapperMatch[];
-    snakemakeWrapperCount?: number;
-    ruleTemplate?: RuleSpecTemplate;
-    ruleSpecDraft?: RuleSpecDraft;
-  };
+  preparePayload?: ToolCandidatePreparePayload;
 };
 
 export type ToolCatalogValidationQueue = {
@@ -532,6 +535,7 @@ export type ToolProfileCandidate = {
   preferredWrapperPaths: string[];
   snakemakeWrappers?: ToolProfileWrapperEvidence[];
   snakemakeWrapperCount?: number;
+  preparePayload?: ToolCandidatePreparePayload;
 };
 
 export type ToolProfileCatalog = {

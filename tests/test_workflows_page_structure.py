@@ -15,6 +15,12 @@ def _function_body(source: str, name: str) -> str:
     return _balanced_block(source, brace)
 
 
+def _type_body(source: str, name: str) -> str:
+    start = source.index(f"export type {name} = {{")
+    brace = source.index("{", start)
+    return _balanced_block(source, brace)
+
+
 def _matching_delimiter_end(source: str, start: int, open_char: str, close_char: str) -> int:
     depth = 0
     for index in range(start, len(source)):
@@ -111,6 +117,7 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "toolId?: string" in api
     assert "WorkflowToolRecommendationPreparePayload" in api
     assert "preparePayload?: WorkflowToolRecommendationPreparePayload" in api
+    assert "preparePayload?: WorkflowToolRecommendationPreparePayload" in _type_body(api, "WorkflowToolRecommendationCandidate")
     assert "ToolProfileWrapperEvidence" in api
     assert "snakemakeWrappers?: ToolProfileWrapperEvidence[]" in api
     assert "snakemakeWrapperCount?: number" in api
