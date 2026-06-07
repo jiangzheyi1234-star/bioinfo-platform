@@ -392,6 +392,16 @@ def _prepare_tool_validation_queue(*, runtime: Any, target_platform: str, max_it
                 )
             )
             continue
+        terminal_block_reason = _terminal_prepare_job_block_reason(latest_prepare_job)
+        if terminal_block_reason:
+            skipped.append(
+                _skipped_validation_item(
+                    _queue_item_with_latest_prepare_job(item, latest_prepare_job),
+                    tool_id=tool_id,
+                    reason=terminal_block_reason,
+                )
+            )
+            continue
         prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else None
         if prepare_payload is None:
             skipped.append(_skipped_validation_item(item, tool_id=tool_id, reason="MISSING_PREPARE_PAYLOAD"))
@@ -460,6 +470,15 @@ def _active_prepare_job(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
     return str(value.get("status") or "").strip() in ACTIVE_PREPARE_JOB_STATUSES
+
+
+def _terminal_prepare_job_block_reason(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    status = str(value.get("status") or "").strip()
+    if status == "waiting_resource":
+        return "WAITING_RESOURCE"
+    return ""
 
 
 def _remaining_workflow_ready(acceptance: dict[str, Any]) -> int:
