@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
-from .process_runner import ShouldCancel, run_process
+from .process_runner import ProcessStarted, ShouldCancel, run_process
 
 
 class WorkflowRuntimeCommandError(RuntimeError):
@@ -37,11 +37,13 @@ class SnakemakeEngineAdapter:
         *,
         run_command: Callable[..., Any] | None = None,
         should_cancel: ShouldCancel | None = None,
+        on_process_started: ProcessStarted | None = None,
         poll_interval_seconds: float = 0.2,
     ) -> None:
         self._cfg = cfg
         self._run_command = run_command
         self._should_cancel = should_cancel
+        self._on_process_started = on_process_started
         self._poll_interval_seconds = poll_interval_seconds
 
     def dry_run(
@@ -79,6 +81,7 @@ class SnakemakeEngineAdapter:
             command,
             env=env,
             should_cancel=self._should_cancel,
+            on_process_started=self._on_process_started,
             poll_interval_seconds=self._poll_interval_seconds,
         )
 

@@ -11,6 +11,7 @@ from .executor_artifacts import _collect_artifacts
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
+from .run_execution_storage import record_run_attempt_process_group
 from .workflow_resources import build_workflow_resource_config
 from .storage import (
     append_log_lines,
@@ -58,6 +59,11 @@ def run_snakemake_execution(
                 cfg,
                 run_command=_patched_subprocess_run_command(),
                 should_cancel=should_cancel_attempt,
+                on_process_started=_process_group_recorder(
+                    cfg,
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                ),
             )
             result_dir.mkdir(parents=True, exist_ok=True)
             work_dir.mkdir(parents=True, exist_ok=True)
@@ -250,6 +256,26 @@ def run_snakemake_execution(
 def _patched_subprocess_run_command() -> Callable[..., object] | None:
     current = getattr(subprocess, "run")
     return current if current is not _ORIGINAL_SUBPROCESS_RUN else None
+
+
+def _process_group_recorder(
+    cfg: RemoteRunnerConfig,
+    *,
+    attempt_id: str | None,
+    lease_generation: int | None,
+) -> Callable[[int], None] | None:
+    if not str(attempt_id or "").strip() or lease_generation is None:
+        return None
+
+    def record(process_group_id: int) -> None:
+        record_run_attempt_process_group(
+            cfg,
+            str(attempt_id),
+            lease_generation=int(lease_generation),
+            process_group_id=str(process_group_id),
+        )
+
+    return record
 
 
 def _resolve_execution_work_dir(

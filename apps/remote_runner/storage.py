@@ -27,6 +27,7 @@ from .run_execution_storage import (
     complete_run_attempt,
     enqueue_run_job,
     heartbeat_run_attempt,
+    record_run_attempt_process_group,
 )
 from .workflow_run_storage import (
     canonical_payload_hash,
@@ -74,6 +75,7 @@ __all__ = [
     "mark_resource_for_deletion",
     "persist_artifact",
     "persist_upload",
+    "record_run_attempt_process_group",
     "record_reconcile_failure",
     "require_run",
     "heartbeat_run_attempt",

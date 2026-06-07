@@ -194,3 +194,84 @@ def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, 
         path_entries = env["PATH"].split(os.pathsep)
         assert path_entries[0] == str(snakemake_command.parent)
         assert path_entries[1] == str(managed_conda_command.parent)
+
+
+def test_executor_records_attempt_process_group_when_process_starts(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    from apps.remote_runner.storage import create_run_record, persist_upload
+    from apps.remote_runner.run_execution_storage import claim_next_run_job
+    from apps.remote_runner.storage_core import get_connection
+
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    run_spec = {
+        "runId": "run_attempt_process_group",
+        "projectId": "proj_demo",
+        "pipelineId": "file-summary-v1",
+        "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_demo",
+        request_id="req_attempt_process_group",
+        run_spec=run_spec,
+        idempotency_key="idem_attempt_process_group",
+        payload_hash="h" * 64,
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_process_group",
+        now="2026-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+
+    class FakeProcess:
+        pid = 4242
+        returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+        def communicate(self, timeout=None):
+            return "ok", ""
+
+    monkeypatch.setattr("apps.remote_runner.process_runner.subprocess.Popen", lambda *_args, **_kwargs: FakeProcess())
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_attempt_process_group",
+        request_id="req_attempt_process_group",
+        run_spec=run_spec,
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        attempt_work_dir=claim["attempt"]["workDir"],
+    )
+
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT process_group_id FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+    assert attempt["process_group_id"] == "4242"

@@ -8,6 +8,7 @@ import time
 
 
 ShouldCancel = Callable[[], bool]
+ProcessStarted = Callable[[int], None]
 
 
 def run_process(
@@ -15,6 +16,7 @@ def run_process(
     *,
     env: dict[str, str],
     should_cancel: ShouldCancel | None = None,
+    on_process_started: ProcessStarted | None = None,
     poll_interval_seconds: float = 0.2,
     terminate_timeout_seconds: float = 5.0,
 ) -> subprocess.CompletedProcess[str]:
@@ -26,6 +28,8 @@ def run_process(
         env=env,
         **_process_group_kwargs(),
     )
+    if on_process_started is not None:
+        on_process_started(int(process.pid))
     while True:
         if should_cancel is not None and should_cancel():
             return _terminate_process(
