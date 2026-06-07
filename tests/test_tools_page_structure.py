@@ -81,6 +81,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "sourceRef: candidate.sourceRef" in _function_body(hook, "installableCandidateItem")
     assert "initialQuery" in hook
     assert "useToolsPageState(initialQuery)" in page
+    assert "const catalogQualityStrip = (" in page
+    assert page.count("{catalogQualityStrip}") == 2
     assert "useSearchParams" not in page
     assert "searchParams" in route_page
     assert "type ToolsSearchParams = Promise" in route_page

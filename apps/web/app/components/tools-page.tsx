@@ -15,6 +15,20 @@ import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 
 export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
   const state = useToolsPageState(initialQuery);
+  const catalogQualityStrip = (
+    <ToolCatalogQualityStrip
+      candidateCatalog={state.candidateCatalog}
+      candidateCatalogError={state.candidateCatalogError}
+      candidateCatalogLoading={state.candidateCatalogLoading}
+      error={state.wrapperCatalogError}
+      loading={state.wrapperCatalogLoading}
+      targetAcceptance={state.targetAcceptance}
+      targetAcceptanceError={state.targetAcceptanceError}
+      targetAcceptanceLoading={state.targetAcceptanceLoading}
+      onQueueChanged={state.refreshToolCatalogTargets}
+      wrapperCatalog={state.wrapperCatalog}
+    />
+  );
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-4 py-6 text-slate-800 sm:px-6 sm:py-10 lg:px-8">
@@ -38,37 +52,29 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
         />
 
         {state.view === "library" ? (
-          <ToolsLibrarySection
-            addedTools={state.addedTools}
-            checkingToolId={state.checkingToolId}
-            editingRuleSpecToolId={state.editingRuleSpecToolId}
-            preparingToolIds={state.preparingToolIds}
-            ruleSpecEditError={state.ruleSpecEditError}
-            ruleSpecSavingId={state.ruleSpecSavingId}
-            toolsError={state.toolsError}
-            toolsLoading={state.toolsLoading}
-            waitingResourceJobsByToolId={state.waitingResourceJobsByToolId}
-            onCancelRuleSpecEdit={() => state.setEditingRuleSpecToolId("")}
-            onCheck={state.checkTool}
-            onEditRuleSpec={state.editToolRuleTemplate}
-            onRefresh={() => void state.loadAddedTools()}
-            onRemove={state.removeAddedTool}
-            onSaveRuleSpec={state.saveToolRuleTemplate}
-          />
+          <>
+            {catalogQualityStrip}
+            <ToolsLibrarySection
+              addedTools={state.addedTools}
+              checkingToolId={state.checkingToolId}
+              editingRuleSpecToolId={state.editingRuleSpecToolId}
+              preparingToolIds={state.preparingToolIds}
+              ruleSpecEditError={state.ruleSpecEditError}
+              ruleSpecSavingId={state.ruleSpecSavingId}
+              toolsError={state.toolsError}
+              toolsLoading={state.toolsLoading}
+              waitingResourceJobsByToolId={state.waitingResourceJobsByToolId}
+              onCancelRuleSpecEdit={() => state.setEditingRuleSpecToolId("")}
+              onCheck={state.checkTool}
+              onEditRuleSpec={state.editToolRuleTemplate}
+              onRefresh={() => void state.loadAddedTools()}
+              onRemove={state.removeAddedTool}
+              onSaveRuleSpec={state.saveToolRuleTemplate}
+            />
+          </>
         ) : (
           <>
-            <ToolCatalogQualityStrip
-              candidateCatalog={state.candidateCatalog}
-              candidateCatalogError={state.candidateCatalogError}
-              candidateCatalogLoading={state.candidateCatalogLoading}
-              error={state.wrapperCatalogError}
-              loading={state.wrapperCatalogLoading}
-              targetAcceptance={state.targetAcceptance}
-              targetAcceptanceError={state.targetAcceptanceError}
-              targetAcceptanceLoading={state.targetAcceptanceLoading}
-              onQueueChanged={state.refreshToolCatalogTargets}
-              wrapperCatalog={state.wrapperCatalog}
-            />
+            {catalogQualityStrip}
 
             <div>
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
