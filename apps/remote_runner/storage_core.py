@@ -17,6 +17,7 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
+    _ensure_run_columns(connection)
     _ensure_run_event_columns(connection)
     _ensure_run_execution_columns(connection)
     _ensure_tools_columns(connection)
@@ -24,6 +25,16 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     _ensure_artifact_columns(connection)
     connection.commit()
     return connection
+
+
+def _ensure_run_columns(connection: sqlite3.Connection) -> None:
+    _ensure_columns(
+        connection,
+        "runs",
+        {
+            "workflow_revision_id": "TEXT",
+        },
+    )
 
 
 def _ensure_run_event_columns(connection: sqlite3.Connection) -> None:

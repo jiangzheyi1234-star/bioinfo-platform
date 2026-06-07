@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -8,7 +9,7 @@ from apps.remote_runner.api_models import RunCreateRequest
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.errors import IdempotencyKeyReusedError
 from apps.remote_runner.storage_core import get_connection
-from apps.remote_runner.storage import create_run_record
+from apps.remote_runner.storage import create_run_record, fetch_run
 from apps.remote_runner.submission_service import create_run_from_request
 from tests.helpers.remote_runner_control_plane import _write_file_summary_pipeline
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -48,6 +49,67 @@ def test_idempotency_key_reuse_with_different_payload_raises_domain_error(tmp_pa
 
     assert str(raised.value) == "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD"
     assert raised.value.status_code == 422
+
+
+def test_run_storage_migrates_workflow_revision_id_column(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    legacy = sqlite3.connect(str(cfg.db_path))
+    legacy.executescript(
+        """
+        CREATE TABLE runs (
+            run_id TEXT PRIMARY KEY,
+            server_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            pipeline_id TEXT NOT NULL,
+            pipeline_version TEXT NOT NULL,
+            run_spec_version TEXT NOT NULL,
+            status TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            state_version INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            result_dir TEXT NOT NULL,
+            last_error_json TEXT,
+            last_updated_at TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            submitted_at TEXT NOT NULL,
+            run_spec_json TEXT NOT NULL
+        );
+        """
+    )
+    legacy.close()
+
+    with get_connection(cfg) as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()}
+
+    assert "workflow_revision_id" in columns
+
+
+def test_create_run_record_persists_top_level_workflow_revision_id(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    run_spec = {**_run_spec("run_revision_id"), "workflowRevisionId": "wfrev_idem"}
+
+    created = create_run_record(
+        cfg,
+        server_id="srv_idem",
+        request_id="req_revision_id",
+        run_spec=run_spec,
+        idempotency_key="idem_revision_id",
+        payload_hash="payload_hash_revision_id",
+    )
+    fetched = fetch_run(cfg, "run_revision_id")
+
+    assert created.run["workflowRevisionId"] == "wfrev_idem"
+    assert fetched is not None
+    assert fetched["workflowRevisionId"] == "wfrev_idem"
+    assert fetched["runSpec"]["workflowRevisionId"] == "wfrev_idem"
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT workflow_revision_id FROM runs WHERE run_id = ?",
+            ("run_revision_id",),
+        ).fetchone()
+    assert row["workflow_revision_id"] == "wfrev_idem"
 
 
 def test_create_run_record_reports_idempotency_replay_without_new_rows(tmp_path: Path) -> None:

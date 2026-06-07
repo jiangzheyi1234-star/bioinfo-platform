@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS runs (
     pipeline_id TEXT NOT NULL,
     pipeline_version TEXT NOT NULL,
     run_spec_version TEXT NOT NULL,
+    workflow_revision_id TEXT,
     status TEXT NOT NULL,
     stage TEXT NOT NULL,
     state_version INTEGER NOT NULL,
