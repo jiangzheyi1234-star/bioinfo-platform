@@ -7,6 +7,21 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 
+def _type_body(source: str, name: str) -> str:
+    start = source.index(f"export type {name} = {{")
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace : index + 1]
+    raise AssertionError(f"type body not found: {name}")
+
+
 def test_tools_page_has_focused_support_modules() -> None:
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
@@ -79,6 +94,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "export type ToolProfileWrapperEvidence" in model
     assert "snakemakeWrappers?: ToolProfileWrapperEvidence[]" in model
     assert "snakemakeWrapperCount?: number" in model
+    assert "export type ToolCandidatePreparePayload" in model
+    assert "preparePayload?: ToolCandidatePreparePayload" in _type_body(model, "ToolSearchItem")
+    assert "preparePayload?: ToolCandidatePreparePayload" in _type_body(model, "ToolProfileCandidate")
+    assert "preparePayload?: ToolCandidatePreparePayload" in _type_body(model, "ToolCatalogValidationQueueItem")
     assert "export type ToolCandidateCatalog" in model
     assert "export type ToolCandidateCatalogResponse" in model
     assert "sourceCounts: ToolCandidateSourceCounts" in model
