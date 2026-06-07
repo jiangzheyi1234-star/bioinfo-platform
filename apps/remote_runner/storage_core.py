@@ -80,6 +80,31 @@ def _ensure_run_execution_columns(connection: sqlite3.Connection) -> None:
             "output_adoption_state": "TEXT NOT NULL DEFAULT 'pending'",
         },
     )
+    _ensure_columns(
+        connection,
+        "run_workers",
+        {
+            "session_id": "TEXT NOT NULL DEFAULT ''",
+            "pid": "INTEGER NOT NULL DEFAULT 0",
+            "hostname": "TEXT NOT NULL DEFAULT ''",
+            "state": "TEXT NOT NULL DEFAULT 'idle'",
+            "queue_name": "TEXT NOT NULL DEFAULT 'default'",
+            "concurrency_limit": "INTEGER NOT NULL DEFAULT 1",
+            "current_attempt_id": "TEXT",
+            "heartbeat_at": "TEXT NOT NULL DEFAULT ''",
+            "last_error_json": "TEXT NOT NULL DEFAULT '{}'",
+            "drain_requested_at": "TEXT",
+            "started_at": "TEXT NOT NULL DEFAULT ''",
+            "stopped_at": "TEXT",
+            "updated_at": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_run_workers_state_heartbeat
+        ON run_workers(state, heartbeat_at)
+        """
+    )
 
 
 def _ensure_tools_columns(connection: sqlite3.Connection) -> None:

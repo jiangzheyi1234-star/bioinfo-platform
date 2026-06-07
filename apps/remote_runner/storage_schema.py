@@ -130,6 +130,23 @@ ON run_jobs(state, available_at, priority, created_at);
 CREATE INDEX IF NOT EXISTS idx_run_leases_active_expiry
 ON run_leases(state, expires_at);
 
+CREATE TABLE IF NOT EXISTS run_workers (
+    worker_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    hostname TEXT NOT NULL,
+    state TEXT NOT NULL,
+    queue_name TEXT NOT NULL DEFAULT 'default',
+    concurrency_limit INTEGER NOT NULL DEFAULT 1,
+    current_attempt_id TEXT,
+    heartbeat_at TEXT NOT NULL,
+    last_error_json TEXT NOT NULL DEFAULT '{}',
+    drain_requested_at TEXT,
+    started_at TEXT NOT NULL,
+    stopped_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS candidate_outputs (
     candidate_output_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
