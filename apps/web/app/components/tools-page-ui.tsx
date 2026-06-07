@@ -131,7 +131,7 @@ export function ToolCatalogQualityStrip({
           ? "正在读取 catalog"
           : error || wrapperCatalog?.sourceRef?.ref || "source pending";
   const targetMetrics = targetAcceptance ? catalogTargetMetrics(targetAcceptance) : [];
-  const validationQueueItems = targetAcceptance?.validationQueue?.items?.slice(0, 3) ?? [];
+  const validationQueueItems = targetAcceptance?.validationQueue?.items ?? [];
   const targetStatusText = targetAcceptanceLoading
     ? "正在读取 Catalog v1 targets"
     : targetAcceptanceError || (
