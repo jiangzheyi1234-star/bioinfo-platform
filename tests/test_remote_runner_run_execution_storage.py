@@ -12,6 +12,8 @@ from apps.remote_runner.run_execution_storage import (
     complete_run_attempt,
     heartbeat_run_attempt,
     record_run_attempt_process_group,
+    request_run_cancel,
+    run_attempt_cancel_requested,
 )
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
@@ -249,6 +251,76 @@ def test_process_group_recording_is_fenced_by_current_generation(tmp_path):
         ).fetchone()
     assert attempt["process_group_id"] == "4242"
     assert attempt["process_pid"] == 4242
+
+
+def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_cancel")
+    claim = claim_next_run_job(cfg, worker_id="worker_cancel", now="2026-06-07T10:00:00Z", lease_seconds=30)
+    assert claim is not None
+
+    result = request_run_cancel(
+        cfg,
+        "run_cancel",
+        actor="api-test",
+        command_id="cmd_cancel_run",
+        now="2026-06-07T10:00:05Z",
+    )
+
+    assert result == {
+        "runId": "run_cancel",
+        "status": "canceling",
+        "stage": "cancel",
+        "commandId": "cmd_cancel_run",
+        "attemptId": claim["attemptId"],
+        "cancelRequestedAt": "2026-06-07T10:00:05Z",
+    }
+    assert run_attempt_cancel_requested(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+    ) is True
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage, state_version FROM runs WHERE run_id = ?",
+            ("run_cancel",),
+        ).fetchone()
+        attempt = connection.execute(
+            "SELECT cancel_requested_at FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        command = connection.execute(
+            "SELECT command_type, actor FROM run_commands WHERE command_id = ?",
+            ("cmd_cancel_run",),
+        ).fetchone()
+        event = connection.execute(
+            "SELECT event_type, command_id FROM run_events WHERE event_type = ?",
+            ("run_cancel_requested",),
+        ).fetchone()
+    assert dict(run) == {"status": "canceling", "stage": "cancel", "state_version": 2}
+    assert attempt["cancel_requested_at"] == "2026-06-07T10:00:05Z"
+    assert dict(command) == {"command_type": "cancel_run", "actor": "api-test"}
+    assert dict(event) == {"event_type": "run_cancel_requested", "command_id": "cmd_cancel_run"}
+
+
+def test_run_attempt_cancel_requested_treats_stale_generation_as_cancelled(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_stale_cancel_check")
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
+    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    assert first is not None
+    assert second is not None
+
+    assert run_attempt_cancel_requested(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+    ) is True
+    assert run_attempt_cancel_requested(
+        cfg,
+        second["attemptId"],
+        lease_generation=second["leaseGeneration"],
+    ) is False
 
 
 def test_stale_attempt_cannot_update_run_projection(tmp_path):

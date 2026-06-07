@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig
-from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.run_execution_storage import claim_next_run_job, request_run_cancel
 from apps.remote_runner.run_worker import process_next_run_job
 from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
 from apps.remote_runner.storage_core import get_connection
@@ -331,6 +331,50 @@ def test_run_worker_passes_stale_lease_cancellation_callback_to_executor(tmp_pat
         worker_id="worker_stale_cancellation",
         lease_seconds=1,
         heartbeat_interval_seconds=0.01,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert cancel_seen is True
+
+
+def test_run_worker_cancellation_callback_observes_cancel_command(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner import run_worker
+
+    cfg = _config(tmp_path)
+    _create_queued_run(cfg, "run_worker_command_cancel")
+    clock = FakeClock()
+    cancel_seen = False
+
+    def fake_executor(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+        attempt_id: str,
+        lease_generation: int,
+        attempt_work_dir: str,
+        should_cancel_attempt,
+    ) -> None:
+        nonlocal cancel_seen
+        assert should_cancel_attempt() is False
+        request_run_cancel(
+            cfg,
+            run_id,
+            actor="worker-test",
+            command_id="cmd_worker_cancel",
+            now="2026-06-07T10:00:05Z",
+        )
+        cancel_seen = bool(should_cancel_attempt())
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fake_executor)
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_command_cancel",
+        lease_seconds=30,
+        heartbeat_interval_seconds=0,
         now_factory=clock,
     )
 

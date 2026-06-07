@@ -5,6 +5,7 @@ from typing import Any, Literal
 from fastapi import APIRouter
 
 from .control_service import (
+    cancel_run_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_run_events_from_request,
@@ -28,6 +29,11 @@ async def get_runs(authorization: AuthorizationHeader = None) -> dict[str, Any]:
 @router.get("/api/v1/runs/{run_id}")
 async def get_run(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_from_request(run_id, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/cancel")
+async def cancel_run_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await cancel_run_from_request(run_id, authorization)
 
 
 @router.get("/api/v1/runs/{run_id}/events")

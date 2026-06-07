@@ -8,8 +8,11 @@ import uuid
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .event_contracts import append_run_event_v2
+from .event_contracts import append_run_event_v2, record_run_command
 from .storage_core import get_connection, now_iso
+
+
+TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
 
 
 def enqueue_run_job(
@@ -304,6 +307,118 @@ def record_run_attempt_process_group(
         )
         connection.commit()
         return {"accepted": True, "processGroupId": normalized_process_group_id}
+
+
+def request_run_cancel(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    actor: str | None = None,
+    command_id: str | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    requested_at = _optional_text(now) or now_iso()
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        run = _fetch_run_row(connection, normalized_run_id)
+        command = record_run_command(
+            connection,
+            run_id=normalized_run_id,
+            command_type="cancel_run",
+            command_id=command_id,
+            payload={"runId": normalized_run_id},
+            actor=actor,
+            requested_at=requested_at,
+        )
+        lease = connection.execute(
+            """
+            SELECT *
+            FROM run_leases
+            WHERE run_id = ? AND state = 'active'
+            """,
+            (normalized_run_id,),
+        ).fetchone()
+        attempt_id = str(lease["attempt_id"]) if lease is not None else None
+        if attempt_id:
+            connection.execute(
+                """
+                UPDATE run_attempts
+                SET cancel_requested_at = COALESCE(cancel_requested_at, ?),
+                    updated_at = ?
+                WHERE attempt_id = ?
+                """,
+                (requested_at, requested_at, attempt_id),
+            )
+
+        next_state_version = int(run["state_version"])
+        target_status = str(run["status"])
+        if target_status not in TERMINAL_RUN_STATUSES:
+            next_state_version += 1
+            target_status = "canceling"
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, stage = ?, state_version = ?, message = ?,
+                    last_updated_at = ?
+                WHERE run_id = ?
+                """,
+                (
+                    target_status,
+                    "cancel",
+                    next_state_version,
+                    "Cancellation requested.",
+                    requested_at,
+                    normalized_run_id,
+                ),
+            )
+        append_run_event_v2(
+            connection,
+            run_id=normalized_run_id,
+            event_type="run_cancel_requested",
+            from_status=run["status"],
+            to_status=target_status,
+            stage="cancel",
+            state_version=next_state_version,
+            message="Run cancellation requested.",
+            request_id=str(run["request_id"]),
+            command_id=command["commandId"],
+            actor=actor,
+            payload={
+                "runId": normalized_run_id,
+                "attemptId": attempt_id,
+            },
+            occurred_at=requested_at,
+            command_derived=True,
+        )
+        connection.commit()
+        return {
+            "runId": normalized_run_id,
+            "status": target_status,
+            "stage": "cancel",
+            "commandId": command["commandId"],
+            "attemptId": attempt_id,
+            "cancelRequestedAt": requested_at,
+        }
+
+
+def run_attempt_cancel_requested(
+    cfg: RemoteRunnerConfig,
+    attempt_id: str,
+    *,
+    lease_generation: int,
+) -> bool:
+    normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        attempt = _fetch_attempt_row(connection, normalized_attempt_id)
+        lease = connection.execute(
+            "SELECT * FROM run_leases WHERE run_id = ?",
+            (attempt["run_id"],),
+        ).fetchone()
+        if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
+            return True
+        run = _fetch_run_row(connection, str(attempt["run_id"]))
+        return bool(attempt["cancel_requested_at"] or run["status"] == "canceling")
 
 
 def complete_run_attempt(

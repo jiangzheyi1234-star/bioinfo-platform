@@ -12,6 +12,7 @@ from .storage import (
     fetch_run,
     heartbeat_run_attempt,
     now_iso,
+    run_attempt_cancel_requested,
     update_run_state,
 )
 from .workflow_run_storage import StaleRunAttemptError
@@ -80,7 +81,14 @@ def process_next_run_job(
             "attempt_work_dir": str(claim["attempt"]["workDir"]),
         }
         if execute_run is None:
-            executor_kwargs["should_cancel_attempt"] = stop_heartbeat.is_set
+            def should_cancel_attempt() -> bool:
+                return stop_heartbeat.is_set() or run_attempt_cancel_requested(
+                    cfg,
+                    attempt_id,
+                    lease_generation=lease_generation,
+                )
+
+            executor_kwargs["should_cancel_attempt"] = should_cancel_attempt
         executor(
             cfg,
             **executor_kwargs,
