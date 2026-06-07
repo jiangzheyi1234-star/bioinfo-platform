@@ -250,7 +250,7 @@ function isActivePrepareJob(recommendation: WorkflowToolRecommendationItem): boo
 }
 
 function recommendationLabel(recommendation: WorkflowToolRecommendationItem): string {
-  return recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || recommendation.candidate.candidateId || "candidate";
+  return recommendationCandidateName(recommendation) || "candidate";
 }
 
 function toolSearchHref(recommendation: WorkflowToolRecommendationItem) {
@@ -261,13 +261,24 @@ function toolSearchHref(recommendation: WorkflowToolRecommendationItem) {
 }
 
 function recommendationSearchQuery(recommendation: WorkflowToolRecommendationItem): string {
-  return recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || "";
+  return recommendationCandidateName(recommendation);
+}
+
+function recommendationCandidateName(recommendation: WorkflowToolRecommendationItem): string {
+  return (
+    recommendation.candidate.toolNames?.[0] ||
+    recommendation.candidate.toolName ||
+    recommendation.candidate.name ||
+    recommendation.candidate.profileId ||
+    recommendation.candidate.candidateId ||
+    ""
+  );
 }
 
 function addedToolFromRecommendation(recommendation: WorkflowToolRecommendationItem): AddedTool | null {
   const payload = recommendation.preparePayload || recommendation.candidate.preparePayload;
   const id = String(payload?.id || "").trim();
-  const name = String(payload?.name || recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || "").trim();
+  const name = String(payload?.name || recommendationCandidateName(recommendation)).trim();
   const packageSpec = String(payload?.packageSpec || "").trim();
   if (!id || !name || !packageSpec) return null;
   const source = String(payload?.source || "bioconda").trim() || "bioconda";
