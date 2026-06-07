@@ -154,6 +154,79 @@ def require_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, 
     return job
 
 
+def list_tool_prepare_jobs(
+    cfg: RemoteRunnerConfig,
+    *,
+    status: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    normalized_status = str(status or "").strip()
+    bounded_limit = min(100, max(1, int(limit)))
+    bounded_offset = max(0, int(offset))
+    where_sql = "WHERE status = ?" if normalized_status else ""
+    params: tuple[Any, ...] = (normalized_status,) if normalized_status else ()
+    with get_connection(cfg) as connection:
+        total = connection.execute(
+            f"SELECT COUNT(*) AS count FROM tool_prepare_jobs {where_sql}",
+            params,
+        ).fetchone()["count"]
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM tool_prepare_jobs
+            {where_sql}
+            ORDER BY created_at DESC, job_id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, bounded_limit, bounded_offset),
+        ).fetchall()
+        count_rows = connection.execute(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM tool_prepare_jobs
+            GROUP BY status
+            """
+        ).fetchall()
+        event_rows_by_job_id = _events_by_job_id(connection, [str(row["job_id"]) for row in rows])
+    return {
+        "items": [
+            job_row_to_dict(row, [event_row_to_dict(event) for event in event_rows_by_job_id.get(str(row["job_id"]), [])])
+            for row in rows
+        ],
+        "total": int(total or 0),
+        "limit": bounded_limit,
+        "offset": bounded_offset,
+        "statusCounts": _prepare_job_status_counts(count_rows),
+    }
+
+
+def _events_by_job_id(connection: sqlite3.Connection, job_ids: list[str]) -> dict[str, list[sqlite3.Row]]:
+    if not job_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in job_ids)
+    rows = connection.execute(
+        f"""
+        SELECT *
+        FROM tool_prepare_job_events
+        WHERE job_id IN ({placeholders})
+        ORDER BY rowid ASC
+        """,
+        tuple(job_ids),
+    ).fetchall()
+    grouped: dict[str, list[sqlite3.Row]] = {job_id: [] for job_id in job_ids}
+    for row in rows:
+        grouped.setdefault(str(row["job_id"]), []).append(row)
+    return grouped
+
+
+def _prepare_job_status_counts(rows: list[Any]) -> dict[str, int]:
+    counts = {status: 0 for status in sorted(TERMINAL_PREPARE_JOB_STATUSES | {"queued", "running"})}
+    for row in rows:
+        counts[str(row["status"])] = int(row["count"] or 0)
+    return counts
+
+
 def list_latest_tool_prepare_jobs_by_tool_id(cfg: RemoteRunnerConfig, tool_ids: list[str]) -> dict[str, dict[str, Any]]:
     normalized_ids = _normalized_tool_ids(tool_ids)
     if not normalized_ids:

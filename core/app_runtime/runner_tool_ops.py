@@ -33,6 +33,19 @@ class RunnerToolOperationsMixin:
     def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, Any]:
         return self.tools.list_latest_tool_prepare_jobs(tool_ids)
 
+    def list_tool_prepare_job_queue(
+        self,
+        *,
+        status: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return self.tools.list_tool_prepare_job_queue(
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+
     def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
         return self.tools.get_tool_prepare_job(job_id)
 

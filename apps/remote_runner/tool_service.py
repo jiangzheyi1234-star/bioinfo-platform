@@ -8,6 +8,7 @@ from .tool_prepare_job_storage import (
     cancel_tool_prepare_job,
     create_tool_prepare_job,
     list_latest_tool_prepare_jobs_by_tool_id,
+    list_tool_prepare_jobs,
     require_tool_prepare_job,
 )
 from .tool_platform_storage import search_tool_index
@@ -86,6 +87,24 @@ async def list_latest_tool_prepare_jobs_from_request(
         _tool_ids_from_query(tool_ids),
     )
     return data_response({"items": list(latest_jobs.values()), "byToolId": latest_jobs})
+
+
+async def list_tool_prepare_job_queue_from_request(
+    authorization: str | None,
+    *,
+    status: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization)
+    page = await run_sync(
+        list_tool_prepare_jobs,
+        cfg,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+    return data_response(page)
 
 
 async def cancel_tool_prepare_job_from_request(

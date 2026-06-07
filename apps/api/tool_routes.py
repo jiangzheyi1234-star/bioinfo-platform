@@ -14,6 +14,7 @@ from apps.api.tool_service import (
     delete_tool_from_request,
     get_tool_prepare_job_from_request,
     list_tool_index_from_request,
+    list_tool_prepare_job_queue_from_request,
     list_tools_from_request,
     update_tool_rule_template_from_request,
 )
@@ -54,6 +55,19 @@ async def add_tool_api(payload: ToolManifestRequest) -> dict[str, Any]:
 @router.post("/api/v1/tools/prepare-jobs", status_code=202)
 async def create_tool_prepare_job_api(payload: ToolManifestRequest) -> dict[str, Any]:
     return await create_tool_prepare_job_from_request(payload)
+
+
+@router.get("/api/v1/tools/prepare-jobs/queue")
+async def list_tool_prepare_job_queue_api(
+    status: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    return await list_tool_prepare_job_queue_from_request(
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/api/v1/tools/prepare-jobs/{job_id}")

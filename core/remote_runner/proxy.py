@@ -84,6 +84,21 @@ class RemoteRunnerProxyMixin:
         tool_ids = quote(",".join(str(item or "").strip() for item in kwargs.get("tool_ids") or []), safe="")
         return client.get_json(f"/api/v1/tools/prepare-jobs?toolIds={tool_ids}")["data"]["byToolId"]
 
+    def list_tool_prepare_job_queue(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        query = urlencode(
+            {
+                "status": kwargs.get("status") or "",
+                "limit": int(kwargs.get("limit") or 50),
+                "offset": int(kwargs.get("offset") or 0),
+            }
+        )
+        return client.get_json(f"/api/v1/tools/prepare-jobs/queue?{query}")["data"]
+
     def get_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

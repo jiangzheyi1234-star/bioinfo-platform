@@ -69,6 +69,22 @@ async def create_tool_prepare_job_from_request(
     return result
 
 
+async def list_tool_prepare_job_queue_from_request(
+    *,
+    status: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().list_tool_prepare_job_queue(
+            status=status,
+            limit=limit,
+            offset=offset,
+        ),
+        wrapper="raw",
+    )
+
+
 async def get_tool_prepare_job_from_request(job_id: str) -> dict[str, Any]:
     return await run_runtime_payload(
         lambda: runtime_service().get_tool_prepare_job(job_id),
