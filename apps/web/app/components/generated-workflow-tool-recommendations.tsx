@@ -265,7 +265,7 @@ function recommendationSearchQuery(recommendation: WorkflowToolRecommendationIte
 }
 
 function addedToolFromRecommendation(recommendation: WorkflowToolRecommendationItem): AddedTool | null {
-  const payload = recommendation.preparePayload;
+  const payload = recommendation.preparePayload || recommendation.candidate.preparePayload;
   const id = String(payload?.id || "").trim();
   const name = String(payload?.name || recommendation.candidate.toolNames?.[0] || recommendation.candidate.profileId || "").trim();
   const packageSpec = String(payload?.packageSpec || "").trim();
