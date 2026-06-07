@@ -373,12 +373,17 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "wrapperContractHintFields?: string[]" in model
     assert "wrapperCondaDependencies?: string[]" in model
     assert "validationQueue?: ToolCatalogValidationQueue" in model
+    assert "export type ToolCatalogProductionQueue" in model
+    assert "productionQueue?: ToolCatalogProductionQueue" in model
     assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
     assert "validationQueueItems" in ui
     assert "targetAcceptance?.validationQueue?.items ?? []" in ui
     assert "targetAcceptance?.validationQueue?.items?.slice(0, 3)" not in ui
-    assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} />" in ui
+    assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} productionQueue={targetAcceptance?.productionQueue} />" in ui
     assert "validation queue" in validation_queue
+    assert "productionQueue" in validation_queue
+    assert "production evidence queue" in validation_queue
+    assert "submit-production-evidence" in validation_queue
     assert "visibleItems = items.slice(0, 3)" in validation_queue
     assert "items.map((item)" not in validation_queue
     assert "createToolPrepareJob(tool)" in validation_queue

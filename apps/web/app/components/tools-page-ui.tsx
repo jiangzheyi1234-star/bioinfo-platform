@@ -185,7 +185,7 @@ export function ToolCatalogQualityStrip({
             ))}
           </div>
         </div>
-        <ToolCatalogValidationQueueStrip items={validationQueueItems} />
+        <ToolCatalogValidationQueueStrip items={validationQueueItems} productionQueue={targetAcceptance?.productionQueue} />
       </div>
     </section>
   );
