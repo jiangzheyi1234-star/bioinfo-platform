@@ -223,6 +223,37 @@ def heartbeat_run_attempt(
         return {"accepted": True, "expiresAt": expires_at}
 
 
+def record_run_attempt_process_group(
+    cfg: RemoteRunnerConfig,
+    attempt_id: str,
+    *,
+    lease_generation: int,
+    process_group_id: str,
+    now: str | None = None,
+) -> dict[str, Any]:
+    normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
+    normalized_process_group_id = _required_text(process_group_id, "PROCESS_GROUP_ID_REQUIRED")
+    updated_at = _optional_text(now) or now_iso()
+    with get_connection(cfg) as connection:
+        attempt = _fetch_attempt_row(connection, normalized_attempt_id)
+        lease = connection.execute(
+            "SELECT * FROM run_leases WHERE run_id = ?",
+            (attempt["run_id"],),
+        ).fetchone()
+        if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
+            return {"accepted": False, "reason": "stale_generation"}
+        connection.execute(
+            """
+            UPDATE run_attempts
+            SET process_group_id = ?, updated_at = ?
+            WHERE attempt_id = ?
+            """,
+            (normalized_process_group_id, updated_at, normalized_attempt_id),
+        )
+        connection.commit()
+        return {"accepted": True, "processGroupId": normalized_process_group_id}
+
+
 def complete_run_attempt(
     cfg: RemoteRunnerConfig,
     attempt_id: str,

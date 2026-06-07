@@ -10,6 +10,7 @@ from apps.remote_runner.run_execution_storage import (
     claim_next_run_job,
     complete_run_attempt,
     heartbeat_run_attempt,
+    record_run_attempt_process_group,
 )
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
@@ -150,6 +151,37 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     assert completion["reason"] == "stale_generation"
     run = fetch_run(cfg, "run_stale_attempt")
     assert run["status"] == "queued"
+
+
+def test_process_group_recording_is_fenced_by_current_generation(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_process_group")
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
+    assert first is not None
+
+    accepted = record_run_attempt_process_group(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        process_group_id="4242",
+    )
+    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    assert second is not None
+    rejected = record_run_attempt_process_group(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        process_group_id="9999",
+    )
+
+    assert accepted == {"accepted": True, "processGroupId": "4242"}
+    assert rejected == {"accepted": False, "reason": "stale_generation"}
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT process_group_id FROM run_attempts WHERE attempt_id = ?",
+            (first["attemptId"],),
+        ).fetchone()
+    assert attempt["process_group_id"] == "4242"
 
 
 def test_stale_attempt_cannot_update_run_projection(tmp_path):
