@@ -336,14 +336,20 @@ export async function submitWorkflowDesignRun({
   server,
   files,
   plan,
+  workflowRevisionId,
 }: {
   server: WorkflowServer;
   files: File[];
   plan: WorkflowDesignPlan;
+  workflowRevisionId: string;
 }): Promise<WorkflowRun> {
   if (!plan.valid) {
     const issue = plan.validationIssues[0];
     throw new Error(issue ? `${issue.code}: ${issue.message}` : "WORKFLOW_DESIGN_PLAN_INVALID");
+  }
+  const normalizedWorkflowRevisionId = workflowRevisionId.trim();
+  if (!normalizedWorkflowRevisionId) {
+    throw new Error("WORKFLOW_REVISION_ID_REQUIRED");
   }
   const plannedRunSpec = requireWorkflowDesignPlanRunSpec(plan);
   const plannedInputs = requireWorkflowDesignPlannedInputs(plannedRunSpec);
@@ -353,6 +359,7 @@ export async function submitWorkflowDesignRun({
   const uploads = await Promise.all(files.map((file) => uploadWorkflowFile(file, server.serverId)));
   const runSpec = {
     ...plannedRunSpec,
+    workflowRevisionId: normalizedWorkflowRevisionId,
     inputs: uploads.map((upload, index) => ({
       uploadId: upload.uploadId,
       filename: plannedInputs[index].filename,

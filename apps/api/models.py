@@ -77,6 +77,7 @@ class RunSpecRequest(BaseModel):
     pipelineVersion: str | None = None
     runId: str | None = None
     runSpecVersion: str | None = None
+    workflowRevisionId: str | None = None
     inputs: list[dict[str, Any]] | None = None
     params: dict[str, Any] | None = None
     resourceBindings: dict[str, Any] | None = None
