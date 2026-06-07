@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import sqlite3
 import uuid
@@ -15,16 +16,24 @@ def enqueue_run_job(
     cfg: RemoteRunnerConfig,
     run_id: str,
     *,
+    queue_name: str = "default",
     priority: int = 0,
     available_at: str | None = None,
+    max_attempts: int = 3,
+    retry_policy: dict[str, Any] | None = None,
+    timeout_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     queued_at = _optional_text(available_at) or now_iso()
     with get_connection(cfg) as connection:
         row = enqueue_run_job_record(
             connection,
             run_id=run_id,
+            queue_name=queue_name,
             priority=priority,
             available_at=queued_at,
+            max_attempts=max_attempts,
+            retry_policy=retry_policy,
+            timeout_policy=timeout_policy,
         )
         connection.commit()
         return _job_row_to_dict(row)
@@ -34,10 +43,16 @@ def enqueue_run_job_record(
     connection: sqlite3.Connection,
     *,
     run_id: str,
+    queue_name: str = "default",
     priority: int = 0,
     available_at: str,
+    max_attempts: int = 3,
+    retry_policy: dict[str, Any] | None = None,
+    timeout_policy: dict[str, Any] | None = None,
 ) -> sqlite3.Row:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    normalized_queue_name = _required_text(queue_name, "QUEUE_NAME_REQUIRED")
+    normalized_max_attempts = max(1, int(max_attempts))
     existing = connection.execute(
         "SELECT * FROM run_jobs WHERE run_id = ?",
         (normalized_run_id,),
@@ -50,10 +65,26 @@ def enqueue_run_job_record(
     connection.execute(
         """
         INSERT INTO run_jobs (
-            job_id, run_id, state, priority, available_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            job_id, run_id, state, queue_name, priority, available_at,
+            attempt_count, max_attempts, retry_policy_json, timeout_policy_json,
+            dead_lettered_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (job_id, normalized_run_id, "queued", int(priority), available_at, available_at, available_at),
+        (
+            job_id,
+            normalized_run_id,
+            "queued",
+            normalized_queue_name,
+            int(priority),
+            available_at,
+            0,
+            normalized_max_attempts,
+            _stable_json(retry_policy or {}),
+            _stable_json(timeout_policy or {}),
+            None,
+            available_at,
+            available_at,
+        ),
     )
     append_run_event_v2(
         connection,
@@ -63,7 +94,11 @@ def enqueue_run_job_record(
         state_version=int(run["state_version"]),
         message="Run job queued.",
         request_id=str(run["request_id"]),
-        payload={"jobId": job_id},
+        payload={
+            "jobId": job_id,
+            "queueName": normalized_queue_name,
+            "maxAttempts": normalized_max_attempts,
+        },
         occurred_at=available_at,
     )
     return connection.execute("SELECT * FROM run_jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -102,25 +137,32 @@ def claim_next_run_job(
             )
 
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
+        attempt_number = int(job["attempt_count"]) + 1
         work_dir = str(Path(cfg.work_dir) / "attempts" / attempt_id)
         expires_at = _add_seconds(claimed_at, int(lease_seconds))
         connection.execute(
             """
             INSERT INTO run_attempts (
-                attempt_id, run_id, job_id, lease_generation, state, worker_id,
-                work_dir, process_group_id, started_at, finished_at, exit_code,
-                fenced_reason, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                attempt_id, run_id, job_id, lease_generation, attempt_number,
+                state, worker_id, work_dir, process_pid, process_group_id,
+                cancel_requested_at, killed_at, output_adoption_state,
+                started_at, finished_at, exit_code, fenced_reason, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 attempt_id,
                 job["run_id"],
                 job["job_id"],
                 next_generation,
+                attempt_number,
                 "running",
                 normalized_worker_id,
                 work_dir,
                 None,
+                None,
+                None,
+                None,
+                "pending",
                 claimed_at,
                 None,
                 None,
@@ -156,8 +198,12 @@ def claim_next_run_job(
             ),
         )
         connection.execute(
-            "UPDATE run_jobs SET state = ?, updated_at = ? WHERE job_id = ?",
-            ("claimed", claimed_at, job["job_id"]),
+            """
+            UPDATE run_jobs
+            SET state = ?, attempt_count = ?, updated_at = ?
+            WHERE job_id = ?
+            """,
+            ("claimed", attempt_number, claimed_at, job["job_id"]),
         )
         append_run_event_v2(
             connection,
@@ -171,6 +217,7 @@ def claim_next_run_job(
                 "jobId": job["job_id"],
                 "attemptId": attempt_id,
                 "leaseGeneration": next_generation,
+                "attemptNumber": attempt_number,
                 "workerId": normalized_worker_id,
             },
             occurred_at=claimed_at,
@@ -245,10 +292,15 @@ def record_run_attempt_process_group(
         connection.execute(
             """
             UPDATE run_attempts
-            SET process_group_id = ?, updated_at = ?
+            SET process_group_id = ?, process_pid = ?, updated_at = ?
             WHERE attempt_id = ?
             """,
-            (normalized_process_group_id, updated_at, normalized_attempt_id),
+            (
+                normalized_process_group_id,
+                _optional_positive_int(normalized_process_group_id),
+                updated_at,
+                normalized_attempt_id,
+            ),
         )
         connection.commit()
         return {"accepted": True, "processGroupId": normalized_process_group_id}
@@ -331,10 +383,12 @@ def _select_claimable_job(connection: sqlite3.Connection, now: str) -> sqlite3.R
         WHERE (
             jobs.state = 'queued'
             AND jobs.available_at <= ?
+            AND jobs.dead_lettered_at IS NULL
         ) OR (
             jobs.state = 'claimed'
             AND leases.state = 'active'
             AND leases.expires_at < ?
+            AND jobs.dead_lettered_at IS NULL
         )
         ORDER BY jobs.priority DESC, jobs.available_at ASC, jobs.created_at ASC, jobs.job_id ASC
         LIMIT 1
@@ -411,8 +465,14 @@ def _job_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "jobId": row["job_id"],
         "runId": row["run_id"],
         "state": row["state"],
+        "queueName": row["queue_name"],
         "priority": int(row["priority"]),
         "availableAt": row["available_at"],
+        "attemptCount": int(row["attempt_count"]),
+        "maxAttempts": int(row["max_attempts"]),
+        "retryPolicy": _json_object(row["retry_policy_json"]),
+        "timeoutPolicy": _json_object(row["timeout_policy_json"]),
+        "deadLetteredAt": row["dead_lettered_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -424,10 +484,15 @@ def _attempt_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "runId": row["run_id"],
         "jobId": row["job_id"],
         "leaseGeneration": int(row["lease_generation"]),
+        "attemptNumber": int(row["attempt_number"]),
         "state": row["state"],
         "workerId": row["worker_id"],
         "workDir": row["work_dir"],
+        "processPid": row["process_pid"],
         "processGroupId": row["process_group_id"],
+        "cancelRequestedAt": row["cancel_requested_at"],
+        "killedAt": row["killed_at"],
+        "outputAdoptionState": row["output_adoption_state"],
         "startedAt": row["started_at"],
         "finishedAt": row["finished_at"],
         "exitCode": row["exit_code"],
@@ -477,6 +542,23 @@ def _required_text(value: str, code: str) -> str:
 def _optional_text(value: str | None) -> str | None:
     normalized = str(value or "").strip()
     return normalized or None
+
+
+def _stable_json(value: dict[str, Any]) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _json_object(value: str | None) -> dict[str, Any]:
+    parsed = json.loads(value or "{}")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _optional_positive_int(value: str) -> int | None:
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _add_seconds(value: str, seconds: int) -> str:
