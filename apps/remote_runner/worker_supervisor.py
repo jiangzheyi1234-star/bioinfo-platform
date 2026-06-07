@@ -7,7 +7,11 @@ from typing import Any
 
 from .config import load_remote_runner_config
 from .run_worker import process_next_run_job
-from .tool_prepare_job_storage import claim_next_tool_prepare_job
+from .tool_prepare_job_storage import (
+    claim_next_tool_prepare_job,
+    heartbeat_tool_prepare_job,
+    mark_tool_prepare_job_worker_failure,
+)
 from .tool_prepare_jobs import run_tool_prepare_job
 
 
@@ -60,11 +64,15 @@ class ToolPrepareWorkerSupervisor:
         self,
         cfg: Any,
         *,
+        worker_id: str,
         poll_interval_seconds: float,
+        heartbeat_interval_seconds: float,
         error_backoff_seconds: float,
     ) -> None:
         self._cfg = cfg
+        self._worker_id = worker_id
         self._poll_interval_seconds = poll_interval_seconds
+        self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._error_backoff_seconds = error_backoff_seconds
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, name="h2ometa-tool-prepare-worker", daemon=True)
@@ -79,7 +87,11 @@ class ToolPrepareWorkerSupervisor:
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                result = process_next_tool_prepare_job(self._cfg)
+                result = process_next_tool_prepare_job(
+                    self._cfg,
+                    worker_id=self._worker_id,
+                    heartbeat_interval_seconds=self._heartbeat_interval_seconds,
+                )
             except Exception:  # noqa: BLE001 - supervisor must keep polling after persisting/logging failures.
                 LOGGER.exception("Remote runner tool prepare worker loop failed.")
                 self._stop_event.wait(self._error_backoff_seconds)
@@ -107,23 +119,116 @@ def start_run_worker_supervisor(
     return supervisor
 
 
-def process_next_tool_prepare_job(cfg: Any) -> dict[str, Any]:
-    job = claim_next_tool_prepare_job(cfg)
+def process_next_tool_prepare_job(
+    cfg: Any,
+    *,
+    worker_id: str = "tool-prepare-worker-1",
+    lease_seconds: int = 300,
+    heartbeat_interval_seconds: float = 30.0,
+    retry_delay_seconds: int = 30,
+) -> dict[str, Any]:
+    job = claim_next_tool_prepare_job(
+        cfg,
+        worker_id=worker_id,
+        lease_seconds=lease_seconds,
+    )
     if job is None:
         return {"claimed": False}
-    run_tool_prepare_job(cfg, str(job["jobId"]))
-    return {"claimed": True, "jobId": str(job["jobId"])}
+    job_id = str(job["jobId"])
+    stop_heartbeat = threading.Event()
+    heartbeat_thread = _start_tool_prepare_heartbeat_thread(
+        cfg,
+        job_id=job_id,
+        worker_id=worker_id,
+        lease_seconds=lease_seconds,
+        interval_seconds=heartbeat_interval_seconds,
+        stop_event=stop_heartbeat,
+    )
+    try:
+        run_tool_prepare_job(cfg, job_id)
+    except Exception as exc:  # noqa: BLE001 - worker failures must not strand jobs in running state.
+        error_message = str(exc) or exc.__class__.__name__
+        retry = mark_tool_prepare_job_worker_failure(
+            cfg,
+            job_id,
+            code="TOOL_PREPARE_WORKER_CRASHED",
+            message=error_message,
+            retry_delay_seconds=retry_delay_seconds,
+        )
+        return {
+            "claimed": True,
+            "jobId": job_id,
+            "workerError": error_message,
+            "retryStatus": str(retry.get("status") or ""),
+        }
+    finally:
+        stop_heartbeat.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=1)
+    return {"claimed": True, "jobId": job_id}
+
+
+def _start_tool_prepare_heartbeat_thread(
+    cfg: Any,
+    *,
+    job_id: str,
+    worker_id: str,
+    lease_seconds: int,
+    interval_seconds: float,
+    stop_event: threading.Event,
+) -> threading.Thread | None:
+    if interval_seconds <= 0:
+        return None
+    thread = threading.Thread(
+        target=_heartbeat_tool_prepare_until_stopped,
+        kwargs={
+            "cfg": cfg,
+            "job_id": job_id,
+            "worker_id": worker_id,
+            "lease_seconds": lease_seconds,
+            "interval_seconds": interval_seconds,
+            "stop_event": stop_event,
+        },
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _heartbeat_tool_prepare_until_stopped(
+    *,
+    cfg: Any,
+    job_id: str,
+    worker_id: str,
+    lease_seconds: int,
+    interval_seconds: float,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.wait(interval_seconds):
+        result = heartbeat_tool_prepare_job(
+            cfg,
+            job_id,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+        )
+        if not result.get("accepted"):
+            stop_event.set()
+            return
 
 
 def start_tool_prepare_worker_supervisor(
     cfg: Any,
     *,
+    worker_id: str = "tool-prepare-worker-1",
     poll_interval_seconds: float = 1.0,
+    heartbeat_interval_seconds: float = 30.0,
     error_backoff_seconds: float = 5.0,
 ) -> ToolPrepareWorkerSupervisor:
     supervisor = ToolPrepareWorkerSupervisor(
         cfg,
+        worker_id=worker_id,
         poll_interval_seconds=poll_interval_seconds,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
         error_backoff_seconds=error_backoff_seconds,
     )
     supervisor.start()

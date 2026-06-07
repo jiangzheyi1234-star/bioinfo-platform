@@ -26,6 +26,7 @@ const STAGE_LABELS: Record<string, string> = {
   published: "发布完成",
   failed: "失败",
   cancelled: "已取消",
+  exhausted: "重试耗尽",
   spec_valid: "验证规格",
 };
 
@@ -293,6 +294,7 @@ function TaskStatusIcon({ compact = false, job }: { compact?: boolean; job: Tool
   const className = compact ? "h-3.5 w-3.5" : "h-4 w-4";
   if (job.status === "succeeded") return <CheckCircle2 strokeWidth={1.5} className={cn(className, "shrink-0 text-emerald-500")} />;
   if (job.status === "failed") return <XCircle strokeWidth={1.5} className={cn(className, "shrink-0 text-red-500")} />;
+  if (job.status === "exhausted") return <XCircle strokeWidth={1.5} className={cn(className, "shrink-0 text-red-500")} />;
   if (job.status === "cancelled") return <X strokeWidth={1.5} className={cn(className, "shrink-0 text-amber-500")} />;
   if (job.status === "waiting_resource") return <Clock3 strokeWidth={1.5} className={cn(className, "shrink-0 text-amber-500")} />;
   if (job.status === "queued") return <Clock3 strokeWidth={1.5} className={cn(className, "shrink-0 text-blue-500")} />;
@@ -329,6 +331,7 @@ function statusLabel(status: string) {
   if (status === "failed") return "失败";
   if (status === "cancelled") return "已取消";
   if (status === "waiting_resource") return "等待数据库";
+  if (status === "exhausted") return "重试耗尽";
   return status;
 }
 

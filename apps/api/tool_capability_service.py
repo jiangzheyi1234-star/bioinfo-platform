@@ -14,7 +14,7 @@ from apps.api.tool_registry_payload import registered_tools_from_runtime_payload
 
 
 ACTIVE_PREPARE_JOB_STATUSES = ("queued", "running")
-TERMINAL_PREPARE_JOB_STATUSES = ("cancelled", "failed", "succeeded", "waiting_resource")
+TERMINAL_PREPARE_JOB_STATUSES = ("cancelled", "exhausted", "failed", "succeeded", "waiting_resource")
 
 
 async def search_tool_capabilities_from_request(
@@ -478,6 +478,8 @@ def _terminal_prepare_job_block_reason(value: Any) -> str:
     status = str(value.get("status") or "").strip()
     if status == "waiting_resource":
         return "WAITING_RESOURCE"
+    if status == "exhausted":
+        return "PREPARE_JOB_EXHAUSTED"
     return ""
 
 

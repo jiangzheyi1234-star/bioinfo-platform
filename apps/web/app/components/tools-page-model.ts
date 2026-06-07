@@ -565,7 +565,7 @@ export type AddedTool = ToolSearchItem & {
   lastCheckedAt?: string | null;
 };
 
-export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting_resource" | string;
+export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting_resource" | "exhausted" | string;
 
 export type ToolPrepareJobEvent = {
   eventId: string;
