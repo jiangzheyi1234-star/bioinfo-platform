@@ -132,6 +132,10 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "const addStepRevisionId = recommendationAddStepRevisionId(recommendation, tool)" in recommendations_ui
     assert "const canAddStep = Boolean(recommendation.executionGate?.canAddStep && addStepRevisionId)" in recommendations_ui
     assert "onAddTool(addStepRevisionId)" in recommendations_ui
+    assert "recommendation.preparePayload || recommendation.candidate.preparePayload" in _function_body(
+        recommendations_ui,
+        "addedToolFromRecommendation",
+    )
     assert "!canAddStep && !tool && recommendation.executionGate?.requiredState" in recommendations_ui
     assert "recommendation.executionGate?.toolRevisionId" in recommendations_ui
     assert "recommendation.executionGate?.toolId" in recommendations_ui
