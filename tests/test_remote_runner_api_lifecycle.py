@@ -15,6 +15,7 @@ from apps.remote_runner.errors import RemoteRunnerAuthError
 from core.contracts.pipeline_manifest import PipelineRegistryError
 from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
 from apps.remote_runner.execution_query_routes import (
+    cancel_run_api,
     get_result_api,
     get_result_preview_api,
     get_run as get_run_api,
@@ -28,6 +29,7 @@ from apps.remote_runner.health_routes import health_live, health_ready, health_s
 from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
 from apps.remote_runner.run_worker_storage import register_run_worker
 from apps.remote_runner.submission_routes import create_run, create_upload
+from apps.remote_runner.workflow_run_storage import create_run_record
 from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
 )
@@ -128,6 +130,48 @@ def test_remote_runner_worker_health_endpoint_reports_worker_sessions(tmp_path: 
     assert response["data"]["claimedJobs"] == 0
     assert response["data"]["workers"][0]["workerId"] == "worker-api"
     assert response["data"]["workers"][0]["sessionId"] == "session-api"
+
+
+def test_remote_runner_cancel_run_endpoint_records_cancel_command(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase-cancel-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    cfg = load_remote_runner_config()
+    ensure_runtime_layout(cfg)
+    create_run_record(
+        cfg,
+        server_id="srv_cancel_api",
+        request_id="req_cancel_api",
+        run_spec={
+            "runId": "run_cancel_api",
+            "projectId": "proj_cancel_api",
+            "pipelineId": "pipeline_cancel_api",
+            "pipelineVersion": "0.1.0",
+        },
+        idempotency_key="idem_cancel_api",
+        payload_hash="hash_cancel_api",
+    )
+
+    response = asyncio.run(cancel_run_api("run_cancel_api", authorization="Bearer phase-cancel-token"))
+    run = asyncio.run(get_run_api("run_cancel_api", authorization="Bearer phase-cancel-token"))
+
+    assert response["data"]["runId"] == "run_cancel_api"
+    assert response["data"]["status"] == "canceling"
+    assert response["data"]["commandId"].startswith("cmd_")
+    assert run["data"]["status"] == "canceling"
 
 
 def test_remote_runner_upload_persists_file_and_metadata(tmp_path: Path, monkeypatch) -> None:

@@ -21,6 +21,7 @@ from .storage import (
     list_results,
     list_runs,
     require_run,
+    request_run_cancel,
 )
 from .submission_service import create_run_from_request as create_run_submission_from_request
 from .upload_service import persist_upload_from_request
@@ -110,6 +111,12 @@ async def get_run_from_request(run_id: str, authorization: str | None) -> dict[s
     cfg = await _authorized_config_from_request(authorization)
     run = await run_sync(require_run, cfg, run_id)
     return data_response(run)
+
+
+async def cancel_run_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    result = await run_sync(request_run_cancel, cfg, run_id, actor="remote-runner-api")
+    return data_response(result)
 
 
 async def get_run_events_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:

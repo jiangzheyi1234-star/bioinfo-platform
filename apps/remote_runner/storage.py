@@ -31,6 +31,8 @@ from .run_execution_storage import (
     enqueue_run_job,
     heartbeat_run_attempt,
     record_run_attempt_process_group,
+    request_run_cancel,
+    run_attempt_cancel_requested,
 )
 from .workflow_run_storage import (
     canonical_payload_hash,
@@ -81,7 +83,9 @@ __all__ = [
     "record_run_attempt_process_group",
     "record_reconcile_failure",
     "record_reconcile_success",
+    "request_run_cancel",
     "require_run",
+    "run_attempt_cancel_requested",
     "heartbeat_run_attempt",
     "now_iso",
     "update_resource_status",
