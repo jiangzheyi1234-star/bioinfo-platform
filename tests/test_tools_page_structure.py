@@ -22,6 +22,21 @@ def _type_body(source: str, name: str) -> str:
     raise AssertionError(f"type body not found: {name}")
 
 
+def _function_body(source: str, name: str) -> str:
+    start = source.index(f"function {name}(")
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace : index + 1]
+    raise AssertionError(f"function body not found: {name}")
+
+
 def test_tools_page_has_focused_support_modules() -> None:
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
@@ -59,6 +74,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS" in api
     assert "export function useToolsPageState" in hook
+    assert "items.flatMap(installableCandidateItem)" in hook
+    assert "function installableCandidateItem" in hook
+    assert "const payload = candidate.preparePayload" in _function_body(hook, "installableCandidateItem")
+    assert "candidateId: candidate.candidateId" in _function_body(hook, "installableCandidateItem")
+    assert "sourceRef: candidate.sourceRef" in _function_body(hook, "installableCandidateItem")
     assert "initialQuery" in hook
     assert "useToolsPageState(initialQuery)" in page
     assert "useSearchParams" not in page
