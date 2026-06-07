@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .evidence_storage import append_evidence_event
 from .production_evidence import normalize_production_evidence_type, validate_production_evidence_run
-from .storage import delete_tool, fetch_tool, list_tools, now_iso, upsert_tool
+from .storage import delete_tool, fetch_tool, get_connection, list_tools, now_iso, upsert_tool
 from .tool_capability_normalization import normalize_tool_capabilities
 from .tool_rule_template_normalization import normalize_rule_template
 from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
@@ -95,12 +96,22 @@ def mark_registered_tool_production_enabled(
     evidence_type = normalize_production_evidence_type(accepted.get("evidenceType"))
     accepted["evidenceType"] = evidence_type
     artifact_summary = validate_production_evidence_run(cfg, accepted, tool_id=normalized)
+    checked_at = now_iso()
+    evidence_event = _record_production_evidence_event(
+        cfg,
+        tool_id=normalized,
+        contract=contract,
+        accepted=accepted,
+        artifact_summary=artifact_summary,
+        checked_at=checked_at,
+    )
     production = {
         "status": "passed",
         "code": "PRODUCTION_ACCEPTED",
         "message": message,
-        "checkedAt": now_iso(),
+        "checkedAt": checked_at,
         "runId": run_id,
+        "evidenceId": evidence_event["eventId"],
     }
     for key in (
         "logPath",
@@ -119,6 +130,47 @@ def mark_registered_tool_production_enabled(
     item["status"] = "declared"
     item["message"] = message
     return upsert_tool(cfg, item)
+
+
+def _record_production_evidence_event(
+    cfg: RemoteRunnerConfig,
+    *,
+    tool_id: str,
+    contract: dict[str, Any],
+    accepted: dict[str, Any],
+    artifact_summary: dict[str, str],
+    checked_at: str,
+) -> dict[str, Any]:
+    payload = {
+        "toolId": tool_id,
+        "toolRevisionId": str(contract.get("toolRevisionId") or ""),
+        "runId": str(accepted.get("runId") or ""),
+        "evidenceType": str(accepted.get("evidenceType") or ""),
+        "message": str(accepted.get("message") or ""),
+        "logPath": str(accepted.get("logPath") or ""),
+        "databaseId": str(accepted.get("databaseId") or ""),
+        "templateId": str(accepted.get("templateId") or ""),
+        "role": str(accepted.get("role") or ""),
+        "artifactName": str(accepted.get("artifactName") or ""),
+        "targetPlatform": str(accepted.get("targetPlatform") or ""),
+        "environmentLock": accepted.get("environmentLock") if isinstance(accepted.get("environmentLock"), dict) else {},
+        "inputScope": accepted.get("inputScope") if isinstance(accepted.get("inputScope"), dict) else {},
+        "artifactDigest": str(accepted.get("artifactDigest") or ""),
+        "policyVersion": str(accepted.get("policyVersion") or ""),
+        **artifact_summary,
+    }
+    with get_connection(cfg) as connection:
+        event = append_evidence_event(
+            connection,
+            event_type="tool.production.acceptance.v1",
+            schema_name="ToolProductionAcceptanceEvidence",
+            subject_kind="tool",
+            subject_id=tool_id,
+            payload=payload,
+            occurred_at=checked_at,
+        )
+        connection.commit()
+    return event
 
 
 def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:

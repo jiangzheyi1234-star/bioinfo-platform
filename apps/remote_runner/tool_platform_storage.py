@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .evidence_storage import append_evidence_event
 from .storage_core import get_connection, now_iso
 from .tool_contract import build_tool_contract
 
@@ -132,6 +133,28 @@ def record_prepare_job_validation_result(
         result_payload=result_payload,
         created_at=occurred_at,
     )
+    logs = result_payload.get("logs") if isinstance(result_payload.get("logs"), list) else []
+    artifacts = result_payload.get("artifacts") if isinstance(result_payload.get("artifacts"), list) else []
+    evidence = append_evidence_event(
+        connection,
+        event_type="tool.validation.result.v1",
+        schema_name="ToolValidationResultEvidence",
+        subject_kind="tool",
+        subject_id=tool_id,
+        payload={
+            "validationResultId": validation_result_id,
+            "toolId": tool_id,
+            "toolRevisionId": tool_revision_id,
+            "runtimeProfileId": runtime_profile_id,
+            "jobId": job_id,
+            "stage": str(stage or ""),
+            "status": str(status or ""),
+            "failureCode": str(failure_code or ""),
+            "logs": logs,
+            "artifacts": artifacts,
+        },
+        occurred_at=occurred_at,
+    )
     connection.execute(
         """
         INSERT INTO tool_validation_results (
@@ -148,9 +171,9 @@ def record_prepare_job_validation_result(
             job_id,
             str(stage or ""),
             str(status or ""),
-            str(result_payload.get("evidenceId") or "") or None,
-            _json(result_payload.get("logs") if isinstance(result_payload.get("logs"), list) else []),
-            _json(result_payload.get("artifacts") if isinstance(result_payload.get("artifacts"), list) else []),
+            evidence["eventId"],
+            _json(logs),
+            _json(artifacts),
             str(failure_code or "") or None,
             _duration_ms(payload),
             occurred_at,

@@ -296,6 +296,41 @@ ON tool_validation_results(tool_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_validation_results_job
 ON tool_validation_results(job_id);
 
+CREATE TABLE IF NOT EXISTS evidence_schemas (
+    schema_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    json_schema_json TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(name, version),
+    UNIQUE(content_hash)
+);
+
+CREATE TABLE IF NOT EXISTS evidence_events (
+    event_id TEXT PRIMARY KEY,
+    seq INTEGER NOT NULL UNIQUE,
+    event_type TEXT NOT NULL,
+    event_schema_id TEXT NOT NULL,
+    subject_kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    producer TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    event_hash TEXT NOT NULL UNIQUE,
+    prev_event_hash TEXT NOT NULL DEFAULT '',
+    occurred_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_events_subject
+ON evidence_events(subject_kind, subject_id, seq);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_events_type_seq
+ON evidence_events(event_type, seq);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_events_chain
+ON evidence_events(seq, event_hash);
+
 CREATE TABLE IF NOT EXISTS tool_index (
     tool_id TEXT PRIMARY KEY,
     latest_stable_revision_id TEXT,
