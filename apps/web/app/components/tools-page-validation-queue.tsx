@@ -19,6 +19,7 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
   const [batchStatus, setBatchStatus] = useState("");
   const [error, setError] = useState("");
   const { trackToolPrepareJob } = useToolPrepareTasks();
+  const visibleItems = items.slice(0, 3);
 
   if (items.length === 0) {
     return null;
@@ -60,7 +61,7 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
   return (
     <>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const preparing = preparingCandidateId === item.candidateId;
           const activePrepareJob = isActivePrepareJob(item);
           return (
