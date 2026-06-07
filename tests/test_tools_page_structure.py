@@ -375,14 +375,19 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "validationQueue?: ToolCatalogValidationQueue" in model
     assert "export type ToolCatalogProductionQueue" in model
     assert "productionQueue?: ToolCatalogProductionQueue" in model
+    assert "export type ToolPrepareJobQueue" in model
+    assert "prepareJobQueue?: ToolPrepareJobQueue" in model
     assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
     assert "validationQueueItems" in ui
     assert "targetAcceptance?.validationQueue?.items ?? []" in ui
     assert "targetAcceptance?.validationQueue?.items?.slice(0, 3)" not in ui
-    assert "<ToolCatalogValidationQueueStrip items={validationQueueItems} productionQueue={targetAcceptance?.productionQueue} />" in ui
+    assert "prepareJobQueue={targetAcceptance?.prepareJobQueue}" in ui
     assert "validation queue" in validation_queue
     assert "productionQueue" in validation_queue
     assert "production evidence queue" in validation_queue
+    assert "prepareJobQueue" in validation_queue
+    assert "prepare job queue" in validation_queue
+    assert "prepareQueueMetricItems" in validation_queue
     assert "submit-production-evidence" in validation_queue
     assert "visibleItems = items.slice(0, 3)" in validation_queue
     assert "items.map((item)" not in validation_queue

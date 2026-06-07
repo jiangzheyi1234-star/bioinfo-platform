@@ -475,6 +475,24 @@ export type ToolCatalogProductionQueueItem = {
 
 export type ToolCatalogProductionQueue = { target: string; requiredState: string; remaining: number; available: number; items: ToolCatalogProductionQueueItem[] };
 
+export type ToolPrepareJobStatusCounts = Partial<Record<ToolPrepareJobStatus, number>> & {
+  queued?: number;
+  running?: number;
+  succeeded?: number;
+  failed?: number;
+  waiting_resource?: number;
+  cancelled?: number;
+  exhausted?: number;
+};
+
+export type ToolPrepareJobQueue = {
+  items: ToolPrepareJob[];
+  total: number;
+  limit: number;
+  offset: number;
+  statusCounts: ToolPrepareJobStatusCounts;
+};
+
 export type ToolCatalogTargetAcceptance = {
   targetName: string;
   targetPlatform: string;
@@ -496,6 +514,7 @@ export type ToolCatalogTargetAcceptance = {
   };
   validationQueue?: ToolCatalogValidationQueue;
   productionQueue?: ToolCatalogProductionQueue;
+  prepareJobQueue?: ToolPrepareJobQueue;
 };
 
 export type ToolCatalogTargetAcceptanceResponse = {

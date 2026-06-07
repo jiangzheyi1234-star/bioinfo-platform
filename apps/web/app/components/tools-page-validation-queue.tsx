@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { createToolPrepareJob, prepareToolValidationQueue } from "./tools-page-api";
 import {
   type AddedTool,
+  type ToolPrepareJobQueue,
   type ToolCatalogProductionQueue,
   type ToolCatalogValidationQueueItem,
   type ToolPrepareJob,
@@ -17,9 +18,11 @@ import { useToolPrepareTasks } from "./tool-prepare-task-context";
 export function ToolCatalogValidationQueueStrip({
   items,
   productionQueue,
+  prepareJobQueue,
 }: {
   items: ToolCatalogValidationQueueItem[];
   productionQueue?: ToolCatalogProductionQueue;
+  prepareJobQueue?: ToolPrepareJobQueue;
 }) {
   const [preparingCandidateId, setPreparingCandidateId] = useState("");
   const [batchPreparing, setBatchPreparing] = useState(false);
@@ -27,8 +30,9 @@ export function ToolCatalogValidationQueueStrip({
   const [error, setError] = useState("");
   const { trackToolPrepareJob } = useToolPrepareTasks();
   const visibleItems = items.slice(0, 3);
+  const prepareQueueActive = Boolean((prepareJobQueue?.total ?? 0) > 0 || prepareJobQueue?.items?.length);
 
-  if (items.length === 0 && !productionQueue?.items?.length) {
+  if (items.length === 0 && !productionQueue?.items?.length && !prepareQueueActive) {
     return null;
   }
 
@@ -67,6 +71,22 @@ export function ToolCatalogValidationQueueStrip({
 
   return (
     <>
+      {prepareQueueActive ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-500">
+            prepare job queue
+          </span>
+          {prepareQueueMetricItems(prepareJobQueue).map(([label, value]) => (
+            <span
+              key={label}
+              className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600"
+            >
+              <span className="mr-1 font-mono text-slate-900">{value}</span>
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {visibleItems.map((item) => {
           const preparing = preparingCandidateId === item.candidateId;
@@ -171,6 +191,17 @@ export function ToolCatalogValidationQueueStrip({
       {error ? <div className="mt-1 text-[11px] text-red-600">{error}</div> : null}
     </>
   );
+}
+
+function prepareQueueMetricItems(queue?: ToolPrepareJobQueue): [string, number][] {
+  const counts = queue?.statusCounts ?? {};
+  return [
+    ["queued", counts.queued ?? 0],
+    ["running", counts.running ?? 0],
+    ["waiting", counts.waiting_resource ?? 0],
+    ["exhausted", counts.exhausted ?? 0],
+    ["succeeded", counts.succeeded ?? 0],
+  ];
 }
 
 function isActivePrepareJob(item: ToolCatalogValidationQueueItem): boolean {
