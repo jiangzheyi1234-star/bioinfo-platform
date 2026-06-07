@@ -8,11 +8,6 @@ import uuid
 from typing import Any
 
 from .artifact_storage import artifact_payload_stats, persist_artifact
-from .artifact_ledger_storage import (
-    record_artifact_blob_for_path,
-    record_artifact_materialization,
-    record_run_artifact_edge,
-)
 from .config import RemoteRunnerConfig
 from .storage_core import get_connection, now_iso
 
@@ -183,31 +178,9 @@ def adopt_verified_candidate_outputs(
                 kind=str(spec["kind"]),
                 path=Path(str(row["path"])),
                 mime_type=str(spec["mimeType"]),
-            )
-            blob = record_artifact_blob_for_path(
-                cfg,
-                path=Path(str(row["path"])),
-                media_type=str(spec["mimeType"]),
-                created_at=occurred_at,
-            )
-            record_artifact_materialization(
-                cfg,
-                artifact_blob_id=blob["artifactBlobId"],
-                storage_backend=artifact["storageBackend"],
-                storage_uri=artifact["storageUri"],
-                local_path=Path(str(row["path"])),
-                created_at=occurred_at,
-            )
-            record_run_artifact_edge(
-                cfg,
-                run_id=normalized_run_id,
-                artifact_blob_id=blob["artifactBlobId"],
-                role="output",
-                port_name=output_key,
+                artifact_key=output_key,
                 step_id=_optional_text(spec.get("stepId")),
-                content_hash=blob["sha256"],
                 upstream_run_id=_optional_text(spec.get("upstreamRunId")),
-                created_at=occurred_at,
             )
             connection.execute(
                 """

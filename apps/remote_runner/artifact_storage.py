@@ -19,6 +19,10 @@ def persist_artifact(
     mime_type: str,
     attempt_id: str | None = None,
     lease_generation: int | None = None,
+    artifact_key: str | None = None,
+    role: str = "output",
+    step_id: str | None = None,
+    upstream_run_id: str | None = None,
 ) -> dict[str, Any]:
     size_bytes, sha256 = artifact_payload_stats(path)
     created_at = now_iso()
@@ -66,7 +70,69 @@ def persist_artifact(
             ),
         )
         connection.commit()
+    ledger = _record_artifact_ledger(
+        cfg,
+        artifact=artifact,
+        path=path,
+        artifact_key=artifact_key,
+        role=role,
+        step_id=step_id,
+        upstream_run_id=upstream_run_id,
+    )
+    artifact.update(ledger)
     return artifact
+
+
+def _record_artifact_ledger(
+    cfg: RemoteRunnerConfig,
+    *,
+    artifact: dict[str, Any],
+    path: Path,
+    artifact_key: str | None,
+    role: str,
+    step_id: str | None,
+    upstream_run_id: str | None,
+) -> dict[str, Any]:
+    normalized_key = str(artifact_key or "").strip()
+    if not normalized_key:
+        return {}
+
+    from .artifact_ledger_storage import (
+        record_artifact_blob_for_path,
+        record_artifact_materialization,
+        record_run_artifact_edge,
+    )
+
+    blob = record_artifact_blob_for_path(
+        cfg,
+        path=path,
+        media_type=str(artifact["mimeType"]),
+        created_at=str(artifact["createdAt"]),
+    )
+    materialization = record_artifact_materialization(
+        cfg,
+        artifact_blob_id=blob["artifactBlobId"],
+        storage_backend=str(artifact["storageBackend"]),
+        storage_uri=str(artifact["storageUri"]),
+        local_path=path,
+        created_at=str(artifact["createdAt"]),
+    )
+    edge = record_run_artifact_edge(
+        cfg,
+        run_id=str(artifact["runId"]),
+        artifact_blob_id=blob["artifactBlobId"],
+        role=str(role or "output").strip() or "output",
+        port_name=normalized_key,
+        step_id=step_id,
+        content_hash=blob["sha256"],
+        upstream_run_id=upstream_run_id,
+        created_at=str(artifact["createdAt"]),
+    )
+    return {
+        "artifactBlobId": blob["artifactBlobId"],
+        "materializationId": materialization["materializationId"],
+        "runArtifactEdgeId": edge["edgeId"],
+    }
 
 
 def artifact_payload_stats(path: Path) -> tuple[int, str]:
