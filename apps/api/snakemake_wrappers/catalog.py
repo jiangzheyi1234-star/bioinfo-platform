@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.tool_candidate_dependencies import (
+    conda_dependency_from_environment_hints,
+    package_spec_from_conda_dependency,
+)
 from apps.api.tool_candidate_model import snakemake_wrapper_candidate_fields
 
 from .candidate import normalize_tool_name
@@ -112,7 +116,7 @@ def _wrapper_prepare_payload(entry: dict[str, Any]) -> dict[str, Any] | None:
     source = dependency["source"]
     name = dependency["name"]
     version = dependency["version"]
-    package_spec = f"{source}::{name}={version}" if version else f"{source}::{name}"
+    package_spec = package_spec_from_conda_dependency(dependency)
     wrapper_match = {
         key: entry.get(key)
         for key in (
@@ -152,38 +156,5 @@ def _wrapper_prepare_payload(entry: dict[str, Any]) -> dict[str, Any] | None:
 
 def _wrapper_primary_dependency(entry: dict[str, Any]) -> dict[str, str] | None:
     hints = entry.get("wrapperContractHints") if isinstance(entry.get("wrapperContractHints"), dict) else {}
-    environment = hints.get("environment") if isinstance(hints.get("environment"), dict) else {}
-    conda = environment.get("conda") if isinstance(environment.get("conda"), dict) else {}
-    channels = [str(item).strip() for item in conda.get("channels", []) if str(item or "").strip()]
-    dependencies = [str(item).strip() for item in conda.get("dependencies", []) if str(item or "").strip()]
-    preferred_name = normalize_tool_name(str(entry.get("toolName") or entry.get("name") or ""))
-    parsed = [_parse_conda_dependency(dependency, channels=channels) for dependency in dependencies]
-    candidates = [dependency for dependency in parsed if dependency is not None]
-    if not candidates:
-        return None
-    for dependency in candidates:
-        if normalize_tool_name(dependency["name"]) == preferred_name:
-            return dependency
-    for dependency in candidates:
-        if normalize_tool_name(dependency["name"]) != "snakemake-wrapper-utils":
-            return dependency
-    return candidates[0]
-
-
-def _parse_conda_dependency(raw: str, *, channels: list[str]) -> dict[str, str] | None:
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    source = ""
-    if "::" in text:
-        source, text = [part.strip() for part in text.split("::", 1)]
-    if source not in {"bioconda", "conda-forge"}:
-        source = "bioconda" if "bioconda" in channels else "conda-forge"
-    normalized = " ".join(text.replace("==", "=").split())
-    name = normalized
-    version = ""
-    if "=" in normalized:
-        name, version = [part.strip() for part in normalized.split("=", 1)]
-    if not name or name.startswith("-"):
-        return None
-    return {"source": source, "name": name, "version": version}
+    preferred_name = str(entry.get("toolName") or entry.get("name") or "")
+    return conda_dependency_from_environment_hints(hints, preferred_name=preferred_name)
