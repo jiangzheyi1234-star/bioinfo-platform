@@ -92,6 +92,7 @@ export function ToolCatalogQualityStrip({
   targetAcceptance,
   targetAcceptanceError = "",
   targetAcceptanceLoading = false,
+  onQueueChanged,
   wrapperCatalog,
 }: {
   candidateCatalog?: ToolCandidateCatalog | null;
@@ -102,6 +103,7 @@ export function ToolCatalogQualityStrip({
   targetAcceptance?: ToolCatalogTargetAcceptance | null;
   targetAcceptanceError?: string;
   targetAcceptanceLoading?: boolean;
+  onQueueChanged?: () => Promise<void> | void;
   wrapperCatalog: SnakemakeWrapperCatalog | null;
 }) {
   const showingCandidates = Boolean(candidateCatalog || candidateCatalogLoading || candidateCatalogError);
@@ -189,6 +191,7 @@ export function ToolCatalogQualityStrip({
           items={validationQueueItems}
           productionQueue={targetAcceptance?.productionQueue}
           prepareJobQueue={targetAcceptance?.prepareJobQueue}
+          onQueueChanged={onQueueChanged}
         />
       </div>
     </section>

@@ -356,6 +356,8 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
 
 
 def test_tools_page_surfaces_target_validation_queue_priority() -> None:
+    page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
+    hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
     validation_queue = (COMPONENTS / "tools-page-validation-queue.tsx").read_text(encoding="utf-8")
@@ -382,6 +384,11 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "targetAcceptance?.validationQueue?.items ?? []" in ui
     assert "targetAcceptance?.validationQueue?.items?.slice(0, 3)" not in ui
     assert "prepareJobQueue={targetAcceptance?.prepareJobQueue}" in ui
+    assert "onQueueChanged={state.refreshToolCatalogTargets}" in page
+    assert "onQueueChanged" in ui
+    assert "onQueueChanged" in validation_queue
+    assert "refreshToolCatalogTargets" in hook
+    assert "loadTargetAcceptance({ silent: true })" in hook
     assert "validation queue" in validation_queue
     assert "productionQueue" in validation_queue
     assert "production evidence queue" in validation_queue
@@ -395,6 +402,7 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "prepareToolValidationQueue(Math.min(items.length, 30))" in validation_queue
     assert "prepareToolValidationQueue(3)" not in validation_queue
     assert "trackToolPrepareJob(queueJobToPrepareTask(item))" in validation_queue
+    assert "await onQueueChanged?.()" in validation_queue
     assert "batchPreparing" in validation_queue
     assert "批量验证" in validation_queue
     assert "queuedCount" in validation_queue
