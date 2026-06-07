@@ -505,7 +505,48 @@ export function useToolsPageState(initialQuery = "") {
 }
 
 function installableCandidateItems(items: ToolCandidateCatalogItem[]): ToolSearchItem[] {
-  return items.filter(isInstallableCandidateItem);
+  return items.flatMap(installableCandidateItem);
+}
+
+function installableCandidateItem(item: ToolCandidateCatalogItem): ToolSearchItem[] {
+  if (isInstallableCandidateItem(item)) {
+    return [item];
+  }
+  const candidate = item as Partial<ToolSearchItem> & { profileId?: string; toolNames?: string[] };
+  const payload = candidate.preparePayload;
+  const id = String(payload?.id || "").trim();
+  const name = String(payload?.name || candidate.toolNames?.[0] || candidate.profileId || "").trim();
+  const source = String(payload?.source || "").trim();
+  const sourceLabel = String(payload?.sourceLabel || source).trim();
+  const packageSpec = String(payload?.packageSpec || "").trim();
+  if (!id || !name || !source || !sourceLabel || !packageSpec) {
+    return [];
+  }
+  return [
+    {
+      id,
+      candidateId: candidate.candidateId,
+      candidateKind: candidate.candidateKind,
+      qualityTier: candidate.qualityTier,
+      sourceRef: candidate.sourceRef,
+      name,
+      summary: candidate.toolNames?.join(", ") || candidate.profileId || name,
+      source,
+      sourceLabel,
+      packageSpec,
+      version: payload?.version,
+      latestVersion: payload?.latestVersion || payload?.version,
+      versions: payload?.version ? [payload.version] : [],
+      targetPlatform: payload?.targetPlatform,
+      targetPlatformSupported: payload?.targetPlatformSupported,
+      capabilities: payload?.capabilities,
+      snakemakeWrappers: payload?.snakemakeWrappers,
+      snakemakeWrapperCount: payload?.snakemakeWrapperCount,
+      ruleTemplate: payload?.ruleTemplate,
+      ruleSpecDraft: payload?.ruleSpecDraft,
+      preparePayload: payload,
+    },
+  ];
 }
 
 function isInstallableCandidateItem(item: ToolCandidateCatalogItem): item is ToolSearchItem {
