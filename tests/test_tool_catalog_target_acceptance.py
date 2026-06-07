@@ -568,6 +568,15 @@ def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> Non
                 }
             }
 
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return _empty_prepare_job_queue(limit=limit, offset=offset)
+
         def list_tool_index(
             self,
             *,
@@ -588,7 +597,8 @@ def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> Non
 
     result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
 
-    assert result == {"data": {"complete": False}}
+    assert result["data"]["complete"] is False
+    assert result["data"]["prepareJobQueue"]["total"] == 0
     assert captured["registered_tools"] == [registered_tool]
     assert "bioconda::multiqc" in captured_tool_ids
     assert captured["latest_prepare_jobs_by_tool_id"] == {
@@ -610,6 +620,15 @@ def test_target_acceptance_service_counts_remote_tool_index(monkeypatch) -> None
         def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
             assert tool_ids
             return {"data": {"byToolId": {}}}
+
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return _empty_prepare_job_queue(limit=limit, offset=offset)
 
         def list_tool_index(
             self,
@@ -670,6 +689,15 @@ def test_target_acceptance_service_uses_tool_index_for_production_queue(monkeypa
         def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
             assert tool_ids
             return {"data": {"byToolId": {}}}
+
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return _empty_prepare_job_queue(limit=limit, offset=offset)
 
         def list_tool_index(
             self,
@@ -763,6 +791,15 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
                 }
             }
 
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return _empty_prepare_job_queue(limit=limit, offset=offset)
+
         def list_tool_index(
             self,
             *,
@@ -844,3 +881,23 @@ def test_validation_queue_tool_id_uses_latest_prepare_job_when_payload_hidden() 
             },
         }
     ) == "bioconda::fastqc"
+
+
+def _empty_prepare_job_queue(*, limit: int = 50, offset: int = 0) -> dict[str, object]:
+    return {
+        "data": {
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "statusCounts": {
+                "cancelled": 0,
+                "exhausted": 0,
+                "failed": 0,
+                "queued": 0,
+                "running": 0,
+                "succeeded": 0,
+                "waiting_resource": 0,
+            },
+        }
+    }

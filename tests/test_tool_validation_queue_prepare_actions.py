@@ -35,6 +35,15 @@ def test_prepare_validation_queue_skips_waiting_resource_jobs(monkeypatch) -> No
                 }
             }
 
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return _empty_prepare_job_queue(limit=limit, offset=offset)
+
         def list_tool_index(
             self,
             *,
@@ -180,3 +189,23 @@ def test_prepare_validation_queue_fills_batch_after_blocked_jobs(monkeypatch) ->
     assert runtime.blocked_tool_id == "bioconda::blocked"
     assert data["queued"][0]["toolId"] == "bioconda::ready"
     assert [payload["id"] for payload in runtime.created_payloads] == [data["queued"][0]["toolId"]]
+
+
+def _empty_prepare_job_queue(*, limit: int = 50, offset: int = 0) -> dict[str, object]:
+    return {
+        "data": {
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "statusCounts": {
+                "cancelled": 0,
+                "exhausted": 0,
+                "failed": 0,
+                "queued": 0,
+                "running": 0,
+                "succeeded": 0,
+                "waiting_resource": 0,
+            },
+        }
+    }

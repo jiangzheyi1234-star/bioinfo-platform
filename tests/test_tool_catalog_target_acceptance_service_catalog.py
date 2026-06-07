@@ -44,6 +44,15 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
                 }
             }
 
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return _empty_prepare_job_queue(limit=limit, offset=offset)
+
         def list_tool_index(
             self,
             *,
@@ -103,3 +112,117 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
     assert queue_item["latestPrepareJob"]["jobId"] == "toolprep_aaa"
     assert queue_item["action"] == "wait-for-tool-validation"
     assert "preparePayload" not in queue_item
+
+
+def test_target_acceptance_service_includes_prepare_job_queue_status(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance, tool_capability_service
+
+    queue_requests: list[dict[str, object]] = []
+
+    class Runtime:
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": []}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            assert tool_ids
+            return {"data": {"byToolId": {}}}
+
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            queue_requests.append({"status": status, "limit": limit, "offset": offset})
+            return {
+                "data": {
+                    "items": [
+                        {
+                            "jobId": "toolprep_fastqc",
+                            "toolId": "bioconda::fastqc",
+                            "status": "running",
+                            "stage": "dry_run",
+                        }
+                    ],
+                    "total": 4,
+                    "limit": 50,
+                    "offset": 0,
+                    "statusCounts": {
+                        "queued": 1,
+                        "running": 1,
+                        "succeeded": 1,
+                        "failed": 0,
+                        "waiting_resource": 1,
+                        "cancelled": 0,
+                        "exhausted": 0,
+                    },
+                }
+            }
+
+        def list_tool_index(
+            self,
+            *,
+            query: str = "",
+            limit: int = 50,
+            offset: int = 0,
+            source: str | None = None,
+            state: str | None = None,
+        ) -> dict[str, object]:
+            return {"data": {"items": [], "total": 0, "hasMore": False}}
+
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 30,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(30)],
+        },
+    )
+
+    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+
+    assert queue_requests == [{"status": "", "limit": 50, "offset": 0}]
+    assert result["data"]["prepareJobQueue"] == {
+        "items": [
+            {
+                "jobId": "toolprep_fastqc",
+                "toolId": "bioconda::fastqc",
+                "status": "running",
+                "stage": "dry_run",
+            }
+        ],
+        "total": 4,
+        "limit": 50,
+        "offset": 0,
+        "statusCounts": {
+            "cancelled": 0,
+            "exhausted": 0,
+            "failed": 0,
+            "queued": 1,
+            "running": 1,
+            "succeeded": 1,
+            "waiting_resource": 1,
+        },
+    }
+
+
+def _empty_prepare_job_queue(*, limit: int = 50, offset: int = 0) -> dict[str, object]:
+    return {
+        "data": {
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "statusCounts": {
+                "cancelled": 0,
+                "exhausted": 0,
+                "failed": 0,
+                "queued": 0,
+                "running": 0,
+                "succeeded": 0,
+                "waiting_resource": 0,
+            },
+        }
+    }
