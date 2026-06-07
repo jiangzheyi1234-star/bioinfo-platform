@@ -43,6 +43,7 @@ def normalize_contract_status(raw: Any) -> dict[str, dict[str, str]]:
             "artifactName",
             "artifactCount",
             "artifactNames",
+            "evidenceId",
         ):
             evidence_value = str(value.get(evidence_key) or "").strip()
             if evidence_value:
