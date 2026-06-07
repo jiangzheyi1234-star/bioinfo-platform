@@ -425,6 +425,12 @@ def _prepare_tool_validation_queue(*, runtime: Any, target_platform: str, max_it
         "skippedCount": len(skipped),
         "queued": queued,
         "skipped": skipped,
+        "batchPlan": _validation_batch_plan(
+            target_platform=str(acceptance.get("targetPlatform") or target_platform),
+            requested=requested,
+            queued=queued,
+            skipped=skipped,
+        ),
         "targets": acceptance.get("targets") if isinstance(acceptance.get("targets"), dict) else {},
         "remainingWorkflowReady": _remaining_workflow_ready(acceptance),
     }
@@ -436,6 +442,32 @@ def _bounded_validation_batch_size(value: int) -> int:
     except (TypeError, ValueError):
         parsed = 3
     return min(30, max(1, parsed))
+
+
+def _validation_batch_plan(
+    *,
+    target_platform: str,
+    requested: int,
+    queued: list[dict[str, Any]],
+    skipped: list[dict[str, Any]],
+) -> dict[str, Any]:
+    status = "queued" if queued else "blocked" if skipped else "empty"
+    return {
+        "planVersion": "tool-validation-batch-plan-v1",
+        "status": status,
+        "targetPlatform": target_platform,
+        "requested": requested,
+        "queuedCount": len(queued),
+        "skippedCount": len(skipped),
+        "jobIds": [str(item.get("jobId") or "") for item in queued if str(item.get("jobId") or "")],
+        "poll": {
+            "method": "GET",
+            "path": "/api/v1/tools/prepare-jobs",
+            "query": {"status": "", "limit": 50, "offset": 0},
+        },
+        "terminalStatuses": list(TERMINAL_PREPARE_JOB_STATUSES),
+        "activeStatuses": list(ACTIVE_PREPARE_JOB_STATUSES),
+    }
 
 
 def _latest_prepare_jobs_for_queue_items(runtime: Any, items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

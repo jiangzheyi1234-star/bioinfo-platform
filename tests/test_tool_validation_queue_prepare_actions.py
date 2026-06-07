@@ -92,6 +92,8 @@ def test_prepare_validation_queue_skips_waiting_resource_jobs(monkeypatch) -> No
         "resultState": "",
         "workflowReady": False,
         "productionEnabled": False,
+        "validationResultId": "",
+        "evidenceId": "",
     }
 
 
@@ -189,6 +191,22 @@ def test_prepare_validation_queue_fills_batch_after_blocked_jobs(monkeypatch) ->
     assert runtime.blocked_tool_id == "bioconda::blocked"
     assert data["queued"][0]["toolId"] == "bioconda::ready"
     assert [payload["id"] for payload in runtime.created_payloads] == [data["queued"][0]["toolId"]]
+    assert data["batchPlan"] == {
+        "planVersion": "tool-validation-batch-plan-v1",
+        "status": "queued",
+        "targetPlatform": "linux-64",
+        "requested": 1,
+        "queuedCount": 1,
+        "skippedCount": 1,
+        "jobIds": [data["queued"][0]["jobId"]],
+        "poll": {
+            "method": "GET",
+            "path": "/api/v1/tools/prepare-jobs",
+            "query": {"status": "", "limit": 50, "offset": 0},
+        },
+        "terminalStatuses": ["cancelled", "exhausted", "failed", "succeeded", "waiting_resource"],
+        "activeStatuses": ["queued", "running"],
+    }
 
 
 def _empty_prepare_job_queue(*, limit: int = 50, offset: int = 0) -> dict[str, object]:
