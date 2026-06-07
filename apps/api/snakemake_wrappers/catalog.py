@@ -32,7 +32,8 @@ def catalog_snakemake_wrappers(*, query: str = "", page: int = 1, page_size: int
     bounded_page_size = max(1, min(int(page_size or 50), 100))
     items = _catalog_items(wrapper_index(), query=normalized_query)
     total = len(items)
-    addable_total = sum(1 for item in items if _is_addable_wrapper(item))
+    addable_total = sum(1 for item in items if _has_addable_wrapper_draft(item))
+    draft_runnable_total = sum(1 for item in items if _is_draft_runnable_wrapper(item))
     offset = (bounded_page - 1) * bounded_page_size
     page_items = [_with_wrapper_contract_hints(item) for item in items[offset : offset + bounded_page_size]]
     return {
@@ -45,7 +46,7 @@ def catalog_snakemake_wrappers(*, query: str = "", page: int = 1, page_size: int
         "addableTotal": addable_total,
         "qualityCounts": {
             "discovered": total,
-            "draftRunnable": addable_total,
+            "draftRunnable": draft_runnable_total,
             "workflowReady": 0,
             "productionEnabled": 0,
         },
@@ -68,7 +69,14 @@ def _matches_query(entry: dict[str, Any], query: str) -> bool:
     return query in haystack
 
 
-def _is_addable_wrapper(entry: dict[str, Any]) -> bool:
+def _has_addable_wrapper_draft(entry: dict[str, Any]) -> bool:
+    draft = entry.get("ruleSpecDraft")
+    template = draft.get("ruleTemplate") if isinstance(draft, dict) else None
+    wrapper = str(template.get("wrapper") or "").strip() if isinstance(template, dict) else ""
+    return bool(wrapper)
+
+
+def _is_draft_runnable_wrapper(entry: dict[str, Any]) -> bool:
     draft = entry.get("ruleSpecDraft")
     return isinstance(draft, dict) and draft.get("requiresUserCompletion") is False
 

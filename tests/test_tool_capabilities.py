@@ -523,7 +523,7 @@ def test_snakemake_wrapper_catalog_summarizes_full_index(monkeypatch) -> None:
         "ref": "v9.8.0",
     }
     assert summary["total"] == 2
-    assert summary["addableTotal"] == 1
+    assert summary["addableTotal"] == 2
     assert summary["qualityCounts"] == {
         "discovered": 2,
         "draftRunnable": 1,
