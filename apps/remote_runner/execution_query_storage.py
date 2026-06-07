@@ -21,6 +21,7 @@ def fetch_run(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any] | None:
         "pipelineId": row["pipeline_id"],
         "pipelineVersion": row["pipeline_version"],
         "runSpecVersion": row["run_spec_version"],
+        "workflowRevisionId": row["workflow_revision_id"],
         "status": row["status"],
         "stage": row["stage"],
         "stateVersion": row["state_version"],

@@ -60,6 +60,7 @@ def create_run_record(
         raise ValueError("PIPELINE_ID_REQUIRED")
     pipeline_version = str(run_spec.get("pipelineVersion") or "0.1.0").strip() or "0.1.0"
     run_spec_version = str(run_spec.get("runSpecVersion") or "2026-04-21").strip() or "2026-04-21"
+    workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip() or None
     submitted_at = now_iso()
     run = {
         "runId": run_id,
@@ -68,6 +69,7 @@ def create_run_record(
         "pipelineId": pipeline_id,
         "pipelineVersion": pipeline_version,
         "runSpecVersion": run_spec_version,
+        "workflowRevisionId": workflow_revision_id,
         "status": "queued",
         "stage": "submitted",
         "stateVersion": 1,
@@ -105,9 +107,9 @@ def create_run_record(
             """
             INSERT INTO runs (
                 run_id, server_id, project_id, pipeline_id, pipeline_version, run_spec_version,
-                status, stage, state_version, message, started_at, finished_at, result_dir,
+                workflow_revision_id, status, stage, state_version, message, started_at, finished_at, result_dir,
                 last_error_json, last_updated_at, request_id, submitted_at, run_spec_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run["runId"],
@@ -116,6 +118,7 @@ def create_run_record(
                 run["pipelineId"],
                 run["pipelineVersion"],
                 run["runSpecVersion"],
+                run["workflowRevisionId"],
                 run["status"],
                 run["stage"],
                 run["stateVersion"],
