@@ -300,8 +300,12 @@ def test_validation_queue_prioritizes_self_contained_profiles_before_required_re
     assert profile_ids.index("bcftools-stats") < profile_ids.index("bowtie2-align")
     assert profile_ids.index("cutadapt") < profile_ids.index("bowtie2-align")
     bcftools = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bcftools-stats")
+    bedtools = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bedtools-bamtobed")
     bowtie2 = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bowtie2-align")
     assert "self-contained-smoke" in bcftools["priority"]["reasons"]
+    assert "self-contained-smoke" not in bedtools["priority"]["reasons"]
+    assert "smoke-fixture-placeholder" in bedtools["priority"]["reasons"]
+    assert bedtools["evidence"]["smokeFixtureQuality"] == "placeholder"
     assert "required-resources-pending" in bowtie2["priority"]["reasons"]
     assert bowtie2["evidence"]["requiredResourceKeys"] == ["bowtie2_index"]
 
