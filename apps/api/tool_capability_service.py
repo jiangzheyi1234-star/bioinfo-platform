@@ -279,9 +279,6 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
         runtime=runtime,
         registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
     )
-    latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
-        runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
-    )
     catalog = _search_tool_candidates_with_tool_index(
         runtime=runtime,
         query="",
@@ -289,12 +286,22 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
         page=1,
         page_size=100,
     )
+    latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
+        runtime.list_latest_tool_prepare_jobs(
+            validation_queue_tool_ids(registered_tools=registered_tools, catalog_items=_catalog_items(catalog))
+        )
+    )
     return bio_agent_catalog_target_acceptance(
         target_platform=target_platform,
         registered_tools=registered_tools,
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
         catalog=catalog,
     )
+
+
+def _catalog_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    items = catalog.get("items") if isinstance(catalog, dict) else None
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
 
 def _registered_tools_with_tool_index(*, runtime: Any, registered_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
