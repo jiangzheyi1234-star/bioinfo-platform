@@ -645,6 +645,27 @@ export type ToolValidationQueuePrepareItem = {
   workflowReady?: boolean;
 };
 
+export type ToolValidationBatchPlan = {
+  planVersion: string;
+  status: "queued" | "blocked" | "empty" | string;
+  targetPlatform: string;
+  requested: number;
+  queuedCount: number;
+  skippedCount: number;
+  jobIds: string[];
+  poll: {
+    method: string;
+    path: string;
+    query: {
+      status: string;
+      limit: number;
+      offset: number;
+    };
+  };
+  terminalStatuses: ToolPrepareJobStatus[];
+  activeStatuses: ToolPrepareJobStatus[];
+};
+
 export type ToolValidationQueuePrepareResult = {
   targetPlatform: string;
   requested: number;
@@ -653,6 +674,7 @@ export type ToolValidationQueuePrepareResult = {
   skippedCount: number;
   queued: ToolValidationQueuePrepareItem[];
   skipped: Array<Record<string, unknown>>;
+  batchPlan?: ToolValidationBatchPlan;
   remainingWorkflowReady: number;
 };
 

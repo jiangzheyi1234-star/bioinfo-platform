@@ -381,6 +381,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "productionQueue?: ToolCatalogProductionQueue" in model
     assert "export type ToolPrepareJobQueue" in model
     assert "prepareJobQueue?: ToolPrepareJobQueue" in model
+    assert "export type ToolValidationBatchPlan" in model
+    assert "batchPlan?: ToolValidationBatchPlan" in model
     assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
     assert "validationQueueItems" in ui
     assert "targetAcceptance?.validationQueue?.items ?? []" in ui
