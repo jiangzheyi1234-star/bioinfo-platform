@@ -37,7 +37,7 @@ def bio_agent_catalog_target_acceptance(
         "",
         target_platform=normalized_target_platform,
         page=1,
-        page_size=1,
+        page_size=100,
     )
     profile_catalog = catalog_tool_profiles(query="", page=1, page_size=100)
     quality_counts = _record_value(catalog_payload.get("qualityCounts"))
@@ -66,6 +66,7 @@ def bio_agent_catalog_target_acceptance(
         registered_tools=registered,
         remaining=targets["workflowReady"]["remaining"],
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id or {},
+        catalog_items=_payload_items(catalog_payload),
     )
     production_queue = _production_queue(
         registered_tools=registered,
@@ -131,6 +132,11 @@ def _contract_state_count(catalog: dict[str, Any], state: str) -> int:
     if not isinstance(items, list):
         return 0
     return sum(1 for item in items if isinstance(item, dict) and item.get("contractState") == state)
+
+
+def _payload_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items = payload.get("items") if isinstance(payload, dict) else None
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
 
 def _registered_tool_counts(tools: list[dict[str, Any]]) -> dict[str, int]:
@@ -227,6 +233,7 @@ def _validation_queue(
     registered_tools: list[dict[str, Any]],
     remaining: int,
     latest_prepare_jobs_by_tool_id: dict[str, Any],
+    catalog_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     workflow_ready_names = _workflow_ready_tool_names(registered_tools)
     candidates = [
@@ -234,6 +241,11 @@ def _validation_queue(
         for profile in TOOL_PROFILES
         if not _profile_registered_workflow_ready(profile, workflow_ready_names)
     ]
+    candidates.extend(
+        _catalog_validation_queue_item(item, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id)
+        for item in catalog_items or []
+        if _catalog_candidate_needs_validation(item, workflow_ready_names)
+    )
     candidates.sort(key=lambda item: (-_count_value(item["priority"]["score"]), str(item["candidateId"])))
     bounded_remaining = max(0, int(remaining or 0))
     return {
@@ -243,6 +255,81 @@ def _validation_queue(
         "available": len(candidates),
         "items": candidates[:bounded_remaining],
     }
+
+
+def _catalog_candidate_needs_validation(item: dict[str, Any], workflow_ready_names: set[str]) -> bool:
+    if str(item.get("candidateKind") or "") == "h2ometa-tool-profile":
+        return False
+    if _catalog_candidate_contract_state(item) != "SnakemakeRenderable":
+        return False
+    prepare_payload = item.get("preparePayload")
+    if not isinstance(prepare_payload, dict):
+        return False
+    return not any(_normalized_tool_name(name) in workflow_ready_names for name in _catalog_candidate_tool_names(item))
+
+
+def _catalog_candidate_contract_state(item: dict[str, Any]) -> str:
+    state = str(item.get("contractState") or "").strip()
+    if state == "SnakemakeRenderable":
+        return state
+    if str(item.get("qualityTier") or "").strip() == "draft-runnable":
+        return "SnakemakeRenderable"
+    if state:
+        return state
+    return "Discovered"
+
+
+def _catalog_candidate_tool_names(item: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    raw_names = item.get("toolNames")
+    if isinstance(raw_names, list):
+        names.extend(str(value).strip() for value in raw_names if str(value or "").strip())
+    prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else {}
+    for value in (
+        item.get("name"),
+        item.get("toolName"),
+        item.get("candidateId"),
+        prepare_payload.get("name"),
+        prepare_payload.get("id"),
+    ):
+        name = _tool_name_from_identifier(value)
+        if name:
+            names.append(name)
+    return _unique_strings(names)
+
+
+def _catalog_validation_queue_item(item: dict[str, Any], *, latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any]:
+    prepare_payload = dict(item.get("preparePayload") or {})
+    evidence = _catalog_validation_evidence(item=item, prepare_payload=prepare_payload)
+    priority = _validation_priority(evidence=evidence, prepare_payload=prepare_payload)
+    candidate_id = str(item.get("candidateId") or prepare_payload.get("id") or "").strip()
+    queue_item = {
+        "candidateId": candidate_id,
+        "candidateKind": str(item.get("candidateKind") or "tool-candidate"),
+        "toolNames": _catalog_candidate_tool_names(item),
+        "currentState": _catalog_candidate_contract_state(item),
+        "requiredState": "WorkflowReady",
+        "action": "prepare-tool",
+        "priority": priority,
+        "evidence": evidence,
+        "executionGate": _validation_execution_gate(),
+        "validationPlan": _validation_plan(),
+        "preparePayload": prepare_payload,
+    }
+    source_ref = item.get("sourceRef")
+    if isinstance(source_ref, dict):
+        queue_item["sourceRef"] = dict(source_ref)
+    quality_tier = str(item.get("qualityTier") or "").strip()
+    if quality_tier:
+        queue_item["qualityTier"] = quality_tier
+    latest_prepare_job = _safe_latest_prepare_job(latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or "")))
+    if latest_prepare_job is not None:
+        queue_item["latestPrepareJob"] = latest_prepare_job
+    if _active_prepare_job(latest_prepare_job):
+        queue_item["action"] = "wait-for-tool-validation"
+        queue_item["executionGate"] = _active_prepare_job_execution_gate(latest_prepare_job)
+        queue_item.pop("preparePayload", None)
+    return queue_item
 
 
 def _validation_queue_item(profile: ToolProfile, *, latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any]:
@@ -340,6 +427,31 @@ def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any
         "snakemakeWrapperPaths": [str(item.get("wrapperPath") or "") for item in wrappers if str(item.get("wrapperPath") or "")],
         **_wrapper_contract_hint_summary(wrappers),
         **semantic,
+    }
+
+
+def _catalog_validation_evidence(*, item: dict[str, Any], prepare_payload: dict[str, Any]) -> dict[str, Any]:
+    wrapper_paths: list[str] = []
+    wrappers = item.get("snakemakeWrappers")
+    if isinstance(wrappers, list):
+        wrapper_paths.extend(
+            str(wrapper.get("wrapperPath") or "").strip()
+            for wrapper in wrappers
+            if isinstance(wrapper, dict) and str(wrapper.get("wrapperPath") or "").strip()
+        )
+    wrapper_path = str(item.get("wrapperPath") or "").strip()
+    if wrapper_path:
+        wrapper_paths.append(wrapper_path)
+    wrapper_count = _count_value(item.get("snakemakeWrapperCount"))
+    if wrapper_count <= 0:
+        wrapper_count = len(wrapper_paths)
+    return {
+        "snakemakeWrapperCount": wrapper_count,
+        "snakemakeWrapperPaths": _unique_strings(wrapper_paths),
+        "wrapperContractHintCount": _count_value(item.get("wrapperContractHintCount")),
+        "wrapperContractHintFields": _string_list(item.get("wrapperContractHintFields")),
+        "wrapperCondaDependencies": _string_list(item.get("wrapperCondaDependencies")),
+        **_semantic_port_summary(prepare_payload),
     }
 
 
@@ -458,6 +570,24 @@ def _tool_name_from_identifier(value: Any) -> str:
 
 def _normalized_tool_name(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return _unique_strings(str(item).strip() for item in value if str(item or "").strip())
+
+
+def _unique_strings(values: Any) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
 
 
 def _registered_tool_production_enabled(tool: dict[str, Any]) -> bool:
