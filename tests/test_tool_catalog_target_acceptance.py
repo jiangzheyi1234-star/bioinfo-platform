@@ -272,6 +272,40 @@ def test_validation_queue_prioritizes_wrapper_evidence_and_semantic_ports(monkey
     assert fastqc["priority"]["score"] >= 80
 
 
+def test_validation_queue_prioritizes_self_contained_profiles_before_required_resources(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "total": 12884,
+            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 30},
+            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 30, "total": 12428},
+            "qualityCounts": {"discovered": 12884, "draftRunnable": 30, "workflowReady": 0, "productionEnabled": 0},
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {
+            "total": 30,
+            "items": [{"contractState": "SnakemakeRenderable"} for _ in range(30)],
+        },
+    )
+
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(target_platform="linux-64")
+    profile_ids = [str(item.get("profileId") or "") for item in report["validationQueue"]["items"]]
+
+    assert profile_ids.index("bcftools-stats") < profile_ids.index("bowtie2-align")
+    assert profile_ids.index("cutadapt") < profile_ids.index("bowtie2-align")
+    bcftools = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bcftools-stats")
+    bowtie2 = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bowtie2-align")
+    assert "self-contained-smoke" in bcftools["priority"]["reasons"]
+    assert "required-resources-pending" in bowtie2["priority"]["reasons"]
+    assert bowtie2["evidence"]["requiredResourceKeys"] == ["bowtie2_index"]
+
+
 def test_validation_evidence_summarizes_wrapper_contract_hints(monkeypatch) -> None:
     from apps.api import tool_candidate_target_acceptance
 
