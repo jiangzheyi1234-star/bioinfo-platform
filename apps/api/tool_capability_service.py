@@ -287,7 +287,7 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
         query="",
         target_platform=target_platform,
         page=1,
-        page_size=1,
+        page_size=100,
     )
     return bio_agent_catalog_target_acceptance(
         target_platform=target_platform,
