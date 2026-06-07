@@ -518,6 +518,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "compileWorkflowDesignDraft" in api
     assert "/compile" in api
     assert "WorkflowDesignCompileResult" in api
+    assert "workflowRevisionId?: string" in design_model
+    assert "export type WorkflowRevisionSummary" in design_model
+    assert "WorkflowRevision" in builder_ui
+    assert "result.workflowRevisionId" in builder_ui
     assert "workflowDesignDraftsCacheKey(options.serverId)" in api
     assert "requireWorkflowDesignPlannedInputs" in api
     assert "role: plannedInputs[index].role" in api

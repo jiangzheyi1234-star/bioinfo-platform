@@ -83,7 +83,31 @@ export type WorkflowDesignPlan = {
   runSpec: Record<string, unknown>;
 };
 
+export type WorkflowRevisionSummary = {
+  workflowRevisionId: string;
+  draftId?: string | null;
+  draftRevision?: number | null;
+  contentHash?: string;
+  manifest?: {
+    schemaVersion?: string;
+    layout?: Record<string, string | string[]>;
+    files?: Array<{ path: string; sha256: string }>;
+    runSpecSha256?: string;
+    toolRevisions?: Array<{ toolRevisionId: string }>;
+  };
+  graphSnapshot?: {
+    schemaVersion?: string;
+    runSpec?: Record<string, unknown>;
+  };
+  runtimeLock?: Record<string, unknown>;
+  compiler?: Record<string, unknown>;
+  createdBy?: string | null;
+  createdAt?: string;
+};
+
 export type WorkflowDesignCompileResult = {
+  workflowRevisionId?: string;
+  workflowRevision?: WorkflowRevisionSummary;
   layout: Record<string, string | string[]>;
   runSpec: Record<string, unknown>;
 };

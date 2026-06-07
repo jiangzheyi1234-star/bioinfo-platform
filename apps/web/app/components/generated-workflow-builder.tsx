@@ -228,6 +228,12 @@ function WorkflowDesignCompileSummary({ result }: { result: WorkflowDesignCompil
         编译产物
       </div>
       <div className="grid gap-1.5">
+        {result.workflowRevisionId ? (
+          <div className="grid gap-1 rounded-md bg-emerald-50 px-3 py-2 text-xs md:grid-cols-[120px_minmax(0,1fr)]">
+            <div className="font-medium text-emerald-700">WorkflowRevision</div>
+            <div className="min-w-0 truncate font-mono text-emerald-800">{result.workflowRevisionId}</div>
+          </div>
+        ) : null}
         {entries.map(([key, value]) => (
           <div key={key} className="grid gap-1 rounded-md bg-slate-50 px-3 py-2 text-xs md:grid-cols-[120px_minmax(0,1fr)]">
             <div className="font-medium text-slate-600">{key}</div>
