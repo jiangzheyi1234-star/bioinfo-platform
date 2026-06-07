@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.bioconda_tool_index import search_bioconda_index_page
 from apps.api.tool_candidate_dependencies import (
     conda_dependency_from_environment_hints,
+    normalize_package_name,
     package_spec_from_conda_dependency,
 )
 from apps.api.tool_profile_external_refs import profile_snakemake_wrappers
@@ -20,6 +22,8 @@ def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     package_spec = f"{source}::{package_name}"
     wrappers = profile_snakemake_wrappers(profile)
     dependency = _profile_primary_dependency(profile, wrappers, preferred_name=package_name)
+    if dependency is None:
+        dependency = _bioconda_dependency_from_index(package_name)
     version = ""
     if dependency is not None:
         source = dependency["source"]
@@ -80,6 +84,24 @@ def _profile_primary_dependency(
 def _wrapper_dependency(wrapper: dict[str, Any], *, preferred_name: str) -> dict[str, str] | None:
     hints = wrapper.get("wrapperContractHints") if isinstance(wrapper.get("wrapperContractHints"), dict) else {}
     return conda_dependency_from_environment_hints(hints, preferred_name=preferred_name)
+
+
+def _bioconda_dependency_from_index(package_name: str) -> dict[str, str] | None:
+    normalized_package_name = normalize_package_name(package_name)
+    if not normalized_package_name:
+        return None
+    page = search_bioconda_index_page(package_name, page=1, page_size=10)
+    items = page.get("items") if isinstance(page, dict) else None
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        version = str(item.get("latestVersion") or "").strip()
+        if normalize_package_name(name) == normalized_package_name and version:
+            return {"source": "bioconda", "name": name, "version": version}
+    return None
 
 
 def _source_label(source: str) -> str:
