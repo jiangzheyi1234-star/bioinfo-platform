@@ -19,10 +19,12 @@ export function ToolCatalogValidationQueueStrip({
   items,
   productionQueue,
   prepareJobQueue,
+  onQueueChanged,
 }: {
   items: ToolCatalogValidationQueueItem[];
   productionQueue?: ToolCatalogProductionQueue;
   prepareJobQueue?: ToolPrepareJobQueue;
+  onQueueChanged?: () => Promise<void> | void;
 }) {
   const [preparingCandidateId, setPreparingCandidateId] = useState("");
   const [batchPreparing, setBatchPreparing] = useState(false);
@@ -47,6 +49,7 @@ export function ToolCatalogValidationQueueStrip({
     try {
       const job = await createToolPrepareJob(tool);
       trackToolPrepareJob(job);
+      await onQueueChanged?.();
     } catch (err) {
       setError(toolErrorMessage(err, "启动工具验证失败"));
     } finally {
@@ -62,6 +65,7 @@ export function ToolCatalogValidationQueueStrip({
       const result = await prepareToolValidationQueue(Math.min(items.length, 30));
       result.queued.forEach((item) => trackToolPrepareJob(queueJobToPrepareTask(item)));
       setBatchStatus(`${result.queuedCount} queued · ${result.skippedCount} skipped`);
+      await onQueueChanged?.();
     } catch (err) {
       setError(toolErrorMessage(err, "批量启动工具验证失败"));
     } finally {

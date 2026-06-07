@@ -66,6 +66,7 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
               targetAcceptance={state.targetAcceptance}
               targetAcceptanceError={state.targetAcceptanceError}
               targetAcceptanceLoading={state.targetAcceptanceLoading}
+              onQueueChanged={state.refreshToolCatalogTargets}
               wrapperCatalog={state.wrapperCatalog}
             />
 

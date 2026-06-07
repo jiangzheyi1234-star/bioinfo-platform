@@ -142,6 +142,11 @@ export function useToolsPageState(initialQuery = "") {
     }
   }, []);
 
+  const refreshToolCatalogTargets = useCallback(
+    () => loadTargetAcceptance({ silent: true }),
+    [loadTargetAcceptance]
+  );
+
   useEffect(() => {
     void loadTargetAcceptance();
   }, [loadTargetAcceptance]);
@@ -481,6 +486,7 @@ export function useToolsPageState(initialQuery = "") {
     targetAcceptance,
     targetAcceptanceError,
     targetAcceptanceLoading,
+    refreshToolCatalogTargets,
     toolsError,
     toolsLoading,
     wrapperCatalog,
