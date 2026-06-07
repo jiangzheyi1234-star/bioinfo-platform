@@ -438,6 +438,7 @@ def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any
         "snakemakeWrapperPaths": [str(item.get("wrapperPath") or "") for item in wrappers if str(item.get("wrapperPath") or "")],
         **_wrapper_contract_hint_summary(wrappers),
         **semantic,
+        **_required_resource_summary(prepare_payload),
     }
 
 
@@ -463,6 +464,7 @@ def _catalog_validation_evidence(*, item: dict[str, Any], prepare_payload: dict[
         "wrapperContractHintFields": _string_list(item.get("wrapperContractHintFields")),
         "wrapperCondaDependencies": _string_list(item.get("wrapperCondaDependencies")),
         **_semantic_port_summary(prepare_payload),
+        **_required_resource_summary(prepare_payload),
     }
 
 
@@ -515,6 +517,11 @@ def _validation_priority(*, evidence: dict[str, Any], prepare_payload: dict[str,
     if _semantic_format_count(evidence) >= 2:
         score += 10
         reasons.append("multi-port-format-coverage")
+    if evidence.get("requiredResourceKeys"):
+        reasons.append("required-resources-pending")
+    else:
+        score += 15
+        reasons.append("self-contained-smoke")
     return {"score": score, "reasons": reasons}
 
 
@@ -546,6 +553,17 @@ def _semantic_port_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
 def _semantic_format_count(evidence: dict[str, Any]) -> int:
     formats = evidence.get("semanticFormats")
     return len(formats) if isinstance(formats, list) else 0
+
+
+def _required_resource_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
+    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
+    resources = template.get("resources") if isinstance(template.get("resources"), dict) else {}
+    required_keys: list[str] = []
+    for key, value in resources.items():
+        if not isinstance(value, dict) or not value.get("required"):
+            continue
+        required_keys.append(str(key))
+    return {"requiredResourceKeys": sorted(required_keys)}
 
 
 def _workflow_ready_tool_names(tools: list[dict[str, Any]]) -> set[str]:

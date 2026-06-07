@@ -379,6 +379,11 @@ def test_h2ometa_seqkit_stats_profile_prepare_job_result_is_workflow_ready(monke
     assert all(run_config["tool"]["ruleTemplate"]["wrapper"] == "v9.8.0/bio/seqkit" for run_config in run_configs)
     assert all(run_config["workflow"]["steps"][0]["params"] == {"command": "stats", "extra": "--all --tabular"} for run_config in run_configs)
     assert fetch_tool(cfg, "bioconda::seqkit")["toolContract"]["workflowReady"] is True
+    from apps.remote_runner.tool_platform_storage import search_tool_index
+
+    workflow_ready_page = search_tool_index(cfg, state="WorkflowReady", query="seqkit", limit=10, offset=0)
+    assert workflow_ready_page["total"] == 1
+    assert workflow_ready_page["items"][0]["toolId"] == "bioconda::seqkit"
 
 
 def test_h2ometa_database_profile_prepare_job_waits_for_missing_database_resource(tmp_path: Path) -> None:
