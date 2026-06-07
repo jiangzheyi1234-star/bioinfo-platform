@@ -18,6 +18,7 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
     _ensure_run_event_columns(connection)
+    _ensure_run_execution_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_tool_prepare_job_columns(connection)
     _ensure_artifact_columns(connection)
@@ -55,6 +56,32 @@ def _ensure_run_event_columns(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_run_execution_columns(connection: sqlite3.Connection) -> None:
+    _ensure_columns(
+        connection,
+        "run_jobs",
+        {
+            "queue_name": "TEXT NOT NULL DEFAULT 'default'",
+            "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            "max_attempts": "INTEGER NOT NULL DEFAULT 3",
+            "retry_policy_json": "TEXT NOT NULL DEFAULT '{}'",
+            "timeout_policy_json": "TEXT NOT NULL DEFAULT '{}'",
+            "dead_lettered_at": "TEXT",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "run_attempts",
+        {
+            "attempt_number": "INTEGER NOT NULL DEFAULT 1",
+            "process_pid": "INTEGER",
+            "cancel_requested_at": "TEXT",
+            "killed_at": "TEXT",
+            "output_adoption_state": "TEXT NOT NULL DEFAULT 'pending'",
+        },
+    )
+
+
 def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(tools)").fetchall()}
     if "tool_revision_id" not in columns:
@@ -73,6 +100,17 @@ def _ensure_tools_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE tools ADD COLUMN contract_status_json TEXT NOT NULL DEFAULT '{}'")
     if "published_at" not in columns:
         connection.execute("ALTER TABLE tools ADD COLUMN published_at TEXT")
+
+
+def _ensure_columns(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_definitions: dict[str, str],
+) -> None:
+    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    for column, definition in column_definitions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}")
 
 
 def _ensure_tool_prepare_job_columns(connection: sqlite3.Connection) -> None:

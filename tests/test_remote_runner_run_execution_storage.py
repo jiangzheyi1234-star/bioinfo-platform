@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -63,6 +64,62 @@ def test_create_run_record_enqueues_one_job_and_replay_does_not_duplicate(tmp_pa
     assert event_types == ["accepted", "run_job_queued"]
 
 
+def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    legacy = sqlite3.connect(str(cfg.db_path))
+    legacy.executescript(
+        """
+        CREATE TABLE run_jobs (
+            job_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            state TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 0,
+            available_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(run_id)
+        );
+        CREATE TABLE run_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            job_id TEXT NOT NULL,
+            lease_generation INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            worker_id TEXT NOT NULL,
+            work_dir TEXT NOT NULL,
+            process_group_id TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            exit_code INTEGER,
+            fenced_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    legacy.close()
+
+    with get_connection(cfg) as connection:
+        job_columns = _column_names(connection, "run_jobs")
+        attempt_columns = _column_names(connection, "run_attempts")
+
+    assert {
+        "queue_name",
+        "attempt_count",
+        "max_attempts",
+        "retry_policy_json",
+        "timeout_policy_json",
+        "dead_lettered_at",
+    }.issubset(job_columns)
+    assert {
+        "attempt_number",
+        "process_pid",
+        "cancel_requested_at",
+        "killed_at",
+        "output_adoption_state",
+    }.issubset(attempt_columns)
+
+
 def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_claim")
@@ -78,7 +135,14 @@ def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path
     assert claim["runId"] == "run_claim"
     assert claim["leaseGeneration"] == 1
     assert claim["lease"]["expiresAt"] == "2026-06-07T10:00:30Z"
+    assert claim["job"]["queueName"] == "default"
+    assert claim["job"]["attemptCount"] == 1
+    assert claim["job"]["maxAttempts"] == 3
+    assert claim["job"]["retryPolicy"] == {}
+    assert claim["job"]["timeoutPolicy"] == {}
     assert claim["attempt"]["workerId"] == "worker_a"
+    assert claim["attempt"]["attemptNumber"] == 1
+    assert claim["attempt"]["outputAdoptionState"] == "pending"
     assert Path(claim["attempt"]["workDir"]).parent == Path(cfg.work_dir) / "attempts"
 
     with get_connection(cfg) as connection:
@@ -112,6 +176,8 @@ def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_
     assert first is not None
     assert second is not None
     assert second["leaseGeneration"] == 2
+    assert second["job"]["attemptCount"] == 2
+    assert second["attempt"]["attemptNumber"] == 2
     assert second["attempt"]["workDir"] != first["attempt"]["workDir"]
     with get_connection(cfg) as connection:
         old_attempt = connection.execute(
@@ -178,10 +244,11 @@ def test_process_group_recording_is_fenced_by_current_generation(tmp_path):
     assert rejected == {"accepted": False, "reason": "stale_generation"}
     with get_connection(cfg) as connection:
         attempt = connection.execute(
-            "SELECT process_group_id FROM run_attempts WHERE attempt_id = ?",
+            "SELECT process_group_id, process_pid FROM run_attempts WHERE attempt_id = ?",
             (first["attemptId"],),
         ).fetchone()
     assert attempt["process_group_id"] == "4242"
+    assert attempt["process_pid"] == 4242
 
 
 def test_stale_attempt_cannot_update_run_projection(tmp_path):
@@ -236,3 +303,7 @@ def test_current_attempt_completion_marks_job_and_lease_terminal(tmp_path):
         ).fetchone()
     assert job["state"] == "completed"
     assert lease["state"] == "completed"
+
+
+def _column_names(connection, table_name: str) -> set[str]:
+    return {row["name"] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
