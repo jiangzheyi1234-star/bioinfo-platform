@@ -120,6 +120,52 @@ def test_candidate_output_must_be_verified_before_adoption(tmp_path: Path) -> No
     assert list_artifact_materializations(cfg, edges[0]["artifactBlobId"])[0]["storageUri"] == output.resolve().as_uri()
 
 
+def test_candidate_output_adoption_preserves_lineage_metadata(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    claim = _create_attempt(cfg, "run_candidate_lineage")
+    output = tmp_path / "report.txt"
+    output.write_text("candidate output\n", encoding="utf-8")
+    candidate = record_candidate_output(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        output_key="report",
+        path=output,
+        observed_at="2026-06-07T10:00:05Z",
+    )
+    expected = {
+        "report": {
+            "path": str(output),
+            "kind": "report",
+            "mimeType": "text/plain",
+            "sha256": candidate["sha256"],
+            "stepId": "summarize",
+            "upstreamRunId": "run_raw_reads",
+        }
+    }
+
+    verify_candidate_outputs(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        expected_outputs=expected,
+        verified_at="2026-06-07T10:00:07Z",
+    )
+    adopt_verified_candidate_outputs(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        expected_outputs=expected,
+        adopted_at="2026-06-07T10:00:08Z",
+    )
+
+    edges = list_run_artifact_edges(cfg, claim["runId"])
+    assert len(edges) == 1
+    assert edges[0]["portName"] == "report"
+    assert edges[0]["stepId"] == "summarize"
+    assert edges[0]["upstreamRunId"] == "run_raw_reads"
+
+
 def test_candidate_output_verification_rejects_checksum_mismatch_and_missing_expected(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     claim = _create_attempt(cfg, "run_candidate_reject")
