@@ -441,6 +441,7 @@ def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any
         **_wrapper_contract_hint_summary(wrappers),
         **semantic,
         **_required_resource_summary(prepare_payload),
+        **_smoke_fixture_quality_summary(prepare_payload),
     }
 
 
@@ -467,6 +468,7 @@ def _catalog_validation_evidence(*, item: dict[str, Any], prepare_payload: dict[
         "wrapperCondaDependencies": _string_list(item.get("wrapperCondaDependencies")),
         **_semantic_port_summary(prepare_payload),
         **_required_resource_summary(prepare_payload),
+        **_smoke_fixture_quality_summary(prepare_payload),
     }
 
 
@@ -521,9 +523,13 @@ def _validation_priority(*, evidence: dict[str, Any], prepare_payload: dict[str,
         reasons.append("multi-port-format-coverage")
     if evidence.get("requiredResourceKeys"):
         reasons.append("required-resources-pending")
-    else:
+    elif evidence.get("smokeFixtureQuality") == "materialized":
         score += 15
         reasons.append("self-contained-smoke")
+    elif evidence.get("smokeFixtureQuality") == "placeholder":
+        reasons.append("smoke-fixture-placeholder")
+    else:
+        reasons.append("smoke-fixture-missing")
     return {"score": score, "reasons": reasons}
 
 
@@ -566,6 +572,48 @@ def _required_resource_summary(prepare_payload: dict[str, Any]) -> dict[str, Any
             continue
         required_keys.append(str(key))
     return {"requiredResourceKeys": sorted(required_keys)}
+
+
+def _smoke_fixture_quality_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
+    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
+    smoke_test = template.get("smokeTest") if isinstance(template.get("smokeTest"), dict) else {}
+    inputs = _smoke_fixture_inputs(smoke_test.get("inputs"))
+    if not inputs:
+        return {"smokeFixtureQuality": "missing", "smokeFixtureIssues": ["missing-smoke-inputs"]}
+
+    issues: list[str] = []
+    materialized_count = 0
+    for index, (input_name, raw_input) in enumerate(inputs):
+        if not isinstance(raw_input, dict):
+            issues.append(f"input-{index}:invalid-smoke-input")
+            continue
+        content = str(raw_input.get("content") or "")
+        filename = str(raw_input.get("filename") or raw_input.get("name") or input_name or f"input-{index}").strip()
+        mime_type = str(raw_input.get("mimeType") or raw_input.get("mime") or "").strip().lower()
+        if _looks_like_placeholder_fixture(content=content, filename=filename, mime_type=mime_type):
+            issues.append(f"{filename}:placeholder-content")
+            continue
+        if content:
+            materialized_count += 1
+
+    if issues:
+        return {"smokeFixtureQuality": "placeholder", "smokeFixtureIssues": issues}
+    if materialized_count == 0:
+        return {"smokeFixtureQuality": "missing", "smokeFixtureIssues": ["missing-smoke-input-content"]}
+    return {"smokeFixtureQuality": "materialized", "smokeFixtureIssues": []}
+
+
+def _smoke_fixture_inputs(value: Any) -> list[tuple[str, Any]]:
+    if isinstance(value, dict):
+        return [(str(key or "").strip(), item) for key, item in value.items()]
+    if isinstance(value, list):
+        return [("", item) for item in value]
+    return []
+
+
+def _looks_like_placeholder_fixture(*, content: str, filename: str, mime_type: str) -> bool:
+    searchable = f"{filename}\n{mime_type}\n{content}".lower()
+    return "placeholder" in searchable
 
 
 def _workflow_ready_tool_names(tools: list[dict[str, Any]]) -> set[str]:
