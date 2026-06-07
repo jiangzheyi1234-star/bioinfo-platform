@@ -176,13 +176,17 @@ def _conda_candidate_from_index_record(record: dict[str, Any], *, target_platfor
     first_wrapper_draft = _first_wrapper_rule_spec_draft(wrappers)
     dependency_draft = DEFAULT_TOOL_CONTRACT_RESOLVER.resolve_dependency(hit, wrappers=wrappers)
     rule_spec_draft = _preferred_rule_spec_draft(dependency_draft, first_wrapper_draft)
-    return {
+    candidate = {
         **hit,
         "snakemakeWrappers": wrappers,
         "snakemakeWrapperCount": len(wrappers),
         "ruleSpecDraft": rule_spec_draft,
         **conda_tool_candidate_fields(hit, rule_spec_draft=rule_spec_draft),
     }
+    prepare_payload = _conda_prepare_payload(hit, rule_spec_draft=rule_spec_draft, wrappers=wrappers)
+    if prepare_payload is not None:
+        candidate["preparePayload"] = prepare_payload
+    return candidate
 
 
 def _first_wrapper_rule_spec_draft(wrappers: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -197,6 +201,37 @@ def _preferred_rule_spec_draft(dependency_draft: dict[str, Any], wrapper_draft: 
     if dependency_draft.get("requiresUserCompletion") is False:
         return dependency_draft
     return wrapper_draft or dependency_draft
+
+
+def _conda_prepare_payload(
+    tool: dict[str, Any],
+    *,
+    rule_spec_draft: dict[str, Any],
+    wrappers: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if rule_spec_draft.get("requiresUserCompletion") is not False:
+        return None
+    rule_template = rule_spec_draft.get("ruleTemplate")
+    if not isinstance(rule_template, dict):
+        return None
+    return {
+        "id": str(tool.get("id") or "").strip(),
+        "name": str(tool.get("name") or "").strip(),
+        "source": str(tool.get("source") or "").strip(),
+        "sourceLabel": str(tool.get("sourceLabel") or "").strip(),
+        "version": str(tool.get("latestVersion") or "").strip(),
+        "latestVersion": str(tool.get("latestVersion") or "").strip(),
+        "packageSpec": str(tool.get("packageSpec") or "").strip(),
+        "targetPlatform": str(tool.get("targetPlatform") or "").strip(),
+        "targetPlatformSupported": bool(tool.get("targetPlatformSupported")),
+        "platforms": [str(item).strip() for item in tool.get("platforms", []) if str(item or "").strip()],
+        "sourceUrl": str(tool.get("sourceUrl") or "").strip(),
+        "capabilities": list(tool.get("capabilities") or []),
+        "snakemakeWrappers": wrappers,
+        "snakemakeWrapperCount": len(wrappers),
+        "ruleTemplate": dict(rule_template),
+        "ruleSpecDraft": dict(rule_spec_draft),
+    }
 
 
 def _payload_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
