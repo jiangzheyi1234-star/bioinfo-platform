@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import uuid
 from typing import Any
@@ -175,6 +177,93 @@ def list_run_artifact_edges(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[s
     return [_edge_row_to_dict(row) for row in rows]
 
 
+def record_lineage_edge(
+    cfg: RemoteRunnerConfig,
+    *,
+    subject_kind: str,
+    subject_id: str,
+    predicate: str,
+    object_kind: str,
+    object_id: str,
+    run_id: str | None = None,
+    attempt_id: str | None = None,
+    workflow_revision_id: str | None = None,
+    evidence_event_id: str | None = None,
+    payload: dict[str, Any] | None = None,
+    content_hash: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    normalized_payload = payload if isinstance(payload, dict) else {}
+    normalized = {
+        "subject_kind": _required_text(subject_kind, "LINEAGE_SUBJECT_KIND_REQUIRED"),
+        "subject_id": _required_text(subject_id, "LINEAGE_SUBJECT_ID_REQUIRED"),
+        "predicate": _required_text(predicate, "LINEAGE_PREDICATE_REQUIRED"),
+        "object_kind": _required_text(object_kind, "LINEAGE_OBJECT_KIND_REQUIRED"),
+        "object_id": _required_text(object_id, "LINEAGE_OBJECT_ID_REQUIRED"),
+        "run_id": _optional_text(run_id),
+        "attempt_id": _optional_text(attempt_id),
+        "workflow_revision_id": _optional_text(workflow_revision_id),
+        "evidence_event_id": _optional_text(evidence_event_id),
+        "payload_json": _stable_json(normalized_payload),
+        "content_hash": _optional_text(content_hash) or _lineage_content_hash(
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            predicate=predicate,
+            object_kind=object_kind,
+            object_id=object_id,
+            payload=normalized_payload,
+        ),
+        "created_at": _optional_text(created_at) or now_iso(),
+    }
+    lineage_edge_id = f"lin_{uuid.uuid4().hex[:12]}"
+
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            INSERT INTO lineage_edges (
+                lineage_edge_id, subject_kind, subject_id, predicate, object_kind, object_id,
+                run_id, attempt_id, workflow_revision_id, evidence_event_id,
+                payload_json, content_hash, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lineage_edge_id,
+                normalized["subject_kind"],
+                normalized["subject_id"],
+                normalized["predicate"],
+                normalized["object_kind"],
+                normalized["object_id"],
+                normalized["run_id"],
+                normalized["attempt_id"],
+                normalized["workflow_revision_id"],
+                normalized["evidence_event_id"],
+                normalized["payload_json"],
+                normalized["content_hash"],
+                normalized["created_at"],
+            ),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM lineage_edges WHERE lineage_edge_id = ?",
+            (lineage_edge_id,),
+        ).fetchone()
+    return _lineage_edge_row_to_dict(row)
+
+
+def list_lineage_edges_for_run(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any]]:
+    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            """
+            SELECT * FROM lineage_edges
+            WHERE run_id = ?
+            ORDER BY created_at ASC, lineage_edge_id ASC
+            """,
+            (normalized_run_id,),
+        ).fetchall()
+    return [_lineage_edge_row_to_dict(row) for row in rows]
+
+
 def _require_blob(connection, artifact_blob_id: str):
     row = connection.execute(
         "SELECT * FROM artifact_blobs WHERE artifact_blob_id = ?",
@@ -219,6 +308,51 @@ def _edge_row_to_dict(row) -> dict[str, Any]:
         "upstreamRunId": row["upstream_run_id"],
         "createdAt": row["created_at"],
     }
+
+
+def _lineage_edge_row_to_dict(row) -> dict[str, Any]:
+    return {
+        "lineageEdgeId": row["lineage_edge_id"],
+        "subjectKind": row["subject_kind"],
+        "subjectId": row["subject_id"],
+        "predicate": row["predicate"],
+        "objectKind": row["object_kind"],
+        "objectId": row["object_id"],
+        "runId": row["run_id"],
+        "attemptId": row["attempt_id"],
+        "workflowRevisionId": row["workflow_revision_id"],
+        "evidenceEventId": row["evidence_event_id"],
+        "payload": json.loads(row["payload_json"]),
+        "contentHash": row["content_hash"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _lineage_content_hash(
+    *,
+    subject_kind: str,
+    subject_id: str,
+    predicate: str,
+    object_kind: str,
+    object_id: str,
+    payload: dict[str, Any],
+) -> str:
+    return hashlib.sha256(
+        _stable_json(
+            {
+                "subjectKind": subject_kind,
+                "subjectId": subject_id,
+                "predicate": predicate,
+                "objectKind": object_kind,
+                "objectId": object_id,
+                "payload": payload,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _stable_json(value: dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _required_text(value: object, code: str) -> str:

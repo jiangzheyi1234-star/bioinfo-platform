@@ -185,6 +185,31 @@ ON run_artifact_edges(run_id, role, port_name, step_id);
 CREATE INDEX IF NOT EXISTS idx_run_artifact_edges_blob
 ON run_artifact_edges(artifact_blob_id);
 
+CREATE TABLE IF NOT EXISTS lineage_edges (
+    lineage_edge_id TEXT PRIMARY KEY,
+    subject_kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object_kind TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    run_id TEXT,
+    attempt_id TEXT,
+    workflow_revision_id TEXT,
+    evidence_event_id TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    content_hash TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_subject
+ON lineage_edges(subject_kind, subject_id, predicate);
+
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_object
+ON lineage_edges(object_kind, object_id, predicate);
+
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_run
+ON lineage_edges(run_id, created_at);
+
 CREATE TABLE IF NOT EXISTS idempotency (
     server_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,

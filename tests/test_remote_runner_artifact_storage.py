@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from apps.remote_runner.execution_query_storage import fetch_run_results
-from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations, list_run_artifact_edges
+from apps.remote_runner.artifact_ledger_storage import (
+    list_artifact_materializations,
+    list_lineage_edges_for_run,
+    list_run_artifact_edges,
+)
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
@@ -78,6 +82,16 @@ def test_persist_artifact_records_blob_materialization_and_output_edge(tmp_path:
     assert len(materializations) == 1
     assert materializations[0]["storageBackend"] == "local"
     assert materializations[0]["storageUri"] == artifact_path.resolve().as_uri()
+    lineage_edges = list_lineage_edges_for_run(cfg, "run_artifact_ledger")
+    assert len(lineage_edges) == 1
+    assert lineage_edges[0]["subjectKind"] == "run"
+    assert lineage_edges[0]["subjectId"] == "run_artifact_ledger"
+    assert lineage_edges[0]["predicate"] == "prov:generated"
+    assert lineage_edges[0]["objectKind"] == "artifact_blob"
+    assert lineage_edges[0]["objectId"] == artifact["artifactBlobId"]
+    assert lineage_edges[0]["contentHash"] == artifact["sha256"]
+    assert lineage_edges[0]["payload"]["artifactKey"] == "report"
+    assert artifact["lineageEdgeId"] == lineage_edges[0]["lineageEdgeId"]
 
 
 def test_stale_attempt_cannot_publish_official_artifact(tmp_path: Path) -> None:
