@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { createToolPrepareJob, prepareToolValidationQueue } from "./tools-page-api";
 import {
   type AddedTool,
+  type ToolCatalogProductionQueue,
   type ToolCatalogValidationQueueItem,
   type ToolPrepareJob,
   type ToolValidationQueuePrepareItem,
@@ -13,7 +14,13 @@ import {
 } from "./tools-page-model";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
 
-export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogValidationQueueItem[] }) {
+export function ToolCatalogValidationQueueStrip({
+  items,
+  productionQueue,
+}: {
+  items: ToolCatalogValidationQueueItem[];
+  productionQueue?: ToolCatalogProductionQueue;
+}) {
   const [preparingCandidateId, setPreparingCandidateId] = useState("");
   const [batchPreparing, setBatchPreparing] = useState(false);
   const [batchStatus, setBatchStatus] = useState("");
@@ -21,7 +28,7 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
   const { trackToolPrepareJob } = useToolPrepareTasks();
   const visibleItems = items.slice(0, 3);
 
-  if (items.length === 0) {
+  if (items.length === 0 && !productionQueue?.items?.length) {
     return null;
   }
 
@@ -137,6 +144,29 @@ export function ToolCatalogValidationQueueStrip({ items }: { items: ToolCatalogV
           批量验证
         </Button>
       </div>
+      {productionQueue?.items?.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <span className="inline-flex h-7 items-center rounded-md border border-emerald-100 bg-white px-2 text-[11px] text-emerald-700">
+            production evidence queue
+          </span>
+          {productionQueue.items.slice(0, 3).map((item) => (
+            <span
+              key={item.toolId}
+              className="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-emerald-100 bg-white px-2 py-1 text-[11px] text-slate-600"
+              title={item.productionPlan?.acceptedEvidenceTypes?.join(", ") || item.executionGate?.reason || ""}
+            >
+              <span className="truncate font-medium text-slate-800">{item.toolName || item.toolId}</span>
+              <span className="font-mono text-emerald-700">{item.currentState}</span>
+              <span className="text-slate-400">{item.action || item.executionGate?.nextAction || "submit-production-evidence"}</span>
+              <span className="text-slate-400">fields</span>
+              <span className="font-mono text-slate-800">{item.productionPlan?.requiredEvidenceFields?.length ?? 0}</span>
+            </span>
+          ))}
+          <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-400">
+            {productionQueue.available} available · {productionQueue.remaining} remaining
+          </span>
+        </div>
+      ) : null}
       {batchStatus ? <div className="mt-1 text-[11px] text-slate-500">{batchStatus}</div> : null}
       {error ? <div className="mt-1 text-[11px] text-red-600">{error}</div> : null}
     </>

@@ -467,6 +467,14 @@ export type ToolCatalogValidationQueue = {
   items: ToolCatalogValidationQueueItem[];
 };
 
+export type ToolCatalogProductionQueueItem = {
+  toolId: string; toolRevisionId?: string; toolName: string; currentState: string; requiredState: string; action: string;
+  executionGate?: ToolCatalogExecutionGate & { canPromote?: boolean };
+  productionPlan?: { acceptedEvidenceTypes?: string[]; requiredEvidenceFields?: string[]; submit?: { pathTemplate?: string } };
+};
+
+export type ToolCatalogProductionQueue = { target: string; requiredState: string; remaining: number; available: number; items: ToolCatalogProductionQueueItem[] };
+
 export type ToolCatalogTargetAcceptance = {
   targetName: string;
   targetPlatform: string;
@@ -487,6 +495,7 @@ export type ToolCatalogTargetAcceptance = {
     };
   };
   validationQueue?: ToolCatalogValidationQueue;
+  productionQueue?: ToolCatalogProductionQueue;
 };
 
 export type ToolCatalogTargetAcceptanceResponse = {
