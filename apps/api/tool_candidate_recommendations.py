@@ -88,7 +88,7 @@ def _profile_recommendations(
                 if latest_prepare_job is not None:
                     item["latestPrepareJob"] = latest_prepare_job
                 if not _active_prepare_job(latest_prepare_job):
-                    item["preparePayload"] = profile_prepare_payload(profile)
+                    item["preparePayload"] = item["candidate"]["preparePayload"]
             recommendations.append(item)
     return recommendations
 
@@ -99,6 +99,7 @@ def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
         "profileVersion": profile.version,
         "toolNames": list(profile.tool_names),
         "preferredWrapperPaths": list(profile.preferred_wrapper_paths),
+        "preparePayload": profile_prepare_payload(profile),
         **profile_external_candidate_fields(profile),
         **tool_profile_candidate_fields(profile),
     }
