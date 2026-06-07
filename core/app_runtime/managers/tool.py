@@ -61,6 +61,22 @@ class ToolManager(BaseRuntimeManager):
             }
         }
 
+    def list_tool_prepare_job_queue(
+        self,
+        *,
+        status: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "list_tool_prepare_job_queue",
+                status=status,
+                limit=limit,
+                offset=offset,
+            )
+        }
+
     def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
         return {
             "data": self.call_existing_runner(
