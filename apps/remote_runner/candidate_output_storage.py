@@ -249,6 +249,12 @@ def _normalize_expected_outputs(expected_outputs: dict[str, dict[str, Any]]) -> 
             "kind": _required_text(value.get("kind"), f"EXPECTED_OUTPUT_KIND_REQUIRED: {output_key}"),
             "mimeType": _required_text(value.get("mimeType"), f"EXPECTED_OUTPUT_MIME_TYPE_REQUIRED: {output_key}"),
         }
+        step_id = _optional_text(value.get("stepId"))
+        if step_id:
+            normalized[output_key]["stepId"] = step_id
+        upstream_run_id = _optional_text(value.get("upstreamRunId"))
+        if upstream_run_id:
+            normalized[output_key]["upstreamRunId"] = upstream_run_id
         expected_sha256 = _optional_text(value.get("sha256"))
         if expected_sha256:
             normalized[output_key]["sha256"] = expected_sha256
