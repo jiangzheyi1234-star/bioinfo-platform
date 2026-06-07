@@ -10,6 +10,7 @@ from apps.remote_runner.artifact_ledger_storage import (
     list_lineage_edges_for_run,
     list_run_artifact_edges,
 )
+from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
@@ -92,6 +93,42 @@ def test_persist_artifact_records_blob_materialization_and_output_edge(tmp_path:
     assert lineage_edges[0]["contentHash"] == artifact["sha256"]
     assert lineage_edges[0]["payload"]["artifactKey"] == "report"
     assert artifact["lineageEdgeId"] == lineage_edges[0]["lineageEdgeId"]
+
+
+def test_persist_artifact_records_materialization_evidence_event(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_artifact_evidence")
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_text("accepted\n", encoding="utf-8")
+
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_artifact_evidence",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+
+    events = list_evidence_events(
+        cfg,
+        subject_kind="artifact_blob",
+        subject_id=artifact["artifactBlobId"],
+    )
+    lineage_edges = list_lineage_edges_for_run(cfg, "run_artifact_evidence")
+
+    assert [event["eventType"] for event in events] == ["artifact.materialization.v1"]
+    assert artifact["evidenceEventId"] == events[0]["eventId"]
+    assert lineage_edges[0]["evidenceEventId"] == events[0]["eventId"]
+    assert events[0]["schema"]["name"] == "ArtifactMaterializationEvidence"
+    assert events[0]["payload"]["runId"] == "run_artifact_evidence"
+    assert events[0]["payload"]["artifactId"] == artifact["artifactId"]
+    assert events[0]["payload"]["artifactKey"] == "report"
+    assert events[0]["payload"]["materializationId"] == artifact["materializationId"]
+    assert events[0]["payload"]["storageBackend"] == "local"
+    assert events[0]["payload"]["storageUri"] == artifact_path.resolve().as_uri()
+    assert events[0]["payload"]["sha256"] == artifact["sha256"]
 
 
 def test_stale_attempt_cannot_publish_official_artifact(tmp_path: Path) -> None:
