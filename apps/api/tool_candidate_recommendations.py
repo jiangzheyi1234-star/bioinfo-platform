@@ -26,18 +26,31 @@ def recommend_tool_candidates(
     page_size: int = 20,
     registered_tools: list[dict[str, Any]] | None = None,
     latest_prepare_jobs_by_tool_id: dict[str, Any] | None = None,
+    catalog_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_query = str(query or "").strip().lower()
     bounded_page = max(1, int(page or 1))
     bounded_page_size = max(1, min(int(page_size or 20), 100))
     output_spec = port_spec_from_rule_item(output_port)
+    registered = registered_tools or []
+    latest_jobs = latest_prepare_jobs_by_tool_id or {}
+    workflow_ready_tools = _workflow_ready_tools_by_name(registered)
     items = sorted(
-        _profile_recommendations(
-            output_spec=output_spec,
-            query=normalized_query,
-            registered_tools=registered_tools or [],
-            latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id or {},
-        ),
+        [
+            *_profile_recommendations(
+                output_spec=output_spec,
+                query=normalized_query,
+                workflow_ready_tools=workflow_ready_tools,
+                latest_prepare_jobs_by_tool_id=latest_jobs,
+            ),
+            *_catalog_candidate_recommendations(
+                output_spec=output_spec,
+                query=normalized_query,
+                catalog_items=catalog_items or [],
+                workflow_ready_tools=workflow_ready_tools,
+                latest_prepare_jobs_by_tool_id=latest_jobs,
+            ),
+        ],
         key=lambda item: (-float(item["confidence"]), str(item["candidate"]["candidateId"]), str(item["inputPort"]["name"])),
     )
     offset = (bounded_page - 1) * bounded_page_size
@@ -56,11 +69,10 @@ def _profile_recommendations(
     *,
     output_spec: dict[str, str],
     query: str,
-    registered_tools: list[dict[str, Any]],
+    workflow_ready_tools: dict[str, dict[str, Any]],
     latest_prepare_jobs_by_tool_id: dict[str, Any],
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
-    workflow_ready_tools = _workflow_ready_tools_by_name(registered_tools)
     for profile in TOOL_PROFILES:
         if query and not _profile_matches_query(profile, query):
             continue
@@ -93,6 +105,186 @@ def _profile_recommendations(
     return recommendations
 
 
+def _catalog_candidate_recommendations(
+    *,
+    output_spec: dict[str, str],
+    query: str,
+    catalog_items: list[dict[str, Any]],
+    workflow_ready_tools: dict[str, dict[str, Any]],
+    latest_prepare_jobs_by_tool_id: dict[str, Any],
+) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    for item in catalog_items:
+        if str(item.get("candidateKind") or "") == "h2ometa-tool-profile":
+            continue
+        candidate = _catalog_candidate(item)
+        if candidate is None:
+            continue
+        if query and not _catalog_candidate_matches_query(candidate, query):
+            continue
+        registered_tool = _matching_registered_candidate(candidate, workflow_ready_tools)
+        latest_prepare_job = _latest_prepare_job_for_tool_ids(
+            _candidate_prepare_tool_ids(candidate),
+            latest_prepare_jobs_by_tool_id,
+        )
+        for input_port in _catalog_candidate_input_ports(candidate):
+            input_spec = port_spec_from_rule_item(input_port)
+            if mismatched_compatibility_field(input_spec, output_spec):
+                continue
+            matched_fields = matched_compatibility_fields(input_spec, output_spec)
+            if not matched_fields:
+                continue
+            recommendation = {
+                "decision": "recommended",
+                "candidate": candidate,
+                "executionGate": _candidate_execution_gate(candidate, registered_tool=registered_tool, latest_prepare_job=latest_prepare_job),
+                "inputPort": _input_port_summary(input_port, input_spec),
+                "matchedFields": matched_fields,
+                "confidence": _confidence(matched_fields=matched_fields, input_port=input_port),
+                "hardChecks": ["端口方向 output -> input", "类型字段无冲突"],
+                "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
+            }
+            if registered_tool is None:
+                recommendation["validationPlan"] = workflow_ready_validation_plan()
+                if latest_prepare_job is not None:
+                    recommendation["latestPrepareJob"] = latest_prepare_job
+                if not _active_prepare_job(latest_prepare_job):
+                    recommendation["preparePayload"] = candidate["preparePayload"]
+            recommendations.append(recommendation)
+    return recommendations
+
+
+def _catalog_candidate(item: dict[str, Any]) -> dict[str, Any] | None:
+    prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else None
+    if prepare_payload is None:
+        return None
+    rule_template = prepare_payload.get("ruleTemplate")
+    if not isinstance(rule_template, dict):
+        return None
+    candidate = {
+        key: item.get(key)
+        for key in (
+            "candidateId",
+            "candidateKind",
+            "sourceRef",
+            "contractState",
+            "qualityTier",
+            "name",
+            "toolName",
+            "toolNames",
+            "snakemakeWrapperCount",
+            "snakemakeWrappers",
+            "wrapperPath",
+            "wrapperIdentifier",
+        )
+        if item.get(key) is not None
+    }
+    candidate["preparePayload"] = dict(prepare_payload)
+    return candidate
+
+
+def _catalog_candidate_input_ports(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    prepare_payload = candidate.get("preparePayload") if isinstance(candidate.get("preparePayload"), dict) else {}
+    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
+    enriched = enrich_rule_template_semantics(template)
+    return [item for item in enriched.get("inputs") or [] if isinstance(item, dict)]
+
+
+def _candidate_execution_gate(
+    candidate: dict[str, Any],
+    *,
+    registered_tool: dict[str, Any] | None,
+    latest_prepare_job: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if registered_tool is not None:
+        return _ready_execution_gate(registered_tool)
+    if _active_prepare_job(latest_prepare_job):
+        return {
+            "currentState": str(candidate.get("contractState") or "SnakemakeRenderable"),
+            "requiredState": "WorkflowReady",
+            "canAddStep": False,
+            "nextAction": "wait-for-tool-validation",
+            "reason": "TOOL_PREPARE_JOB_ACTIVE",
+            "sourceOfTruth": "toolPrepareJob",
+            "jobId": str(latest_prepare_job.get("jobId") or ""),
+            "toolId": str(latest_prepare_job.get("toolId") or ""),
+        }
+    return {
+        "currentState": str(candidate.get("contractState") or "Discovered"),
+        "requiredState": "WorkflowReady",
+        "canAddStep": False,
+        "nextAction": "prepare-tool",
+        "reason": "WORKFLOW_TOOL_NOT_READY",
+        "sourceOfTruth": "registeredTool.toolContract",
+    }
+
+
+def _catalog_candidate_matches_query(candidate: dict[str, Any], query: str) -> bool:
+    return query in " ".join(_candidate_names(candidate)).lower()
+
+
+def _matching_registered_candidate(candidate: dict[str, Any], tools_by_name: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    for name in _candidate_names(candidate):
+        normalized = _normalized_tool_name(_tool_name_from_identifier(name))
+        if normalized in tools_by_name:
+            return tools_by_name[normalized]
+    return None
+
+
+def _latest_prepare_job_for_tool_ids(tool_ids: list[str], latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any] | None:
+    for tool_id in tool_ids:
+        value = latest_prepare_jobs_by_tool_id.get(tool_id)
+        if isinstance(value, dict):
+            return dict(value)
+    return None
+
+
+def _candidate_prepare_tool_ids(candidate: dict[str, Any]) -> list[str]:
+    prepare_payload = candidate.get("preparePayload") if isinstance(candidate.get("preparePayload"), dict) else {}
+    return _unique_strings(
+        str(value or "").strip()
+        for value in (
+            prepare_payload.get("id"),
+            prepare_payload.get("packageSpec"),
+            prepare_payload.get("name"),
+            candidate.get("candidateId"),
+        )
+        if str(value or "").strip()
+    )
+
+
+def _candidate_names(candidate: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    raw_tool_names = candidate.get("toolNames")
+    if isinstance(raw_tool_names, list):
+        names.extend(str(value).strip() for value in raw_tool_names if str(value or "").strip())
+    prepare_payload = candidate.get("preparePayload") if isinstance(candidate.get("preparePayload"), dict) else {}
+    for value in (
+        candidate.get("name"),
+        candidate.get("toolName"),
+        candidate.get("candidateId"),
+        prepare_payload.get("name"),
+        prepare_payload.get("id"),
+        prepare_payload.get("packageSpec"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            names.append(text)
+    return _unique_strings(names)
+
+
+def _unique_strings(values: Any) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
+
+
 def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
     return {
         "profileId": profile.profile_id,
@@ -112,17 +304,7 @@ def _execution_gate(
     latest_prepare_job: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if registered_tool is not None:
-        contract = registered_tool.get("toolContract") if isinstance(registered_tool.get("toolContract"), dict) else {}
-        return {
-            "currentState": str(contract.get("state") or "WorkflowReady"),
-            "requiredState": "WorkflowReady",
-            "canAddStep": True,
-            "nextAction": "add-step",
-            "reason": "WORKFLOW_TOOL_READY",
-            "sourceOfTruth": "registeredTool.toolContract",
-            "toolRevisionId": str(registered_tool.get("toolRevisionId") or ""),
-            "toolId": str(registered_tool.get("id") or ""),
-        }
+        return _ready_execution_gate(registered_tool)
     if _active_prepare_job(latest_prepare_job):
         return {
             "currentState": "SnakemakeRenderable",
@@ -142,6 +324,20 @@ def _execution_gate(
         "nextAction": "prepare-tool",
         "reason": "WORKFLOW_TOOL_NOT_READY",
         "sourceOfTruth": "registeredTool.toolContract",
+    }
+
+
+def _ready_execution_gate(registered_tool: dict[str, Any]) -> dict[str, Any]:
+    contract = registered_tool.get("toolContract") if isinstance(registered_tool.get("toolContract"), dict) else {}
+    return {
+        "currentState": str(contract.get("state") or "WorkflowReady"),
+        "requiredState": "WorkflowReady",
+        "canAddStep": True,
+        "nextAction": "add-step",
+        "reason": "WORKFLOW_TOOL_READY",
+        "sourceOfTruth": "registeredTool.toolContract",
+        "toolRevisionId": str(registered_tool.get("toolRevisionId") or ""),
+        "toolId": str(registered_tool.get("id") or registered_tool.get("toolId") or ""),
     }
 
 
