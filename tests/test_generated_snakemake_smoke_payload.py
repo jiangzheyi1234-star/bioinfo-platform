@@ -10,11 +10,11 @@ SMOKE_SCRIPTS_DIR = REPO_ROOT / "skills" / "h2ometa-remote-smoke-test" / "script
 if str(SMOKE_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SMOKE_SCRIPTS_DIR))
 
-import remote_database_smoke
-import remote_all_databases_snakemake_smoke
-import remote_generated_linear_workflow_smoke
-import remote_generated_tool_smoke
-import remote_real_database_acceptance
+import remote_database_smoke  # noqa: E402
+import remote_all_databases_snakemake_smoke  # noqa: E402
+import remote_generated_linear_workflow_smoke  # noqa: E402
+import remote_generated_tool_smoke  # noqa: E402
+import remote_real_database_acceptance  # noqa: E402
 
 
 def test_remote_smoke_upload_payloads_include_selected_server_id() -> None:
@@ -70,6 +70,7 @@ def _plan(*, project_id: str = "proj_smoke", resource_bindings: dict | None = No
         "runSpec": {
             "projectId": project_id,
             "pipelineId": "generated-tool-run-v1",
+            "workflowRevisionId": "wfrev_smoke",
             "workflow": {"contractVersion": "rule-contract-v1", "nodes": [], "edges": [], "outputs": []},
             "resourceBindings": resource_bindings or {},
             "workflowDesign": {"draftId": "wfd_smoke", "revision": 1},
@@ -138,6 +139,7 @@ def test_generated_tool_submit_payload_includes_local_api_server_id() -> None:
     assert payload["serverId"] == "srv_real"
     assert payload["requestId"] == "req_generated"
     assert payload["runSpec"]["pipelineId"] == "generated-tool-run-v1"
+    assert payload["runSpec"]["workflowRevisionId"] == "wfrev_smoke"
     assert payload["runSpec"]["inputs"] == [
         {"uploadId": "upl_letters", "filename": "letters.txt", "role": "input"}
     ]
@@ -166,6 +168,7 @@ def test_generated_linear_submit_payload_includes_local_api_server_id() -> None:
     )
 
     assert payload["serverId"] == "srv_real"
+    assert payload["runSpec"]["workflowRevisionId"] == "wfrev_smoke"
     assert payload["runSpec"]["workflowDesign"]["draftId"] == "wfd_smoke"
     assert "steps" not in payload["runSpec"]["workflow"]
 
@@ -199,6 +202,7 @@ def test_database_submit_payload_includes_local_api_server_id() -> None:
     )
 
     assert payload["serverId"] == "srv_real"
+    assert payload["runSpec"]["workflowRevisionId"] == "wfrev_smoke"
     assert payload["runSpec"]["resourceBindings"] == {"taxonomy": {"databaseId": "taxonomy-db-custom-smoke"}}
     assert "tool" not in payload["runSpec"]
 

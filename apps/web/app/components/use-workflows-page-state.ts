@@ -252,6 +252,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       (isGeneratedToolRun || Boolean(selectedPipelineId)) &&
       (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
       (!isGeneratedToolRun || currentWorkflowDesignPlan?.valid === true) &&
+      (!isGeneratedToolRun || Boolean(currentWorkflowDesignCompileResult?.workflowRevisionId)) &&
       (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
       (!isGeneratedToolRun || !workflowDesignBusy) &&
       !submitting &&
@@ -447,7 +448,11 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
         if (!plan?.valid) {
           throw new Error("WORKFLOW_DESIGN_PLAN_REQUIRED");
         }
-        run = await submitWorkflowDesignRun({ server, files, plan });
+        const workflowRevisionId = currentWorkflowDesignCompileResult?.workflowRevisionId;
+        if (!workflowRevisionId) {
+          throw new Error("WORKFLOW_REVISION_ID_REQUIRED");
+        }
+        run = await submitWorkflowDesignRun({ server, files, plan, workflowRevisionId });
       }
       setSubmittedRun(run);
       setActiveRunId(run.runId);

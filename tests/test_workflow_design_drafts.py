@@ -15,6 +15,7 @@ from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
 from core.contracts.workflow_design import workflow_design_graph, workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
+from apps.remote_runner.workflow_design_service import compile_workflow_design_draft_export
 from apps.remote_runner.workflow_design_storage import (
     create_workflow_design_draft,
     fetch_workflow_design_draft,
@@ -411,11 +412,8 @@ def test_generated_tool_run_preflight_requires_saved_workflow_design_draft(tmp_p
     upsert_ready_tool(cfg, _tool_manifest())
     saved = create_workflow_design_draft(cfg, _draft())
     pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
-    run_spec = workflow_design_to_generated_run_spec(
-        saved["draft"],
-        draft_id=saved["draftId"],
-        revision=saved["revision"],
-    )
+    compiled = compile_workflow_design_draft_export(cfg, saved["draftId"])
+    run_spec = dict(compiled["runSpec"])
     run_spec["inputs"] = [{"role": "input", "uploadId": "upl_reads", "filename": "reads.fastq"}]
 
     preflight_run_spec(cfg, pipeline, run_spec)

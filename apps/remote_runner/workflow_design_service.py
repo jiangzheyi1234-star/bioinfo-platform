@@ -157,8 +157,11 @@ def compile_workflow_design_draft_export(cfg: RemoteRunnerConfig, draft_id: str)
         runtime_lock=_workflow_revision_runtime_lock(cfg),
         compiler=_workflow_revision_compiler(),
     )
+    compiled_run_spec = dict(compiled.get("runSpec") if isinstance(compiled.get("runSpec"), dict) else {})
+    compiled_run_spec["workflowRevisionId"] = workflow_revision["workflowRevisionId"]
     return {
         **compiled,
+        "runSpec": compiled_run_spec,
         "workflowRevisionId": workflow_revision["workflowRevisionId"],
         "workflowRevision": workflow_revision,
     }

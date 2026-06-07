@@ -133,13 +133,23 @@ def create_and_plan_workflow_design(
         payload={"serverId": server_id, "draft": draft},
         timeout=30,
     ))
-    return response_data(http_json(
+    plan = response_data(http_json(
         "POST",
         api_base,
         f"/api/v1/workflow-design-drafts/{created['draftId']}/plan",
         payload={"serverId": server_id},
         timeout=timeout,
     ))
+    if not plan.get("valid"):
+        return plan
+    compiled = response_data(http_json(
+        "POST",
+        api_base,
+        f"/api/v1/workflow-design-drafts/{created['draftId']}/compile",
+        payload={"serverId": server_id},
+        timeout=timeout,
+    ))
+    return {**plan, **compiled, "valid": plan.get("valid")}
 
 
 def prepare_tool_with_job(

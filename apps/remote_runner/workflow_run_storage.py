@@ -155,6 +155,7 @@ def create_run_record(
                 "pipelineId": run["pipelineId"],
                 "projectId": run["projectId"],
                 "runId": run["runId"],
+                **({"workflowRevisionId": run_spec["workflowRevisionId"]} if run_spec.get("workflowRevisionId") else {}),
             },
             occurred_at=submitted_at,
             command_derived=True,

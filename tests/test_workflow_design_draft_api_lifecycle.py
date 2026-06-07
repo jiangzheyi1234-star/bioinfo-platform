@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from apps.remote_runner.main import app
 from apps.remote_runner.storage import fetch_run, list_runs
+from apps.remote_runner.workflow_design_service import compile_workflow_design_draft_export
 from apps.remote_runner.workflow_revision_storage import fetch_workflow_revision
 from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
@@ -121,6 +122,18 @@ def test_generated_tool_run_record_keeps_strict_draft_run_spec(monkeypatch, tmp_
     monkeypatch.setattr("apps.remote_runner.submission_service.ensure_submission_ready", lambda cfg: None)
     client = TestClient(app)
 
+    missing_revision = client.post(
+        "/api/v1/runs",
+        headers={"Authorization": "Bearer workflow-design-token", "Idempotency-Key": "idem_design_run_missing_revision"},
+        json={"serverId": "srv_design", "requestId": "req_design_run_missing_revision", "runSpec": run_spec},
+    )
+    assert missing_revision.status_code == 422
+
+    compiled = compile_workflow_design_draft_export(cfg, saved["draftId"])
+    run_spec = dict(compiled["runSpec"])
+    assert run_spec["workflowRevisionId"] == compiled["workflowRevisionId"]
+    run_spec["inputs"] = [{"role": "input", "uploadId": "upl_reads", "filename": "reads.fastq"}]
+
     response = client.post(
         "/api/v1/runs",
         headers={"Authorization": "Bearer workflow-design-token", "Idempotency-Key": "idem_design_run"},
@@ -132,4 +145,5 @@ def test_generated_tool_run_record_keeps_strict_draft_run_spec(monkeypatch, tmp_
     assert run is not None
     assert run["pipelineVersion"] == "0.1.0"
     assert "pipelineVersion" not in run["runSpec"]
+    assert run["runSpec"]["workflowRevisionId"] == compiled["workflowRevisionId"]
     assert run["runSpec"]["workflowDesign"]["draftId"] == saved["draftId"]

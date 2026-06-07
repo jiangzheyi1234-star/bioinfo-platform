@@ -7,6 +7,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from .workflow_design_storage import fetch_workflow_design_draft
+from .workflow_revision_storage import fetch_workflow_revision
 
 
 ALLOWED_WORKFLOW_DESIGN_RUN_SPEC_KEYS = {
@@ -16,6 +17,7 @@ ALLOWED_WORKFLOW_DESIGN_RUN_SPEC_KEYS = {
     "workflow",
     "resourceBindings",
     "workflowDesign",
+    "workflowRevisionId",
 }
 
 
@@ -27,6 +29,9 @@ def validate_workflow_design_run_spec(cfg: RemoteRunnerConfig, run_spec: dict[st
     revision = workflow_design.get("revision")
     if not draft_id or not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         raise ValueError("WORKFLOW_DESIGN_RUN_SPEC_REQUIRED")
+    workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip()
+    if not workflow_revision_id:
+        raise ValueError("WORKFLOW_REVISION_ID_REQUIRED")
 
     extra_keys = sorted(set(run_spec) - ALLOWED_WORKFLOW_DESIGN_RUN_SPEC_KEYS)
     if "pipelineVersion" in extra_keys:
@@ -39,12 +44,21 @@ def validate_workflow_design_run_spec(cfg: RemoteRunnerConfig, run_spec: dict[st
         raise ValueError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
     if int(record["revision"]) != revision:
         raise ValueError("WORKFLOW_DESIGN_REVISION_MISMATCH")
+    workflow_revision = fetch_workflow_revision(cfg, workflow_revision_id)
+    if workflow_revision is None:
+        raise ValueError("WORKFLOW_REVISION_NOT_FOUND")
+    if workflow_revision.get("draftId") != draft_id or workflow_revision.get("draftRevision") != revision:
+        raise ValueError("WORKFLOW_REVISION_DRAFT_MISMATCH")
 
     expected = workflow_design_to_generated_run_spec(
         record["draft"],
         draft_id=draft_id,
         revision=revision,
     )
+    graph_snapshot = workflow_revision.get("graphSnapshot")
+    snapshot_run_spec = graph_snapshot.get("runSpec") if isinstance(graph_snapshot, dict) else None
+    if snapshot_run_spec != expected:
+        raise ValueError("WORKFLOW_REVISION_RUN_SPEC_MISMATCH")
     for key in ("projectId", "pipelineId", "workflow", "resourceBindings", "workflowDesign"):
         if run_spec.get(key) != expected[key]:
             raise ValueError(f"WORKFLOW_DESIGN_RUN_SPEC_MISMATCH: {key}")

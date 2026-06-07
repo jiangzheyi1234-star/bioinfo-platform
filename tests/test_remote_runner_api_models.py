@@ -82,12 +82,13 @@ def test_remote_runner_run_request_preserves_run_spec_extensions() -> None:
         {
             "serverId": "srv_demo",
             "requestId": "req_demo",
-            "runSpec": {"pipelineId": "file-summary-v1", "inputs": []},
+            "runSpec": {"pipelineId": "file-summary-v1", "inputs": [], "workflowRevisionId": "wfrev_demo"},
         }
     )
 
     assert request.runSpec.pipelineId == "file-summary-v1"
     assert request.model_dump()["runSpec"]["inputs"] == []
+    assert request.model_dump()["runSpec"]["workflowRevisionId"] == "wfrev_demo"
 
 
 def test_remote_runner_workflow_design_compile_request_rejects_server_id() -> None:
