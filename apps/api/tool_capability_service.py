@@ -371,12 +371,16 @@ def _prepare_tool_validation_queue(*, runtime: Any, target_platform: str, max_it
     acceptance = _target_acceptance_with_runtime_state(runtime=runtime, target_platform=target_platform)
     queue = acceptance.get("validationQueue") if isinstance(acceptance.get("validationQueue"), dict) else {}
     items = queue.get("items") if isinstance(queue.get("items"), list) else []
-    considered = [item for item in items[:requested] if isinstance(item, dict)]
-    latest_jobs_by_tool_id = _latest_prepare_jobs_for_queue_items(runtime, considered)
+    candidate_items = [item for item in items if isinstance(item, dict)]
+    latest_jobs_by_tool_id = _latest_prepare_jobs_for_queue_items(runtime, candidate_items)
     queued: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     seen_tool_ids: set[str] = set()
-    for item in considered:
+    considered: list[dict[str, Any]] = []
+    for item in candidate_items:
+        if len(queued) >= requested:
+            break
+        considered.append(item)
         tool_id = _queue_item_tool_id(item)
         if tool_id in seen_tool_ids:
             skipped.append(_skipped_validation_item(item, tool_id=tool_id, reason="DUPLICATE_TOOL_ID"))
