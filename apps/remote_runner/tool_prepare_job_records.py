@@ -40,6 +40,11 @@ def job_row_to_dict(row: Any, events: list[dict[str, Any]]) -> dict[str, Any]:
     missing_resources = missing_resources_from_events(str(row["status"] or ""), events)
     if missing_resources:
         item["missingResources"] = missing_resources
+    if isinstance(result, dict):
+        for key in ("validationResultId", "evidenceId"):
+            value = str(result.get(key) or "").strip()
+            if value:
+                item[key] = value
     return item
 
 

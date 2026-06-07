@@ -9,6 +9,8 @@ from apps.remote_runner.tool_prepare_job_storage import (
     complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
+    fetch_tool_prepare_job,
+    list_latest_tool_prepare_jobs_by_tool_id,
     list_tool_prepare_jobs,
     mark_tool_prepare_job_waiting_resource,
 )
@@ -65,6 +67,34 @@ def test_list_tool_prepare_jobs_returns_filtered_page_and_status_counts(tmp_path
     assert all_jobs["limit"] == 3
     assert all_jobs["offset"] == 0
     assert len(all_jobs["items"]) == 3
+
+
+def test_completed_prepare_job_exposes_validation_evidence_ids(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    job = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+
+    completed = complete_tool_prepare_job(
+        cfg,
+        job["jobId"],
+        {
+            "id": "bioconda::fastqc",
+            "toolRevisionId": "bioconda::fastqc@1",
+            "toolContract": {"state": "WorkflowReady", "workflowReady": True},
+        },
+    )
+    fetched = fetch_tool_prepare_job(cfg, job["jobId"])
+    latest = list_latest_tool_prepare_jobs_by_tool_id(cfg, ["bioconda::fastqc"])["bioconda::fastqc"]
+
+    assert completed["result"]["validationResultId"].startswith("toolval_")
+    assert completed["result"]["evidenceId"].startswith("evid_")
+    assert completed["validationResultId"] == completed["result"]["validationResultId"]
+    assert completed["evidenceId"] == completed["result"]["evidenceId"]
+    assert fetched["result"]["validationResultId"] == completed["result"]["validationResultId"]
+    assert fetched["result"]["evidenceId"] == completed["result"]["evidenceId"]
+    assert fetched["validationResultId"] == completed["result"]["validationResultId"]
+    assert fetched["evidenceId"] == completed["result"]["evidenceId"]
+    assert latest["validationResultId"] == completed["result"]["validationResultId"]
+    assert latest["evidenceId"] == completed["result"]["evidenceId"]
 
 
 def test_prepare_job_queue_api_layers_are_exposed() -> None:
