@@ -64,7 +64,9 @@ export function ToolCatalogValidationQueueStrip({
     try {
       const result = await prepareToolValidationQueue(Math.min(items.length, 30));
       result.queued.forEach((item) => trackToolPrepareJob(queueJobToPrepareTask(item)));
-      setBatchStatus(`${result.queuedCount} queued · ${result.skippedCount} skipped`);
+      setBatchStatus(
+        `${result.batchPlan?.status || "queued"} · ${result.batchPlan?.jobIds.length ?? result.queuedCount} jobs · ${result.skippedCount} skipped`
+      );
       await onQueueChanged?.();
     } catch (err) {
       setError(toolErrorMessage(err, "批量启动工具验证失败"));
