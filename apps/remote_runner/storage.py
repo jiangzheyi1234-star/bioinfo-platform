@@ -18,9 +18,12 @@ from .log_storage import (
 )
 from .resource_storage import (
     apply_resource,
+    claim_reconcile_item,
     enqueue_reconcile,
     mark_resource_for_deletion,
     record_reconcile_failure,
+    record_reconcile_success,
+    update_resource_status,
 )
 from .run_execution_storage import (
     claim_next_run_job,
@@ -55,7 +58,7 @@ __all__ = [
     "append_log_lines",
     "apply_resource",
     "canonical_payload_hash",
-    "claim_next_run_job",
+    "claim_reconcile_item", "claim_next_run_job",
     "complete_run_attempt",
     "create_run_record",
     "delete_tool",
@@ -77,9 +80,11 @@ __all__ = [
     "persist_upload",
     "record_run_attempt_process_group",
     "record_reconcile_failure",
+    "record_reconcile_success",
     "require_run",
     "heartbeat_run_attempt",
     "now_iso",
+    "update_resource_status",
     "update_run_state",
     "upsert_tool",
 ]
