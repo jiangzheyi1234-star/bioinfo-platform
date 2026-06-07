@@ -410,6 +410,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "batchPreparing" in validation_queue
     assert "批量验证" in validation_queue
     assert "queuedCount" in validation_queue
+    assert "result.batchPlan?.status" in validation_queue
+    assert "result.batchPlan?.jobIds.length" in validation_queue
     assert "trackToolPrepareJob(job)" in validation_queue
     assert "waitForToolPrepareJob" not in validation_queue
     assert "addedToolFromValidationQueueItem" in validation_queue
