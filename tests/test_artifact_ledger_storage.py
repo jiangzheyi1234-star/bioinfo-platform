@@ -4,9 +4,11 @@ from pathlib import Path
 
 from apps.remote_runner.artifact_ledger_storage import (
     list_artifact_materializations,
+    list_lineage_edges_for_run,
     list_run_artifact_edges,
     record_artifact_blob_for_path,
     record_artifact_materialization,
+    record_lineage_edge,
     record_run_artifact_edge,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -106,3 +108,32 @@ def test_run_artifact_edges_model_bipartite_lineage(tmp_path: Path) -> None:
     assert upstream["contentHash"] == blob["sha256"]
     assert downstream["upstreamRunId"] == "run_align"
     assert list_run_artifact_edges(cfg, "run_variant") == [downstream]
+
+
+def test_lineage_edges_record_canonical_prov_relation(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+
+    edge = record_lineage_edge(
+        cfg,
+        subject_kind="run",
+        subject_id="run_align",
+        predicate="prov:generated",
+        object_kind="artifact_blob",
+        object_id="ablob_demo",
+        run_id="run_align",
+        workflow_revision_id="wfrev_demo",
+        payload={"portName": "bam", "stepId": "align"},
+        content_hash="sha256:demo",
+        created_at="2026-06-07T10:00:03Z",
+    )
+
+    assert edge["subjectKind"] == "run"
+    assert edge["subjectId"] == "run_align"
+    assert edge["predicate"] == "prov:generated"
+    assert edge["objectKind"] == "artifact_blob"
+    assert edge["objectId"] == "ablob_demo"
+    assert edge["runId"] == "run_align"
+    assert edge["workflowRevisionId"] == "wfrev_demo"
+    assert edge["payload"] == {"portName": "bam", "stepId": "align"}
+    assert edge["contentHash"] == "sha256:demo"
+    assert list_lineage_edges_for_run(cfg, "run_align") == [edge]

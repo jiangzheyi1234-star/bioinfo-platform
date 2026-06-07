@@ -100,6 +100,7 @@ def _record_artifact_ledger(
     from .artifact_ledger_storage import (
         record_artifact_blob_for_path,
         record_artifact_materialization,
+        record_lineage_edge,
         record_run_artifact_edge,
     )
 
@@ -128,10 +129,31 @@ def _record_artifact_ledger(
         upstream_run_id=upstream_run_id,
         created_at=str(artifact["createdAt"]),
     )
+    lineage_edge = record_lineage_edge(
+        cfg,
+        subject_kind="run",
+        subject_id=str(artifact["runId"]),
+        predicate="prov:generated",
+        object_kind="artifact_blob",
+        object_id=blob["artifactBlobId"],
+        run_id=str(artifact["runId"]),
+        payload={
+            "artifactId": artifact["artifactId"],
+            "artifactKey": normalized_key,
+            "materializationId": materialization["materializationId"],
+            "role": str(role or "output").strip() or "output",
+            "runArtifactEdgeId": edge["edgeId"],
+            **({"stepId": step_id} if step_id else {}),
+            **({"upstreamRunId": upstream_run_id} if upstream_run_id else {}),
+        },
+        content_hash=blob["sha256"],
+        created_at=str(artifact["createdAt"]),
+    )
     return {
         "artifactBlobId": blob["artifactBlobId"],
         "materializationId": materialization["materializationId"],
         "runArtifactEdgeId": edge["edgeId"],
+        "lineageEdgeId": lineage_edge["lineageEdgeId"],
     }
 
 
