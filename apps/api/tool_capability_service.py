@@ -91,8 +91,18 @@ def _recommend_tool_candidates_with_registered_tools(
         runtime=runtime,
         registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
     )
+    catalog = _search_tool_candidates_with_tool_index(
+        runtime=runtime,
+        query=query,
+        target_platform="linux-64",
+        page=1,
+        page_size=100,
+    )
+    catalog_items = _catalog_items(catalog)
     latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
-        runtime.list_latest_tool_prepare_jobs(validation_queue_tool_ids(registered_tools=registered_tools))
+        runtime.list_latest_tool_prepare_jobs(
+            validation_queue_tool_ids(registered_tools=registered_tools, catalog_items=catalog_items)
+        )
     )
     return recommend_tool_candidates(
         output_port=output_port,
@@ -101,6 +111,7 @@ def _recommend_tool_candidates_with_registered_tools(
         page_size=page_size,
         registered_tools=registered_tools,
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
+        catalog_items=catalog_items,
     )
 
 

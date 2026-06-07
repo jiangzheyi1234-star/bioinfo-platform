@@ -468,7 +468,7 @@ def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
     assert fastqc["preparePayload"]["id"] == "bioconda::fastqc"
     assert fastqc["preparePayload"]["name"] == "fastqc"
     assert fastqc["preparePayload"]["source"] == "bioconda"
-    assert fastqc["preparePayload"]["packageSpec"] == "bioconda::fastqc"
+    assert fastqc["preparePayload"]["packageSpec"] == "bioconda::fastqc=0.12.1"
     assert fastqc["preparePayload"]["targetPlatform"] == "linux-64"
     assert fastqc["preparePayload"]["targetPlatformSupported"] is True
     assert fastqc["preparePayload"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
