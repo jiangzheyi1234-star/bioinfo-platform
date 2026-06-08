@@ -10,6 +10,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+PENDING_RELEASE_ASSET_PREFIX = "pending-release-asset:"
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -98,6 +100,46 @@ def asset_size(asset: dict[str, Any], *, context: str) -> int:
     return size
 
 
+def attestation_sha256(item: dict[str, Any], *, context: str) -> str:
+    raw = str(item.get("bundleSha256") or item.get("attestationId") or "").strip().lower()
+    if raw.startswith("sha256:"):
+        raw = raw.removeprefix("sha256:")
+    if len(raw) != 64:
+        raise SystemExit(f"{context} missing attestation bundle sha256")
+    return raw
+
+
+def resolve_published_asset_reference(
+    value: str,
+    *,
+    assets: dict[str, dict[str, Any]] | None,
+    expected_sha256: str | None,
+    context: str,
+) -> str:
+    reference = value.strip()
+    if not reference:
+        raise SystemExit(f"{context} missing attestationUrl")
+    if not reference.startswith(PENDING_RELEASE_ASSET_PREFIX):
+        return reference
+    if assets is None:
+        raise SystemExit(f"{context} requires --published-assets to resolve {reference}")
+    asset_name = reference.removeprefix(PENDING_RELEASE_ASSET_PREFIX).strip()
+    if not asset_name:
+        raise SystemExit(f"{context} has empty pending release asset reference")
+    asset = assets.get(asset_name)
+    if not asset:
+        raise SystemExit(f"{context} published assets missing attestation bundle: {asset_name}")
+    expected_sha = str(expected_sha256 or "").strip().lower()
+    if len(expected_sha) != 64:
+        raise SystemExit(f"{context} missing attestation bundle sha256")
+    actual_sha = asset_digest_sha256(asset, context=context)
+    if actual_sha != expected_sha:
+        raise SystemExit(
+            f"{context} published attestation bundle sha256 mismatch: expected {expected_sha}, got {actual_sha}"
+        )
+    return asset_api_url(asset, context=context)
+
+
 def expected_artifact_filename(item: dict[str, Any], *, artifact_key: str) -> str:
     filename = Path(require_text(item, "path", context=f"{artifact_key} metadata")).name
     if not filename:
@@ -164,43 +206,12 @@ def merge_published_asset_urls(
     return merged_download_urls, merged_sbom_urls
 
 
-def published_attestation_url(
+def attestation_url(
     attestations: dict[str, Any],
-    assets: dict[str, dict[str, Any]],
-    *,
     artifact_key: str,
+    *,
+    published_assets: dict[str, dict[str, Any]] | None = None,
 ) -> str:
-    if artifact_key == "remote_runner":
-        item = (attestations.get("sbom") or {}).get("remote_runner") if isinstance(attestations.get("sbom"), dict) else {}
-    elif artifact_key == "workflow_runtime":
-        item = (attestations.get("sbom") or {}).get("workflow_runtime") if isinstance(attestations.get("sbom"), dict) else {}
-    else:
-        item = {}
-    if not isinstance(item, dict):
-        item = {}
-    url = str(item.get("attestationUrl") or "").strip()
-    if url.startswith("pending-release-asset:"):
-        filename = url.removeprefix("pending-release-asset:").strip()
-        asset = assets.get(filename)
-        if not asset:
-            raise SystemExit(f"published assets missing attestation bundle: {filename}")
-        return asset_api_url(asset, context=f"{artifact_key} attestation bundle")
-    return url
-
-
-def published_provenance_url(attestations: dict[str, Any], assets: dict[str, dict[str, Any]]) -> str:
-    provenance = attestations.get("provenance") if isinstance(attestations.get("provenance"), dict) else {}
-    url = str(provenance.get("attestationUrl") or "").strip()
-    if url.startswith("pending-release-asset:"):
-        filename = url.removeprefix("pending-release-asset:").strip()
-        asset = assets.get(filename)
-        if not asset:
-            raise SystemExit(f"published assets missing provenance bundle: {filename}")
-        return asset_api_url(asset, context="provenance attestation bundle")
-    return url
-
-
-def attestation_url(attestations: dict[str, Any], artifact_key: str) -> str:
     if artifact_key == "remote_runner":
         sbom = (attestations.get("sbom") or {}).get("remote_runner") if isinstance(attestations.get("sbom"), dict) else {}
     elif artifact_key == "workflow_runtime":
@@ -212,13 +223,40 @@ def attestation_url(attestations: dict[str, Any], artifact_key: str) -> str:
         if isinstance(item, dict):
             url = str(item.get("attestationUrl") or "").strip()
             if url:
-                return url
+                expected_sha = (
+                    attestation_sha256(item, context=f"{artifact_key} attestation")
+                    if url.startswith(PENDING_RELEASE_ASSET_PREFIX)
+                    else None
+                )
+                return resolve_published_asset_reference(
+                    url,
+                    assets=published_assets,
+                    expected_sha256=expected_sha,
+                    context=f"{artifact_key} attestation",
+                )
     return ""
 
 
-def provenance_url(attestations: dict[str, Any]) -> str:
+def provenance_url(
+    attestations: dict[str, Any],
+    *,
+    published_assets: dict[str, dict[str, Any]] | None = None,
+) -> str:
     provenance = attestations.get("provenance") if isinstance(attestations.get("provenance"), dict) else {}
-    return str(provenance.get("attestationUrl") or "").strip()
+    url = str(provenance.get("attestationUrl") or "").strip()
+    if not url:
+        return ""
+    expected_sha = (
+        attestation_sha256(provenance, context="release provenance")
+        if url.startswith(PENDING_RELEASE_ASSET_PREFIX)
+        else None
+    )
+    return resolve_published_asset_reference(
+        url,
+        assets=published_assets,
+        expected_sha256=expected_sha,
+        context="release provenance",
+    )
 
 
 def update_manifest(
@@ -238,8 +276,8 @@ def update_manifest(
     builder_id = require_text(builder, "id", context="release metadata builder")
     source_ref = require_text(metadata, "sourceRef", context="release metadata")
     source_commit = require_text(metadata, "sourceCommit", context="release metadata")
-    assets = published_assets_by_name(published_assets) if published_assets is not None else {}
-    provenance = published_provenance_url(attestations, assets) if assets else provenance_url(attestations)
+    resolved_published_assets = published_assets_by_name(published_assets) if published_assets is not None else None
+    provenance = provenance_url(attestations, published_assets=resolved_published_assets)
     if not provenance:
         raise SystemExit("release attestations missing provenance attestationUrl")
     for item in artifact_metadata_items(metadata):
@@ -256,10 +294,10 @@ def update_manifest(
         sbom_url = sbom_urls.get((artifact_key, platform), "")
         if not sbom_url:
             raise SystemExit(f"missing SBOM URL for {artifact_key}/{platform}")
-        artifact_attestation_url = (
-            published_attestation_url(attestations, assets, artifact_key=artifact_key)
-            if assets
-            else attestation_url(attestations, artifact_key)
+        artifact_attestation_url = attestation_url(
+            attestations,
+            artifact_key,
+            published_assets=resolved_published_assets,
         )
         if not artifact_attestation_url:
             raise SystemExit(f"release attestations missing attestationUrl for {artifact_key}")
