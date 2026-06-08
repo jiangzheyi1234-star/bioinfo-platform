@@ -35,6 +35,14 @@ from core.remote_runner.release_manifest import (  # noqa: E402
 from scripts import build_remote_runner_artifact_on_server as runner_builder  # noqa: E402
 from scripts import build_workflow_runtime_artifact_on_server as workflow_builder  # noqa: E402
 
+CORE_RUNTIME_HELPER_FILES = (
+    "async_boundary.py",
+    "api_payloads.py",
+    "api_responses.py",
+    "problem_responses.py",
+    "problem_status.py",
+)
+
 
 def print_json(label: str, payload: Any) -> None:
     print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
@@ -144,7 +152,7 @@ def copy_remote_runner_sources(build_root: Path, *, source_ref: str) -> None:
         source_ref=source_ref,
     )
     copy_git_file(source_ref, "core/__init__.py", build_root / "bundle" / "core" / "__init__.py")
-    for filename in runner_builder.CORE_RUNTIME_HELPER_FILES:
+    for filename in CORE_RUNTIME_HELPER_FILES:
         copy_git_file(source_ref, f"core/{filename}", build_root / "bundle" / "core" / filename)
     copy_git_tree(
         REPO_ROOT / "core" / "contracts",
