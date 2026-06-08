@@ -23,7 +23,7 @@ The release path follows these baseline practices:
 The production artifact handoff is:
 
 1. A controlled Linux/CI builder creates immutable `.tar.gz` artifacts from the release ref and manifest-declared lock inputs.
-2. The builder emits `.sha256`, SBOM, provenance or artifact attestation, builder identity, source ref, and signature metadata or a signed hosted attestation.
+2. The builder emits `.sha256`, SBOM, provenance or artifact attestation bundle, builder identity, source ref, and signature metadata or a signed hosted attestation.
 3. The release manifest records artifact version, platform, digest, size, download URL, lock digest, and supply-chain metadata references.
 4. Local launchers only resolve, download, verify, upload, and install those manifest-declared artifacts on the target server.
 
@@ -84,7 +84,7 @@ The repository entrypoint for that build is:
 uv run --frozen python scripts/build_release_artifacts_in_ci.py --source-ref <40-character-commit-sha> --platform linux-64 --output-dir dist/remote-runner
 ```
 
-The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04`, uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts, and uses commit-pinned `actions/attest` to create signed build-provenance and SBOM attestations. The workflow writes:
+The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04` and uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts. For this user-owned private repository, GitHub hosted artifact attestations are not available, so the CI script writes local in-toto-style provenance/SBOM attestation bundles and publishes those bundles as release assets. The workflow writes:
 
 - `release-artifacts-metadata.json`: full builder, source, lock, artifact, and SBOM metadata.
 - `release-manifest-metadata.json`: compact values intended for `config/remote-runner-release-manifest.json`.
