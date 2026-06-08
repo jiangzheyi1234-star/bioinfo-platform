@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,6 +20,13 @@ class ReleaseArtifactSpec:
     size_bytes: dict[str, int]
     lock_sha256: dict[str, str]
     download_urls: dict[str, str]
+    sbom_urls: dict[str, str] = field(default_factory=dict)
+    provenance_urls: dict[str, str] = field(default_factory=dict)
+    attestation_urls: dict[str, str] = field(default_factory=dict)
+    signature_urls: dict[str, str] = field(default_factory=dict)
+    builder_ids: dict[str, str] = field(default_factory=dict)
+    source_refs: dict[str, str] = field(default_factory=dict)
+    source_commits: dict[str, str] = field(default_factory=dict)
 
     def archive_filename(self, platform: str | None = None) -> str:
         return f"{self.name}-{self.version}-{platform or self.default_platform}.tar.gz"
@@ -44,6 +51,14 @@ class RemoteRunnerReleaseManifest:
 
 def _default_manifest_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "remote-runner-release-manifest.json"
+
+
+def _string_map(raw_spec: dict, key: str) -> dict[str, str]:
+    return {
+        str(platform).strip(): str(value).strip()
+        for platform, value in (raw_spec.get(key) or {}).items()
+        if str(platform).strip() and str(value).strip()
+    }
 
 
 @lru_cache(maxsize=None)
@@ -98,11 +113,14 @@ def _load_manifest_from_path(path_str: str) -> RemoteRunnerReleaseManifest:
                 for platform, value in (raw_spec.get("lock_sha256") or {}).items()
                 if str(platform).strip() and str(value).strip()
             },
-            download_urls={
-                str(platform).strip(): str(value).strip()
-                for platform, value in (raw_spec.get("download_urls") or {}).items()
-                if str(platform).strip() and str(value).strip()
-            },
+            download_urls=_string_map(raw_spec, "download_urls"),
+            sbom_urls=_string_map(raw_spec, "sbom_urls"),
+            provenance_urls=_string_map(raw_spec, "provenance_urls"),
+            attestation_urls=_string_map(raw_spec, "attestation_urls"),
+            signature_urls=_string_map(raw_spec, "signature_urls"),
+            builder_ids=_string_map(raw_spec, "builder_ids"),
+            source_refs=_string_map(raw_spec, "source_refs"),
+            source_commits=_string_map(raw_spec, "source_commits"),
         )
         if not all((spec.name, spec.service, spec.version, spec.default_platform, spec.bundle_env_var)):
             raise RuntimeError(f"remote runner release manifest artifact is incomplete: {path}#{key}")
