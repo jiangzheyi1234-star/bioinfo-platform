@@ -212,7 +212,7 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "dist/remote-runner/*.spdx.json" in workflow
     assert "dist/remote-runner/release-manifest-metadata.json" in workflow
     assert "dist/remote-runner/release-attestations.json" in workflow
-    assert "dist/remote-runner/attestation-bundles/*.bundle.json" in workflow
+    assert "dist/remote-runner/attestation-bundles/*.intoto.json" in workflow
     assert "release-published-assets.json" in workflow
     assert 'dist.rglob("*")' in workflow
     assert "h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}" in workflow

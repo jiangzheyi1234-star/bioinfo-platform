@@ -59,7 +59,7 @@ jobs:
             dist/remote-runner/*.tar.gz
             dist/remote-runner/*.tar.gz.sha256
             dist/remote-runner/*.spdx.json
-            dist/remote-runner/attestation-bundles/*.bundle.json
+            dist/remote-runner/attestation-bundles/*.intoto.json
             dist/remote-runner/release-artifacts-metadata.json
             dist/remote-runner/release-manifest-metadata.json
             dist/remote-runner/release-attestations.json
@@ -93,7 +93,7 @@ jobs:
             dist/remote-runner/*.tar.gz \
             dist/remote-runner/*.tar.gz.sha256 \
             dist/remote-runner/*.spdx.json \
-            dist/remote-runner/attestation-bundles/*.bundle.json \
+            dist/remote-runner/attestation-bundles/*.intoto.json \
             dist/remote-runner/release-artifacts-metadata.json \
             dist/remote-runner/release-manifest-metadata.json \
             dist/remote-runner/release-attestations.json \

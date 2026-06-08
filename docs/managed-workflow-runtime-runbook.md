@@ -89,7 +89,7 @@ The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.y
 - `release-artifacts-metadata.json`: full builder, source, lock, artifact, and SBOM metadata.
 - `release-manifest-metadata.json`: compact values intended for `config/remote-runner-release-manifest.json`.
 - `release-attestations.json`: GitHub attestation IDs, URLs, and published bundle paths emitted by the workflow.
-- `attestation-bundles/*.bundle.json`: local copies of the signed attestation bundles emitted by `actions/attest`.
+- `attestation-bundles/*.intoto.json`: local provenance and SBOM attestation bundles emitted by the CI builder.
 - `release-published-assets.json`: published GitHub Release asset API URLs, digests, and sizes emitted by the publish job.
 
 After publishing those assets to the release location, replace the manifest's `pending:` supply-chain fields with the real SBOM, attestation, builder, and source-ref values from those metadata files and the GitHub attestation records. When `publish_release` is enabled, the workflow uploads the built assets and metadata to the existing GitHub Release tag passed as `release_tag`, then writes and uploads `release-published-assets.json` so the manifest update can use published asset metadata without a hand lookup. The manifest must still be updated in source control and validated with `--require-supply-chain`.
