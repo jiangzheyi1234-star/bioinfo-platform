@@ -28,6 +28,27 @@
       },
       "download_urls": {
         "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/436499787"
+      },
+      "sbom_urls": {
+        "linux-64": "pending:ci-sbom"
+      },
+      "provenance_urls": {
+        "linux-64": "pending:ci-provenance"
+      },
+      "attestation_urls": {
+        "linux-64": "pending:github-artifact-attestation"
+      },
+      "signature_urls": {
+        "linux-64": "pending:ci-signature"
+      },
+      "builder_ids": {
+        "linux-64": "pending:controlled-linux-builder"
+      },
+      "source_refs": {
+        "linux-64": "pending:git-ref"
+      },
+      "source_commits": {
+        "linux-64": "pending:git-commit"
       }
     },
     "workflow_runtime": {
@@ -53,6 +74,27 @@
       },
       "download_urls": {
         "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/436499788"
+      },
+      "sbom_urls": {
+        "linux-64": "pending:ci-sbom"
+      },
+      "provenance_urls": {
+        "linux-64": "pending:ci-provenance"
+      },
+      "attestation_urls": {
+        "linux-64": "pending:github-artifact-attestation"
+      },
+      "signature_urls": {
+        "linux-64": "pending:ci-signature"
+      },
+      "builder_ids": {
+        "linux-64": "pending:controlled-linux-builder"
+      },
+      "source_refs": {
+        "linux-64": "pending:git-ref"
+      },
+      "source_commits": {
+        "linux-64": "pending:git-commit"
       }
     }
   }
