@@ -164,6 +164,42 @@ def merge_published_asset_urls(
     return merged_download_urls, merged_sbom_urls
 
 
+def published_attestation_url(
+    attestations: dict[str, Any],
+    assets: dict[str, dict[str, Any]],
+    *,
+    artifact_key: str,
+) -> str:
+    if artifact_key == "remote_runner":
+        item = (attestations.get("sbom") or {}).get("remote_runner") if isinstance(attestations.get("sbom"), dict) else {}
+    elif artifact_key == "workflow_runtime":
+        item = (attestations.get("sbom") or {}).get("workflow_runtime") if isinstance(attestations.get("sbom"), dict) else {}
+    else:
+        item = {}
+    if not isinstance(item, dict):
+        item = {}
+    url = str(item.get("attestationUrl") or "").strip()
+    if url.startswith("pending-release-asset:"):
+        filename = url.removeprefix("pending-release-asset:").strip()
+        asset = assets.get(filename)
+        if not asset:
+            raise SystemExit(f"published assets missing attestation bundle: {filename}")
+        return asset_api_url(asset, context=f"{artifact_key} attestation bundle")
+    return url
+
+
+def published_provenance_url(attestations: dict[str, Any], assets: dict[str, dict[str, Any]]) -> str:
+    provenance = attestations.get("provenance") if isinstance(attestations.get("provenance"), dict) else {}
+    url = str(provenance.get("attestationUrl") or "").strip()
+    if url.startswith("pending-release-asset:"):
+        filename = url.removeprefix("pending-release-asset:").strip()
+        asset = assets.get(filename)
+        if not asset:
+            raise SystemExit(f"published assets missing provenance bundle: {filename}")
+        return asset_api_url(asset, context="provenance attestation bundle")
+    return url
+
+
 def attestation_url(attestations: dict[str, Any], artifact_key: str) -> str:
     if artifact_key == "remote_runner":
         sbom = (attestations.get("sbom") or {}).get("remote_runner") if isinstance(attestations.get("sbom"), dict) else {}
@@ -192,6 +228,7 @@ def update_manifest(
     attestations: dict[str, Any],
     download_urls: dict[tuple[str, str], str],
     sbom_urls: dict[tuple[str, str], str],
+    published_assets: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(manifest)
     artifacts = updated.get("artifacts")
@@ -201,7 +238,8 @@ def update_manifest(
     builder_id = require_text(builder, "id", context="release metadata builder")
     source_ref = require_text(metadata, "sourceRef", context="release metadata")
     source_commit = require_text(metadata, "sourceCommit", context="release metadata")
-    provenance = provenance_url(attestations)
+    assets = published_assets_by_name(published_assets) if published_assets is not None else {}
+    provenance = published_provenance_url(attestations, assets) if assets else provenance_url(attestations)
     if not provenance:
         raise SystemExit("release attestations missing provenance attestationUrl")
     for item in artifact_metadata_items(metadata):
@@ -218,7 +256,11 @@ def update_manifest(
         sbom_url = sbom_urls.get((artifact_key, platform), "")
         if not sbom_url:
             raise SystemExit(f"missing SBOM URL for {artifact_key}/{platform}")
-        artifact_attestation_url = attestation_url(attestations, artifact_key)
+        artifact_attestation_url = (
+            published_attestation_url(attestations, assets, artifact_key=artifact_key)
+            if assets
+            else attestation_url(attestations, artifact_key)
+        )
         if not artifact_attestation_url:
             raise SystemExit(f"release attestations missing attestationUrl for {artifact_key}")
         spec.setdefault("sha256", {})[platform] = require_text(item, "sha256", context=f"{artifact_key} metadata")
@@ -288,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
         attestations=load_json(Path(args.attestations)),
         download_urls=download_urls,
         sbom_urls=sbom_urls,
+        published_assets=published_assets,
     )
     output_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0

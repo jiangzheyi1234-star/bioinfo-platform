@@ -35,6 +35,12 @@ from core.remote_runner.release_manifest import (  # noqa: E402
 from scripts import build_remote_runner_artifact_on_server as runner_builder  # noqa: E402
 from scripts import build_workflow_runtime_artifact_on_server as workflow_builder  # noqa: E402
 
+ATTESTATION_BUNDLE_FILENAMES = {
+    "provenance": "release-provenance.intoto.json",
+    "remote_runner": "h2ometa-remote-runner-sbom.intoto.json",
+    "workflow_runtime": "h2ometa-workflow-runtime-sbom.intoto.json",
+}
+
 CORE_RUNTIME_HELPER_FILES = (
     "async_boundary.py",
     "api_payloads.py",
@@ -420,6 +426,113 @@ def build_metadata(*, artifacts: list[dict[str, Any]], source_ref: str, source_c
     }
 
 
+def write_local_attestation_bundle(
+    *,
+    output_dir: Path,
+    filename: str,
+    predicate_type: str,
+    subject: dict[str, Any],
+    predicate: dict[str, Any],
+) -> dict[str, str]:
+    bundle_dir = output_dir / "attestation-bundles"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    path = bundle_dir / filename
+    payload = {
+        "schemaVersion": "h2ometa-release-attestation.v1",
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+            {
+                "name": str(subject["name"]),
+                "digest": {"sha256": str(subject["sha256"])},
+            }
+        ],
+        "predicateType": predicate_type,
+        "predicate": predicate,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path),
+    }
+
+
+def write_release_attestations(*, metadata: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    builder = metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
+    source_ref = str(metadata.get("sourceRef") or "").strip()
+    source_commit = str(metadata.get("sourceCommit") or "").strip()
+    artifacts = [item for item in metadata.get("artifacts") or [] if isinstance(item, dict)]
+    subjects = [
+        {
+            "name": Path(str(item.get("path") or "")).name,
+            "sha256": str(item.get("sha256") or "").strip(),
+        }
+        for item in artifacts
+    ]
+    provenance = write_local_attestation_bundle(
+        output_dir=output_dir,
+        filename=ATTESTATION_BUNDLE_FILENAMES["provenance"],
+        predicate_type="https://slsa.dev/provenance/v1",
+        subject={"name": "h2ometa-remote-runner-release", "sha256": sha256_text(output_dir / "release-artifacts-metadata.json")},
+        predicate={
+            "buildType": "https://github.com/jiangzheyi1234-star/bioinfo-platform/.github/workflows/release-remote-runner-artifacts.yml",
+            "builder": builder,
+            "sourceRef": source_ref,
+            "sourceCommit": source_commit,
+            "runUrl": str(builder.get("runUrl") or ""),
+            "materials": [
+                {
+                    "uri": f"git+https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}@{source_commit}",
+                    "digest": {"sha1": source_commit},
+                }
+            ],
+            "subjects": subjects,
+        },
+    )
+    sbom_entries: dict[str, dict[str, str]] = {}
+    for item in artifacts:
+        artifact_key = str(item.get("artifactKey") or "").strip()
+        if artifact_key not in ("remote_runner", "workflow_runtime"):
+            continue
+        sbom = item.get("sbom") if isinstance(item.get("sbom"), dict) else {}
+        bundle = write_local_attestation_bundle(
+            output_dir=output_dir,
+            filename=ATTESTATION_BUNDLE_FILENAMES[artifact_key],
+            predicate_type="https://spdx.dev/Document",
+            subject={
+                "name": Path(str(item.get("path") or "")).name,
+                "sha256": str(item.get("sha256") or "").strip(),
+            },
+            predicate={
+                "artifactKey": artifact_key,
+                "platform": str(item.get("platform") or ""),
+                "sourceRef": str(item.get("sourceRef") or source_ref),
+                "sourceCommit": str(item.get("sourceCommit") or source_commit),
+                "sbomPath": str(sbom.get("path") or ""),
+                "sbomSha256": str(sbom.get("sha256") or ""),
+            },
+        )
+        sbom_entries[artifact_key] = {
+            "attestationId": bundle["sha256"],
+            "attestationUrl": f"pending-release-asset:{Path(bundle['path']).name}",
+            "bundlePath": bundle["path"],
+            "bundleSha256": bundle["sha256"],
+        }
+    payload = {
+        "schemaVersion": "h2ometa-release-attestations.v1",
+        "platform": str(artifacts[0].get("platform") or "") if artifacts else "",
+        "provenance": {
+            "attestationId": provenance["sha256"],
+            "attestationUrl": f"pending-release-asset:{Path(provenance['path']).name}",
+            "bundlePath": provenance["path"],
+            "bundleSha256": provenance["sha256"],
+        },
+        "sbom": sbom_entries,
+    }
+    path = output_dir / "release-attestations.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return payload
+
+
 def release_manifest_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     builder = metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
     builder_id = str(builder.get("id") or "").strip()
@@ -498,6 +611,7 @@ def main(argv: list[str] | None = None) -> int:
     metadata_path = output_dir / args.metadata_name
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    write_release_attestations(metadata=metadata, output_dir=output_dir)
     manifest_metadata = release_manifest_metadata(metadata)
     manifest_metadata_path = output_dir / args.manifest_metadata_name
     manifest_metadata_path.write_text(json.dumps(manifest_metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
