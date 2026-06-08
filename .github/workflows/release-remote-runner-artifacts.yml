@@ -1,0 +1,256 @@
+name: Release Remote Runner Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Immutable source ref to build. Use a full 40-character commit SHA.
+        required: false
+        default: ""
+      publish_release:
+        description: Upload built artifacts to the GitHub Release named by release_tag.
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: Existing GitHub Release tag to receive the built assets when publish_release is true.
+        required: false
+        default: ""
+      platform:
+        description: Target Linux platform.
+        required: true
+        default: linux-64
+        type: choice
+        options:
+          - linux-64
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  build:
+    name: Build Linux release artifacts
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_REF: ${{ github.event.inputs.source_ref || github.sha }}
+      PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Build artifacts from explicit specs
+        run: |
+          uv run --frozen python scripts/build_release_artifacts_in_ci.py \
+            --source-ref "$SOURCE_REF" \
+            --platform "$PLATFORM" \
+            --output-dir dist/remote-runner
+
+      - name: Attest artifact provenance
+        id: attest-provenance
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/remote-runner/*.tar.gz
+
+      - name: Attest remote runner SBOM
+        id: attest-remote-runner-sbom
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/remote-runner/h2ometa-remote-runner-0.1.1-control-plane-${{ env.PLATFORM }}.tar.gz
+          sbom-path: dist/remote-runner/h2ometa-remote-runner-0.1.1-control-plane-${{ env.PLATFORM }}.tar.gz.spdx.json
+
+      - name: Attest workflow runtime SBOM
+        id: attest-workflow-runtime-sbom
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/remote-runner/h2ometa-workflow-runtime-0.1.0-${{ env.PLATFORM }}.tar.gz
+          sbom-path: dist/remote-runner/h2ometa-workflow-runtime-0.1.0-${{ env.PLATFORM }}.tar.gz.spdx.json
+
+      - name: Write attestation summary
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          required = {
+              "PROVENANCE_ATTESTATION_URL": os.environ.get("PROVENANCE_ATTESTATION_URL", ""),
+              "REMOTE_RUNNER_SBOM_ATTESTATION_URL": os.environ.get("REMOTE_RUNNER_SBOM_ATTESTATION_URL", ""),
+              "WORKFLOW_RUNTIME_SBOM_ATTESTATION_URL": os.environ.get("WORKFLOW_RUNTIME_SBOM_ATTESTATION_URL", ""),
+          }
+          missing = [name for name, value in required.items() if not value.strip()]
+          if missing:
+              raise SystemExit(f"attestation action did not return required outputs: {', '.join(missing)}")
+
+          bundle_dir = Path("dist/remote-runner/attestation-bundles")
+          bundle_dir.mkdir(parents=True, exist_ok=True)
+          bundles = {
+              "provenance": os.environ.get("PROVENANCE_BUNDLE_PATH", ""),
+              "remote_runner_sbom": os.environ.get("REMOTE_RUNNER_SBOM_BUNDLE_PATH", ""),
+              "workflow_runtime_sbom": os.environ.get("WORKFLOW_RUNTIME_SBOM_BUNDLE_PATH", ""),
+          }
+          published_bundle_paths = {}
+          for name, raw_path in bundles.items():
+              path = Path(raw_path)
+              if not raw_path.strip() or not path.exists():
+                  raise SystemExit(f"attestation action did not return a readable bundle-path for {name}")
+              target = bundle_dir / f"{name}.bundle.json"
+              shutil.copy2(path, target)
+              published_bundle_paths[name] = str(target)
+
+          payload = {
+              "schemaVersion": "h2ometa-release-attestations.v1",
+              "platform": os.environ["PLATFORM"],
+              "provenance": {
+                  "attestationId": os.environ.get("PROVENANCE_ATTESTATION_ID", ""),
+                  "attestationUrl": os.environ.get("PROVENANCE_ATTESTATION_URL", ""),
+                  "bundlePath": published_bundle_paths["provenance"],
+              },
+              "sbom": {
+                  "remote_runner": {
+                      "attestationId": os.environ.get("REMOTE_RUNNER_SBOM_ATTESTATION_ID", ""),
+                      "attestationUrl": os.environ.get("REMOTE_RUNNER_SBOM_ATTESTATION_URL", ""),
+                      "bundlePath": published_bundle_paths["remote_runner_sbom"],
+                  },
+                  "workflow_runtime": {
+                      "attestationId": os.environ.get("WORKFLOW_RUNTIME_SBOM_ATTESTATION_ID", ""),
+                      "attestationUrl": os.environ.get("WORKFLOW_RUNTIME_SBOM_ATTESTATION_URL", ""),
+                      "bundlePath": published_bundle_paths["workflow_runtime_sbom"],
+                  },
+              },
+          }
+          out = Path("dist/remote-runner/release-attestations.json")
+          out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+        env:
+          PROVENANCE_ATTESTATION_ID: ${{ steps.attest-provenance.outputs.attestation-id }}
+          PROVENANCE_ATTESTATION_URL: ${{ steps.attest-provenance.outputs.attestation-url }}
+          PROVENANCE_BUNDLE_PATH: ${{ steps.attest-provenance.outputs.bundle-path }}
+          REMOTE_RUNNER_SBOM_ATTESTATION_ID: ${{ steps.attest-remote-runner-sbom.outputs.attestation-id }}
+          REMOTE_RUNNER_SBOM_ATTESTATION_URL: ${{ steps.attest-remote-runner-sbom.outputs.attestation-url }}
+          REMOTE_RUNNER_SBOM_BUNDLE_PATH: ${{ steps.attest-remote-runner-sbom.outputs.bundle-path }}
+          WORKFLOW_RUNTIME_SBOM_ATTESTATION_ID: ${{ steps.attest-workflow-runtime-sbom.outputs.attestation-id }}
+          WORKFLOW_RUNTIME_SBOM_ATTESTATION_URL: ${{ steps.attest-workflow-runtime-sbom.outputs.attestation-url }}
+          WORKFLOW_RUNTIME_SBOM_BUNDLE_PATH: ${{ steps.attest-workflow-runtime-sbom.outputs.bundle-path }}
+
+      - name: Upload release artifact bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: h2ometa-remote-runner-release-${{ env.PLATFORM }}
+          path: |
+            dist/remote-runner/*.tar.gz
+            dist/remote-runner/*.tar.gz.sha256
+            dist/remote-runner/*.spdx.json
+            dist/remote-runner/attestation-bundles/*.bundle.json
+            dist/remote-runner/release-artifacts-metadata.json
+            dist/remote-runner/release-manifest-metadata.json
+            dist/remote-runner/release-attestations.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release assets
+    if: ${{ github.event.inputs.publish_release == 'true' }}
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download release artifact bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: h2ometa-remote-runner-release-${{ env.PLATFORM }}
+          path: dist/remote-runner
+
+      - name: Publish assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" \
+            dist/remote-runner/*.tar.gz \
+            dist/remote-runner/*.tar.gz.sha256 \
+            dist/remote-runner/*.spdx.json \
+            dist/remote-runner/attestation-bundles/*.bundle.json \
+            dist/remote-runner/release-artifacts-metadata.json \
+            dist/remote-runner/release-manifest-metadata.json \
+            dist/remote-runner/release-attestations.json \
+            --repo "$GH_REPO" \
+            --clobber
+
+      - name: Write published release asset map
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_view_json="$(mktemp)"
+          gh release view "$RELEASE_TAG" \
+            --repo "$GH_REPO" \
+            --json tagName,assets > "$release_view_json"
+          RELEASE_VIEW_JSON_PATH="$release_view_json" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release_tag = os.environ["RELEASE_TAG"]
+          repository = os.environ["GH_REPO"]
+          dist = Path("dist/remote-runner")
+          expected = sorted(path.name for path in dist.rglob("*") if path.is_file())
+          release = json.loads(
+              Path(os.environ["RELEASE_VIEW_JSON_PATH"]).read_text(encoding="utf-8")
+          )
+          assets = {}
+          for item in release.get("assets", []):
+              name = str(item.get("name") or "")
+              if not name:
+                  continue
+              assets[name] = {
+                  "apiUrl": str(item.get("apiUrl") or ""),
+                  "browserUrl": str(item.get("url") or ""),
+                  "digest": str(item.get("digest") or ""),
+                  "size": int(item.get("size") or 0),
+                  "contentType": str(item.get("contentType") or ""),
+              }
+          missing = [name for name in expected if name not in assets]
+          if missing:
+              raise SystemExit(f"published release is missing expected assets: {', '.join(missing)}")
+          payload = {
+              "schemaVersion": "h2ometa-release-published-assets.v1",
+              "repository": repository,
+              "releaseTag": str(release.get("tagName") or release_tag),
+              "assets": {name: assets[name] for name in expected},
+          }
+          (dist / "release-published-assets.json").write_text(
+              json.dumps(payload, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish asset map to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/remote-runner/release-published-assets.json \
+            --repo "$GH_REPO" \
+            --clobber
+
+      - name: Upload published asset map
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}
+          path: dist/remote-runner/release-published-assets.json
+          if-no-files-found: error
+          retention-days: 14

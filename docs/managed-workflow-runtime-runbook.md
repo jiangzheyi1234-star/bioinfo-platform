@@ -10,24 +10,48 @@ The remote runner must use manifest-declared release artifacts by default. A cle
 
 The release path follows these baseline practices:
 
-- Build Linux artifacts on a Linux builder that matches the target platform.
+- Production releases are built by a controlled Linux CI/release builder that matches the target platform. The developer-machine SSH builder is retained only for development, staging, offline repair, and emergency bootstrap validation.
 - Create fresh environments before packaging; do not re-tar an installed release directory.
 - Package relocatable conda environments with `conda-pack`, and run `conda-unpack` only after install on the target host.
 - Build release environments from the manifest-declared linux-64 explicit conda specs under `config/remote-runner-conda-specs`.
 - Pin release-critical workflow packages explicitly. For this release, the locked workflow runtime contains Snakemake `9.19.0`.
 - Download artifacts through a temporary staging file, then atomically replace the release artifact and checksum together.
-- Keep local scratch output out of the repo root. Release artifacts are published as GitHub Release assets and declared in `config/remote-runner-release-manifest.json`; local files under `resources/remote-runner` are staging or override copies only.
-- Build the remote runner source from git-tracked release files and exclude pipeline `.test` fixtures.
+- Keep disposable scratch output out of the repo root. Release artifacts are published as GitHub Release assets and declared in `config/remote-runner-release-manifest.json`; local files under `resources/remote-runner` are Git-ignored cache or override copies, not the release handoff.
+- Build the remote runner source from an immutable release ref and exclude pipeline `.test` fixtures.
 - Treat `--runtime-source explicit-from-current` as a recovery tool only. Normal releases should be built from declared release inputs, not from a deployed environment.
 
-The next release hardening step is to generate SBOM/provenance/signature metadata in CI.
+The production artifact handoff is:
+
+1. A controlled Linux/CI builder creates immutable `.tar.gz` artifacts from the release ref and manifest-declared lock inputs.
+2. The builder emits `.sha256`, SBOM, provenance or artifact attestation, builder identity, source ref, and signature metadata or a signed hosted attestation.
+3. The release manifest records artifact version, platform, digest, size, download URL, lock digest, and supply-chain metadata references.
+4. Local launchers only resolve, download, verify, upload, and install those manifest-declared artifacts on the target server.
+
+Run production release validation with supply-chain metadata enabled:
+
+```powershell
+uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
+```
+
+The normal local launcher path does not use `--require-supply-chain` yet, so missing or `pending:` SBOM/provenance/signature metadata is reported as a release hardening gap instead of blocking ordinary development startup.
 
 ## Release Artifacts
 
 The release is incomplete unless these assets exist on the manifest-declared GitHub Release.
-`resources/remote-runner` and `dist/remote-runner` are searched as local overrides, but both are local-only staging locations and must not be used as the release handoff.
+`resources/remote-runner` and `dist/remote-runner` are searched as local overrides, but both are Git-ignored local cache/override locations and must not be used as the release handoff. A manifest-matching `.tar.gz` and its `.sha256` file in those directories are still managed runtime inputs, so routine task cleanup must not delete them unless the task explicitly refreshes artifacts and proves they remain resolvable from another manifest source.
 
-The release manifest declares the artifact download URL, expected artifact SHA-256, artifact size, explicit conda spec path, and explicit conda spec SHA-256 for each platform. When no local artifact is present, the provider downloads the release asset into the local artifact cache and verifies SHA-256 and size before use. Private GitHub releases require `H2OMETA_RELEASE_DOWNLOAD_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in the local environment.
+The release manifest declares the artifact download URL, expected artifact SHA-256, artifact size, explicit conda spec path, explicit conda spec SHA-256, and optional supply-chain metadata references for each platform. When no local artifact is present, the provider downloads the release asset into the local artifact cache and verifies SHA-256 and size before use. Private GitHub releases require `H2OMETA_RELEASE_DOWNLOAD_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in the local environment.
+
+Supply-chain metadata fields are:
+
+- `sbom_urls`: SBOM document for the built artifact.
+- `provenance_urls` or `attestation_urls`: build provenance or hosted artifact attestation.
+- `builder_ids`: controlled builder identity, such as the CI workflow identity.
+- `source_refs`: immutable source ref used for the build.
+- `source_commits`: resolved commit SHA built by the controlled builder.
+- `signature_urls`: signature reference for the artifact unless `attestation_urls` points to a signed hosted attestation.
+
+Values prefixed with `pending:` are placeholders and fail the production `--require-supply-chain` gate.
 
 - `h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz`
 - `h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz.sha256`
@@ -47,10 +71,49 @@ uv run python scripts\check_remote_runner_release_artifacts.py
 The preflight must report `ok: true` and include the managed Snakemake package version in `workflowRuntime.snakemakeVersion`.
 
 All Windows commands below assume the same repo-local `UV_*` environment variables are set and are run from `E:\code\bio_ui`.
+If the default `%APPDATA%\H2OMeta\config.json` is unreadable to the current Windows runtime identity, pass a readable override with
+`--config-path .codex-bridge\runtime-profiles\remote-smoke-config.override.json` or set `H2OMETA_REMOTE_SMOKE_CONFIG_PATH` for the artifact build commands.
 
-## Build Control Plane
+## Production Release Build
 
-Build the Linux remote runner control-plane artifact from a real Windows PowerShell or `cmd.exe` session, not WSL. The script uploads the current `apps/remote_runner` source tree to a remote Linux temporary directory, builds a clean bundled Python runtime there, packages the source and runtime together, downloads the artifact into `resources\remote-runner`, and writes its `.sha256`.
+Production release artifacts should be built in CI or another controlled Linux builder. That builder must use the checked-in explicit conda specs, build from an immutable release ref, emit artifact digests and supply-chain metadata, publish assets to the manifest-declared release location, and update `config/remote-runner-release-manifest.json` with the resulting digest, size, URL, lock digest, source ref, builder id, and SBOM/provenance references.
+
+The repository entrypoint for that build is:
+
+```bash
+uv run --frozen python scripts/build_release_artifacts_in_ci.py --source-ref <40-character-commit-sha> --platform linux-64 --output-dir dist/remote-runner
+```
+
+The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04`, uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts, and uses commit-pinned `actions/attest` to create signed build-provenance and SBOM attestations. The workflow writes:
+
+- `release-artifacts-metadata.json`: full builder, source, lock, artifact, and SBOM metadata.
+- `release-manifest-metadata.json`: compact values intended for `config/remote-runner-release-manifest.json`.
+- `release-attestations.json`: GitHub attestation IDs, URLs, and published bundle paths emitted by the workflow.
+- `attestation-bundles/*.bundle.json`: local copies of the signed attestation bundles emitted by `actions/attest`.
+- `release-published-assets.json`: published GitHub Release asset API URLs, digests, and sizes emitted by the publish job.
+
+After publishing those assets to the release location, replace the manifest's `pending:` supply-chain fields with the real SBOM, attestation, builder, and source-ref values from those metadata files and the GitHub attestation records. When `publish_release` is enabled, the workflow uploads the built assets and metadata to the existing GitHub Release tag passed as `release_tag`, then writes and uploads `release-published-assets.json` so the manifest update can use published asset metadata without a hand lookup. The manifest must still be updated in source control and validated with `--require-supply-chain`.
+
+Use the manifest update helper after downloading the workflow's release metadata artifacts:
+
+```powershell
+uv run python scripts\update_remote_runner_release_manifest.py `
+  --metadata dist\remote-runner\release-artifacts-metadata.json `
+  --attestations dist\remote-runner\release-attestations.json `
+  --published-assets dist\remote-runner\release-published-assets.json
+```
+
+The updater verifies that published asset digests and sizes match the CI metadata before it writes the manifest. Manual `--download-url` and `--sbom-url` mappings are reserved for offline repair or a non-GitHub release store and still require the CI metadata and attestation files.
+
+The local acceptance command for a production release is:
+
+```powershell
+uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
+```
+
+## Dev/Staging Control Plane Build
+
+Build the Linux remote runner control-plane artifact from a real Windows PowerShell or `cmd.exe` session, not WSL. This path is for development, staging, offline repair, and emergency bootstrap validation. The script uploads release sources to a remote Linux temporary directory, builds a clean bundled Python runtime there, packages the source and runtime together, downloads the artifact into `resources\remote-runner`, and writes its `.sha256`.
 
 Review the generated remote script without connecting:
 
@@ -59,14 +122,14 @@ cd /d E:\code\bio_ui
 uv run python scripts\build_remote_runner_artifact_on_server.py --print-remote-script
 ```
 
-Build from the manifest-declared explicit conda spec:
+Build from the manifest-declared explicit conda spec for development or staging:
 
 ```bat
 cd /d E:\code\bio_ui
 uv run python scripts\build_remote_runner_artifact_on_server.py
 ```
 
-The release build refuses to package a dirty `apps\remote_runner` tree. Commit or stash source changes before a release build. `--allow-dirty-source` is development-only.
+The script refuses to package a dirty `apps\remote_runner` tree unless `--allow-dirty-source` is passed. For any release-like staging build, prefer `--source-ref <40-character-commit-sha>` so the build input is immutable. `--allow-dirty-source` is development-only.
 
 For recovery when the exact current deployed dependency set must be reproduced, use an explicit spec exported from the already installed control-plane runtime. This still creates a fresh environment before packaging; it must not be confused with re-tarring an installed release directory:
 
@@ -75,9 +138,9 @@ cd /d E:\code\bio_ui
 uv run python scripts\build_remote_runner_artifact_on_server.py --runtime-source explicit-from-current
 ```
 
-## Build Workflow Runtime
+## Dev/Staging Workflow Runtime Build
 
-Build the Linux workflow runtime from a real Windows PowerShell or `cmd.exe` session, not WSL. The script reads the configured H2OMeta SSH target and builds the artifact in a temporary directory on the remote Linux host:
+Build the Linux workflow runtime from a real Windows PowerShell or `cmd.exe` session, not WSL. This path is for development, staging, offline repair, and emergency bootstrap validation. The script reads the configured H2OMeta SSH target and builds the artifact in a temporary directory on the remote Linux host:
 
 Review the generated remote script without connecting:
 
@@ -93,7 +156,7 @@ cd /d E:\code\bio_ui
 uv run python scripts\build_workflow_runtime_artifact_on_server.py
 ```
 
-The script downloads `h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz` into `resources\remote-runner` and writes its `.sha256`. Upload both files to the manifest-declared GitHub Release, then update the manifest SHA-256, size, and download URL values.
+The script downloads `h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz` into `resources\remote-runner` and writes its `.sha256`. For production release, upload CI-built artifacts and metadata to the manifest-declared release location, then update the manifest SHA-256, size, download URL, source ref, builder id, and SBOM/provenance references.
 
 Use clean solve only when intentionally refreshing the workflow runtime lock:
 
