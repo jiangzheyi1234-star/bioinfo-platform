@@ -198,6 +198,8 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "ssh_connect" not in source
     assert "connect()" not in source
     assert "def ensure_source_ref_checked_out(" in source
+    assert "CORE_RUNTIME_HELPER_FILES = (" in source
+    assert "runner_builder.CORE_RUNTIME_HELPER_FILES" not in source
     assert "runs-on: ubuntu-24.04" in workflow
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" in workflow
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in workflow
