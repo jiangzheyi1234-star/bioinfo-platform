@@ -204,15 +204,14 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" in workflow
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in workflow
     assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" in workflow
-    assert "actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26" in workflow
-    assert "id-token: write" in workflow
-    assert "attestations: write" in workflow
-    assert "artifact-metadata: write" in workflow
+    assert "actions/attest@" not in workflow
+    assert "attestations: write" not in workflow
+    assert "artifact-metadata: write" not in workflow
+    assert "ATTESTATION_BUNDLE_FILENAMES" in source
+    assert "pending-release-asset:" in source
     assert "dist/remote-runner/*.spdx.json" in workflow
     assert "dist/remote-runner/release-manifest-metadata.json" in workflow
     assert "dist/remote-runner/release-attestations.json" in workflow
-    assert "attestation action did not return required outputs" in workflow
-    assert "attestation action did not return a readable bundle-path" in workflow
     assert "dist/remote-runner/attestation-bundles/*.bundle.json" in workflow
     assert "release-published-assets.json" in workflow
     assert 'dist.rglob("*")' in workflow

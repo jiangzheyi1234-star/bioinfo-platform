@@ -65,6 +65,16 @@ def _published_assets() -> dict:
                 "digest": "sha256:" + "d" * 64,
                 "size": 456,
             },
+            "release-provenance.intoto.json": {
+                "apiUrl": "https://api.github.com/repos/owner/repo/releases/assets/3",
+                "digest": "sha256:" + "e" * 64,
+                "size": 789,
+            },
+            "h2ometa-remote-runner-sbom.intoto.json": {
+                "apiUrl": "https://api.github.com/repos/owner/repo/releases/assets/4",
+                "digest": "sha256:" + "f" * 64,
+                "size": 321,
+            },
         },
     }
 
@@ -72,10 +82,10 @@ def _published_assets() -> dict:
 def _attestations() -> dict:
     return {
         "schemaVersion": "h2ometa-release-attestations.v1",
-        "provenance": {"attestationUrl": "https://github.com/owner/repo/attestations/provenance"},
+        "provenance": {"attestationUrl": "pending-release-asset:release-provenance.intoto.json"},
         "sbom": {
             "remote_runner": {
-                "attestationUrl": "https://github.com/owner/repo/attestations/remote-runner-sbom"
+                "attestationUrl": "pending-release-asset:h2ometa-remote-runner-sbom.intoto.json"
             }
         },
     }
@@ -90,6 +100,7 @@ def test_update_manifest_writes_release_metadata_and_supply_chain_fields() -> No
         sbom_urls={
             ("remote_runner", "linux-64"): "https://api.github.com/repos/owner/repo/releases/assets/2"
         },
+        published_assets=_published_assets(),
     )
 
     spec = updated["artifacts"]["remote_runner"]
@@ -98,9 +109,9 @@ def test_update_manifest_writes_release_metadata_and_supply_chain_fields() -> No
     assert spec["lock_sha256"]["linux-64"] == "c" * 64
     assert spec["download_urls"]["linux-64"].endswith("/1")
     assert spec["sbom_urls"]["linux-64"].endswith("/2")
-    assert spec["provenance_urls"]["linux-64"].endswith("/provenance")
-    assert spec["attestation_urls"]["linux-64"].endswith("/remote-runner-sbom")
-    assert spec["signature_urls"]["linux-64"].endswith("/remote-runner-sbom")
+    assert spec["provenance_urls"]["linux-64"].endswith("/3")
+    assert spec["attestation_urls"]["linux-64"].endswith("/4")
+    assert spec["signature_urls"]["linux-64"].endswith("/4")
     assert spec["builder_ids"]["linux-64"].endswith("@refs/tags/v0.1.1")
     assert spec["source_refs"]["linux-64"] == "refs/tags/v0.1.1"
     assert spec["source_commits"]["linux-64"] == "a" * 40
@@ -120,6 +131,7 @@ def test_update_manifest_can_use_published_release_asset_map() -> None:
         attestations=_attestations(),
         download_urls=download_urls,
         sbom_urls=sbom_urls,
+        published_assets=_published_assets(),
     )
 
     spec = updated["artifacts"]["remote_runner"]
@@ -127,6 +139,8 @@ def test_update_manifest_can_use_published_release_asset_map() -> None:
     assert spec["sbom_urls"]["linux-64"].endswith("/2")
     assert spec["sha256"]["linux-64"] == "b" * 64
     assert spec["size_bytes"]["linux-64"] == 123
+    assert spec["provenance_urls"]["linux-64"].endswith("/3")
+    assert spec["attestation_urls"]["linux-64"].endswith("/4")
 
 
 def test_update_manifest_rejects_published_asset_digest_mismatch() -> None:
