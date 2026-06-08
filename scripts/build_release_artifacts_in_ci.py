@@ -116,9 +116,20 @@ def copy_git_file(source_ref: str, repo_relative_path: str, destination: Path) -
     destination.write_bytes(git_file_bytes(source_ref, repo_relative_path))
 
 
+def git_release_files_at_ref(local_dir: Path, source_ref: str) -> list[str]:
+    release_root = local_dir.relative_to(REPO_ROOT).as_posix()
+    result = run_git(["ls-tree", "-r", "--name-only", source_ref, "--", release_root])
+    files: list[str] = []
+    for raw in str(result).splitlines():
+        repo_relative_path = raw.strip()
+        if repo_relative_path:
+            files.append(repo_relative_path)
+    return files
+
+
 def copy_git_tree(local_dir: Path, destination: Path, *, source_ref: str) -> None:
     release_root = local_dir.relative_to(REPO_ROOT).as_posix()
-    for repo_relative_path in runner_builder.git_release_files_at_ref(local_dir, source_ref):
+    for repo_relative_path in git_release_files_at_ref(local_dir, source_ref):
         if ".test" in PurePosixPath(repo_relative_path).parts:
             continue
         rel = PurePosixPath(repo_relative_path).relative_to(PurePosixPath(release_root))
