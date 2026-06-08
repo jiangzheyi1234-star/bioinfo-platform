@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import hashlib
 import sys
@@ -15,6 +16,7 @@ from core.remote_runner.artifact import (  # noqa: E402
     RemoteRunnerArtifactProvider,
     WorkflowRuntimeArtifactProvider,
 )
+from core.remote_runner.artifact_diagnostics import supply_chain_metadata  # noqa: E402
 from core.remote_runner.release_manifest import (  # noqa: E402
     REMOTE_RUNNER_ARTIFACT,
     WORKFLOW_RUNTIME_ARTIFACT,
@@ -31,6 +33,30 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _cmd_set_line(name: str, value: Path) -> str:
+    return f'set "{name}={value}"'
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Verify manifest-declared remote runner release artifacts.",
+    )
+    parser.add_argument(
+        "--cmd-env",
+        action="store_true",
+        help="Emit Windows cmd.exe set commands for launcher consumption.",
+    )
+    parser.add_argument(
+        "--require-supply-chain",
+        action="store_true",
+        help=(
+            "Require release manifest SBOM plus provenance or attestation metadata. "
+            "Use this for production release validation, not routine local launcher startup."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def _verify_lock(spec, *, platform: str) -> dict[str, object]:
@@ -50,8 +76,23 @@ def _verify_lock(spec, *, platform: str) -> dict[str, object]:
     return {"path": str(path), "sha256": digest}
 
 
-def main() -> int:
+def _verify_supply_chain(spec, *, platform: str) -> dict[str, object]:
+    metadata = supply_chain_metadata(spec, platform=platform)
+    if not metadata["complete"]:
+        gaps = [str(item) for item in metadata["missingRequired"]]
+        gaps.extend(f"pending:{item}" for item in metadata.get("pendingFields", []))
+        gaps.extend(f"invalid:{item}" for item in metadata.get("invalidFields", []))
+        message = ", ".join(gaps) if gaps else "unknown"
+        raise RemoteRunnerArtifactError(f"{spec.key} release supply-chain metadata incomplete for {platform}: {message}")
+    return metadata
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     try:
+        if args.require_supply_chain:
+            _verify_supply_chain(REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform)
+            _verify_supply_chain(WORKFLOW_RUNTIME_ARTIFACT, platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform)
         runner = RemoteRunnerArtifactProvider(repo_root=REPO_ROOT).resolve(
             version=REMOTE_RUNNER_ARTIFACT.version,
             platform=REMOTE_RUNNER_ARTIFACT.default_platform,
@@ -62,42 +103,51 @@ def main() -> int:
         )
         runner_lock = _verify_lock(REMOTE_RUNNER_ARTIFACT, platform=runner.platform)
         workflow_lock = _verify_lock(WORKFLOW_RUNTIME_ARTIFACT, platform=workflow.platform)
+        runner_supply_chain = supply_chain_metadata(REMOTE_RUNNER_ARTIFACT, platform=runner.platform)
+        workflow_supply_chain = supply_chain_metadata(WORKFLOW_RUNTIME_ARTIFACT, platform=workflow.platform)
     except RemoteRunnerArtifactError as exc:
+        payload = {
+            "ok": False,
+            "message": str(exc),
+            "remoteRunner": asdict(REMOTE_RUNNER_ARTIFACT),
+            "workflowRuntime": asdict(WORKFLOW_RUNTIME_ARTIFACT),
+        }
+        if args.cmd_env:
+            print(f"RELEASE_ARTIFACTS: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}", file=sys.stderr)
+        else:
+            _print_json("RELEASE_ARTIFACTS", payload)
+        return 1
+
+    if args.cmd_env:
+        print(_cmd_set_line("H2OMETA_REMOTE_RUNNER_BUNDLE", runner.archive_path))
+        print(_cmd_set_line("H2OMETA_WORKFLOW_RUNTIME_BUNDLE", workflow.archive_path))
+    else:
         _print_json(
             "RELEASE_ARTIFACTS",
             {
-                "ok": False,
-                "message": str(exc),
-                "remoteRunner": asdict(REMOTE_RUNNER_ARTIFACT),
-                "workflowRuntime": asdict(WORKFLOW_RUNTIME_ARTIFACT),
+                "ok": True,
+                "remoteRunner": {
+                    "path": str(runner.archive_path),
+                    "version": runner.version,
+                    "platform": runner.platform,
+                    "sha256": runner.sha256,
+                    "lock": runner_lock,
+                    "supplyChain": runner_supply_chain,
+                },
+                "workflowRuntime": {
+                    "path": str(workflow.archive_path),
+                    "version": workflow.version,
+                    "platform": workflow.platform,
+                    "sha256": workflow.sha256,
+                    "snakemakeVersion": str((workflow.manifest.get("packages") or {}).get("snakemake") or ""),
+                    "snakemake": workflow.snakemake_entrypoint,
+                    "conda": workflow.conda_entrypoint,
+                    "condaUnpack": workflow.conda_unpack_entrypoint,
+                    "lock": workflow_lock,
+                    "supplyChain": workflow_supply_chain,
+                },
             },
         )
-        return 1
-
-    _print_json(
-        "RELEASE_ARTIFACTS",
-        {
-            "ok": True,
-            "remoteRunner": {
-                "path": str(runner.archive_path),
-                "version": runner.version,
-                "platform": runner.platform,
-                "sha256": runner.sha256,
-                "lock": runner_lock,
-            },
-            "workflowRuntime": {
-                "path": str(workflow.archive_path),
-                "version": workflow.version,
-                "platform": workflow.platform,
-                "sha256": workflow.sha256,
-                "snakemakeVersion": str((workflow.manifest.get("packages") or {}).get("snakemake") or ""),
-                "snakemake": workflow.snakemake_entrypoint,
-                "conda": workflow.conda_entrypoint,
-                "condaUnpack": workflow.conda_unpack_entrypoint,
-                "lock": workflow_lock,
-            },
-        },
-    )
     return 0
 
 
