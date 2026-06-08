@@ -31,7 +31,7 @@ def test_ci_builder_copies_release_sources_from_immutable_ref_without_test_fixtu
         return b"# source\n"
 
     monkeypatch.setattr(ci_builder, "REPO_ROOT", repo_root)
-    monkeypatch.setattr(ci_builder.runner_builder, "git_release_files_at_ref", fake_release_files)
+    monkeypatch.setattr(ci_builder, "git_release_files_at_ref", fake_release_files)
     monkeypatch.setattr(ci_builder, "run_git", fake_run_git)
 
     ci_builder.copy_remote_runner_sources(tmp_path / "build", source_ref="abc123")
