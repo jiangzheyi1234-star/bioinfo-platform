@@ -41,13 +41,7 @@ ATTESTATION_BUNDLE_FILENAMES = {
     "workflow_runtime": "h2ometa-workflow-runtime-sbom.intoto.json",
 }
 
-CORE_RUNTIME_HELPER_FILES = (
-    "async_boundary.py",
-    "api_payloads.py",
-    "api_responses.py",
-    "problem_responses.py",
-    "problem_status.py",
-)
+CORE_RUNTIME_HELPER_FILES = runner_builder.CORE_RUNTIME_HELPER_FILES
 
 
 def print_json(label: str, payload: Any) -> None:

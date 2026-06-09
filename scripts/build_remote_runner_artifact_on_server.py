@@ -19,6 +19,14 @@ if str(REPO_ROOT) not in sys.path:
 
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
 
+CORE_RUNTIME_HELPER_FILES = (
+    "async_boundary.py",
+    "api_payloads.py",
+    "api_responses.py",
+    "problem_responses.py",
+    "problem_status.py",
+)
+
 
 def print_json(label: str, payload: Any) -> None:
     print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
@@ -142,6 +150,7 @@ def remote_runner_release_source_paths() -> tuple[Path, ...]:
     return (
         REPO_ROOT / "apps" / "remote_runner",
         REPO_ROOT / "core" / "__init__.py",
+        *(REPO_ROOT / "core" / filename for filename in CORE_RUNTIME_HELPER_FILES),
         REPO_ROOT / "core" / "contracts",
     )
 
@@ -209,6 +218,12 @@ def upload_remote_runner_sources(sftp, build_root: str, *, include_untracked: bo
         REPO_ROOT / "core" / "__init__.py",
         posixpath.join(build_root, "bundle", "core", "__init__.py"),
     )
+    for filename in CORE_RUNTIME_HELPER_FILES:
+        upload_file(
+            sftp,
+            REPO_ROOT / "core" / filename,
+            posixpath.join(build_root, "bundle", "core", filename),
+        )
     upload_tree(
         sftp,
         REPO_ROOT / "core" / "contracts",

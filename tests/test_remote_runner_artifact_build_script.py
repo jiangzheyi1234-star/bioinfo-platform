@@ -63,5 +63,10 @@ def test_remote_runner_source_upload_includes_shared_contracts(monkeypatch, tmp_
     assert calls == [
         ("tree", "apps/remote_runner", "/tmp/h2ometa-build/bundle/remote_runner", True),
         ("file", "core/__init__.py", "/tmp/h2ometa-build/bundle/core/__init__.py", False),
+        ("file", "core/async_boundary.py", "/tmp/h2ometa-build/bundle/core/async_boundary.py", False),
+        ("file", "core/api_payloads.py", "/tmp/h2ometa-build/bundle/core/api_payloads.py", False),
+        ("file", "core/api_responses.py", "/tmp/h2ometa-build/bundle/core/api_responses.py", False),
+        ("file", "core/problem_responses.py", "/tmp/h2ometa-build/bundle/core/problem_responses.py", False),
+        ("file", "core/problem_status.py", "/tmp/h2ometa-build/bundle/core/problem_status.py", False),
         ("tree", "core/contracts", "/tmp/h2ometa-build/bundle/core/contracts", True),
     ]

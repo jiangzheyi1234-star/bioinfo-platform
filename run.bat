@@ -352,7 +352,7 @@ if errorlevel 1 (
     if exist "%ARTIFACT_ENV_FILE%" del "%ARTIFACT_ENV_FILE%" >nul 2>nul
     echo [ERROR] Manifest-declared release artifacts could not be resolved or verified.
     echo [ERROR] The resolver checks explicit bundle env vars, manifest search roots, and the manifest download cache.
-    echo [ERROR] For private GitHub releases set H2OMETA_RELEASE_DOWNLOAD_TOKEN, GH_TOKEN, or GITHUB_TOKEN.
+    echo [ERROR] For private GitHub releases set H2OMETA_RELEASE_DOWNLOAD_TOKEN, GH_TOKEN, GITHUB_TOKEN, GITHUB_PERSONAL_ACCESS_TOKEN, or configure an H2OMeta GH CLI login.
     exit /b 1
 )
 call "%ARTIFACT_ENV_FILE%"
